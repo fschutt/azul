@@ -13,7 +13,7 @@ fn env_u64(name: &str) -> Option<u64> {
 }
 
 #[test]
-#[ignore]
+#[ignore = "X-EDGE-C-2: the night run of the deterministic simulation (100,000 seeds at full size): run by hand with -- --ignored long or the simrun binary, no job runs it"]
 fn long() {
     let opts = RunOptions {
         first_seed: env_u64("AZLIN_SIM_FIRST").unwrap_or(0),

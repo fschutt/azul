@@ -285,6 +285,35 @@ mod t {\n\
     );
 }
 
+/// Source that plants source - the drive census holds a whole test module in `r#"..."#` and asks a
+/// row's test about it - holds no attribute of its own: the `#[ignore]` inside a raw string (of any
+/// number of hashes, a byte string too) is text, and the ignore after it is read.
+#[test]
+fn an_ignore_planted_in_a_raw_string_is_no_ignore() {
+    let src = r####"
+let planted = r#"
+mod tests {
+    #[test]
+    #[ignore]
+    fn mirror_is_ignored() {}
+}
+"#;
+#[test]
+#[ignore = "SYNC-E7: the run"]
+fn real() {}
+const B: &[u8] = br#"#[ignore] fn in_a_byte_string() {}"#;
+const C: &str = r##"a "# does not end this one, #[ignore] fn in_a_wider_raw_string() {}"##;
+"####;
+    let found: Vec<(String, Option<String>)> = ignored_in(src)
+        .into_iter()
+        .map(|i| (i.test, i.reason))
+        .collect();
+    assert_eq!(
+        found,
+        vec![(String::from("real"), Some(String::from("SYNC-E7: the run")))]
+    );
+}
+
 /// The rule on planted ignores: no reason, a reason with no id and an id that is none fail; an ignore that
 /// names its row passes. The same cases through the whole gate, on a planted tree.
 #[test]

@@ -60,33 +60,25 @@ pub struct StyledRun {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FontSelector {
     pub family: String,
-    pub weight: FcWeight,
-    pub style: FontStyle,
+    /// What the style asks of the family's face: the exact weight, stretch, style and slant, the
+    /// optical size and the explicit `font-variation-settings` ([`FontRequest`]). Every selector
+    /// of a stack carries the request of its node (the generic families a stack ends in the
+    /// default one); [`FontChainKey::from_selectors`] reads the first.
+    pub request: FontRequest,
     pub unicode_ranges: Vec<UnicodeRange>,
-    /// The optical size to draw a variable face with an `opsz` axis at: the
-    /// used font size rounded to whole CSS px (CSS Fonts 4
-    /// `font-optical-sizing: auto`; Chrome and CoreText set `opsz` to the
-    /// font size). 0 = the face's default instance. Every selector of a
-    /// stack carries the same value; [`FontChainKey::from_selectors`] reads
-    /// the first. macOS draws its UI in ONE such face (`SFNS.ttf`, opsz
-    /// 17-96, default 28): 13px text is "SF Pro Text" (opsz 17), not the
-    /// default's wider-set "Display" design (SYSUI8).
-    pub optical_size: u16,
 }
 
 impl Default for FontSelector {
     fn default() -> Self {
         Self {
             family: "serif".to_string(),
-            weight: FcWeight::Normal,
-            style: FontStyle::Normal,
+            request: FontRequest::default(),
             unicode_ranges: Vec::new(),
-            optical_size: 0,
         }
     }
 }
 
-/// The optical size (`FontSelector::optical_size`) for text of
+/// The optical size ([`FontRequest::optical_size`]) for text of
 /// `font_size_px`: the size in whole CSS px, 0 for a size that is not a
 /// positive finite number.
 #[must_use]
@@ -413,8 +405,6 @@ pub struct StyleProperties {
     /// on by default), 1 on, more picks an alternate.
     pub font_features: Vec<String>,
 
-    // Variable fonts
-    pub font_variations: Vec<(FourCc, f32)>,
     // Multiplier of the space width
     pub tab_size: f32,
     // text-transform
@@ -455,7 +445,6 @@ impl Default for StyleProperties {
             line_height: LineHeight::Normal,
             text_decoration: TextDecoration::default(),
             font_features: Vec::new(),
-            font_variations: Vec::new(),
             tab_size: TAB_SIZE, // CSS default
             text_transform: TextTransform::default(),
             writing_mode: WritingMode::default(),
@@ -473,13 +462,12 @@ impl Default for StyleProperties {
 impl StyleProperties {
     /// Whether the text reads as bold to a format that has only a boolean for
     /// it (a clipboard flavour, an editor's B button): its first font asks for
-    /// a weight of 700 or more. `FcWeight` is ordered by its CSS numeric
-    /// value, so this is that comparison.
+    /// a weight of 700 or more, exactly (a weight of 699 does not).
     #[must_use]
     pub fn is_bold(&self) -> bool {
         self.font_stack
             .first_selector()
-            .is_some_and(|s| s.weight >= FcWeight::Bold)
+            .is_some_and(|s| s.request.weight_at_least(700))
     }
 
     /// The weight the text asks its faces for, `None` for a direct font
@@ -487,16 +475,17 @@ impl StyleProperties {
     /// The display list compares it with the matched face's weight to
     /// decide on synthetic bold ([`needs_synthetic_bold`]).
     #[must_use]
-    pub fn requested_weight(&self) -> Option<FcWeight> {
-        self.font_stack.first_selector().map(|s| s.weight)
+    pub fn requested_weight(&self) -> Option<FontCoord> {
+        self.font_stack.first_selector().map(|s| s.request.weight)
     }
 
     /// Whether the text asks for a bold weight (600 or more), the weights
     /// a face without a bold cut is thickened for.
     #[must_use]
     pub fn asks_for_bold(&self) -> bool {
-        self.requested_weight()
-            .is_some_and(|w| w >= FcWeight::SemiBold)
+        self.font_stack
+            .first_selector()
+            .is_some_and(|s| s.request.weight_at_least(600))
     }
 
     /// Whether the text reads as italic: oblique is a slanted rendering of an
@@ -505,18 +494,18 @@ impl StyleProperties {
     pub fn is_italic(&self) -> bool {
         self.font_stack
             .first_selector()
-            .is_some_and(|s| matches!(s.style, FontStyle::Italic | FontStyle::Oblique))
+            .is_some_and(|s| matches!(s.request.style, FontStyle::Italic | FontStyle::Oblique))
     }
 
-    /// This style with every font of its stack asking for `weight` - a
-    /// direct font reference (an embedded icon font) has no weight to ask for
-    /// and stays as it is.
+    /// This style with every font of its stack asking for the weight of the
+    /// bucket `weight` - a direct font reference (an embedded icon font) has
+    /// no weight to ask for and stays as it is.
     #[must_use]
     pub fn with_font_weight(&self, weight: FcWeight) -> Self {
         let mut style = self.clone();
         if let FontStack::Stack(selectors) = &mut style.font_stack {
             for selector in selectors {
-                selector.weight = weight;
+                selector.request = selector.request.clone().with_weight_bucket(weight);
             }
         }
         style
@@ -529,7 +518,7 @@ impl StyleProperties {
         let mut style = self.clone();
         if let FontStack::Stack(selectors) = &mut style.font_stack {
             for selector in selectors {
-                selector.style = font_style;
+                selector.request = selector.request.clone().with_style(font_style);
             }
         }
         style
@@ -557,16 +546,11 @@ impl Hash for StyleProperties {
         // logical items - each holding this style's `Arc`, which shaping and
         // the display list read - under `calculate_id(&content)`. The size was
         // rounded to whole px and `text-transform`, the font variants and
-        // variations and `tab-size` were left out, so the same text at 21.3 px
+        // variations (now the request of the font stack, hashed with it) and `tab-size` were left out, so the same text at 21.3 px
         // was served the logical items (and the style) of its 21.0 px layout,
         // and a node whose `text-transform` changed kept the old one.
         self.font_size_px.to_bits().hash(state);
         self.line_height.hash(state);
-        self.font_variations.len().hash(state);
-        for (tag, value) in &self.font_variations {
-            tag.hash(state);
-            value.to_bits().hash(state);
-        }
         self.tab_size.to_bits().hash(state);
         self.text_transform.hash(state);
         self.font_variant_caps.hash(state);
@@ -644,7 +628,8 @@ impl StyleProperties {
     /// - an inline box's border colours and its top / bottom border and padding
     ///
     /// Properties that DO affect layout:
-    /// - `font_stack`, `font_size_px`, `font_features`, `font_variations`
+    /// - `font_stack` (with the request of each font: weight, stretch, style, optical size and
+    ///   `font-variation-settings`), `font_size_px`, `font_features`
     /// - `letter_spacing`, `word_spacing`, `line_height`, `tab_size`
     /// - `writing_mode`, `text_orientation`, `text_combine_upright`
     /// - `text_transform`
@@ -671,12 +656,6 @@ impl StyleProperties {
         // shaped at the other's size (wrong advances/metrics).
         self.font_size_px.to_bits().hash(&mut hasher);
         self.font_features.hash(&mut hasher);
-        // font_variations affects glyph outlines; by the bits, as the size
-        // (a rounded value served `wght` 400.4 the shaping of 400.0)
-        for (tag, value) in &self.font_variations {
-            tag.hash(&mut hasher);
-            value.to_bits().hash(&mut hasher);
-        }
 
         // Spacing (affects glyph positions)
         self.letter_spacing.hash(&mut hasher);
@@ -839,7 +818,6 @@ pub struct PartialStyleProperties {
     pub line_height: Option<LineHeight>,
     pub text_decoration: Option<TextDecoration>,
     pub font_features: Option<Vec<String>>,
-    pub font_variations: Option<Vec<(FourCc, f32)>>,
     pub tab_size: Option<f32>,
     pub text_transform: Option<TextTransform>,
     pub writing_mode: Option<WritingMode>,
@@ -861,14 +839,6 @@ impl Hash for PartialStyleProperties {
         self.line_height.hash(state);
         self.text_decoration.hash(state);
         self.font_features.hash(state);
-
-        // Manual hashing for Vec<(FourCc, f32)>
-        if let Some(v) = self.font_variations.as_ref() {
-            for (tag, val) in v {
-                tag.hash(state);
-                val.to_bits().hash(state);
-            }
-        }
 
         self.tab_size.map(f32::to_bits).hash(state);
         self.text_transform.hash(state);
@@ -892,7 +862,6 @@ impl PartialEq for PartialStyleProperties {
         self.line_height == other.line_height &&
         self.text_decoration == other.text_decoration &&
         self.font_features == other.font_features &&
-        self.font_variations == other.font_variations && // Vec<(FourCc, f32)> is PartialEq
         self.tab_size.map(f32::to_bits) == other.tab_size.map(f32::to_bits) &&
         self.text_transform == other.text_transform &&
         self.writing_mode == other.writing_mode &&
@@ -933,9 +902,6 @@ impl StyleProperties {
         }
         if let Some(val) = &partial.font_features {
             new_style.font_features.clone_from(val);
-        }
-        if let Some(val) = &partial.font_variations {
-            new_style.font_variations.clone_from(val);
         }
         if let Some(val) = partial.tab_size {
             new_style.tab_size = val;
@@ -984,11 +950,23 @@ pub(super) mod audit_a8_tests {
         hasher.finish()
     }
 
+    /// `base` set in a font whose request has the variation setting `wght` = `value`.
+    fn with_wght(base: &StyleProperties, value: f32) -> StyleProperties {
+        StyleProperties {
+            font_stack: FontStack::Stack(vec![FontSelector {
+                request: FontRequest::default().with_setting(*b"wght", value),
+                ..FontSelector::default()
+            }]),
+            ..base.clone()
+        }
+    }
+
     /// A8-16: the style's `Hash` (the text cache's first-stage key) tells
     /// apart every change of a field that shapes or lays text out: a size
     /// 0.3 px apart, `text-transform`, a font variant, a variation value
-    /// 0.2 apart and `tab-size`. It rounded the size to whole px and left the
-    /// others out, so their paragraphs were served each other's layout.
+    /// 0.2 apart (in the request of the font stack) and `tab-size`. It rounded
+    /// the size to whole px and left the others out, so their paragraphs were
+    /// served each other's layout.
     /// Mutation: `self.font_size_px.round() as isize` again fails the first.
     #[test]
     fn the_style_key_sees_every_layout_field() {
@@ -1000,14 +978,14 @@ pub(super) mod audit_a8_tests {
             StyleProperties { font_size_px: 21.3, ..base.clone() },
             StyleProperties { text_transform: TextTransform::Uppercase, ..base.clone() },
             StyleProperties { font_variant_caps: FontVariantCaps::SmallCaps, ..base.clone() },
-            StyleProperties { font_variations: vec![(*b"wght", 400.2)], ..base.clone() },
+            with_wght(&base, 400.2),
             StyleProperties { tab_size: 4.0, ..base.clone() },
         ];
         for (i, other) in variants.iter().enumerate() {
             assert_ne!(key(&base), key(other), "variant {i} hashes like the base");
         }
-        let a = StyleProperties { font_variations: vec![(*b"wght", 400.2)], ..base.clone() };
-        let b = StyleProperties { font_variations: vec![(*b"wght", 400.4)], ..base.clone() };
+        let a = with_wght(&base, 400.2);
+        let b = with_wght(&base, 400.4);
         assert_ne!(key(&a), key(&b), "variation values 0.2 apart");
         assert_ne!(a.layout_hash(), b.layout_hash(), "the shaping key too");
         let c = StyleProperties { tab_size: 4.3, ..base.clone() };

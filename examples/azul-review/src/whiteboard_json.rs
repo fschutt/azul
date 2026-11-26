@@ -1,0 +1,357 @@
+//! A small JSON reader and writer for the whiteboard's file (`whiteboard_store`): std only, so the
+//! whole of what a board file may hold is tested in seconds, and strict, so a file that is not one is
+//! told so with the place it went wrong. Bounded: a document is read to at most [`MAX_DEPTH`] levels
+//! and [`MAX_TEXT`] bytes, and the parser uses no recursion deeper than that.
+
+/// How deep arrays and objects nest at most.
+pub const MAX_DEPTH: usize = 16;
+/// The longest text that is read (a board file's manifest is a few hundred kilobytes at most).
+pub const MAX_TEXT: usize = 16 * 1024 * 1024;
+
+/// A JSON value. An object keeps its keys in the order of the text; the first of two equal keys is the
+/// one [`Json::get`] finds.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Json {
+    Null,
+    Bool(bool),
+    Num(f64),
+    Str(String),
+    Arr(Vec<Json>),
+    Obj(Vec<(String, Json)>),
+}
+
+/// Why a text is no JSON, and where (a byte offset).
+#[derive(Debug, Clone, PartialEq)]
+pub struct JsonError {
+    pub at: usize,
+    pub why: &'static str,
+}
+
+impl Json {
+    /// The value under `key` of an object.
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&Json> {
+        match self {
+            Self::Obj(pairs) => pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Self::Str(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn as_bool(&self) -> Option<bool> {
+        match self {
+            Self::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn as_f64(&self) -> Option<f64> {
+        match self {
+            Self::Num(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    /// A number as `f32` (a value too large to be one is infinite: the reader of a board takes care).
+    #[must_use]
+    pub fn as_f32(&self) -> Option<f32> {
+        self.as_f64().map(|n| n as f32)
+    }
+
+    /// A whole number from 0 up to 2^53 (what a double holds exactly).
+    #[must_use]
+    pub fn as_u64(&self) -> Option<u64> {
+        let n = self.as_f64()?;
+        (n >= 0.0 && n <= 9_007_199_254_740_992.0 && n.fract() == 0.0).then_some(n as u64)
+    }
+
+    #[must_use]
+    pub fn as_arr(&self) -> Option<&[Json]> {
+        match self {
+            Self::Arr(items) => Some(items),
+            _ => None,
+        }
+    }
+}
+
+struct Parser<'a> {
+    text: &'a [u8],
+    at: usize,
+}
+
+type Res<T> = Result<T, JsonError>;
+
+impl Parser<'_> {
+    fn fail<T>(&self, why: &'static str) -> Res<T> {
+        Err(JsonError { at: self.at, why })
+    }
+
+    fn skip_space(&mut self) {
+        while matches!(self.text.get(self.at), Some(b' ' | b'\t' | b'\n' | b'\r')) {
+            self.at += 1;
+        }
+    }
+
+    fn eat(&mut self, byte: u8) -> bool {
+        if self.text.get(self.at) == Some(&byte) {
+            self.at += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn word(&mut self, word: &str, value: Json) -> Res<Json> {
+        if self.text[self.at..].starts_with(word.as_bytes()) {
+            self.at += word.len();
+            Ok(value)
+        } else {
+            self.fail("this is no JSON value")
+        }
+    }
+
+    fn value(&mut self, depth: usize) -> Res<Json> {
+        self.skip_space();
+        match self.text.get(self.at) {
+            None => self.fail("the text ends where a value should be"),
+            Some(b'n') => self.word("null", Json::Null),
+            Some(b't') => self.word("true", Json::Bool(true)),
+            Some(b'f') => self.word("false", Json::Bool(false)),
+            Some(b'"') => Ok(Json::Str(self.string()?)),
+            Some(b'[') => self.array(depth),
+            Some(b'{') => self.object(depth),
+            Some(b'-' | b'0'..=b'9') => self.number(),
+            Some(_) => self.fail("this is no JSON value"),
+        }
+    }
+
+    fn array(&mut self, depth: usize) -> Res<Json> {
+        if depth >= MAX_DEPTH {
+            return self.fail("the text nests deeper than a board file does");
+        }
+        self.at += 1;
+        let mut items = Vec::new();
+        self.skip_space();
+        if self.eat(b']') {
+            return Ok(Json::Arr(items));
+        }
+        loop {
+            items.push(self.value(depth + 1)?);
+            self.skip_space();
+            if self.eat(b',') {
+                continue;
+            }
+            if self.eat(b']') {
+                return Ok(Json::Arr(items));
+            }
+            return self.fail("a comma or the end of the list was expected");
+        }
+    }
+
+    fn object(&mut self, depth: usize) -> Res<Json> {
+        if depth >= MAX_DEPTH {
+            return self.fail("the text nests deeper than a board file does");
+        }
+        self.at += 1;
+        let mut pairs = Vec::new();
+        self.skip_space();
+        if self.eat(b'}') {
+            return Ok(Json::Obj(pairs));
+        }
+        loop {
+            self.skip_space();
+            if self.text.get(self.at) != Some(&b'"') {
+                return self.fail("a key in quotes was expected");
+            }
+            let key = self.string()?;
+            self.skip_space();
+            if !self.eat(b':') {
+                return self.fail("a colon was expected after the key");
+            }
+            let value = self.value(depth + 1)?;
+            pairs.push((key, value));
+            self.skip_space();
+            if self.eat(b',') {
+                continue;
+            }
+            if self.eat(b'}') {
+                return Ok(Json::Obj(pairs));
+            }
+            return self.fail("a comma or the end of the object was expected");
+        }
+    }
+
+    fn number(&mut self) -> Res<Json> {
+        let start = self.at;
+        self.eat(b'-');
+        match self.text.get(self.at) {
+            Some(b'0') => self.at += 1,
+            Some(b'1'..=b'9') => {
+                while matches!(self.text.get(self.at), Some(b'0'..=b'9')) {
+                    self.at += 1;
+                }
+            }
+            _ => return self.fail("a digit was expected"),
+        }
+        if self.eat(b'.') {
+            if !matches!(self.text.get(self.at), Some(b'0'..=b'9')) {
+                return self.fail("a digit was expected after the point");
+            }
+            while matches!(self.text.get(self.at), Some(b'0'..=b'9')) {
+                self.at += 1;
+            }
+        }
+        if matches!(self.text.get(self.at), Some(b'e' | b'E')) {
+            self.at += 1;
+            if matches!(self.text.get(self.at), Some(b'+' | b'-')) {
+                self.at += 1;
+            }
+            if !matches!(self.text.get(self.at), Some(b'0'..=b'9')) {
+                return self.fail("a digit was expected in the exponent");
+            }
+            while matches!(self.text.get(self.at), Some(b'0'..=b'9')) {
+                self.at += 1;
+            }
+        }
+        // The slice is ASCII digits and signs only.
+        std::str::from_utf8(&self.text[start..self.at])
+            .ok()
+            .and_then(|t| t.parse::<f64>().ok())
+            .filter(|n| n.is_finite())
+            .map(Json::Num)
+            .map_or_else(|| self.fail("this number is out of range"), Ok)
+    }
+
+    fn hex4(&mut self) -> Res<u32> {
+        let mut v = 0_u32;
+        for _ in 0..4 {
+            let Some(d) = self.text.get(self.at).and_then(|b| (*b as char).to_digit(16)) else {
+                return self.fail("four hexadecimal digits were expected after \\u");
+            };
+            v = v * 16 + d;
+            self.at += 1;
+        }
+        Ok(v)
+    }
+
+    fn string(&mut self) -> Res<String> {
+        self.at += 1;
+        let mut out: Vec<u8> = Vec::new();
+        loop {
+            let Some(&b) = self.text.get(self.at) else {
+                return self.fail("the string is not closed");
+            };
+            match b {
+                b'"' => {
+                    self.at += 1;
+                    return String::from_utf8(out).or_else(|_| self.fail("the string is no valid UTF-8"));
+                }
+                0..=0x1f => return self.fail("a control character in a string must be escaped"),
+                b'\\' => {
+                    self.at += 1;
+                    let Some(&e) = self.text.get(self.at) else {
+                        return self.fail("the string is not closed");
+                    };
+                    self.at += 1;
+                    let c = match e {
+                        b'"' => '"',
+                        b'\\' => '\\',
+                        b'/' => '/',
+                        b'b' => '\u{8}',
+                        b'f' => '\u{c}',
+                        b'n' => '\n',
+                        b'r' => '\r',
+                        b't' => '\t',
+                        b'u' => {
+                            let hi = self.hex4()?;
+                            let code = if (0xD800..0xDC00).contains(&hi) {
+                                if !(self.eat(b'\\') && self.eat(b'u')) {
+                                    return self.fail("a high surrogate needs a low one after it");
+                                }
+                                let lo = self.hex4()?;
+                                if !(0xDC00..0xE000).contains(&lo) {
+                                    return self.fail("a high surrogate needs a low one after it");
+                                }
+                                0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00)
+                            } else if (0xDC00..0xE000).contains(&hi) {
+                                return self.fail("a low surrogate without a high one before it");
+                            } else {
+                                hi
+                            };
+                            match char::from_u32(code) {
+                                Some(c) => c,
+                                None => return self.fail("this is no character"),
+                            }
+                        }
+                        _ => return self.fail("this escape is not JSON"),
+                    };
+                    let mut buf = [0_u8; 4];
+                    out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+                }
+                _ => {
+                    out.push(b);
+                    self.at += 1;
+                }
+            }
+        }
+    }
+}
+
+/// Reads `text` as one JSON value.
+///
+/// # Errors
+/// Why `text` is no JSON (or one a board file cannot be), and the byte it went wrong at.
+pub fn parse(text: &str) -> Result<Json, JsonError> {
+    if text.len() > MAX_TEXT {
+        return Err(JsonError { at: 0, why: "the text is longer than a board file may be" });
+    }
+    let mut p = Parser { text: text.as_bytes(), at: 0 };
+    let v = p.value(0)?;
+    p.skip_space();
+    if p.at != p.text.len() {
+        return p.fail("there is text after the value");
+    }
+    Ok(v)
+}
+
+/// Appends `text` as a JSON string literal.
+pub fn push_string(out: &mut String, text: &str) {
+    use std::fmt::Write;
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if u32::from(c) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", u32::from(c));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+/// A number as short as it reads back (`0`, `3`, `-2.5`, `0.1`); what is no number is 0.
+#[must_use]
+pub fn num(v: f32) -> String {
+    if !v.is_finite() || v == 0.0 {
+        return "0".to_string();
+    }
+    format!("{v}")
+}
+
+#[cfg(test)]
+#[path = "whiteboard_json_test.rs"]
+mod whiteboard_json_test;

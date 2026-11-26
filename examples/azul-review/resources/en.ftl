@@ -37,6 +37,34 @@ azreview-nib-marker = marker
 azreview-nib-pen = pen
 azreview-nib-audio-pen = audio pen
 
+## Whiteboard
+
+azreview-whiteboard-notice-too-many-items = The whiteboard holds { $limit } items, as many as it has room for: remove one first.
+azreview-whiteboard-notice-pictures-too-big = The pictures on the whiteboard take as much memory as they may ({ $limit } pixels): remove a cutout first.
+azreview-whiteboard-notice-picture-too-big = This cutout's picture has { $px } pixels, more than the { $limit } a cutout may have: circle less code.
+azreview-whiteboard-notice-picture-invalid = The cutout's picture could not be used: its bytes do not match its size.
+azreview-whiteboard-notice-scale-lowered = This cutout is large: its picture is drawn at { $used }% scale instead of { $wanted }% so that it fits in memory, so it is a little less sharp.
+azreview-whiteboard-notice-label-shortened = A label holds { $limit } characters at most: the rest was cut off.
+azreview-whiteboard-notice-no-such-item = There is no item { $id } on the whiteboard.
+azreview-whiteboard-notice-arrow-to-itself = An arrow needs two different cutouts: it cannot start and end on the same one.
+azreview-whiteboard-notice-arrow-needs-a-cutout = An arrow has to start or end on a cutout.
+azreview-whiteboard-notice-arrow-repeated = There is an arrow like this one already.
+azreview-whiteboard-notice-board-repaired = { $dropped } items of the saved whiteboard could not be used and were left out.
+azreview-whiteboard-jump-file-changed = The file has changed since this was circled; these lines are as they were.
+azreview-whiteboard-jump-lines-moved = These lines moved: they are now at lines { $first } to { $last }.
+azreview-whiteboard-jump-lines-changed = These lines have changed since they were circled.
+azreview-whiteboard-jump-file-missing = The file is no longer there.
+azreview-whiteboard-store-not-a-board = This file is not a whiteboard AzReview can open ({ $why }). It is kept as it is and the whiteboard starts empty.
+azreview-whiteboard-store-too-new = This whiteboard was saved by a newer AzReview (its format is { $found }). It is left as it is and the whiteboard starts empty.
+azreview-whiteboard-store-too-large = This whiteboard's file is far larger than a whiteboard is ({ $bytes } bytes). It is kept as it is and the whiteboard starts empty.
+azreview-whiteboard-surface = Whiteboard
+azreview-whiteboard-empty = Circle some code with the pen and drag the circle to this bar to keep it here. Draw arrows between the pieces to show how they belong together.
+azreview-whiteboard-drawing = Drawing the picture...
+azreview-whiteboard-picture-missing = The picture is not available. These are the lines it shows:
+azreview-whiteboard-cutout-name = { $file }, lines { $first } to { $last }
+azreview-whiteboard-label-placeholder = Add a label
+azreview-whiteboard-label-name = Label of { $file }, lines { $first } to { $last }
+
 ## Dictation and the side column of notes
 
 azreview-shortcut-dictate = Rest the pen on the code to dictate a note; resting again, moving away or drawing ends it
@@ -86,3 +114,69 @@ azreview-shortcut-undo = Undo the last stroke or erase (Mod+Shift+Z brings it ag
 azreview-ink-surface = Drawing surface of page { $n }
 azreview-recording-level = Recording level
 azreview-no-folder = Choose a folder to review.
+
+## Agents (the backends that answer: claude -p, Gemini, the APIs; the failures in words)
+
+azreview-agent-task-exploration = Exploration
+azreview-agent-task-editing = Editing
+azreview-agent-task-export = Export
+azreview-agent-backend-claude-print = Claude Code (claude -p)
+azreview-agent-backend-anthropic-api = Anthropic API
+azreview-agent-backend-gemini-cli = Gemini CLI
+azreview-agent-backend-gemini-api = Gemini API
+azreview-agent-backend-mock = Mock (scripted)
+azreview-agent-error-not-installed = { $program } is not installed (looked in { $where })
+azreview-agent-error-not-logged-in = { $program } is not signed in: open a terminal, run { $program } and sign in, then try again
+azreview-agent-error-key-missing = The key { $reference } is not set: put the key into that environment variable or keychain item (never into the settings)
+azreview-agent-error-key-denied = The key { $reference } could not be read: { $why }
+azreview-agent-error-timeout = Timeout after { $secs } s
+azreview-agent-error-cancelled = Cancelled
+azreview-agent-error-busy = { $running } agents are working already (at most { $cap } at once): wait for one to finish
+azreview-agent-error-spawn = { $program } could not be started: { $why }
+azreview-agent-error-exit = { $program } stopped with exit code { $code }: { $detail }
+azreview-agent-error-http = The service answered { $status } { $kind }: { $detail }
+azreview-agent-error-rate-limited = The service is busy or over its limit: { $detail }
+azreview-agent-error-network = The service could not be reached: { $why }
+azreview-agent-error-budget = The call would cost more than the limit of { $limit }: raise it in the settings
+azreview-agent-error-max-turns = The agent used all { $turns } turns without an answer: raise the limit in the settings or ask a narrower question
+azreview-agent-error-refused = The agent declined: { $detail }
+azreview-agent-error-bad-output = The answer could not be read ({ $why }): { $excerpt }
+azreview-agent-error-too-large = { $what } is too large ({ $size } of { $limit }): shorten it or raise the limit in the settings
+azreview-agent-error-settings = The agent settings are not usable: { $why }
+azreview-agent-error-unsupported = Not supported here: { $why }
+azreview-agent-field-backend = Backend
+azreview-agent-hint-backend = Who answers: Claude Code (claude -p, no key needed), the Anthropic API, the Gemini CLI, the Gemini API, or a scripted mock.
+azreview-agent-field-model = Model
+azreview-agent-hint-model = A model name (an alias like haiku, sonnet or opus follows the newest model of its family). Empty: the backend's own default.
+azreview-agent-field-timeout = Timeout (seconds)
+azreview-agent-hint-timeout = How long one call may take before it is stopped.
+azreview-agent-field-max-tokens = Longest answer (tokens)
+azreview-agent-hint-max-tokens = The most the service may write in one answer.
+azreview-agent-field-budget = Cost limit per call (US cents, 0 = none)
+azreview-agent-hint-budget = Claude Code stops a call that would cost more.
+azreview-agent-field-max-turns = Most turns (0 = no limit)
+azreview-agent-hint-max-turns = How many steps Claude Code may take (reading a file is a step).
+azreview-agent-field-key = Key (env:NAME or keychain:ITEM)
+azreview-agent-hint-key = The name of an environment variable or keychain item that holds the key. The key itself is never kept in the settings. Empty: the program's own sign-in.
+azreview-agent-field-program = Program
+azreview-agent-hint-program = The path of the program. Empty: look for it on the PATH and in the usual places.
+azreview-agent-field-base-url = Address of the service
+azreview-agent-hint-base-url = Empty: the usual address. Only for a proxy or a test server.
+azreview-agent-field-args = Extra arguments
+azreview-agent-hint-args = Added to the program's command line. Arguments that would widen what the agent may do are refused.
+azreview-agent-field-max-concurrent = Agents at work at once
+azreview-agent-hint-max-concurrent = 1 to 8. More than two can use a lot of your quota.
+azreview-agent-field-limit-scale = Size of the limits
+azreview-agent-hint-limit-scale = 1 to 8 times the usual limits on what is sent and read. Raise it only for a big job.
+azreview-agent-problem-unknown-backend = { $field }: "{ $word }" is not a backend: use claude-print, anthropic-api, gemini-cli, gemini-api or mock
+azreview-agent-problem-not-a-number = { $field }: "{ $word }" is no number
+azreview-agent-problem-out-of-range = { $field }: { $value } is outside { $min } to { $max }, using { $used }
+azreview-agent-problem-key-invalid = { $field }: write the key as env:NAME (an environment variable) or keychain:ITEM
+azreview-agent-problem-key-secret = { $field }: this looks like a key itself: never put a key in the settings; keep it in an environment variable or the keychain and write its name here
+azreview-agent-problem-arg-forbidden = { $field }: { $arg } is not allowed here (it would widen what the agent may do)
+azreview-agent-problem-model-required = { $field }: name a model
+azreview-agent-problem-url-invalid = { $field }: { $text } is no http:// or https:// address
+azreview-agent-problem-unknown-field = { $field }: no such setting ({ $word })
+azreview-agent-field-effort = Effort
+azreview-agent-hint-effort = How hard the model thinks: low is fast and cheap, max is thorough. Empty: the model's own default. A model that does not know effort refuses it: clear the row then.
+azreview-agent-problem-not-a-choice = { $field }: "{ $word }" is not one of the choices ({ $choices })
