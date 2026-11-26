@@ -49,6 +49,8 @@ echo "=== SUMMARY ==="
 echo "$summary"
 echo "gles host: overall exit $overall"
 if [ "$overall" -eq 0 ]; then echo "GLES HOST VERDICT: PASS"; else echo "GLES HOST VERDICT: FAIL ($overall)"; fi
+# The same verdict as a file, for the script that runs this one (scripts/ci/gpu_gate.sh).
+if [ "$overall" -eq 0 ]; then echo "PASS" >"$AZ_GPU_PIXELS_DIR/verdict.txt"; else echo "FAIL ($overall)" >"$AZ_GPU_PIXELS_DIR/verdict.txt"; fi
 # Exit 0 whatever the verdict: the runner saves its build cache only when the job succeeds, and a failed test run would throw away the
 # 25 minutes of compiling the next run needs. The verdict is the line above and the exit codes printed per test.
 exit 0

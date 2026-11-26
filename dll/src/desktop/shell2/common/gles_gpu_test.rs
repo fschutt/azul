@@ -40,10 +40,10 @@ fn hidden_and_background_levels_are_heavy() {
 }
 
 fn shell(backend: Option<&str>) -> ShellSettings {
-    ShellSettings {
-        backend: backend.map(str::to_owned),
-        ..ShellSettings::default()
-    }
+    // Not `..default()`: the settings keep a private field, which struct update syntax cannot copy from outside the module.
+    let mut settings = ShellSettings::default();
+    settings.backend = backend.map(str::to_owned);
+    settings
 }
 
 fn options_with(hw_accel: HwAcceleration) -> WindowCreateOptions {

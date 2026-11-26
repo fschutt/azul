@@ -595,6 +595,22 @@ fn webrender_over_gles_draws_the_page_the_cpu_renderer_draws() {
     assert!(red[0] > 180 && red[1] < 90 && red[2] < 90, "the first square is red, not {red:?}");
 }
 
+/// What a phone UI is made of (`showcase`): every family of WebRender's shaders the AzWidgets showcase hits, over OpenGL ES 3,
+/// against the CPU renderer's picture of the same display list, under the thresholds of the phone QA (24/255 per pixel, 3 % of the
+/// pixels, mean 2/255). The text of two renderers is antialiased by two rasterisers and a blur is two blurs: the numbers
+/// in the log and the pictures kept in `AZ_GPU_PIXELS_DIR` (the GL one, the CPU one, the difference) show what differs.
+#[test]
+fn webrender_over_gles_draws_the_widget_showcase_the_cpu_renderer_draws() {
+    let Some(gles) = gles_or_skip("webrender_over_gles_draws_the_widget_showcase_the_cpu_renderer_draws") else {
+        return;
+    };
+    let mut session = GpuSession::new(&gles, 400.0, 560.0, 2.0).expect("a session");
+    session.lay_out(showcase()).expect("laid out");
+    let gpu = session.present().expect("a frame");
+    let cpu = session.cpu().expect("the CPU frame");
+    assert_same_picture("showcase", &gpu, &cpu);
+}
+
 /// A second frame of another page leaves nothing of the first: the render targets are cleared (colour and depth) at the
 /// start of every frame, and the opaque pass is not rejected by the depth of the last one.
 #[test]
