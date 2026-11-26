@@ -151,6 +151,15 @@ fn ignore_sigpipe_once() {}
 
 impl App {
     pub fn create(initial_data: RefAny, mut app_config: AppConfig) -> Self {
+        // The time of each step of this function, logged at debug level once the logger is there (`AZ_LOG=debug`): the
+        // next number of the start is read from a run and not guessed. (The steps before the logger are told with it.)
+        let began = std::time::Instant::now();
+        let mut steps = crate::desktop::shell2::common::style_discovery::CreateSteps::at(0);
+        let mut told: Vec<String> = Vec::new();
+        let mut lap = |name: &str, told: &mut Vec<String>| {
+            let now = u64::try_from(began.elapsed().as_micros()).unwrap_or(u64::MAX);
+            told.push(steps.lap_at(name, now));
+        };
         // C/C++/Python hosts never run Rust's runtime, so install our own
         // SIGPIPE -> SIG_IGN before any socket/pipe I/O happens (see fn docs).
         ignore_sigpipe_once();
@@ -174,6 +183,7 @@ impl App {
             azul_css::rice::RiceEnv::from_lookup(&env),
             settings.css.ricing,
         );
+        lap("settings_and_rice", &mut told);
 
         // `AZ_BACKEND=headless` is known before `App::run` starts the headless loop, for what an
         // app asks while it builds its state (`PlatformCapability::notifications()`).
@@ -208,6 +218,11 @@ impl App {
         // event-loop or font work runs. No-op if the host already set a logger.
         #[cfg(feature = "logging")]
         crate::desktop::logging::init_default_logger(settings.shell.no_color);
+        lap("e2e_services_logger", &mut told);
+        // What was measured before the logger was there is said now.
+        for line in told.drain(..) {
+            crate::plog_debug!("{}", line);
+        }
 
         // The app's own id (`AppConfig::app_id`), HERE: every run path -
         // `run`, `run_tray_only`, the crash reporter, iOS's
@@ -233,11 +248,13 @@ impl App {
             );
         }
 
+        lap("identity_and_trust", &mut told);
         // Discover the real system style (replaces the hard-coded default from AppConfig::create)
         app_config.system_style = discover_system_style(
             app_config.localization.known_languages.as_slice(),
             &settings.platform,
         );
+        lap("system_style", &mut told);
 
         // The desktop's OWN icons, into the "system" pack: a submenu arrow, a
         // drop-down chevron and a tree expander are shapes the platform already
@@ -286,6 +303,7 @@ impl App {
         // this early grabbed at the real OS (and, on a Wayland desktop,
         // started a portal handshake) even for a CI run. `run()` chooses it.
 
+        lap("theme_light_rice_watcher", &mut told);
         // Set the icon resolver from the layout crate (the default resolver in core is a no-op)
         app_config
             .icon_provider
@@ -319,8 +337,14 @@ impl App {
             }
         }
 
+        lap("icons", &mut told);
         let app_internal = AppInternal::create_with_settings(initial_data, app_config, settings);
+        lap("app_internal", &mut told);
         let boxed = Box::new(app_internal);
+        for line in told.drain(..) {
+            crate::plog_debug!("{}", line);
+        }
+        crate::plog_debug!("[app] App::create: total {} us", steps.total_at(u64::try_from(began.elapsed().as_micros()).unwrap_or(u64::MAX)));
 
         Self {
             ptr: boxed,

@@ -41,42 +41,70 @@ pub const AUTO_SECONDS_MIN: u64 = 2;
 /// The longest, seconds: a recording that runs without anyone looking is not left running for more than ten minutes.
 pub const AUTO_SECONDS_MAX: u64 = 600;
 
-/// A recording the demo makes on its own (`--auto SECONDS`): it starts when its window is up, stops after `seconds`,
-/// says where it was saved and closes. For a run of the real devices that is announced and short.
+/// The longest the demo waits after its window is up before it starts the recording on its own, milliseconds.
+pub const AUTO_DELAY_MS_MAX: u64 = 60_000;
+
+/// A recording the demo makes on its own (`--auto SECONDS [--auto-delay-ms MS]`): it starts when its window is up (or
+/// `delay_ms` after that: the program's own start, its frameworks loading and its windows activating, is then over and
+/// the start of the devices is measured alone), stops after `seconds`, says where it was saved and closes. For a run
+/// of the real devices that is announced and short.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Auto {
     /// How long it records, within [`AUTO_SECONDS_MIN`] and [`AUTO_SECONDS_MAX`].
     pub seconds: u64,
-    /// What was said of a number that was brought into that range (the caller prints it).
+    /// How long after the window is up it starts, within 0 and [`AUTO_DELAY_MS_MAX`].
+    pub delay_ms: u64,
+    /// What was said of numbers that were brought into their ranges (the caller prints it).
     pub note: Option<String>,
 }
 
-/// `--auto SECONDS` taken out of the arguments (the last one given counts), and the rest in their order. A number
-/// outside the range (too small, or too large to be a number at all) is brought into it with a note: a recording
-/// that does not match what was typed is said, not hidden.
+/// A whole number of `what` in `text`: digits only; one that does not fit is the largest.
+fn whole(flag: &str, text: &str, what: &str) -> Result<u64, String> {
+    if text.is_empty() || !text.bytes().all(|c| c.is_ascii_digit()) {
+        return Err(format!("{flag} needs a whole number of {what}, not {text:?}"));
+    }
+    Ok(text.parse::<u64>().unwrap_or(u64::MAX))
+}
+
+/// `--auto SECONDS` and `--auto-delay-ms MS` taken out of the arguments (the last of each given counts), and the rest in
+/// their order. A number outside its range (too small, or too large to be a number at all) is brought into it with a
+/// note: a recording that does not match what was typed is said, not hidden.
 ///
 /// # Errors
-/// A switch without a number, or with something that is no whole number of seconds.
+/// A switch without a number, or with something that is no whole number; a delay with no recording to delay.
 pub fn take_auto(args: Vec<String>) -> Result<(Option<Auto>, Vec<String>), String> {
-    let (mut auto, mut rest) = (None, Vec::new());
+    let (mut seconds, mut delay, mut rest) = (None, None, Vec::new());
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
-        if arg != "--auto" {
-            rest.push(arg);
-            continue;
+        match arg.as_str() {
+            "--auto" => {
+                let text = args.next().ok_or_else(|| String::from("--auto needs the seconds to record, e.g. --auto 10"))?;
+                seconds = Some((whole("--auto", &text, "seconds")?, text));
+            }
+            "--auto-delay-ms" => {
+                let text = args.next().ok_or_else(|| String::from("--auto-delay-ms needs the milliseconds to wait, e.g. --auto-delay-ms 2500"))?;
+                delay = Some((whole("--auto-delay-ms", &text, "milliseconds")?, text));
+            }
+            _ => rest.push(arg),
         }
-        let text = args.next().ok_or_else(|| String::from("--auto needs the seconds to record, e.g. --auto 10"))?;
-        let not_a_number = || format!("--auto needs a whole number of seconds, not {text:?}");
-        if text.is_empty() || !text.bytes().all(|c| c.is_ascii_digit()) {
-            return Err(not_a_number());
-        }
-        // Digits only: what does not fit in a u64 is far above the range.
-        let wanted = text.parse::<u64>().unwrap_or(u64::MAX);
-        let seconds = wanted.clamp(AUTO_SECONDS_MIN, AUTO_SECONDS_MAX);
-        let note = (seconds != wanted).then(|| format!("--auto {text}: recording {seconds} seconds instead (at least {AUTO_SECONDS_MIN} seconds and at most {AUTO_SECONDS_MAX} seconds are recorded on their own)"));
-        auto = Some(Auto { seconds, note });
     }
-    Ok((auto, rest))
+    let Some((wanted, text)) = seconds else {
+        return match delay {
+            Some(_) => Err(String::from("--auto-delay-ms delays a recording that --auto makes: give --auto SECONDS too")),
+            None => Ok((None, rest)),
+        };
+    };
+    let secs = wanted.clamp(AUTO_SECONDS_MIN, AUTO_SECONDS_MAX);
+    let mut notes = Vec::new();
+    if secs != wanted {
+        notes.push(format!("--auto {text}: recording {secs} seconds instead (at least {AUTO_SECONDS_MIN} seconds and at most {AUTO_SECONDS_MAX} seconds are recorded on their own)"));
+    }
+    let (delay_wanted, delay_text) = delay.unwrap_or((0, String::new()));
+    let delay_ms = delay_wanted.min(AUTO_DELAY_MS_MAX);
+    if delay_ms != delay_wanted {
+        notes.push(format!("--auto-delay-ms {delay_text}: waiting {AUTO_DELAY_MS_MAX} ms instead (the most the demo waits)"));
+    }
+    Ok((Some(Auto { seconds: secs, delay_ms, note: (!notes.is_empty()).then(|| notes.join("; ")) }), rest))
 }
 
 /// `+0100` / `-0530` as minutes; `None` for anything else.
