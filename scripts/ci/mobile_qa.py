@@ -954,6 +954,28 @@ class IOS:
                 pass
         return found
 
+    def landscape_copy(self):
+        """A copy of the .app whose Info.plist allows only the two landscape orientations, signed ad hoc again (a
+        Simulator app needs a signature, not an identity): when an app only supports landscape the Simulator starts it
+        in landscape. Tests the landscape LAYOUT where the rotation itself cannot be pressed. -> the new .app path."""
+        import plistlib
+        import shutil
+        dst = self.run.logs_dir / "landscape-app" / Path(self.app_dir).name
+        if dst.parent.exists():
+            shutil.rmtree(dst.parent)
+        dst.parent.mkdir(parents=True)
+        shutil.copytree(self.app_dir, dst, symlinks=True)
+        info_path = dst / "Info.plist"
+        info = plistlib.loads(info_path.read_bytes())
+        both = ["UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"]
+        info["UISupportedInterfaceOrientations"] = both
+        info["UISupportedInterfaceOrientations~ipad"] = both
+        info_path.write_bytes(plistlib.dumps(info))
+        rc, _o, err = self.x("codesign", "--force", "--sign", "-", "--timestamp=none", str(dst), timeout=120)
+        if rc != 0:
+            raise RuntimeError(f"codesign: {err.strip()[:200]}")
+        return dst
+
     def gui_keystroke(self, char_code):
         """Cmd + arrow in the Simulator app (Device > Rotate Left = Cmd-Left, Rotate Right = Cmd-Right). Needs the
         GUI app and the runner's accessibility permission for osascript. -> (ok, message)"""
@@ -1135,13 +1157,33 @@ def ios_scenarios(args):
         sig = dev.look(s, "landscape")
         w, h = dev.dims
         s.note(f"screenshot {w}x{h} after the rotation")
-        s.check("the picture changed with the rotation", sig_diff(sig, before) > SAME_BELOW, f"differs {sig_diff(sig, before):.3f}", required=False)
+        changed = sig_diff(sig, before) > SAME_BELOW
+        s.check("the picture changed with the rotation", changed, f"differs {sig_diff(sig, before):.3f}", required=False)
         dev.alive_step(s)
-        ok2, msg2 = dev.gui_keystroke(29)  # Cmd-Right: back
-        dev.settle(3.5)
-        again = dev.look(s, "portrait-again")
-        s.check("back in portrait the picture is the first one again", sig_diff(again, before) < 0.10, f"differs {sig_diff(again, before):.3f}", required=False)
-        dev.alive_step(s, " after rotating back")
+        if ok:
+            dev.gui_keystroke(29)          # Cmd-Right: back
+            dev.settle(3.5)
+            again = dev.look(s, "portrait-again")
+            s.check("back in portrait the picture is the first one again", sig_diff(again, before) < 0.10, f"differs {sig_diff(again, before):.3f}", required=False)
+            dev.alive_step(s, " after rotating back")
+        if not (ok and changed) and args.app:
+            # the rotation could not be pressed or did nothing: the landscape LAYOUT through an app that allows only landscape
+            s.note("falling back to a landscape-only copy of the app (Info.plist orientations)")
+            try:
+                copy = dev.landscape_copy()
+                rc, _o, err = dev.simctl("install", args.udid, str(copy), timeout=180)
+                s.check("the landscape-only copy installs", rc == 0, err.strip()[:160], required=False)
+                dev.launch(cold=True)
+                t = dev.wait_for_front(timeout=args.first_frame_timeout)
+                dev.settle(3.0)
+                lsig = dev.look(s, "landscape-only-app")
+                s.check("the landscape-only copy draws", t is not None and not is_flat(lsig), f"first frame after {t:.1f} s" if t is not None else "no frame", required=False)
+                s.note(f"landscape-only app screenshot {dev.dims[0]}x{dev.dims[1]}")
+            finally:
+                dev.simctl("install", args.udid, args.app, timeout=180)   # the original app again
+                dev.launch(cold=True)
+                dev.wait_for_front(timeout=args.first_frame_timeout)
+                dev.settle(2.0)
 
     run.step("08-rotate", "rotate the device left and back while the app runs (Simulator menu through osascript)", s_rotate, needs_app=True)
 
