@@ -50,12 +50,12 @@ fn on_click(data azul.AzRefAny, info azul.AzCallbackInfo) azul.AzUpdate {
 	mut d := data
 	m := my_data_downcast(&d)
 	if isnil(m) {
-		return azul.AzUpdate.DoNothing
+		return azul.AzUpdate.do_nothing
 	}
 	unsafe {
 		m.counter++
 	}
-	return azul.AzUpdate.RefreshDom
+	return azul.AzUpdate.refresh_dom
 }
 
 fn layout(data azul.AzRefAny, info azul.AzLayoutCallbackInfo) azul.AzDom {
@@ -69,11 +69,11 @@ fn layout(data azul.AzRefAny, info azul.AzLayoutCallbackInfo) azul.AzDom {
 	counter_str := az_str(counter_val.str())
 	mut label := C.AzDom_createPWithText(counter_str)
 
-	C.AzDom_setCss(&label, azStr("font-size: 32px; margin: 0;"))
+	C.AzDom_setCss(&label, az_str("font-size: 32px; margin: 0;"))
 
 	btn_label := az_str('Increase counter')
 	mut button := C.AzButton_create(btn_label)
-	C.AzButton_setButtonType(&button, azul.AzButtonType.Primary)
+	C.AzButton_setButtonType(&button, azul.AzButtonType.primary)
 	data_clone := C.AzRefAny_clone(&d)
 	C.AzButton_setOnClick(&button, data_clone, on_click)
 	button_dom := C.AzButton_dom(button)
