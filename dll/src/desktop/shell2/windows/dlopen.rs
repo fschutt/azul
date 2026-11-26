@@ -654,6 +654,8 @@ pub struct User32Functions {
     pub GetWindowThreadProcessId: unsafe extern "system" fn(HWND, *mut u32) -> u32,
     /// Windows 7+; `WDA_EXCLUDEFROMCAPTURE` needs Windows 10 2004.
     pub SetWindowDisplayAffinity: Option<unsafe extern "system" fn(HWND, u32) -> BOOL>,
+    /// Windows 7+: the affinity a window has now (a capture gives back only what it changed itself).
+    pub GetWindowDisplayAffinity: Option<unsafe extern "system" fn(HWND, *mut u32) -> BOOL>,
     pub GetForegroundWindow: unsafe extern "system" fn() -> HWND,
     /// Vista+.
     pub IsProcessDPIAware: Option<unsafe extern "system" fn() -> BOOL>,
@@ -1155,6 +1157,7 @@ impl Win32Libraries {
                 EnumWindows: user32_dll.get_symbol("EnumWindows")?,
                 GetWindowThreadProcessId: user32_dll.get_symbol("GetWindowThreadProcessId")?,
                 SetWindowDisplayAffinity: user32_dll.get_symbol("SetWindowDisplayAffinity").ok(),
+                GetWindowDisplayAffinity: user32_dll.get_symbol("GetWindowDisplayAffinity").ok(),
                 GetForegroundWindow: user32_dll.get_symbol("GetForegroundWindow")?,
                 IsProcessDPIAware: user32_dll.get_symbol("IsProcessDPIAware").ok(),
 

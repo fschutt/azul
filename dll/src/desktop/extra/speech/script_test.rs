@@ -128,3 +128,15 @@ fn a_word_that_ends_before_it_starts_is_made_to_end_where_it_starts() {
         other => panic!("{other:?}"),
     }
 }
+
+#[test]
+fn the_preference_is_automatic_unless_the_script_says_who_goes_first() {
+    use super::super::order::Preference;
+    assert_eq!(parse(r#"{}"#).unwrap().preference, Preference::Automatic);
+    assert_eq!(parse(r#"{"preference": "automatic"}"#).unwrap().preference, Preference::Automatic);
+    assert_eq!(parse(r#"{"preference": "native_first"}"#).unwrap().preference, Preference::NativeFirst);
+    assert_eq!(parse(r#"{"preference": "builtin_first"}"#).unwrap().preference, Preference::BuiltinFirst);
+    let error = parse(r#"{"preference": "fastest"}"#).unwrap_err();
+    assert!(error.contains("preference") && error.contains("native_first"), "{error}");
+    assert!(parse(r#"{"preference": 3}"#).is_err());
+}

@@ -478,6 +478,9 @@ pub use icon::{
 /// Callback handling for layout events (invocation, result processing).
 #[cfg(feature = "text_layout")]
 pub mod callbacks;
+/// The frame tap: the pictures a window shows, handed to an app as they change.
+#[cfg(feature = "text_layout")]
+pub mod frame_tap;
 /// What a CPU frame did, counted. Not behind `cpurender`: the frame report and the display-list
 /// scans carry these counters in every feature set (all zero where nothing counts).
 pub mod cpu_counters;

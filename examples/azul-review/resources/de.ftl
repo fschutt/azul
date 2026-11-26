@@ -37,6 +37,99 @@ azreview-nib-marker = Marker
 azreview-nib-pen = Stift
 azreview-nib-audio-pen = Audiostift
 
+## Aufnahme (das Feld des Recorders, src/recorder_panel.rs)
+
+azreview-rec-status-idle = Keine Aufnahme
+azreview-rec-status-recording = Aufnahme läuft
+azreview-rec-status-paused-user = Von dir pausiert
+azreview-rec-status-paused-idle = Pausiert: länger ist nichts passiert
+azreview-rec-status-paused-quota = Pausiert: der Datenträger ist fast voll
+azreview-rec-status-paused-locked = Pausiert: der Bildschirm ist gesperrt
+azreview-rec-described-idle = Keine Aufnahme
+azreview-rec-described-recording = Aufnahme läuft, { $time } aufgenommen
+azreview-rec-described-paused = Aufnahme pausiert, { $time } aufgenommen. { $why }
+azreview-rec-start = Aufnahme starten
+azreview-rec-stop = Aufnahme beenden
+azreview-rec-pause = Pause
+azreview-rec-resume = Fortsetzen
+azreview-rec-pause-described = Aufnahme pausieren (Tastenkürzel { $hotkey })
+azreview-rec-resume-described = Aufnahme fortsetzen (Tastenkürzel { $hotkey })
+azreview-rec-track-screen = Bildschirm
+azreview-rec-track-camera = Kamera
+azreview-rec-track-audio = Mikrofon
+azreview-rec-problem = { $track }: { $why }
+azreview-rec-disk-free = { $free } frei auf dem Datenträger.
+azreview-rec-disk-low = Der Datenträger wird voll: { $free } frei.
+azreview-rec-disk-full = Der Datenträger ist voll ({ $free } frei): die Aufnahme bleibt pausiert, bis wieder Platz da ist.
+azreview-rec-disk-unknown = Der freie Platz des Datenträgers lässt sich nicht lesen: deshalb wird nichts pausiert.
+azreview-rec-minutes-left = { $minutes ->
+    [one] Noch etwa { $minutes } Minute.
+   *[other] Noch etwa { $minutes } Minuten.
+ }
+azreview-rec-hours-left = { $hours ->
+    [one] Noch etwa { $hours } Stunde.
+   *[other] Noch etwa { $hours } Stunden.
+ }
+azreview-rec-dropped = { $count ->
+    [one] { $count } Bild wurde verworfen: der Encoder kam nicht nach.
+   *[other] { $count } Bilder wurden verworfen: der Encoder kam nicht nach.
+ }
+azreview-rec-will-display = Zeichnet alles auf dem Bildschirm auf, solange es läuft: jede App, jedes Fenster und den Mauszeiger.
+azreview-rec-will-window = Zeichnet das Fenster von AzReview auf und sonst nichts auf dem Schreibtisch.
+azreview-rec-will-own = Zeichnet nur auf, was AzReview selbst zeigt, sonst nichts auf dem Schreibtisch.
+azreview-rec-will-camera = Zeichnet die Kamera auf.
+azreview-rec-will-voice = Zeichnet das Mikrofon auf.
+azreview-rec-will-events = Führt ein Protokoll über den Stift, die geöffneten Dateien und das Gesagte.
+azreview-rec-denied = { $track } wird nicht aufgezeichnet: das System hat { $who } nicht erlaubt ({ $why })
+azreview-rec-access-allowed = { $track }: erlaubt.
+azreview-rec-access-not-asked = { $track }: das System fragt, wenn die Aufnahme beginnt.
+azreview-rec-access-denied = { $track }: für { $who } ausgeschaltet. Schalte es in den Datenschutz-Einstellungen des Systems ein und starte dann erneut.
+azreview-rec-access-restricted = { $track }: auf diesem Rechner eingeschränkt (ein Profil oder die Kindersicherung).
+azreview-rec-notice-disk-low = Der Datenträger wird voll: { $free } frei, und die Aufnahme pausiert unter { $min }.
+azreview-rec-notice-resumed = Die Aufnahme läuft weiter.
+azreview-rec-notice-ending = Die Aufnahme erreicht ihre längste Dauer in { $time }.
+azreview-rec-notice-length-reached = Die Aufnahme hat ihre längste Dauer erreicht und wurde beendet.
+azreview-rec-notice-screen-gap = Der Bildschirm war eine Weile weg ({ $why }): das Video hat dort eine Lücke.
+azreview-rec-notice-manifest-error = Die Notizen der Aufnahme konnten nicht geschrieben werden: { $why }
+azreview-rec-error-busy = Es läuft schon eine Aufnahme.
+azreview-rec-error-nothing = Bildschirm, Kamera und Mikrofon sind in den Einstellungen alle aus: es gibt nichts aufzunehmen.
+azreview-rec-error-disk-full = Auf dem Datenträger sind { $free } frei, weniger als die { $min }, die der Recorder frei hält: schaffe Platz oder senke diese Grenze in den Einstellungen.
+azreview-rec-error-io = Die Aufnahme konnte nicht angelegt werden: { $why }
+azreview-rec-error-window-source = Ein einzelnes Fenster aufzunehmen braucht die Nummer des Fensters im System, die es noch nicht gibt: wähle in den Einstellungen den Bildschirm oder die eigenen Bilder von AzReview. Der ganze Bildschirm wird nicht stattdessen aufgenommen.
+azreview-rec-notice-saved = Gespeichert: { $name } ({ $length }, { $size })
+azreview-rec-notice-recovered = { $count ->
+    [one] { $count } Aufnahme, die beim Ende der App abgebrochen wurde, ist wieder in Ordnung.
+   *[other] { $count } Aufnahmen, die beim Ende der App abgebrochen wurden, sind wieder in Ordnung.
+ }
+azreview-rec-error-delete = { $name } wurde nicht gelöscht: { $why }
+azreview-rec-error-recover = { $name } konnte nicht wiederhergestellt werden: { $why }
+azreview-rec-window-title = Aufnahme
+azreview-rec-hotkey-description = Die Aufnahme pausieren oder fortsetzen
+azreview-rec-hotkey-unavailable = Die Pausentaste ist nicht verfügbar: ein anderes Programm hat sie.
+azreview-rec-preview-on = Kamera zeigen
+azreview-rec-preview-off = Kamera ausblenden
+azreview-rec-preview = Kameravorschau
+azreview-rec-list-title = Aufnahmen
+azreview-rec-reveal = Ordner zeigen
+azreview-rec-delete = Löschen
+azreview-rec-notice-display-missing = Der Bildschirm { $id } aus den Einstellungen ist nicht da: aufgenommen wird der Bildschirm dieses Fensters.
+azreview-menu-recorder = Aufnahme...
+azreview-rec-who-unknown = das Programm, das AzReview gestartet hat
+azreview-rec-state-complete = Vollständig
+azreview-rec-state-recovered = Nach dem Ende der App wiederhergestellt
+azreview-rec-state-unfinished = Nicht abgeschlossen
+azreview-rec-state-damaged = Nicht lesbar
+azreview-rec-row-problem = { $why }
+azreview-rec-export = Video exportieren
+azreview-rec-export-cancel = Export abbrechen
+azreview-rec-export-open = Video öffnen
+azreview-rec-export-running = Das Video wird erstellt: { $percent } %
+azreview-rec-export-done = Video: { $name } ({ $size })
+azreview-rec-export-failed = Das Video konnte nicht erstellt werden: { $why }
+azreview-rec-export-cancelled = Der Export wurde abgebrochen.
+azreview-rec-export-note = Hinweis: { $note }
+azreview-rec-error-export = { $name } wurde nicht exportiert: { $why }
+
 ## Whiteboard
 
 azreview-whiteboard-notice-too-many-items = Das Whiteboard fasst { $limit } Elemente, mehr hat nicht Platz: nimm zuerst eines weg.
@@ -103,6 +196,33 @@ azreview-note-waiting = Warte auf Worte ...
 azreview-note-placeholder = Notiz tippen oder diktieren
 azreview-note-name = Notiz { $n }
 azreview-note-delete = Notiz { $n } löschen
+azreview-conv-chip-name = Gespräch { $n }: { $words }: { $state }
+azreview-conv-empty = (noch keine Worte)
+azreview-conv-more = { $n } weitere: die Leiste unten hat sie
+azreview-conv-you = Du
+azreview-conv-agent = Agent
+azreview-conv-working = Der Agent arbeitet ...
+azreview-conv-suggestions =
+    { $n ->
+        [one] Ein Vorschlag wartet
+       *[other] { $n } Vorschläge warten
+    }
+azreview-conv-done = Erledigt
+azreview-conv-title = Gespräch { $n } - { $where }
+azreview-conv-close = Das Gespräch schließen
+azreview-conv-reply-placeholder = Dem Agenten antworten
+azreview-conv-reply-name = Antwort an den Agenten
+azreview-conv-reopen = Das Gespräch wieder öffnen
+azreview-conv-resolve = Das Gespräch als erledigt markieren
+azreview-conv-send = An den Agenten senden
+azreview-conv-ask-again = Den Agenten noch einmal fragen
+azreview-conv-heard-as = Verstanden als: { $words }
+azreview-conv-understood = Verstanden (nach den Namen des Ordners) als: { $words }
+azreview-conv-earlier =
+    { $n ->
+        [one] Ein früherer Beitrag wird nicht gezeigt
+       *[other] { $n } frühere Beiträge werden nicht gezeigt
+    }
 azreview-dictation-denied = Diktieren braucht Spracherkennung, die für AzReview nicht erlaubt ist ({ $why }). Erlaube sie in den Systemeinstellungen unter Datenschutz & Sicherheit.
 azreview-dictation-unavailable = Diktieren ist hier nicht verfügbar: { $why }
 azreview-dictation-failed = Diktieren ist fehlgeschlagen: { $why }
@@ -161,6 +281,8 @@ azreview-agent-error-exit = { $program } wurde mit Exit-Code { $code } beendet: 
 azreview-agent-error-http = Der Dienst antwortete { $status } { $kind }: { $detail }
 azreview-agent-error-rate-limited = Der Dienst ist ausgelastet oder sein Limit ist erreicht: { $detail }
 azreview-agent-error-network = Der Dienst ist nicht erreichbar: { $why }
+azreview-agent-no-reply = Der Agent hat etwas geantwortet, das keine Antwort auf eine Durchsicht ist.
+azreview-agent-no-answer = Der Agent hat nicht rechtzeitig geantwortet.
 azreview-agent-error-budget = Der Aufruf würde mehr kosten als das Limit von { $limit }: erhöhe es in den Einstellungen
 azreview-agent-error-max-turns = Der Agent hat alle { $turns } Runden verbraucht, ohne zu antworten: erhöhe das Limit in den Einstellungen oder frage enger
 azreview-agent-error-refused = Der Agent hat abgelehnt: { $detail }
@@ -241,6 +363,10 @@ azreview-standby-note = Das Öffnen des Mikrofons dauert eine Drittelsekunde. Be
 azreview-chip-working = ein Agent arbeitet
 azreview-chip-suggested = ein Vorschlag wartet
 azreview-chip-done = erledigt
+azreview-chip-failed = der Agent konnte nicht antworten
+azreview-chip-draft = noch nicht gefragt
+azreview-chip-more-done = { $n } weitere erledigte: anzeigen
+azreview-chip-fewer-done = Die erledigten einklappen
 azreview-shortcut-files = Dateien ein- oder ausblenden
 azreview-shortcut-whiteboard = Whiteboard ein- oder ausblenden
 azreview-agent-field-effort = Aufwand

@@ -67,7 +67,7 @@ fn stroke(id: u64, pinned: bool, meaning: Option<Meaning>) -> StrokeInput {
 }
 
 fn review(task: Task) -> ReviewRequest {
-    ReviewRequest {
+    ReviewRequest { symbols: String::new(),
         task,
         conversation: 7,
         language: "de".to_string(),
@@ -114,6 +114,36 @@ fn prompt_of(review: ReviewRequest) -> String {
 }
 
 // ==== the prompt ====
+
+#[test]
+fn the_names_the_reviewer_said_are_a_section_of_the_prompt_of_their_own_between_the_words_and_the_strokes() {
+    let mut r = review(Task::Editing);
+    r.symbols = "compute_stale_flag: fn at src/stale.rs line 3\n    pub fn compute_stale_flag(x: u32) -> bool {".to_string();
+    let p = prompt_of(r);
+    let at = |needle: &str| p.find(needle).unwrap_or_else(|| panic!("{needle:?} missing in:\n{p}"));
+    assert!(at("What the words name in the code") > at("What the reviewer said"), "after the words");
+    assert!(at("What the words name in the code") < at("Meaning of the strokes:"), "before the strokes' meanings");
+    assert!(p.contains("compute_stale_flag: fn at src/stale.rs line 3"), "{p}");
+}
+
+#[test]
+fn words_that_named_nothing_add_no_section_and_an_old_prompt_is_what_it_was() {
+    let p = prompt_of(review(Task::Editing));
+    assert!(!p.contains("What the words name in the code"), "{p}");
+    let mut blank = review(Task::Editing);
+    blank.symbols = "  \n ".to_string();
+    assert_eq!(prompt_of(blank), p, "a blank section is no section");
+}
+
+#[test]
+fn a_names_section_too_long_for_a_prompt_is_cut_with_a_word_about_it() {
+    let mut r = review(Task::Editing);
+    r.symbols = "x".repeat(MAX_SYMBOLS_BYTES * 2);
+    let (result, _) = built(r, &Limits::default());
+    let (_, prompt, _, _, notes) = result.expect("builds");
+    assert!(prompt.len() < MAX_SYMBOLS_BYTES * 2, "cut: {} bytes", prompt.len());
+    assert!(notes.iter().any(|n| n.contains("names' section was cut")), "{notes:?}");
+}
 
 #[test]
 fn an_editing_prompt_has_the_file_the_code_the_strokes_the_words_and_the_conversation_in_order() {
@@ -313,7 +343,7 @@ fn the_conversation_so_far_is_listed_by_speaker() {
 
 #[test]
 fn a_request_with_nothing_to_say_has_no_empty_sections() {
-    let r = ReviewRequest {
+    let r = ReviewRequest { symbols: String::new(),
         task: Task::Editing,
         conversation: 1,
         language: String::new(),

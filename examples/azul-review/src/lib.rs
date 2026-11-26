@@ -67,13 +67,19 @@ pub mod census;
 pub mod chips;
 pub mod chips_op;
 pub mod code;
+pub mod agent_window;
 pub mod column;
+pub mod conv_ui;
+pub mod conversation;
+pub mod conversation_request;
 pub mod deletion;
 pub mod dictation;
 pub mod dwell;
 pub mod ids;
 pub mod ink;
 pub mod layout;
+pub mod margin;
+pub mod notes_op;
 #[cfg(test)]
 mod ink_tests;
 mod l10n;
@@ -86,18 +92,28 @@ pub mod pointer;
 pub mod progress;
 pub mod progress_store;
 pub mod recorder;
+pub mod recorder_app;
+pub mod recorder_args;
 pub mod recorder_azul;
 pub mod recorder_clock;
 pub mod recorder_codec;
+pub mod recorder_demo;
 pub mod recorder_edl;
 pub mod recorder_events;
 pub mod recorder_hook;
 pub mod recorder_export;
+pub mod recorder_export_cli;
+pub mod recorder_export_job;
 pub mod recorder_fs;
+pub mod recorder_host;
 pub mod recorder_manifest;
 pub mod recorder_mp4;
+pub mod recorder_panel;
+pub mod recorder_patch;
 pub mod recorder_policy;
+pub mod recorder_probe;
 pub mod recorder_screen;
+pub mod recorder_ui;
 pub mod recorder_settings;
 pub mod recorder_track;
 pub mod recorder_wb;
@@ -108,6 +124,7 @@ pub mod slash;
 pub mod speech_gate;
 pub mod standby;
 pub mod stroke_features;
+pub mod symbols_window;
 /// The pen strokes every gesture is tested on (a loop, a slash, an underline, a scribble): shared by the
 /// whiteboard's lasso and the quick slash that deletes a word.
 #[cfg(test)]
@@ -273,9 +290,27 @@ pub struct AppState {
     /// Where what happens in the window is told to a recorder (nobody until a recorder is mounted).
     pub recorder: std::sync::Arc<dyn recorder_hook::RecorderHook>,
     pub findings: Vec<Finding>,
-    /// The notes dictated at spots of the open file (the side column, the markers on the pages).
+    /// The notes dictated at spots of the open file, each the first message of a conversation (the margins of the pages,
+    /// the markers on them).
     pub notes: Vec<Note>,
     pub next_note_id: u64,
+    /// The conversation that is open as a popover in the margin of its page.
+    pub open_conv: Option<u64>,
+    /// The bottom bar shows every finished conversation (it folds the older ones into a count otherwise).
+    pub bar_all: bool,
+    /// The agents: the settings, the pool of jobs, the answers that wait for a file that is not open.
+    pub hub: agent_window::Hub,
+    /// The symbol index of the workspace, built behind the window: what the dictation listens for and what the names the
+    /// reviewer says are.
+    pub symbols: symbols_window::Hub,
+    /// The index is to be built (`--symbols`, the setting `symbols-index`); a window of a test has none.
+    pub symbols_enabled: bool,
+    /// The status sentence of the scan the tree's foot shows now (so that it is built again only when it changes).
+    pub symbols_shown: Option<symbols_sched::Progress>,
+    /// When the tree's foot last said it.
+    pub symbols_shown_at: Option<std::time::Instant>,
+    /// The scan was said to be done (`AZREVIEW_SYMBOLS ready`) for this workspace.
+    pub symbols_told: bool,
     /// What Mod+Z takes back, newest last, and what Mod+Shift+Z brings back.
     pub history: Vec<Edit>,
     pub redo_stack: Vec<Edit>,
@@ -323,6 +358,10 @@ pub struct AppState {
     /// A session write is in flight; another one waits for it (one writer).
     pub saving: bool,
     pub save_pending: bool,
+    /// The session recorder (the screen, the camera, the voice) and its window; made at the start. What the review tells it
+    /// goes through [`Self::recorder`], the hook, which reaches the recording that is going. (Not `recording`: that is the
+    /// voice clip being made.)
+    pub session_recorder: Option<recorder_ui::RecorderApp>,
 }
 
 impl AppState {
@@ -395,6 +434,14 @@ impl AppState {
             findings: Vec::new(),
             notes: Vec::new(),
             next_note_id: 1,
+            open_conv: None,
+            bar_all: false,
+            symbols: symbols_window::Hub::none(),
+            symbols_enabled: false,
+            symbols_shown: None,
+            symbols_shown_at: None,
+            symbols_told: false,
+            hub: agent_window::Hub::new(&std::collections::BTreeMap::new(), Vec::new(), Path::new(""), None, switches::DEFAULT_AGENT_DELAY_MS, false),
             history: Vec::new(),
             redo_stack: Vec::new(),
             voice: voice::Voice::new(dwell::Config::default(), dictation::DEFAULT_SILENCE_MS),
@@ -423,6 +470,7 @@ impl AppState {
             data_root,
             saving: false,
             save_pending: false,
+            session_recorder: None,
         }
     }
 
@@ -464,6 +512,8 @@ impl AppState {
         self.begin_file(Some(id));
         self.tree.set_lines(id, u32::try_from(line_count).unwrap_or(u32::MAX));
         self.open = Some(file);
+        // the files near the one shown are indexed next
+        self.symbols.set_focus(path);
         self.rederive();
         self.say(
             "nav.file",
@@ -537,6 +587,40 @@ impl AppState {
         }
         self.rederive();
         self.refresh_rollup();
+        if self.symbols_enabled {
+            self.start_symbols();
+        }
+    }
+
+    /// The scan of the symbol index moved on since the tree's foot last said how far it is (at most once a second, and
+    /// when it is done): the foot says it again.
+    pub fn symbols_line_changed(&mut self) -> bool {
+        let progress = self.symbols.progress();
+        // the scan is done: a script reads when (once for each workspace)
+        if let Some(p) = progress.filter(|p| p.idle) {
+            if !self.symbols_told {
+                self.symbols_told = true;
+                println!("AZREVIEW_SYMBOLS ready found={} done={} dirs={}", p.files_found, p.files_done, p.dirs_done);
+            }
+        }
+        let now = progress.filter(|p| symbols_window::status_of(p).is_some());
+        if now == self.symbols_shown {
+            return false;
+        }
+        let due = now.is_none() || self.symbols_shown_at.is_none_or(|t| t.elapsed().as_millis() >= 1_000);
+        if due {
+            self.symbols_shown = now;
+            self.symbols_shown_at = Some(std::time::Instant::now());
+        }
+        due
+    }
+
+    /// Builds the symbol index of the workspace behind the window, outwards from the file that is open.
+    pub fn start_symbols(&mut self) {
+        let open = self.file().map(|f| f.display.clone());
+        self.symbols.start(self.source.clone(), open.as_deref());
+        self.symbols_shown = None;
+        self.symbols_told = false;
     }
 
     // ---- what has been looked at ----
@@ -636,6 +720,72 @@ impl AppState {
     /// Conversations changed: what is reviewed may have.
     pub fn chips_changed(&mut self) {
         self.rollup_dirty = true;
+    }
+
+    /// Makes the chip of conversation `id` of the open file say what the conversation says: the bottom bar has one chip
+    /// for each, the tree marks the file by them. A conversation that is gone takes its chip away.
+    pub fn sync_chip(&mut self, id: u64) {
+        let Some(name) = self.file().map(|f| f.display.clone()) else {
+            return;
+        };
+        let chip = self.notes.iter().find(|n| n.id == id).map(|n| {
+            let first = code::SourceFile::first_line_of(n.page);
+            chips::Chip {
+                id,
+                file: name.clone(),
+                page: n.page,
+                line: u32::try_from(first + ui::line_of(n.y)).unwrap_or(u32::MAX),
+                state: n.talk.chip_state(),
+                title: chips::short_title(&n.text, 28),
+            }
+        });
+        match chip {
+            Some(chip) => match self.chips.upsert(chip) {
+                chips::Pushed::Kept => {}
+                chips::Pushed::DroppedOldest(word) | chips::Pushed::Refused(word) => eprintln!("[AzReview] {word}"),
+            },
+            None => {
+                self.chips.remove(&name, id);
+            }
+        }
+        self.chips_changed();
+    }
+
+    /// Every conversation of the open file has its chip (a file was opened, an archive came back).
+    pub fn sync_chips(&mut self) {
+        let ids: Vec<u64> = self.notes.iter().map(|n| n.id).collect();
+        for id in ids {
+            self.sync_chip(id);
+        }
+    }
+
+    /// The answers that came for the open file while another was open land now.
+    pub fn land_late(&mut self) {
+        let Some(name) = self.file().map(|f| f.display.clone()) else {
+            return;
+        };
+        let now = agent_window::unix_now_ms();
+        // An agent that is still at work on a conversation of this file, whose archive said it was working when the file
+        // was left, is working: not a failure of a window that closed.
+        for note in &mut self.notes {
+            if self.hub.is_working_on(&name, note.id) && note.talk.phase == conversation::Phase::Failed {
+                note.talk.phase = conversation::Phase::Working;
+                note.talk.problem = None;
+            }
+        }
+        for late in self.hub.take_late(&name) {
+            if let Some(note) = self.notes.iter_mut().find(|n| n.id == late.note) {
+                agent_window::land(note, late.outcome, now);
+            }
+        }
+        self.sync_chips();
+    }
+
+    /// The strokes an agent is told of for conversation `id`: the ink near its anchor (the stroke samples come with the
+    /// request's strokes; none are sent yet).
+    #[must_use]
+    pub fn strokes_for_request(&self, _id: u64) -> Vec<agent_stroke::StrokeInput> {
+        Vec::new()
     }
 
     /// Whether the workspace has anything to show in the tree.
@@ -753,6 +903,12 @@ impl AppState {
     fn begin_file(&mut self, node: Option<tree::NodeId>) {
         self.voice.request_stop(dictation::Cause::File);
         self.voice.pending = None;
+        // What nobody works on or waits on is in the file's archive and comes back with it; an agent at work, and a
+        // suggestion that waits, keep their chips (the tree marks the file) and their answers wait for the file.
+        if let Some(left) = self.file().map(|f| f.display.clone()) {
+            self.chips.remove_resting(&left);
+        }
+        self.open_conv = None;
         self.open_node = node;
         self.open = None;
         self.strokes.clear();
@@ -1031,6 +1187,9 @@ impl AppState {
             self.mark_page_seen(page);
         }
         self.rederive();
+        // The conversations that came back have their chips again, and the answers that came while the file was away
+        // land in them.
+        self.land_late();
         true
     }
 
@@ -1185,6 +1344,23 @@ pub fn run() {
     // what it asks is counted and no microphone is opened.
     state.voice.can_arm = std::env::var_os("AZ_E2E").is_some();
     state.voice.start_standby();
+    // The agents of this run: the settings file's rows, the environment as the process has it, the backend a switch names.
+    state.symbols_enabled = resolved.symbols;
+    if resolved.symbols {
+        state.start_symbols();
+    }
+    let agent_data = state.data_root.clone();
+    state.hub = agent_window::Hub::new(
+        &values,
+        std::env::vars(),
+        &agent_data,
+        resolved.agent,
+        resolved.agent_delay_ms,
+        resolved.agent_auto,
+    );
+    for problem in &state.hub.problems {
+        eprintln!("[AzReview] agent settings: {}", problem.message());
+    }
     state.switches = own;
     state.perf = perf::Perf::new(std::env::var_os("AZREVIEW_PROFILE").is_some());
     // The speech session of the window (the chain of recognisers, its vocabulary, the call a stop ends) is made on a thread
@@ -1195,8 +1371,24 @@ pub fn run() {
     if std::env::var_os("AZ_DEBUG").is_some() || std::env::var_os("AZ_E2E").is_some() {
         pointer::register_ops(&mut config);
         chips_op::register_ops(&mut config);
+        notes_op::register_ops(&mut config);
         state_op::register_ops(&mut config);
     }
+    // The session recorder: its settings from the settings file (what was capped is said), the machine's facts once.
+    let recorded = recorder_settings::resolve(&values);
+    for note in &recorded.notes {
+        eprintln!("[AzReview] {note}");
+    }
+    let recordings = state.data_root.join(ABOUT.app_folder).join("recordings");
+    let mut recorder = recorder_app::host(recorded.settings, &recordings, &state.root, '.');
+    let recovered = recorder.recover();
+    if recovered > 0 {
+        println!("AZREVIEW_RECORDINGS_RECOVERED {recovered}");
+    }
+    recorder.refresh();
+    // What the review tells a recorder reaches the recording that is going (and nobody when none is).
+    state.recorder = std::sync::Arc::new(recorder.hook());
+    state.session_recorder = Some(recorder_ui::RecorderApp::new(recorder));
     let app = App::create(RefAny::new(state), config);
     startup::phase("app_created");
     let mut window =
@@ -1204,6 +1396,29 @@ pub fn run() {
     window.renderer = OptionRendererOptions::Some(window_renderer());
     startup::phase("run_called");
     app.run(window);
+}
+
+/// Runs `f` on the session recorder in the app's state; whether the app has one.
+fn with_recorder(app: &mut RefAny, f: &mut dyn FnMut(&mut recorder_ui::RecorderApp)) -> bool {
+    let Some(mut state) = app.downcast_mut::<AppState>() else { return false };
+    match state.session_recorder.as_mut() {
+        Some(session_recorder) => {
+            f(session_recorder);
+            true
+        }
+        None => false,
+    }
+}
+
+/// The recorder's window: what the recorder says, the way the review's other windows are laid out.
+extern "C" fn layout_recorder(data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    recorder_ui::hud(&recorder_ui::Host { app: data, with: with_recorder }, &info)
+}
+
+/// Session > Recording...: the recorder's window.
+pub extern "C" fn on_menu_recorder(data: RefAny, mut info: CallbackInfo) -> Update {
+    recorder_ui::open(&recorder_ui::Host { app: data, with: with_recorder }, &mut info, layout_recorder);
+    Update::DoNothing
 }
 
 /// The kit's handle, out of the app's state.
@@ -1485,10 +1700,15 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if matches!(key, VirtualKeyCode::Escape) {
         let overlay = layout::is_overlay(window_width(&info));
         let mut folded = false;
+        let mut closed_conversation = false;
         let acted = data.downcast_mut::<AppState>().is_some_and(|mut s| {
-            // What listens stops first; a tree that covers the pages folds away on the next Escape (one that
-            // pushes them is part of the layout and stays).
+            // What listens stops first; then the conversation that is open closes; a tree that covers the pages folds
+            // away on the next Escape (one that pushes them is part of the layout and stays).
             if s.voice.request_stop(dictation::Cause::Key) {
+                return true;
+            }
+            if s.open_conv.take().is_some() {
+                closed_conversation = true;
                 return true;
             }
             if overlay && s.panels.tree_open {
@@ -1501,6 +1721,9 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         if folded {
             persist_panels(&mut data, &mut info);
             start_slide(&data, &mut info);
+        }
+        if closed_conversation {
+            info.trigger_all_virtual_view_rerender();
         }
         return if acted { Update::RefreshDom } else { Update::DoNothing };
     }
@@ -2117,6 +2340,8 @@ pub extern "C" fn on_strip_scroll(mut data: RefAny, mut info: CallbackInfo) -> U
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
+    // The pages are scrolled: the symbol index keeps to the neighbourhood of the file until it is quiet again.
+    s.symbols.touch();
     let Some(pages) = s.file().map(code::SourceFile::page_count) else {
         return Update::DoNothing;
     };
@@ -2146,6 +2371,15 @@ pub extern "C" fn on_jump_to_page(mut data: RefAny, mut info: CallbackInfo) -> U
     Update::RefreshDom
 }
 
+/// The bar's count of finished conversations (or its key to fold them again): the finished ones are all shown, or folded.
+pub extern "C" fn on_bar_more(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    s.bar_all = !s.bar_all;
+    Update::RefreshDom
+}
+
 /// A click on a conversation's chip: the pages go to where it is anchored.
 pub extern "C" fn on_chip_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(index) = ui::index_of(&mut info) else {
@@ -2162,6 +2396,12 @@ pub extern "C" fn on_chip_click(mut data: RefAny, mut info: CallbackInfo) -> Upd
         return Update::DoNothing;
     };
     s.visible_page = page;
+    // A conversation of the file (not a mock chip) opens in the margin of its page.
+    if let Some(id) = s.open_chips().get(index).map(|c| c.id).filter(|id| s.notes.iter().any(|n| n.id == *id)) {
+        s.open_conv = Some(id);
+    }
+    drop(s);
+    info.trigger_all_virtual_view_rerender();
     Update::RefreshDom
 }
 

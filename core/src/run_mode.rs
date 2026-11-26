@@ -58,6 +58,9 @@ const BATTERY_STATE_FILE_VAR: &str = "AZ_BATTERY_STATE_FILE";
 /// The file a test's network reading is taken from (read at every query).
 const NETWORK_STATE_FILE_VAR: &str = "AZ_NETWORK_STATE_FILE";
 
+/// The file that says a test's desktop (the app in front, the pointer, the lock; read at every query).
+const DESKTOP_STATE_FILE_VAR: &str = "AZ_DESKTOP_STATE_FILE";
+
 /// The file a test's utterances are appended to.
 const SPEECH_LOG_VAR: &str = "AZ_SPEECH_LOG";
 
@@ -100,6 +103,9 @@ pub struct TestHooks {
     /// `AZ_NETWORK_STATE_FILE` as typed: the switch file of a test's network reading, meaningful
     /// in a run with `no_sensors` (a blank name is none).
     pub network_state_file: Option<OsString>,
+    /// `AZ_DESKTOP_STATE_FILE` as typed: the script of a test's desktop (the app in front, the
+    /// pointer, the lock), meaningful in a run with `no_sensors` (a blank name is none).
+    pub desktop_state_file: Option<OsString>,
     /// `AZ_SPEECH_LOG` as typed: the file a run with `no_speech` appends its utterances to (a
     /// blank name is none).
     pub speech_log: Option<OsString>,
@@ -144,6 +150,7 @@ impl TestHooks {
         fake_redirect: None,
         battery_state_file: None,
         network_state_file: None,
+        desktop_state_file: None,
         speech_log: None,
         speech_heard: None,
         speech_script: None,
@@ -165,6 +172,7 @@ impl TestHooks {
         fake_redirect: None,
         battery_state_file: None,
         network_state_file: None,
+        desktop_state_file: None,
         speech_log: None,
         speech_heard: None,
         speech_script: None,
@@ -205,6 +213,7 @@ impl TestHooks {
             fake_redirect: var(FAKE_REDIRECT_VAR).and_then(|value| value.into_string().ok()),
             battery_state_file: var(BATTERY_STATE_FILE_VAR),
             network_state_file: var(NETWORK_STATE_FILE_VAR),
+            desktop_state_file: var(DESKTOP_STATE_FILE_VAR),
             speech_log: var(SPEECH_LOG_VAR),
             speech_heard: var(SPEECH_HEARD_VAR).and_then(|value| value.into_string().ok()),
             speech_script: var(SPEECH_SCRIPT_VAR),
@@ -439,17 +448,19 @@ mod tests {
     #[test]
     fn the_files_and_the_text_of_the_sensor_and_speech_stand_ins_are_read_as_typed() {
         let none = hooks(&[]);
-        assert!(none.battery_state_file.is_none() && none.network_state_file.is_none());
+        assert!(none.battery_state_file.is_none() && none.network_state_file.is_none() && none.desktop_state_file.is_none());
         assert!(none.speech_log.is_none() && none.speech_heard.is_none() && none.speech_script.is_none());
         let asked = hooks(&[
             ("AZ_BATTERY_STATE_FILE", "/tmp/battery"),
             ("AZ_NETWORK_STATE_FILE", "/tmp/network"),
+            ("AZ_DESKTOP_STATE_FILE", "/tmp/desktop"),
             ("AZ_SPEECH_LOG", "/tmp/speech.log"),
             ("AZ_SPEECH_HEARD", "hello there"),
             ("AZ_SPEECH_SCRIPT", "/tmp/speech-script.json"),
         ]);
         assert_eq!(asked.battery_state_file, Some(OsString::from("/tmp/battery")));
         assert_eq!(asked.network_state_file, Some(OsString::from("/tmp/network")));
+        assert_eq!(asked.desktop_state_file, Some(OsString::from("/tmp/desktop")));
         assert_eq!(asked.speech_log, Some(OsString::from("/tmp/speech.log")));
         assert_eq!(asked.speech_heard.as_deref(), Some("hello there"));
         assert_eq!(asked.speech_script, Some(OsString::from("/tmp/speech-script.json")));

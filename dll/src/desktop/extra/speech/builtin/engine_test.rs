@@ -29,7 +29,7 @@ fn a_file_that_is_not_a_library_is_not_loaded() {
     std::fs::write(&file, b"this is text, not a shared library").expect("a file");
     let error = CactusEngine::open(&file).err().expect("not a library");
     assert!(matches!(error, EngineError::NotLoaded { .. }), "{error:?}");
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }
 
 #[test]

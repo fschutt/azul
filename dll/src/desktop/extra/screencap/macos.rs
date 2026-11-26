@@ -364,13 +364,14 @@ unsafe fn make_config(
     height: usize,
     fps: u32,
     format: RawImageFormat,
+    show_cursor: bool,
 ) -> Option<Retained<AnyObject>> {
     let config: *mut AnyObject = msg_send![sc_config, new];
     let config = unsafe { Retained::from_raw(config)? };
     let _: () = msg_send![&*config, setWidth: width];
     let _: () = msg_send![&*config, setHeight: height];
     let _: () = msg_send![&*config, setPixelFormat: cv_pixel_format_for(format)];
-    let _: () = msg_send![&*config, setShowsCursor: true];
+    let _: () = msg_send![&*config, setShowsCursor: show_cursor];
     let _: () = msg_send![&*config, setQueueDepth: 5isize];
     let fps = if fps > 0 { fps } else { DEFAULT_SCREEN_FPS };
     let interval = CMTime {
@@ -457,7 +458,23 @@ pub(super) fn open(request: &CaptureRequest) -> u64 {
             crate::plog_warn!("[screencap] no shareable displays");
             return 0;
         }
-        let idx = (index as usize).min(count - 1);
+        // The display by the system's own id when one is asked for (a display that is gone: the primary
+        // display, said), else by index.
+        let mut idx = (index as usize).min(count - 1);
+        if request.display_id != 0 {
+            let found = (0..count).find(|&i| {
+                let d: *mut AnyObject = msg_send![displays, objectAtIndex: i];
+                let id: u32 = msg_send![&*d, displayID];
+                id == request.display_id
+            });
+            match found {
+                Some(i) => idx = i,
+                None => {
+                    crate::plog_warn!("[screencap] display {} is not shareable (unplugged?) - capturing the first display instead", request.display_id);
+                    idx = 0;
+                }
+            }
+        }
         let display: *mut AnyObject = msg_send![displays, objectAtIndex: idx];
 
         // Display size in points; SCK scales output to the config size.
@@ -513,27 +530,35 @@ pub(super) fn open(request: &CaptureRequest) -> u64 {
                 );
             }
         }
-        if filter.is_null() && request.exclude_self {
+        // The apps left out of the picture - this process's own when `exclude_self`, and the apps whose
+        // bundle ids the request names (their windows that open later too): one filter for all of them.
+        if filter.is_null() && (request.exclude_self || !request.exclude.is_empty()) {
             let apps: *mut AnyObject = msg_send![&*content, applications];
             if !apps.is_null() {
                 let apps = &*(apps as *const NSArray<AnyObject>);
                 let me = std::process::id() as i32;
+                let mut left_out: Vec<Retained<AnyObject>> = Vec::new();
                 for i in 0..apps.count() {
                     let app: *mut AnyObject = msg_send![apps, objectAtIndex: i];
                     let pid: i32 = msg_send![&*app, processID];
-                    if pid == me {
-                        let ours: Retained<NSArray<AnyObject>> = NSArray::from_retained_slice(&[
-                            Retained::retain(app).expect("non-null app"),
-                        ]);
-                        let f: *mut AnyObject = msg_send![sc_filter, alloc];
-                        filter = msg_send![
-                            f,
-                            initWithDisplay: display,
-                            excludingApplications: &*ours,
-                            exceptingWindows: &*empty
-                        ];
-                        break;
+                    let bundle: *mut AnyObject = msg_send![&*app, bundleIdentifier];
+                    let bundle_id = if bundle.is_null() { String::new() } else { (*(bundle as *const NSString)).to_string() };
+                    let named = !bundle_id.is_empty() && request.exclude.apps().any(|id| id == bundle_id);
+                    if (request.exclude_self && pid == me) || named {
+                        if let Some(app) = Retained::retain(app) {
+                            left_out.push(app);
+                        }
                     }
+                }
+                if !left_out.is_empty() {
+                    let list: Retained<NSArray<AnyObject>> = NSArray::from_retained_slice(&left_out);
+                    let f: *mut AnyObject = msg_send![sc_filter, alloc];
+                    filter = msg_send![
+                        f,
+                        initWithDisplay: display,
+                        excludingApplications: &*list,
+                        exceptingWindows: &*empty
+                    ];
                 }
             }
         }
@@ -546,7 +571,7 @@ pub(super) fn open(request: &CaptureRequest) -> u64 {
             None => return 0,
         };
 
-        let config = match make_config(sc_config, out_w, out_h, request.fps, request.format) {
+        let config = match make_config(sc_config, out_w, out_h, request.fps, request.format, request.show_cursor) {
             Some(c) => c,
             None => return 0,
         };
@@ -692,7 +717,7 @@ pub(super) fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
         scr.source_size.1
     };
     unsafe {
-        let Some(config) = make_config(sc_config, out_w, out_h, request.fps, request.format) else {
+        let Some(config) = make_config(sc_config, out_w, out_h, request.fps, request.format, request.show_cursor) else {
             return false;
         };
         let (tx, rx) = mpsc::channel::<String>();

@@ -1905,6 +1905,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         presented_frames: _,
         // Six atomics.
         frame_clock: _,
+        // A function and a handle on the app's data (counted where the app holds it).
+        frame_tap: _,
         // Two u64 arrays sized by node count (~16 B/node) — noise next to
         // the tree; walked nowhere, listed so the destructure stays total.
         last_dom_fingerprints: _,
@@ -2557,6 +2559,9 @@ pub struct LayoutWindow {
     /// When frames were presented and how long their work took
     /// ([`Self::frame_timings`]).
     pub frame_clock: FrameClock,
+    /// The app's frame tap, when it registered one (`CallbackInfo::set_frame_tap`): the CPU frame
+    /// hands every frame that changed to it ([`crate::frame_tap`]). `None`: nobody listens.
+    pub frame_tap: Option<crate::frame_tap::FrameTap>,
     /// The CSS DIFF of the most recent `begin_reconciliation`, waiting to be
     /// consumed by the NEXT layout pass of that DOM: node -> worst
     /// `RelayoutScope` across its changed properties (including `None` =
@@ -3140,8 +3145,9 @@ pub struct LayoutWindow {
 
 /// What a window keeps that can hold a clone of a node's data: its laid-out
 /// trees, the trees still leaving, the animation tracks, the timers and
-/// threads its handlers started, the unmount handlers waiting to run and the
-/// nodes its views were last invoked for.
+/// threads its handlers started, the frame tap a handler registered, the
+/// unmount handlers waiting to run and the nodes its views were last invoked
+/// for.
 impl RefAnyHolder for LayoutWindow {
     fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
         let results = self.layout_results.values_mut();
@@ -3165,6 +3171,9 @@ impl RefAnyHolder for LayoutWindow {
         }
         for thread in self.threads.values_mut() {
             thread.for_each_refany(visit);
+        }
+        if let Some(tap) = self.frame_tap.as_mut() {
+            tap.for_each_refany(visit);
         }
         for (callback, _) in &mut self.pending_unmount_invocations {
             callback.for_each_refany(visit);
@@ -4595,6 +4604,7 @@ impl LayoutWindow {
             root_display_list_gpu_fingerprint: None,
             presented_frames: core::sync::atomic::AtomicU64::new(0),
             frame_clock: FrameClock::default(),
+            frame_tap: None,
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 resize_only_hint: false,
@@ -26341,11 +26351,32 @@ impl LayoutWindow {
                 // instead, so the node-local cursor keeps reading (and may
                 // run negative / past the size, which is what a drag wants).
                 .or_else(|| {
-                    let rect = self.get_node_rect_in_viewport(hit_dom_node)?;
                     let c = cursor_in_viewport.into_option()?;
+                    // Through the scroll frames and the reference frames the node is painted
+                    // in - its own `transform` and those of its ancestors - the way the hit
+                    // tester maps a pointer that IS over the node: the node's rect has its
+                    // layout size, and a drag under `scale(0.5)` has moved half as far in it
+                    // as on the screen. (A rect subtracted untransformed gave a pan of
+                    // (-0.19, +0.11) for the drag that gives (-0.39, 0.00) at scale 1.)
+                    let layout_result = self.layout_results.get(&hit_dom_node.dom)?;
+                    let layout_idx = layout_result
+                        .layout_tree
+                        .dom_to_layout
+                        .get(&node_id)?
+                        .first()?
+                        .index();
+                    let origin = *layout_result.calculated_positions.get(layout_idx)?;
+                    let local = crate::headless::screen_point_to_layout_space(
+                        layout_result,
+                        hit_dom_node.dom,
+                        layout_idx,
+                        c,
+                        &|d, n| self.scroll_manager.get_current_offset(d, n),
+                        &|d, n| self.painted_transform_of(d, n),
+                    )?;
                     Some(BorderBoxLocal::new(LogicalPosition::new(
-                        c.x - rect.origin.x,
-                        c.y - rect.origin.y,
+                        local.x - origin.x,
+                        local.y - origin.y,
                     )))
                 })
                 .map_or(OptionLogicalPosition::None, |p| {
@@ -34870,6 +34901,8 @@ impl LayoutWindow {
             presented_frames: _,
             // Clock readings, keyed by nothing.
             frame_clock: _,
+            // A function and the app's data, keyed by nothing.
+            frame_tap: _,
             // The cached layout trees keep the ids of the DOM they were laid
             // out from: the next pass of the DOM reads them through the
             // diff's pairing (set below).

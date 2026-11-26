@@ -79,7 +79,7 @@ fn what_the_worker_tells_of_the_microphone_and_the_words_so_far_is_kept_and_a_ch
     assert_eq!(v.partial(), "this lo");
     assert!(!v.told(&Out::Partial("this lo".to_string())));
     assert!(v.told(&Out::Partial("this loop".to_string())));
-    assert!(v.told(&Out::Text("this loop is".to_string())), "the words are the note's now");
+    assert!(v.told(&Out::Text(crate::dictation::Said::plain("this loop is"))), "the words are the note's now");
     assert_eq!(v.partial(), "", "the words so far became the text");
 }
 
@@ -321,4 +321,25 @@ fn a_pen_that_is_not_in_the_tablets_range_is_noticed_by_the_tick_and_closes_the_
     assert_eq!(v.standby_tick(true), None, "the pen is here");
     assert_eq!(v.standby_tick(false), None, "away, but within the grace");
     assert!(v.arming.is_armed());
+}
+
+#[test]
+fn a_scripted_listener_says_its_utterances_one_by_one_and_then_nothing() {
+    let mut l = ScriptListener::new(vec!["first".to_string(), "second".to_string()], 0);
+    let one = l.listen("en", 1_000);
+    assert_eq!((one.status, one.text.as_str()), (Status::Heard, "first"));
+    assert!(one.started_unix_ms > 0, "the moment it was said, on the wall clock");
+    assert_eq!(l.listen("en", 1_000).text, "second");
+    let done = l.listen("en", 10);
+    assert_eq!((done.status, done.text.as_str()), (Status::Nothing, ""));
+    assert_eq!(l.listen("en", 10).status, Status::Nothing, "and nothing again");
+}
+
+#[test]
+fn a_scripted_dictation_cannot_say_more_than_a_person_could() {
+    let many: Vec<String> = (0..500).map(|i| format!("word {i}")).collect();
+    let l = ScriptListener::new(many, 0);
+    assert_eq!(l.remaining(), MAX_SCRIPT_UTTERANCES);
+    let long = ScriptListener::new(vec!["é".repeat(MAX_SCRIPT_CHARS + 10)], 0);
+    assert_eq!(long.first().map(|t| t.chars().count()), Some(MAX_SCRIPT_CHARS));
 }

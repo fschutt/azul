@@ -26,6 +26,61 @@
 //! happened to the ones before it. [`SpeechSession::recognizers`] lists the chain and each one's
 //! state for a status line; [`SpeechSession::reset`] forgets the refusals.
 //!
+//! # A session that stands ready, and the stream
+//!
+//! Opening the microphone takes about 270 ms on a Mac and what is said meanwhile is lost, so a session
+//! can keep it open: [`SpeechSession::arm`] opens it when the user is about to speak (the pen comes
+//! in range, the button is hovered) and keeps the last 2 s in memory (overwritten, never saved), so
+//! the next call or stream starts at once (measured: sound reaches the recognizer 2-13 ms after the
+//! call for the built-in model, 14-49 ms for the system's, 270 ms cold) and hears what came in
+//! before it. [`SpeechSession::state`] says [`SpeechState::Cold`], `Warm` (a recognizer is
+//! initialised), `Armed` (microphone open) or `Listening`; [`SpeechStandby`] says what stays open
+//! between calls (`Off`, `OnDemand` the default, `WhileArmed` with a safety time, `Always`).
+//!
+//! [`SpeechSession::start_stream`] listens as a stream: utterance after utterance on one microphone,
+//! with [`SpeechEventKind::Ready`] when sound flows, a `Partial` while an utterance goes on (the
+//! built-in model re-decodes it about every 500 ms: 71-235 ms after a word was said; the system's
+//! gives what it reports: 440-860 ms after), a `Final` per utterance (the end of speech to the final:
+//! 0.95 s built-in, 1.3 s system at the default 600 ms end-point), `Quiet` and `Ended`.
+//! [`SpeechStream::wait_events`] blocks until there is an event (it wakes in under a millisecond),
+//! [`SpeechStream::poll_events`] never blocks; `stop` gives the final of what was said so far,
+//! `cancel` drops it. Times: a word's `start_ms` is from [`SpeechHeard::started_unix_ms`], the moment
+//! the audio of its utterance began, which for the first utterance may be before the stream began
+//! (the microphone's last 2 s); never negative.
+//!
+//! ## Measured on an Apple M2 (8 GB, release build, real microphone, a TTS sentence through the
+//! loudspeakers, word times from the recognizer's own, 2026-11-26)
+//!
+//! | what | built-in model (Whistle, one thread) | system's recognizer |
+//! |------|--------------------------------------|---------------------|
+//! | `arm()` (the microphone opens) | 142-187 ms, its first sound about 270 ms after the call | the same microphone |
+//! | start of a call to sound flowing: opened for the call / kept open | 197-211 ms / 2-13 ms | 206-268 ms / 14-24 ms |
+//! | `start_stream` to `Ready`: cold / armed | 274 ms / 2-12 ms | 265 ms / 16-49 ms |
+//! | a word said to the `Partial` that shows it | 71-235 ms (a partial every ~500 ms of audio) | 438-860 ms (median ~600) |
+//! | end of speech to the `Final`, end-point 800 / 600 ms | 946 ms / about 750 ms | 2046-2241 ms at 1500 ms, 1240 ms at 500, 1319 ms at 700 |
+//! | CPU while an utterance goes on | 9-15 % of one core (one partial decode of 1-3 s of speech about 80 ms) | 1 % here (the work is the system's speech service's) |
+//! | an armed microphone while nothing is said (the thread that keeps the last 2 s) | 0.36-0.42 % of one core, +3.3-4.6 MB of memory | the same microphone |
+//! | `wait_events`: event produced to returned | at most 1 ms | at most 1 ms |
+//! | a sentence that begins 1100 ms before the call, microphone not kept / kept | "Session is closed twice." / complete | "Is closed twice" / complete |
+//!
+//! The pause that ends an utterance ([`SpeechStreamOptions::endpoint_ms`]), built-in model, 12 English
+//! clips of 4 s and 12 German read paragraphs of 18 s, the finals joined, word error rate against the
+//! reference (a whole clip in one call: English 5.8 %, German 12.6 %):
+//!
+//! | end-point | 300 ms | 400 | 500 | 600 | 800 | 1000 |
+//! |-----------|--------|-----|-----|-----|-----|------|
+//! | English word error rate | 8.3 % | 8.3 % | 6.7 % | **5.8 %** | 5.8 % | 5.8 % |
+//! | English clips cut into more than one utterance | 4 of 12 | 3 | 3 | 2 | 1 | 1 |
+//! | German word error rate (paragraphs cut at their sentence ends) | 20.4 % | 19.7 % | 18.1 % | 17.2 % | 15.5 % | 13.3 % |
+//! | German utterances per paragraph | 6.2 | 5.6 | 5.1 | 4.6 | 3.7 | 2.4 |
+//!
+//! So a stream's end-point is 600 ms unless the app asks (an app that dictates long German prose asks
+//! for 800 to 1000 ms), and a call keeps its measured 800 ms (built-in model) and 1500 ms (system).
+//! An armed microphone hears the room: a stream is handed the last second of what it heard
+//! ([`SpeechStreamOptions::pre_roll_ms`]), and in a room where people talk an utterance can start
+//! with their words or run on with them, so start streams when the user means it and end them with
+//! `stop`.
+//!
 //! The same chain code runs with scripted recognizers ([`mock`]): the unit tests drive it on a
 //! clock they move, and a test run reads the script `AZ_SPEECH_SCRIPT` names ([`script`]).
 //!
@@ -38,10 +93,11 @@
 
 use core::ffi::c_void;
 use std::{
+    collections::VecDeque,
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex, PoisonError,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        Arc, Condvar, Mutex, PoisonError,
     },
 };
 
@@ -59,11 +115,14 @@ mod capture;
 pub mod chain;
 mod headless;
 mod json;
+pub mod keeper;
 #[cfg(target_os = "linux")]
 pub mod linux;
 pub mod mock;
+pub mod order;
 pub mod recognizer;
 pub mod script;
+pub mod vocabulary;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
@@ -72,6 +131,9 @@ mod tests;
 #[cfg(test)]
 #[path = "session_test.rs"]
 mod session_test;
+#[cfg(test)]
+#[path = "stream_test.rs"]
+mod stream_test;
 
 #[cfg(target_os = "android")]
 use self::android as platform;
@@ -85,8 +147,14 @@ use self::windows as platform;
 use self::{
     builtin::{Builtin, BuiltinStatus, Tuning},
     chain::{Chain, Health},
+    keeper::{MicKeeper, DEFAULT_ARMED_IDLE_MS, DEFAULT_KEEP_MS},
     mock::{words_of, MockSpeech},
-    recognizer::{Answer, Kind, Limits, Listen, Outcome, Readiness, Recognizer, SharedClock, SystemClock, Word},
+    order::Preference,
+    recognizer::{
+        Answer, Event, EventKind, Kind, Limits, Listen, Outcome, Readiness, Recognizer, SharedClock, StreamOptions,
+        SystemClock, Word, STREAM_PRE_ROLL_MS,
+    },
+    vocabulary::Vocabulary,
 };
 
 /// The platforms without a speech backend yet (the BSDs): nothing to say with.
@@ -177,18 +245,102 @@ impl From<Kind> for SpeechRecognizer {
     }
 }
 
+/// Which recognizer is asked first. The chain falls through on a refusal whatever the order, so the
+/// order only decides who answers when both could.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechPreference {
+    /// By the language and the vocabulary, as measured on 24 clips of real read speech and on
+    /// 12 sentences of TTS voices: English goes to the built-in model (5.8 % word errors against
+    /// 10.0 % for the system's), German and every other language to the system's recognizer
+    /// (German 7.8 % against 12.6 %), and so does any call while the vocabulary holds an
+    /// identifier (`CssError`, `snake_case`): the system's recognizer writes it as spelt (3 of 3
+    /// voices), the built-in model does not (0 of 3). The built-in model is never first when it
+    /// is not set up. [`SpeechSession::recognizers`] says which order the last call had and why.
+    Automatic,
+    /// The system's recognizer first; the built-in model when it refuses.
+    NativeFirst,
+    /// The built-in model first; the system's recognizer when it refuses.
+    BuiltinFirst,
+}
+
+impl Default for SpeechPreference {
+    fn default() -> Self {
+        Self::Automatic
+    }
+}
+
+impl From<SpeechPreference> for Preference {
+    fn from(preference: SpeechPreference) -> Self {
+        match preference {
+            SpeechPreference::Automatic => Self::Automatic,
+            SpeechPreference::NativeFirst => Self::NativeFirst,
+            SpeechPreference::BuiltinFirst => Self::BuiltinFirst,
+        }
+    }
+}
+
+/// What the session is ready for: how much a call would still have to do first.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechState {
+    /// Nothing is initialised and the microphone is closed.
+    Cold,
+    /// A recognizer is initialised (the model is loaded, the system's recognizer was used) and the
+    /// microphone is closed: a call opens it (about 270 ms on a Mac).
+    Warm,
+    /// The microphone is open and fills a buffer of the last 2 s (nothing is recorded or saved:
+    /// the buffer is memory that is overwritten): a call starts at once and hears what came in.
+    Armed,
+    /// A call or a stream is listening.
+    Listening,
+}
+
+/// How long the session keeps the microphone open between calls. The operating system's microphone
+/// indicator is on for as long as it is open.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechStandby {
+    /// Closed at the end of every call. `arm` is refused.
+    Off,
+    /// Kept `mic_keep_ms` after a call or an `arm` (the default).
+    OnDemand,
+    /// Opened by `arm` and kept until `disarm`, but given up when `armed_idle_ms` pass without an
+    /// `arm` or a call (so a forgotten `disarm` cannot leave it on); after a call it is still armed.
+    WhileArmed,
+    /// Opened by the first `arm` or call and kept until `disarm`, `reset` or the end of the
+    /// session, whatever happens in between: an explicit opt-in.
+    Always,
+}
+
+impl Default for SpeechStandby {
+    fn default() -> Self {
+        Self::OnDemand
+    }
+}
+
 /// One recognised word and when it was said.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpeechWord {
     /// The word as the recognizer wrote it (punctuation attached, as the engine gives it).
     pub text: AzString,
-    /// Milliseconds from [`SpeechHeard::started_unix_ms`] to the start of the word.
+    /// Milliseconds from [`SpeechHeard::started_unix_ms`] to the start of the word: never
+    /// negative. `started_unix_ms` is the moment the audio of the utterance began, which for the
+    /// first utterance of a stream on an armed microphone can be before the stream was started (the
+    /// pre-roll); the moment the word was said is `started_unix_ms + start_ms`. The first word of a
+    /// built-in utterance typically starts 300 ms in (the end-pointer keeps 300 ms of room before
+    /// the voice).
     pub start_ms: u32,
     /// And to its end.
     pub end_ms: u32,
     /// How sure the recognizer is of this word, 0 to 1.
     pub probability: f32,
+    /// The word is one of the vocabulary the built-in recognizer was told to favour
+    /// ([`SpeechSession::set_vocabulary`]). Favouring pulls the probability of a RIGHT word down
+    /// (a correct "enum" came out at 0.32), so do not read the probability of a biased word as
+    /// doubt.
+    pub biased: bool,
 }
 
 impl_option!(SpeechWord, OptionSpeechWord, copy = false, [Debug, Clone, PartialEq]);
@@ -211,6 +363,7 @@ impl From<&Word> for SpeechWord {
             start_ms: word.start_ms,
             end_ms: word.end_ms,
             probability: word.probability,
+            biased: word.biased,
         }
     }
 }
@@ -412,6 +565,112 @@ impl From<BuiltinStatus> for BuiltinSpeechStatus {
     }
 }
 
+/// What a stream reports.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechEventKind {
+    /// Sound reaches the recognizer: say "speak now". The first event of a stream that could listen.
+    Ready,
+    /// What the utterance that goes on has come to so far (`heard.text`, `heard.words`).
+    Partial,
+    /// An utterance is over: its text and its words with their times, who gave them.
+    Final,
+    /// A stretch of the room without speech.
+    Quiet,
+    /// The stream is over; `heard.status` says how (`Heard` something was heard, `NothingHeard`,
+    /// `Denied`, `Unavailable`, `Failed`) and `heard.message` why.
+    Ended,
+}
+
+impl From<EventKind> for SpeechEventKind {
+    fn from(kind: EventKind) -> Self {
+        match kind {
+            EventKind::Ready => Self::Ready,
+            EventKind::Partial => Self::Partial,
+            EventKind::Final => Self::Final,
+            EventKind::Quiet => Self::Quiet,
+            EventKind::Ended => Self::Ended,
+        }
+    }
+}
+
+/// One thing a stream reports.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpeechEvent {
+    pub kind: SpeechEventKind,
+    /// Milliseconds since the stream began.
+    pub at_ms: u32,
+    /// What was heard: for a partial or a final the text, the words with their times and who gave
+    /// them; for an end how it ended (the status) and why (the message).
+    pub heard: SpeechHeard,
+}
+
+impl_option!(SpeechEvent, OptionSpeechEvent, copy = false, [Debug, Clone, PartialEq]);
+impl_vec!(
+    SpeechEvent,
+    SpeechEventVec,
+    SpeechEventVecDestructor,
+    SpeechEventVecDestructorType,
+    SpeechEventVecSlice,
+    OptionSpeechEvent
+);
+impl_vec_debug!(SpeechEvent, SpeechEventVec);
+impl_vec_clone!(SpeechEvent, SpeechEventVec, SpeechEventVecDestructor);
+impl_vec_partialeq!(SpeechEvent, SpeechEventVec);
+
+/// What a stream is asked to do.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct SpeechStreamOptions {
+    /// Report what an utterance has come to while it goes on (the built-in recognizer decodes
+    /// the growing utterance about every 500 ms; the system's gives its own).
+    pub partials: bool,
+    /// How long a pause ends an utterance, ms (kept to 200 .. 3000; 0: 600, the shortest that cost
+    /// English nothing in the measurement on 24 read clips: English word error rate 5.8 % at 600,
+    /// 800 and 1000 ms, 6.7 % at 500, 8.3 % at 400 and 300; German read paragraphs 17.2 % at 600,
+    /// 15.5 % at 800, 13.3 % at 1000 ms, so an app that dictates long German prose asks for 800 to
+    /// 1000). The system's recognizer ends an utterance when its text has not changed that long
+    /// (and then takes about 0.7 s to give the final: end of speech to final 1.3 s at 500 and
+    /// 700 ms, 2.1 s at the 1500 ms a call uses).
+    pub endpoint_ms: u32,
+    /// How long the stream runs at most, ms (0: until it is stopped; at most one hour).
+    pub max_ms: u32,
+    /// How many utterances end the stream (0: until it is stopped or its time is up).
+    pub max_utterances: u32,
+    /// How much of what an open (armed) microphone heard before the stream began is handed to it,
+    /// ms (1000 by default, at most the 2000 the microphone keeps, 0: none). A second covers the
+    /// words said just before the app started the stream (a pen that rests for 1.2 s before the
+    /// dictation begins) and keeps most of the talk of the room out of it: an armed microphone hears
+    /// the room, so start streams only when the user means it and end them with `stop` (the last
+    /// words come as the last final), not with `cancel` (which drops them).
+    pub pre_roll_ms: u32,
+}
+
+impl Default for SpeechStreamOptions {
+    fn default() -> Self {
+        Self {
+            partials: true,
+            endpoint_ms: 0,
+            max_ms: 0,
+            max_utterances: 0,
+            pre_roll_ms: STREAM_PRE_ROLL_MS,
+        }
+    }
+}
+
+impl From<SpeechStreamOptions> for StreamOptions {
+    fn from(options: SpeechStreamOptions) -> Self {
+        Self {
+            partials: options.partials,
+            endpoint_ms: options.endpoint_ms,
+            max_ms: options.max_ms,
+            max_utterances: options.max_utterances,
+            pre_roll_ms: options.pre_roll_ms,
+        }
+    }
+}
+
 /// What a caller may ask of the speech recognizers: every value outside is kept to it and the
 /// answer says so (never a crash).
 #[repr(C)]
@@ -425,6 +684,15 @@ pub struct SpeechLimits {
     pub max_keywords: u32,
     /// The largest model file taken, megabytes (128).
     pub max_model_mb: u32,
+    /// How long the microphone stays open after a call, ms (5000, at most 60000; 0 closes it at the
+    /// end of every call): the next call then starts at once, without the 430 ms a Mac takes to open
+    /// one, and what was said in between is not lost (the last 2 s are kept for it). The system
+    /// shows its microphone indicator for as long. A cancel, a `reset` and the end of the session
+    /// close it at once.
+    pub mic_keep_ms: u32,
+    /// How long an armed microphone waits without an `arm` or a call before the session gives it up,
+    /// ms (60000, at most 600000): the safety of [`SpeechStandby::WhileArmed`].
+    pub armed_idle_ms: u32,
 }
 
 impl Default for SpeechLimits {
@@ -436,6 +704,8 @@ impl Default for SpeechLimits {
             max_listen_ms: chain.max_listen_ms,
             max_keywords: u32::try_from(tuning.max_keywords).unwrap_or(u32::MAX),
             max_model_mb: u32::try_from(tuning.max_model_bytes / (1024 * 1024)).unwrap_or(u32::MAX),
+            mic_keep_ms: DEFAULT_KEEP_MS,
+            armed_idle_ms: DEFAULT_ARMED_IDLE_MS,
         }
     }
 }
@@ -453,6 +723,23 @@ struct SessionInner {
     limits: Mutex<SpeechLimits>,
     /// The vocabulary handed to the built-in model, kept for when it is registered.
     vocabulary: Mutex<Vec<String>>,
+    /// The microphone: opened for a call, kept for the next one for `mic_keep_ms`.
+    keeper: MicKeeper,
+    /// What the app chose to keep open.
+    standby: Mutex<SpeechStandby>,
+    /// How many calls and streams are listening.
+    active: AtomicU32,
+    /// Sound is reaching the recognizer of the call that runs.
+    flowing: AtomicBool,
+    /// What the app asked for: who is asked first.
+    preference: Mutex<Preference>,
+    /// Whether the vocabulary holds an identifier the system's recognizer takes (so it goes first).
+    identifiers: AtomicBool,
+    /// Whether the system's recognizer takes a vocabulary at all (macOS and iOS; a scripted run
+    /// plays the platform where it does).
+    native_takes_vocabulary: bool,
+    /// The language of the last call: the status lines say who goes first for it.
+    last_language: Mutex<String>,
     /// Where the executable lives: the files are looked for there.
     exe_dir: Option<PathBuf>,
     /// A scripted run: nothing real is loaded, a registration is answered from the script.
@@ -475,6 +762,22 @@ pub struct SpeechSession {
     pub ptr: *mut c_void,
     /// Whether this handle owns one reference of the session (every `clone` does).
     pub run_destructor: bool,
+}
+
+impl core::fmt::Debug for SpeechSession {
+    /// The state and the counters of the session; never the pointer, a device handle or audio.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.inner() {
+            None => f.write_str("SpeechSession(closed)"),
+            Some(inner) => f
+                .debug_struct("SpeechSession")
+                .field("state", &self.state())
+                .field("active_calls", &inner.active.load(Ordering::SeqCst))
+                .field("armed", &inner.keeper.is_held())
+                .field("keep_ms", &inner.keeper.keep_ms())
+                .finish_non_exhaustive(),
+        }
+    }
 }
 
 // SAFETY: the session behind the pointer is `Sync` (its parts are mutexes and an atomic).
@@ -529,21 +832,38 @@ impl SpeechSession {
         let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf));
         let clock: SharedClock = Arc::new(SystemClock::new());
         let scripted = backend_for(hooks) == Backend::Headless;
-        let chain = if scripted {
-            scripted_chain(hooks, clock)
-        } else {
-            platform_chain(clock, exe_dir.as_deref())
-        };
-        Self::from_chain(chain, exe_dir, scripted)
+        if scripted {
+            let (chain, preference) = scripted_chain(hooks, clock);
+            return Self::from_chain(chain, exe_dir, true, preference, true, MicKeeper::without_microphone());
+        }
+        let keeper = MicKeeper::new(capture::platform_source());
+        keeper.set_keep_ms(DEFAULT_KEEP_MS);
+        let chain = platform_chain(clock, exe_dir.as_deref(), &keeper);
+        Self::from_chain(chain, exe_dir, false, Preference::Automatic, NATIVE_TAKES_VOCABULARY, keeper)
     }
 
-    fn from_chain(chain: Chain, exe_dir: Option<PathBuf>, scripted: bool) -> Self {
+    fn from_chain(
+        chain: Chain,
+        exe_dir: Option<PathBuf>,
+        scripted: bool,
+        preference: Preference,
+        native_takes_vocabulary: bool,
+        keeper: MicKeeper,
+    ) -> Self {
         let inner = Arc::new(SessionInner {
             chain: Mutex::new(chain),
             cancel: AtomicBool::new(false),
             lines: Mutex::new(Vec::new()),
             limits: Mutex::new(SpeechLimits::default()),
             vocabulary: Mutex::new(Vec::new()),
+            keeper,
+            standby: Mutex::new(SpeechStandby::OnDemand),
+            active: AtomicU32::new(0),
+            flowing: AtomicBool::new(false),
+            preference: Mutex::new(preference),
+            identifiers: AtomicBool::new(false),
+            native_takes_vocabulary,
+            last_language: Mutex::new(String::new()),
             exe_dir,
             scripted,
         });
@@ -557,7 +877,13 @@ impl SpeechSession {
     /// A session on `chain` (for the tests of the chain through the public face).
     #[cfg(test)]
     pub(crate) fn on_chain(chain: Chain) -> Self {
-        Self::from_chain(chain, None, true)
+        Self::from_chain(chain, None, true, Preference::Automatic, true, MicKeeper::without_microphone())
+    }
+
+    /// The same with the keeper whose microphone a test watches.
+    #[cfg(test)]
+    pub(crate) fn on_chain_with_keeper(chain: Chain, keeper: MicKeeper) -> Self {
+        Self::from_chain(chain, None, true, Preference::Automatic, true, keeper)
     }
 
     fn inner(&self) -> Option<&SessionInner> {
@@ -603,7 +929,7 @@ impl SpeechSession {
             max_model_bytes: u64::from(limits.max_model_mb) * 1024 * 1024,
             ..Tuning::default()
         };
-        let microphone = capture::platform_source();
+        let microphone = inner.keeper.clone();
         let built = match source {
             BuiltinSource::File(model_path) => {
                 Builtin::from_files(engine_path, &model_path, inner.exe_dir.as_deref(), microphone, tuning.clone())
@@ -614,10 +940,10 @@ impl SpeechSession {
         };
         let (mut recognizer, status) = match built {
             Ok(builtin) => (builtin, BuiltinStatus::Ready),
-            Err(failure) => (Builtin::refused(capture::platform_source(), failure.message), failure.status),
+            Err(failure) => (Builtin::refused(inner.keeper.clone(), failure.message), failure.status),
         };
         let vocabulary = inner.vocabulary.lock().unwrap_or_else(PoisonError::into_inner).clone();
-        let _ = recognizer.set_keywords(&vocabulary);
+        drop(recognizer.set_keywords(&vocabulary));
         let mut chain = inner.chain.lock().unwrap_or_else(PoisonError::into_inner);
         chain.replace(Box::new(recognizer));
         drop(chain);
@@ -625,17 +951,140 @@ impl SpeechSession {
         status.into()
     }
 
-    /// The words the built-in model should favour (names, jargon, the app's own vocabulary):
-    /// at most `max_keywords` of 64 characters each. Answers what was cut, empty when nothing was.
-    /// The system's recognizer does not take it.
+    /// The words the recognizers should favour (names, jargon, identifiers of the app): at most
+    /// `max_keywords` of 64 characters each (the system's recognizer takes 100, Apple's guidance).
+    /// Answers what was cut, empty when nothing was. Pass the identifiers as they are written:
+    /// the session shapes them for each recognizer. The system's recognizer gets the entries as
+    /// given (`CssError` is then written as spelt: 15 of 33 identifiers in the experiment, 0
+    /// without), the built-in model gets them with the spoken parts of every identifier
+    /// (`css error`, `unwrap or else`; it cannot write a compound but writes the parts right: its
+    /// "something else" fell from 18 to 11 of 33), and the spoken parts count against the limit. A
+    /// word of an answer that is one of the vocabulary's has `biased` set (favouring pulls the
+    /// probability of a right word down: do not read it as doubt). Ordinary speech gained no
+    /// code word in 36 runs of the experiment. The numbers are in [`vocabulary`]'s module docs.
     pub fn set_vocabulary(&self, words: StringVec) -> AzString {
         let Some(inner) = self.inner() else {
             return AzString::from(String::new());
         };
         let words: Vec<String> = words.as_slice().iter().map(|w| w.as_str().to_string()).collect();
         let note = inner.chain.lock().unwrap_or_else(PoisonError::into_inner).set_vocabulary(&words);
+        // An identifier among the phrases the system's recognizer takes puts it first.
+        let (taken, _) = Vocabulary::from_words(&words, NATIVE_PHRASES, NATIVE_PHRASE_CHARS);
+        inner
+            .identifiers
+            .store(inner.native_takes_vocabulary && taken.has_identifier(), Ordering::SeqCst);
         *inner.vocabulary.lock().unwrap_or_else(PoisonError::into_inner) = words;
+        inner.refresh_lines();
         AzString::from(note.unwrap_or_default())
+    }
+
+    /// Listens as a stream: utterance after utterance on one microphone, with what each has
+    /// come to as it goes, until [`SpeechStream::stop`], [`SpeechStream::cancel`], the options'
+    /// time or utterance count. Returns at once; the stream listens on a thread of its own, through
+    /// the same chain as [`Self::listen_blocking`] (the same order, the same hand-over to the next
+    /// recognizer on a refusal before the first event). What was said before the call and is
+    /// still in the microphone's buffer (an armed session keeps the last 2 s) is part of the first
+    /// utterance. A call or another stream that runs waits for this one to end.
+    #[must_use]
+    pub fn start_stream(&self, language: AzString, options: SpeechStreamOptions) -> SpeechStream {
+        let shared = Arc::new(StreamShared::new());
+        let handle = SpeechStream::from_shared(Arc::clone(&shared));
+        let ended = |status: HeardStatus, message: &str| {
+            shared.push(SpeechEvent {
+                kind: SpeechEventKind::Ended,
+                at_ms: 0,
+                heard: SpeechHeard::none(status, message),
+            });
+            shared.finish();
+        };
+        if self.inner().is_none() {
+            ended(HeardStatus::Unavailable, "this speech session is closed");
+            return handle;
+        }
+        let session = self.clone();
+        let weak = Arc::downgrade(&shared);
+        let language = language.as_str().to_string();
+        let spawned = std::thread::Builder::new()
+            .name("azul-speech-stream".to_string())
+            .spawn(move || run_stream(&session, &weak, &language, options.into()));
+        if spawned.is_err() {
+            ended(HeardStatus::Failed, "no thread could be started for the stream");
+        }
+        handle
+    }
+
+    /// What the session is ready for ([`SpeechState`]).
+    #[must_use]
+    pub fn state(&self) -> SpeechState {
+        let Some(inner) = self.inner() else {
+            return SpeechState::Cold;
+        };
+        if inner.active.load(Ordering::SeqCst) > 0 || inner.keeper.is_leased() {
+            SpeechState::Listening
+        } else if inner.keeper.is_held() {
+            SpeechState::Armed
+        } else if inner.chain.try_lock().map_or(true, |chain| chain.is_warm()) {
+            SpeechState::Warm
+        } else {
+            SpeechState::Cold
+        }
+    }
+
+    /// Opens the microphone now and keeps it open (see [`SpeechStandby`]), so that the next call
+    /// starts at once and hears what came in meanwhile (the last 2 s): arm when the user is about
+    /// to speak (the pen comes in range, the button is hovered), not when they have begun. Opening
+    /// costs about 270 ms once. Answers why it could not, empty when the session is armed (the
+    /// permission rules of the microphone apply: a refusal is a sentence the user can act on).
+    /// Arming an armed session starts the waiting time again. It takes no language and needs none:
+    /// the microphone does not depend on one, the built-in model takes the language per call, and
+    /// the system's recognizer is made for the language of each call (14-49 ms with an armed
+    /// microphone). Safe to call while a call or a stream listens (they hand the microphone back
+    /// armed) and at any time again; [`Self::disarm`] is as safe.
+    pub fn arm(&self) -> AzString {
+        let Some(inner) = self.inner() else {
+            return AzString::from("this speech session is closed".to_string());
+        };
+        match inner.keeper.arm() {
+            Ok(()) => AzString::from(String::new()),
+            Err((_outcome, message)) => AzString::from(message),
+        }
+    }
+
+    /// Closes the microphone that waits for a call: the system's indicator goes out. A call that
+    /// is running goes on.
+    pub fn disarm(&self) {
+        if let Some(inner) = self.inner() {
+            inner.keeper.disarm();
+        }
+    }
+
+    /// What stays open between calls: [`SpeechStandby::OnDemand`] by default.
+    pub fn set_standby(&self, standby: SpeechStandby) {
+        let Some(inner) = self.inner() else {
+            return;
+        };
+        *inner.standby.lock().unwrap_or_else(PoisonError::into_inner) = standby;
+        inner.apply_standby();
+    }
+
+    /// Whether sound is reaching the recognizer in the call that runs: false until the
+    /// microphone delivers its first sound (it takes a moment to start: about 270 ms on a Mac),
+    /// true from then until the call ends. A window shows "speak now" from the moment it turns
+    /// true: what is said before is lost. Poll it from another thread while `listen_blocking`
+    /// runs on a worker thread. A recognizer that cannot tell (Windows, Android) makes it true
+    /// when it begins to listen.
+    #[must_use]
+    pub fn audio_flowing(&self) -> bool {
+        self.inner().is_some_and(|inner| inner.flowing.load(Ordering::SeqCst))
+    }
+
+    /// Who is asked first: [`SpeechPreference::Automatic`] by default.
+    pub fn set_preference(&self, preference: SpeechPreference) {
+        let Some(inner) = self.inner() else {
+            return;
+        };
+        *inner.preference.lock().unwrap_or_else(PoisonError::into_inner) = preference.into();
+        inner.refresh_lines();
     }
 
     /// What the recognizers are asked to keep to; the defaults are [`SpeechLimits::default`].
@@ -644,6 +1093,7 @@ impl SpeechSession {
             return;
         };
         *inner.limits.lock().unwrap_or_else(PoisonError::into_inner) = limits;
+        inner.apply_standby();
         inner.chain.lock().unwrap_or_else(PoisonError::into_inner).set_limits(Limits {
             min_listen_ms: limits.min_listen_ms,
             max_listen_ms: limits.max_listen_ms.max(limits.min_listen_ms),
@@ -660,10 +1110,19 @@ impl SpeechSession {
             return SpeechHeard::none(HeardStatus::Unavailable, "this speech session is closed");
         };
         inner.cancel.store(false, Ordering::SeqCst);
+        inner.flowing.store(false, Ordering::SeqCst);
+        let _listening = ActiveGuard::new(&inner.active);
         let heard = {
             let mut chain = inner.chain.lock().unwrap_or_else(PoisonError::into_inner);
-            chain.listen(language.as_str(), timeout_ms, &|| inner.cancel.load(Ordering::SeqCst))
+            let _ = inner.arrange(&mut chain, language.as_str());
+            chain.listen_with(
+                language.as_str(),
+                timeout_ms,
+                &|| inner.cancel.load(Ordering::SeqCst),
+                &|| inner.flowing.store(true, Ordering::SeqCst),
+            )
         };
+        inner.flowing.store(false, Ordering::SeqCst);
         inner.refresh_lines();
         answer_to_heard(heard.answer, heard.by)
     }
@@ -673,13 +1132,23 @@ impl SpeechSession {
     pub fn cancel(&self) {
         if let Some(inner) = self.inner() {
             inner.cancel.store(true, Ordering::SeqCst);
+            // A microphone that waits for the next call is let go too: the user is done (a call that
+            // is running has the microphone, and gives it up at its end) - unless the app wants it
+            // always open.
+            if *inner.standby.lock().unwrap_or_else(PoisonError::into_inner) != SpeechStandby::Always {
+                inner.keeper.release();
+            }
         }
     }
 
     /// The chain, in the order it is tried, one line each, for a status line:
     /// `native | <name> | ready` or `built-in | <name> | unavailable: <why>`. A recognizer that
     /// refused (in this session or by what it says about itself) shows its outcome, `denied`,
-    /// `unavailable` or `failed`, and the reason.
+    /// `unavailable` or `failed`, and the reason. When two recognizers can listen the first line
+    /// ends with `; tried first: <why>`: which one goes first for the language of the last call
+    /// and why (English: the built-in model made fewer errors; German and other languages: the
+    /// system's recognizer did; an identifier in the vocabulary: the system's recognizer writes it as
+    /// spelt; as the app asked, see [`SpeechSession::set_preference`]).
     #[must_use]
     pub fn recognizers(&self) -> StringVec {
         let lines = self
@@ -693,10 +1162,244 @@ impl SpeechSession {
     /// a permission, the app registered a model).
     pub fn reset(&self) {
         if let Some(inner) = self.inner() {
+            inner.keeper.release();
             inner.chain.lock().unwrap_or_else(PoisonError::into_inner).reset();
             inner.refresh_lines();
         }
     }
+}
+
+/// The most events a stream keeps for an app that does not collect them.
+const STREAM_QUEUE: usize = 1_000;
+
+/// What a stream shares between its handles and its thread.
+struct StreamShared {
+    events: Mutex<VecDeque<SpeechEvent>>,
+    arrived: Condvar,
+    stop: AtomicBool,
+    cancel: AtomicBool,
+    running: AtomicBool,
+}
+
+impl StreamShared {
+    fn new() -> Self {
+        Self {
+            events: Mutex::new(VecDeque::new()),
+            arrived: Condvar::new(),
+            stop: AtomicBool::new(false),
+            cancel: AtomicBool::new(false),
+            running: AtomicBool::new(true),
+        }
+    }
+
+    fn push(&self, event: SpeechEvent) {
+        let mut queue = self.events.lock().unwrap_or_else(PoisonError::into_inner);
+        if queue.len() >= STREAM_QUEUE {
+            // Nobody collects: the oldest partial goes first, then the oldest.
+            let at = queue.iter().position(|e| e.kind == SpeechEventKind::Partial).unwrap_or(0);
+            queue.remove(at);
+        }
+        queue.push_back(event);
+        drop(queue);
+        self.arrived.notify_all();
+    }
+
+    fn finish(&self) {
+        let queue = self.events.lock().unwrap_or_else(PoisonError::into_inner);
+        self.running.store(false, Ordering::SeqCst);
+        drop(queue);
+        self.arrived.notify_all();
+    }
+}
+
+fn public_event(event: Event) -> SpeechEvent {
+    SpeechEvent {
+        kind: event.kind.into(),
+        at_ms: u32::try_from(event.at_ms).unwrap_or(u32::MAX),
+        heard: answer_to_heard(event.answer, event.by),
+    }
+}
+
+/// A listen that goes on: utterance after utterance, with what each has come to as it goes
+/// ([`SpeechSession::start_stream`]). The events are collected with `wait_events` (blocks until
+/// there is one) or `poll_events` (never blocks).
+///
+/// ```text
+/// let stream = session.start_stream(language, SpeechStreamOptions { partials: true, ..Default::default() });
+/// loop {
+///     for event in stream.wait_events(100).as_slice() { /* Ready, Partial, Final, Quiet, Ended */ }
+///     if !stream.is_running() { break }
+/// }
+/// ```
+#[repr(C)]
+pub struct SpeechStream {
+    /// Opaque pointer to the shared stream (null on a default handle).
+    pub ptr: *mut c_void,
+    /// Whether this handle owns one reference of the stream (every `clone` does).
+    pub run_destructor: bool,
+}
+
+impl core::fmt::Debug for SpeechStream {
+    /// Whether the stream runs and how many events wait; never the pointer or what was heard.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.shared() {
+            None => f.write_str("SpeechStream(closed)"),
+            Some(shared) => f
+                .debug_struct("SpeechStream")
+                .field("running", &shared.running.load(Ordering::SeqCst))
+                .field(
+                    "events_waiting",
+                    &shared.events.lock().unwrap_or_else(PoisonError::into_inner).len(),
+                )
+                .finish_non_exhaustive(),
+        }
+    }
+}
+
+// SAFETY: the stream behind the pointer is `Sync` (its parts are mutexes and atomics).
+unsafe impl Send for SpeechStream {}
+unsafe impl Sync for SpeechStream {}
+
+impl Default for SpeechStream {
+    fn default() -> Self {
+        Self {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+
+impl Clone for SpeechStream {
+    fn clone(&self) -> Self {
+        if self.ptr.is_null() {
+            return Self::default();
+        }
+        // SAFETY: `ptr` came from `Arc::into_raw` of a `StreamShared` and is alive while a handle
+        // that owns a reference exists; a clone takes one reference of its own.
+        unsafe { Arc::increment_strong_count(self.ptr.cast::<StreamShared>()) };
+        Self {
+            ptr: self.ptr,
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for SpeechStream {
+    fn drop(&mut self) {
+        if self.run_destructor && !self.ptr.is_null() {
+            // SAFETY: this handle owns one reference.
+            let shared = unsafe { Arc::from_raw(self.ptr.cast::<StreamShared>()) };
+            // The last handle going ends the stream: nobody is left to hear it.
+            if Arc::strong_count(&shared) == 1 {
+                shared.cancel.store(true, Ordering::SeqCst);
+            }
+            drop(shared);
+            self.ptr = core::ptr::null_mut();
+            self.run_destructor = false;
+        }
+    }
+}
+
+impl SpeechStream {
+    fn from_shared(shared: Arc<StreamShared>) -> Self {
+        Self {
+            ptr: Arc::into_raw(shared).cast_mut().cast::<c_void>(),
+            run_destructor: true,
+        }
+    }
+
+    fn shared(&self) -> Option<&StreamShared> {
+        // SAFETY: a non-null `ptr` is alive while this handle is (see `Clone` and `Drop`).
+        unsafe { self.ptr.cast::<StreamShared>().as_ref() }
+    }
+
+    /// The events that came since the last call, oldest first; never waits.
+    #[must_use]
+    pub fn poll_events(&self) -> SpeechEventVec {
+        let Some(shared) = self.shared() else {
+            return SpeechEventVec::from_vec(Vec::new());
+        };
+        let mut queue = shared.events.lock().unwrap_or_else(PoisonError::into_inner);
+        SpeechEventVec::from_vec(queue.drain(..).collect())
+    }
+
+    /// The events that came since the last call, waiting up to `timeout_ms` for the first one:
+    /// returns as soon as there is one (a worker thread that waits here neither spins nor adds a
+    /// polling period to the latency), at once when the stream is over, empty when the time ran
+    /// out first.
+    #[must_use]
+    pub fn wait_events(&self, timeout_ms: u32) -> SpeechEventVec {
+        let Some(shared) = self.shared() else {
+            return SpeechEventVec::from_vec(Vec::new());
+        };
+        let mut queue = shared.events.lock().unwrap_or_else(PoisonError::into_inner);
+        if queue.is_empty() && shared.running.load(Ordering::SeqCst) {
+            queue = shared
+                .arrived
+                .wait_timeout_while(queue, std::time::Duration::from_millis(u64::from(timeout_ms)), |queue| {
+                    queue.is_empty() && shared.running.load(Ordering::SeqCst)
+                })
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        SpeechEventVec::from_vec(queue.drain(..).collect())
+    }
+
+    /// Ends the stream after the utterance that goes on (an `Ended` event follows).
+    pub fn stop(&self) {
+        if let Some(shared) = self.shared() {
+            shared.stop.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Ends the stream now: the utterance that goes on is dropped without a final (an `Ended`
+    /// event follows).
+    pub fn cancel(&self) {
+        if let Some(shared) = self.shared() {
+            shared.cancel.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Whether the stream is still listening (events may still be waiting to be collected).
+    #[must_use]
+    pub fn is_running(&self) -> bool {
+        self.shared().is_some_and(|shared| shared.running.load(Ordering::SeqCst))
+    }
+}
+
+/// The thread of a stream: listens through the chain and hands every event to the handles.
+fn run_stream(session: &SpeechSession, shared: &std::sync::Weak<StreamShared>, language: &str, options: StreamOptions) {
+    let Some(inner) = session.inner() else {
+        return;
+    };
+    let push = |event: Event| {
+        if let Some(shared) = shared.upgrade() {
+            shared.push(public_event(event));
+        }
+    };
+    let stopped = || shared.upgrade().map_or(true, |s| s.stop.load(Ordering::SeqCst));
+    let cancelled =
+        || inner.cancel.load(Ordering::SeqCst) || shared.upgrade().map_or(true, |s| s.cancel.load(Ordering::SeqCst));
+    inner.cancel.store(false, Ordering::SeqCst);
+    inner.flowing.store(false, Ordering::SeqCst);
+    let _listening = ActiveGuard::new(&inner.active);
+    {
+        let mut chain = inner.chain.lock().unwrap_or_else(PoisonError::into_inner);
+        let _ = inner.arrange(&mut chain, language);
+        drop(chain.stream_with(
+            language,
+            &options,
+            &cancelled,
+            &stopped,
+            &|| inner.flowing.store(true, Ordering::SeqCst),
+            &push,
+        ));
+    }
+    inner.flowing.store(false, Ordering::SeqCst);
+    if let Some(shared) = shared.upgrade() {
+        shared.finish();
+    }
+    inner.refresh_lines();
 }
 
 enum BuiltinSource {
@@ -704,23 +1407,77 @@ enum BuiltinSource {
     Bytes(Vec<u8>),
 }
 
+/// Counts a listening call for as long as it lives.
+struct ActiveGuard<'a>(&'a AtomicU32);
+
+impl<'a> ActiveGuard<'a> {
+    fn new(counter: &'a AtomicU32) -> Self {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Self(counter)
+    }
+}
+
+impl Drop for ActiveGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 impl SessionInner {
-    /// The status lines of the chain as they stand now. Called with the chain free (after a
-    /// call or a change).
+    /// What the keeper is told from the standby and the limits.
+    fn apply_standby(&self) {
+        let limits = *self.limits.lock().unwrap_or_else(PoisonError::into_inner);
+        let standby = *self.standby.lock().unwrap_or_else(PoisonError::into_inner);
+        let (keep_ms, armed_idle_ms, always) = match standby {
+            SpeechStandby::Off => (0, 0, false),
+            SpeechStandby::OnDemand => (limits.mic_keep_ms, 0, false),
+            SpeechStandby::WhileArmed => (limits.mic_keep_ms, limits.armed_idle_ms, false),
+            SpeechStandby::Always => (limits.mic_keep_ms, 0, true),
+        };
+        self.keeper.set_always(always);
+        self.keeper.set_armed_idle_ms(armed_idle_ms);
+        self.keeper.set_keep_ms(keep_ms);
+    }
+
+    /// Puts who goes first for a call in `language` first in `chain` (the rule is
+    /// [`order::choose`]) and remembers the language for the status lines.
+    fn arrange(&self, chain: &mut Chain, language: &str) -> order::Order {
+        let language: String = language.chars().take(64).collect();
+        let preference = *self.preference.lock().unwrap_or_else(PoisonError::into_inner);
+        let identifiers = self.identifiers.load(Ordering::SeqCst);
+        let order = order::choose(preference, &language, identifiers, chain.is_ready(Kind::Builtin));
+        chain.set_first(order.first);
+        *self.last_language.lock().unwrap_or_else(PoisonError::into_inner) = language;
+        order
+    }
+
+    /// The status lines of the chain as they stand now, in the order the next call would try
+    /// them (for the language of the last one), the first with why. Called with the chain free
+    /// (after a call or a change).
     fn refresh_lines(&self) {
-        let states = match self.chain.try_lock() {
-            Ok(mut chain) => chain.states(),
+        let language = self.last_language.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let (states, order) = match self.chain.try_lock() {
+            Ok(mut chain) => {
+                let order = self.arrange(&mut chain, &language);
+                (chain.states(), order)
+            }
             Err(_) => return,
         };
+        // Who goes first only needs saying when there is a choice: two recognizers that can listen.
+        let choice = states.iter().filter(|state| state.health == Health::Ready).count() >= 2;
         let lines = states
             .iter()
-            .map(|state| {
+            .enumerate()
+            .map(|(index, state)| {
                 let kind = match state.kind {
                     Kind::Native => "native",
                     Kind::Builtin => "built-in",
                     Kind::Scripted => "scripted",
                 };
                 match &state.health {
+                    Health::Ready if choice && index == 0 && state.kind == order.first => {
+                        format!("{kind} | {} | ready; tried first: {}", state.label, order.why)
+                    }
                     Health::Ready => format!("{kind} | {} | ready", state.label),
                     Health::Refused { outcome, message } => {
                         let word = match outcome {
@@ -740,21 +1497,21 @@ impl SessionInner {
 
 /// The platform's chain: its own recognizer, then the built-in one (looked for next to the
 /// executable until the app registers it).
-fn platform_chain(clock: SharedClock, exe_dir: Option<&std::path::Path>) -> Chain {
+fn platform_chain(clock: SharedClock, exe_dir: Option<&std::path::Path>, keeper: &MicKeeper) -> Chain {
     Chain::new(clock)
-        .with(Box::new(NativeRecognizer))
+        .with(Box::new(NativeRecognizer::new(keeper.clone())))
         .with(Box::new(Builtin::discover(
             exe_dir.map(std::path::Path::to_path_buf),
-            capture::platform_source(),
+            keeper.clone(),
             Tuning::default(),
         )))
 }
 
 /// The chain of a headless or E2E test run: what `AZ_SPEECH_SCRIPT` scripts, else what
 /// `AZ_SPEECH_HEARD` holds (heard on every call, at once) or nothing.
-fn scripted_chain(hooks: &azul_core::run_mode::TestHooks, clock: SharedClock) -> Chain {
+fn scripted_chain(hooks: &azul_core::run_mode::TestHooks, clock: SharedClock) -> (Chain, Preference) {
     let Some(path) = hooks.speech_script.as_deref().filter(|path| !path.is_empty()) else {
-        return Chain::new(clock).with(Box::new(HeadlessRecognizer));
+        return (Chain::new(clock).with(Box::new(HeadlessRecognizer)), Preference::Automatic);
     };
     let read = std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|text| script::parse(&text));
     match read {
@@ -765,20 +1522,48 @@ fn scripted_chain(hooks: &azul_core::run_mode::TestHooks, clock: SharedClock) ->
                     chain = chain.with(Box::new(MockSpeech::new(kind, steps).then(script.then)));
                 }
             }
-            chain
+            (chain, script.preference)
         }
-        Err(why) => Chain::new(clock).with(Box::new(MockSpeech::new(
-            Kind::Scripted,
-            vec![mock::Step::Refuse {
-                outcome: Outcome::Unavailable,
-                message: format!("{SPEECH_SCRIPT_VAR} {}: {why}", path.to_string_lossy()),
-            }],
-        ))),
+        Err(why) => (
+            Chain::new(clock).with(Box::new(MockSpeech::new(
+                Kind::Scripted,
+                vec![mock::Step::Refuse {
+                    outcome: Outcome::Unavailable,
+                    message: format!("{SPEECH_SCRIPT_VAR} {}: {why}", path.to_string_lossy()),
+                }],
+            ))),
+            Preference::Automatic,
+        ),
     }
 }
 
+/// Whether the system's recognizer of this platform takes a vocabulary.
+const NATIVE_TAKES_VOCABULARY: bool = cfg!(any(target_os = "ios", target_os = "macos"));
+
+/// The most phrases the system's recognizer is given (Apple's guidance for `contextualStrings`:
+/// 100 or fewer, short ones), each at most [`NATIVE_PHRASE_CHARS`] characters.
+const NATIVE_PHRASES: usize = 100;
+const NATIVE_PHRASE_CHARS: usize = 64;
+
 /// The platform's own recognizer as a link of the chain.
-struct NativeRecognizer;
+struct NativeRecognizer {
+    /// What it is asked to favour: on macOS and iOS (`contextualStrings`), nowhere else yet.
+    vocabulary: Vocabulary,
+    /// The session's microphone (macOS and iOS: the recognizer is fed from it).
+    keeper: MicKeeper,
+    /// A call has listened: the frameworks are loaded and the permissions known.
+    used: bool,
+}
+
+impl NativeRecognizer {
+    fn new(keeper: MicKeeper) -> Self {
+        Self {
+            vocabulary: Vocabulary::default(),
+            keeper,
+            used: false,
+        }
+    }
+}
 
 impl Recognizer for NativeRecognizer {
     fn kind(&self) -> Kind {
@@ -793,12 +1578,62 @@ impl Recognizer for NativeRecognizer {
         native_readiness()
     }
 
+    fn warm(&self) -> bool {
+        self.used
+    }
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    fn listen_stream(
+        &mut self,
+        call: &Listen<'_>,
+        options: &StreamOptions,
+        stop: &dyn Fn() -> bool,
+        emit: &dyn Fn(EventKind, Answer),
+    ) -> Answer {
+        let answer = platform::stream(
+            &language_tag(call.language),
+            call.timeout_ms.max(1),
+            call.cancel,
+            stop,
+            options,
+            emit,
+            &self.vocabulary,
+            call.flowing,
+            &self.keeper,
+            true,
+        );
+        self.used |= matches!(answer.outcome, Outcome::Heard | Outcome::NothingHeard);
+        answer
+    }
+
+    fn set_vocabulary(&mut self, words: &[String]) -> Option<String> {
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        {
+            let (vocabulary, note) = Vocabulary::from_words(words, NATIVE_PHRASES, NATIVE_PHRASE_CHARS);
+            self.vocabulary = vocabulary;
+            note.map(|note| format!("{}: {note}", Kind::Native.describe()))
+        }
+        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+        {
+            let _ = words;
+            None
+        }
+    }
+
     fn listen(&mut self, call: &Listen<'_>) -> Answer {
         let began = call.clock.unix_ms();
-        let mut answer = native_listen(&language_tag(call.language), call.timeout_ms.max(1), call.cancel);
+        let mut answer = native_listen(
+            &language_tag(call.language),
+            call.timeout_ms.max(1),
+            call.cancel,
+            &self.vocabulary,
+            call.flowing,
+            &self.keeper,
+        );
         if answer.started_unix_ms == 0 && answer.outcome == Outcome::Heard {
             answer.started_unix_ms = began;
         }
+        self.used |= matches!(answer.outcome, Outcome::Heard | Outcome::NothingHeard);
         answer
     }
 }
@@ -881,15 +1716,24 @@ fn native_readiness() -> Readiness {
 }
 
 /// Listens on the platform's recognizer.
-fn native_listen(language: &str, timeout_ms: u32, cancel: &dyn Fn() -> bool) -> Answer {
+fn native_listen(
+    language: &str,
+    timeout_ms: u32,
+    cancel: &dyn Fn() -> bool,
+    vocabulary: &Vocabulary,
+    flowing: &dyn Fn(),
+    keeper: &MicKeeper,
+) -> Answer {
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     {
-        platform::listen(language, timeout_ms, cancel)
+        platform::listen(language, timeout_ms, cancel, vocabulary, flowing, keeper)
     }
     #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
-        // The other platforms' recognizers answer at the end of their own call: a cancel waits for it.
-        let _ = cancel;
+        // The other platforms' recognizers answer at the end of their own call (a cancel waits for
+        // it), take no vocabulary yet, and cannot say when sound begins to flow: from the start.
+        let _ = (cancel, vocabulary, keeper);
+        flowing();
         heard_to_answer(&platform::listen(language, timeout_ms))
     }
 }
@@ -1066,7 +1910,14 @@ pub(crate) fn listen_with(backend: Backend, language: &str, timeout_ms: u32) -> 
             heard
         }
         Backend::Platform => answer_to_heard(
-            native_listen(&language_tag(language), timeout_ms.max(1), &|| false),
+            native_listen(
+                &language_tag(language),
+                timeout_ms.max(1),
+                &|| false,
+                &Vocabulary::default(),
+                &|| {},
+                &MicKeeper::new(capture::platform_source()),
+            ),
             Some(Kind::Native),
         ),
     }

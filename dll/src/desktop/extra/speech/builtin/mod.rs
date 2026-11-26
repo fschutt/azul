@@ -44,7 +44,11 @@ pub use self::{
     audio::{Vad, MODEL_RATE},
     engine::{CactusEngine, Engine, EngineError},
 };
-use super::recognizer::{Answer, Kind, Listen, Outcome, Readiness, Recognizer};
+use super::{
+    keeper::{MicKeeper, PREROLL_MS},
+    recognizer::{Answer, EventKind, Kind, Listen, Outcome, Readiness, Recognizer, StreamOptions, STREAM_ENDPOINT_MS},
+    vocabulary::Vocabulary,
+};
 
 /// What the app registered did, as a status the app can show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,8 +100,9 @@ impl Default for Tuning {
     }
 }
 
-/// What delivers sound: opened for each listen call, closed at its end (the microphone light is
-/// on only while listening).
+/// What delivers sound: opened when a call needs a microphone (the session's [`MicKeeper`] may keep
+/// it open for the next call: the microphone indicator is on only while listening and for the time
+/// the app allows after it).
 pub trait MicrophoneSource: Send {
     /// Opens the microphone, or says why not: `Denied` when the user (or an administrator) said
     /// no, `Unavailable` when there is none or it cannot be asked for.
@@ -120,6 +125,19 @@ pub trait Microphone: Send {
     ///
     /// The device's message when it failed.
     fn read(&mut self, out: &mut Vec<f32>, wait_ms: u32) -> Result<(), String>;
+}
+
+impl From<Box<dyn MicrophoneSource>> for MicKeeper {
+    /// A keeper that keeps nothing: the microphone is opened for each call and closed at its end.
+    fn from(source: Box<dyn MicrophoneSource>) -> Self {
+        Self::new(source)
+    }
+}
+
+impl<S: MicrophoneSource + 'static> From<Box<S>> for MicKeeper {
+    fn from(source: Box<S>) -> Self {
+        Self::new(source)
+    }
 }
 
 /// How long one read waits for sound, ms.
@@ -171,12 +189,28 @@ fn find_in(places: &[PathBuf], name: &str) -> Option<PathBuf> {
 /// The built-in recognizer.
 pub struct Builtin {
     state: State,
-    microphone: Box<dyn MicrophoneSource>,
+    /// The microphone, opened for a call and kept for the next one for as long as the session says.
+    keeper: MicKeeper,
     tuning: Tuning,
-    /// One keyword a line, kept to the limits.
-    keywords: String,
+    /// What the model is asked to favour, kept to the limits; its words are marked in an answer.
+    vocabulary: Vocabulary,
     /// The quietest the room was in the last call: the next call starts from it.
     floor: f32,
+}
+
+impl std::fmt::Debug for Builtin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state = match &self.state {
+            State::Ready(_) => "ready".to_string(),
+            State::Refused(message) => format!("refused: {message}"),
+            State::Discover(_) => "to be discovered".to_string(),
+        };
+        f.debug_struct("Builtin")
+            .field("state", &state)
+            .field("vocabulary", &self.vocabulary)
+            .field("keeper", &self.keeper)
+            .finish_non_exhaustive()
+    }
 }
 
 enum State {
@@ -192,7 +226,7 @@ enum State {
 impl Builtin {
     /// A recognizer that has nothing registered: it refuses with how to set it up.
     #[must_use]
-    pub fn not_set_up(microphone: Box<dyn MicrophoneSource>) -> Self {
+    pub fn not_set_up(microphone: impl Into<MicKeeper>) -> Self {
         Self::refused(
             microphone,
             format!(
@@ -206,24 +240,24 @@ impl Builtin {
     /// A recognizer that looks for the files next to the executable (`exe_dir`) when it is first
     /// needed and refuses, saying where it looked, when they are not there.
     #[must_use]
-    pub fn discover(exe_dir: Option<PathBuf>, microphone: Box<dyn MicrophoneSource>, tuning: Tuning) -> Self {
+    pub fn discover(exe_dir: Option<PathBuf>, microphone: impl Into<MicKeeper>, tuning: Tuning) -> Self {
         Self {
             state: State::Discover(exe_dir),
-            microphone,
+            keeper: microphone.into(),
             tuning,
-            keywords: String::new(),
+            vocabulary: Vocabulary::default(),
             floor: 0.0004,
         }
     }
 
     /// A recognizer that cannot listen, for `message`.
     #[must_use]
-    pub fn refused(microphone: Box<dyn MicrophoneSource>, message: String) -> Self {
+    pub fn refused(microphone: impl Into<MicKeeper>, message: String) -> Self {
         Self {
             state: State::Refused(message),
-            microphone,
+            keeper: microphone.into(),
             tuning: Tuning::default(),
-            keywords: String::new(),
+            vocabulary: Vocabulary::default(),
             floor: 0.0004,
         }
     }
@@ -236,7 +270,7 @@ impl Builtin {
     pub fn with_engine(
         mut engine: Box<dyn Engine>,
         model: &[u8],
-        microphone: Box<dyn MicrophoneSource>,
+        microphone: impl Into<MicKeeper>,
         tuning: Tuning,
     ) -> Result<Self, Failure> {
         if model.len() as u64 > tuning.max_model_bytes {
@@ -256,9 +290,9 @@ impl Builtin {
         })?;
         Ok(Self {
             state: State::Ready(engine),
-            microphone,
+            keeper: microphone.into(),
             tuning,
-            keywords: String::new(),
+            vocabulary: Vocabulary::default(),
             floor: 0.0004,
         })
     }
@@ -332,7 +366,7 @@ impl Builtin {
         engine_path: &str,
         model_path: &str,
         exe_dir: Option<&Path>,
-        microphone: Box<dyn MicrophoneSource>,
+        microphone: impl Into<MicKeeper>,
         tuning: Tuning,
     ) -> Result<Self, Failure> {
         let engine = Self::open_engine(engine_path, exe_dir)?;
@@ -349,7 +383,7 @@ impl Builtin {
         engine_path: &str,
         model: &[u8],
         exe_dir: Option<&Path>,
-        microphone: Box<dyn MicrophoneSource>,
+        microphone: impl Into<MicKeeper>,
         tuning: Tuning,
     ) -> Result<Self, Failure> {
         let engine = Self::open_engine(engine_path, exe_dir)?;
@@ -382,36 +416,24 @@ impl Builtin {
         };
     }
 
-    /// The words the model should favour (names, jargon): one a line, at most the limit, each
-    /// kept to its length. Answers the word about what was cut.
+    /// The words the model should favour (names, jargon): at most the limit, each kept to its
+    /// length. Answers the word about what was cut. The words of an answer that are among them
+    /// are marked `biased`.
     pub fn set_keywords(&mut self, words: &[String]) -> Option<String> {
-        let mut kept = Vec::new();
-        let mut cut = false;
-        for word in words {
-            let clean: String = word.chars().filter(|c| !c.is_control()).collect();
-            let clean = clean.trim();
-            if clean.is_empty() {
-                continue;
-            }
-            if kept.len() >= self.tuning.max_keywords {
-                cut = true;
-                break;
-            }
-            let clean: String = if clean.chars().count() > self.tuning.max_keyword_chars {
-                cut = true;
-                clean.chars().take(self.tuning.max_keyword_chars).collect()
-            } else {
-                clean.to_string()
-            };
-            kept.push(clean);
-        }
-        self.keywords = kept.join("\n");
-        cut.then(|| {
-            format!(
-                "the vocabulary was cut to {} words of at most {} characters",
-                self.tuning.max_keywords, self.tuning.max_keyword_chars
-            )
-        })
+        let (given, note) = Vocabulary::from_words(words, self.tuning.max_keywords, self.tuning.max_keyword_chars);
+        // The model cannot write a compound (`CssError` came out in none of three voices) but writes
+        // its words right when it is given them: an identifier is sent with its spoken parts.
+        let (sent, left_out) = given.with_spoken_parts(self.tuning.max_keywords);
+        self.vocabulary = sent;
+        let note = note.or_else(|| {
+            left_out.then(|| {
+                format!(
+                    "the vocabulary was cut to {} words (the spoken parts of identifiers are sent too and count)",
+                    self.tuning.max_keywords
+                )
+            })
+        });
+        note.map(|note| format!("{}: {note}", Kind::Builtin.describe()))
     }
 }
 
@@ -471,54 +493,136 @@ impl Recognizer for Builtin {
         }
     }
 
+    fn warm(&self) -> bool {
+        matches!(self.state, State::Ready(_))
+    }
+
     fn set_vocabulary(&mut self, words: &[String]) -> Option<String> {
         self.set_keywords(words)
     }
 
     fn listen(&mut self, call: &Listen<'_>) -> Answer {
+        // One utterance of the stream: its first final, or why there is none. A cancel of the call is
+        // a stop of the stream (the speech so far is answered, the microphone is let go).
+        let first: std::cell::RefCell<Option<Answer>> = std::cell::RefCell::new(None);
+        let options = StreamOptions {
+            partials: false,
+            // A call keeps the end-point it was measured with (a stream's default is shorter).
+            endpoint_ms: self.tuning.vad.hangover_ms,
+            max_ms: 0,
+            max_utterances: 1,
+            // A call hears all the microphone kept: speech that began before the call is not cut.
+            pre_roll_ms: PREROLL_MS,
+        };
+        let never = || false;
+        let mut one = *call;
+        one.cancel = &never;
+        let ended = self.run_stream(
+            &one,
+            &options,
+            &|| (call.cancel)(),
+            &|kind, answer| {
+                if kind == EventKind::Final {
+                    *first.borrow_mut() = Some(answer);
+                }
+            },
+            false,
+        );
+        match first.into_inner() {
+            Some(answer) => answer,
+            None if matches!(ended.outcome, Outcome::Heard | Outcome::NothingHeard) => {
+                Answer::none(Outcome::NothingHeard, "nothing was said")
+            }
+            None => ended,
+        }
+    }
+
+    fn listen_stream(
+        &mut self,
+        call: &Listen<'_>,
+        options: &StreamOptions,
+        stop: &dyn Fn() -> bool,
+        emit: &dyn Fn(EventKind, Answer),
+    ) -> Answer {
+        self.run_stream(call, options, stop, emit, true)
+    }
+}
+
+/// How often a growing utterance is decoded for a partial, ms of audio.
+const PARTIAL_EVERY_MS: u64 = 500;
+/// The least speech worth a partial, ms.
+const PARTIAL_MIN_MS: u64 = 300;
+/// A partial may cost this many times its own length of the time between two: at most a fifth of
+/// the stream thread's time goes to partials.
+const PARTIAL_BUDGET: u64 = 4;
+/// How long a room without speech is before a stream says so, ms of audio.
+const QUIET_MS: u64 = 3_000;
+/// The longest utterance, ms of speech: the model takes 30 s, a longer one is cut here.
+const MAX_UTTERANCE_MS: u64 = 25_000;
+/// What a pause that ends an utterance may be asked to be, ms.
+const MIN_ENDPOINT_MS: u32 = 200;
+const MAX_ENDPOINT_MS: u32 = 3_000;
+
+impl Builtin {
+    /// What the engine makes of one utterance, with the words of the vocabulary marked: `Ok(None)`
+    /// when it hears no words in it, `Err` with the answer that says why it could not.
+    fn decode(&mut self, segment: &audio::Segment, code: &str, audio_began_unix_ms: u64) -> Result<Option<Answer>, Answer> {
+        let State::Ready(engine) = &mut self.state else {
+            return Err(Answer::none(Outcome::Unavailable, "the built-in recognizer is not set up"));
+        };
+        let reply = engine
+            .transcribe(&segment.samples, code, &self.vocabulary.joined())
+            .map_err(|why| Answer::none(Outcome::Failed, &format!("the speech engine failed: {why}")))?;
+        let transcript = super::json::transcript(&reply).map_err(|why| {
+            Answer::none(Outcome::Failed, &format!("the speech engine's answer could not be read: {why}"))
+        })?;
+        if transcript.text.is_empty() {
+            return Ok(None);
+        }
+        let mut words = transcript.words;
+        self.vocabulary.mark(&mut words);
+        let mut answer = Answer::heard_words(words, &transcript.language, audio_began_unix_ms + segment.start_ms);
+        answer.text = transcript.text;
+        Ok(Some(answer))
+    }
+
+    /// The stream: reads the microphone, cuts utterances out of it as the end-pointer finds them,
+    /// reports a partial of the one that goes on and the final of each. `stop` finishes the
+    /// utterance that goes on at once (the speech so far is its final) and ends the stream, a
+    /// cancel of the call drops it; `keep_on_stop` is whether the microphone may be kept after a
+    /// stop (a stream: yes; the one utterance of a call that was cancelled: no).
+    fn run_stream(
+        &mut self,
+        call: &Listen<'_>,
+        options: &StreamOptions,
+        stop: &dyn Fn() -> bool,
+        emit: &dyn Fn(EventKind, Answer),
+        keep_on_stop: bool,
+    ) -> Answer {
         self.load_discovered();
         if let State::Refused(message) = &self.state {
             return Answer::none(Outcome::Unavailable, message);
         }
         let began_unix_ms = call.clock.unix_ms();
-        let mut microphone = match self.microphone.open() {
-            Ok(microphone) => microphone,
+        let mut lease = match self.keeper.acquire() {
+            Ok(lease) => lease,
             Err((outcome, message)) => return Answer::none(outcome, &message),
         };
-        let mut resampler = Resampler::new(microphone.rate());
-        let mut endpointer = Endpointer::with_floor(self.tuning.vad.clone(), self.floor);
-        let timeout_ms = u64::from(call.timeout_ms);
-        let mut raw = Vec::new();
-        let mut last_sound_at = call.clock.now_ms();
-        let mut progress = Progress::Waiting;
-        while progress != Progress::Done && endpointer.elapsed_ms() < timeout_ms && !(call.cancel)() {
-            raw.clear();
-            if let Err(why) = microphone.read(&mut raw, READ_WAIT_MS) {
-                return Answer::none(Outcome::Failed, &format!("the microphone failed: {why}"));
-            }
-            if raw.is_empty() {
-                call.clock.sleep_ms(10);
-                if call.clock.now_ms().saturating_sub(last_sound_at) > STALL_MS {
-                    return Answer::none(Outcome::Failed, "the microphone delivers no sound");
-                }
-                continue;
-            }
-            last_sound_at = call.clock.now_ms();
-            progress = endpointer.push(&resampler.process(&raw));
-        }
-        // The microphone is off before the (heavier) transcription starts.
-        drop(microphone);
-        self.floor = endpointer.noise_floor();
-        let segment = if progress == Progress::Done {
-            endpointer.take()
-        } else {
-            endpointer.finish()
-        };
-        let Some(segment) = segment else {
-            return Answer::none(Outcome::NothingHeard, "nothing was said");
-        };
-
-        let (code, note) = match (model_language(call.language), call.language.trim().is_empty()) {
+        lease.trim_preroll(options.pre_roll_ms);
+        let rate = lease.rate();
+        let mut resampler = Resampler::new(rate);
+        let mut vad = self.tuning.vad;
+        vad.hangover_ms = if options.endpoint_ms > 0 { options.endpoint_ms } else { STREAM_ENDPOINT_MS }
+            .clamp(MIN_ENDPOINT_MS, MAX_ENDPOINT_MS);
+        let mut endpointer = Endpointer::with_floor(vad, self.floor);
+        // What came in while nobody listened (a kept microphone) is heard first, and does not use up
+        // the time the caller asked for.
+        let preroll = std::mem::take(&mut lease.preroll);
+        let preroll_ms = preroll.len() as u64 * 1000 / u64::from(rate.max(1));
+        let budget_ms = u64::from(call.timeout_ms) + preroll_ms;
+        // The audio began `preroll_ms` before the call did (what a kept microphone heard in between).
+        let audio_began_unix_ms = began_unix_ms.saturating_sub(preroll_ms);
+        let (code, mut note) = match (model_language(call.language), call.language.trim().is_empty()) {
             (Some(code), _) => (code, None),
             (None, true) => ("", None),
             (None, false) => (
@@ -529,28 +633,163 @@ impl Recognizer for Builtin {
                 )),
             ),
         };
-        let State::Ready(engine) = &mut self.state else {
-            return Answer::none(Outcome::Unavailable, "the built-in recognizer is not set up");
+        let mut raw = Vec::new();
+        let mut last_sound_at = call.clock.now_ms();
+        let mut flowed = false;
+        if lease.warm {
+            // The microphone was open before the call: its sound is flowing already.
+            flowed = true;
+            (call.flowing)();
+        }
+        let mut progress = if preroll.is_empty() {
+            Progress::Waiting
+        } else {
+            endpointer.push(&resampler.process(&preroll))
         };
-        let reply = match engine.transcribe(&segment.samples, code, &self.keywords) {
-            Ok(reply) => reply,
-            Err(why) => return Answer::none(Outcome::Failed, &format!("the speech engine failed: {why}")),
-        };
-        let transcript = match super::json::transcript(&reply) {
-            Ok(transcript) => transcript,
-            Err(why) => {
-                return Answer::none(Outcome::Failed, &format!("the speech engine's answer could not be read: {why}"))
+        let mut lease = Some(lease);
+        let mut finals = 0u32;
+        let mut last_partial_at = 0u64;
+        let mut partial_cost_ms = 0u64;
+        let mut quiet_since = 0u64;
+        let mut cancelled = false;
+        let mut engine_failed = false;
+        let mut failure: Option<Answer> = None;
+        let final_answer = |this: &mut Self, segment: audio::Segment, note: &mut Option<String>| -> Result<(), Answer> {
+            match this.decode(&segment, code, audio_began_unix_ms)? {
+                Some(mut answer) => {
+                    if let Some(note) = note.take() {
+                        answer.message = note;
+                    }
+                    emit(EventKind::Final, answer);
+                }
+                None => emit(EventKind::Quiet, Answer::none(Outcome::NothingHeard, "nothing was said")),
             }
+            Ok(())
         };
-        if transcript.text.is_empty() {
-            return Answer::none(Outcome::NothingHeard, "nothing was said");
+        'stream: loop {
+            // An utterance that ended: its final, and the next one begins.
+            while progress == Progress::Done {
+                let segment = endpointer.take();
+                endpointer.next_utterance();
+                quiet_since = endpointer.elapsed_ms();
+                last_partial_at = 0;
+                if let Some(segment) = segment {
+                    finals += 1;
+                    let last = options.max_utterances > 0 && finals >= options.max_utterances;
+                    if last {
+                        // The microphone is given back before the (heavier) transcription starts.
+                        self.floor = endpointer.noise_floor();
+                        if let Some(lease) = lease.take() {
+                            lease.finish(true);
+                        }
+                    }
+                    if let Err(answer) = final_answer(self, segment, &mut note) {
+                        engine_failed = true;
+                        failure = Some(answer);
+                        break 'stream;
+                    }
+                    if last {
+                        break 'stream;
+                    }
+                }
+                progress = endpointer.push(&[]);
+            }
+            if (call.cancel)() {
+                cancelled = true;
+                break;
+            }
+            if stop() || endpointer.elapsed_ms() >= budget_ms {
+                break;
+            }
+            if progress == Progress::Speaking && endpointer.speech_ms() >= MAX_UTTERANCE_MS {
+                // Too long for the model: what there is is an utterance, the rest is the next.
+                let segment = endpointer.finish();
+                endpointer.next_utterance();
+                progress = Progress::Waiting;
+                quiet_since = endpointer.elapsed_ms();
+                last_partial_at = 0;
+                if let Some(segment) = segment {
+                    finals += 1;
+                    if let Err(answer) = final_answer(self, segment, &mut note) {
+                        engine_failed = true;
+                        failure = Some(answer);
+                        break;
+                    }
+                    if options.max_utterances > 0 && finals >= options.max_utterances {
+                        break;
+                    }
+                }
+                continue;
+            }
+            raw.clear();
+            let Some(held) = lease.as_mut() else {
+                break;
+            };
+            if let Err(why) = held.microphone().read(&mut raw, READ_WAIT_MS) {
+                failure = Some(Answer::none(Outcome::Failed, &format!("the microphone failed: {why}")));
+                break;
+            }
+            if raw.is_empty() {
+                call.clock.sleep_ms(10);
+                if call.clock.now_ms().saturating_sub(last_sound_at) > STALL_MS {
+                    failure = Some(Answer::none(Outcome::Failed, "the microphone delivers no sound"));
+                    break;
+                }
+                continue;
+            }
+            last_sound_at = call.clock.now_ms();
+            if !flowed {
+                // The first sound of this call: a UI may say "speak now".
+                flowed = true;
+                (call.flowing)();
+            }
+            progress = endpointer.push(&resampler.process(&raw));
+            if progress == Progress::Speaking
+                && options.partials
+                && endpointer.speech_ms() >= PARTIAL_MIN_MS
+                && endpointer.elapsed_ms() >= last_partial_at + PARTIAL_EVERY_MS.max(partial_cost_ms * PARTIAL_BUDGET)
+            {
+                if let Some(segment) = endpointer.peek() {
+                    let began = call.clock.now_ms();
+                    last_partial_at = endpointer.elapsed_ms();
+                    match self.decode(&segment, code, audio_began_unix_ms) {
+                        Ok(Some(answer)) => emit(EventKind::Partial, answer),
+                        Ok(None) => {}
+                        Err(answer) => {
+                            engine_failed = true;
+                            failure = Some(answer);
+                            break;
+                        }
+                    }
+                    partial_cost_ms = call.clock.now_ms().saturating_sub(began);
+                }
+            } else if progress == Progress::Waiting && endpointer.elapsed_ms().saturating_sub(quiet_since) >= QUIET_MS {
+                quiet_since = endpointer.elapsed_ms();
+                emit(EventKind::Quiet, Answer::none(Outcome::NothingHeard, "nothing was said"));
+            }
         }
-        let mut answer = Answer::heard_words(transcript.words, &transcript.language, began_unix_ms + segment.start_ms);
-        answer.text = transcript.text;
-        if let Some(note) = note {
-            answer.message = note;
+        // The end: what is said so far is the last utterance (unless the call was cancelled, or the
+        // microphone failed), and the microphone is given back (kept for the next call, unless the
+        // user cancelled: the indicator goes out).
+        // The words said before the microphone went away are still the user's: they come as the last
+        // final, then the stream ends with the failure. (Not after an engine failure: it would fail
+        // again.)
+        let tail = if cancelled || engine_failed { None } else { endpointer.finish() };
+        self.floor = endpointer.noise_floor();
+        if let Some(lease) = lease.take() {
+            if failure.is_some() {
+                drop(lease);
+            } else {
+                lease.finish(!cancelled && (keep_on_stop || !stop()));
+            }
         }
-        answer
+        if let Some(segment) = tail {
+            finals += 1;
+            if let Err(answer) = final_answer(self, segment, &mut note) {
+                failure.get_or_insert(answer);
+            }
+        }
+        failure.unwrap_or_else(|| Answer::none(if finals > 0 { Outcome::Heard } else { Outcome::NothingHeard }, ""))
     }
 }
 
