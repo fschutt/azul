@@ -97,6 +97,12 @@ pub mod stroke_features;
 #[cfg(test)]
 pub(crate) mod stroke_fixtures;
 pub mod switches;
+pub mod symbols;
+pub mod symbols_manifest;
+pub mod symbols_scan;
+pub mod symbols_sched;
+pub mod symbols_source;
+pub mod symbols_tokens;
 pub mod ui;
 pub mod voice;
 pub mod whiteboard;

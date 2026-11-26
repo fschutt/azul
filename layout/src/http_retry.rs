@@ -90,13 +90,13 @@ impl Connector<()> for UninterruptedConnector {
 
     fn connect(
         &self,
-        details: &ConnectionDetails,
+        details: &ConnectionDetails<'_>,
         chained: Option<()>,
     ) -> Result<Option<Self::Out>, Error> {
         Ok(self
             .0
             .connect(details, chained)?
-            .map(|transport| Box::new(Uninterrupted(transport)) as Box<dyn Transport>))
+            .map(|transport| -> Box<dyn Transport> { Box::new(Uninterrupted(transport)) }))
     }
 }
 
