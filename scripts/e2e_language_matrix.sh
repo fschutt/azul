@@ -1568,22 +1568,20 @@ lang_odin() {
       odin build . -out:hello-world-e2e \
         -extra-linker-flags:"-L. -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText" || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
-      # `foreign import azul "system:azul"` makes Odin ask the MSVC linker for
-      # azul.lib (NOT -lazul as on unix), so give it the import lib under that
-      # name on the lib search path; azul.dll resolves from cwd at run time.
-      #
-      # Do NOT hand azul.lib's directory to Odin via -extra-linker-flags: when
-      # any -extra-linker-flags is present, Odin mis-quotes its OWN
-      # auto-detected MSVC / Windows-Kits lib paths (which live under
-      # "C:\Program Files ...") and the MSVC linker splits them at the first
-      # space -> `LNK1181: cannot open input file 'C:\Program.obj'`
-      # (odin-lang/Odin#2741). Instead expose the local azul.lib to link.exe
-      # through the LIB environment variable, which the MSVC linker searches
-      # natively and Odin never re-quotes. Needs Windows-host validation.
+      # The generated azul.odin imports `system:azul.lib` on Windows: Odin hands
+      # the name to link.exe as it is, and link.exe reads a bare `azul` as the
+      # object file azul.obj ("LINK : fatal error LNK1181: cannot open input
+      # file 'azul.obj'", website run 45738701245). The release's import
+      # library goes next to the program under that name, where link.exe finds
+      # it without a LIB variable (the install steps in api.json say the same);
+      # azul.dll resolves from PATH at run time. Do NOT hand a library directory
+      # to Odin via -extra-linker-flags: when any is present, Odin mis-quotes its
+      # OWN auto-detected MSVC / Windows-Kits lib paths (which live under
+      # "C:\Program Files ...") and link.exe splits them at the first space
+      # (odin-lang/Odin#2741).
       BIN=./hello-world-e2e.exe
       cp "$RELEASE_DIR/azul.dll.lib" ./azul.lib 2>/dev/null || true
-      local ODIN_LIBDIR; ODIN_LIBDIR="$(pwd -W 2>/dev/null || pwd)"
-      LIB="${ODIN_LIBDIR};${LIB:-}" odin build . -out:hello-world-e2e.exe || exit 1
+      odin build . -out:hello-world-e2e.exe || exit 1
     else
       odin build . -out:hello-world-e2e \
         -extra-linker-flags:"-L." || exit 1
