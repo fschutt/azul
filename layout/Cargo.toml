@@ -70,9 +70,12 @@ azul-core              = { version = "0.0.21", path = "../core", default-feature
 # `form` module's own gate.
 regex-lite              = { version = "0.1.9", default-features = false, features = ["string"], optional = true }
 image                   = { version = "0.25", default-features = false, optional = true }
-# Explicit override to disable SIMD features that were broken in older versions
-# See: https://github.com/image-rs/image/issues/2705
-zune-jpeg               = { version = "0.5", default-features = false, features = ["std"], optional = true }
+# The JPEG decoder behind `image`'s `jpeg`. Its x86 and NEON SIMD paths are ON: `image` depends on
+# zune-jpeg with the crate's default features and cargo unifies them with the `default-features = false`
+# here (cargo tree on Linux, macOS and Windows: `zune-jpeg | neon, std, x86`). They did not build before
+# 0.5.8 (SIMD calls outside `unsafe` blocks, https://github.com/image-rs/image/issues/2705), so this asks
+# for 0.5.8 or newer; image_formats_test.rs pins the manifest and the lock to it.
+zune-jpeg               = { version = "0.5.8", default-features = false, features = ["std"], optional = true }
 rust-fontconfig = { version = "5.2", default-features = false, optional = true }
 libc                    = { version = "0.2", default-features = false, optional = true }
 serde                   = { version = "1.0", features = ["derive"] }
