@@ -552,7 +552,7 @@ fn on_changed(app: &mut RefAny, info: &mut CallbackInfo) {
         let Some(mut d) = app.downcast_mut::<Demo>() else {
             return;
         };
-        let now = d.panel.now_ms();
+        let now = d.panel.unix_ms();
         let Some(job) = d.panel.wb.save_job(now) else {
             return;
         };
@@ -813,7 +813,7 @@ extern "C" fn on_board_read(mut app: RefAny, mut msg: RefAny, mut info: Callback
             return Update::DoNothing;
         };
         let raw = d.loading_raw.take();
-        let now = d.panel.now_ms();
+        let now = d.panel.unix_ms();
         let effects = d.panel.wb.loaded(result, raw, now);
         say(&format!("WBDEMO_OPENED {} {}", d.panel.wb.active_board().0, d.panel.wb.board.len()));
         say(&format!("WBDEMO_HISTORY {}", d.panel.wb.history().snapshots.len()));
