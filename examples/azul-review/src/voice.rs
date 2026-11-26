@@ -1090,6 +1090,15 @@ pub fn start_scripted(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor
 /// The dictation: what [`start`] and [`start_scripted`] do.
 fn begin(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor, script: Option<(Vec<String>, u64)>) -> Update {
     let scripted = script.is_some();
+    // A pen that rests on the grip of a loop that waits for the whiteboard (or holds a press on a loop) is reaching for the
+    // board: it is not asking to be listened to.
+    if !scripted
+        && data.downcast_ref::<AppState>().is_some_and(|s| {
+            crate::whiteboard_page::rest_is_for_the_board(&s, anchor.page, crate::whiteboard_geom::Pt::new(anchor.x, anchor.y))
+        })
+    {
+        return Update::DoNothing;
+    }
     let waits = {
         let Some(mut s) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
