@@ -390,7 +390,7 @@ fn an_arrows_label_is_shown_on_its_line_and_typed_in_a_text_area_that_takes_the_
         })
         .expect("a panel");
     let editor = with_id(&typing, &area).expect("the text area");
-    let asks = editor.root.attributes().as_slice().iter().any(|a| matches!(a, AttributeType::Autofocus));
+    let asks = editor.root.get_attributes().as_slice().iter().any(|a| matches!(a, AttributeType::Autofocus));
     assert!(asks, "the person double-clicked to type: the area takes the keyboard when it mounts");
     // An arrow with no label shows nothing of the kind.
     let bare = host
