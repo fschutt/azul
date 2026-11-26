@@ -85,6 +85,10 @@ fn the_manifest_lists_every_configuration_change_the_app_handles() {
         "layoutDirection",
         "fontScale",
         "colorMode",
+        // "Bold text" (API 31) and the grammatical gender (API 34) are configuration changes too: all 18
+        // values of `attr/configChanges` in android-34 are listed, so no setting restarts the activity.
+        "fontWeightAdjustment",
+        "grammaticalGender",
     ] {
         assert!(
             list.split('|').any(|v| v == needed),
