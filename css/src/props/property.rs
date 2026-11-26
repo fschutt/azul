@@ -114,7 +114,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 34] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 226] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 228] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -238,6 +238,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 226] = [
     (CssPropertyType::FontVariationSettings, "font-variation-settings"),
     (CssPropertyType::FontOpticalSizing, "font-optical-sizing"),
     (CssPropertyType::FontKerning, "font-kerning"),
+    (CssPropertyType::TextUnderlineOffset, "text-underline-offset"),
+    (CssPropertyType::TextUnderlinePosition, "text-underline-position"),
     (CssPropertyType::TextDecorationColor, "text-decoration-color"),
     (CssPropertyType::TextDecorationThickness, "text-decoration-thickness"),
     (CssPropertyType::TextWrap, "text-wrap"),
@@ -598,6 +600,8 @@ pub type StyleFontStretchValue = CssPropertyValue<StyleFontStretch>;
 pub type StyleFontVariationSettingsValue = CssPropertyValue<StyleFontVariationSettings>;
 pub type StyleFontOpticalSizingValue = CssPropertyValue<StyleFontOpticalSizing>;
 pub type StyleFontKerningValue = CssPropertyValue<StyleFontKerning>;
+pub type StyleTextUnderlineOffsetValue = CssPropertyValue<StyleTextUnderlineOffset>;
+pub type StyleTextUnderlinePositionValue = CssPropertyValue<StyleTextUnderlinePosition>;
 pub type StyleTextDecorationColorValue = CssPropertyValue<StyleTextDecorationColor>;
 pub type StyleTextDecorationThicknessValue = CssPropertyValue<StyleTextDecorationThickness>;
 pub type StyleTextWrapValue = CssPropertyValue<StyleTextWrap>;
@@ -998,6 +1002,10 @@ pub enum CssProperty {
     FontOpticalSizing(StyleFontOpticalSizingValue),
     /// `font-kerning`: the pair adjustments of the face on or off.
     FontKerning(StyleFontKerningValue),
+    /// `text-underline-offset`: how far an underline is moved from its place.
+    TextUnderlineOffset(StyleTextUnderlineOffsetValue),
+    /// `text-underline-position`: on which side of the text an underline is drawn.
+    TextUnderlinePosition(StyleTextUnderlinePositionValue),
     /// `text-decoration-color`: the colour of the lines of `text-decoration`.
     TextDecorationColor(StyleTextDecorationColorValue),
     /// `text-decoration-thickness`: the thickness of the lines of `text-decoration`.
@@ -1300,6 +1308,8 @@ pub enum CssPropertyType {
     FontVariationSettings,
     FontOpticalSizing,
     FontKerning,
+    TextUnderlineOffset,
+    TextUnderlinePosition,
     TextDecorationColor,
     TextDecorationThickness,
     TextWrap,
@@ -1527,6 +1537,8 @@ impl CssPropertyType {
         Self::FontVariationSettings,
         Self::FontOpticalSizing,
         Self::FontKerning,
+        Self::TextUnderlineOffset,
+        Self::TextUnderlinePosition,
         Self::TextDecorationColor,
         Self::TextDecorationThickness,
         Self::TextWrap,
@@ -1797,6 +1809,8 @@ impl CssPropertyType {
             Self::FontVariationSettings => "font-variation-settings",
             Self::FontOpticalSizing => "font-optical-sizing",
             Self::FontKerning => "font-kerning",
+            Self::TextUnderlineOffset => "text-underline-offset",
+            Self::TextUnderlinePosition => "text-underline-position",
             Self::TextDecorationColor => "text-decoration-color",
             Self::TextDecorationThickness => "text-decoration-thickness",
             Self::TextWrap => "text-wrap",
@@ -1822,7 +1836,7 @@ impl CssPropertyType {
             BorderCollapse, BorderSpacing, CaptionSide, Cursor, Direction, EmptyCells,
             FontFamily, FontFeatureSettings, FontSize, FontStyle, FontVariantCaps,
             FontVariantNumeric, FontWeight, HangingPunctuation, HyphenationLanguage, Hyphens,
-            FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, TextWrap, FontVariantPosition, TextRendering, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
+            FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, TextUnderlineOffset, TextUnderlinePosition, TextWrap, FontVariantPosition, TextRendering, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
             LetterSpacing, LineBreak, LineHeight, ListStylePosition, ListStyleType, Orphans,
             OverflowWrap, Quotes, TabSize, TextAlign, TextAlignLast, TextColor, TextCombineUpright,
             TextDecoration, TextIndent, TextJustify, TextOrientation, TextTransform, UserSelect,
@@ -1832,7 +1846,7 @@ impl CssPropertyType {
             // Font properties
             FontFamily | FontSize | FontWeight | FontStyle | LineHeight | LetterSpacing | WordSpacing | TextIndent |
             FontVariantNumeric | FontVariantCaps | FontFeatureSettings |
-            FontStretch | FontVariationSettings | FontOpticalSizing | FontKerning | TextWrap | FontVariantPosition | TextRendering | FontVariantLigatures | FontVariantEastAsian | FontSynthesisWeight | FontSynthesisStyle | FontSynthesisSmallCaps | FontSynthesisPosition |
+            FontStretch | FontVariationSettings | FontOpticalSizing | FontKerning | TextUnderlineOffset | TextUnderlinePosition | TextWrap | FontVariantPosition | TextRendering | FontVariantLigatures | FontVariantEastAsian | FontSynthesisWeight | FontSynthesisStyle | FontSynthesisSmallCaps | FontSynthesisPosition |
 
             // Generated content: the marks of open-quote and close-quote
             Quotes |
@@ -2054,7 +2068,7 @@ impl CssPropertyType {
             ColumnRuleColor, ColumnRuleStyle, Cursor, Direction, DominantBaseline, Filter,
             FontFamily, FontFeatureSettings, FontSize, FontStyle, FontVariantCaps,
             FontVariantNumeric, FontWeight, HangingPunctuation, Height,
-            FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, TextDecorationColor, TextDecorationThickness, TextWrap, FontVariantPosition, TextRendering, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
+            FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, TextUnderlineOffset, TextUnderlinePosition, TextDecorationColor, TextDecorationThickness, TextWrap, FontVariantPosition, TextRendering, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
             HyphenationLanguage, Hyphens, InitialLetter, InitialLetterAlign, InitialLetterWrap,
             LetterSpacing, LineBreak, LineClamp, LineFitEdge, LineHeight, MaxHeight, MaxWidth,
             MinHeight, MinWidth, MixBlendMode, ObjectFit, ObjectPosition, Opacity,
@@ -2141,7 +2155,7 @@ impl CssPropertyType {
             // inherits but doesn't directly reflow).
             FontFamily | FontSize | FontWeight | FontStyle | FontVariantNumeric | FontVariantCaps
             | FontFeatureSettings | LetterSpacing | WordSpacing | LineHeight | TextAlign | TextJustify | TextIndent | WhiteSpace | TabSize
-            | FontStretch | FontVariationSettings | FontOpticalSizing | FontKerning | TextDecorationColor | TextDecorationThickness | TextWrap | FontVariantPosition | TextRendering | FontVariantLigatures | FontVariantEastAsian | FontSynthesisWeight | FontSynthesisStyle | FontSynthesisSmallCaps | FontSynthesisPosition
+            | FontStretch | FontVariationSettings | FontOpticalSizing | FontKerning | TextUnderlineOffset | TextUnderlinePosition | TextDecorationColor | TextDecorationThickness | TextWrap | FontVariantPosition | TextRendering | FontVariantLigatures | FontVariantEastAsian | FontSynthesisWeight | FontSynthesisStyle | FontSynthesisSmallCaps | FontSynthesisPosition
             | Hyphens | WordBreak | OverflowWrap | LineBreak | TextAlignLast | TextOrientation
             | HyphenationLanguage | TextCombineUpright | TextDecoration | HangingPunctuation
             | InitialLetter | LineClamp | Direction | VerticalAlign | UnicodeBidi | TextBoxTrim
@@ -3761,6 +3775,8 @@ pub fn parse_css_property(
         CssPropertyType::FontOpticalSizing |
         CssPropertyType::FontKerning |
         CssPropertyType::TextRendering |
+        CssPropertyType::TextUnderlineOffset |
+        CssPropertyType::TextUnderlinePosition |
         CssPropertyType::TextDecorationThickness |
         CssPropertyType::FontSynthesisWeight |
         CssPropertyType::FontSynthesisStyle |
@@ -4255,6 +4271,16 @@ pub fn parse_css_property(
             ),
             CssPropertyType::FontKerning => CssProperty::FontKerning(
                 parse_style_font_kerning(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::TextUnderlineOffset => CssProperty::TextUnderlineOffset(
+                parse_style_text_underline_offset(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::TextUnderlinePosition => CssProperty::TextUnderlinePosition(
+                parse_style_text_underline_position(value)
                     .map_err(|_| CssParsingError::GenericParseError)?
                     .into(),
             ),
@@ -5564,6 +5590,8 @@ impl_from_css_prop!(StyleFontStretch, CssProperty::FontStretch);
 impl_from_css_prop!(StyleFontVariationSettings, CssProperty::FontVariationSettings);
 impl_from_css_prop!(StyleFontOpticalSizing, CssProperty::FontOpticalSizing);
 impl_from_css_prop!(StyleFontKerning, CssProperty::FontKerning);
+impl_from_css_prop!(StyleTextUnderlineOffset, CssProperty::TextUnderlineOffset);
+impl_from_css_prop!(StyleTextUnderlinePosition, CssProperty::TextUnderlinePosition);
 impl_from_css_prop!(StyleTextDecorationColor, CssProperty::TextDecorationColor);
 impl_from_css_prop!(StyleTextDecorationThickness, CssProperty::TextDecorationThickness);
 impl_from_css_prop!(StyleTextWrap, CssProperty::TextWrap);
@@ -5819,6 +5847,8 @@ impl CssProperty {
             Self::FontVariationSettings(v) => v.get_css_value_fmt(),
             Self::FontOpticalSizing(v) => v.get_css_value_fmt(),
             Self::FontKerning(v) => v.get_css_value_fmt(),
+            Self::TextUnderlineOffset(v) => v.get_css_value_fmt(),
+            Self::TextUnderlinePosition(v) => v.get_css_value_fmt(),
             Self::TextDecorationColor(v) => v.get_css_value_fmt(),
             Self::TextDecorationThickness(v) => v.get_css_value_fmt(),
             Self::TextWrap(v) => v.get_css_value_fmt(),
@@ -6416,6 +6446,8 @@ impl CssProperty {
             Self::FontVariationSettings(v) => v.css_wide_keyword(),
             Self::FontOpticalSizing(v) => v.css_wide_keyword(),
             Self::FontKerning(v) => v.css_wide_keyword(),
+            Self::TextUnderlineOffset(v) => v.css_wide_keyword(),
+            Self::TextUnderlinePosition(v) => v.css_wide_keyword(),
             Self::TextDecorationColor(v) => v.css_wide_keyword(),
             Self::TextDecorationThickness(v) => v.css_wide_keyword(),
             Self::TextWrap(v) => v.css_wide_keyword(),
@@ -6646,6 +6678,8 @@ impl CssProperty {
             Self::FontVariationSettings(_) => CssPropertyType::FontVariationSettings,
             Self::FontOpticalSizing(_) => CssPropertyType::FontOpticalSizing,
             Self::FontKerning(_) => CssPropertyType::FontKerning,
+            Self::TextUnderlineOffset(_) => CssPropertyType::TextUnderlineOffset,
+            Self::TextUnderlinePosition(_) => CssPropertyType::TextUnderlinePosition,
             Self::TextDecorationColor(_) => CssPropertyType::TextDecorationColor,
             Self::TextDecorationThickness(_) => CssPropertyType::TextDecorationThickness,
             Self::TextWrap(_) => CssPropertyType::TextWrap,
@@ -7223,6 +7257,14 @@ impl CssProperty {
     #[must_use]
     pub const fn font_kerning(input: StyleFontKerning) -> Self {
         Self::FontKerning(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn text_underline_offset(input: StyleTextUnderlineOffset) -> Self {
+        Self::TextUnderlineOffset(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn text_underline_position(input: StyleTextUnderlinePosition) -> Self {
+        Self::TextUnderlinePosition(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn text_decoration_color(input: StyleTextDecorationColor) -> Self {
@@ -8652,6 +8694,20 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_text_underline_offset(&self) -> Option<&StyleTextUnderlineOffsetValue> {
+        match self {
+            Self::TextUnderlineOffset(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_text_underline_position(&self) -> Option<&StyleTextUnderlinePositionValue> {
+        match self {
+            Self::TextUnderlinePosition(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_text_decoration_color(&self) -> Option<&StyleTextDecorationColorValue> {
         match self {
             Self::TextDecorationColor(f) => Some(f),
@@ -8863,7 +8919,7 @@ impl CssProperty {
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
             Widows, Width, WordBreak, WordSpacing, WrapFlow, WrapThrough, WritingMode, ZIndex,
             Zoom, BackgroundClip, FontVariantNumeric, FontVariantCaps, FontFeatureSettings, CounterSet,
-            Quotes, BackgroundOrigin, BackgroundColor, FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, TextDecorationColor, TextDecorationThickness, TextWrap, FontVariantPosition, TextRendering, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
+            Quotes, BackgroundOrigin, BackgroundColor, FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, TextUnderlineOffset, TextUnderlinePosition, TextDecorationColor, TextDecorationThickness, TextWrap, FontVariantPosition, TextRendering, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
         };
         match self {
             CaretColor(c) => c.is_initial(),
@@ -9061,6 +9117,8 @@ impl CssProperty {
             FontVariationSettings(c) => c.is_initial(),
             FontOpticalSizing(c) => c.is_initial(),
             FontKerning(c) => c.is_initial(),
+            TextUnderlineOffset(c) => c.is_initial(),
+            TextUnderlinePosition(c) => c.is_initial(),
             TextDecorationColor(c) => c.is_initial(),
             TextDecorationThickness(c) => c.is_initial(),
             TextWrap(c) => c.is_initial(),
@@ -9567,6 +9625,14 @@ impl CssProperty {
     #[must_use]
     pub const fn const_font_kerning(input: StyleFontKerning) -> Self {
         Self::FontKerning(StyleFontKerningValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_text_underline_offset(input: StyleTextUnderlineOffset) -> Self {
+        Self::TextUnderlineOffset(StyleTextUnderlineOffsetValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_text_underline_position(input: StyleTextUnderlinePosition) -> Self {
+        Self::TextUnderlinePosition(StyleTextUnderlinePositionValue::Exact(input))
     }
     #[must_use]
     pub const fn const_text_decoration_color(input: StyleTextDecorationColor) -> Self {
@@ -10431,6 +10497,14 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::FontKerning(p) => format!(
             "CssProperty::FontKerning({})",
             print_css_property_value(p, tabs, "StyleFontKerning")
+        ),
+        CssProperty::TextUnderlineOffset(p) => format!(
+            "CssProperty::TextUnderlineOffset({})",
+            print_css_property_value(p, tabs, "StyleTextUnderlineOffset")
+        ),
+        CssProperty::TextUnderlinePosition(p) => format!(
+            "CssProperty::TextUnderlinePosition({})",
+            print_css_property_value(p, tabs, "StyleTextUnderlinePosition")
         ),
         CssProperty::TextDecorationColor(p) => format!(
             "CssProperty::TextDecorationColor({})",

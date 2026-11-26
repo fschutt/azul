@@ -68,6 +68,8 @@ pub fn styleText() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textDecoration(C.AzStyleTextDecoration_Underline)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textDecorationColor(C.AzStyleTextDecorationColorValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleTextDecorationColor_color(C.AzColorU{ .r = 204, .g = 51, .b = 0, .a = 255 }) } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textDecorationThickness(C.AzStyleTextDecorationThicknessValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleTextDecorationThickness_length(C.AzPixelValue_px(2.0)) } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textUnderlineOffset(C.AzStyleTextUnderlineOffsetValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleTextUnderlineOffset_length(C.AzPixelValue_px(3.0)) } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textUnderlinePosition(C.AzStyleTextUnderlinePositionValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleTextUnderlinePosition_UnderLeft } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_hyphenationLanguage(C.AzStyleHyphenationLanguageValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleHyphenationLanguage{ .inner = C.AzString_copyFromBytes("en-US", 0, 5) } } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_exclusionMargin(C.AzStyleExclusionMarginValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleExclusionMargin{ .inner = C.AzFloatValue_create(10.5) } } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_caretColor(C.AzCaretColor{ .inner = C.AzColorU{ .r = 255, .g = 0, .b = 0, .a = 255 } })),
@@ -77,7 +79,7 @@ pub fn styleText() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionColor(C.AzSelectionColor{ .inner = C.AzColorU{ .r = 255, .g = 255, .b = 255, .a = 255 } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionRadius(C.AzSelectionRadiusValue{ .Exact = .{ .tag = 6, .payload = C.AzSelectionRadius{ .inner = C.AzPixelValue_px(3.0) } } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_font(C.AzStyleFontFamilyVec_copyFromPtr(&[_]C.AzStyleFontFamily{ C.AzStyleFontFamily_system(C.AzString_copyFromBytes("caption", 0, 7)) }, 1))),
-    }, 65);
+    }, 67);
 }
 
 // CSS: .shorthands
