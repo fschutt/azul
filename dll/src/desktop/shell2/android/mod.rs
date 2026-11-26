@@ -673,6 +673,9 @@ pub fn android_main(app: AndroidApp) {
         }
     };
 
+    // The startup timeline (`AZ_STARTUP=1`): the native thread has what `run()` stashed.
+    app_shared.startup().mark("android:android_main_entered");
+
     let mut window = match AndroidWindow::new(
         root_window,
         fc_cache,
@@ -692,6 +695,8 @@ pub fn android_main(app: AndroidApp) {
             return;
         }
     };
+
+    window.common.app.startup().mark("android:window_created");
 
     // Publish what the Java side may call into (`bridge::UiBridge`), NOT the window: the Java UI thread
     // holds the address on every callback, so it must be something that is safe to touch from there and
@@ -1506,6 +1511,8 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
     match event {
         PollEvent::Main(main_event) => match main_event {
             MainEvent::InitWindow { .. } => {
+                // The startup timeline (`AZ_STARTUP=1`): the surface exists (the first layout waits for it).
+                window.common.app.startup().mark("android:surface_created");
                 // Contract shape (snapshot → mutate → pass): Android never
                 // dispatched WindowResize/WindowDpiChanged — these arms wrote
                 // geometry with no snapshot and no pass, so the diff either
@@ -2647,6 +2654,12 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
     // guard.drop() calls ANativeWindow_unlockAndPost: the frame is posted from here.
     drop(guard);
     window.present.posted(&plan);
+    // The startup timeline (`AZ_STARTUP=1`): the first frame is handed to the surface.
+    window
+        .common
+        .app
+        .startup()
+        .mark_first_present(|| format!("android cpu {}", if plan.dirty.is_some() { "partial" } else { "full" }));
     if let Some((status_light, navigation_light)) = bars_to_tell {
         set_system_bars_appearance(status_light, navigation_light);
     }
