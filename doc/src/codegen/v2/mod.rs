@@ -66,6 +66,9 @@ mod bug_classes;
 mod examples_test;
 #[cfg(test)]
 mod native_optionals;
+#[cfg(test)]
+#[path = "thread_safe_test.rs"]
+mod thread_safe_test;
 pub mod c_layout;
 pub mod config;
 pub mod field_access;

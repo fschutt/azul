@@ -11031,54 +11031,56 @@ n56 p29 d63 Inline @8,160 -x- ic=0/0
   dl26 PopClip
   dl27 PushClip 8,96 363.6875x38.671875
   dl28 HitTestArea 8,96 419.6875x38.671875
-  dl29 Text -24,96 483.6875x38.671875 glyphs=1 fs=32
-  dl30 HitTestArea 8,103.0625 398.40625x32
-  dl31 HitTestArea 406.40625,103.0625 8x32
-  dl32 HitTestArea 414.40625,95.75 13.28125x26.5625
-  dl33 HitTestArea 8,96 0x0
+  dl29 Underline 8,132.5 398.40625x2.5625
+  dl30 Text -24,96 483.6875x38.671875 glyphs=1 fs=32
+  dl31 HitTestArea 8,103.0625 398.40625x32
+  dl32 HitTestArea 406.40625,103.0625 8x32
+  dl33 HitTestArea 414.40625,95.75 13.28125x26.5625
   dl34 HitTestArea 8,96 0x0
   dl35 HitTestArea 8,96 0x0
-  dl36 PopClip
-  dl37 HitTestArea 8,160 0x0
-  dl38 PushClip 8,160 470.25x38.671875
-  dl39 HitTestArea 8,160 470.25x38.671875
-  dl40 Text 8,160 470.25x38.671875 glyphs=3 fs=32
-  dl41 Text 8,160 470.25x38.671875 glyphs=1 fs=32
-  dl42 Text 8,160 470.25x38.671875 glyphs=1 fs=26.5625
-  dl43 Text 8,160 470.25x38.671875 glyphs=4 fs=32
-  dl44 Text 8,160 470.25x38.671875 glyphs=1 fs=26.5625
-  dl45 Text 8,160 470.25x38.671875 glyphs=4 fs=32
-  dl46 Text 8,160 470.25x38.671875 glyphs=1 fs=26.5625
-  dl47 Text 8,160 470.25x38.671875 glyphs=15 fs=32
-  dl48 Text 8,160 470.25x38.671875 glyphs=1 fs=32
-  dl49 Text 8,160 470.25x38.671875 glyphs=5 fs=32
-  dl50 HitTestArea 8,167.0625 40x32
-  dl51 HitTestArea 48,167.0625 16x32
-  dl52 HitTestArea 64,159.75 13.28125x26.5625
-  dl53 HitTestArea 77.28125,167.0625 48x32
-  dl54 HitTestArea 125.28125,159.75 13.28125x26.5625
-  dl55 HitTestArea 138.5625,167.0625 48x32
-  dl56 HitTestArea 186.5625,159.75 13.28125x26.5625
-  dl57 HitTestArea 199.84375,167.0625 208x32
-  dl58 HitTestArea 407.84375,167.0625 16x32
-  dl59 HitTestArea 423.84375,167.0625 54.40625x32
-  dl60 HitTestArea 8,160 0x0
+  dl36 HitTestArea 8,96 0x0
+  dl37 PopClip
+  dl38 HitTestArea 8,160 0x0
+  dl39 PushClip 8,160 470.25x38.671875
+  dl40 HitTestArea 8,160 470.25x38.671875
+  dl41 Text 8,160 470.25x38.671875 glyphs=3 fs=32
+  dl42 Text 8,160 470.25x38.671875 glyphs=1 fs=32
+  dl43 Text 8,160 470.25x38.671875 glyphs=1 fs=26.5625
+  dl44 Text 8,160 470.25x38.671875 glyphs=4 fs=32
+  dl45 Text 8,160 470.25x38.671875 glyphs=1 fs=26.5625
+  dl46 Text 8,160 470.25x38.671875 glyphs=4 fs=32
+  dl47 Text 8,160 470.25x38.671875 glyphs=1 fs=26.5625
+  dl48 Text 8,160 470.25x38.671875 glyphs=15 fs=32
+  dl49 Text 8,160 470.25x38.671875 glyphs=1 fs=32
+  dl50 Text 8,160 470.25x38.671875 glyphs=5 fs=32
+  dl51 HitTestArea 8,167.0625 40x32
+  dl52 HitTestArea 48,167.0625 16x32
+  dl53 HitTestArea 64,159.75 13.28125x26.5625
+  dl54 HitTestArea 77.28125,167.0625 48x32
+  dl55 HitTestArea 125.28125,159.75 13.28125x26.5625
+  dl56 HitTestArea 138.5625,167.0625 48x32
+  dl57 HitTestArea 186.5625,159.75 13.28125x26.5625
+  dl58 HitTestArea 199.84375,167.0625 208x32
+  dl59 HitTestArea 407.84375,167.0625 16x32
+  dl60 HitTestArea 423.84375,167.0625 54.40625x32
   dl61 HitTestArea 8,160 0x0
   dl62 HitTestArea 8,160 0x0
   dl63 HitTestArea 8,160 0x0
   dl64 HitTestArea 8,160 0x0
-  dl65 PopClip
-  dl66 PushClip 8,160 470.25x38.671875
-  dl67 HitTestArea 8,160 531.6875x38.671875
-  dl68 Text -24,160 595.6875x38.671875 glyphs=1 fs=32
-  dl69 HitTestArea 8,167.0625 510.40625x32
-  dl70 HitTestArea 518.40625,167.0625 8x32
-  dl71 HitTestArea 526.40625,159.75 13.28125x26.5625
-  dl72 HitTestArea 8,160 0x0
-  dl73 HitTestArea 8,160 0x0
+  dl65 HitTestArea 8,160 0x0
+  dl66 PopClip
+  dl67 PushClip 8,160 470.25x38.671875
+  dl68 HitTestArea 8,160 531.6875x38.671875
+  dl69 Underline 8,196.5 510.40625x2.5625
+  dl70 Text -24,160 595.6875x38.671875 glyphs=1 fs=32
+  dl71 HitTestArea 8,167.0625 510.40625x32
+  dl72 HitTestArea 518.40625,167.0625 8x32
+  dl73 HitTestArea 526.40625,159.75 13.28125x26.5625
   dl74 HitTestArea 8,160 0x0
-  dl75 PopClip
-  dl76 PopStackingContext
+  dl75 HitTestArea 8,160 0x0
+  dl76 HitTestArea 8,160 0x0
+  dl77 PopClip
+  dl78 PopStackingContext
 === wpt/normalized/css/css-text-decor/reference/text-decoration-subelements-003-ref.html
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 800x77 ov=800x77 bl=58 ic=131.78125/934.1875
@@ -11123,23 +11125,24 @@ n20 p16 d24 Inline @40,109 -x- ic=6.40625/6.40625
   dl18 HitTestArea 8,77 784x0
   dl19 Text 8,109 506.15625x38.671875 glyphs=24 fs=32
   dl20 Underline 40,145.5 305.59375x2.5625
-  dl21 Text 8,109 506.15625x38.671875 glyphs=1 fs=32
-  dl22 Underline 462.46875,145.5 6.40625x2.5625
-  dl23 HitTestArea 40,116.0625 305.59375x32
-  dl24 HitTestArea 345.59375,120.421875 116.859375x26.5625
-  dl25 HitTestArea 462.46875,116.0625 6.40625x32
-  dl26 HitTestArea 468.85938,108.75 13.28125x26.5625
-  dl27 HitTestArea 40,109 0x0
+  dl21 Underline 345.59375,144.85938 116.859375x2.125
+  dl22 Text 8,109 506.15625x38.671875 glyphs=1 fs=32
+  dl23 Underline 462.46875,145.5 6.40625x2.5625
+  dl24 HitTestArea 40,116.0625 305.59375x32
+  dl25 HitTestArea 345.59375,120.421875 116.859375x26.5625
+  dl26 HitTestArea 462.46875,116.0625 6.40625x32
+  dl27 HitTestArea 468.85938,108.75 13.28125x26.5625
   dl28 HitTestArea 40,109 0x0
   dl29 HitTestArea 40,109 0x0
-  dl30 HitTestArea 8,77 492.875x102.671875
-  dl31 Text 8,109 492.875x38.671875 glyphs=10 fs=26.5625
-  dl32 Underline 345.59375,133.1875 116.859375x2.125
-  dl33 HitTestArea 40,116.0625 305.59375x32
-  dl34 HitTestArea 345.59375,108.75 116.859375x26.5625
-  dl35 HitTestArea 462.46875,116.0625 6.40625x32
-  dl36 HitTestArea 40,109 0x0
-  dl37 PopStackingContext
+  dl30 HitTestArea 40,109 0x0
+  dl31 HitTestArea 8,77 492.875x102.671875
+  dl32 Text 8,109 492.875x38.671875 glyphs=10 fs=26.5625
+  dl33 Underline 345.59375,133.1875 116.859375x2.125
+  dl34 HitTestArea 40,116.0625 305.59375x32
+  dl35 HitTestArea 345.59375,108.75 116.859375x26.5625
+  dl36 HitTestArea 462.46875,116.0625 6.40625x32
+  dl37 HitTestArea 40,109 0x0
+  dl38 PopStackingContext
 === wpt/normalized/css/css-text-decor/text-decoration-color.html
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 800x278.23438 ov=800x278.23438 bl=269.9375 ic=117.09375/614.1094

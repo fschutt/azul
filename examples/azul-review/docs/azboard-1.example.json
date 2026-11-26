@@ -4,8 +4,8 @@
   "board": {
     "id": "b1",
     "name": "From the DOM to the pixels",
-    "created_ms": 1764140000000,
-    "modified_ms": 1764143600000
+    "created_ms": 1795289530000,
+    "modified_ms": 1795451764000
   },
   "workspace": {
     "name": "azul",
@@ -13,7 +13,7 @@
       "remote": "https://github.com/fschutt/azul.git",
       "web_url": "https://github.com/fschutt/azul",
       "host": "github",
-      "rev": "fb2c1540972fd27d8dfccc187e449cd54a5e77ca",
+      "rev": "6ffdbddfd2882cad539086408e30f7d821833d6e",
       "branch": "master",
       "dirty": false
     }
@@ -31,10 +31,10 @@
       "x": 0,
       "y": 0,
       "width": 1720,
-      "height": 262
+      "height": 412
     }
   },
-  "next_id": 10,
+  "next_id": 13,
   "assets": {
     "img-1": {
       "type": "image/png",
@@ -65,6 +65,12 @@
       "width": 280,
       "height": 112,
       "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAABwCAYAAADFXm8PAAABlUlEQVR42u3dsQ2AIBRFUTaiNHH/lSiwwRUIoYF3irOAxlv8T7B8vY0Z71OBRbPf2W2KwIDACAwIjMAAAiMwIDACAwITEBgAgQEEBhAYgPOHvF4GCIzAAAIDCIzAgMAIDCAwgDU1IDAAAgMIDCAwrmsAdixlBAYQGEBgAIERGEBggITAADgHAwgMIDAATvICtkiAwAgMIDCAwAACIzCAk7yAczCAwAAIDOAkL6QONREYEBiBAYERGBAYBAYERmBAYKypAQQGEBhAYAAMeTFURWBAYARGYBAYBAaBQWBAYARGYBAYrKkBgQEEBkBgAENeIHMoLjAgMAIDCAwgMAIDAiMwQEJgAAQGEBhAYADOH/J6GSAwAgMIDCAwAgMCIzCAwADW1IDAAAgMIDCAwLiuwY/FQGAEBgQGgUFgBEZgQGAEBgQGgUFgPARAYACBARAYwHUNgMAIDCAwgMAAAiMwgMAA1tSAwAAIDCAwgCGv6xMAgREYEBiBAYERGEBgBAYERmBAYAAEBhAYQGAADHkNeUFgBAZC/UlU3Caww7msAAAAAElFTkSuQmCC"
+    },
+    "img-6": {
+      "type": "image/png",
+      "width": 280,
+      "height": 112,
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAABwCAYAAADFXm8PAAABTUlEQVR42u3aoQ1AIQxAwW6EJGH/lRBgygooSJoTN8H/PNE29pr5wugNKOL23YfAAAIDCIzAgMAIDCAwgMAACAwgMIDAABjyArZIgMAIDAiMwAACAwiMwAAueQF3MIDAAAgM4JIXMOQVGEBgAIHxUUBgBAYQGEBgAGtqAIEBBAbAkBcKDVUFBhAYgQGBERgQGIHxk4DACAwIjDU1IDCAwAAIDCAwAAIDCAwgMAACAwgMIDAAAgMIDCAwAAIDCAwgMAACAwgMIDAAAgMIDCAwAAIDCAwgMAACAwgMIDAAAgMIDCAwAAIDCAyAwAACAwgMgMAAAgMIDIDAAAIDCAyAwAACAwgMgMAAAgMIDIDAAAIDCAyAwAACAwgMgMAAAgMIDIDAAAIDCAyAwAACAyAwgMAAAgMgMIDAAAIDIDCAwAACAyAwgMAAAgMgMMB3BxG14EaccLAYAAAAAElFTkSuQmCC"
     }
   },
   "items": [
@@ -85,8 +91,8 @@
         "line_start": 4852,
         "line_end": 4862,
         "hash": "sha256:e6ae97b4b4e1f3035449a2ce2a776b33a44166b8e05e68b188a22c6c64e4b888",
-        "rev": "fb2c1540972fd27d8dfccc187e449cd54a5e77ca",
-        "permalink": "https://github.com/fschutt/azul/blob/fb2c1540972fd27d8dfccc187e449cd54a5e77ca/core/src/dom.rs#L4852-L4862",
+        "rev": "6ffdbddfd2882cad539086408e30f7d821833d6e",
+        "permalink": "https://github.com/fschutt/azul/blob/6ffdbddfd2882cad539086408e30f7d821833d6e/core/src/dom.rs#L4852-L4862",
         "language": "rust",
         "code": [
           "#[repr(C)]",
@@ -120,8 +126,8 @@
         "line_start": 1093,
         "line_end": 1114,
         "hash": "sha256:6bc32e4ee1a5c425764fa7947c3a9fb457dff2f7f85e0dcf77b44b1f86244afa",
-        "rev": "fb2c1540972fd27d8dfccc187e449cd54a5e77ca",
-        "permalink": "https://github.com/fschutt/azul/blob/fb2c1540972fd27d8dfccc187e449cd54a5e77ca/core/src/styled_dom.rs#L1093-L1114",
+        "rev": "6ffdbddfd2882cad539086408e30f7d821833d6e",
+        "permalink": "https://github.com/fschutt/azul/blob/6ffdbddfd2882cad539086408e30f7d821833d6e/core/src/styled_dom.rs#L1093-L1114",
         "language": "rust",
         "code": [
           "#[derive(Debug, PartialEq, Clone)]",
@@ -166,8 +172,8 @@
         "line_start": 775,
         "line_end": 779,
         "hash": "sha256:485a0b3a65830e40b3b9cb33ab8b16ba03bd154a908ddc1542385246ff1bc839",
-        "rev": "fb2c1540972fd27d8dfccc187e449cd54a5e77ca",
-        "permalink": "https://github.com/fschutt/azul/blob/fb2c1540972fd27d8dfccc187e449cd54a5e77ca/layout/src/solver3/mod.rs#L775-L779",
+        "rev": "6ffdbddfd2882cad539086408e30f7d821833d6e",
+        "permalink": "https://github.com/fschutt/azul/blob/6ffdbddfd2882cad539086408e30f7d821833d6e/layout/src/solver3/mod.rs#L775-L779",
         "language": "rust",
         "code": [
           "pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(",
@@ -195,8 +201,8 @@
         "line_start": 1224,
         "line_end": 1228,
         "hash": "sha256:a450ce5e6cd00d9bd8c4c6fb33c86594eb6261e426c35794daf6f7efc1c3f493",
-        "rev": "fb2c1540972fd27d8dfccc187e449cd54a5e77ca",
-        "permalink": "https://github.com/fschutt/azul/blob/fb2c1540972fd27d8dfccc187e449cd54a5e77ca/webrender/core/src/renderer/mod.rs#L1224-L1228",
+        "rev": "6ffdbddfd2882cad539086408e30f7d821833d6e",
+        "permalink": "https://github.com/fschutt/azul/blob/6ffdbddfd2882cad539086408e30f7d821833d6e/webrender/core/src/renderer/mod.rs#L1224-L1228",
         "language": "rust",
         "code": [
           "    pub fn render(",
@@ -224,8 +230,8 @@
         "line_start": 1,
         "line_end": 19,
         "hash": "sha256:5745158fa638d9953ae2e7e04fdfde5d8112b586582a9324347bab4bfc92b45f",
-        "rev": "fb2c1540972fd27d8dfccc187e449cd54a5e77ca",
-        "permalink": "https://github.com/fschutt/azul/blob/fb2c1540972fd27d8dfccc187e449cd54a5e77ca/dll/src/desktop/shell2/mod.rs#L1-L19",
+        "rev": "6ffdbddfd2882cad539086408e30f7d821833d6e",
+        "permalink": "https://github.com/fschutt/azul/blob/6ffdbddfd2882cad539086408e30f7d821833d6e/dll/src/desktop/shell2/mod.rs#L1-L19",
         "language": "rust",
         "code": [
           "//! shell2 - Modern windowing system abstraction.",
@@ -251,8 +257,36 @@
       }
     },
     {
-      "kind": "arrow",
+      "kind": "cutout",
       "id": 6,
+      "x": 720,
+      "y": 300,
+      "width": 280,
+      "height": 112,
+      "label": "Where a pass finds its settings: the cache",
+      "image": {
+        "asset": "img-6",
+        "scale": 1
+      },
+      "source": {
+        "path": "layout/src/solver3/cache.rs",
+        "line_start": 1233,
+        "line_end": 1236,
+        "hash": "sha256:b3558c35d4f4fc55739a60fd0fb7dd8c2f9835a8659b141e35bd98b2f962ae02",
+        "rev": "6ffdbddfd2882cad539086408e30f7d821833d6e",
+        "permalink": "https://github.com/fschutt/azul/blob/6ffdbddfd2882cad539086408e30f7d821833d6e/layout/src/solver3/cache.rs#L1233-L1236",
+        "language": "rust",
+        "code": [
+          "    /// How this document's passes build their display list. The window writes",
+          "    /// its own value here before each pass (`LayoutWindow::display_list_options`);",
+          "    /// a cache nobody wrote to holds what the environment asks for.",
+          "    pub display_list_options: DisplayListOptions,"
+        ]
+      }
+    },
+    {
+      "kind": "arrow",
+      "id": 7,
       "from": {
         "item": 1,
         "anchor": "auto"
@@ -266,7 +300,7 @@
     },
     {
       "kind": "arrow",
-      "id": 7,
+      "id": 8,
       "from": {
         "item": 2,
         "anchor": "auto"
@@ -280,7 +314,7 @@
     },
     {
       "kind": "arrow",
-      "id": 8,
+      "id": 9,
       "from": {
         "item": 3,
         "anchor": "auto"
@@ -294,7 +328,7 @@
     },
     {
       "kind": "arrow",
-      "id": 9,
+      "id": 10,
       "from": {
         "item": 4,
         "anchor": "auto"
@@ -305,7 +339,717 @@
       },
       "bend": -0.12,
       "label": "drawn in a window"
+    },
+    {
+      "kind": "arrow",
+      "id": 11,
+      "from": {
+        "item": 5,
+        "anchor": "auto"
+      },
+      "to": {
+        "item": 6,
+        "anchor": "auto"
+      },
+      "bend": 0.1,
+      "label": "the window writes its options here"
+    },
+    {
+      "kind": "arrow",
+      "id": 12,
+      "from": {
+        "item": 6,
+        "anchor": "auto"
+      },
+      "to": {
+        "item": 3,
+        "anchor": "auto"
+      },
+      "bend": 0.1,
+      "label": "read by layout_document"
     }
   ],
-  "snapshots": []
+  "snapshots": [
+    {
+      "id": "s1",
+      "taken_ms": 1795290730000,
+      "author": "Example Author",
+      "code": {
+        "repo": {
+          "remote": "https://github.com/fschutt/azul.git",
+          "web_url": "https://github.com/fschutt/azul",
+          "host": "github"
+        },
+        "rev": "59b39f771ce6c1de69f20b7448aca549a8b39ce8",
+        "branch": "master",
+        "dirty": false,
+        "rev_time_ms": 1795290430000
+      },
+      "why": "The pipeline as it is: an app's layout callback returns a Dom, the cascade makes a StyledDom, solver3::layout_document turns it into boxes and a display list, WebRender draws that, a shell per platform shows the result.\nThe weak spot is the solver's state: the display-list switches and counters are process-wide (the patching switch and the moved-run policy are atomics with a per-thread twin for tests, the counters of the patched builds are thread-locals), so a test that flips one leaves every other test of its binary with it.",
+      "tags": [],
+      "summary": {
+        "added": [
+          {
+            "id": 1,
+            "kind": "cutout",
+            "name": "The DOM an app's layout callback returns"
+          },
+          {
+            "id": 2,
+            "kind": "cutout",
+            "name": "The DOM with its CSS cascaded"
+          },
+          {
+            "id": 3,
+            "kind": "cutout",
+            "name": "Layout: boxes, text, positions"
+          },
+          {
+            "id": 4,
+            "kind": "cutout",
+            "name": "The display list becomes pixels"
+          },
+          {
+            "id": 5,
+            "kind": "cutout",
+            "name": "One shell per platform shows them"
+          },
+          {
+            "id": 7,
+            "kind": "arrow",
+            "name": "styled"
+          },
+          {
+            "id": 8,
+            "kind": "arrow",
+            "name": "laid out"
+          },
+          {
+            "id": 9,
+            "kind": "arrow",
+            "name": "display list"
+          },
+          {
+            "id": 10,
+            "kind": "arrow",
+            "name": "drawn in a window"
+          }
+        ],
+        "removed": [],
+        "moved": [],
+        "changed": []
+      },
+      "canvas": {
+        "view": {
+          "x": -40,
+          "y": -40,
+          "zoom": 0.8
+        }
+      },
+      "next_id": 11,
+      "items": [
+        {
+          "kind": "cutout",
+          "id": 1,
+          "x": 0,
+          "y": 0,
+          "width": 280,
+          "height": 112,
+          "label": "The DOM an app's layout callback returns",
+          "image": {
+            "asset": "img-1",
+            "scale": 1
+          },
+          "source": {
+            "path": "core/src/dom.rs",
+            "line_start": 4891,
+            "line_end": 4901,
+            "hash": "sha256:e6ae97b4b4e1f3035449a2ce2a776b33a44166b8e05e68b188a22c6c64e4b888",
+            "rev": "59b39f771ce6c1de69f20b7448aca549a8b39ce8",
+            "permalink": "https://github.com/fschutt/azul/blob/59b39f771ce6c1de69f20b7448aca549a8b39ce8/core/src/dom.rs#L4891-L4901",
+            "language": "rust",
+            "code": [
+              "#[repr(C)]",
+              "#[derive(PartialEq, Clone)]",
+              "pub struct Dom {",
+              "    /// The data for the root node of this DOM (or sub-DOM).",
+              "    pub root: NodeData,",
+              "    /// The children of this DOM node.",
+              "    pub children: DomVec,",
+              "    /// Ordered list of CSS stylesheets to apply to this DOM subtree.",
+              "    /// Stylesheets are applied in push order during the single deferred cascade pass.",
+              "    /// Later entries override earlier ones (higher cascade priority).",
+              "    pub css: azul_css::css::CssVec,"
+            ]
+          }
+        },
+        {
+          "kind": "cutout",
+          "id": 2,
+          "x": 360,
+          "y": 150,
+          "width": 280,
+          "height": 112,
+          "label": "The DOM with its CSS cascaded",
+          "image": {
+            "asset": "img-2",
+            "scale": 1
+          },
+          "source": {
+            "path": "core/src/styled_dom.rs",
+            "line_start": 1093,
+            "line_end": 1114,
+            "hash": "sha256:6bc32e4ee1a5c425764fa7947c3a9fb457dff2f7f85e0dcf77b44b1f86244afa",
+            "rev": "59b39f771ce6c1de69f20b7448aca549a8b39ce8",
+            "permalink": "https://github.com/fschutt/azul/blob/59b39f771ce6c1de69f20b7448aca549a8b39ce8/core/src/styled_dom.rs#L1093-L1114",
+            "language": "rust",
+            "code": [
+              "#[derive(Debug, PartialEq, Clone)]",
+              "#[repr(C)]",
+              "pub struct StyledDom {",
+              "    pub root: NodeHierarchyItemId,",
+              "    pub node_hierarchy: NodeHierarchyItemVec,",
+              "    pub node_data: NodeDataVec,",
+              "    pub styled_nodes: StyledNodeVec,",
+              "    pub cascade_info: CascadeInfoVec,",
+              "    pub nodes_with_window_callbacks: NodeHierarchyItemIdVec,",
+              "    pub nodes_with_datasets: NodeHierarchyItemIdVec,",
+              "    /// Every node that can take focus (`NodeData::is_focusable`: a link, a",
+              "    /// button, an input, a contenteditable node, a node with a tab index or",
+              "    /// a focus callback), ascending. Derived from `node_data`",
+              "    /// (`DerivedNodeLists`): a Tab press reads this list, not every node.",
+              "    pub focusable_nodes: NodeHierarchyItemIdVec,",
+              "    /// Every node with a marker (`NodeData::get_marker`), ascending. Derived",
+              "    /// from `node_data` (`DerivedNodeLists`): a lookup by marker compares",
+              "    /// the markers of these nodes, not of every node.",
+              "    pub nodes_with_markers: NodeHierarchyItemIdVec,",
+              "    pub tag_ids_to_node_ids: TagIdToNodeIdMappingVec,",
+              "    pub non_leaf_nodes: ParentWithNodeDepthVec,",
+              "    pub css_property_cache: CssPropertyCachePtr,"
+            ]
+          }
+        },
+        {
+          "kind": "cutout",
+          "id": 3,
+          "x": 720,
+          "y": 0,
+          "width": 280,
+          "height": 112,
+          "label": "Layout: boxes, text, positions",
+          "image": {
+            "asset": "img-3",
+            "scale": 1
+          },
+          "source": {
+            "path": "layout/src/solver3/mod.rs",
+            "line_start": 755,
+            "line_end": 759,
+            "hash": "sha256:485a0b3a65830e40b3b9cb33ab8b16ba03bd154a908ddc1542385246ff1bc839",
+            "rev": "59b39f771ce6c1de69f20b7448aca549a8b39ce8",
+            "permalink": "https://github.com/fschutt/azul/blob/59b39f771ce6c1de69f20b7448aca549a8b39ce8/layout/src/solver3/mod.rs#L755-L759",
+            "language": "rust",
+            "code": [
+              "pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(",
+              "    cache: &mut LayoutCache,",
+              "    text_cache: &mut TextLayoutCache,",
+              "    new_dom: &StyledDom,",
+              "    viewport: LogicalRect,"
+            ]
+          }
+        },
+        {
+          "kind": "cutout",
+          "id": 4,
+          "x": 1080,
+          "y": 150,
+          "width": 280,
+          "height": 112,
+          "label": "The display list becomes pixels",
+          "image": {
+            "asset": "img-4",
+            "scale": 1
+          },
+          "source": {
+            "path": "webrender/core/src/renderer/mod.rs",
+            "line_start": 1224,
+            "line_end": 1228,
+            "hash": "sha256:a450ce5e6cd00d9bd8c4c6fb33c86594eb6261e426c35794daf6f7efc1c3f493",
+            "rev": "59b39f771ce6c1de69f20b7448aca549a8b39ce8",
+            "permalink": "https://github.com/fschutt/azul/blob/59b39f771ce6c1de69f20b7448aca549a8b39ce8/webrender/core/src/renderer/mod.rs#L1224-L1228",
+            "language": "rust",
+            "code": [
+              "    pub fn render(",
+              "        &mut self,",
+              "        device_size: DeviceIntSize,",
+              "        buffer_age: usize,",
+              "    ) -> Result<RenderResults, Vec<RendererError>> {"
+            ]
+          }
+        },
+        {
+          "kind": "cutout",
+          "id": 5,
+          "x": 1440,
+          "y": 0,
+          "width": 280,
+          "height": 112,
+          "label": "One shell per platform shows them",
+          "image": {
+            "asset": "img-5",
+            "scale": 1
+          },
+          "source": {
+            "path": "dll/src/desktop/shell2/mod.rs",
+            "line_start": 1,
+            "line_end": 19,
+            "hash": "sha256:5745158fa638d9953ae2e7e04fdfde5d8112b586582a9324347bab4bfc92b45f",
+            "rev": "59b39f771ce6c1de69f20b7448aca549a8b39ce8",
+            "permalink": "https://github.com/fschutt/azul/blob/59b39f771ce6c1de69f20b7448aca549a8b39ce8/dll/src/desktop/shell2/mod.rs#L1-L19",
+            "language": "rust",
+            "code": [
+              "//! shell2 - Modern windowing system abstraction.",
+              "//!",
+              "//! This module provides a clean, platform-agnostic windowing API with:",
+              "//! - Dynamic library loading (Linux, Windows) to avoid linker errors",
+              "//! - CPU/GPU compositor selection per window",
+              "//! - Clean trait-based architecture",
+              "//! - Support for macOS, Windows, Linux (X11 + Wayland)",
+              "//!",
+              "//! # Architecture",
+              "//!",
+              "//! ```text",
+              "//! shell2/",
+              "//! ├── common/          Platform-agnostic traits and types",
+              "//! ├── macos/           AppKit implementation (static linking)",
+              "//! ├── windows/         Win32 implementation (dynamic loading)",
+              "//! ├── linux/",
+              "//! │   ├── x11/         X11 implementation (dynamic loading)",
+              "//! │   └── wayland/     Wayland implementation (dynamic loading)",
+              "//! └── headless/        Headless testing backend"
+            ]
+          }
+        },
+        {
+          "kind": "arrow",
+          "id": 7,
+          "from": {
+            "item": 1,
+            "anchor": "auto"
+          },
+          "to": {
+            "item": 2,
+            "anchor": "auto"
+          },
+          "bend": 0.12,
+          "label": "styled"
+        },
+        {
+          "kind": "arrow",
+          "id": 8,
+          "from": {
+            "item": 2,
+            "anchor": "auto"
+          },
+          "to": {
+            "item": 3,
+            "anchor": "auto"
+          },
+          "bend": -0.12,
+          "label": "laid out"
+        },
+        {
+          "kind": "arrow",
+          "id": 9,
+          "from": {
+            "item": 3,
+            "anchor": "auto"
+          },
+          "to": {
+            "item": 4,
+            "anchor": "auto"
+          },
+          "bend": 0.12,
+          "label": "display list"
+        },
+        {
+          "kind": "arrow",
+          "id": 10,
+          "from": {
+            "item": 4,
+            "anchor": "auto"
+          },
+          "to": {
+            "item": 5,
+            "anchor": "auto"
+          },
+          "bend": -0.12,
+          "label": "drawn in a window"
+        }
+      ],
+      "hash": "sha256:05a8dfeac3905b89104f9ca79a717adf22e8b0d2afb2f98b027d37feafde6a77"
+    },
+    {
+      "id": "s2",
+      "parent": "s1",
+      "taken_ms": 1795451764000,
+      "author": "Example Author",
+      "code": {
+        "repo": {
+          "remote": "https://github.com/fschutt/azul.git",
+          "web_url": "https://github.com/fschutt/azul",
+          "host": "github"
+        },
+        "rev": "6ffdbddfd2882cad539086408e30f7d821833d6e",
+        "branch": "master",
+        "dirty": false,
+        "rev_time_ms": 1795440964000
+      },
+      "why": "The solver's state has an owner now: its switches, memos and counters belong to the window, the cache or the pass, not to the process (2013be9136). The window writes the display-list options into the cache before each pass and layout_document reads them from there; since 6ffdbddfd2 the switches come from the settings and no longer from the environment.\nThe boxes are the same; what moved is where the layout's state lives, which is why the cache has a cutout of its own and the window an arrow to it. Of the five references that were there, two point at code that changed (the fields of Dom and the parameters of layout_document); the other three are the same lines at the new revision.",
+      "tags": [
+        "2013be9136",
+        "6ffdbddfd2"
+      ],
+      "summary": {
+        "added": [
+          {
+            "id": 6,
+            "kind": "cutout",
+            "name": "Where a pass finds its settings: the cache"
+          },
+          {
+            "id": 11,
+            "kind": "arrow",
+            "name": "the window writes its options here"
+          },
+          {
+            "id": 12,
+            "kind": "arrow",
+            "name": "read by layout_document"
+          }
+        ],
+        "removed": [],
+        "moved": [],
+        "changed": [
+          {
+            "id": 1,
+            "what": [
+              "reference"
+            ]
+          },
+          {
+            "id": 3,
+            "what": [
+              "reference"
+            ]
+          }
+        ]
+      },
+      "canvas": {
+        "view": {
+          "x": -40,
+          "y": -40,
+          "zoom": 0.8
+        }
+      },
+      "next_id": 13,
+      "items": [
+        {
+          "kind": "cutout",
+          "id": 1,
+          "x": 0,
+          "y": 0,
+          "width": 280,
+          "height": 112,
+          "label": "The DOM an app's layout callback returns",
+          "image": {
+            "asset": "img-1",
+            "scale": 1
+          },
+          "source": {
+            "path": "core/src/dom.rs",
+            "line_start": 4852,
+            "line_end": 4862,
+            "hash": "sha256:e6ae97b4b4e1f3035449a2ce2a776b33a44166b8e05e68b188a22c6c64e4b888",
+            "rev": "6ffdbddfd2882cad539086408e30f7d821833d6e",
+            "permalink": "https://github.com/fschutt/azul/blob/6ffdbddfd2882cad539086408e30f7d821833d6e/core/src/dom.rs#L4852-L4862",
+            "language": "rust",
+            "code": [
+              "#[repr(C)]",
+              "#[derive(PartialEq, Clone)]",
+              "pub struct Dom {",
+              "    /// The data for the root node of this DOM (or sub-DOM).",
+              "    pub root: NodeData,",
+              "    /// The children of this DOM node.",
+              "    pub children: DomVec,",
+              "    /// Ordered list of CSS stylesheets to apply to this DOM subtree.",
+              "    /// Stylesheets are applied in push order during the single deferred cascade pass.",
+              "    /// Later entries override earlier ones (higher cascade priority).",
+              "    pub css: azul_css::css::CssVec,"
+            ]
+          }
+        },
+        {
+          "kind": "cutout",
+          "id": 2,
+          "x": 360,
+          "y": 150,
+          "width": 280,
+          "height": 112,
+          "label": "The DOM with its CSS cascaded",
+          "image": {
+            "asset": "img-2",
+            "scale": 1
+          },
+          "source": {
+            "path": "core/src/styled_dom.rs",
+            "line_start": 1093,
+            "line_end": 1114,
+            "hash": "sha256:6bc32e4ee1a5c425764fa7947c3a9fb457dff2f7f85e0dcf77b44b1f86244afa",
+            "rev": "6ffdbddfd2882cad539086408e30f7d821833d6e",
+            "permalink": "https://github.com/fschutt/azul/blob/6ffdbddfd2882cad539086408e30f7d821833d6e/core/src/styled_dom.rs#L1093-L1114",
+            "language": "rust",
+            "code": [
+              "#[derive(Debug, PartialEq, Clone)]",
+              "#[repr(C)]",
+              "pub struct StyledDom {",
+              "    pub root: NodeHierarchyItemId,",
+              "    pub node_hierarchy: NodeHierarchyItemVec,",
+              "    pub node_data: NodeDataVec,",
+              "    pub styled_nodes: StyledNodeVec,",
+              "    pub cascade_info: CascadeInfoVec,",
+              "    pub nodes_with_window_callbacks: NodeHierarchyItemIdVec,",
+              "    pub nodes_with_datasets: NodeHierarchyItemIdVec,",
+              "    /// Every node that can take focus (`NodeData::is_focusable`: a link, a",
+              "    /// button, an input, a contenteditable node, a node with a tab index or",
+              "    /// a focus callback), ascending. Derived from `node_data`",
+              "    /// (`DerivedNodeLists`): a Tab press reads this list, not every node.",
+              "    pub focusable_nodes: NodeHierarchyItemIdVec,",
+              "    /// Every node with a marker (`NodeData::get_marker`), ascending. Derived",
+              "    /// from `node_data` (`DerivedNodeLists`): a lookup by marker compares",
+              "    /// the markers of these nodes, not of every node.",
+              "    pub nodes_with_markers: NodeHierarchyItemIdVec,",
+              "    pub tag_ids_to_node_ids: TagIdToNodeIdMappingVec,",
+              "    pub non_leaf_nodes: ParentWithNodeDepthVec,",
+              "    pub css_property_cache: CssPropertyCachePtr,"
+            ]
+          }
+        },
+        {
+          "kind": "cutout",
+          "id": 3,
+          "x": 720,
+          "y": 0,
+          "width": 280,
+          "height": 112,
+          "label": "Layout: boxes, text, positions",
+          "image": {
+            "asset": "img-3",
+            "scale": 1
+          },
+          "source": {
+            "path": "layout/src/solver3/mod.rs",
+            "line_start": 775,
+            "line_end": 779,
+            "hash": "sha256:485a0b3a65830e40b3b9cb33ab8b16ba03bd154a908ddc1542385246ff1bc839",
+            "rev": "6ffdbddfd2882cad539086408e30f7d821833d6e",
+            "permalink": "https://github.com/fschutt/azul/blob/6ffdbddfd2882cad539086408e30f7d821833d6e/layout/src/solver3/mod.rs#L775-L779",
+            "language": "rust",
+            "code": [
+              "pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(",
+              "    cache: &mut LayoutCache,",
+              "    text_cache: &mut TextLayoutCache,",
+              "    new_dom: &StyledDom,",
+              "    viewport: LogicalRect,"
+            ]
+          }
+        },
+        {
+          "kind": "cutout",
+          "id": 4,
+          "x": 1080,
+          "y": 150,
+          "width": 280,
+          "height": 112,
+          "label": "The display list becomes pixels",
+          "image": {
+            "asset": "img-4",
+            "scale": 1
+          },
+          "source": {
+            "path": "webrender/core/src/renderer/mod.rs",
+            "line_start": 1224,
+            "line_end": 1228,
+            "hash": "sha256:a450ce5e6cd00d9bd8c4c6fb33c86594eb6261e426c35794daf6f7efc1c3f493",
+            "rev": "6ffdbddfd2882cad539086408e30f7d821833d6e",
+            "permalink": "https://github.com/fschutt/azul/blob/6ffdbddfd2882cad539086408e30f7d821833d6e/webrender/core/src/renderer/mod.rs#L1224-L1228",
+            "language": "rust",
+            "code": [
+              "    pub fn render(",
+              "        &mut self,",
+              "        device_size: DeviceIntSize,",
+              "        buffer_age: usize,",
+              "    ) -> Result<RenderResults, Vec<RendererError>> {"
+            ]
+          }
+        },
+        {
+          "kind": "cutout",
+          "id": 5,
+          "x": 1440,
+          "y": 0,
+          "width": 280,
+          "height": 112,
+          "label": "One shell per platform shows them",
+          "image": {
+            "asset": "img-5",
+            "scale": 1
+          },
+          "source": {
+            "path": "dll/src/desktop/shell2/mod.rs",
+            "line_start": 1,
+            "line_end": 19,
+            "hash": "sha256:5745158fa638d9953ae2e7e04fdfde5d8112b586582a9324347bab4bfc92b45f",
+            "rev": "6ffdbddfd2882cad539086408e30f7d821833d6e",
+            "permalink": "https://github.com/fschutt/azul/blob/6ffdbddfd2882cad539086408e30f7d821833d6e/dll/src/desktop/shell2/mod.rs#L1-L19",
+            "language": "rust",
+            "code": [
+              "//! shell2 - Modern windowing system abstraction.",
+              "//!",
+              "//! This module provides a clean, platform-agnostic windowing API with:",
+              "//! - Dynamic library loading (Linux, Windows) to avoid linker errors",
+              "//! - CPU/GPU compositor selection per window",
+              "//! - Clean trait-based architecture",
+              "//! - Support for macOS, Windows, Linux (X11 + Wayland)",
+              "//!",
+              "//! # Architecture",
+              "//!",
+              "//! ```text",
+              "//! shell2/",
+              "//! ├── common/          Platform-agnostic traits and types",
+              "//! ├── macos/           AppKit implementation (static linking)",
+              "//! ├── windows/         Win32 implementation (dynamic loading)",
+              "//! ├── linux/",
+              "//! │   ├── x11/         X11 implementation (dynamic loading)",
+              "//! │   └── wayland/     Wayland implementation (dynamic loading)",
+              "//! └── headless/        Headless testing backend"
+            ]
+          }
+        },
+        {
+          "kind": "cutout",
+          "id": 6,
+          "x": 720,
+          "y": 300,
+          "width": 280,
+          "height": 112,
+          "label": "Where a pass finds its settings: the cache",
+          "image": {
+            "asset": "img-6",
+            "scale": 1
+          },
+          "source": {
+            "path": "layout/src/solver3/cache.rs",
+            "line_start": 1233,
+            "line_end": 1236,
+            "hash": "sha256:b3558c35d4f4fc55739a60fd0fb7dd8c2f9835a8659b141e35bd98b2f962ae02",
+            "rev": "6ffdbddfd2882cad539086408e30f7d821833d6e",
+            "permalink": "https://github.com/fschutt/azul/blob/6ffdbddfd2882cad539086408e30f7d821833d6e/layout/src/solver3/cache.rs#L1233-L1236",
+            "language": "rust",
+            "code": [
+              "    /// How this document's passes build their display list. The window writes",
+              "    /// its own value here before each pass (`LayoutWindow::display_list_options`);",
+              "    /// a cache nobody wrote to holds what the environment asks for.",
+              "    pub display_list_options: DisplayListOptions,"
+            ]
+          }
+        },
+        {
+          "kind": "arrow",
+          "id": 7,
+          "from": {
+            "item": 1,
+            "anchor": "auto"
+          },
+          "to": {
+            "item": 2,
+            "anchor": "auto"
+          },
+          "bend": 0.12,
+          "label": "styled"
+        },
+        {
+          "kind": "arrow",
+          "id": 8,
+          "from": {
+            "item": 2,
+            "anchor": "auto"
+          },
+          "to": {
+            "item": 3,
+            "anchor": "auto"
+          },
+          "bend": -0.12,
+          "label": "laid out"
+        },
+        {
+          "kind": "arrow",
+          "id": 9,
+          "from": {
+            "item": 3,
+            "anchor": "auto"
+          },
+          "to": {
+            "item": 4,
+            "anchor": "auto"
+          },
+          "bend": 0.12,
+          "label": "display list"
+        },
+        {
+          "kind": "arrow",
+          "id": 10,
+          "from": {
+            "item": 4,
+            "anchor": "auto"
+          },
+          "to": {
+            "item": 5,
+            "anchor": "auto"
+          },
+          "bend": -0.12,
+          "label": "drawn in a window"
+        },
+        {
+          "kind": "arrow",
+          "id": 11,
+          "from": {
+            "item": 5,
+            "anchor": "auto"
+          },
+          "to": {
+            "item": 6,
+            "anchor": "auto"
+          },
+          "bend": 0.1,
+          "label": "the window writes its options here"
+        },
+        {
+          "kind": "arrow",
+          "id": 12,
+          "from": {
+            "item": 6,
+            "anchor": "auto"
+          },
+          "to": {
+            "item": 3,
+            "anchor": "auto"
+          },
+          "bend": 0.1,
+          "label": "read by layout_document"
+        }
+      ],
+      "hash": "sha256:7e7eb8faaa05317624d71e1ed367d655e436f0d7db29199da0caf7b5b613fe2a"
+    }
+  ]
 }

@@ -34,8 +34,35 @@ fn on_changed(_: &mut RefAny, _: &mut CallbackInfo) {}
 
 fn on_plan(_: &mut RefAny, _: Plan, _: &mut CallbackInfo) {}
 
+/// A workspace with no files at all (nothing is found again).
+struct NoFiles;
+
+impl crate::whiteboard_jump::FileView for NoFiles {
+    fn file_hash(&self, _: &str) -> Option<u64> {
+        None
+    }
+
+    fn line_count(&self, _: &str) -> Option<u32> {
+        None
+    }
+
+    fn lines(&self, _: &str, _: u32, _: u32) -> Option<Vec<String>> {
+        None
+    }
+}
+
+fn with_files(app: &mut RefAny, f: &mut dyn FnMut(&mut Panel, &dyn crate::whiteboard_jump::FileView)) -> bool {
+    match app.downcast_mut::<Panel>() {
+        Some(mut p) => {
+            f(&mut p, &NoFiles);
+            true
+        }
+        None => false,
+    }
+}
+
 fn host() -> Host {
-    Host { app: RefAny::new(Panel::new("/work/azul")), with, on_jump, on_changed, on_plan }
+    Host { app: RefAny::new(Panel::new("/work/azul")), with, on_jump, on_changed, on_plan, with_files }
 }
 
 fn nodes(dom: &Dom) -> Vec<&Dom> {
@@ -243,6 +270,8 @@ fn loaded_board(name: &str) -> crate::whiteboard_store::Loaded {
     crate::whiteboard_store::Loaded {
         data: crate::whiteboard::BoardData::default(),
         meta: crate::whiteboard_azboard::Meta { board_name: name.to_string(), ..Default::default() },
+        history: Default::default(),
+        snapshots_left_out: 0,
         left_out: 0,
         unreadable_pictures: 0,
     }
