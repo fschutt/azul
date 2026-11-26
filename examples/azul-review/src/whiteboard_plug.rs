@@ -97,6 +97,9 @@ pub struct Glue {
     rev: Option<String>,
     /// The quarter second of the panel's clock the ring of the loops was last drawn in.
     redrawn: u64,
+    /// The loops (their ids) the pages were last built for: when the loops that wait are others (one is armed, was let go of or
+    /// its stroke was erased) the pages are built again.
+    tick_ids: Vec<u64>,
     saving_to: Option<PathBuf>,
     exporting: Option<ExportRequest>,
     pub(crate) render_started: Vec<(ItemId, Instant)>,
@@ -123,6 +126,7 @@ impl Glue {
             patches: Vec::new(),
             rev: None,
             redrawn: u64::MAX,
+            tick_ids: Vec::new(),
             saving_to: None,
             exporting: None,
             render_started: Vec::new(),
@@ -829,6 +833,13 @@ pub fn tick_at(g: &mut Glue, now: u64) -> Ticked {
         out.pages_changed = true;
     }
     if g.panel.wb.expire(now) {
+        out.pages_changed = true;
+    }
+    // the words and the layer of the loops are built for the loops that wait: others (a loop was armed, let go of, or its stroke
+    // was erased or taken back) are a new build of the pages
+    let ids: Vec<u64> = g.panel.wb.armed.all().iter().map(|r| r.id).collect();
+    if ids != g.tick_ids {
+        g.tick_ids = ids;
         out.pages_changed = true;
     }
     if g.panel.expire_toast(now) {

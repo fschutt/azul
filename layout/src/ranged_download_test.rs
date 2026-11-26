@@ -96,7 +96,10 @@ fn scratch(name: &str) -> std::path::PathBuf {
     dir
 }
 
-fn quiet() -> (&'static dyn Fn(u64, Option<u64>), &'static dyn Fn() -> bool) {
+type Progress = &'static dyn Fn(u64, Option<u64>);
+type Stopped = &'static dyn Fn() -> bool;
+
+fn quiet() -> (Progress, Stopped) {
     (&|_, _| {}, &|| false)
 }
 

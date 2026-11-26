@@ -48,6 +48,8 @@ fn attach<R>(f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Option<R
     }
     let vm = unsafe { JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) }.ok()?;
     let mut env = vm.attach_current_thread().ok()?;
+    // Released when this helper returns: this thread never returns to Java (see `LocalFrame`).
+    let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
     let activity = unsafe { JObject::from_raw(activity_ptr as jni::sys::jobject) };
     f(&mut env, activity)
 }

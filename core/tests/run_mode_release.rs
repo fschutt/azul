@@ -35,6 +35,7 @@ fn a_shipped_build_has_no_hook_whatever_the_environment_holds() {
         asked.fake_sign_in && asked.open_nothing && asked.no_biometric && asked.mocks,
         "the process really holds the switches: {asked:?}"
     );
+    let gpu_fail_asked = asked.gpu_fail.clone();
 
     // Even a hook that is handed to the install is not kept: this build has none.
     run_mode::install(asked);
@@ -56,6 +57,6 @@ fn a_shipped_build_has_no_hook_whatever_the_environment_holds() {
     assert_eq!(hooks.keyring_file, None);
     assert_eq!(hooks.fake_redirect, None);
     // a phone's GPU bring-up is not made to fail by a variable
-    assert_eq!(asked.gpu_fail.as_deref(), Some("context,lost:2"));
+    assert_eq!(gpu_fail_asked.as_deref(), Some("context,lost:2"));
     assert_eq!(hooks.gpu_fail, None);
 }
