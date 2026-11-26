@@ -60,6 +60,7 @@ autofix_agrees() {
     cargo run -r -p azul-doc -- autofix apply 2>&1 | grep -E "Total changes|Failed" | head -3
   done
   git diff --stat | tail -4
+  git diff api.json | head -80
   section "CHECK LAYOUT"
   cargo run -r -p azul-doc -- check layout 2>&1 | tail -8
 }
