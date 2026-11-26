@@ -288,6 +288,14 @@ def e2e_session(args):
         except Exception as e:  # noqa: BLE001
             s.note(f"wait_settled: {str(e)[:100]}")
         dev.settle(1.0)
+        try:
+            # every scroller to its top: the boxes of the dumps are then those of the first screen (the report says what stood where)
+            for st in la.scroll_states(srv.op("get_scroll_states", timeout=30)):
+                if abs(st.get("scroll_x", 0.0)) > 0.5 or abs(st.get("scroll_y", 0.0)) > 0.5:
+                    srv.op("scroll_node_to", node_id=st["node_id"], x=0.0, y=0.0, timeout=30)
+            srv.op("wait_frame", timeout=15)
+        except Exception as ex:  # noqa: BLE001
+            s.note(f"scrolling to the top: {str(ex)[:100]}")
         dumps = {}
         for op, name in (("get_state", "get_state"), ("get_all_nodes_layout", "nodes-layout"), ("get_accessibility_tree", "a11y-tree"),
                          ("get_scroll_states", "scroll-states"), ("get_mode", "mode")):
@@ -302,7 +310,7 @@ def e2e_session(args):
         engine_frame(s, f"engine-frame-{orient}")
         bars = la.parse_system_bars(window)
         s.note(f"bars the window system names: {[(b['name'], list(b['rect'])) for b in bars['bands']]}; app bounds {bars['app']}; screen {bars['screen']}")
-        result = la.audit(dumps.get("nodes-layout"), dumps.get("a11y-tree"), dumps.get("get_state"), bars, orient)
+        result = la.audit(dumps.get("nodes-layout"), dumps.get("a11y-tree"), dumps.get("get_state"), bars, orient, dumps.get("scroll-states"))
         (run.logs_dir / f"layout-audit-{orient}.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
         s.check(f"the layout and accessibility dumps of the {orient} window could be audited", "error" not in result, result.get("error", ""))
         if "error" in result:
@@ -316,6 +324,9 @@ def e2e_session(args):
         t = result["small_targets"]
         s.check(f"{orient}: every tappable node is at least {la.MIN_TARGET_DP:.0f} dp in both directions", t["small"] == 0,
                 f"{t['small']} of {t['tappable']} are smaller", required=False)
+        sw = result["sideways_scroll"]
+        s.check(f"{orient}: no scroll container is wider than the window (the page does not scroll sideways)", sw["count"] == 0,
+                f"{sw['count']} do: " + ", ".join(f"{e['node']} {e['content_w']} dp in {e['container_w']}" for e in sw["top"][:3]), required=False)
         return result
 
     def write_audit_report():
@@ -429,7 +440,8 @@ def e2e_session(args):
         typed = device_shot(s, "writer-typed")
         engine_frame(s, "writer-engine-frame")
         height1 = (find_key(srv.op("get_state"), "logical_height") or 0)
-        xml = dev.sh("uiautomator dump /sdcard/qa-ui.xml >/dev/null && cat /sdcard/qa-ui.xml", timeout=60)
+        dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=60)
+        xml = dev.sh("cat /sdcard/qa-ui.xml", timeout=60)
         dev.save_log("writer-ui.xml", xml)
         s.check("a tap into the page raises the keyboard", up, "the window system says " + ("shown" if up else "hidden"))
         s.check("the typed text 'hello' is in the accessibility tree", "hello" in xml.lower(), f"{len(xml)} bytes of the tree")
