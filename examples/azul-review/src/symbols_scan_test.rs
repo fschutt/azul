@@ -615,6 +615,80 @@ fn every_language_counts_its_lines_and_reports_itself() {
     }
 }
 
+#[test]
+fn rust_a_const_or_static_whose_value_has_braces_inside_brackets_keeps_its_whole_extent() {
+    let got = rust(&[
+        "pub const TABLE: [Pair; 2] = [",
+        "    Pair { a: 1, b: 2 },",
+        "    Pair { a: 3, b: 4 },",
+        "];",
+        "pub static DEFAULT: Light = Light::Sun(SunLight {",
+        "    angle: 1,",
+        "});",
+        "const WRAPPED: Option<Pair> = Some(Pair {",
+        "    a: 1,",
+        "    b: 2,",
+        "});",
+        "const PLAIN: Pair = Pair {",
+        "    a: 1,",
+        "};",
+        "fn after() {}",
+    ]);
+    let want = vec![
+        d("TABLE", Kind::Const, 1, 4, None),
+        d("DEFAULT", Kind::Static, 5, 3, None),
+        d("WRAPPED", Kind::Const, 8, 4, None),
+        d("PLAIN", Kind::Const, 12, 3, None),
+        d("after", Kind::Fn, 15, 1, None),
+    ];
+    assert_eq!(got, want);
+}
+
+#[test]
+fn rust_a_pointer_to_a_type_with_a_path_is_no_const() {
+    let got = rust(&[
+        "pub struct Holder {",
+        "    pub a: *const crate::x::T,",
+        "    pub b: *const core::ffi::c_void,",
+        "    pub c: *mut azul_css::Y,",
+        "    pub d: *const u8,",
+        "}",
+        "pub const REAL: u8 = 1;",
+        "pub static OTHER: ::core::ffi::c_int = 2;",
+    ]);
+    let want = vec![
+        d("Holder", Kind::Struct, 1, 6, None),
+        d("REAL", Kind::Const, 7, 1, None),
+        d("OTHER", Kind::Static, 8, 1, None),
+    ];
+    assert_eq!(got, want);
+}
+
+#[test]
+fn rust_an_item_inside_the_value_of_a_const_or_static_is_local_to_it() {
+    let got = rust(&[
+        "const _: fn() = || {",
+        "    fn assert_send_sync<T: Send + Sync>() {}",
+        "    assert_send_sync::<u8>();",
+        "};",
+        "static LAZY: Lazy<u8> = Lazy::new(|| {",
+        "    fn helper() -> u8 { 1 }",
+        "    helper()",
+        "});",
+        "const BLOCK: u8 = {",
+        "    struct Local;",
+        "    1",
+        "};",
+        "fn after() {}",
+    ]);
+    let want = vec![
+        d("LAZY", Kind::Static, 5, 4, None),
+        d("BLOCK", Kind::Const, 9, 4, None),
+        d("after", Kind::Fn, 13, 1, None),
+    ];
+    assert_eq!(got, want);
+}
+
 // ---- The line of what is found, after every kind of literal ----
 
 /// Every definition's reported line must hold its name: the check the context builder makes before it
@@ -775,6 +849,8 @@ fn the_line_of_every_definition_in_real_files_of_every_language_holds_its_name()
     }
     files.sort();
     let (mut checked, mut wrong): (usize, Vec<String>) = (0, Vec::new());
+    // Rust: the last line of a definition's extent ends it with a brace, a semicolon or a bracket.
+    let mut open_ends: Vec<String> = Vec::new();
     for path in &files {
         let rel = path.strip_prefix(&root).unwrap_or(path).to_string_lossy().replace('\\', "/");
         let Ok(bytes) = std::fs::read(path) else { continue };
@@ -788,6 +864,13 @@ fn the_line_of_every_definition_in_real_files_of_every_language_holds_its_name()
         for def in &scanned.defs {
             checked += 1;
             let holds = lines.get((def.line as usize).wrapping_sub(1)).is_some_and(|l| l.contains(def.name.as_str()));
+            if lang == Lang::Rust {
+                let last = (def.line as usize + def.lines as usize).saturating_sub(2);
+                let end = lines.get(last).copied().unwrap_or("");
+                if !(end.contains('}') || end.contains(';') || end.contains(')')) && open_ends.len() < 10 {
+                    open_ends.push(format!("{rel}:{} {} +{}", def.line, def.name, def.lines));
+                }
+            }
             if !holds && wrong.len() < 10 {
                 wrong.push(format!("{rel}:{} {}", def.line, def.name));
             } else if !holds {
@@ -799,4 +882,5 @@ fn the_line_of_every_definition_in_real_files_of_every_language_holds_its_name()
     let count = wrong.len();
     wrong.retain(|w| !w.is_empty());
     assert_eq!(count, 0, "{count} of {checked} definitions have a line that does not hold their name, the first: {wrong:?}");
+    assert_eq!(open_ends, Vec::<String>::new(), "definitions whose extent stops before its end (a brace, a semicolon, a bracket)");
 }
