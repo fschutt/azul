@@ -4519,6 +4519,7 @@ impl X11Window {
                 .map_err(|e| {
                     WindowError::PlatformError(format!("Accessibility init failed: {}", e))
                 })?;
+            startup.mark("x11:a11y_initialized");
         }
 
         // Defer mapping for size_to_content windows (menus): they are mapped in
