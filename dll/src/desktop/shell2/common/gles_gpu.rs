@@ -135,6 +135,22 @@ pub fn request_for(
     GpuRequest::resolve(shell.backend.as_deref(), hw_accel)
 }
 
+/// What the GPU path does for an Android `onTrimMemory` level (`ComponentCallbacks2`): nothing below
+/// `TRIM_MEMORY_RUNNING_LOW` (10: `RUNNING_MODERATE` is 5), the renderer's caches from there (`RUNNING_LOW` 10,
+/// `RUNNING_CRITICAL` 15), and from `TRIM_MEMORY_UI_HIDDEN` (20: the app's UI is no longer visible; `BACKGROUND` 40,
+/// `MODERATE` 60, `COMPLETE` 80) the renderer and the context too when no surface needs them (the reducer makes a heavy
+/// trim with a surface a light one).
+#[must_use]
+pub const fn trim_level_for_android(level: i32) -> Option<TrimLevel> {
+    if level >= 20 {
+        Some(TrimLevel::Heavy)
+    } else if level >= 10 {
+        Some(TrimLevel::Light)
+    } else {
+        None
+    }
+}
+
 /// What the shell lends the GPU path for the length of one call.
 pub struct GpuCtx<'a> {
     /// The window's common state: where the renderer, its API, the document and the GL context live.
@@ -333,7 +349,15 @@ impl GlesGpu {
 
     /// The window has a surface: `InitWindow`.
     pub fn surface_created(&mut self, ctx: &mut GpuCtx<'_>, surface: Surface) -> Outcome {
-        self.feed(ctx, Event::SurfaceCreated(surface))
+        let outcome = self.feed(ctx, Event::SurfaceCreated(surface));
+        // The contract line again for the surface that came (the first one wrote it with the renderer): the log of a long
+        // run has rolled the first one away, and "which renderer draws this window now" must stay answerable.
+        if outcome == Outcome::Gpu {
+            if let Some(decision) = self.decision.as_ref().filter(|d| d.ran == Ran::Gpu) {
+                log_info!(LogCategory::Rendering, "{}", decision.render_line());
+            }
+        }
+        outcome
     }
 
     /// The window's surface is going: `TerminateWindow`. Call it BEFORE the native window is released.
@@ -736,3 +760,7 @@ impl GlesGpu {
         self.decision = Some(decision);
     }
 }
+
+#[cfg(test)]
+#[path = "gles_gpu_test.rs"]
+mod tests;

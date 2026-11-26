@@ -66,7 +66,7 @@ fi
 
 IFS=',' read -r -a mode_list <<<"$modes"
 for mode in "${mode_list[@]}"; do
-  d="$out/$mode"; mkdir -p "$d"
+  d="$out/$mode${AZ_QA_BACKEND:+-$AZ_QA_BACKEND}"; mkdir -p "$d"   # AZ_QA_BACKEND=cpu|gpu|auto: a run of that renderer, its own folder
   echo "================ emulator GPU mode: $mode ================"
   adb kill-server >/dev/null 2>&1 || true
   echo no | avdmanager create avd --force -n "qa_$mode" -k "$image" -d pixel_6 >"$d/avd.log" 2>&1 \
@@ -100,7 +100,8 @@ for mode in "${mode_list[@]}"; do
     python3 "$here/mobile_qa.py" android --out "$d" --apk "$apk" --package "$pkg" --activity "${act:-}" \
       --label "$label" --gpu "$mode" ${AZ_QA_POINTS:+--points "$AZ_QA_POINTS"} \
       $( [ "$mode" = "${mode_list[0]}" ] && echo ${AZ_QA_SERIES:+--series "$AZ_QA_SERIES"} ${floor_apk:+--floor-apk "$floor_apk"} ) \
-      ${AZ_QA_EXPECT_GPU:+--expect-gpu} ${AZ_QA_ONLY:+--only "$AZ_QA_ONLY"} 2>&1 | tee "$d/qa.log"
+      ${AZ_QA_EXPECT_GPU:+--expect-gpu} ${AZ_QA_BACKEND:+--backend "$AZ_QA_BACKEND"} ${AZ_QA_EXPECT_HOOKS:+--expect-hooks} \
+      ${AZ_QA_ONLY:+--only "$AZ_QA_ONLY"} 2>&1 | tee "$d/qa.log"
   fi
   # the e2e session runs on the FIRST mode only (it does not depend on how the emulator composes the window)
   if { [ "$session" = e2e ] || [ "$session" = both ]; } && [ "$mode" = "${mode_list[0]}" ]; then

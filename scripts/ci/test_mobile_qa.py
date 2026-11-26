@@ -379,5 +379,57 @@ class ExitReasonTests(unittest.TestCase):
         self.assertTrue(got[0][:18] >= "11-26 06:57:55")
 
 
+class GpuPathTests(unittest.TestCase):
+    """The reads the GPU path's QA steps make: the fallback line, the stage a failure spec names, the memory dump, the env."""
+
+    def test_the_fallback_line_names_stage_and_cause(self):
+        log = ("11-26 09:01:07.1  2528  2528 W RustStdoutStderr: [render] gpu unavailable at surface: eglCreateWindowSurface failed "
+               "(EGL_BAD_NATIVE_WINDOW 0x300b); drawing on the CPU\n"
+               "11-26 09:01:07.2  2528  2528 I RustStdoutStderr: [render] backend=cpu requested=gpu device=software\n")
+        self.assertEqual(q.gpu_fallbacks(log), [("surface", "eglCreateWindowSurface failed (EGL_BAD_NATIVE_WINDOW 0x300b)")])
+        # the fallback line carries no backend=, so the contract line is the only one backend_ran reads
+        self.assertEqual(q.backend_ran(log), ("cpu", "gpu", "software"))
+        self.assertEqual(q.gpu_fallbacks("[render] backend=gpu requested=gpu device=Mali-G78\n"), [])
+        two = ("[render] gpu unavailable at renderer: injected by AZ_GPU_FAIL; drawing on the CPU\n"
+               "[render] gpu unavailable at lost: the context was lost twice without a frame in between; drawing on the CPU\n")
+        self.assertEqual([stage for stage, _ in q.gpu_fallbacks(two)], ["renderer", "lost"])
+
+    def test_a_failure_spec_names_the_stage_the_fallback_will_carry(self):
+        for spec, stage in (("library", "library"), ("context", "context"), ("surface", "surface"), ("make_current", "make_current"),
+                            ("functions", "functions"), ("probe", "probe"), ("renderer", "renderer"), ("document", "document"),
+                            ("shaders", "shaders"), ("renderer:2", "renderer"), ("make-current", "make_current"),
+                            # a frame that cannot go out is a lost context; twice in a row it ends the GPU path at `lost`
+                            ("frame", "lost"), ("lost:2", "lost"), ("lost", "lost")):
+            self.assertEqual(q.gpu_fail_stage(spec), stage, spec)
+
+    def test_the_memory_dump_gives_pss_rss_and_graphics(self):
+        dump = ("** MEMINFO in pid 2528 [com.azul.AzWidgets] **\n"
+                "                   Pss  Private  Private  SwapPss      Rss     Heap     Heap     Heap\n"
+                "                 Total    Dirty    Clean    Dirty    Total     Size    Alloc     Free\n"
+                "  Native Heap   104512   104400        0        0   110000   150000   120000    30000\n"
+                "     Graphics    38208    38208        0        0    38208\n"
+                "        TOTAL PSS:   251332            TOTAL RSS:   310200       TOTAL SWAP PSS:        0\n")
+        self.assertEqual(q.parse_meminfo(dump), {"pss_kb": 251332, "rss_kb": 310200, "graphics_kb": 38208})
+        self.assertEqual(q.parse_meminfo("nothing"), {"pss_kb": None, "rss_kb": None, "graphics_kb": None})
+
+    def test_the_engine_env_is_one_property_that_keeps_the_steps_own_keys(self):
+        self.assertEqual(q.render_env(), "AZ_LOG=info;AZ_DUMP_PRESENT=1")
+        self.assertEqual(q.render_env("AZ_BACKEND=gpu"), "AZ_LOG=info;AZ_DUMP_PRESENT=1;AZ_BACKEND=gpu")
+        # setprop replaces the whole value: the log keys stay when a failure is added
+        self.assertEqual(q.render_env("AZ_BACKEND=gpu;AZ_GPU_FAIL=renderer:2"),
+                         "AZ_LOG=info;AZ_DUMP_PRESENT=1;AZ_BACKEND=gpu;AZ_GPU_FAIL=renderer:2")
+        self.assertEqual(q.render_env(";"), "AZ_LOG=info;AZ_DUMP_PRESENT=1")
+
+    def test_a_step_that_needs_the_app_is_followed_by_the_after_hook(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "android", {})
+            seen = []
+            run.after = lambda s: seen.append(s.name)
+            run.step("a-needs", "x", lambda s: None, needs_app=True)
+            run.step("b-plain", "x", lambda s: None)
+            self.assertEqual(seen, ["a-needs"])
+
+
 if __name__ == "__main__":
     unittest.main()
