@@ -30,6 +30,11 @@
          first post). Undeclared, targetSdk 33+ refuses that request without
          ever showing the dialog, so an app could not obtain it at all. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Local-network discovery of IrohEndpoint (on by default): the Wi-Fi chip drops multicast
+         unless the app holds a MulticastLock, and creating one needs this normal permission
+         (granted at install, no prompt). Without it the endpoint works and
+         local_discovery_status() says "unavailable". -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
     <!-- DANGEROUS permissions are opt-in, injected here by build-android.sh
          from AZ_ANDROID_PERMISSIONS. Declaring CAMERA / RECORD_AUDIO /

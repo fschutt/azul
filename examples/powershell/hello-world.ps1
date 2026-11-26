@@ -4,79 +4,28 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Azul.psd1') -Force
 Set-AzulLibraryPath -Path $PSScriptRoot
 
+# The data model is any object. The callbacks are script blocks, converted to the typed
+# delegates of the binding (the data first, then the engine's value in its wrapper class), and
+# the binding hands the model back to them as it was.
 $model = [PSCustomObject]@{ Counter = 5 }
-$data  = [Azul.HostInvoker]::RefanyCreate($model)
 
-function Convert-AzulString {
-    param([Parameter(Mandatory=$true)][string]$Value)
-    $bytes  = [System.Text.Encoding]::UTF8.GetBytes($Value)
-    $handle = [System.Runtime.InteropServices.GCHandle]::Alloc($bytes,
-        [System.Runtime.InteropServices.GCHandleType]::Pinned)
-    try {
-        $ptr = $handle.AddrOfPinnedObject()
-        return [Azul.String]::FromUtf8($ptr, [System.UIntPtr]$bytes.Length)
-    } finally {
-        $handle.Free()
-    }
+$onClick = [Azul.HostInvoker+ButtonOnClickCallbackWithData[object]] {
+    param($m, $info)
+    $m.Counter = $m.Counter + 1
+    return [Azul.Update]::RefreshDom
 }
 
-$onClick = {
-    param([IntPtr]$dataPtr, [IntPtr]$infoPtr)
-    $m = [Azul.HostInvoker]::RefanyGet($dataPtr)
-    if ($m -is [PSCustomObject]) {
-        $m.Counter = $m.Counter + 1
-        return 1
-    }
-    return 0
+$layoutBlock = {
+    param($m, $info)
+    $label = [Azul.Dom]::CreatePWithText([string]$m.Counter).WithCss('font-size: 32px; margin: 0;')
+
+    $button = [Azul.Button]::Create('Increase counter').WithButtonType([Azul.ButtonType]::Primary)
+    $button.SetOnClick[object]($m, $onClick)
+
+    return [Azul.Dom]::CreateBody().WithChild($label).WithChild($button.Dom())
 }.GetNewClosure()
+$layout = [Azul.HostInvoker+LayoutCallbackWithData[object]]$layoutBlock
 
-$layout = {
-    param([IntPtr]$dataPtr, [IntPtr]$infoPtr)
-    $m = [Azul.HostInvoker]::RefanyGet($dataPtr)
-    if (-not ($m -is [PSCustomObject])) {
-        return ([Azul.Dom]::CreateBody()).Raw
-    }
-
-    $counterDom = [Azul.Dom]::CreatePWithText((Convert-AzulString -Value ([string]$m.Counter)))
-    $labelDiv   = $counterDom.WithCss((Convert-AzulString -Value 'font-size: 32px; margin: 0;'))
-
-    $button = [Azul.Button]::Create((Convert-AzulString -Value 'Increase counter'))
-    $button = $button.WithButtonType([Azul.Native.AzButtonType]::Primary)
-    $clickCb = [Azul.HostInvoker]::RegisterCallback($onClick)
-    $dataClone = [Azul.HostInvoker]::RefanyCreate($m)
-    $button = $button.WithOnClick($dataClone, $clickCb)
-    $buttonDom = $button.Dom()
-
-    $body = [Azul.Dom]::CreateBody().WithChild($labelDiv.Raw).WithChild($buttonDom)
-    return $body.Raw
-}.GetNewClosure()
-
-Write-Host "[ps] converting layout to delegate"
-$layoutDelegate = $layout -as [System.Func[IntPtr, IntPtr, object]]
-if (-not $layoutDelegate) { Write-Error "layout delegate conversion failed"; exit 1 }
-Write-Host "[ps] registering layout callback"
-$layoutCb = [Azul.HostInvoker]::RegisterLayoutCallback($layoutDelegate)
-Write-Host "[ps] layout callback registered"
-
-Write-Host "[ps] creating WCO"
-$wco = [Azul.WindowCreateOptions]::Default()
-Write-Host "[ps] WCO created: type=$($wco.GetType().FullName)"
-$wcoRaw = $wco.Raw
-Write-Host "[ps] wcoRaw type=$($wcoRaw.GetType().FullName)"
-
-$ws = $wcoRaw.window_state
-Write-Host "[ps] ws type=$($ws.GetType().FullName)"
-$ws.layout_callback = $layoutCb
-$wcoRaw.window_state = $ws
-
-Write-Host "[ps] creating AppConfig"
-$cfg = [Azul.AppConfig]::Create()
-Write-Host "[ps] cfg type=$($cfg.GetType().FullName)"
-$cfgRaw = $cfg.Raw
-Write-Host "[ps] cfg.Raw type=$($cfgRaw.GetType().FullName)"
-Write-Host "[ps] data type=$($data.GetType().FullName)"
-Write-Host "[ps] calling App.Create"
-$app = [Azul.App]::Create($data, $cfgRaw)
-Write-Host "[ps] App created, calling Run"
-$app.Run($wcoRaw)
-Write-Host "[ps] App.Run returned"
+$window = [Azul.WindowCreateOptions]::Create[object]($layout)
+$app = [Azul.App]::Create[object]($model, [Azul.AppConfig]::Create())
+$app.Run($window)

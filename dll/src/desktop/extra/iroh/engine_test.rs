@@ -1,0 +1,281 @@
+//! The engine's local-network discovery: what the config chooses, what a refused start leaves, a
+//! dial by endpoint id alone through a lookup that knows the address, and (by hand) the real mDNS.
+
+use std::{
+    sync::{atomic::AtomicU64, Arc, Mutex},
+    time::{Duration, Instant},
+};
+
+use azul_css::{AzString, StringVec};
+use iroh::{address_lookup::MemoryLookup, Endpoint, EndpointAddr};
+
+use super::*;
+
+const ALPN: &str = "azul/iroh-discovery-test/1";
+
+/// A config without relays, so nothing leaves this computer; discovery as the default has it.
+fn config() -> IrohConfig {
+    IrohConfig::create(AzString::from_const_str(ALPN)).with_relay_mode(IrohRelayMode::Disabled)
+}
+
+fn quiet() -> IrohConfig {
+    config().with_local_discovery(false)
+}
+
+/// Records what the engine asked of discovery: one entry per start, true when it was to announce.
+#[derive(Default)]
+struct Recording {
+    started: Mutex<Vec<bool>>,
+}
+
+impl LocalDiscovery for Recording {
+    fn start(
+        &self,
+        _endpoint: &Endpoint,
+        announce: bool,
+        _ignored: &Arc<AtomicU64>,
+    ) -> Result<Option<Held>, String> {
+        self.started.lock().unwrap().push(announce);
+        Ok(None)
+    }
+}
+
+/// A network that refuses multicast.
+struct Refusing;
+
+impl LocalDiscovery for Refusing {
+    fn start(
+        &self,
+        _endpoint: &Endpoint,
+        _announce: bool,
+        _ignored: &Arc<AtomicU64>,
+    ) -> Result<Option<Held>, String> {
+        Err("no multicast on this network".to_string())
+    }
+}
+
+/// A lookup that knows where one peer is: what mDNS would find, without a network.
+struct Knows(EndpointAddr);
+
+impl LocalDiscovery for Knows {
+    fn start(
+        &self,
+        endpoint: &Endpoint,
+        _announce: bool,
+        _ignored: &Arc<AtomicU64>,
+    ) -> Result<Option<Held>, String> {
+        let lookup = MemoryLookup::new();
+        lookup.add_endpoint_info(self.0.clone());
+        endpoint
+            .address_lookup()
+            .map_err(|e| e.to_string())?
+            .add(lookup);
+        Ok(None)
+    }
+}
+
+fn bound(config: &IrohConfig, discovery: &dyn LocalDiscovery) -> Engine {
+    Engine::bind_with(config, discovery).expect("the endpoint binds")
+}
+
+/// The next event of `kind` within `limit`; an `Error` event on the way fails the test.
+fn next_of(engine: &Engine, kind: IrohEventKind, limit: Duration) -> IrohEvent {
+    let deadline = Instant::now() + limit;
+    loop {
+        match engine.recv() {
+            Some(event) if event.kind == kind => return event,
+            Some(event) => {
+                assert_ne!(event.kind, IrohEventKind::Error, "{}", event.text.as_str())
+            }
+            None => {
+                assert!(Instant::now() < deadline, "no {kind:?} event within {limit:?}");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+    }
+}
+
+const WAIT: Duration = Duration::from_secs(20);
+
+#[test]
+fn the_config_chooses_whether_discovery_starts_and_whether_it_announces() {
+    // on by default: started once, to announce
+    let recording = Recording::default();
+    let engine = bound(&config(), &recording);
+    assert_eq!(*recording.started.lock().unwrap(), vec![true]);
+    assert_eq!(engine.local_discovery_status(), "on");
+
+    // switched off: never started
+    let recording = Recording::default();
+    let engine = bound(&quiet(), &recording);
+    assert!(recording.started.lock().unwrap().is_empty());
+    assert_eq!(engine.local_discovery_status(), "off");
+
+    // an endpoint that accepts nobody is a client: started, not announcing
+    let recording = Recording::default();
+    let client = config().with_allowed_peers(StringVec::from_vec(Vec::new()));
+    let engine = bound(&client, &recording);
+    assert_eq!(*recording.started.lock().unwrap(), vec![false]);
+    assert!(
+        engine.local_discovery_status().starts_with("on, looking only"),
+        "{}",
+        engine.local_discovery_status()
+    );
+
+    // no UDP socket, nothing to find: never started, even though the flag is on
+    let recording = Recording::default();
+    let relay_only = IrohConfig::create(AzString::from_const_str(ALPN))
+        .with_relay_url(AzString::from_const_str("http://127.0.0.1:9"))
+        .with_relay_only(true);
+    assert!(relay_only.local_discovery);
+    let engine = bound(&relay_only, &recording);
+    assert!(recording.started.lock().unwrap().is_empty());
+    assert_eq!(engine.local_discovery_status(), "off");
+}
+
+#[test]
+fn a_network_that_refuses_discovery_leaves_the_endpoint_bound_and_says_why() {
+    let engine = bound(&config(), &Refusing);
+    assert!(engine.is_bound());
+    assert_eq!(
+        engine.local_discovery_status(),
+        "unavailable: no multicast on this network"
+    );
+    // no Error event for an app to treat as fatal: the first thing it hears is the ticket
+    let ready = next_of(&engine, IrohEventKind::Ready, WAIT);
+    assert!(!ready.text.as_str().is_empty());
+}
+
+#[test]
+fn an_endpoint_dialled_by_its_id_alone_connects_when_a_lookup_knows_its_address() {
+    let host = bound(&quiet(), &Recording::default());
+    next_of(&host, IrohEventKind::Ready, WAIT);
+    let host_id = host.endpoint_id();
+
+    // the control: without a lookup a bare id names no address, and the dial fails
+    let lonely = bound(&quiet(), &Recording::default());
+    lonely.connect(&host_id).expect("an endpoint id parses");
+    let deadline = Instant::now() + WAIT;
+    let failure = loop {
+        match lonely.recv() {
+            Some(event) if event.kind == IrohEventKind::Error => break event,
+            Some(_) => {}
+            None => {
+                assert!(Instant::now() < deadline, "the dial by id neither failed nor connected");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+    };
+    assert!(
+        failure.text.as_str().contains("could not connect"),
+        "{}",
+        failure.text.as_str()
+    );
+
+    // with a lookup that knows the address (what mDNS finds on a network) the same dial connects
+    let guest = bound(&config(), &Knows(host.endpoint.addr()));
+    assert_eq!(guest.local_discovery_status(), "on");
+    guest.connect(&host_id).expect("an endpoint id parses");
+    assert_eq!(
+        next_of(&guest, IrohEventKind::PeerConnected, WAIT).text.as_str(),
+        host_id
+    );
+    assert_eq!(
+        next_of(&host, IrohEventKind::PeerConnected, WAIT).text.as_str(),
+        guest.endpoint_id()
+    );
+}
+
+#[test]
+fn an_endpoint_that_accepted_only_listed_peers_accepts_everybody_again_once_cleared() {
+    let nobody = quiet().with_allowed_peers(StringVec::from_vec(Vec::new()));
+    let host = bound(&nobody, &Recording::default());
+    let ticket = next_of(&host, IrohEventKind::Ready, WAIT).text;
+    let stranger = bound(&quiet(), &Recording::default());
+
+    stranger.connect(ticket.as_str()).expect("the ticket parses");
+    let deadline = Instant::now() + WAIT;
+    let refusal = loop {
+        if let Some(event) = host.recv().filter(|e| e.kind == IrohEventKind::Error) {
+            break event;
+        }
+        assert!(Instant::now() < deadline, "the stranger was not refused");
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert!(refusal.text.as_str().contains("not an allowed peer"), "{}", refusal.text.as_str());
+    assert_eq!(host.peer_count(), 0);
+
+    host.set_allowed_peers(None).expect("clearing never fails");
+    stranger.connect(ticket.as_str()).expect("the ticket parses");
+    assert_eq!(
+        next_of(&host, IrohEventKind::PeerConnected, WAIT).text.as_str(),
+        stranger.endpoint_id()
+    );
+}
+
+/// Garbage a hostile neighbour can multicast to the mDNS group of every computer on the link. None
+/// of it may take an endpoint down, and none of it is an announcement.
+fn hostile_datagrams() -> usize {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").expect("a socket");
+    let mut packets: Vec<Vec<u8>> = vec![
+        vec![],
+        vec![0],
+        vec![0xff; 11],
+        vec![0xff; 12],
+        vec![0; 1472],
+        (0..1472u32).map(|n| (n * 7 + 3) as u8).collect(),
+        // a header that claims 65535 of everything and carries nothing
+        [&[0u8, 0, 0x84, 0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff][..], &[0u8; 20]].concat(),
+        // an answer whose name, and whose data, are a compression pointer to itself
+        vec![
+            0, 0, 0x84, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0xc0, 0x0c, 0, 12, 0, 1, 0, 0, 0, 0, 0, 2, 0xc0,
+            0x0c,
+        ],
+        // a label that is longer than the packet
+        [&[0u8, 0, 0x84, 0, 0, 0, 0, 1, 0, 0, 0, 0, 63][..], &[b'a'; 10]].concat(),
+    ];
+    // and noise of every length
+    for length in [1usize, 2, 12, 13, 64, 255, 256, 511, 1200, 1471] {
+        packets.push((0..length).map(|n| (n as u32 * 31 + length as u32) as u8).collect());
+    }
+    let mut sent = 0;
+    for packet in &packets {
+        if socket.send_to(packet, ("224.0.0.251", 5353)).is_ok() {
+            sent += 1;
+        }
+    }
+    sent
+}
+
+/// BY HAND: two endpoints of this process find each other by id over the real mDNS of this
+/// computer's network, with garbage on the multicast group meanwhile. A CI runner's network does
+/// not carry multicast between the endpoints of one process reliably, so no job runs it.
+#[test]
+#[ignore = "X-EDGE-C-2: needs a network that carries multicast (a CI runner's does not): run by hand with cargo test -p azul-dll --lib --features iroh -- --ignored --nocapture two_endpoints_find_each_other_by_id_over_real_mdns"]
+fn two_endpoints_find_each_other_by_id_over_real_mdns() {
+    let host = Engine::bind(&config()).expect("the host binds");
+    let guest = Engine::bind(&config()).expect("the guest binds");
+    eprintln!(
+        "local discovery: host {}, guest {}",
+        host.local_discovery_status(),
+        guest.local_discovery_status()
+    );
+    assert!(host.local_discovery_status().starts_with("on"), "{}", host.local_discovery_status());
+    assert!(guest.local_discovery_status().starts_with("on"), "{}", guest.local_discovery_status());
+    next_of(&host, IrohEventKind::Ready, WAIT);
+    next_of(&guest, IrohEventKind::Ready, WAIT);
+
+    eprintln!("hostile datagrams sent: {}", hostile_datagrams());
+
+    let started = Instant::now();
+    guest.connect(&host.endpoint_id()).expect("an endpoint id parses");
+    let connected = next_of(&guest, IrohEventKind::PeerConnected, Duration::from_secs(90));
+    eprintln!("found by id and connected in {:?}", started.elapsed());
+    assert_eq!(connected.text.as_str(), host.endpoint_id());
+    next_of(&host, IrohEventKind::PeerConnected, WAIT);
+
+    // the garbage did not take anything down
+    hostile_datagrams();
+    assert!(host.is_bound() && guest.is_bound());
+    assert!(host.local_discovery_status().starts_with("on"), "{}", host.local_discovery_status());
+}

@@ -21,6 +21,15 @@
 #   AZ_IOS_FEATURES=...    cargo --features list. Default: 'std,logging,link-static,a11y'.
 #   IOS_SIGNING_IDENTITY   codesign -s value for device deploy.
 #   APP_NAME, BUNDLE_ID, DISPLAY_NAME, VERSION, BUILD, MIN_OS — Info.plist overrides.
+#   AZ_IOS_LOCAL_NETWORK="<why the app uses the local network>"
+#                          an app that uses IrohEndpoint (local-network discovery is ON by default):
+#                          writes NSLocalNetworkUsageDescription (the text of the Local Network
+#                          prompt) and NSBonjourServices = [_irohv1._udp] (the service the system's
+#                          Bonjour is asked for on iOS). Without them the system refuses the lookup
+#                          (kDNSServiceErr_PolicyDenied) and local_discovery_status says so.
+#   AZ_IOS_USAGE="NSCameraUsageDescription=...<newline>NSMicrophoneUsageDescription=..."
+#                          more usage descriptions, one Key=text per line (only NS...UsageDescription).
+#   AZ_IOS_BONJOUR_SERVICES="_other._tcp,_more._udp"  more NSBonjourServices entries.
 
 set -euo pipefail
 
@@ -134,6 +143,43 @@ mkdir -p "$BUNDLE_DIR"
 cp "$ARTIFACT" "$BUNDLE_DIR/$APP_NAME"
 chmod +x "$BUNDLE_DIR/$APP_NAME" || true
 
+# The extra Info.plist keys: usage descriptions and Bonjour service types from the environment, as
+# XML (the Android script does the same for AZ_ANDROID_PERMISSIONS). Only `NS...UsageDescription`
+# keys are taken from AZ_IOS_USAGE, so it cannot overwrite the bundle's own keys; text and service
+# names are XML-escaped.
+PLIST_EXTRA_FILE="$(mktemp)"
+python3 - "$PLIST_EXTRA_FILE" <<'PY'
+import os, re, sys
+from xml.sax.saxutils import escape
+
+entries = []          # (key, text)
+for line in os.environ.get("AZ_IOS_USAGE", "").splitlines():
+    key, sep, text = line.partition("=")
+    key, text = key.strip(), text.strip()
+    if sep and text and re.fullmatch(r"NS[A-Za-z]+UsageDescription", key):
+        entries.append((key, text))
+services = []
+why = os.environ.get("AZ_IOS_LOCAL_NETWORK", "").strip()
+if why:
+    entries.append(("NSLocalNetworkUsageDescription", why))
+    services.append("_irohv1._udp")
+for name in os.environ.get("AZ_IOS_BONJOUR_SERVICES", "").split(","):
+    name = name.strip()
+    if re.fullmatch(r"_[A-Za-z0-9-]{1,15}\._(tcp|udp)", name) and name not in services:
+        services.append(name)
+out = []
+seen = set()
+for key, text in entries:
+    if key not in seen:
+        seen.add(key)
+        out.append(f"    <key>{key}</key>\n    <string>{escape(text)}</string>")
+if services:
+    out.append("    <key>NSBonjourServices</key>\n    <array>\n"
+               + "\n".join(f"        <string>{escape(s)}</string>" for s in services)
+               + "\n    </array>")
+open(sys.argv[1], "w").write("\n".join(out) + ("\n" if out else ""))
+PY
+
 # Render Info.plist from the template.
 PLIST_TEMPLATE="$ASSET_ROOT/scripts/ios/Info.plist"
 sed \
@@ -143,7 +189,10 @@ sed \
     -e "s|@VERSION@|$VERSION|g" \
     -e "s|@BUILD@|$BUILD|g" \
     -e "s|@MIN_OS@|$MIN_OS|g" \
+    -e "/@EXTRA_PLIST@/r $PLIST_EXTRA_FILE" \
+    -e "/@EXTRA_PLIST@/d" \
     "$PLIST_TEMPLATE" > "$BUNDLE_DIR/Info.plist"
+rm -f "$PLIST_EXTRA_FILE"
 
 # PlistBuddy converts XML → binary plist (smaller; iOS prefers binary).
 if command -v /usr/libexec/PlistBuddy >/dev/null 2>&1; then
