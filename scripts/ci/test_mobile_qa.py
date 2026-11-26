@@ -221,5 +221,83 @@ class BmpVariantTests(unittest.TestCase):
                 path.unlink()
 
 
+class ModeComparisonTests(unittest.TestCase):
+    def test_identical_pictures_do_not_differ_and_the_image_is_dimmed(self):
+        w, h = 20, 30
+        a = halves(w, h, (200, 100, 50), (10, 20, 30))
+        d = q.diff_pixels(a, a, w, h)
+        self.assertEqual(d["differing"], 0)
+        self.assertIsNone(d["bbox"])
+        self.assertEqual(d["image"][0], 200 // 3)
+
+    def test_a_block_of_differing_pixels_is_found_with_its_box_and_painted_red(self):
+        w, h = 20, 30
+        a = bytearray(solid(w, h, (100, 100, 100)))
+        b = bytearray(a)
+        for y in range(10, 14):
+            for x in range(5, 9):
+                b[(y * w + x) * 4:(y * w + x) * 4 + 3] = bytes((100 + 60, 100, 100))
+        d = q.diff_pixels(bytes(a), bytes(b), w, h)
+        self.assertEqual(d["differing"], 16)
+        self.assertEqual(d["bbox"], (5, 10, 8, 13))
+        self.assertEqual(d["max_abs"], 60)
+        i = (10 * w + 5) * 4
+        self.assertEqual(tuple(d["image"][i:i + 3]), (255, 0, 0))
+        self.assertAlmostEqual(d["share"], 16 / 600.0)
+
+    def test_anti_aliasing_noise_under_the_tolerance_is_not_a_difference(self):
+        w, h = 10, 10
+        a = solid(w, h, (100, 100, 100))
+        b = solid(w, h, (100 + q.PIXEL_TOLERANCE, 100, 100))
+        self.assertEqual(q.diff_pixels(a, b, w, h)["differing"], 0)
+        c = solid(w, h, (100 + q.PIXEL_TOLERANCE + 1, 100, 100))
+        self.assertEqual(q.diff_pixels(a, c, w, h)["differing"], 100)
+
+    def test_the_backend_line(self):
+        log = ("11-26 06:57:07.1  2528  2528 I RustStdoutStderr: [render] backend=cpu requested=gpu device=software\n"
+               "other line\n")
+        self.assertEqual(q.backend_ran(log), ("cpu", "gpu", "software"))
+        self.assertEqual(q.backend_ran("[render] backend=gpu requested=auto device=Adreno (TM) 640"), ("gpu", "auto", "Adreno (TM) 640"))
+        self.assertEqual(q.backend_ran("nothing here"), ("unknown", None, None))
+        # the last line wins (a window recreated with another renderer)
+        two = "[render] backend=gpu requested=gpu\n[render] backend=cpu requested=gpu\n"
+        self.assertEqual(q.backend_ran(two)[0], "cpu")
+
+    def test_frame_time_statistics(self):
+        self.assertEqual(q.percentile([1, 2, 3, 4, 5], 50), 3)
+        self.assertEqual(q.percentile([], 50), None)
+        ns = [1_000_000_000 + i * 16_666_667 for i in range(10)] + [0, 9223372036854775807]
+        iv = q.frame_intervals_ms(ns)
+        self.assertEqual(len(iv), 9)
+        self.assertAlmostEqual(q.percentile(iv, 50), 16.666667, places=3)
+        text = "16666666\n1000000000 1010000000 1012000000\n1016000000 1026000000 1028000000\n0 9223372036854775807 0\n"
+        refresh, times = q.parse_sf_latency(text)
+        self.assertAlmostEqual(refresh, 16.666666)
+        self.assertEqual(times, [1010000000, 1026000000, 9223372036854775807])
+        self.assertEqual(q.frame_intervals_ms(times), [16.0])
+
+    def test_displayed_time(self):
+        log = "11-26 06:35:55.238 521 543 I ActivityTaskManager: Displayed com.azul.AzWidgets/com.azul.app.AzulActivity for user 0: +2s383ms"
+        # the real line has `for user 0:` between: the reader takes the +NsNms after the last colon-plus
+        self.assertEqual(q.displayed_ms(log, "com.azul.AzWidgets"), 2383)
+        self.assertEqual(q.displayed_ms("Displayed com.azul.AzWidgets/.A: +850ms", "com.azul.AzWidgets"), 850)
+        self.assertIsNone(q.displayed_ms("nothing", "com.azul.AzWidgets"))
+
+    def test_a_gpu_request_that_ran_the_cpu_is_a_finding_that_fails_once_a_gpu_path_is_expected(self):
+        import tempfile
+        w, h = 12, 12
+        px = solid(w, h, (90, 90, 90))
+        res = {m: {"ran": "cpu", "requested": None, "device": None, "rgba": px, "dims": (w, h), "first_frame_s": 1.0, "displayed_ms": 1200,
+                   "frames": {"median": 16.7, "p95": 33.3, "n": 40}} for m in ("cpu", "gpu", "auto")}
+        for expect, ok in ((False, True), (True, False)):
+            with tempfile.TemporaryDirectory() as d:
+                run = q.Run(d, "android", {})
+                run.step("modes", "x", lambda s: q.report_modes(run, s, res, expect, "android"))
+                self.assertEqual(run.steps[0].ok, ok, f"expect_gpu={expect}")
+                finding = [c for c in run.steps[0].checks if "GPU renderer ran" in c["what"]]
+                self.assertTrue(finding and not finding[0]["ok"])      # the finding is there in both cases
+                self.assertIn("render_modes", run.meta)
+
+
 if __name__ == "__main__":
     unittest.main()

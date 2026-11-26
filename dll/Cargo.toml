@@ -956,12 +956,14 @@ _internal_deps = [
     "icu_windows",
     # Fluent localization support
     "fluent",
-    # NOTE: `http` (rustls + rustls-rustcrypto + the elliptic-curve/getrandom
-    # crypto stack) is deliberately NOT in the shared gate. Like db-sqlite/pdf
-    # it belongs to build-dll only, so the `link-static` mobile/cross gate — and
-    # wasm32-unknown-unknown — stay free of the crypto stack and cross-compile
-    # cleanly. Consumers that need HTTPS enable the `http` feature explicitly
-    # (e.g. azul-doc).
+    # The HTTP client (ureq, rustls 0.23 with the pure-Rust provider rustls-rustcrypto-azul: no
+    # ring, no C) is part of this shared gate, named here: map tiles, `http_get`, the telemetry
+    # upload and an app's own requests need HTTPS on a phone as much as on a desktop. wasm32 stays
+    # free of it (azul-layout declares ureq and rustls for non-wasm targets only). The
+    # `azul-layout` dependency above names `updater` as well, because the C API names its types on
+    # every target; on iOS and Android, and with azul-layout's `store_app`, what downloads or
+    # installs a program is compiled out of it (a store forbids an app to fetch code of its own).
+    "http",
     # ZIP file manipulation
     "zip",
     # JSON support
@@ -1195,8 +1197,11 @@ font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithr
 font_async_registry = ["font_loading", "azul-layout/font_async_registry"]
 text_layout = ["azul-layout", "azul-layout/text_layout"]
 
-# ICU4X internationalization support
-icu = ["azul-layout", "azul-layout/icu"]
+# ICU4X internationalization support, with the clock: `IcuDate::now()`, `IcuTime::now()`,
+# `IcuDateTime::now()` and the timestamp functions (api.json's docs of format_date, format_time and
+# format_datetime tell the user to call them) need azul-layout's `icu_chrono`, so every build that has
+# `icu` has it: chrono is in the shipped closures already, on the mobile ones it is a few small crates.
+icu = ["azul-layout", "azul-layout/icu", "azul-layout/icu_chrono"]
 icu_chrono = ["icu", "azul-layout/icu_chrono"]
 
 # macOS Foundation ICU backend (replaces ICU4X data blobs on macOS, ~3.3 MB savings).

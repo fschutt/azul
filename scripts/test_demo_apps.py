@@ -448,6 +448,59 @@ class FloorApkTest(unittest.TestCase):
         self.assertEqual(subprocess.run(["bash", "-n", str(self.dir / "build.sh")]).returncode, 0)
 
 
+class PurposeStringsTest(unittest.TestCase):
+    """iOS refuses a camera, a microphone or a location without the Info.plist text that says why (and the engine now refuses to
+    start the feature, naming the key): the texts come from the manifest through AZ_IOS_USAGE, none is a default of the scripts."""
+
+    def setUp(self):
+        self.m = demo_apps.load()
+
+    def app(self, name):
+        return next(a for a in self.m["app"] if a["package"] == name)
+
+    def test_every_sensor_permission_an_app_asks_for_on_android_has_its_purpose_string_on_ios(self):
+        self.assertEqual([e for e in demo_apps.check(self.m) if "UsageDescription" in e], [])
+
+    def test_the_phone_apps_that_use_the_camera_the_microphone_or_the_location_say_why(self):
+        meet = self.app("AzMeet")["ios"]["usage"]
+        self.assertIn("NSCameraUsageDescription", meet)
+        self.assertIn("NSMicrophoneUsageDescription", meet)
+        self.assertIn("NSLocationWhenInUseUsageDescription", self.app("AzMaps")["ios"]["usage"])
+        self.assertIn("NSCameraUsageDescription", self.app("AzCompanion")["ios"]["usage"])
+
+    def test_a_missing_key_is_an_error_that_names_the_key_and_the_permission_it_stands_for(self):
+        del self.app("AzMeet")["ios"]["usage"]["NSMicrophoneUsageDescription"]
+        errors = demo_apps.check(self.m)
+        self.assertTrue(any("AzMeet" in e and "NSMicrophoneUsageDescription" in e and "RECORD_AUDIO" in e for e in errors), errors)
+
+    def test_a_key_that_is_no_usage_description_or_has_no_text_is_an_error(self):
+        self.app("AzMeet")["ios"]["usage"]["NSCameraUsageDescription"] = "  "
+        self.app("AzMaps")["ios"]["usage"]["CFBundleName"] = "x"
+        errors = demo_apps.check(self.m)
+        self.assertTrue(any("AzMeet" in e and "NSCameraUsageDescription" in e and "text" in e for e in errors), errors)
+        self.assertTrue(any("AzMaps" in e and "CFBundleName" in e for e in errors), errors)
+
+    def test_the_texts_say_something_to_a_person(self):
+        for a in self.m["app"]:
+            for key, text in ((a.get("ios") or {}).get("usage") or {}).items():
+                self.assertGreaterEqual(len(text), 25, (a["package"], key))
+                self.assertTrue(text.endswith("."), (a["package"], key))
+                self.assertNotRegex(text, r"(?i)todo|lorem|xxx|placeholder")
+
+    def test_the_ios_build_script_runs_the_symbol_gate_after_the_bundle_and_before_it_signs(self):
+        text = (HERE / "build-ios.sh").read_text(encoding="utf-8")
+        gate, sign = text.index('python3 "$ASSET_ROOT/scripts/ci/ios_symbol_gate.py"'), text.index("codesign --force")
+        self.assertLess(gate, sign)
+        self.assertGreater(gate, text.index("strip -S -x"))
+        self.assertIn('[[ -f "$ASSET_ROOT/scripts/ci/ios_symbol_gate.py" ]]', text)   # a checkout without the gate builds as before
+        for needle in ('--binary "$BUNDLE_DIR/$APP_NAME"', '--min-os "$MIN_OS"', '--sdk "$(xcrun --sdk "$SDK_SHORT" --show-sdk-path)"',
+                       "AZ_IOS_SYMBOL_JSON"):
+            self.assertIn(needle, text)
+
+    def test_the_builder_names_the_file_the_symbol_gate_writes_its_numbers_to(self):
+        self.assertIn("AZ_IOS_SYMBOL_JSON", (HERE / "demo_build.py").read_text(encoding="utf-8"))
+
+
 class ApkGateTest(unittest.TestCase):
     """verify_apk is the gate of a built APK: what the phone checks before it runs anything, and that every library of it can be
     loaded on a device with 16 KiB pages (scripts/android_elf_check.py)."""
