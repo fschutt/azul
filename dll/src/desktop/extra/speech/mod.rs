@@ -145,7 +145,10 @@ use self::linux as platform;
 use self::windows as platform;
 
 use self::{
-    builtin::{Builtin, BuiltinStatus, DownloadPolicy, LayoutFetch, ModelStore, NoNetwork, Tuning, WHISTLE},
+    builtin::{
+        Builtin, BuiltinStatus, DownloadPolicy, LayoutFetch, ModelPhase, ModelState, ModelStore, NoNetwork, Tuning,
+        WHISTLE,
+    },
     chain::{Chain, Health},
     keeper::{MicKeeper, DEFAULT_ARMED_IDLE_MS, DEFAULT_KEEP_MS},
     mock::{words_of, MockSpeech},
@@ -316,6 +319,103 @@ pub enum SpeechStandby {
 impl Default for SpeechStandby {
     fn default() -> Self {
         Self::OnDemand
+    }
+}
+
+/// Whether the built-in recognizer's model is fetched when it is missing. The model is not bundled: it is
+/// a file of 16.9 MB that the program downloads once, into the user's cache folder, with its size and its
+/// SHA-256 checked (see [`SpeechSession::model_state`]).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechModelDownload {
+    /// Nothing is fetched, even when the app allows it: a model that is not there stays missing.
+    Never,
+    /// Nothing is fetched until the app has asked its user and calls
+    /// [`SpeechSession::allow_model_download`] (the default).
+    Ask,
+    /// The model is fetched the first time the recognizer needs it, without asking.
+    Automatic,
+}
+
+impl Default for SpeechModelDownload {
+    fn default() -> Self {
+        Self::Ask
+    }
+}
+
+impl From<SpeechModelDownload> for DownloadPolicy {
+    fn from(policy: SpeechModelDownload) -> Self {
+        match policy {
+            SpeechModelDownload::Never => Self::Never,
+            SpeechModelDownload::Ask => Self::Ask,
+            SpeechModelDownload::Automatic => Self::Automatic,
+        }
+    }
+}
+
+/// Where the built-in recognizer's model is.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechModelPhase {
+    /// The file is there and complete: nothing to do.
+    Present,
+    /// It is being fetched: `bytes_done` of `bytes_total`.
+    Downloading,
+    /// It is not there, the policy is `Ask` and nobody has allowed it: ask the user, then call
+    /// `allow_model_download`.
+    NeedsConsent,
+    /// It is not there and nothing will fetch it (the policy is `Never`, or `Automatic` before the first
+    /// need).
+    Missing,
+    /// The last attempt failed: `message` says how; `allow_model_download` tries again.
+    Failed,
+    /// It is not there and the program is offline: nothing is fetched.
+    Offline,
+    /// There is no folder to keep it in: name one with `set_model_folder`.
+    NoFolder,
+}
+
+impl From<ModelPhase> for SpeechModelPhase {
+    fn from(phase: ModelPhase) -> Self {
+        match phase {
+            ModelPhase::Present => Self::Present,
+            ModelPhase::Downloading => Self::Downloading,
+            ModelPhase::NeedsConsent => Self::NeedsConsent,
+            ModelPhase::Missing => Self::Missing,
+            ModelPhase::Failed => Self::Failed,
+            ModelPhase::Offline => Self::Offline,
+            ModelPhase::NoFolder => Self::NoFolder,
+        }
+    }
+}
+
+/// Where the built-in recognizer's model is: a snapshot, read without waiting for a download.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpeechModelState {
+    /// Bytes of the file that are on disk (the whole file once `Present`).
+    pub bytes_done: u64,
+    /// The size of the file, bytes.
+    pub bytes_total: u64,
+    /// A sentence to show: what is the matter, or how far the download is.
+    pub message: AzString,
+    /// Where the file is (empty until `Present`).
+    pub path: AzString,
+    /// Where the model is fetched from.
+    pub url: AzString,
+    pub phase: SpeechModelPhase,
+}
+
+impl From<ModelState> for SpeechModelState {
+    fn from(state: ModelState) -> Self {
+        Self {
+            bytes_done: state.bytes_done,
+            bytes_total: state.bytes_total,
+            message: AzString::from(state.message),
+            path: AzString::from(state.path.map(|path| path.to_string_lossy().into_owned()).unwrap_or_default()),
+            url: AzString::from(state.url),
+            phase: state.phase.into(),
+        }
     }
 }
 
@@ -1117,6 +1217,67 @@ impl SpeechSession {
         };
         *inner.standby.lock().unwrap_or_else(PoisonError::into_inner) = standby;
         inner.apply_standby();
+    }
+
+    /// Whether the built-in recognizer's model is fetched when it is missing: [`SpeechModelDownload::Ask`]
+    /// by default (the environment's `AZ_SPEECH_MODEL_DOWNLOAD`, `never`, `ask` or `automatic`, sets the
+    /// default of the session; this call wins over it). Set it at the start; after changing it later, call
+    /// [`SpeechSession::reset`] so that a recognizer that was refused for the missing model is asked again.
+    pub fn set_model_download(&self, policy: SpeechModelDownload) {
+        if let Some(inner) = self.inner() {
+            inner.model.set_policy(policy.into());
+        }
+    }
+
+    /// An offline program fetches nothing, whatever the policy and whoever allowed it (the environment's
+    /// `AZ_SPEECH_OFFLINE` sets the default of the session).
+    pub fn set_offline(&self, offline: bool) {
+        if let Some(inner) = self.inner() {
+            inner.model.set_offline(offline);
+        }
+    }
+
+    /// The folder the model is kept in. Empty: the user's cache folder (`azul/speech` in it), which
+    /// some platforms (Android) do not have: the app then names one, its own cache or files folder.
+    pub fn set_model_folder(&self, folder: AzString) {
+        if let Some(inner) = self.inner() {
+            let folder = folder.as_str().trim();
+            inner.model.set_folder((!folder.is_empty()).then(|| PathBuf::from(folder)));
+        }
+    }
+
+    /// Where the built-in recognizer's model is, without waiting for anything: the phase, how far a
+    /// download is, and a sentence to show (for [`SpeechModelPhase::NeedsConsent`] the question for the
+    /// user: what is fetched, how large it is, from where, under which licence).
+    pub fn model_state(&self) -> SpeechModelState {
+        self.inner().map_or_else(
+            || ModelState {
+                phase: ModelPhase::Missing,
+                bytes_done: 0,
+                bytes_total: 0,
+                path: None,
+                message: "no session".to_string(),
+                url: String::new(),
+            }
+            .into(),
+            |inner| inner.model.state().into(),
+        )
+    }
+
+    /// The user said yes (or the app decided so): fetches the model now, on a thread of its own, unless it is
+    /// there, the program is offline, the policy is `Never` or there is no folder. When it is in place the
+    /// session takes the built-in recognizer up again by itself. Allowing again after a failure tries again.
+    /// Answers the state; poll [`SpeechSession::model_state`] for the progress.
+    pub fn allow_model_download(&self) -> SpeechModelState {
+        self.inner().map_or_else(|| self.model_state(), |inner| inner.model.allow().into())
+    }
+
+    /// Stops a download at its next window (a megabyte); what came stays and the next
+    /// `allow_model_download` resumes from it. The consent is withdrawn.
+    pub fn cancel_model_download(&self) {
+        if let Some(inner) = self.inner() {
+            inner.model.cancel();
+        }
     }
 
     /// Whether sound is reaching the recognizer in the call that runs: false until the

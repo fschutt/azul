@@ -632,3 +632,63 @@ fn a_model_that_finishes_downloading_makes_the_refused_built_in_recognizer_a_can
     assert!(lines_of(&session).iter().any(|line| line.contains("built-in") && line.contains("ready")), "{:?}", lines_of(&session));
     drop(std::fs::remove_dir_all(&dir));
 }
+
+/// The app's face of the model: the policy, the consent, offline, the folder and the state, as the C API
+/// hands them out.
+#[test]
+fn the_model_api_drives_the_store_and_reports_its_state() {
+    use super::{
+        builtin::model::model_test::{body, scratch, Fake, TEST_MODEL},
+        builtin::ModelStore,
+        order::Preference,
+        SpeechModelDownload, SpeechModelPhase,
+    };
+
+    let dir = scratch("session-api");
+    let fake = Fake::new(body());
+    // A platform with no cache folder of its own, as Android: the app names one.
+    let model = ModelStore::new(&TEST_MODEL, fake.clone(), None);
+    let chain = Chain::new(ManualClock::shared(ORIGIN)).with(Box::new(MockSpeech::new(Kind::Native, vec![say(0, "hello")])));
+    let session = SpeechSession::from_chain(chain, None, true, Preference::Automatic, true, MicKeeper::without_microphone(), model);
+    assert_eq!(session.model_state().phase, SpeechModelPhase::NoFolder);
+    assert!(session.model_state().message.as_str().contains("set_model_folder"));
+
+    session.set_model_folder(AzString::from(format!("  {}  ", dir.to_string_lossy())));
+    let state = session.model_state();
+    assert_eq!(state.phase, SpeechModelPhase::NeedsConsent, "the default asks first");
+    assert_eq!((state.bytes_done, state.bytes_total), (0, 3000));
+    assert!(state.url.as_str().starts_with("https://") && state.path.as_str().is_empty(), "{state:?}");
+    assert!(state.message.as_str().contains("allow_model_download"), "{}", state.message.as_str());
+    assert_eq!(fake.calls(), 0);
+
+    // Never is never; offline is offline; each says so.
+    session.set_model_download(SpeechModelDownload::Never);
+    assert_eq!(session.allow_model_download().phase, SpeechModelPhase::Missing);
+    session.set_model_download(SpeechModelDownload::Ask);
+    session.set_offline(true);
+    assert_eq!(session.allow_model_download().phase, SpeechModelPhase::Offline);
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    assert_eq!(fake.calls(), 0);
+
+    // Online and allowed: it comes, and the state says where it is.
+    session.set_offline(false);
+    session.allow_model_download();
+    let began = std::time::Instant::now();
+    let state = loop {
+        let state = session.model_state();
+        if state.phase == SpeechModelPhase::Present {
+            break state;
+        }
+        assert!(began.elapsed() < std::time::Duration::from_secs(10), "{state:?}");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    };
+    assert_eq!(std::fs::read(state.path.as_str()).expect("the model"), body());
+    assert_eq!((state.bytes_done, state.bytes_total), (3000, 3000));
+    // The folder is the app's to take back: empty is the platform's again, which has none here.
+    session.set_model_folder(AzString::from(String::new()));
+    assert_eq!(session.model_state().phase, SpeechModelPhase::NoFolder);
+    // A clone is the same session: it sees the same model.
+    session.set_model_folder(AzString::from(dir.to_string_lossy().into_owned()));
+    assert_eq!(session.clone().model_state().phase, SpeechModelPhase::Present);
+    drop(std::fs::remove_dir_all(&dir));
+}
