@@ -26,10 +26,14 @@ use objc2::{
     runtime::{AnyClass, AnyObject, Bool},
 };
 
-use crate::desktop::shell2::common::{
-    gl_loader::load_gl_context,
-    gpu_lifecycle::Surface,
-    gpu_select::{DeviceInfo, GpuFallback, GpuStage},
+use crate::{
+    desktop::shell2::common::{
+        debug_server::LogCategory,
+        gl_loader::load_gl_context,
+        gpu_lifecycle::Surface,
+        gpu_select::{DeviceInfo, GpuFallback, GpuStage},
+    },
+    log_info,
 };
 
 /// Where the framework lives on every iOS (and on the Simulator's runtime).
@@ -145,7 +149,21 @@ impl EaglLibrary {
 
     /// The engine's GL table, filled from this framework (stage [`GpuStage::Functions`]).
     pub fn functions(&self) -> Result<Rc<GenericGlContext>, GpuFallback> {
-        let table = load_gl_context(|name| self.function(name) as *mut _);
+        let (asked, found) = (std::cell::Cell::new(0_usize), std::cell::Cell::new(0_usize));
+        let table = load_gl_context(|name| {
+            let address = self.function(name);
+            asked.set(asked.get() + 1);
+            if !address.is_null() {
+                found.set(found.get() + 1);
+            }
+            address as *mut _
+        });
+        log_info!(
+            LogCategory::Rendering,
+            "[iOS GPU] OpenGLES.framework resolves {} of the engine's {} GL entry points (the rest are desktop-only names)",
+            found.get(),
+            asked.get()
+        );
         // the entry points everything else stands on
         for (name, address) in [
             ("glGetString", table.glGetString),
