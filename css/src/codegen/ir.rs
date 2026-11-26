@@ -193,7 +193,7 @@ pub enum Expr {
     /// the api.json `snake_case` name. A chain of them nests: the innermost
     /// `recv` is the constructor.
     Method {
-        recv: alloc::boxed::Box<Expr>,
+        recv: Box<Expr>,
         class: String,
         method: String,
         args: Vec<Expr>,
@@ -308,7 +308,7 @@ impl Expr {
     #[must_use]
     pub fn method(recv: Self, class: &str, method: &str, args: Vec<Self>) -> Self {
         Self::Method {
-            recv: alloc::boxed::Box::new(recv),
+            recv: Box::new(recv),
             class: class.to_string(),
             method: method.to_string(),
             args,

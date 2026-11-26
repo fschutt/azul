@@ -464,7 +464,7 @@ pub fn chained_dot_at_line_end(recv: Doc, link: Doc) -> Doc {
             }
         }
         other => Doc::Chain {
-            head: alloc::boxed::Box::new(Doc::cat(vec![other, Doc::text(".")])),
+            head: Box::new(Doc::cat(vec![other, Doc::text(".")])),
             links: vec![link],
             broken: false,
         },
@@ -494,7 +494,7 @@ pub fn chained_infix(recv: Doc, link: Doc) -> Doc {
             }
         }
         other => Doc::Chain {
-            head: alloc::boxed::Box::new(other),
+            head: Box::new(other),
             links: vec![Doc::cat(vec![Doc::text(" "), link])],
             broken: false,
         },
