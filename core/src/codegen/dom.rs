@@ -948,7 +948,7 @@ fn child_matcher(parent: &CssMatcher, idx: usize, len: usize) -> CssMatcher {
     m
 }
 
-fn split_words(v: Option<&azul_css::AzString>) -> Vec<String> {
+fn split_words(v: Option<&AzString>) -> Vec<String> {
     v.map(|s| s.as_str().split_whitespace().map(ToString::to_string).collect())
         .unwrap_or_default()
 }
