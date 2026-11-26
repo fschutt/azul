@@ -85,6 +85,25 @@ fn no_enum_variant_or_union_field_of_the_module_has_an_uppercase_letter() {
     );
 }
 
+/// V refuses a field name that starts with an underscore ("field name `_dummy` cannot start with
+/// `_`", V 0.5.2: the 27 structs that have no field took one, `_dummy u8`, so that the C struct is
+/// not empty).
+#[test]
+fn no_field_name_of_the_module_starts_with_an_underscore() {
+    let offenders: Vec<(usize, &str)> = generated()
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| l.starts_with('\t') && l.trim_start().starts_with('_'))
+        .map(|(i, l)| (i + 1, l.trim()))
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "{} members of azul.v start with an underscore, which V refuses in a field name; the first: {:?}",
+        offenders.len(),
+        &offenders[..offenders.len().min(5)]
+    );
+}
+
 #[test]
 fn the_example_spells_the_enum_values_it_uses_as_the_module_does() {
     let module = blocks(generated());

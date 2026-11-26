@@ -221,7 +221,7 @@ fn emit_struct(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         // matches the generated `azul.h`.
         b.line(&format!("pub struct {} {{", name));
         b.line("pub mut:");
-        b.line("\t_dummy u8");
+        b.line("\tdummy u8");
         b.line("}");
         b.blank();
         return;
@@ -315,7 +315,7 @@ fn emit_monomorphized_alias(
             if fields.is_empty() {
                 b.line(&format!("pub struct {} {{", name));
                 b.line("pub mut:");
-                b.line("\t_dummy u8");
+                b.line("\tdummy u8");
                 b.line("}");
                 b.blank();
                 return;
