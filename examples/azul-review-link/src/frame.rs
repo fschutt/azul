@@ -5,6 +5,7 @@
 //! the phone needs to know nothing of the Mac's window, its zoom model or its pixels, and AzReview needs to know
 //! nothing of the phone's screen.
 
+use crate::access::ScreenId;
 use crate::limits::{clean_text, Capped, BUTTON_COUNT, MAX_BUTTON_TEXT_CHARS, MAX_LABEL_CHARS, MAX_PATH_BYTES};
 use crate::link::Delivery;
 
@@ -13,13 +14,52 @@ pub const TRACK_PEN: u8 = 1;
 /// The newest-wins track of the viewport gesture updates.
 pub const TRACK_VIEWPORT: u8 = 2;
 
-/// Who sent a hello.
+/// What a peer is for: the role of the screen or the device that says hello. The numbers are the wire's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
-    /// AzReview on the Mac.
+    /// AzReview as a node that takes commands (the Mac the phone is paired with).
     Host,
-    /// The companion on the phone.
+    /// The companion on the phone: a remote control.
     Phone,
+    /// The code view of AzReview.
+    Review,
+    /// A second code view of the same session (more code space on a big display).
+    ReviewMirror,
+    /// The architecture whiteboard of AzReview, popped out.
+    Whiteboard,
+}
+
+impl Role {
+    /// Whether this is the phone's companion (the others are windows or nodes of AzReview).
+    #[must_use]
+    pub fn is_companion(self) -> bool {
+        self == Role::Phone
+    }
+
+    /// The role's number on the wire.
+    #[must_use]
+    pub fn tag(self) -> u8 {
+        match self {
+            Role::Host => 0,
+            Role::Phone => 1,
+            Role::Review => 2,
+            Role::ReviewMirror => 3,
+            Role::Whiteboard => 4,
+        }
+    }
+
+    /// The role of a wire number (`None`: no such role).
+    #[must_use]
+    pub fn from_tag(tag: u8) -> Option<Role> {
+        Some(match tag {
+            0 => Role::Host,
+            1 => Role::Phone,
+            2 => Role::Review,
+            3 => Role::ReviewMirror,
+            4 => Role::Whiteboard,
+            _ => return None,
+        })
+    }
 }
 
 /// The first frame each side sends.
@@ -63,6 +103,8 @@ pub enum Refusal {
     UpdateCompanion,
     /// The Mac speaks a protocol older than the phone understands: update AzReview.
     UpdateAzReview,
+    /// The peer says it is something this side does not take commands from (a role it does not serve).
+    UnsupportedRole,
 }
 
 /// A rectangle in fractions of the page.
@@ -92,33 +134,120 @@ pub enum Context {
     Region,
 }
 
-/// What the pen is looking at: sent at most 30 times a second, the newest replaces one that has not left.
+/// The pages of the code review, as the Mac lays them out: a column of sheets with a break between two.
+///
+/// THE UNITS of every surface are widths of the surface: `x` runs 0 to 1 across a sheet's width, `y` runs down from the top
+/// of the first sheet in the same unit, so a square on the page is a square in the numbers. A sheet is `1 / aspect` high,
+/// sheet `i` starts at `i * (1 / aspect + gap)` and the break after it is `gap` high.
 #[derive(Debug, Clone, PartialEq)]
-pub struct PenState {
-    /// Counts up; a phone ignores a state older than the newest it has.
-    pub seq: u32,
-    /// The workspace folder's name.
-    pub folder: String,
+pub struct PageSurface {
     /// The file under review, relative to the workspace (empty: none open).
     pub file: String,
-    /// The page in view, from 0.
+    /// The page in view, from 0 (the one the middle of the view is on).
     pub page_index: u32,
     pub page_count: u32,
     /// The line under the pen, from 1 (0: none).
     pub line: u32,
     pub line_count: u32,
-    /// The page's size in the Mac's pixels (the phone only needs its shape; 0: unknown).
-    pub page_w: f32,
-    pub page_h: f32,
-    /// The part of the page the Mac shows now.
+    /// A sheet's width over its height.
+    pub aspect: f32,
+    /// The break between two sheets, in sheet widths.
+    pub gap: f32,
+}
+
+impl PageSurface {
+    /// Nothing open: one A4-shaped sheet.
+    #[must_use]
+    pub fn empty() -> Self {
+        PageSurface { file: String::new(), page_index: 0, page_count: 0, line: 0, line_count: 0, aspect: 794.0 / 1123.0, gap: 0.04 }
+    }
+
+    /// A sheet's height (a shape that is no shape is an A4 sheet's).
+    #[must_use]
+    pub fn page_height(&self) -> f32 {
+        if self.aspect.is_finite() && self.aspect > 0.0 {
+            1.0 / self.aspect
+        } else {
+            1123.0 / 794.0
+        }
+    }
+
+    /// The break between two sheets (never negative).
+    #[must_use]
+    pub fn break_height(&self) -> f32 {
+        if self.gap.is_finite() {
+            self.gap.max(0.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// The height of the whole column (a column of no pages is one sheet).
+    #[must_use]
+    pub fn column_height(&self) -> f32 {
+        let count = self.page_count.max(1) as f32;
+        count * self.page_height() + (count - 1.0) * self.break_height()
+    }
+
+    /// Where sheet `index` starts down the column.
+    #[must_use]
+    pub fn page_top(&self, index: u32) -> f32 {
+        index as f32 * (self.page_height() + self.break_height())
+    }
+}
+
+/// The architecture whiteboard, as the pen sees it. Its units are the same as the pages': the box round the items is `x` 0
+/// to 1 and `y` 0 to `1 / aspect` (the Mac turns its own coordinates into these).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WhiteboardSurface {
+    pub board_id: u32,
+    /// The board's name, for the header.
+    pub name: String,
+    /// The box round everything on the board: its width over its height (1.0 for an empty board).
+    pub aspect: f32,
+    pub item_count: u32,
+}
+
+/// What the pen (or the cursor) is over: the pages of the code review, or the whiteboard.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Surface {
+    Page(PageSurface),
+    Whiteboard(WhiteboardSurface),
+}
+
+/// Where the user was reviewing before jumping to an agent's conversation: the first jump saves it, "Continue reviewing" goes
+/// back to it. AzReview keeps it in the session; the phone only shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReturnPoint {
+    pub file: String,
+    pub page_index: u32,
+    pub line: u32,
+    /// A few words to show ("fc.rs p3 l1337"); the phone makes its own when this is empty.
+    pub label: String,
+}
+
+/// What the pen is looking at: sent at most 30 times a second, the newest replaces one that has not left.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PenState {
+    /// Counts up; a phone ignores a state older than the newest it has.
+    pub seq: u32,
+    /// The screen of AzReview this is the state of.
+    pub screen: ScreenId,
+    /// The workspace folder's name.
+    pub folder: String,
+    pub surface: Surface,
+    /// The part of the surface the Mac shows now (in the surface's own units).
     pub view: Rect,
-    /// 1.0 is the page fitted to the width of the Mac's window.
+    /// 1.0 is the surface fitted to the width of the Mac's window (a sheet's width; the whole board).
     pub zoom: f32,
-    /// Where the pen is (`None`: it is away from the page).
+    /// Where the pen is on the surface (`None`: it is away from it).
     pub pen: Option<PenMark>,
-    /// The thumbnail that shows this page (0: none); it arrives as a `Thumbnail` frame.
+    /// The thumbnail that shows this surface (0: none); it arrives as a `Thumbnail` frame. A page's picture for a
+    /// page, the overview of its items for a board.
     pub thumb_id: u32,
     pub context: Context,
+    /// Where "Continue reviewing" goes back to (`None`: nowhere).
+    pub return_point: Option<ReturnPoint>,
 }
 
 impl PenState {
@@ -127,20 +256,40 @@ impl PenState {
     pub fn empty() -> Self {
         PenState {
             seq: 0,
+            screen: ScreenId::MAIN,
             folder: String::new(),
-            file: String::new(),
-            page_index: 0,
-            page_count: 0,
-            line: 0,
-            line_count: 0,
-            page_w: 0.0,
-            page_h: 0.0,
+            surface: Surface::Page(PageSurface::empty()),
             view: Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 },
             zoom: 1.0,
             pen: None,
             thumb_id: 0,
             context: Context::Page,
+            return_point: None,
         }
+    }
+
+    /// The pages, when the pen is over them.
+    #[must_use]
+    pub fn page(&self) -> Option<&PageSurface> {
+        match &self.surface {
+            Surface::Page(page) => Some(page),
+            Surface::Whiteboard(_) => None,
+        }
+    }
+
+    /// The whiteboard, when the pen is over it.
+    #[must_use]
+    pub fn board(&self) -> Option<&WhiteboardSurface> {
+        match &self.surface {
+            Surface::Whiteboard(board) => Some(board),
+            Surface::Page(_) => None,
+        }
+    }
+
+    /// The file under review (empty on a whiteboard, and when none is open).
+    #[must_use]
+    pub fn file(&self) -> &str {
+        self.page().map_or("", |p| p.file.as_str())
     }
 }
 
@@ -284,6 +433,77 @@ pub struct Notice {
     pub text: String,
 }
 
+/// What the user settled on the Mac that the phone obeys. The phone keeps none of it: it arrives with every connection and
+/// whenever it changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostSettings {
+    /// A drag moves the Mac's viewport WITH the finger instead of the content (see `viewport::PanDirection`).
+    pub reverse_pan: bool,
+    /// A drag over the pages that ends near a break puts the top of a page at the top of the view.
+    pub snap_to_page_top: bool,
+    /// The phone buzzes when an agent finished with a result.
+    pub haptic_done: bool,
+    /// The phone buzzes when an agent finished with a suggestion that waits for the user.
+    pub haptic_suggestion: bool,
+    /// The phone buzzes when an agent could not answer (it is missing, its process failed, it timed out).
+    pub haptic_failed: bool,
+}
+
+impl Default for HostSettings {
+    fn default() -> Self {
+        HostSettings { reverse_pan: false, snap_to_page_top: false, haptic_done: true, haptic_suggestion: true, haptic_failed: true }
+    }
+}
+
+/// How an agent's conversation ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FinishKind {
+    /// It is done (green).
+    Done,
+    /// It suggested something that waits for the user (yellow).
+    Suggestion,
+    /// It found nothing to do.
+    NoAction,
+    /// It could not answer: the agent is missing, its process failed, it timed out.
+    Failed,
+}
+
+/// The buzz the phone gives (the engine's haptic patterns of the same names).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Haptic {
+    /// The agent is done.
+    Success,
+    /// The agent suggested something that waits for the user.
+    Warning,
+    /// The agent could not answer.
+    Error,
+}
+
+impl HostSettings {
+    /// The buzz for an agent that ended as `kind`, or none: a result buzzes as a success, a suggestion as a warning, an agent
+    /// that could not answer as an error, an agent that found nothing to do never buzzes; each buzz can be switched off in the
+    /// Mac's settings.
+    #[must_use]
+    pub fn haptic_for(&self, kind: FinishKind) -> Option<Haptic> {
+        match kind {
+            FinishKind::Done if self.haptic_done => Some(Haptic::Success),
+            FinishKind::Suggestion if self.haptic_suggestion => Some(Haptic::Warning),
+            FinishKind::Failed if self.haptic_failed => Some(Haptic::Error),
+            _ => None,
+        }
+    }
+}
+
+/// An agent finished answering: the phone may buzz (success for `Done`, warning for `Suggestion`, nothing for `NoAction`)
+/// and says where.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentFinished {
+    pub conversation_id: u32,
+    pub file: String,
+    pub line: u32,
+    pub kind: FinishKind,
+}
+
 /// How far a gesture has got.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
@@ -318,9 +538,10 @@ pub enum ViewportOp {
     Reset,
 }
 
-/// A viewport command with its place in the phone's order.
+/// A viewport command with the screen it is for and its place in the phone's order.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ViewportCmd {
+    pub screen: ScreenId,
     pub seq: u32,
     pub op: ViewportOp,
 }
@@ -338,10 +559,12 @@ pub enum Frame {
     PairRequest { proof: [u8; 32], phone_name: String },
     Viewport(ViewportCmd),
     ListDir { request_id: u32, path: String, offset: u32 },
-    OpenFile { request_id: u32, path: String, line: Option<u32> },
-    Button { request_id: u32, index: u8 },
+    OpenFile { screen: ScreenId, request_id: u32, path: String, line: Option<u32> },
+    Button { screen: ScreenId, request_id: u32, index: u8 },
     SetButtons { request_id: u32, buttons: ButtonSet },
     NeedThumbnail { id: u32 },
+    /// Go back to the return point of the screen (and clear it).
+    ContinueReviewing { screen: ScreenId },
     // ---- Mac to phone
     /// The pairing went through; `code` is the six-digit number both screens show.
     PairAccepted { code: u32 },
@@ -353,6 +576,8 @@ pub enum Frame {
     Buttons(ButtonSet),
     Reply(Reply),
     Notice(Notice),
+    Settings(HostSettings),
+    AgentFinished(AgentFinished),
 }
 
 impl Frame {
@@ -371,6 +596,7 @@ impl Frame {
             Frame::Button { .. } => "button",
             Frame::SetButtons { .. } => "set buttons",
             Frame::NeedThumbnail { .. } => "need thumbnail",
+            Frame::ContinueReviewing { .. } => "continue reviewing",
             Frame::PairAccepted { .. } => "pair accepted",
             Frame::PairRejected(_) => "pair rejected",
             Frame::Refused(_) => "refused",
@@ -380,6 +606,8 @@ impl Frame {
             Frame::Buttons(_) => "buttons",
             Frame::Reply(_) => "reply",
             Frame::Notice(_) => "notice",
+            Frame::Settings(_) => "settings",
+            Frame::AgentFinished(_) => "agent finished",
         }
     }
 
@@ -410,6 +638,8 @@ impl Frame {
                 | Frame::Buttons(_)
                 | Frame::Reply(_)
                 | Frame::Notice(_)
+                | Frame::Settings(_)
+                | Frame::AgentFinished(_)
         )
     }
 
@@ -425,6 +655,7 @@ impl Frame {
                 | Frame::Button { .. }
                 | Frame::SetButtons { .. }
                 | Frame::NeedThumbnail { .. }
+                | Frame::ContinueReviewing { .. }
         )
     }
 }
@@ -457,10 +688,9 @@ pub fn is_safe_relative_path(path: &str) -> bool {
 /// # Errors
 /// The [`Refusal`] to tell the user (and the peer): the companion or AzReview is too old.
 pub fn negotiate(our_role: Role, ours: (u16, u16), theirs: &Hello) -> Result<u16, Refusal> {
-    let (their_update, our_update) = match our_role {
-        Role::Host => (Refusal::UpdateCompanion, Refusal::UpdateAzReview),
-        Role::Phone => (Refusal::UpdateAzReview, Refusal::UpdateCompanion),
-    };
+    // whoever is too old must update its own app: the companion is updated from AzReview, AzReview from its own release
+    let update_of = |role: Role| if role.is_companion() { Refusal::UpdateCompanion } else { Refusal::UpdateAzReview };
+    let (their_update, our_update) = (update_of(theirs.role), update_of(our_role));
     if theirs.protocol < ours.1 {
         return Err(their_update);
     }
