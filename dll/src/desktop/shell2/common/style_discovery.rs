@@ -46,6 +46,26 @@ pub fn reg_value_text(name: &str, ty: u32, bytes: &[u8]) -> Option<String> {
     Some(format!("    {name}    {type_name}    {data}\r\n"))
 }
 
+/// The cache directory of an Android app process, from what the process knows of itself: `cmdline` is its
+/// `/proc/self/cmdline` (an app process is named after its package, `package` or `package:suffix` for a secondary
+/// process, NUL-terminated) and `uid` its user id (`user * 100000 + app id`). The font registry keeps its manifest in
+/// the platform's cache directory (`dirs::cache_dir()`), which Android has no answer for: `HOME` is unset in an app
+/// process and the password database says `/`, so the manifest could neither be read nor written and EVERY launch
+/// scanned and parsed the fonts of the phone again (the startup timeline's `fonts:disk_cache_read loaded=false`).
+/// `None` for anything that is not an app process (a binary run from `adb shell` is named by its path).
+#[must_use]
+pub fn android_app_cache_dir(cmdline: &[u8], uid: u32) -> Option<std::path::PathBuf> {
+    let name = std::str::from_utf8(cmdline.split(|b| *b == 0).next()?).ok()?;
+    let package = name.split(':').next()?;
+    let well_formed = package.contains('.')
+        && !package.contains("..")
+        && !package.starts_with('.')
+        && package
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_'));
+    well_formed.then(|| std::path::PathBuf::from(format!("/data/user/{}/{package}/cache", uid / 100_000)))
+}
+
 /// What `gsettings list-recursively <schema>` printed, as the keys of the schema with their values: one line per key,
 /// `<schema> <key> <value>`, the value as `gsettings get` prints it (GVariant text: `'Cantarell 11'`, `uint32 11`,
 /// `true`, `['a', 'b']`). One process answers every key of the schema; the Linux discovery used to run `gsettings get`

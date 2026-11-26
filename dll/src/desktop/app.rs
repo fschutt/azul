@@ -26,7 +26,7 @@ use crate::desktop::{
 /// universe missing most of the system's families. A partial cache is strictly
 /// worse than no cache, so an incomplete scan writes nothing at all.
 #[cfg(all(not(miri), not(feature = "web")))]
-fn spawn_font_cache_persist(registry: Arc<FcFontRegistry>) {
+fn spawn_font_cache_persist(registry: Arc<FcFontRegistry>, cache_path: Option<std::path::PathBuf>) {
     use core::time::Duration;
 
     let spawned = std::thread::Builder::new()
@@ -42,7 +42,11 @@ fn spawn_font_cache_persist(registry: Arc<FcFontRegistry>) {
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
-            let saved = registry.save_to_disk_cache().is_some();
+            let saved = match cache_path.as_deref() {
+                Some(path) => registry.save_to_disk_cache_at(path),
+                None => registry.save_to_disk_cache(),
+            }
+            .is_some();
             debug_server::log(
                 debug_server::LogLevel::Info,
                 debug_server::LogCategory::Resources,
@@ -58,6 +62,29 @@ fn spawn_font_cache_persist(registry: Arc<FcFontRegistry>) {
     // A machine that cannot spawn one more thread is not a reason to fail
     // startup; it just means this launch does not leave a cache behind.
     let _ = spawned;
+}
+
+/// The file the font manifest is read from and written to where the platform's cache directory (what the registry
+/// asks `dirs` for) does not exist for the process: on Android the app's own cache directory
+/// (`style_discovery::android_app_cache_dir`: from the process name and the user id), `None` everywhere else (the
+/// registry's own path).
+#[cfg(all(not(miri), not(feature = "web")))]
+fn font_cache_path_override() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "android")]
+    {
+        extern "C" {
+            fn getuid() -> u32;
+        }
+        let cmdline = std::fs::read("/proc/self/cmdline").ok()?;
+        // SAFETY: getuid takes nothing and cannot fail.
+        let uid = unsafe { getuid() };
+        let dir = crate::desktop::shell2::common::style_discovery::android_app_cache_dir(&cmdline, uid)?;
+        dir.is_dir().then(|| dir.join("rfc").join("fonts").join("manifest.bin"))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        None
+    }
 }
 
 /// `AZ_STARTUP=1`: a thread that marks the moment the font scan is complete (`font_scan_complete`,
@@ -910,7 +937,14 @@ impl AppInternal {
             azul_layout::font::loading::use_browser_generic_families(&registry.cache);
 
             // Try to load on-disk font cache (~10-20ms if cache exists, 0ms otherwise)
-            let had_cache = registry.load_from_disk_cache();
+            // The font manifest lives in the platform's cache directory (`dirs::cache_dir()`), and an Android app
+            // has none by its reckoning (`HOME` is unset): there the app's own cache directory is named here, or
+            // every launch scanned and parsed the phone's fonts again.
+            let cache_path = font_cache_path_override();
+            let had_cache = match cache_path.as_deref() {
+                Some(path) => registry.load_from_disk_cache_at(path),
+                None => registry.load_from_disk_cache(),
+            };
             startup.mark_with("fonts:disk_cache_read", || {
                 format!("loaded={}", had_cache.is_some())
             });
@@ -944,7 +978,7 @@ impl AppInternal {
             // currently pin, and is harmless once the crate does it too (the
             // second write is a byte-identical atomic replace).
             if had_cache.is_none() {
-                spawn_font_cache_persist(Arc::clone(&registry));
+                spawn_font_cache_persist(Arc::clone(&registry), cache_path);
             }
 
             // Start with an empty FcFontCache; it will be populated at first layout

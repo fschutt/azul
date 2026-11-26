@@ -92,6 +92,38 @@ fn a_gsettings_listing_gives_the_keys_of_the_schema_with_their_values() {
     assert!(parse_gsettings_listing("").is_empty());
 }
 
+/// An Android app process finds its own cache directory from its name and its user: the package of the process
+/// name, under the user of its uid; a secondary process (`package:service`) shares the package's directory; a binary
+/// run from a shell, a name that is not a package and a path that climbs are no app process.
+///
+/// Mutation: the user not taken from the uid (user 0 always); the `:suffix` kept in the path; a path accepted.
+#[test]
+fn an_android_app_process_finds_its_cache_directory_from_its_name_and_its_uid() {
+    use std::path::PathBuf;
+    assert_eq!(
+        android_app_cache_dir(b"com.azul.AzWidgets\0\0\0", 10141),
+        Some(PathBuf::from("/data/user/0/com.azul.AzWidgets/cache"))
+    );
+    assert_eq!(
+        android_app_cache_dir(b"com.azul.AzWidgets:remote\0", 1_010_141),
+        Some(PathBuf::from("/data/user/10/com.azul.AzWidgets/cache")),
+        "the secondary user's app, the package's directory"
+    );
+    for not_an_app in [
+        &b"/data/local/tmp/azul_widgets\0"[..],
+        b"zygote64\0",
+        b"com..evil\0",
+        b".hidden.pkg\0",
+        b"com.azul/../../etc\0",
+        b"com.azul.App name\0",
+        b"\0",
+        b"",
+        b"\xff\xfe\0",
+    ] {
+        assert_eq!(android_app_cache_dir(not_an_app, 10141), None, "{not_an_app:?}");
+    }
+}
+
 fn utf16le(text: &str) -> Vec<u8> {
     text.encode_utf16().chain(core::iter::once(0)).flat_map(u16::to_le_bytes).collect()
 }
