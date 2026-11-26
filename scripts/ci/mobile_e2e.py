@@ -26,10 +26,11 @@ Everything lands in DIR like scripts/ci/mobile_qa.py's output (qa.json, qa.md, s
                           navigation bars, touch targets under 48 dp, text boxes crossing an edge) in portrait AND landscape with
                           the engine's frame and the device's frame of each, the system dark mode asked of the engine (get_mode:
                           did the window's mode change, and did the picture), and the app's own script when --script names one.
-    --script paint|writer|maps   a scripted check of one app: paint draws a stroke with a real swipe and undoes it (the app prints
+    --script paint|writer|maps|meet   a scripted check of one app: paint draws a stroke with a real swipe and undoes it (the app prints
                           AZPAINT_STROKES), writer taps into the page and types (the text in the accessibility tree, the keyboard,
                           whether the window shrinks above it, the ribbon against the width), maps taps the sidebar toggle at the
-                          place the server names and double-taps the map (AZMAPS_SIDEBAR, AZMAPS_VIEW).
+                          place the server names and double-taps the map (AZMAPS_SIDEBAR, AZMAPS_VIEW), meet looks at the lobby for
+                          the raw `azmeet-loading-key` line the app showed while its create callback did not run.
 """
 import argparse
 import base64
@@ -445,6 +446,8 @@ def e2e_session(args):
         dev.save_log("writer-ui.xml", xml)
         s.check("a tap into the page raises the keyboard", up, "the window system says " + ("shown" if up else "hidden"))
         s.check("the typed text 'hello' is in the accessibility tree", "hello" in xml.lower(), f"{len(xml)} bytes of the tree")
+        pages = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZWRITER_PAGES")
+        s.note(f"AZWRITER_PAGES printed {pages[-3:]} (the pagination timer starts in the app's create callback)")
         s.check("the picture changed after typing", q.sig_diff(typed, before) > q.SAME_BELOW, f"differs {q.sig_diff(typed, before):.3f}")
         s.note(f"window height {height0:.0f} dp without the keyboard, {height1:.0f} dp with it: "
                + ("the window shrinks above the keyboard" if height1 and height0 and height1 < height0 - 50 else "the window keeps its height (the keyboard covers it or the page insets itself)"))
@@ -486,7 +489,18 @@ def e2e_session(args):
         s.check("a double tap on the map zooms in", z0 is not None and z1 is not None and z1 > z0,
                 f"zoom {z0} -> {z1}; the picture differs {q.sig_diff(zoomed, sidebar):.3f}")
 
-    scripts = {"paint": s_script_paint, "writer": s_script_writer, "maps": s_script_maps}
+    def s_script_meet(s):
+        dev.settle(6.0)
+        device_shot(s, "meet-lobby")
+        engine_frame(s, "meet-engine-frame")
+        dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=60)
+        xml = dev.sh("cat /sdcard/qa-ui.xml", timeout=60)
+        dev.save_log("meet-ui.xml", xml)
+        showing = [k for k in ("azmeet-loading-key", "Loading this device") if k in xml]       # the raw key, and its English text
+        s.check("the lobby no longer shows the 'loading this device's key' line (the create callback ran load_identity)", not showing,
+                f"still on the screen: {showing}" if showing else f"not in the {len(xml)} bytes of the accessibility tree")
+
+    scripts = {"paint": s_script_paint, "writer": s_script_writer, "maps": s_script_maps, "meet": s_script_meet}
     if args.script and args.platform == "android":
         run.step(f"e40-script-{args.script}", f"the scripted check of the {args.script} app", scripts[args.script])
 
@@ -656,7 +670,7 @@ def main(argv):
     ap.add_argument("--server-timeout", type=int, default=60)
     ap.add_argument("--logical-scale", type=float, default=0.0, help="device pixels per logical pixel of the window (the touch ops take logical pixels)")
     ap.add_argument("--audit-only", action="store_true", help="the phone-fit session of any app: frames, the layout audit in both orientations, the dark mode, --script")
-    ap.add_argument("--script", choices=["", "paint", "writer", "maps"], default="", help="the scripted check of one app (Android)")
+    ap.add_argument("--script", choices=["", "paint", "writer", "maps", "meet"], default="", help="the scripted check of one app (Android)")
     args = ap.parse_args(argv)
     run = e2e_session(args)
     failed = [s.name for s in run.steps if not s.ok]
