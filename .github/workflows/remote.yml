@@ -9,9 +9,11 @@
 # branch given to --ref (it must exist on master for the dispatch to find it); `ref` is the code to check out.
 #
 # What it is NOT: it is not the CI. It runs what it is told, nothing else, and its result gates nothing. The CI
-# (rust.yml) stays the authority for a release. It holds no secret and reads the repository, nothing else; the
-# command arrives in an environment variable, never interpolated into the script, and only someone with write
-# access to the repository can dispatch it.
+# (rust.yml) stays the authority for a release. It holds no secret and reads the repository and the artifacts of
+# the repository's runs (`gh run download <id>` inside a command, with the run's own read-only token: a QA job
+# takes the APKs of a build run itself instead of someone pushing them to a ref), nothing else; the command
+# arrives in an environment variable, never interpolated into the script, and only someone with write access to
+# the repository can dispatch it.
 
 name: remote
 run-name: remote ${{ inputs.os }} ${{ inputs.ref }} ${{ inputs.tag }}
@@ -54,6 +56,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   CARGO_TERM_COLOR: never
@@ -122,6 +125,8 @@ jobs:
           COMMAND: ${{ inputs.command }}
           REF: ${{ inputs.ref }}
           RUNNER_NAME: ${{ inputs.os }}
+          # read-only (permissions: actions: read): for `gh run download <run id>` in a command
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "ref: $REF ($(git rev-parse --short HEAD))"
           echo "runner: $RUNNER_NAME"
