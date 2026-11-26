@@ -66,6 +66,8 @@ case "$kind" in
     "$ndkbin/llvm-strip" --strip-unneeded "$out/libazul.so"
     ;;
   ios)
+    # The oldest iOS the apps' Info.plist names (build-ios.sh MIN_OS): rustc and the C parts of the engine (cc-rs) both read it
+    export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-16.0}"
     # Only the archive is built (no cdylib to link on an iPhone), and rustc prints, for the staticlib, the
     # system libraries and frameworks a consumer must link it with.
     log="$out/libazul.build.log"
@@ -86,8 +88,12 @@ case "$kind" in
   *) echo "unknown kind: $kind" >&2; exit 2 ;;
 esac
 
-lib="$(ls "$out"/libazul.so "$out"/libazul.a "$out"/azul.lib 2>/dev/null | head -n 1)"
-[ -f "$lib" ] || { echo "::error::no library staged in $out"; exit 1; }
+# (not `ls a b c | head`: ls exits 2 when one of the names is absent, and pipefail makes that the script's end)
+lib=""
+for f in libazul.so libazul.a azul.lib; do
+  if [ -f "$out/$f" ]; then lib="$out/$f"; break; fi
+done
+[ -n "$lib" ] || { echo "::error::no library staged in $out"; exit 1; }
 sum="$( (sha256sum "$lib" 2>/dev/null || shasum -a 256 "$lib") | cut -d' ' -f1)"
 size="$(wc -c < "$lib" | tr -d ' ')"
 python3 - "$out/libazul.info.json" "$kind" "${target:-host}" "$features" "$(git rev-parse HEAD)" "$(( $(date +%s) - started ))" "$size" "$sum" "$(basename "$lib")" <<'PY'
@@ -97,3 +103,6 @@ json.dump({"kind": kind, "target": target, "features": features, "git": git, "se
            "size": int(size), "sha256": sha, "file": name}, open(path, "w"), indent=2, sort_keys=True)
 PY
 ls -la "$out"
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  echo "- libazul \`$(basename "$lib")\` for \`${target:-host}\` (\`$features\`): $(( $(date +%s) - started )) s, $size bytes" >> "$GITHUB_STEP_SUMMARY"
+fi

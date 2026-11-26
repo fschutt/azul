@@ -172,6 +172,7 @@ pub mod whiteboard_input;
 pub mod whiteboard_jump;
 pub mod whiteboard_json;
 pub mod whiteboard_lasso;
+pub mod whiteboard_place;
 pub mod whiteboard_render;
 pub mod whiteboard_settings;
 pub mod whiteboard_store;
