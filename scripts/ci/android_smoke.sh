@@ -161,7 +161,7 @@ PY
   [ -f "$dir/logcat.txt" ] && verdict_args+=(--logcat "$dir/logcat.txt")
   # THE pass line: scripts/ci/smoke_verdict.py (alive twice, on the screen, drawn, no fatal line); nothing else decides
   python3 "$(dirname "$0")/smoke_verdict.py" --out "$dir/result.json" --app "$app" --id "${pkg:-}" --alive "$alive" --alive-after "$alive_after" \
-    --fatal "$fatal" --rust-lines "${rust_lines:-0}" --resumed "$resumed" ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1
+    --fatal "$fatal" --rust-lines "${rust_lines:-0}" --resumed "$resumed" --band 0.045,0.94 ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1
 done
 python3 - "$out" <<'PY'
 import json, pathlib, sys

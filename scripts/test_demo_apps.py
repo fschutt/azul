@@ -832,6 +832,8 @@ class VerdictTest(unittest.TestCase):
                 "--alive-after", kw.get("alive_after", "1"), "--fatal", kw.get("fatal", ""), "--baseline", home, "--after", shot]
         if "resumed" in kw:
             argv += ["--resumed", kw["resumed"]]
+        if "band" in kw:
+            argv += ["--band", kw["band"]]
         code = smoke_verdict.main(argv)
         return code, json.loads((pathlib.Path(d) / "result.json").read_text())
 
@@ -967,6 +969,49 @@ class VerdictTest(unittest.TestCase):
         self.assertEqual(text, "boots, first window 1234 ms (the platform's own number)")
         self.assertEqual(demo_apps.boot_text({"pass": True, "launch_ms": 1311}), "boots, launched in 1311 ms (the platform's own number)")
         self.assertEqual(demo_apps.boot_text({"pass": False, "reason": "x", "displayed_ms": 1}), "BOOT FAILED: x")
+
+    def test_an_app_that_is_a_toolbar_and_a_blank_canvas_has_drawn_on_android(self):
+        # AzPaint on the emulator, 2026-11-26: a dark toolbar under the status bar (3.75 to 11.7 percent of the height) and an empty
+        # canvas. The band of 12 to 88 percent saw a flat canvas and failed an app that had drawn: the band of an Android screenshot
+        # starts under the status bar (4.5 percent) and ends above the navigation bar (94)
+        def toolbar_and_canvas(x, y):
+            if y < 6 or y >= 152:
+                return ((x * 13 + y * 5) % 256,) * 3 + (255,)     # the system bars: many colour values
+            return (40, 40, 44, 255) if y < 19 and (x // 5) % 2 else (45, 45, 48, 255) if y < 19 else (250, 250, 247, 255)
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, toolbar_and_canvas, band="0.045,0.94")
+            self.assertEqual(code, 0, r["reason"])
+            self.assertTrue(r["screen_nonblank"])
+            self.assertEqual(r["band"], [0.045, 0.94])
+            # the same picture under the default band (8 to 94 percent) still sees the toolbar's lower rows
+            code, r = self.verdict(d, toolbar_and_canvas)
+            self.assertEqual(code, 0, r["reason"])
+
+    def test_each_platform_keeps_its_own_system_bars_out_of_the_band(self):
+        def black_under(top, bottom):
+            def pixel(x, y):
+                if y < top or y >= bottom:
+                    return ((x * 13 + y * 5) % 256,) * 3 + (255,)
+                return (0, 0, 0, 255)
+            return pixel
+        with tempfile.TemporaryDirectory() as d:
+            # Android: status bar 3.75 percent, navigation bar from 95 percent of the height
+            code, r = self.verdict(d, black_under(6, 152), band="0.045,0.94")
+            self.assertEqual(code, 1)
+            self.assertIn("flat colour", r["reason"])
+            # iOS: status bar and Dynamic Island 6.9 percent, home indicator from 97 percent
+            code, r = self.verdict(d, black_under(11, 155), band="0.075,0.965")
+            self.assertEqual(code, 1)
+            self.assertIn("flat colour", r["reason"])
+            # the default band is the conservative one and holds for both
+            self.assertEqual(self.verdict(d, black_under(6, 152))[0], 1)
+            self.assertEqual(self.verdict(d, black_under(11, 155))[0], 1)
+
+    def test_a_band_that_is_no_two_fractions_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            for bad in ("0.9,0.1", "0.1", "a,b", "-0.1,0.9", "0.1,1.5"):
+                with self.assertRaises(SystemExit):
+                    self.verdict(d, app_screen, band=bad)
 
     def test_the_status_text_of_a_failed_boot_carries_the_reason(self):
         text = demo_apps.boot_text({"pass": False, "reason": "the home screen is still showing (99.8% of the pixels are the same)"})

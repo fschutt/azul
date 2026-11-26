@@ -191,7 +191,7 @@ PY
   [ -f "$dir/baseline.png" ] && verdict_args+=(--baseline "$dir/baseline.png" --after "$dir/screenshot-2.png")
   # THE pass line: scripts/ci/smoke_verdict.py (alive twice, on the screen, drawn, no fatal line); nothing else decides
   python3 "$(dirname "$0")/smoke_verdict.py" --out "$dir/result.json" --app "$name" --id "$bid" --alive "$alive" --alive-after "$alive_after" \
-    --fatal "$fatal" --rust-lines "${rust_lines:-0}" ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1
+    --fatal "$fatal" --rust-lines "${rust_lines:-0}" --band 0.075,0.965 ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1
 done
 python3 - "$out" <<'PY'
 import json, pathlib, sys

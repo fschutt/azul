@@ -92,10 +92,21 @@ def main(argv):
     ap.add_argument("--tap")
     ap.add_argument("--expect-text", default="")
     ap.add_argument("--expect-found", default="")
+    ap.add_argument("--band", default="", help="TOP,BOTTOM: the rows of the screenshot between the system bars, as fractions of the "
+                    "height (default 0.08,0.94; the Android emulator 0.045,0.94, an iPhone 0.075,0.965)")
     ap.add_argument("--start-log")
     ap.add_argument("--logcat")
     ap.add_argument("--extra", default="{}")
     a = ap.parse_args(argv)
+    band = png_nonblank.DEFAULT_BAND
+    if a.band:
+        try:
+            top, bottom = (float(x) for x in a.band.split(","))
+        except ValueError:
+            ap.error("--band wants TOP,BOTTOM, two fractions of the height")
+        if not 0.0 <= top < bottom <= 1.0:
+            ap.error("--band wants 0 <= TOP < BOTTOM <= 1")
+        band = (top, bottom)
 
     facts = {"app": a.app, "id": a.id, "booted": True, "alive": a.alive == "1", "alive_after": a.alive_after == "1",
              "fatal": a.fatal or None, "rust_log_lines": int(a.rust_lines or 0), "resumed": a.resumed or None}
@@ -110,7 +121,8 @@ def main(argv):
         except Exception as e:  # noqa: BLE001  (torn off by a hiccup of the emulator, or not a PNG)
             facts["screenshot_error"] = f"cannot be read: {str(e)[:100]}"
     if after is not None:
-        facts["drawn_fraction"] = round(png_nonblank.drawn_fraction(after), 5)
+        facts["band"] = list(band)
+        facts["drawn_fraction"] = round(png_nonblank.drawn_fraction(after, band), 5)
         facts["screen_nonblank"] = facts["drawn_fraction"] >= png_nonblank.DRAWN_FRACTION
         if a.baseline and os.path.exists(a.baseline):
             try:
