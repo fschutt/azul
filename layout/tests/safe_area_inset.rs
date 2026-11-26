@@ -347,3 +347,103 @@ fn the_window_knows_when_its_insets_are_not_the_ones_its_root_was_placed_for() {
         "the root stood on no insets and the keyboard is none of them: nothing moved"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// The same window laid out AGAIN under insets that moved (the 2026-11-26 emulator pictures and the
+// dll's headless tests `headless_safe_area_moved.rs`): the tree is the one it was, so its root keeps
+// its place in the layout cache - and the root has to follow the viewport it is placed in.
+// ---------------------------------------------------------------------------------------------
+
+/// A second layout pass of the same screen in `w`, under other insets and another window size.
+fn lay_out_again(w: &mut LayoutWindow, width: f32, height: f32, insets: SafeAreaInsets) {
+    let (css, _) = azul_css::parser2::new_from_str(PHONE_CSS);
+    let mut dom = a_phone_screen();
+    let styled_dom = StyledDom::create(&mut dom, css);
+    w.safe_area_insets = insets;
+    let window_state = phone_state(width, height, false);
+    let mut debug_messages = Some(Vec::new());
+    w.layout_and_generate_display_list(
+        styled_dom,
+        &window_state,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut debug_messages,
+    )
+    .unwrap();
+}
+
+/// The root (the node with the smallest index) as `(x, y, width, height)`.
+fn the_root(w: &LayoutWindow) -> (f32, f32, f32, f32) {
+    let (_, root) = every_rect(w).into_iter().min_by_key(|(node, _)| *node).expect("a root");
+    (root.origin.x, root.origin.y, root.size.width, root.size.height)
+}
+
+/// No node of the screen lies in a bar: inside `[left, width - right] x [top, height - bottom]`.
+fn nothing_lies_in_a_bar(
+    w: &LayoutWindow,
+    what: &str,
+    (width, height): (f32, f32),
+    (top, bottom, left, right): (f32, f32, f32, f32),
+) {
+    let rects = every_rect(w);
+    assert!(rects.len() >= 11, "{what}: the screen has its nodes: {}", rects.len());
+    for (node, r) in rects {
+        let eps = 0.01;
+        assert!(
+            r.origin.y >= top - eps
+                && r.origin.y + r.size.height <= height - bottom + eps
+                && r.origin.x >= left - eps
+                && r.origin.x + r.size.width <= width - right + eps,
+            "{what}: node {node} at ({}, {}) {} x {} lies in a bar",
+            r.origin.x,
+            r.origin.y,
+            r.size.width,
+            r.size.height,
+        );
+    }
+}
+
+#[test]
+fn the_bars_that_arrive_after_the_first_pass_move_the_root_with_everything_in_it() {
+    let (mut w, _) = lay_out_phone(393.0, 852.0, SafeAreaInsets::default(), false);
+    assert_eq!(the_root(&w), (0.0, 0.0, 393.0, 852.0), "no bars known yet: the root is the window");
+
+    lay_out_again(&mut w, 393.0, 852.0, side_insets(59.0, 34.0, 0.0, 0.0));
+
+    assert_eq!(
+        the_root(&w),
+        (0.0, 59.0, 393.0, 759.0),
+        "the root stands below the island and above the home indicator, not where it stood"
+    );
+    nothing_lies_in_a_bar(&w, "393x852 after the bars", (393.0, 852.0), (59.0, 34.0, 0.0, 0.0));
+}
+
+#[test]
+fn a_rotation_moves_the_root_to_the_other_corner() {
+    let (mut w, _) = lay_out_phone(393.0, 852.0, side_insets(59.0, 34.0, 0.0, 0.0), false);
+    assert_eq!(the_root(&w), (0.0, 59.0, 393.0, 759.0));
+
+    // the window turns and the system tells the bars of the new orientation: the island is at the
+    // side now, the bars above and below go
+    lay_out_again(&mut w, 852.0, 393.0, side_insets(0.0, 21.0, 59.0, 59.0));
+
+    assert_eq!(the_root(&w), (59.0, 0.0, 734.0, 372.0), "the root starts after the left bar now");
+    nothing_lies_in_a_bar(&w, "852x393 after the turn", (852.0, 393.0), (0.0, 21.0, 59.0, 59.0));
+}
+
+#[test]
+fn a_phone_turned_over_from_one_landscape_to_the_other_moves_a_root_that_kept_its_size() {
+    // The bar that was at the left is at the right: the window has the size it had, and so has what
+    // is left of it - only where it starts has moved.
+    let (mut w, _) = lay_out_phone(852.0, 393.0, side_insets(0.0, 21.0, 59.0, 0.0), false);
+    assert_eq!(the_root(&w), (59.0, 0.0, 793.0, 372.0));
+
+    lay_out_again(&mut w, 852.0, 393.0, side_insets(0.0, 21.0, 0.0, 59.0));
+
+    assert_eq!(
+        the_root(&w),
+        (0.0, 0.0, 793.0, 372.0),
+        "same size, another origin: nothing is dirty and the tree must still be placed anew"
+    );
+    nothing_lies_in_a_bar(&w, "852x393 turned over", (852.0, 393.0), (0.0, 21.0, 0.0, 59.0));
+}

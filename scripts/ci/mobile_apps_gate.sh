@@ -8,7 +8,7 @@
 #
 # A runner job ends after 120 minutes and the whole gate is longer than that on a cold cache: three runs, in this order,
 #   G1 (the crates' tests, the REDs, the lints, the type-checks of dll, apps and both phone shells, autofix of api.json):
-#     MOBILE_APPS_ONLY=css_lib,core_lib,layout_lib,layout_tests,layout_fluent,phone_tests,red_layout_on_the_previous_files,red_ribbon_without_the_file_row,red_safe_area_without_the_guard,clippy,dll_check,apps_check,android_check,ios_cross_check,autofix
+#     MOBILE_APPS_ONLY=css_lib,core_lib,layout_lib,layout_tests,layout_fluent,phone_tests,red_layout_on_the_previous_files,red_ribbon_without_the_file_row,red_solver_root_position,red_safe_area_without_the_guard,clippy,dll_check,apps_check,android_check,ios_cross_check,autofix
 #   G2a (the headless-shell tests of the dll):
 #     MOBILE_APPS_ONLY=green_dll_tests
 #   G2b (the C ABI library and the apps over it):
@@ -149,6 +149,40 @@ PY
     widgets::ribbon::ribbon_mobile_test::a_drop_down_in_the_ribbon_is_sized_by_the_band_not_by_the_finger_floor_of_a_page
 }
 run red_ribbon_without_the_file_row red_ribbon
+
+# 1e. RED of the solver's fix: the tree root's own position and the viewport that only moved. With the two lines as they were
+#     the root of a window laid out a second time under other insets stood where it stood in the first pass, and a viewport that
+#     kept its size and moved its origin laid nothing out. The three tests of a second pass must FAIL (by name).
+red_solver() {
+  local mod=layout/src/solver3/mod.rs
+  local cache=layout/src/solver3/cache.rs
+  python3 - "$mod" "$cache" <<'PY'
+import sys
+mod, cache = sys.argv[1], sys.argv[2]
+text = open(mod).read()
+old = "if is_tree_root || !pos_contains(&calculated_positions, root_idx) {"
+assert text.count(old) == 1, "the line the RED step edits is gone"
+open(mod, "w").write(text.replace(old, "if !pos_contains(&calculated_positions, root_idx) {"))
+text = open(cache).read()
+old = "if viewport_resized || viewport_moved {"
+assert text.count(old) == 1, "the line the RED step edits is gone"
+open(cache, "w").write(text.replace(old, "if viewport_resized {"))
+PY
+  if git diff --quiet -- "$mod" || git diff --quiet -- "$cache"; then
+    echo "the RED step could not edit $mod or $cache"
+    git checkout -q -- "$mod" "$cache"
+    return 2
+  fi
+  local out
+  out="$(mktemp)"
+  cargo test -p azul-layout --test all --no-fail-fast -- safe_area_inset > "$out" 2>&1
+  git checkout -q -- "$mod" "$cache"
+  must_fail "$out" \
+    safe_area_inset::the_bars_that_arrive_after_the_first_pass_move_the_root_with_everything_in_it \
+    safe_area_inset::a_rotation_moves_the_root_to_the_other_corner \
+    safe_area_inset::a_phone_turned_over_from_one_landscape_to_the_other_moves_a_root_that_kept_its_size
+}
+run red_solver_root_position red_solver
 
 # 2. the engine through the headless shell: RED (the guard out: the precheck is always false, as it was; the menu's touch row
 #    out), then GREEN
