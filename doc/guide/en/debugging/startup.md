@@ -36,7 +36,7 @@ adb shell setprop debug.az.startup 1                      # Android: the table g
 
 On iOS the table goes to the console of the process (`xcrun simctl launch --console`). `AZ_LOG_STDERR=0` keeps stderr clean and `AZ_LOG_FILE=<path>` writes the lines to a file; neither depends on the log level.
 
-After the table come two lines for a script: `[startup-json] {...}` (the headline numbers: `first_present_ms`, `before_library_ms`, `layout_passes`, `render_backend`; short, because logcat cuts an entry at 4 KB) and `[startup-marks] [...]` (every mark). `scripts/ci/startup_measure.py --exe ./my_app --runs 9` starts the app that many times with the switch on, reads these lines and prints the median of every mark, the cold first start apart from the warm ones, and the five costliest steps; `--expect-layouts 1` and `--max-first-present-ms` make it a gate.
+After the table come two lines for a script: `[startup-json] {...}` (the headline numbers: `first_present_ms`, `before_library_ms`, `layout_passes`, `render_backend`; short, because logcat cuts an entry at 4 KB) and `[startup-marks] [...]` (every mark). `scripts/ci/startup_measure.py --exe ./my_app --runs 9` starts the app that many times with the switch on, reads these lines and prints the median of every mark, the cold first start apart from the warm ones, and the five costliest steps; `--expect-layouts 1` and `--max-first-present-ms` make it a gate. `--from-log <file>` reads the timelines of a text instead (the logcat of ten cold starts of a phone, a console log) and prints the same medians and phases.
 
 ## Reading the table
 
