@@ -206,6 +206,8 @@ text-decoration: underline;
 - `text-decoration` accepts `none`, `underline`, `overline`, `line-through`, or combinations. Type `StyleTextDecoration`.
 - `text-decoration-color` accepts `currentcolor` (the initial value) or a colour. Type `StyleTextDecorationColor`. Not inherited. The line is in the colour of the box that sets it, whatever the colour of the text under it.
 - `text-decoration-thickness` accepts `auto`, `from-font`, a length, or a percentage (of one em). Type `StyleTextDecorationThickness`. Not inherited. An `em` and a percentage are parts of the font size of the box that sets the line.
+- `text-underline-offset` accepts `auto` (the initial value), a length, or a percentage (of one em). Type `StyleTextUnderlineOffset`. Inherited. Moves an underline down from its place, up for a negative length; an overline and a line-through stay.
+- `text-underline-position` accepts `auto` (the initial value), `from-font` or `under`, and `left` or `right`, each group once, in either order. Type `StyleTextUnderlinePosition`. Inherited. `under` puts the underline below the descenders; `left` and `right` are for vertical text.
 - `text-transform` accepts `none`, `uppercase`, `lowercase`, `capitalize`, or `full-width`. Type `StyleTextTransform`.
 - `text-orientation` accepts `mixed`, `upright`, or `sideways`. Type `StyleTextOrientation`. Parsed; no value turns a glyph yet (see [Styling Text](text-and-fonts.md#what-is-not-drawn-yet)).
 - `direction` accepts `ltr` or `rtl`. Type `StyleDirection`.

@@ -51,12 +51,83 @@ fn bonjour_finds_what_the_mdns_lookup_announces() {
         .expect("Bonjour answered within 40 s")
         .expect("the stream gave an item")
         .expect("the item is not an error");
-    eprintln!("found in {:?}: {:?}", started.elapsed(), item.ip_addrs().collect::<Vec<_>>());
+    eprintln!(
+        "found in {:?}: {:?}",
+        started.elapsed(),
+        item.ip_addrs().collect::<Vec<_>>()
+    );
     assert_eq!(item.endpoint_id(), id);
     let ports: Vec<u16> = host.bound_sockets().iter().map(|s| s.port()).collect();
     assert!(
         item.ip_addrs().any(|addr| ports.contains(&addr.port())),
         "no found address has one of the host's ports {ports:?}: {:?}",
         item.ip_addrs().collect::<Vec<_>>()
+    );
+}
+
+/// BY HAND, on a Mac: the watch of an iPhone (the system's Bonjour, looking only) lists what an
+/// endpoint announces through mDNS, with the text it advertises, hears a rename, and hears the
+/// endpoint go. First run: the Local Network prompt for the terminal.
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "X-EDGE-C-2: needs a Mac on a network that carries multicast and the Local Network permission: run by hand with cargo test -p azul-dll --lib --features iroh -- --ignored --nocapture bonjour_lists_what_the_mdns_lookup_announces_with_its_text"]
+fn bonjour_lists_what_the_mdns_lookup_announces_with_its_text() {
+    let host = Engine::bind(
+        &config().with_advertised(AzString::from_const_str("azreview/1;p=ab12;n=Studio Mac")),
+    )
+    .expect("the host binds");
+    let phone = Engine::bind_with(&config(), &BonjourDiscovery).expect("the phone binds");
+    let host_id = host.endpoint_id();
+
+    let wait_for = |what: &str, limit: Duration, done: &dyn Fn() -> bool| {
+        let started = Instant::now();
+        while !done() {
+            assert!(
+                started.elapsed() < limit,
+                "{what}: {}",
+                phone.local_discovery_status()
+            );
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    };
+    let lists = |text: &str| {
+        phone
+            .nearby_peers()
+            .iter()
+            .any(|peer| peer.id.to_string() == host_id && peer.advertised == text)
+    };
+
+    wait_for("the watch lists the host", Duration::from_secs(60), &|| {
+        lists("azreview/1;p=ab12;n=Studio Mac")
+    });
+    let peer = phone
+        .nearby_peers()
+        .into_iter()
+        .find(|peer| peer.id.to_string() == host_id)
+        .expect("listed");
+    eprintln!("listed: {} {:?}", peer.advertised, peer.addresses);
+    assert!(
+        !peer.addresses.is_empty(),
+        "a listed endpoint has an address a dial can use"
+    );
+    assert_eq!(phone.peer_count(), 0, "listing is not dialling");
+
+    host.set_advertised("azreview/1;p=ab12;n=Studio Mac (renamed)");
+    wait_for(
+        "the watch hears the rename",
+        Duration::from_secs(60),
+        &|| lists("azreview/1;p=ab12;n=Studio Mac (renamed)"),
+    );
+
+    drop(host);
+    wait_for(
+        "the watch hears the host go",
+        Duration::from_secs(200),
+        &|| {
+            phone
+                .nearby_peers()
+                .iter()
+                .all(|peer| peer.id.to_string() != host_id)
+        },
     );
 }

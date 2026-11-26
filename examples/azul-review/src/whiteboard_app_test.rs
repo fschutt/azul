@@ -171,6 +171,149 @@ fn escape_lets_go_of_the_drag_and_then_of_the_regions() {
     assert!(!wb.escape(), "nothing left to let go of");
 }
 
+// ---- sent by a button
+
+/// A loop round the word, armed at `now`: its region.
+fn arm_a_loop(wb: &mut Whiteboard, now: u64) -> RegionId {
+    let c = chars();
+    wb.arm_stroke(0, &pts(&fx::closed_loop()), &lines_of_page(&c), PAGE, 5, now).expect("a loop is armed")
+}
+
+fn closed_bar() -> Bar {
+    Bar { rect: Rect::new(1_268.0, 30.0, 12.0, 760.0), open: false, window_w: 1_280.0 }
+}
+
+#[test]
+fn a_region_sent_by_a_button_is_the_cutout_a_drop_makes_at_the_first_free_place_of_the_view() {
+    let mut dropped = Whiteboard::new("/work/azul");
+    let from_drop = drop_a_loop(&mut dropped, 0);
+    let mut sent = Whiteboard::new("/work/azul");
+    let region = arm_a_loop(&mut sent, 0);
+    let job = sent.send_region_now(region, &bar(), facts(), 2.0, PAGE).expect("a cutout");
+    assert_eq!(job.plan, from_drop.plan, "the same picture is drawn");
+    assert_eq!(job.page, from_drop.page);
+    let (a, b) = (sent.board.cutout(job.id).expect("sent"), dropped.board.cutout(from_drop.id).expect("dropped"));
+    assert_eq!(a.source, b.source, "the same lines, hashes, revision and shape");
+    assert_eq!((a.rect.w, a.rect.h), (b.rect.w, b.rect.h));
+    assert!(matches!(a.image, ImageSlot::Pending), "it waits for its picture as a drop's does");
+    assert_eq!(a.rect.origin(), Pt::new(16.0, 16.0), "the top left of the view, a margin in");
+    assert!(sent.armed.get(region).is_none(), "the region is used up");
+    assert_eq!(sent.input.selection(), Some(job.id), "and the cutout is the one selected");
+    assert!(sent.board.needs_save());
+    assert!(sent.bar.open, "the bar is open: it is seen");
+}
+
+#[test]
+fn what_is_sent_one_after_the_other_is_put_in_view_a_gap_apart_until_the_view_is_full() {
+    let mut wb = Whiteboard::new("/work/azul");
+    let gap = whiteboard_place::GAP;
+    let mut placed: Vec<Rect> = Vec::new();
+    let (mut in_view, mut below) = (0, 0);
+    for i in 0..40_u64 {
+        let region = arm_a_loop(&mut wb, i * 100);
+        let was = wb.board.view();
+        let job = wb.send_region_now(region, &bar(), facts(), 2.0, PAGE).expect("room for it");
+        let rect = wb.board.cutout(job.id).expect("there").rect;
+        for earlier in &placed {
+            assert!(!earlier.inflate(gap - 0.5).intersects(&rect), "{i}: {rect:?} is too near {earlier:?}");
+        }
+        let view = wb.board.view();
+        if view == was {
+            // Room in the view: all of it, a margin in from every edge (the view is 300 px wide and 700 high, its zoom is 1).
+            in_view += 1;
+            let seen = Rect::new(view.pan.x, view.pan.y, 300.0, 730.0);
+            assert!(rect.x >= seen.x + gap - 0.01 && rect.y >= seen.y + gap - 0.01, "{i}: {rect:?} in {seen:?}");
+            assert!(rect.right() + gap <= seen.right() + 0.01 && rect.bottom() + gap <= seen.bottom() + 0.01, "{i}: {rect:?} in {seen:?}");
+        } else {
+            // The view was full: it is under everything, and the view moved so that it is the first thing seen.
+            below += 1;
+            assert_eq!(view.to_screen(rect.origin()), Pt::new(gap, gap), "{i}");
+            assert!(placed.iter().all(|e| e.bottom() <= rect.y), "{i}: under everything");
+        }
+        placed.push(rect);
+    }
+    assert!(below >= 1, "40 cutouts do not fit in one view");
+    assert!(in_view > below, "and some do: {in_view} in view, {below} below");
+}
+
+#[test]
+fn a_view_that_is_zoomed_and_moved_is_the_place_that_is_looked_in() {
+    let mut wb = Whiteboard::new("/work/azul");
+    wb.board.set_view(View { pan: Pt::new(1_000.0, 500.0), zoom: 2.0 });
+    let region = arm_a_loop(&mut wb, 0);
+    let job = wb.send_region_now(region, &bar(), facts(), 2.0, PAGE).expect("a cutout");
+    let rect = wb.board.cutout(job.id).expect("there").rect;
+    let view = wb.board.view();
+    assert_eq!(view, View { pan: Pt::new(1_000.0, 500.0), zoom: 2.0 }, "the view stays where it is when there is room");
+    assert_eq!(view.to_screen(rect.origin()), Pt::new(16.0, 16.0), "a margin of 16 px on the screen, whatever the zoom");
+}
+
+#[test]
+fn a_closed_bar_is_opened_by_what_is_sent_and_a_refusal_leaves_everything_as_it_was() {
+    let mut wb = Whiteboard::new("/work/azul");
+    wb.bar = BarState { open: false, width: 280.0 };
+    let region = arm_a_loop(&mut wb, 0);
+    wb.send_region_now(region, &closed_bar(), facts(), 2.0, PAGE).expect("a cutout");
+    assert!(wb.bar.open);
+    assert_eq!(wb.bar.width, 280.0, "the width it had");
+    // A full board refuses, the region stays armed, the bar is not opened for what did not happen, the view is not moved.
+    let mut full = Whiteboard::with_limits("/w", Limits { max_items: 1, ..LIMITS });
+    let first = arm_a_loop(&mut full, 0);
+    full.send_region_now(first, &bar(), facts(), 2.0, PAGE).expect("the one it holds");
+    full.bar.open = false;
+    let (view, region) = (full.board.view(), arm_a_loop(&mut full, 10_000));
+    let refused = full.send_region_now(region, &closed_bar(), facts(), 2.0, PAGE);
+    assert_eq!(refused.err(), Some(Notice::TooManyItems { limit: 1 }));
+    assert!(full.armed.get(region).is_some(), "the person may make room and try again");
+    assert!(!full.bar.open);
+    assert_eq!(full.board.view(), view);
+}
+
+#[test]
+fn a_region_that_is_not_there_or_a_board_that_is_being_read_takes_nothing() {
+    let mut wb = Whiteboard::new("/work/azul");
+    assert_eq!(wb.send_region_now(77, &bar(), facts(), 2.0, PAGE).err(), Some(Notice::NoSuchItem { id: 77 }));
+    let region = arm_a_loop(&mut wb, 0);
+    wb.loading = true;
+    assert_eq!(wb.send_region_now(region, &bar(), facts(), 2.0, PAGE).err(), Some(Notice::BoardBusy));
+    assert!(wb.armed.get(region).is_some());
+    assert_eq!(wb.board.len(), 0);
+    wb.loading = false;
+    assert!(wb.send_region_now(region, &bar(), facts(), 2.0, PAGE).is_ok());
+    assert_eq!(wb.send_region_now(region, &bar(), facts(), 2.0, PAGE).err(), Some(Notice::NoSuchItem { id: region }), "used up: a second press of the button sends nothing");
+    assert_eq!(wb.board.len(), 1);
+}
+
+#[test]
+fn how_long_a_loop_stays_armed_is_the_setting_for_the_loops_that_come_after_it() {
+    let mut wb = Whiteboard::new("/work/azul");
+    let before = arm_a_loop(&mut wb, 0);
+    let (settings, notes) = Settings::parse(&|key| (key == crate::whiteboard_settings::KEY_ARMED_SECONDS).then(|| "20".to_string()));
+    assert!(notes.is_empty());
+    wb.set_settings(settings);
+    let after = arm_a_loop(&mut wb, 1_000);
+    assert_eq!(wb.armed.get(before).map(|r| r.lifetime_ms), Some(8_000), "a loop that was armed keeps its time");
+    assert_eq!(wb.armed.get(after).map(|r| (r.lifetime_ms, r.expires_at_ms())), Some((20_000, 21_000)));
+    assert!(!wb.expire(7_999));
+    assert!(wb.expire(8_000), "the first is up");
+    assert!(wb.armed.get(before).is_none() && wb.armed.get(after).is_some());
+    assert!(!wb.expire(20_999) && wb.expire(21_000));
+    assert!(wb.armed.is_empty());
+}
+
+#[test]
+fn a_loop_the_pen_holds_is_not_let_go_of_when_its_time_is_up_until_the_pen_lets_go() {
+    let mut wb = Whiteboard::new("/work/azul");
+    let region = arm_a_loop(&mut wb, 0);
+    let grip = wb.armed.get(region).expect("armed").grip.center();
+    assert_eq!(wb.page_press(pointer_at(grip), 7_900), Press::Grip(region));
+    assert!(!wb.expire(9_000), "its time is up, the hand is on it");
+    assert!(wb.armed.get(region).is_some());
+    assert!(wb.escape(), "the press is let go of");
+    assert!(wb.expire(9_000), "and then it goes");
+    assert!(wb.armed.is_empty());
+}
+
 // ---- the bar
 
 #[test]

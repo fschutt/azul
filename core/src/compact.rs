@@ -27,7 +27,10 @@ use azul_css::{
             position::LayoutZIndex,
         },
         property::CssProperty,
-        style::text::{StyleTextDecorationColor, StyleTextDecorationThickness},
+        style::text::{
+            StyleTextDecorationColor, StyleTextDecorationThickness, StyleTextUnderlineOffset,
+            StyleTextUnderlinePosition,
+        },
     },
 };
 
@@ -2846,6 +2849,20 @@ fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u64) {
                 .is_some_and(|thickness| *thickness != StyleTextDecorationThickness::Auto)
             {
                 *flags |= DOM_HAS_TEXT_DECORATION_THICKNESS;
+            }
+        }
+        CssProperty::TextUnderlineOffset(v) => {
+            if v.get_property()
+                .is_some_and(|offset| *offset != StyleTextUnderlineOffset::Auto)
+            {
+                *flags |= DOM_HAS_TEXT_UNDERLINE_OFFSET;
+            }
+        }
+        CssProperty::TextUnderlinePosition(v) => {
+            if v.get_property()
+                .is_some_and(|position| *position != StyleTextUnderlinePosition::Auto)
+            {
+                *flags |= DOM_HAS_TEXT_UNDERLINE_POSITION;
             }
         }
         CssProperty::FontVariantPosition(v) => {

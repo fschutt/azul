@@ -3728,6 +3728,10 @@ fn extract_custom_impls_from_items(items: &[Item]) -> BTreeMap<String, Vec<Strin
                         "DerefMut",
                         "Iterator",
                         "IntoIterator",
+                        // A handle the engine declares thread-safe by hand (`unsafe impl Send for X {}`
+                        // beside its reason): the generated mirror holds the same raw pointer and says so too.
+                        "Send",
+                        "Sync",
                     ];
 
                     if relevant_traits.contains(&trait_name.as_str()) && !type_name.is_empty() {
@@ -5898,3 +5902,8 @@ mod opaque_handle_fields {
         assert!(res.1 == RefKind::Value);
     }
 }
+
+
+#[cfg(test)]
+#[path = "type_index_custom_impls_test.rs"]
+mod type_index_custom_impls_test;

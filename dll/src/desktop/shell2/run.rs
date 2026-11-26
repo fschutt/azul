@@ -543,6 +543,10 @@ fn setup_debug_and_e2e(
     }
 }
 
+/// How many of the first passes of the macOS event loop say (at debug level) that they park and wake.
+#[cfg(target_os = "macos")]
+const FIRST_PASSES_TOLD: u32 = 6;
+
 /// Run the application with the given root window configuration
 ///
 /// This function:
@@ -916,9 +920,21 @@ pub fn run(
             // which is required for the Window Server to fully register the app.
             // Without this, accessibility queries return kAXErrorCannotComplete
             // because macOS considers the app "not yet launched".
+            let launching = std::time::Instant::now();
             app.finishLaunching();
+            log_debug!(
+                LogCategory::EventLoop,
+                "[macOS] finishLaunching took {} us",
+                launching.elapsed().as_micros()
+            );
+            let activating = std::time::Instant::now();
             #[allow(deprecated)]
             app.activateIgnoringOtherApps(true);
+            log_debug!(
+                LogCategory::EventLoop,
+                "[macOS] activateIgnoringOtherApps took {} us",
+                activating.elapsed().as_micros()
+            );
         }
 
         // Choose event loop based on termination behavior
@@ -1064,6 +1080,9 @@ pub fn run(
                 // From here the loop runs and takes every wake on its next
                 // turn: a wake posts its event only while the loop blocks.
                 crate::desktop::loop_waker::loop_awake();
+                // The first passes of the loop are told (AZ_LOG=debug): when it parks and when it wakes, so that a start
+                // in which the window's first timer comes late shows where the time went.
+                let mut passes: u32 = 0;
                 loop {
                     autoreleasepool(|_| {
                         // App-level events handled in the LAST iteration's
@@ -1268,6 +1287,9 @@ pub fn run(
                         // (`loop_waker::loop_may_park`): it is owed now, and the
                         // loop comes around again instead of blocking over it.
                         if crate::desktop::loop_waker::loop_may_park() {
+                            if passes < FIRST_PASSES_TOLD {
+                                log_debug!(LogCategory::EventLoop, "[macOS] loop pass {}: parks", passes);
+                            }
                             let distant_future = objc2_foundation::NSDate::distantFuture();
                             let run_loop = objc2_foundation::NSRunLoop::currentRunLoop();
                             unsafe {
@@ -1276,7 +1298,13 @@ pub fn run(
                                     &distant_future,
                                 );
                             }
+                            if passes < FIRST_PASSES_TOLD {
+                                log_debug!(LogCategory::EventLoop, "[macOS] loop pass {}: woke", passes);
+                            }
+                        } else if passes < FIRST_PASSES_TOLD {
+                            log_debug!(LogCategory::EventLoop, "[macOS] loop pass {}: owed a wake, does not park", passes);
                         }
+                        passes = passes.saturating_add(1);
                         crate::desktop::loop_waker::loop_awake();
 
                         // After the run loop wakes, drain any pending NSEvents.

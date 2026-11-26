@@ -70,6 +70,14 @@ const NEEDS_DISPLAY: &str = "needs the main thread and a real display";
 /// THE LEDGER. Keep the rows sorted by file, then by test.
 const LEDGER: &[Row] = &[
     Row {
+        file: "core/src/resources_brush_test.rs",
+        test: "how_long_the_brush_takes",
+        kind: Kind::Diagnostic,
+        id: None,
+        owner: "core/resources",
+        reason: "a measurement of the CPU brush, old against new (X-EDGE-C-2): cargo test --release -p azul-core --lib -- --ignored --nocapture how_long_the_brush_takes",
+    },
+    Row {
         file: "dll/src/desktop/display.rs",
         test: "test_get_display_at_point",
         kind: Kind::Hardware,
@@ -110,12 +118,28 @@ const LEDGER: &[Row] = &[
         reason: "needs a Mac on a network that carries multicast and the Local Network permission (X-EDGE-C-2)",
     },
     Row {
+        file: "dll/src/desktop/extra/iroh/bonjour_test.rs",
+        test: "bonjour_lists_what_the_mdns_lookup_announces_with_its_text",
+        kind: Kind::Hardware,
+        id: None,
+        owner: "dll/iroh",
+        reason: "needs a Mac on a network that carries multicast and the Local Network permission (X-EDGE-C-2)",
+    },
+    Row {
         file: "dll/src/desktop/extra/iroh/engine_test.rs",
         test: "two_endpoints_find_each_other_by_id_over_real_mdns",
         kind: Kind::Hardware,
         id: None,
         owner: "dll/iroh",
         reason: "needs a network that carries multicast between two endpoints of one process; a CI runner's does not (X-EDGE-C-2)",
+    },
+    Row {
+        file: "dll/src/desktop/extra/iroh/engine_test.rs",
+        test: "two_endpoints_list_each_other_over_real_mdns",
+        kind: Kind::Hardware,
+        id: None,
+        owner: "dll/iroh",
+        reason: "needs a network that carries multicast between two endpoints of one process, and a wait for an announcement to expire; a CI runner's network does not (X-EDGE-C-2)",
     },
     Row {
         file: "dll/src/desktop/extra/screencap/dmabuf.rs",
@@ -353,11 +377,14 @@ const COUNTS: &[(Kind, usize)] = &[
     (Kind::Gap, 2),
     (Kind::Stale, 12),
     // + the halo dilation's timing (layout/src/cpurender/raster.rs): 4 -> 5.
-    (Kind::Diagnostic, 5),
+    // + the CPU brush's timing, old against new (core/src/resources_brush_test.rs): 5 -> 6.
+    (Kind::Diagnostic, 6),
     // + the built-in speech recogniser's real-engine test (dll/tests/speech_builtin_engine.rs): 11 -> 12.
     // + the two real-network tests of iroh's local discovery (extra/iroh/engine_test.rs, bonjour_test.rs): 12 -> 14.
-    // + the real desktop of a Mac (extra/desktop_state/desktop_state_test.rs): 14 -> 15.
-    (Kind::Hardware, 15),
+    // + the listing of the endpoints of the local network over real mDNS (extra/iroh/engine_test.rs): 14 -> 15.
+    // + the Bonjour watch of an iPhone over real mDNS (extra/iroh/bonjour_test.rs): 15 -> 16.
+    // + the real desktop of a Mac (extra/desktop_state/desktop_state_test.rs): 16 -> 17.
+    (Kind::Hardware, 17),
 ];
 
 /// The crates whose sources are scanned (`src/` and `tests/` of each).

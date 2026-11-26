@@ -282,11 +282,53 @@ pub struct LinePaint {
     pub thickness: LineThickness,
 }
 
+/// How far an underline is moved from its initial place (`text-underline-offset`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum LineOffset {
+    /// `auto`: the place the font size suggests.
+    #[default]
+    Auto,
+    /// A length in px, down for a positive one: an `em` or a percentage resolved against the font
+    /// size of the box that sets the line, a zoom applied, capped.
+    Px(azul_css::props::basic::FloatValue),
+}
+
+/// What an underline is placed against (`text-underline-position`, the group `from-font | under`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum UnderlineBase {
+    /// `auto`: the place the font size suggests.
+    #[default]
+    Auto,
+    /// `from-font`: the place the font names. The faces' own metrics are not read yet, so it is
+    /// `auto`, as the property allows for a face that names none.
+    FromFont,
+    /// `under`: below the descenders, where the em box ends.
+    Under,
+}
+
+/// The side of the text an underline is drawn on in vertical text (`text-underline-position`, the
+/// group `left | right`); a horizontal line has none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum UnderlineSide {
+    #[default]
+    Auto,
+    Left,
+    Right,
+}
+
+/// Where an underline is: the place of the box that sets it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct UnderlinePlace {
+    pub offset: LineOffset,
+    pub base: UnderlineBase,
+    pub side: UnderlineSide,
+}
+
 /// The lines drawn over the text of a run (`text-decoration`), and how each kind is painted.
 ///
 /// Each kind has the paint of the box that sets it, so that an underline of one box and a
 /// line-through of another are two lines of two paints under one run. The paint of a kind that is
-/// off is [`LinePaint::default`].
+/// off is [`LinePaint::default`]; the place of the underline goes with the underline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct TextDecoration {
     pub underline: bool,
@@ -298,6 +340,8 @@ pub struct TextDecoration {
     pub strikethrough_paint: LinePaint,
     /// How the overline is painted.
     pub overline_paint: LinePaint,
+    /// Where the underline is (the place of a line that is off is `UnderlinePlace::default`).
+    pub underline_place: UnderlinePlace,
 }
 
 impl TextDecoration {
@@ -306,10 +350,10 @@ impl TextDecoration {
     /// box's, with its paint.
     #[must_use]
     pub const fn with(self, outer: Self) -> Self {
-        let (underline, underline_paint) = if self.underline {
-            (true, self.underline_paint)
+        let (underline, underline_paint, underline_place) = if self.underline {
+            (true, self.underline_paint, self.underline_place)
         } else {
-            (outer.underline, outer.underline_paint)
+            (outer.underline, outer.underline_paint, outer.underline_place)
         };
         let (strikethrough, strikethrough_paint) = if self.strikethrough {
             (true, self.strikethrough_paint)
@@ -328,6 +372,7 @@ impl TextDecoration {
             underline_paint,
             strikethrough_paint,
             overline_paint,
+            underline_place,
         }
     }
 
@@ -344,6 +389,15 @@ impl TextDecoration {
             underline_paint: if self.underline { paint } else { self.underline_paint },
             strikethrough_paint: if self.strikethrough { paint } else { self.strikethrough_paint },
             overline_paint: if self.overline { paint } else { self.overline_paint },
+            ..self
+        }
+    }
+
+    /// These lines, the underline - if it is on - at `place`.
+    #[must_use]
+    pub const fn placed(self, place: UnderlinePlace) -> Self {
+        Self {
+            underline_place: if self.underline { place } else { self.underline_place },
             ..self
         }
     }

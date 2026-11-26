@@ -2247,14 +2247,16 @@ pub(crate) const RARE_TEXT_FLAGS: u64 = azul_css::compact_cache::DOM_HAS_FONT_VA
     | azul_css::compact_cache::DOM_HAS_TEXT_RENDERING
     | azul_css::compact_cache::DOM_HAS_TEXT_DECORATION_COLOR
     | azul_css::compact_cache::DOM_HAS_TEXT_DECORATION_THICKNESS
+    | azul_css::compact_cache::DOM_HAS_TEXT_UNDERLINE_OFFSET
+    | azul_css::compact_cache::DOM_HAS_TEXT_UNDERLINE_POSITION
     | azul_css::compact_cache::DOM_HAS_TEXT_COMBINE_UPRIGHT;
 
 /// A hash of what a node asks through the text properties that have no compact slot (the
 /// [`RARE_TEXT_FLAGS`]): the variation settings and the optical sizing
 /// ([`font_variation_inputs_hash`]), the kerning, the ligatures, the East Asian forms, the
 /// numeric and caps variants, the feature settings, the synthesis switches, the position forms,
-/// the rendering hint, the colour and the thickness of the decoration lines and the combining of
-/// digits. The cache of the collected inline content of a formatting
+/// the rendering hint, the colour, the thickness and the place of the decoration lines and the
+/// combining of digits. The cache of the collected inline content of a formatting
 /// context folds it in for a document that declares one of them (it keys on the nodes and on the
 /// compact cache, which holds none of these), so that a restyle that moves only one - another
 /// stylesheet over the same nodes - collects the text in its new style. A property the document
@@ -2354,6 +2356,18 @@ pub(crate) fn rare_text_inputs_hash(
     if declared(flags::DOM_HAS_TEXT_DECORATION_THICKNESS) {
         cache
             .get_text_decoration_thickness(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_TEXT_UNDERLINE_OFFSET) {
+        cache
+            .get_text_underline_offset(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_TEXT_UNDERLINE_POSITION) {
+        cache
+            .get_text_underline_position(node_data, &node_id, node_state)
             .and_then(|v| v.get_property())
             .hash(&mut hasher);
     }
@@ -5030,10 +5044,75 @@ fn decoration_paint_of(
     LinePaint { color, thickness }
 }
 
+/// Where the underline the box `dom_id` sets is: the offset and the position it declares or
+/// inherits (`text-underline-offset`, `text-underline-position`), `auto` where there are none.
+/// A document that declares neither anywhere is not asked.
+fn underline_place_of(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+    viewport: PhysicalSize,
+) -> crate::text3::cache::UnderlinePlace {
+    use azul_css::{
+        compact_cache as flags,
+        props::style::text::{StyleTextUnderlineOffset, StyleTextUnderlinePosition as Position},
+    };
+
+    use crate::text3::cache::{LineOffset, UnderlineBase, UnderlinePlace, UnderlineSide};
+
+    let cache = &styled_dom.css_property_cache.ptr;
+    let declared = |flag: u64| {
+        cache
+            .compact_cache
+            .as_ref()
+            .is_none_or(|cc| cc.dom_declared(flag))
+    };
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    let offset = if declared(flags::DOM_HAS_TEXT_UNDERLINE_OFFSET) {
+        match cache
+            .get_text_underline_offset(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+        {
+            Some(StyleTextUnderlineOffset::Length(length)) => {
+                LineOffset::Px(azul_css::props::basic::FloatValue::new(decoration_length_px(
+                    styled_dom,
+                    dom_id,
+                    node_state,
+                    viewport,
+                    length,
+                    "text-underline-offset",
+                )))
+            }
+            Some(StyleTextUnderlineOffset::Auto) | None => LineOffset::Auto,
+        }
+    } else {
+        LineOffset::Auto
+    };
+    let (base, side) = if declared(flags::DOM_HAS_TEXT_UNDERLINE_POSITION) {
+        match cache
+            .get_text_underline_position(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+        {
+            Some(Position::FromFont) => (UnderlineBase::FromFont, UnderlineSide::Auto),
+            Some(Position::Under) => (UnderlineBase::Under, UnderlineSide::Auto),
+            Some(Position::Left) => (UnderlineBase::Auto, UnderlineSide::Left),
+            Some(Position::Right) => (UnderlineBase::Auto, UnderlineSide::Right),
+            Some(Position::FromFontLeft) => (UnderlineBase::FromFont, UnderlineSide::Left),
+            Some(Position::FromFontRight) => (UnderlineBase::FromFont, UnderlineSide::Right),
+            Some(Position::UnderLeft) => (UnderlineBase::Under, UnderlineSide::Left),
+            Some(Position::UnderRight) => (UnderlineBase::Under, UnderlineSide::Right),
+            Some(Position::Auto) | None => (UnderlineBase::Auto, UnderlineSide::Auto),
+        }
+    } else {
+        (UnderlineBase::Auto, UnderlineSide::Auto)
+    };
+    UnderlinePlace { offset, base, side }
+}
+
 /// The text decorations `dom_id` declares itself (`text-decoration` is not
 /// inherited; what a run carries from the boxes around it is
 /// [`propagated_text_decoration`]), each line with the paint the box declares
-/// for it. The compact cache keeps a `has_text_decoration` flag: for the
+/// for it and the underline with the place the box gives it. The compact cache keeps a `has_text_decoration` flag: for the
 /// overwhelmingly common undecorated node, no cascade walk.
 #[must_use]
 pub fn own_text_decoration(
@@ -5059,7 +5138,12 @@ pub fn own_text_decoration(
     if !lines.has_lines() {
         return lines;
     }
-    lines.painted(decoration_paint_of(styled_dom, dom_id, node_state, viewport))
+    let lines = lines.painted(decoration_paint_of(styled_dom, dom_id, node_state, viewport));
+    if lines.underline {
+        lines.placed(underline_place_of(styled_dom, dom_id, node_state, viewport))
+    } else {
+        lines
+    }
 }
 
 /// The decorations the text of the inline formatting context rooted at
