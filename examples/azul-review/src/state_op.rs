@@ -12,7 +12,7 @@ pub const OP_NAME: &str = "azreview_state";
 /// The state as JSON: `pen` (the place of the pen in hand), `meaning`, `nib`, `tree_open`, `tree_w`, `right_open`,
 /// `right_w`, `chips` (the open file's conversations), `mic` (the microphone's state), `dictating` (a dictation runs),
 /// `ready` (its microphone takes words), `partial` (the words so far), `progress` (the pages seen of the open file, whether it is reviewed, the workspace's totals), `tree` (the rows, the files and folders known so far, the file open), `slashes` and `deleted_words` (what quick slashes took), `standby` (the policy: `mode`, `enabled`, `armed`, `arms`,
-/// `disarms`).
+/// `disarms`), `speech` (the session's state while a thread makes it: `session` unasked, making, ready or failed; `waiting`: a dictation waits for it; `failure`).
 #[must_use]
 pub fn state_json(s: &AppState) -> String {
     serde_json::json!({
@@ -44,6 +44,11 @@ pub fn state_json(s: &AppState) -> String {
             "armed": s.voice.arming.is_armed(),
             "arms": s.voice.arms,
             "disarms": s.voice.disarms,
+        },
+        "speech": {
+            "session": s.voice.gate.state().name(),
+            "waiting": s.voice.gate.is_waiting(),
+            "failure": s.voice.gate.failure(),
         },
     })
     .to_string()
@@ -96,7 +101,7 @@ pub fn register_ops(config: &mut AppConfig) {
     config.add_e2e_command(AzString::from(OP_EXPAND_ALL), json, on_expand_all);
     let def = format!(
         "{{\"name\":\"{OP_NAME}\",\"summary\":\"what AzReview's state is\",\
-         \"description\":\"pen, meaning, nib, tree_open, tree_w, right_open, right_w, chips, mic, dictating, ready, partial, progress, tree, slashes, deleted_words, standby.\",\"args\":[],\"examples\":[]}}"
+         \"description\":\"pen, meaning, nib, tree_open, tree_w, right_open, right_w, chips, mic, dictating, ready, partial, progress, tree, slashes, deleted_words, standby, speech.\",\"args\":[],\"examples\":[]}}"
     );
     let json = Json::parse(AzString::from(def.as_str()))
         .into_result()

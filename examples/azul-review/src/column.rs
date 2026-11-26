@@ -23,6 +23,7 @@ use crate::{
     dwell::{self, Allow},
     ids,
     model::Note,
+    speech_gate::Session as SpeechState,
     standby::{self, Standby},
     switches::{self, KEY_INPUT, KEY_REST, KEY_SILENCE, KEY_STANDBY, KEY_STANDBY_IDLE},
     ui, voice, AppState,
@@ -429,6 +430,13 @@ fn speech_status(s: &AppState) -> Dom {
                 col.add_child(Dom::create_span_with_text(line.as_str()));
             }
         }
+    } else if s.voice.gate.state() == SpeechState::Making {
+        col.add_child(Dom::create_span_with_text(t("azreview-speech-making").as_str()));
+    }
+    if let Some(why) = s.voice.gate.failure() {
+        col.add_child(Dom::create_span_with_text(
+            t_args("azreview-speech-failed", &[("why", Arg::from(why.to_string()))]).as_str(),
+        ));
     }
     col
 }

@@ -105,6 +105,7 @@ pub mod recorder_writer;
 pub mod seen_watch;
 pub mod session;
 pub mod slash;
+pub mod speech_gate;
 pub mod standby;
 pub mod stroke_features;
 /// The pen strokes every gesture is tested on (a loop, a slash, an underline, a scribble): shared by the
