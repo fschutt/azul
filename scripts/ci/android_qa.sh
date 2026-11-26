@@ -109,6 +109,21 @@ for mode in "${mode_list[@]}"; do
     python3 "$here/mobile_e2e.py" android --out "$d/e2e" --apk "$apk" --package "$pkg" --activity "${act:-}" \
       --label "$label e2e" ${scen[@]+"${scen[@]}"} 2>&1 | tee "$d/e2e.log"
   fi
+  # AZ_QA_EXTRA_APKS="a.apk b.apk": a FIRST LOOK at other apps on the same boot (first mode only): the steps of AZ_QA_ONLY_EXTRA
+  # (default 03 cold start, 08 rotate, 09 home and resume, 12 dark mode, 13 font scale), an out folder per app
+  if [ "$mode" = "${mode_list[0]}" ]; then
+    for xapk in ${AZ_QA_EXTRA_APKS:-}; do
+      xb="$("$aapt2" dump badging "$xapk" 2>/dev/null || true)"
+      xpkg="$(echo "$xb" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+      xact="$(echo "$xb" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" | head -n 1)"
+      xn="$(basename "$xapk" .apk)"
+      [ -n "$xpkg" ] || { echo "no package in the badging of $xapk"; continue; }
+      echo "---- first look at $xn ($xpkg)"
+      mkdir -p "$d/apps"
+      python3 "$here/mobile_qa.py" android --out "$d/apps/$xn" --apk "$xapk" --package "$xpkg" --activity "${xact:-}" \
+        --label "$xn" --gpu "$mode" --only "${AZ_QA_ONLY_EXTRA:-03,08,09,12,13}" 2>&1 | tee "$d/apps/$xn.log"
+    done
+  fi
   adb emu kill >/dev/null 2>&1 || true
   sleep 3
   kill "$emu" 2>/dev/null || true
@@ -119,7 +134,7 @@ python3 - "$out" <<'PY'
 import json, pathlib, sys
 out = pathlib.Path(sys.argv[1])
 rows = []
-for q in sorted(list(out.glob("*/qa.json")) + list(out.glob("*/e2e/qa.json"))):
+for q in sorted(list(out.glob("*/qa.json")) + list(out.glob("*/e2e/qa.json")) + list(out.glob("*/apps/*/qa.json"))):
     d = json.loads(q.read_text())
     failed = [s["name"] for s in d["steps"] if not s["ok"]]
     rows.append({"mode": str(q.parent.relative_to(out)), "ok": d["ok"], "steps": len(d["steps"]), "failed": failed})
