@@ -5672,8 +5672,13 @@ pub fn get_style_properties_for_state_with(
                 |h| crate::text3::cache::HangingPunctuation {
                     first: h.first,
                     last: h.last,
-                    force_end: h.force_end,
-                    allow_end: h.allow_end,
+                    end: if h.force_end {
+                        crate::text3::cache::HangEnd::Force
+                    } else if h.allow_end {
+                        crate::text3::cache::HangEnd::Allow
+                    } else {
+                        crate::text3::cache::HangEnd::None
+                    },
                 },
             )
     } else {

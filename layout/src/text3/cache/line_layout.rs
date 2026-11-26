@@ -1564,7 +1564,11 @@ fn end_hang_width(
         return 0.0;
     };
     let hangs = if is_hanging_punctuation_char(c) {
-        hang.force_end || (hang.allow_end && does_not_fit)
+        match hang.end {
+            HangEnd::Force => true,
+            HangEnd::Allow => does_not_fit,
+            HangEnd::None => false,
+        }
     } else {
         hang.last && ends_block && is_closing_mark_char(c)
     };
