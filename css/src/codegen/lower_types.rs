@@ -246,7 +246,7 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
 
 /// The api.json module of EVERY api.json class, sorted by name
 /// (binary-searchable): the lowering produces the CSS closure, and a
-/// component's constructor (`Button::create`, azul_core's
+/// component's constructor (`Button::create`, `azul_core`'s
 /// `ComponentCodegen::Call`) may name any class. Printers whose bindings
 /// are split into modules (Rust `azul::css`, `azul::widgets`, ...) import
 /// from it.
@@ -4405,7 +4405,8 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "FontSynthesisPosition",
 ];
 
-/// The C tag of a variant of a tagged union the printers build by hand:
+/// The C tag of a variant of a tagged union the printers build by hand.
+///
 /// `CssProperty` variants by declaration order, `CssPropertyValue<T>`
 /// aliases Auto=0 None=1 Initial=2 Inherit=3 Revert=4 Unset=5 Exact=6.
 #[must_use]
