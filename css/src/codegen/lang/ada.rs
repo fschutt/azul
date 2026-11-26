@@ -566,6 +566,115 @@ const REGISTRATION_HELPERS: &str = "
    end String_Field;
 ";
 
+/// One component of the library: what is written for it, and the call that makes its
+/// `ComponentDef`.
+fn ada_component(
+    s: &mut String,
+    spec: &mut String,
+    lib: &LibrarySpec,
+    c: &ComponentSpec,
+    item: &Item,
+) -> String {
+    let az = |s: &str| format!("To_Az_String ({})", ada_string(s));
+    let item_fn = unit_name(item);
+    let cp = sanitize(&pascalize_method(&Ident::from_text(&c.name).snake()));
+    let defaults: Vec<String> = item.params.iter().map(|p| ada_string(p.default_text())).collect();
+    let call = if defaults.is_empty() {
+        item_fn.clone()
+    } else {
+        format!("{item_fn} ({})", defaults.join(", "))
+    };
+    let _ = writeln!(spec, "   function {item_fn}_Default return Az_Dom;");
+    let _ = write!(
+        s,
+        "\n   --  `{}:{}` with its default arguments.\n   function {item_fn}_Default return \
+         Az_Dom is\n   begin\n      return {call};\n   end {item_fn}_Default;\n",
+        one_line(&lib.name),
+        one_line(&c.name)
+    );
+    let args: Vec<String> = item
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "Model_String (Model, {}, {})",
+                ada_string(&p.name.snake()),
+                ada_string(p.default_text())
+            )
+        })
+        .collect();
+    let render_call = if args.is_empty() {
+        item_fn.clone()
+    } else {
+        format!("{item_fn} ({})", args.join(", "))
+    };
+    let unreferenced = if item.params.is_empty() {
+        "Def, Model, Map"
+    } else {
+        "Def, Map"
+    };
+    let _ = write!(
+        s,
+        "\n   function {cp}_Render_Fn\n     (Def : System.Address; Model : System.Address; Map : \
+         System.Address)\n      return Az_ResultStyledDomRenderDomError\n     with Convention => \
+         C;\n\n   function {cp}_Render_Fn\n     (Def : System.Address; Model : System.Address; Map \
+         : System.Address)\n      return Az_ResultStyledDomRenderDomError\n   is\n      pragma \
+         Unreferenced ({unreferenced});\n   begin\n      return \
+         Az_ResultStyledDomRenderDomError_Ok\n        (Az_StyledDom_Create_From_Dom \
+         ({render_call}));\n   end {cp}_Render_Fn;\n"
+    );
+    let _ = write!(s, "\n   function {cp}_Def return Az_ComponentDef is\n");
+    let fields = if item.params.is_empty() {
+        s.push_str("   begin\n");
+        "Az_ComponentDataFieldVec_Create".to_string()
+    } else {
+        let n = item.params.len();
+        let items: Vec<String> = item
+            .params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+                format!(
+                    "{i} => String_Field ({}, {}, {})",
+                    ada_string(&p.name.snake()),
+                    ada_string(p.default_text()),
+                    ada_string(desc)
+                )
+            })
+            .collect();
+        let _ = write!(
+            s,
+            "      Fields : aliased array (0 .. {}) of Az_ComponentDataField :=\n        ({});\n      \
+             Field_Vec : constant Az_ComponentDataFieldVec :=\n        \
+             Az_ComponentDataFieldVec_Copy_From_Ptr (Fields (0)'Address, {n});\n   begin\n      \
+             --  copyFromPtr cloned them.\n      for I in Fields'Range loop\n         \
+             Az_ComponentDataField_Delete (Fields (I)'Address);\n      end loop;\n",
+            n - 1,
+            items.join(",\n         ")
+        );
+        "Field_Vec".to_string()
+    };
+    let _ = write!(
+        s,
+        "      return (Id => Az_ComponentId_Create ({}, {}),\n              Display_Name => {},\n              \
+         Description => {},\n              --  The CSS is applied per node by \
+         {item_fn}.\n              Css => {},\n              Source => UserDefined,\n              \
+         Data_Model => (Name => {}, Description => {}, Fields => {fields}),\n              \
+         Render_Fn => {cp}_Render_Fn'Address,\n              Codegen => {},\n              \
+         Render_Fn_Source => Az_OptionString_None);\n   end {cp}_Def;\n",
+        az(&lib.name),
+        az(&c.name),
+        az(&c.display_name),
+        az(&c.description),
+        az(""),
+        az(&c.data_model),
+        az(&c.data_model_description),
+        Ada.variant_expr("ComponentCodegen", "RenderFunction", &[]).unwrap_or_default(),
+    );
+    format!("{cp}_Def")
+}
+
 /// The registration of a component library (`m.library`): (spec lines,
 /// body text). Per component a default-arguments wrapper (in the spec), a
 /// C-convention render function (its `'Address` is the `ComponentDef`'s
@@ -591,103 +700,7 @@ fn ada_registration(m: &Module, lib: &LibrarySpec) -> (String, String) {
     }
     let mut defs: Vec<String> = Vec::new();
     for (c, item) in &components {
-        let item_fn = unit_name(item);
-        let cp = sanitize(&pascalize_method(&Ident::from_text(&c.name).snake()));
-        let defaults: Vec<String> = item.params.iter().map(|p| ada_string(p.default_text())).collect();
-        let call = if defaults.is_empty() {
-            item_fn.clone()
-        } else {
-            format!("{item_fn} ({})", defaults.join(", "))
-        };
-        let _ = writeln!(spec, "   function {item_fn}_Default return Az_Dom;");
-        let _ = write!(
-            s,
-            "\n   --  `{}:{}` with its default arguments.\n   function {item_fn}_Default return \
-             Az_Dom is\n   begin\n      return {call};\n   end {item_fn}_Default;\n",
-            one_line(&lib.name),
-            one_line(&c.name)
-        );
-        let args: Vec<String> = item
-            .params
-            .iter()
-            .map(|p| {
-                format!(
-                    "Model_String (Model, {}, {})",
-                    ada_string(&p.name.snake()),
-                    ada_string(p.default_text())
-                )
-            })
-            .collect();
-        let render_call = if args.is_empty() {
-            item_fn.clone()
-        } else {
-            format!("{item_fn} ({})", args.join(", "))
-        };
-        let unreferenced = if item.params.is_empty() {
-            "Def, Model, Map"
-        } else {
-            "Def, Map"
-        };
-        let _ = write!(
-            s,
-            "\n   function {cp}_Render_Fn\n     (Def : System.Address; Model : System.Address; Map : \
-             System.Address)\n      return Az_ResultStyledDomRenderDomError\n     with Convention => \
-             C;\n\n   function {cp}_Render_Fn\n     (Def : System.Address; Model : System.Address; Map \
-             : System.Address)\n      return Az_ResultStyledDomRenderDomError\n   is\n      pragma \
-             Unreferenced ({unreferenced});\n   begin\n      return \
-             Az_ResultStyledDomRenderDomError_Ok\n        (Az_StyledDom_Create_From_Dom \
-             ({render_call}));\n   end {cp}_Render_Fn;\n"
-        );
-        let _ = write!(s, "\n   function {cp}_Def return Az_ComponentDef is\n");
-        let fields = if item.params.is_empty() {
-            s.push_str("   begin\n");
-            "Az_ComponentDataFieldVec_Create".to_string()
-        } else {
-            let n = item.params.len();
-            let items: Vec<String> = item
-                .params
-                .iter()
-                .enumerate()
-                .map(|(i, p)| {
-                    let desc = c.field_descriptions.get(i).map_or("", String::as_str);
-                    format!(
-                        "{i} => String_Field ({}, {}, {})",
-                        ada_string(&p.name.snake()),
-                        ada_string(p.default_text()),
-                        ada_string(desc)
-                    )
-                })
-                .collect();
-            let _ = write!(
-                s,
-                "      Fields : aliased array (0 .. {}) of Az_ComponentDataField :=\n        ({});\n      \
-                 Field_Vec : constant Az_ComponentDataFieldVec :=\n        \
-                 Az_ComponentDataFieldVec_Copy_From_Ptr (Fields (0)'Address, {n});\n   begin\n      \
-                 --  copyFromPtr cloned them.\n      for I in Fields'Range loop\n         \
-                 Az_ComponentDataField_Delete (Fields (I)'Address);\n      end loop;\n",
-                n - 1,
-                items.join(",\n         ")
-            );
-            "Field_Vec".to_string()
-        };
-        let _ = write!(
-            s,
-            "      return (Id => Az_ComponentId_Create ({}, {}),\n              Display_Name => {},\n              \
-             Description => {},\n              --  The CSS is applied per node by \
-             {item_fn}.\n              Css => {},\n              Source => UserDefined,\n              \
-             Data_Model => (Name => {}, Description => {}, Fields => {fields}),\n              \
-             Render_Fn => {cp}_Render_Fn'Address,\n              Codegen => {},\n              \
-             Render_Fn_Source => Az_OptionString_None);\n   end {cp}_Def;\n",
-            az(&lib.name),
-            az(&c.name),
-            az(&c.display_name),
-            az(&c.description),
-            az(""),
-            az(&c.data_model),
-            az(&c.data_model_description),
-            Ada.variant_expr("ComponentCodegen", "RenderFunction", &[]).unwrap_or_default(),
-        );
-        defs.push(format!("{cp}_Def"));
+        defs.push(ada_component(&mut s, &mut spec, lib, c, item));
     }
     let _ = write!(
         spec,

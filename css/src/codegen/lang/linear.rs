@@ -265,113 +265,20 @@ impl Ctx<'_> {
             Expr::Int { value, ty } => s.int(*value, *ty),
             Expr::Float { text, ty } => s.float(text, *ty),
             Expr::Bool(b) => s.boolean(*b),
-            Expr::Str(text) => {
-                if let Some(x) = s.string_expr(text) {
-                    return x;
-                }
-                if let Some(decl) = s.string_buffer(text) {
-                    let buf = self.temp(decl);
-                    let t = self.temp(s.type_name("String"));
-                    let st = s.string_from_buffer(&t, &buf, text);
-                    self.out.body.extend(st);
-                    return t;
-                }
-                let t = self.temp(s.type_name("String"));
-                let st = s.string(&t, text);
-                self.out.body.extend(st);
-                t
-            }
+            Expr::Str(text) => self.emit_str(text),
             Expr::Call {
                 class,
                 method,
                 args,
-            } => {
-                let args: Vec<String> = args.iter().map(|a| self.arg(a)).collect();
-                if let Some(x) = s.call_expr(class, method, &args) {
-                    return x;
-                }
-                let t = self.temp(s.type_name(class));
-                let st = s.call(&t, class, method, &args);
-                self.out.body.extend(st);
-                t
-            }
+            } => self.emit_call(class, method, args),
             Expr::Variant {
                 ty,
                 shape,
                 variant,
                 args,
-            } => match shape {
-                EnumShape::CLike => s.clike(ty, variant),
-                EnumShape::Tagged => {
-                    let args: Vec<String> = args.iter().map(|a| self.arg(a)).collect();
-                    if let Some(x) = s.variant_expr(ty, variant, &args) {
-                        return x;
-                    }
-                    let t = self.temp(s.type_name(ty));
-                    let st = s.variant_call(&t, ty, variant, &args);
-                    self.out.body.extend(st);
-                    t
-                }
-                EnumShape::TaggedShadowed | EnumShape::Generic { .. } => {
-                    let payload = args.first().map(|a| self.emit(a));
-                    let tag = union_tag(ty, variant).unwrap_or(0);
-                    if let Some(x) = s.union_expr(ty, variant, tag, payload.as_deref()) {
-                        return x;
-                    }
-                    let t = self.temp(s.type_name(ty));
-                    let st = s.union(&t, ty, variant, tag, payload.as_deref());
-                    self.out.body.extend(st);
-                    t
-                }
-            },
-            Expr::Struct { ty, fields } => {
-                let values: Vec<(String, String)> = fields
-                    .iter()
-                    .map(|(k, v)| (k.clone(), self.emit(v)))
-                    .collect();
-                if let Some(x) = s.struct_expr(ty, &values) {
-                    return x;
-                }
-                let t = self.temp(s.type_name(ty));
-                for (k, v) in values {
-                    let st = s.set_field(&t, ty, &k, &v);
-                    self.out.body.push(st);
-                }
-                t
-            }
-            Expr::Vec { ty, elem, items } => {
-                let lim = |n: &Expr| s.limitation(n);
-                let mut kept: Vec<&Expr> = Vec::new();
-                for i in items {
-                    match (is_droppable_vec(ty), blocker_with(&lim, i)) {
-                        (true, Some(reason)) => self.out.dropped.push(reason),
-                        _ => kept.push(i),
-                    }
-                }
-                if kept.is_empty() {
-                    if let Some(x) = s.vec_empty_expr(ty) {
-                        return x;
-                    }
-                    let t = self.temp(s.type_name(ty));
-                    let st = s.vec_empty(&t, ty);
-                    self.out.body.extend(st);
-                    return t;
-                }
-                let values: Vec<String> = kept.iter().map(|i| self.emit(i)).collect();
-                let arr = self.temp(s.array_type(elem, values.len()));
-                for (i, v) in values.iter().enumerate() {
-                    let st = s.set_elem(&arr, i, v);
-                    self.out.body.push(st);
-                }
-                let count = self.arg(&Expr::int(values.len() as i128, Prim::Usize));
-                if let Some(x) = s.vec_expr(ty, elem, &arr, &count) {
-                    return x;
-                }
-                let t = self.temp(s.type_name(ty));
-                let st = s.vec_from_array(&t, ty, elem, &arr, &count);
-                self.out.body.extend(st);
-                t
-            }
+            } => self.emit_variant(ty, *shape, variant, args),
+            Expr::Struct { ty, fields } => self.emit_struct(ty, fields),
+            Expr::Vec { ty, elem, items } => self.emit_vec(ty, elem, items),
             Expr::Unsupported { what } => {
                 self.out.dropped.push(what.clone());
                 String::new()
@@ -381,21 +288,7 @@ impl Ctx<'_> {
                 class,
                 method,
                 args,
-            } => {
-                let r = self.emit(recv);
-                let args: Vec<String> = args.iter().map(|a| self.arg(a)).collect();
-                // A chain updates the receiver's temporary in place (a
-                // widget's `dom()` makes a Dom: a temporary of its own).
-                let ty = s.type_name(method_result_class(class, method));
-                let target = if self.is_temp_of(&r, &ty) {
-                    r.clone()
-                } else {
-                    self.temp(ty)
-                };
-                let st = s.method(&target, class, method, &r, &args);
-                self.out.body.extend(st);
-                target
-            }
+            } => self.emit_method(recv, class, method, args),
             Expr::Param(name) => {
                 if let Some(x) = s.param_expr(name) {
                     return x;
@@ -429,6 +322,139 @@ impl Ctx<'_> {
                 t
             }
         }
+    }
+
+    /// A string literal: inline, through a buffer, or through the language's own statements.
+    fn emit_str(&mut self, text: &str) -> String {
+        let s = self.s;
+        if let Some(x) = s.string_expr(text) {
+            return x;
+        }
+        if let Some(decl) = s.string_buffer(text) {
+            let buf = self.temp(decl);
+            let t = self.temp(s.type_name("String"));
+            let st = s.string_from_buffer(&t, &buf, text);
+            self.out.body.extend(st);
+            return t;
+        }
+        let t = self.temp(s.type_name("String"));
+        let st = s.string(&t, text);
+        self.out.body.extend(st);
+        t
+    }
+
+    /// A static constructor call `class::method(args)`.
+    fn emit_call(&mut self, class: &str, method: &str, args: &[Expr]) -> String {
+        let s = self.s;
+        let args: Vec<String> = args.iter().map(|a| self.arg(a)).collect();
+        if let Some(x) = s.call_expr(class, method, &args) {
+            return x;
+        }
+        let t = self.temp(s.type_name(class));
+        let st = s.call(&t, class, method, &args);
+        self.out.body.extend(st);
+        t
+    }
+
+    /// An enum variant, by the way the language builds its enum shape.
+    fn emit_variant(&mut self, ty: &str, shape: EnumShape, variant: &str, args: &[Expr]) -> String {
+        let s = self.s;
+        match shape {
+            EnumShape::CLike => s.clike(ty, variant),
+            EnumShape::Tagged => {
+                let args: Vec<String> = args.iter().map(|a| self.arg(a)).collect();
+                if let Some(x) = s.variant_expr(ty, variant, &args) {
+                    return x;
+                }
+                let t = self.temp(s.type_name(ty));
+                let st = s.variant_call(&t, ty, variant, &args);
+                self.out.body.extend(st);
+                t
+            }
+            EnumShape::TaggedShadowed | EnumShape::Generic { .. } => {
+                let payload = args.first().map(|a| self.emit(a));
+                let tag = union_tag(ty, variant).unwrap_or(0);
+                if let Some(x) = s.union_expr(ty, variant, tag, payload.as_deref()) {
+                    return x;
+                }
+                let t = self.temp(s.type_name(ty));
+                let st = s.union(&t, ty, variant, tag, payload.as_deref());
+                self.out.body.extend(st);
+                t
+            }
+        }
+    }
+
+    /// A struct literal: its fields set one by one.
+    fn emit_struct(&mut self, ty: &str, fields: &[(String, Expr)]) -> String {
+        let s = self.s;
+        let values: Vec<(String, String)> = fields
+            .iter()
+            .map(|(k, v)| (k.clone(), self.emit(v)))
+            .collect();
+        if let Some(x) = s.struct_expr(ty, &values) {
+            return x;
+        }
+        let t = self.temp(s.type_name(ty));
+        for (k, v) in values {
+            let st = s.set_field(&t, ty, &k, &v);
+            self.out.body.push(st);
+        }
+        t
+    }
+
+    /// A Vec: the kept items through an array, or the empty Vec.
+    fn emit_vec(&mut self, ty: &str, elem: &str, items: &[Expr]) -> String {
+        let s = self.s;
+        let lim = |n: &Expr| s.limitation(n);
+        let mut kept: Vec<&Expr> = Vec::new();
+        for i in items {
+            match (is_droppable_vec(ty), blocker_with(&lim, i)) {
+                (true, Some(reason)) => self.out.dropped.push(reason),
+                _ => kept.push(i),
+            }
+        }
+        if kept.is_empty() {
+            if let Some(x) = s.vec_empty_expr(ty) {
+                return x;
+            }
+            let t = self.temp(s.type_name(ty));
+            let st = s.vec_empty(&t, ty);
+            self.out.body.extend(st);
+            return t;
+        }
+        let values: Vec<String> = kept.iter().map(|i| self.emit(i)).collect();
+        let arr = self.temp(s.array_type(elem, values.len()));
+        for (i, v) in values.iter().enumerate() {
+            let st = s.set_elem(&arr, i, v);
+            self.out.body.push(st);
+        }
+        let count = self.arg(&Expr::int(values.len() as i128, Prim::Usize));
+        if let Some(x) = s.vec_expr(ty, elem, &arr, &count) {
+            return x;
+        }
+        let t = self.temp(s.type_name(ty));
+        let st = s.vec_from_array(&t, ty, elem, &arr, &count);
+        self.out.body.extend(st);
+        t
+    }
+
+    /// A builder method `recv.method(args)`: a chain updates its receiver's temporary.
+    fn emit_method(&mut self, recv: &Expr, class: &str, method: &str, args: &[Expr]) -> String {
+        let s = self.s;
+        let r = self.emit(recv);
+        let args: Vec<String> = args.iter().map(|a| self.arg(a)).collect();
+        // A chain updates the receiver's temporary in place (a
+        // widget's `dom()` makes a Dom: a temporary of its own).
+        let ty = s.type_name(method_result_class(class, method));
+        let target = if self.is_temp_of(&r, &ty) {
+            r.clone()
+        } else {
+            self.temp(ty)
+        };
+        let st = s.method(&target, class, method, &r, &args);
+        self.out.body.extend(st);
+        target
     }
 }
 

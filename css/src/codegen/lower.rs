@@ -220,70 +220,12 @@ fn fixed_point_of(text: &str) -> isize {
 /// functions (Haskell's `Azul.Types`).
 #[must_use]
 pub fn desugar_calls(e: &Expr) -> Expr {
-    use super::lower_types::{css_property_alias, css_property_variant_of_ctor};
     match e {
         Expr::Call {
             class,
             method,
             args,
-        } => {
-            let args: Vec<Expr> = args.iter().map(desugar_calls).collect();
-            let alias_value = |variant: &str, value_variant: &str, payload: Vec<Expr>| {
-                let alias = css_property_alias(variant).unwrap_or("CssPropertyValue");
-                Expr::variant(
-                    "CssProperty",
-                    EnumShape::TaggedShadowed,
-                    variant,
-                    vec![Expr::variant(
-                        alias,
-                        EnumShape::Generic {
-                            base: "CssPropertyValue",
-                            arg: "",
-                        },
-                        value_variant,
-                        payload,
-                    )],
-                )
-            };
-            let float_value = |text: &str| {
-                Expr::strukt(
-                    "FloatValue",
-                    vec![(
-                        "number",
-                        Expr::int(i128::try_from(fixed_point_of(text)).unwrap_or(0), Prim::Isize),
-                    )],
-                )
-            };
-            let pixel = |metric: Expr, text: &str| {
-                Expr::strukt("PixelValue", vec![("metric", metric), ("number", float_value(text))])
-            };
-            let metric = |m: &str| Expr::unit("SizeMetric", EnumShape::CLike, m);
-            match (class.as_str(), method.as_str(), args.as_slice()) {
-                ("CssProperty", "auto" | "none" | "initial" | "inherit", [Expr::Variant { variant, .. }]) => {
-                    let kw = match method.as_str() {
-                        "auto" => "Auto",
-                        "none" => "None",
-                        "initial" => "Initial",
-                        _ => "Inherit",
-                    };
-                    alias_value(variant, kw, Vec::new())
-                }
-                ("CssProperty", ctor, [x]) => css_property_variant_of_ctor(ctor).map_or_else(
-                    || Expr::call(class, method, args.clone()),
-                    |variant| alias_value(variant, "Exact", vec![x.clone()]),
-                ),
-                ("FloatValue", "create", [Expr::Float { text, .. }]) => float_value(text),
-                ("PixelValue", "px", [Expr::Float { text, .. }]) => pixel(metric("Px"), text),
-                ("PixelValue", "pt", [Expr::Float { text, .. }]) => pixel(metric("Pt"), text),
-                ("PixelValue", "em", [Expr::Float { text, .. }]) => pixel(metric("Em"), text),
-                ("PixelValue", "rem", [Expr::Float { text, .. }]) => pixel(metric("Rem"), text),
-                ("PixelValue", "percent", [Expr::Float { text, .. }]) => {
-                    pixel(metric("Percent"), text)
-                }
-                ("PixelValue", "from_metric", [m, Expr::Float { text, .. }]) => pixel(m.clone(), text),
-                _ => Expr::call(class, method, args.clone()),
-            }
-        }
+        } => desugar_call(class, method, args),
         Expr::Variant {
             ty,
             shape,
@@ -331,6 +273,68 @@ pub fn desugar_calls(e: &Expr) -> Expr {
         | Expr::Param(_)
         | Expr::Unsupported { .. } => e.clone(),
     }
+}
+
+/// [`desugar_calls`] of one constructor call `class::method(args)`.
+fn desugar_call(class: &str, method: &str, args: &[Expr]) -> Expr {
+    use super::lower_types::{css_property_alias, css_property_variant_of_ctor};
+    let args: Vec<Expr> = args.iter().map(desugar_calls).collect();
+    let alias_value = |variant: &str, value_variant: &str, payload: Vec<Expr>| {
+        let alias = css_property_alias(variant).unwrap_or("CssPropertyValue");
+        Expr::variant(
+            "CssProperty",
+            EnumShape::TaggedShadowed,
+            variant,
+            vec![Expr::variant(
+                alias,
+                EnumShape::Generic {
+                    base: "CssPropertyValue",
+                    arg: "",
+                },
+                value_variant,
+                payload,
+            )],
+        )
+    };
+    let float_value = |text: &str| {
+        Expr::strukt(
+            "FloatValue",
+            vec![(
+                "number",
+                Expr::int(i128::try_from(fixed_point_of(text)).unwrap_or(0), Prim::Isize),
+            )],
+        )
+    };
+    let pixel = |metric: Expr, text: &str| {
+        Expr::strukt("PixelValue", vec![("metric", metric), ("number", float_value(text))])
+    };
+    let metric = |m: &str| Expr::unit("SizeMetric", EnumShape::CLike, m);
+    match (class, method, args.as_slice()) {
+        ("CssProperty", "auto" | "none" | "initial" | "inherit", [Expr::Variant { variant, .. }]) => {
+            let kw = match method.as_str() {
+                "auto" => "Auto",
+                "none" => "None",
+                "initial" => "Initial",
+                _ => "Inherit",
+            };
+            alias_value(variant, kw, Vec::new())
+        }
+        ("CssProperty", ctor, [x]) => css_property_variant_of_ctor(ctor).map_or_else(
+            || Expr::call(class, method, args.clone()),
+            |variant| alias_value(variant, "Exact", vec![x.clone()]),
+        ),
+        ("FloatValue", "create", [Expr::Float { text, .. }]) => float_value(text),
+        ("PixelValue", "px", [Expr::Float { text, .. }]) => pixel(metric("Px"), text),
+        ("PixelValue", "pt", [Expr::Float { text, .. }]) => pixel(metric("Pt"), text),
+        ("PixelValue", "em", [Expr::Float { text, .. }]) => pixel(metric("Em"), text),
+        ("PixelValue", "rem", [Expr::Float { text, .. }]) => pixel(metric("Rem"), text),
+        ("PixelValue", "percent", [Expr::Float { text, .. }]) => {
+            pixel(metric("Percent"), text)
+        }
+        ("PixelValue", "from_metric", [m, Expr::Float { text, .. }]) => pixel(m.clone(), text),
+        _ => Expr::call(class, method, args.clone()),
+    }
+
 }
 
 // ------------------------------------------------ values the ABI cannot build

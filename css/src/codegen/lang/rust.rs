@@ -18,7 +18,7 @@ use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{EnumShape, Ident, Item, LibrarySpec, Module, Prim},
+    ir::{ComponentSpec, EnumShape, Ident, Item, LibrarySpec, Module, Prim},
     lang::{
         dom::unused_params, expr_doc_top, item_comments, used_api_modules, ConcatPart, ExprSyntax,
         MethodLayout,
@@ -252,6 +252,81 @@ fn az_str(s: &str) -> String {
     Rust.string(s).flat()
 }
 
+/// One component of the library: what is written for it, and the call that makes its
+/// `ComponentDef`.
+fn rust_component(s: &mut String, lib: &LibrarySpec, c: &ComponentSpec, item: &Item) -> String {
+    let item_fn = item.name.snake();
+    let sn = Ident::from_text(&c.name).snake();
+    let defaults: Vec<String> = item.params.iter().map(|p| format!("{:?}", p.default_text())).collect();
+    let _ = write!(
+        s,
+        "\n/// `{}:{}` with its default arguments.\npub fn {item_fn}_default() -> Dom {{\n    \
+         {item_fn}({})\n}}\n",
+        lib.name,
+        c.name,
+        defaults.join(", ")
+    );
+    let _ = write!(
+        s,
+        "\nextern \"C\" fn {sn}_render_fn(\n    _def: &ComponentDef,\n    model: \
+         &ComponentDataModel,\n    _map: &ComponentMap,\n) -> ResultStyledDomRenderDomError \
+         {{\n"
+    );
+    let mut args: Vec<String> = Vec::new();
+    if item.params.is_empty() {
+        s.push_str("    let _ = model;\n");
+    }
+    for p in &item.params {
+        let local = format!("arg_{}", p.name.snake());
+        let _ = write!(
+            s,
+            "    let {local} = model_string(model, {:?}, {:?});\n",
+            p.name.snake(),
+            p.default_text()
+        );
+        args.push(format!("&{local}"));
+    }
+    let _ = write!(
+        s,
+        "    ResultStyledDomRenderDomError::Ok(StyledDom::create_from_dom({item_fn}({})))\n}}\n",
+        args.join(", ")
+    );
+    let fields = if item.params.is_empty() {
+        "ComponentDataFieldVec::create()".to_string()
+    } else {
+        let items: String = item.params.iter().enumerate().fold(String::new(), |mut acc, (i, p)| {
+            let _ = writeln!(
+                acc,
+                "                string_field({:?}, {:?}, {:?}),",
+                p.name.snake(),
+                p.default_text(),
+                c.field_descriptions.get(i).map_or("", String::as_str)
+            );
+            acc
+        });
+        format!("vec![\n{items}            ]\n            .into()")
+    };
+    let _ = write!(
+        s,
+        "\nfn {sn}_def() -> ComponentDef {{\n    ComponentDef {{\n        id: \
+         ComponentId::create({}, {}),\n        display_name: {},\n        description: {},\n   \
+         \x20    // The CSS is applied per node by {item_fn}.\n        css: {},\n        \
+         source: ComponentSource::UserDefined,\n        data_model: ComponentDataModel {{\n    \
+         \x20       name: {},\n            description: {},\n            fields: {fields},\n   \
+         \x20    }},\n        render_fn: {sn}_render_fn,\n        codegen: \
+         ComponentCodegen::RenderFunction,\n        render_fn_source: OptionString::None,\n    \
+         }}\n}}\n",
+        az_str(&lib.name),
+        az_str(&c.name),
+        az_str(&c.display_name),
+        az_str(&c.description),
+        az_str(""),
+        az_str(&c.data_model),
+        az_str(&c.data_model_description),
+    );
+    format!("{sn}_def()")
+}
+
 /// The registration of a component library: per component a
 /// default-arguments wrapper, a render function reading the data model and
 /// its `ComponentDef` (code calls it through its render function:
@@ -267,76 +342,7 @@ fn rust_registration(m: &Module, lib: &LibrarySpec) -> String {
             continue;
         };
         any_params |= !item.params.is_empty();
-        let item_fn = item.name.snake();
-        let sn = Ident::from_text(&c.name).snake();
-        let defaults: Vec<String> = item.params.iter().map(|p| format!("{:?}", p.default_text())).collect();
-        let _ = write!(
-            s,
-            "\n/// `{}:{}` with its default arguments.\npub fn {item_fn}_default() -> Dom {{\n    \
-             {item_fn}({})\n}}\n",
-            lib.name,
-            c.name,
-            defaults.join(", ")
-        );
-        let _ = write!(
-            s,
-            "\nextern \"C\" fn {sn}_render_fn(\n    _def: &ComponentDef,\n    model: \
-             &ComponentDataModel,\n    _map: &ComponentMap,\n) -> ResultStyledDomRenderDomError \
-             {{\n"
-        );
-        let mut args: Vec<String> = Vec::new();
-        if item.params.is_empty() {
-            s.push_str("    let _ = model;\n");
-        }
-        for p in &item.params {
-            let local = format!("arg_{}", p.name.snake());
-            let _ = write!(
-                s,
-                "    let {local} = model_string(model, {:?}, {:?});\n",
-                p.name.snake(),
-                p.default_text()
-            );
-            args.push(format!("&{local}"));
-        }
-        let _ = write!(
-            s,
-            "    ResultStyledDomRenderDomError::Ok(StyledDom::create_from_dom({item_fn}({})))\n}}\n",
-            args.join(", ")
-        );
-        let fields = if item.params.is_empty() {
-            "ComponentDataFieldVec::create()".to_string()
-        } else {
-            let items: String = item.params.iter().enumerate().fold(String::new(), |mut acc, (i, p)| {
-                let _ = writeln!(
-                    acc,
-                    "                string_field({:?}, {:?}, {:?}),",
-                    p.name.snake(),
-                    p.default_text(),
-                    c.field_descriptions.get(i).map_or("", String::as_str)
-                );
-                acc
-            });
-            format!("vec![\n{items}            ]\n            .into()")
-        };
-        let _ = write!(
-            s,
-            "\nfn {sn}_def() -> ComponentDef {{\n    ComponentDef {{\n        id: \
-             ComponentId::create({}, {}),\n        display_name: {},\n        description: {},\n   \
-             \x20    // The CSS is applied per node by {item_fn}.\n        css: {},\n        \
-             source: ComponentSource::UserDefined,\n        data_model: ComponentDataModel {{\n    \
-             \x20       name: {},\n            description: {},\n            fields: {fields},\n   \
-             \x20    }},\n        render_fn: {sn}_render_fn,\n        codegen: \
-             ComponentCodegen::RenderFunction,\n        render_fn_source: OptionString::None,\n    \
-             }}\n}}\n",
-            az_str(&lib.name),
-            az_str(&c.name),
-            az_str(&c.display_name),
-            az_str(&c.description),
-            az_str(""),
-            az_str(&c.data_model),
-            az_str(&c.data_model_description),
-        );
-        defs.push(format!("{sn}_def()"));
+        defs.push(rust_component(&mut s, lib, c, item));
     }
     let _ = write!(
         s,

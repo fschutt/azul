@@ -422,6 +422,94 @@ function New-StringField([string]$Name, [string]$Value, [string]$Description) {
 }
 ";
 
+/// One component of the library: what is written for it, and the call that makes its
+/// `ComponentDef`.
+fn ps_component(s: &mut String, lib: &LibrarySpec, c: &ComponentSpec, item: &Item) -> String {
+    let az = |s: &str| format!("(New-CssString {})", ps_string(s));
+    let item_fn = fn_name(item);
+    let cu = Ident::from_text(&c.name).upper_camel();
+    let defaults: Vec<String> = item.params.iter().map(|p| ps_string(p.default_text())).collect();
+    let default_call = if defaults.is_empty() {
+        item_fn.clone()
+    } else {
+        format!("{item_fn} {}", defaults.join(" "))
+    };
+    let _ = write!(
+        s,
+        "\n# `{}:{}` with its default arguments.\nfunction {item_fn}Default {{\n    return \
+         ({default_call})\n}}\n",
+        one_line(&lib.name),
+        one_line(&c.name)
+    );
+    let args: Vec<String> = item
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "(Get-ModelString $Model {} {})",
+                ps_string(&p.name.snake()),
+                ps_string(p.default_text())
+            )
+        })
+        .collect();
+    let render_call = if args.is_empty() {
+        item_fn.clone()
+    } else {
+        format!("{item_fn} {}", args.join(" "))
+    };
+    let _ = write!(
+        s,
+        "\n$script:{cu}RenderFn = [Azul.AzComponentRenderFn]{{\n    param([IntPtr]$Def, \
+         [IntPtr]$Model, [IntPtr]$Map)\n    $dom = {render_call}\n    return \
+         [Azul.NativeMethods]::AzResultStyledDomRenderDomError_ok([Azul.NativeMethods]::\
+         AzStyledDom_createFromDom($dom))\n}}\n"
+    );
+    let fields = if item.params.is_empty() {
+        "[Azul.NativeMethods]::AzComponentDataFieldVec_create()".to_string()
+    } else {
+        let items: Vec<String> = item
+            .params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+                format!(
+                    "        (New-StringField {} {} {})",
+                    ps_string(&p.name.snake()),
+                    ps_string(p.default_text()),
+                    ps_string(desc)
+                )
+            })
+            .collect();
+        format!(
+            "(New-CssVec 'AzComponentDataFieldVec_copyFromPtr' ([Azul.AzComponentDataField]) \
+             @(\n{}\n    ))",
+            items.join(",\n")
+        )
+    };
+    let _ = write!(
+        s,
+        "\nfunction Get-{cu}Def {{\n    $fields = {fields}\n    return \
+         [Azul.AzComponentDef]@{{\n        id = [Azul.NativeMethods]::AzComponentId_create({}, \
+         {})\n        display_name = {}\n        description = {}\n        # The CSS is \
+         applied per node by {item_fn}.\n        css = {}\n        source = \
+         [Azul.ComponentSource]::UserDefined\n        data_model = [Azul.AzComponentDataModel]@{{ \
+         name = {}; description = {}; fields = $fields }}\n        render_fn = \
+         [System.Runtime.InteropServices.Marshal]::GetFunctionPointerForDelegate($script:\
+         {cu}RenderFn)\n        codegen = \
+         [Azul.NativeMethods]::AzComponentCodegen_renderFunction()\n        render_fn_source = \
+         [Azul.NativeMethods]::AzOptionString_none()\n    }}\n}}\n",
+        az(&lib.name),
+        az(&c.name),
+        az(&c.display_name),
+        az(&c.description),
+        az(""),
+        az(&c.data_model),
+        az(&c.data_model_description),
+    );
+    format!("(Get-{cu}Def)")
+}
+
 /// The registration of a component library (`m.library`): per component a
 /// default-arguments wrapper, a render script block of the C# layer's
 /// delegate type (kept in a script variable, so it stays alive while
@@ -445,88 +533,7 @@ fn ps_registration(m: &Module, lib: &LibrarySpec) -> String {
     }
     let mut defs: Vec<String> = Vec::new();
     for (c, item) in &components {
-        let item_fn = fn_name(item);
-        let cu = Ident::from_text(&c.name).upper_camel();
-        let defaults: Vec<String> = item.params.iter().map(|p| ps_string(p.default_text())).collect();
-        let default_call = if defaults.is_empty() {
-            item_fn.clone()
-        } else {
-            format!("{item_fn} {}", defaults.join(" "))
-        };
-        let _ = write!(
-            s,
-            "\n# `{}:{}` with its default arguments.\nfunction {item_fn}Default {{\n    return \
-             ({default_call})\n}}\n",
-            one_line(&lib.name),
-            one_line(&c.name)
-        );
-        let args: Vec<String> = item
-            .params
-            .iter()
-            .map(|p| {
-                format!(
-                    "(Get-ModelString $Model {} {})",
-                    ps_string(&p.name.snake()),
-                    ps_string(p.default_text())
-                )
-            })
-            .collect();
-        let render_call = if args.is_empty() {
-            item_fn.clone()
-        } else {
-            format!("{item_fn} {}", args.join(" "))
-        };
-        let _ = write!(
-            s,
-            "\n$script:{cu}RenderFn = [Azul.AzComponentRenderFn]{{\n    param([IntPtr]$Def, \
-             [IntPtr]$Model, [IntPtr]$Map)\n    $dom = {render_call}\n    return \
-             [Azul.NativeMethods]::AzResultStyledDomRenderDomError_ok([Azul.NativeMethods]::\
-             AzStyledDom_createFromDom($dom))\n}}\n"
-        );
-        let fields = if item.params.is_empty() {
-            "[Azul.NativeMethods]::AzComponentDataFieldVec_create()".to_string()
-        } else {
-            let items: Vec<String> = item
-                .params
-                .iter()
-                .enumerate()
-                .map(|(i, p)| {
-                    let desc = c.field_descriptions.get(i).map_or("", String::as_str);
-                    format!(
-                        "        (New-StringField {} {} {})",
-                        ps_string(&p.name.snake()),
-                        ps_string(p.default_text()),
-                        ps_string(desc)
-                    )
-                })
-                .collect();
-            format!(
-                "(New-CssVec 'AzComponentDataFieldVec_copyFromPtr' ([Azul.AzComponentDataField]) \
-                 @(\n{}\n    ))",
-                items.join(",\n")
-            )
-        };
-        let _ = write!(
-            s,
-            "\nfunction Get-{cu}Def {{\n    $fields = {fields}\n    return \
-             [Azul.AzComponentDef]@{{\n        id = [Azul.NativeMethods]::AzComponentId_create({}, \
-             {})\n        display_name = {}\n        description = {}\n        # The CSS is \
-             applied per node by {item_fn}.\n        css = {}\n        source = \
-             [Azul.ComponentSource]::UserDefined\n        data_model = [Azul.AzComponentDataModel]@{{ \
-             name = {}; description = {}; fields = $fields }}\n        render_fn = \
-             [System.Runtime.InteropServices.Marshal]::GetFunctionPointerForDelegate($script:\
-             {cu}RenderFn)\n        codegen = \
-             [Azul.NativeMethods]::AzComponentCodegen_renderFunction()\n        render_fn_source = \
-             [Azul.NativeMethods]::AzOptionString_none()\n    }}\n}}\n",
-            az(&lib.name),
-            az(&c.name),
-            az(&c.display_name),
-            az(&c.description),
-            az(""),
-            az(&c.data_model),
-            az(&c.data_model_description),
-        );
-        defs.push(format!("(Get-{cu}Def)"));
+        defs.push(ps_component(&mut s, lib, c, item));
     }
     let components = if defs.is_empty() {
         "[Azul.NativeMethods]::AzComponentDefVec_create()".to_string()

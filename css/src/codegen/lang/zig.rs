@@ -48,7 +48,7 @@ use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{snake_to_lower_camel, EnumShape, Expr, Ident, Item, LibrarySpec, Module, Prim},
+    ir::{snake_to_lower_camel, ComponentSpec, EnumShape, Expr, Ident, Item, LibrarySpec, Module, Prim},
     lang::{
         dom::{is_dom_item, one_line, unused_params, uses_concat},
         item_comments, item_doc, uses_nonfinite_float, variant_ctor_method, ConcatPart,
@@ -377,6 +377,98 @@ fn azStringField(name: []const u8, value: []const u8, description: []const u8) C
 }
 ";
 
+/// One component of the library: what is written for it, and the call that makes its
+/// `ComponentDef`.
+fn zig_component(s: &mut String, lib: &LibrarySpec, c: &ComponentSpec, item: &Item) -> String {
+    let az = |s: &str| Zig.string(s).flat();
+    let item_fn = item.name.lower_camel();
+    let default_fn = camel(&item.name, &["default"]);
+    let cn = Ident::from_text(&c.name);
+    let render_fn = camel(&cn, &["render", "fn"]);
+    let def_fn = camel(&cn, &["def"]);
+    let qn = format!("{}:{}", lib.name, c.name);
+    let defaults: Vec<String> = item.params.iter().map(|p| zig_lit(p.default_text())).collect();
+    let _ = write!(
+        s,
+        "\n// `{}` with its default arguments.\npub fn {default_fn}() C.AzDom {{\n    return \
+         {item_fn}({});\n}}\n",
+        one_line(&qn),
+        defaults.join(", ")
+    );
+    let _ = writeln!(
+        s,
+        "\nfn {render_fn}(def: [*c]const C.AzComponentDef, model: [*c]const \
+         C.AzComponentDataModel, map: [*c]const C.AzComponentMap) callconv(.c) \
+         C.AzResultStyledDomRenderDomError {{"
+    );
+    s.push_str("    _ = def;\n    _ = map;\n");
+    if item.params.is_empty() {
+        s.push_str("    _ = model;\n");
+    }
+    let args: Vec<String> = item
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "azModelString(model, {}, {})",
+                zig_lit(&p.name.snake()),
+                zig_lit(p.default_text())
+            )
+        })
+        .collect();
+    let _ = writeln!(s, "    const dom = {item_fn}({});", args.join(", "));
+    s.push_str(
+        "    return C.AzResultStyledDomRenderDomError_ok(C.AzStyledDom_createFromDom(dom));\n}\n",
+    );
+    let _ = writeln!(s, "\nfn {def_fn}() C.AzComponentDef {{");
+    s.push_str("    var def: C.AzComponentDef = .{};\n");
+    let _ = writeln!(
+        s,
+        "    def.id = C.AzComponentId_create({}, {});",
+        az(&lib.name),
+        az(&c.name)
+    );
+    let _ = writeln!(s, "    def.display_name = {};", az(&c.display_name));
+    let _ = writeln!(s, "    def.description = {};", az(&c.description));
+    let _ = writeln!(s, "    // The CSS is applied per node by {item_fn}.");
+    let _ = writeln!(s, "    def.css = {};", az(""));
+    s.push_str("    def.source = C.AzComponentSource_UserDefined;\n");
+    let _ = writeln!(s, "    def.data_model.name = {};", az(&c.data_model));
+    let _ = writeln!(
+        s,
+        "    def.data_model.description = {};",
+        az(&c.data_model_description)
+    );
+    if item.params.is_empty() {
+        s.push_str("    def.data_model.fields = C.AzComponentDataFieldVec_create();\n");
+    } else {
+        let n = item.params.len();
+        let _ = writeln!(s, "    var fields: [{n}]C.AzComponentDataField = undefined;");
+        for (i, p) in item.params.iter().enumerate() {
+            let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+            let _ = writeln!(
+                s,
+                "    fields[{i}] = azStringField({}, {}, {});",
+                zig_lit(&p.name.snake()),
+                zig_lit(p.default_text()),
+                zig_lit(desc)
+            );
+        }
+        let _ = writeln!(
+            s,
+            "    def.data_model.fields = C.AzComponentDataFieldVec_copyFromPtr(&fields, {n});"
+        );
+        s.push_str(
+            "    // copyFromPtr cloned them.\n    for (&fields) |*f| \
+             C.AzComponentDataField_delete(f);\n",
+        );
+    }
+    let _ = writeln!(s, "    def.render_fn = &{render_fn};");
+    s.push_str("    def.codegen = C.AzComponentCodegen_renderFunction();\n");
+    s.push_str("    def.render_fn_source = C.AzOptionString_none();\n    return def;\n}\n");
+    format!("{def_fn}()")
+}
+
 /// The registration of a component library: the C export's
 /// (`dom::c_family_registration`) in Zig. Per component a default-arguments
 /// wrapper, a `callconv(.c)` render function reading the data model and its
@@ -399,92 +491,7 @@ fn zig_registration(m: &Module, lib: &LibrarySpec) -> String {
         let Some(item) = m.item(&c.item) else {
             continue;
         };
-        let item_fn = item.name.lower_camel();
-        let default_fn = camel(&item.name, &["default"]);
-        let cn = Ident::from_text(&c.name);
-        let render_fn = camel(&cn, &["render", "fn"]);
-        let def_fn = camel(&cn, &["def"]);
-        let qn = format!("{}:{}", lib.name, c.name);
-        let defaults: Vec<String> = item.params.iter().map(|p| zig_lit(p.default_text())).collect();
-        let _ = write!(
-            s,
-            "\n// `{}` with its default arguments.\npub fn {default_fn}() C.AzDom {{\n    return \
-             {item_fn}({});\n}}\n",
-            one_line(&qn),
-            defaults.join(", ")
-        );
-        let _ = writeln!(
-            s,
-            "\nfn {render_fn}(def: [*c]const C.AzComponentDef, model: [*c]const \
-             C.AzComponentDataModel, map: [*c]const C.AzComponentMap) callconv(.c) \
-             C.AzResultStyledDomRenderDomError {{"
-        );
-        s.push_str("    _ = def;\n    _ = map;\n");
-        if item.params.is_empty() {
-            s.push_str("    _ = model;\n");
-        }
-        let args: Vec<String> = item
-            .params
-            .iter()
-            .map(|p| {
-                format!(
-                    "azModelString(model, {}, {})",
-                    zig_lit(&p.name.snake()),
-                    zig_lit(p.default_text())
-                )
-            })
-            .collect();
-        let _ = writeln!(s, "    const dom = {item_fn}({});", args.join(", "));
-        s.push_str(
-            "    return C.AzResultStyledDomRenderDomError_ok(C.AzStyledDom_createFromDom(dom));\n}\n",
-        );
-        let _ = writeln!(s, "\nfn {def_fn}() C.AzComponentDef {{");
-        s.push_str("    var def: C.AzComponentDef = .{};\n");
-        let _ = writeln!(
-            s,
-            "    def.id = C.AzComponentId_create({}, {});",
-            az(&lib.name),
-            az(&c.name)
-        );
-        let _ = writeln!(s, "    def.display_name = {};", az(&c.display_name));
-        let _ = writeln!(s, "    def.description = {};", az(&c.description));
-        let _ = writeln!(s, "    // The CSS is applied per node by {item_fn}.");
-        let _ = writeln!(s, "    def.css = {};", az(""));
-        s.push_str("    def.source = C.AzComponentSource_UserDefined;\n");
-        let _ = writeln!(s, "    def.data_model.name = {};", az(&c.data_model));
-        let _ = writeln!(
-            s,
-            "    def.data_model.description = {};",
-            az(&c.data_model_description)
-        );
-        if item.params.is_empty() {
-            s.push_str("    def.data_model.fields = C.AzComponentDataFieldVec_create();\n");
-        } else {
-            let n = item.params.len();
-            let _ = writeln!(s, "    var fields: [{n}]C.AzComponentDataField = undefined;");
-            for (i, p) in item.params.iter().enumerate() {
-                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
-                let _ = writeln!(
-                    s,
-                    "    fields[{i}] = azStringField({}, {}, {});",
-                    zig_lit(&p.name.snake()),
-                    zig_lit(p.default_text()),
-                    zig_lit(desc)
-                );
-            }
-            let _ = writeln!(
-                s,
-                "    def.data_model.fields = C.AzComponentDataFieldVec_copyFromPtr(&fields, {n});"
-            );
-            s.push_str(
-                "    // copyFromPtr cloned them.\n    for (&fields) |*f| \
-                 C.AzComponentDataField_delete(f);\n",
-            );
-        }
-        let _ = writeln!(s, "    def.render_fn = &{render_fn};");
-        s.push_str("    def.codegen = C.AzComponentCodegen_renderFunction();\n");
-        s.push_str("    def.render_fn_source = C.AzOptionString_none();\n    return def;\n}\n");
-        defs.push(format!("{def_fn}()"));
+        defs.push(zig_component(&mut s, lib, c, item));
     }
     let mut words = vec!["register".to_string()];
     words.extend(Ident::from_text(&lib.name).words);

@@ -344,6 +344,98 @@ Function StringField(ByRef fieldName As Const String, ByRef value As Const Strin
 End Function
 ";
 
+/// One component of the library: what is written for it, and the call that makes its
+/// `ComponentDef`.
+fn freebasic_component(
+    s: &mut String,
+    lib: &LibrarySpec,
+    c: &ComponentSpec,
+    item: &Item,
+) -> String {
+    let az = |s: &str| format!("CssStr({})", basic_string(s));
+    let item_fn = fn_name(item);
+    let cu = Ident::from_text(&c.name).upper_camel();
+    let defaults: Vec<String> = item.params.iter().map(|p| basic_string(p.default_text())).collect();
+    let _ = write!(
+        s,
+        "\n' `{}:{}` with its default arguments.\nFunction {item_fn}Default() As AzDom\n    \
+         Return {item_fn}({})\nEnd Function\n",
+        one_line(&lib.name),
+        one_line(&c.name),
+        defaults.join(", ")
+    );
+    let args: Vec<String> = item
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "ModelString(model, {}, {})",
+                basic_string(&p.name.snake()),
+                basic_string(p.default_text())
+            )
+        })
+        .collect();
+    let _ = write!(
+        s,
+        "\nFunction {cu}RenderFn Cdecl (ByVal def_ As AzComponentDef Ptr, ByVal model As \
+         AzComponentDataModel Ptr, ByVal componentMap As AzComponentMap Ptr) As \
+         AzResultStyledDomRenderDomError\n    Return \
+         AzResultStyledDomRenderDomError_ok(AzStyledDom_createFromDom({item_fn}({})))\nEnd \
+         Function\n",
+        args.join(", ")
+    );
+    let _ = write!(s, "\nFunction {cu}Def() As AzComponentDef\n");
+    if !item.params.is_empty() {
+        let n = item.params.len();
+        let _ = writeln!(s, "    Dim fields(0 To {}) As AzComponentDataField", n - 1);
+        for (i, p) in item.params.iter().enumerate() {
+            let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+            let _ = writeln!(
+                s,
+                "    fields({i}) = StringField({}, {}, {})",
+                basic_string(&p.name.snake()),
+                basic_string(p.default_text()),
+                basic_string(desc)
+            );
+        }
+    }
+    let _ = write!(
+        s,
+        "    Dim d As AzComponentDef\n    d.id = AzComponentId_create({}, {})\n    \
+         d.display_name = {}\n    d.description = {}\n    ' The CSS is applied per node by \
+         {item_fn}.\n    d.css = {}\n    d.source = AzComponentSource_UserDefined\n    \
+         d.data_model.name = {}\n    d.data_model.description = {}\n",
+        az(&lib.name),
+        az(&c.name),
+        az(&c.display_name),
+        az(&c.description),
+        az(""),
+        az(&c.data_model),
+        az(&c.data_model_description),
+    );
+    if item.params.is_empty() {
+        s.push_str("    d.data_model.fields = AzComponentDataFieldVec_create()\n");
+    } else {
+        let n = item.params.len();
+        let _ = write!(
+            s,
+            "    d.data_model.fields = AzComponentDataFieldVec_copyFromPtr(@fields(0), {n})\n    \
+             ' copyFromPtr cloned them.\n    For i As Integer = 0 To {}\n        \
+             AzComponentDataField_delete(@fields(i))\n    Next\n",
+            n - 1
+        );
+    }
+    let _ = write!(
+        s,
+        "    d.render_fn = @{cu}RenderFn\n    d.codegen = {}\n    d.render_fn_source = \
+         AzOptionString_none()\n    Return d\nEnd Function\n",
+        FreeBasic
+            .variant_expr("ComponentCodegen", "RenderFunction", &[])
+            .unwrap_or_default()
+    );
+    format!("{cu}Def()")
+}
+
 /// The registration of a component library (`m.library`), mirroring the C
 /// one: per component a default-arguments wrapper, a `Cdecl` render
 /// function (its address is the `ComponentDef`'s function pointer) and its
@@ -367,87 +459,7 @@ fn freebasic_registration(m: &Module, lib: &LibrarySpec) -> String {
     }
     let mut defs: Vec<String> = Vec::new();
     for (c, item) in &components {
-        let item_fn = fn_name(item);
-        let cu = Ident::from_text(&c.name).upper_camel();
-        let defaults: Vec<String> = item.params.iter().map(|p| basic_string(p.default_text())).collect();
-        let _ = write!(
-            s,
-            "\n' `{}:{}` with its default arguments.\nFunction {item_fn}Default() As AzDom\n    \
-             Return {item_fn}({})\nEnd Function\n",
-            one_line(&lib.name),
-            one_line(&c.name),
-            defaults.join(", ")
-        );
-        let args: Vec<String> = item
-            .params
-            .iter()
-            .map(|p| {
-                format!(
-                    "ModelString(model, {}, {})",
-                    basic_string(&p.name.snake()),
-                    basic_string(p.default_text())
-                )
-            })
-            .collect();
-        let _ = write!(
-            s,
-            "\nFunction {cu}RenderFn Cdecl (ByVal def_ As AzComponentDef Ptr, ByVal model As \
-             AzComponentDataModel Ptr, ByVal componentMap As AzComponentMap Ptr) As \
-             AzResultStyledDomRenderDomError\n    Return \
-             AzResultStyledDomRenderDomError_ok(AzStyledDom_createFromDom({item_fn}({})))\nEnd \
-             Function\n",
-            args.join(", ")
-        );
-        let _ = write!(s, "\nFunction {cu}Def() As AzComponentDef\n");
-        if !item.params.is_empty() {
-            let n = item.params.len();
-            let _ = writeln!(s, "    Dim fields(0 To {}) As AzComponentDataField", n - 1);
-            for (i, p) in item.params.iter().enumerate() {
-                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
-                let _ = writeln!(
-                    s,
-                    "    fields({i}) = StringField({}, {}, {})",
-                    basic_string(&p.name.snake()),
-                    basic_string(p.default_text()),
-                    basic_string(desc)
-                );
-            }
-        }
-        let _ = write!(
-            s,
-            "    Dim d As AzComponentDef\n    d.id = AzComponentId_create({}, {})\n    \
-             d.display_name = {}\n    d.description = {}\n    ' The CSS is applied per node by \
-             {item_fn}.\n    d.css = {}\n    d.source = AzComponentSource_UserDefined\n    \
-             d.data_model.name = {}\n    d.data_model.description = {}\n",
-            az(&lib.name),
-            az(&c.name),
-            az(&c.display_name),
-            az(&c.description),
-            az(""),
-            az(&c.data_model),
-            az(&c.data_model_description),
-        );
-        if item.params.is_empty() {
-            s.push_str("    d.data_model.fields = AzComponentDataFieldVec_create()\n");
-        } else {
-            let n = item.params.len();
-            let _ = write!(
-                s,
-                "    d.data_model.fields = AzComponentDataFieldVec_copyFromPtr(@fields(0), {n})\n    \
-                 ' copyFromPtr cloned them.\n    For i As Integer = 0 To {}\n        \
-                 AzComponentDataField_delete(@fields(i))\n    Next\n",
-                n - 1
-            );
-        }
-        let _ = write!(
-            s,
-            "    d.render_fn = @{cu}RenderFn\n    d.codegen = {}\n    d.render_fn_source = \
-             AzOptionString_none()\n    Return d\nEnd Function\n",
-            FreeBasic
-                .variant_expr("ComponentCodegen", "RenderFunction", &[])
-                .unwrap_or_default()
-        );
-        defs.push(format!("{cu}Def()"));
+        defs.push(freebasic_component(&mut s, lib, c, item));
     }
     let _ = write!(
         s,

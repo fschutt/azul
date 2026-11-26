@@ -334,6 +334,88 @@ const REGISTRATION_HELPERS: &str = r";; The String value of the data-model field
    (string->azul-string description)))
 ";
 
+/// One component of the library: what is written for it, and the call that makes its
+/// `ComponentDef`.
+fn racket_component(s: &mut String, lib: &LibrarySpec, c: &ComponentSpec, item: &Item) -> String {
+    let az = |s: &str| format!("(string->azul-string {})", quoted(s));
+    let item_fn = fn_name(item);
+    let ck = Ident::from_text(&c.name).kebab();
+    let defaults: Vec<String> = item.params.iter().map(|p| quoted(p.default_text())).collect();
+    let call = if defaults.is_empty() {
+        format!("({item_fn})")
+    } else {
+        format!("({item_fn} {})", defaults.join(" "))
+    };
+    let _ = write!(
+        s,
+        "\n;; `{}:{}` with its default arguments.\n(define ({item_fn}-default)\n  {call})\n",
+        one_line(&lib.name),
+        one_line(&c.name)
+    );
+    let args: Vec<String> = item
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "(model-string m {} {})",
+                quoted(&p.name.snake()),
+                quoted(p.default_text())
+            )
+        })
+        .collect();
+    let render_call = if args.is_empty() {
+        format!("({item_fn})")
+    } else {
+        format!("({item_fn} {})", args.join(" "))
+    };
+    let _ = write!(
+        s,
+        "\n(define {ck}-render-fn\n  (function-ptr\n   (lambda (def model component-map)\n     \
+         (define m (ptr-ref model _AzComponentDataModel))\n     \
+         (result-styled-dom-render-dom-error-ok (styled-dom-create-from-dom {render_call})))\n   \
+         (_fun _pointer _pointer _pointer -> _AzResultStyledDomRenderDomError)))\n"
+    );
+    let fields = if item.params.is_empty() {
+        "(component-data-field-vec-create)".to_string()
+    } else {
+        let mut f = String::from(
+            "(css-vec\n     component-data-field-vec-copy-from-ptr\n     \
+             _AzComponentDataField\n     (list",
+        );
+        for (i, p) in item.params.iter().enumerate() {
+            let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+            let _ = write!(
+                f,
+                "\n      (string-field {} {} {})",
+                quoted(&p.name.snake()),
+                quoted(p.default_text()),
+                quoted(desc)
+            );
+        }
+        f.push_str("))");
+        f
+    };
+    let _ = write!(
+        s,
+        "\n(define ({ck}-def)\n  (make-AzComponentDef\n   (component-id-create {} {})\n   \
+         {}\n   {}\n   ;; The CSS is applied per node by {item_fn}.\n   {}\n   \
+         AzComponentSource_UserDefined\n   (make-AzComponentDataModel\n    {}\n    {}\n    \
+         {fields})\n   {ck}-render-fn\n   {}\n   (option-string-none)))\n",
+        az(&lib.name),
+        az(&c.name),
+        az(&c.display_name),
+        az(&c.description),
+        az(""),
+        az(&c.data_model),
+        az(&c.data_model_description),
+        // `(component-codegen-render-function)`
+        Racket
+            .variant("ComponentCodegen", EnumShape::Tagged, "RenderFunction", Vec::new(), false)
+            .flat(),
+    );
+    format!("({ck}-def)")
+}
+
 /// The registration of a component library (`m.library`): per component a
 /// default-arguments wrapper, a render function made a C function pointer
 /// with `function-ptr` (kept alive by its module-level definition), and its
@@ -357,82 +439,7 @@ fn racket_registration(m: &Module, lib: &LibrarySpec) -> String {
     }
     let mut defs: Vec<String> = Vec::new();
     for (c, item) in &components {
-        let item_fn = fn_name(item);
-        let ck = Ident::from_text(&c.name).kebab();
-        let defaults: Vec<String> = item.params.iter().map(|p| quoted(p.default_text())).collect();
-        let call = if defaults.is_empty() {
-            format!("({item_fn})")
-        } else {
-            format!("({item_fn} {})", defaults.join(" "))
-        };
-        let _ = write!(
-            s,
-            "\n;; `{}:{}` with its default arguments.\n(define ({item_fn}-default)\n  {call})\n",
-            one_line(&lib.name),
-            one_line(&c.name)
-        );
-        let args: Vec<String> = item
-            .params
-            .iter()
-            .map(|p| {
-                format!(
-                    "(model-string m {} {})",
-                    quoted(&p.name.snake()),
-                    quoted(p.default_text())
-                )
-            })
-            .collect();
-        let render_call = if args.is_empty() {
-            format!("({item_fn})")
-        } else {
-            format!("({item_fn} {})", args.join(" "))
-        };
-        let _ = write!(
-            s,
-            "\n(define {ck}-render-fn\n  (function-ptr\n   (lambda (def model component-map)\n     \
-             (define m (ptr-ref model _AzComponentDataModel))\n     \
-             (result-styled-dom-render-dom-error-ok (styled-dom-create-from-dom {render_call})))\n   \
-             (_fun _pointer _pointer _pointer -> _AzResultStyledDomRenderDomError)))\n"
-        );
-        let fields = if item.params.is_empty() {
-            "(component-data-field-vec-create)".to_string()
-        } else {
-            let mut f = String::from(
-                "(css-vec\n     component-data-field-vec-copy-from-ptr\n     \
-                 _AzComponentDataField\n     (list",
-            );
-            for (i, p) in item.params.iter().enumerate() {
-                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
-                let _ = write!(
-                    f,
-                    "\n      (string-field {} {} {})",
-                    quoted(&p.name.snake()),
-                    quoted(p.default_text()),
-                    quoted(desc)
-                );
-            }
-            f.push_str("))");
-            f
-        };
-        let _ = write!(
-            s,
-            "\n(define ({ck}-def)\n  (make-AzComponentDef\n   (component-id-create {} {})\n   \
-             {}\n   {}\n   ;; The CSS is applied per node by {item_fn}.\n   {}\n   \
-             AzComponentSource_UserDefined\n   (make-AzComponentDataModel\n    {}\n    {}\n    \
-             {fields})\n   {ck}-render-fn\n   {}\n   (option-string-none)))\n",
-            az(&lib.name),
-            az(&c.name),
-            az(&c.display_name),
-            az(&c.description),
-            az(""),
-            az(&c.data_model),
-            az(&c.data_model_description),
-            // `(component-codegen-render-function)`
-            Racket
-                .variant("ComponentCodegen", EnumShape::Tagged, "RenderFunction", Vec::new(), false)
-                .flat(),
-        );
-        defs.push(format!("({ck}-def)"));
+        defs.push(racket_component(&mut s, lib, c, item));
     }
     let components = if defs.is_empty() {
         "(component-def-vec-create)".to_string()

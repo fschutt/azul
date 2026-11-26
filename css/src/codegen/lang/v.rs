@@ -333,6 +333,84 @@ fn string_field(name string, value string, description string) azul.AzComponentD
 }
 ";
 
+/// One component of the library: what is written for it, and the call that makes its
+/// `ComponentDef`.
+fn v_component(s: &mut String, lib: &LibrarySpec, c: &ComponentSpec, item: &Item) -> String {
+    let az = |s: &str| format!("azul.az_str({})", v_string(s));
+    let item_fn = item.name.snake();
+    let sn = Ident::from_text(&c.name).snake();
+    let defaults: Vec<String> = item.params.iter().map(|p| v_string(p.default_text())).collect();
+    let _ = write!(
+        s,
+        "\n// `{}:{}` with its default arguments.\nfn {item_fn}_default() azul.AzDom \
+         {{\n\treturn {item_fn}({})\n}}\n",
+        one_line(&lib.name),
+        one_line(&c.name),
+        defaults.join(", ")
+    );
+    let args: Vec<String> = item
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "model_string(model, {}, {})",
+                v_string(&p.name.snake()),
+                v_string(p.default_text())
+            )
+        })
+        .collect();
+    let _ = write!(
+        s,
+        "\nfn {sn}_render_fn(def &azul.AzComponentDef, model &azul.AzComponentDataModel, \
+         component_map &azul.AzComponentMap) azul.AzResultStyledDomRenderDomError {{\n\tdom \
+         := {item_fn}({})\n\treturn \
+         C.AzResultStyledDomRenderDomError_ok(C.AzStyledDom_createFromDom(dom))\n}}\n",
+        args.join(", ")
+    );
+    let _ = write!(s, "\nfn {sn}_def() azul.AzComponentDef {{\n");
+    let fields = if item.params.is_empty() {
+        "C.AzComponentDataFieldVec_create()".to_string()
+    } else {
+        s.push_str("\tmut fields := [\n");
+        for (i, p) in item.params.iter().enumerate() {
+            let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+            let _ = writeln!(
+                s,
+                "\t\tstring_field({}, {}, {}),",
+                v_string(&p.name.snake()),
+                v_string(p.default_text()),
+                v_string(desc)
+            );
+        }
+        let _ = write!(
+            s,
+            "\t]!\n\tfield_vec := C.AzComponentDataFieldVec_copyFromPtr(unsafe {{ &fields[0] \
+             }}, {})\n\t// copyFromPtr cloned them.\n\tfor i in 0 .. fields.len {{\n\t\t\
+             C.AzComponentDataField_delete(unsafe {{ &fields[i] }})\n\t}}\n",
+            item.params.len()
+        );
+        "field_vec".to_string()
+    };
+    let _ = write!(
+        s,
+        "\treturn azul.AzComponentDef{{\n\t\tid: C.AzComponentId_create({}, {})\n\t\t\
+         display_name: {}\n\t\tdescription: {}\n\t\t// The CSS is applied per node by \
+         {item_fn}.\n\t\tcss: {}\n\t\tsource: azul.AzComponentSource.UserDefined\n\t\tdata_model: \
+         azul.AzComponentDataModel{{\n\t\t\tname: {}\n\t\t\tdescription: {}\n\t\t\tfields: \
+         {fields}\n\t\t}}\n\t\trender_fn: {sn}_render_fn\n\t\tcodegen: {}\n\t\t\
+         render_fn_source: C.AzOptionString_none()\n\t}}\n}}\n",
+        az(&lib.name),
+        az(&c.name),
+        az(&c.display_name),
+        az(&c.description),
+        az(""),
+        az(&c.data_model),
+        az(&c.data_model_description),
+        V.variant_expr("ComponentCodegen", "RenderFunction", &[]).unwrap_or_default(),
+    );
+    format!("{sn}_def()")
+}
+
 /// The registration of a component library (`m.library`), mirroring the C
 /// one: per component a default-arguments wrapper, a render function (V
 /// functions are C functions) and its `ComponentDef` (code calls it through
@@ -354,78 +432,7 @@ fn v_registration(m: &Module, lib: &LibrarySpec) -> String {
     }
     let mut defs: Vec<String> = Vec::new();
     for (c, item) in &components {
-        let item_fn = item.name.snake();
-        let sn = Ident::from_text(&c.name).snake();
-        let defaults: Vec<String> = item.params.iter().map(|p| v_string(p.default_text())).collect();
-        let _ = write!(
-            s,
-            "\n// `{}:{}` with its default arguments.\nfn {item_fn}_default() azul.AzDom \
-             {{\n\treturn {item_fn}({})\n}}\n",
-            one_line(&lib.name),
-            one_line(&c.name),
-            defaults.join(", ")
-        );
-        let args: Vec<String> = item
-            .params
-            .iter()
-            .map(|p| {
-                format!(
-                    "model_string(model, {}, {})",
-                    v_string(&p.name.snake()),
-                    v_string(p.default_text())
-                )
-            })
-            .collect();
-        let _ = write!(
-            s,
-            "\nfn {sn}_render_fn(def &azul.AzComponentDef, model &azul.AzComponentDataModel, \
-             component_map &azul.AzComponentMap) azul.AzResultStyledDomRenderDomError {{\n\tdom \
-             := {item_fn}({})\n\treturn \
-             C.AzResultStyledDomRenderDomError_ok(C.AzStyledDom_createFromDom(dom))\n}}\n",
-            args.join(", ")
-        );
-        let _ = write!(s, "\nfn {sn}_def() azul.AzComponentDef {{\n");
-        let fields = if item.params.is_empty() {
-            "C.AzComponentDataFieldVec_create()".to_string()
-        } else {
-            s.push_str("\tmut fields := [\n");
-            for (i, p) in item.params.iter().enumerate() {
-                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
-                let _ = writeln!(
-                    s,
-                    "\t\tstring_field({}, {}, {}),",
-                    v_string(&p.name.snake()),
-                    v_string(p.default_text()),
-                    v_string(desc)
-                );
-            }
-            let _ = write!(
-                s,
-                "\t]!\n\tfield_vec := C.AzComponentDataFieldVec_copyFromPtr(unsafe {{ &fields[0] \
-                 }}, {})\n\t// copyFromPtr cloned them.\n\tfor i in 0 .. fields.len {{\n\t\t\
-                 C.AzComponentDataField_delete(unsafe {{ &fields[i] }})\n\t}}\n",
-                item.params.len()
-            );
-            "field_vec".to_string()
-        };
-        let _ = write!(
-            s,
-            "\treturn azul.AzComponentDef{{\n\t\tid: C.AzComponentId_create({}, {})\n\t\t\
-             display_name: {}\n\t\tdescription: {}\n\t\t// The CSS is applied per node by \
-             {item_fn}.\n\t\tcss: {}\n\t\tsource: azul.AzComponentSource.UserDefined\n\t\tdata_model: \
-             azul.AzComponentDataModel{{\n\t\t\tname: {}\n\t\t\tdescription: {}\n\t\t\tfields: \
-             {fields}\n\t\t}}\n\t\trender_fn: {sn}_render_fn\n\t\tcodegen: {}\n\t\t\
-             render_fn_source: C.AzOptionString_none()\n\t}}\n}}\n",
-            az(&lib.name),
-            az(&c.name),
-            az(&c.display_name),
-            az(&c.description),
-            az(""),
-            az(&c.data_model),
-            az(&c.data_model_description),
-            V.variant_expr("ComponentCodegen", "RenderFunction", &[]).unwrap_or_default(),
-        );
-        defs.push(format!("{sn}_def()"));
+        defs.push(v_component(&mut s, lib, c, item));
     }
     let _ = write!(
         s,
