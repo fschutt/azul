@@ -103,8 +103,9 @@ run azmeet_tests cargo test -p AzMeet --lib --no-fail-fast
 run azwriter_tests cargo test -p AzWriter --lib --no-fail-fast
 run azwidgets_tests cargo test -p AzWidgets --lib --no-fail-fast
 
-# 5. the Android shell compiles for a phone
+# 5. the phone shells compile: Android (cargo check for the target) and iOS (the same without an Apple SDK)
 run android_check bash scripts/ci/android_check.sh
+run ios_cross_check bash scripts/ci/ios_cross_check.sh
 
 # 6. api.json against the source: autofix must find nothing more (the file the CI's autofix_check runs)
 autofix() {
