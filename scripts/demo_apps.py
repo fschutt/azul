@@ -171,6 +171,10 @@ def check(m=None):
     if all(isinstance(android.get(k), int) for k in ("min_sdk", "target_sdk")) and android["target_sdk"] < android["min_sdk"]:
         err(f"[android] target_sdk {android['target_sdk']} is below min_sdk {android['min_sdk']}")
     libs = m.get("lib", {})
+    for name, lib in libs.items():
+        if "test-hooks" in str(lib.get("features", "")).split(",") and not lib.get("artifact_only"):
+            err(f"lib {name} has the cargo feature test-hooks and is not artifact_only: a build that reads stand-ins and failure "
+                f"injections from the environment must never ship (scripts/check_no_test_hooks.py)")
     for name, lib in artifact_only_libs(m).items():
         bad = [t for t in lib.get("targets", []) if t not in MOBILE_TARGETS]
         if bad or not lib.get("targets"):
