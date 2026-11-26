@@ -58,6 +58,7 @@ fn reviewing(root: &str) -> AppState {
         path: PathBuf::from(root).join("src/lib.rs"),
         display: "src/lib.rs".to_string(),
         lines: vec!["fn a() {}".to_string()],
+        big: None,
     };
     AppState::create(PathBuf::from(root), vec![file], RefAny::new(0u8), PathBuf::new())
 }
@@ -262,7 +263,7 @@ fn the_measures_a_word_is_found_by_are_the_pages() {
 fn with_chips(files: usize, count: usize) -> AppState {
     let mut s = reviewing("/work/proj");
     let _ = files;
-    let names: Vec<String> = s.files.iter().map(|f| f.display.clone()).collect();
+    let names: Vec<String> = s.tree.file_paths(100);
     s.chips = crate::chips::mock(count, &names);
     s
 }
@@ -296,11 +297,14 @@ fn the_bar_has_a_chip_per_conversation_of_the_open_file_each_named_by_its_words_
 
 #[test]
 fn a_file_is_marked_in_the_tree_by_the_state_of_its_conversations() {
+    let row_of = |s: &AppState| {
+        let row = s.rows.iter().find(|r| r.name == "lib.rs").expect("the file's row").clone();
+        tree_row(s, &RefAny::new(0u8), &row)
+    };
     let s = with_chips(1, 3);
-    let list = file_list(&s, &RefAny::new(0u8));
-    assert!(has_id(&list, "__azreview_file-mark-working"), "an agent is at work on the file");
+    assert!(has_id(&row_of(&s), "__azreview_file-mark-working"), "an agent is at work on the file");
     let none = reviewing("/work/proj");
-    assert!(!has_id(&file_list(&none, &RefAny::new(0u8)), "__azreview_file-mark-working"), "no conversation, no mark");
+    assert!(!has_id(&row_of(&none), "__azreview_file-mark-working"), "no conversation, no mark");
 }
 
 // ---- what the window as a whole listens to ----
@@ -368,4 +372,38 @@ fn the_settings_page_has_the_dictation_section_and_room_for_the_others() {
     let s = reviewing("/work/proj");
     let sections = settings_sections(&s, &RefAny::new(0u8));
     assert_eq!(sections.len(), 1, "the dictation's; the agents', recorder's and speech panels come after it");
+}
+
+// ---- a page of long lines, a file of many pages ----
+
+#[test]
+fn a_line_is_shown_as_far_as_the_page_reaches_and_no_further() {
+    let long = "x".repeat(100_000);
+    let col = page_code_column(1, &[long.clone(), "short".to_string()]);
+    let rows = col.children.as_slice();
+    let shown = texts(&rows[0]);
+    assert_eq!(shown[0], "1");
+    assert_eq!(shown[1].chars().count(), CODE_COLUMNS, "not a hundred thousand characters to shape");
+    assert_eq!(texts(&rows[1]), vec!["2", "short"]);
+    assert!(CODE_COLUMNS >= 100 && CODE_COLUMNS <= 130, "about the columns the page has: {CODE_COLUMNS}");
+    // a line with multi-byte characters is cut at a character
+    let wide = "\u{2192}".repeat(1_000);
+    assert_eq!(texts(&page_code_column(1, &[wide]).children.as_slice()[0])[1].chars().count(), CODE_COLUMNS);
+}
+
+#[test]
+fn the_strip_of_page_numbers_of_a_file_of_thousands_of_pages_is_a_couple_of_dozen_keys() {
+    let mut s = reviewing("/work/proj");
+    s.open = Some(crate::code::SourceFile::big(
+        PathBuf::from("big.rs"),
+        "big.rs".to_string(),
+        crate::code::BigText::new((0..46 * 15_000).flat_map(|i| format!("l{i}\n").into_bytes()).collect()),
+    ));
+    s.visible_page = 7_000;
+    let strip = page_strip(&s, &RefAny::new(0u8));
+    let keys = strip.children.as_slice().len();
+    assert!(keys <= 25, "{keys} keys");
+    let said = texts(&strip);
+    assert!(said.contains(&"1".to_string()) && said.contains(&"15000".to_string()) && said.contains(&"7001".to_string()), "{said:?}");
+    assert!(said.iter().any(|t| t == "\u{2026}"), "a way to the pages between");
 }

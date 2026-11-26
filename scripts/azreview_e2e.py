@@ -85,6 +85,17 @@ def show_files(app):
     if not app.has_id(TREE):
         app.click(selector="#" + SIDEBAR_TOGGLE)
     app.until("the file tree is out", lambda: app.has_id(TREE))
+
+
+def pick(app, folder, name):
+    """Opens `name` from the tree, opening its `folder` first: the tree lists a folder when it is opened, and its rows
+    are a VirtualView's (a DOM of their own)."""
+    if not app.shows(name, every_dom=True):
+        app.click(text=folder, every_dom=True)
+        app.until("the files of %s" % folder, lambda: app.shows(name, every_dom=True))
+    app.click(text=name, every_dom=True)
+
+
 ARCHIVE = "review/src_lib.rs.azreview.zip"
 
 
@@ -151,7 +162,7 @@ def body(args, logs, out):
             raise Failure("the pages did not come back with the tree: %s -> %s" % (under, back))
 
         # Open lib.rs from the tree: it opens and the tree stays.
-        app.click(text="lib.rs")
+        pick(app, "src", "lib.rs")
         app.expect_line("AZREVIEW_FILE", os.path.join("src", "lib.rs"), "a click opens lib.rs")
         app.frame(2)
         if not app.has_id(TREE):
@@ -299,7 +310,7 @@ def dictation(args, logs, out, binary, fake):
         app.until("AzReview's window", lambda: app.has_id(STRIP))
         app.frame(2)
         show_files(app)
-        app.click(text="lib.rs")
+        pick(app, "src", "lib.rs")
         app.frame(3)
         strip = app.rect(STRIP)
         base = (strip["x"] + 160.0, strip["y"] + 140.0)
@@ -448,7 +459,7 @@ def restore(args, logs, out, binary):
         app.until("AzReview's window", lambda: app.has_id(STRIP))
         app.frame(2)
         show_files(app)
-        app.click(text="lib.rs")
+        pick(app, "src", "lib.rs")
         app.frame(3)
         app.until("the saved session back", lambda: app.count("AZREVIEW_LOADED", r"1 0") > 0)
         strip = app.rect(STRIP)
@@ -516,7 +527,7 @@ def slash(args, logs, out, binary):
         app.until("AzReview's window", lambda: app.has_id(STRIP))
         app.frame(2)
         show_files(app)
-        app.click(text="lib.rs")
+        pick(app, "src", "lib.rs")
         app.frame(3)
         text = "__azreview_line-%d-text" % SLASH_LINE
         app.until("the third line of lib.rs", lambda: app.has_id(text, every_dom=True))

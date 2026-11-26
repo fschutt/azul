@@ -109,6 +109,8 @@ pub mod stroke_features;
 pub(crate) mod stroke_fixtures;
 pub mod state_op;
 pub mod switches;
+pub mod tree;
+pub mod tree_load;
 pub mod symbols;
 pub mod symbols_context;
 pub mod symbols_manifest;
@@ -122,6 +124,7 @@ pub mod symbols_vocab;
 pub mod ui;
 pub mod vocabulary;
 pub mod voice;
+pub mod workspace_view;
 pub mod whiteboard;
 pub mod whiteboard_app;
 pub mod whiteboard_archive;
@@ -196,6 +199,9 @@ pub const SHORTCUTS: [Shortcut; 8] = [
 pub const WINDOW_DEFAULT: (f32, f32) = (1280.0, 820.0);
 pub const WINDOW_MIN: (f32, f32) = (560.0, 420.0);
 
+/// How many files of the root are tried for the one that opens at the start.
+const START_CANDIDATES: usize = 8;
+
 /// The sample rate of a voice clip, Hz (the microphone widget is asked for it).
 pub const CLIP_RATE: u32 = 48_000;
 
@@ -204,8 +210,21 @@ const TAG_SAVE: u64 = 1;
 
 
 pub struct AppState {
-    pub files: Vec<code::SourceFile>,
-    pub current: Option<usize>,
+    /// Where the files of the workspace are read from: the disk (the folder under review), or memory (the tests').
+    pub source: std::sync::Arc<dyn symbols_source::FileSource>,
+    /// What the workspace holds: its folders are listed as they are opened.
+    pub tree: tree::Tree,
+    /// The rows of the tree (the open folders flattened), built again when the tree changes.
+    pub rows: Vec<tree::Row>,
+    /// The file under review, its lines read, and its place in the tree.
+    pub open: Option<code::SourceFile>,
+    pub open_node: Option<tree::NodeId>,
+    /// Which workspace the listings that come back belong to: a folder chosen later ends the ones under way.
+    pub workspace: u64,
+    /// When the state was made, and how long after that the root of the workspace was listed (ms): what a script that
+    /// measures the start reads (`AZREVIEW_STARTUP`).
+    pub started: std::time::Instant,
+    pub root_listed_ms: Option<u64>,
     pub strokes: Vec<Stroke>,
     /// The words of the open file that quick slashes took, in the order they were (the page draws them in its own
     /// colour; nothing is written to the file).
@@ -277,13 +296,50 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// AzReview on the `files` of `root`, the first open and the file tree beside the pages; `kit` and
-    /// `data_root` are azul-appkit's.
+    /// AzReview on `files` held in memory (the tests'), the first open and the file tree beside the pages; `kit` and
+    /// `data_root` are azul-appkit's. The app of a folder on a disk is [`Self::on_disk`].
     #[must_use]
     pub fn create(root: PathBuf, files: Vec<code::SourceFile>, kit: RefAny, data_root: PathBuf) -> Self {
+        let (source, tree) = memory_workspace(&files);
+        let mut state = Self::with_source(root, std::sync::Arc::new(source), tree, kit, data_root);
+        if let Some(id) = state.tree.first_file() {
+            let path = state.tree.path(id);
+            if let Some(file) = files.into_iter().find(|f| f.display == path) {
+                state.open = Some(file);
+                state.open_node = Some(id);
+            }
+        }
+        state.refresh_rows();
+        state
+    }
+
+    /// AzReview on the folder `root` of a disk: the root is listed now (one `read_dir`), the first file of it is
+    /// open, every other folder is listed when it is opened.
+    #[must_use]
+    pub fn on_disk(root: PathBuf, kit: RefAny, data_root: PathBuf) -> Self {
+        let mut state = Self::with_source(root.clone(), std::sync::Arc::new(symbols_source::MemSource::new()), tree::Tree::new(), kit, data_root);
+        if !root.as_os_str().is_empty() {
+            state.open_workspace(root);
+        }
+        state
+    }
+
+    fn with_source(
+        root: PathBuf,
+        source: std::sync::Arc<dyn symbols_source::FileSource>,
+        tree: tree::Tree,
+        kit: RefAny,
+        data_root: PathBuf,
+    ) -> Self {
         Self {
-            current: if files.is_empty() { None } else { Some(0) },
-            files,
+            source,
+            tree,
+            rows: Vec::new(),
+            open: None,
+            open_node: None,
+            workspace: 0,
+            started: std::time::Instant::now(),
+            root_listed_ms: None,
             strokes: Vec::new(),
             slashes: Vec::new(),
             live: None,
@@ -341,41 +397,194 @@ impl AppState {
         self.choosing_folder = false;
     }
 
-    /// Opens file `index` (its pages start without ink); the tree stays as it is (a pick does not fold it).
-    pub fn open_file(&mut self, index: usize) {
-        if index >= self.files.len() {
-            return;
-        }
-        self.begin_file(Some(index));
+    /// Opens the file at `path` of the workspace (its pages start without ink); the tree stays as it is (a pick does
+    /// not fold it). `false`: there is no such file in the tree, or it is not shown (`problem` says why).
+    pub fn open_path(&mut self, path: &str) -> bool {
+        let Some(id) = self.tree.find(path).filter(|&id| self.tree.kind(id) == Some(tree::Kind::File)) else {
+            return false;
+        };
+        let read_at = std::time::Instant::now();
+        let file = match self.read_file(path) {
+            Ok(file) => file,
+            Err(why) => {
+                self.problem = Some(not_shown(path, &why));
+                return false;
+            }
+        };
+        let line_count = file.line_count();
+        // how long reading a file takes, for the scripts that measure it (and for a report of one that opens slowly)
+        println!(
+            "AZREVIEW_OPEN {path} lines={line_count} held_as={} read_ms={}",
+            if file.big.is_some() { "text" } else { "lines" },
+            read_at.elapsed().as_millis()
+        );
+        self.begin_file(Some(id));
+        self.tree.set_lines(id, u32::try_from(line_count).unwrap_or(u32::MAX));
+        self.open = Some(file);
         self.rederive();
-        if let Some(file) = self.files.get(index) {
-            self.say(
-                "nav.file",
-                &crate::recorder_events::Fields::new()
-                    .string("file", &file.display)
-                    .int("lines", i64::try_from(file.lines.len()).unwrap_or(i64::MAX)),
-            );
+        self.say(
+            "nav.file",
+            &crate::recorder_events::Fields::new()
+                .string("file", path)
+                .int("lines", i64::try_from(line_count).unwrap_or(i64::MAX)),
+        );
+        true
+    }
+
+    /// The file at `path`, read from the workspace's source: held as lines, or as its text when it is big.
+    fn read_file(&self, path: &str) -> Result<code::SourceFile, code::NotShown> {
+        match self.source.read(path, code::MAX_OPEN_BYTES) {
+            Ok(bytes) => code::open_bytes(self.root.join(path), path.to_string(), bytes),
+            Err(symbols_source::ReadError::TooLarge(bytes)) => Err(code::NotShown::TooLarge(bytes)),
+            Err(other) => Err(code::NotShown::Unreadable(format!("{other:?}"))),
         }
     }
 
-    /// Reviews another folder: its files replace the files and the first is open (a folder without files
-    /// shows the empty page, which has the button).
-    pub fn open_folder(&mut self, root: PathBuf, files: Vec<code::SourceFile>) {
-        self.root = root;
-        self.current = None;
-        self.files = files;
+    /// Reviews the folder `root` of a disk: the files of the folder replace the tree, its root is listed and the first
+    /// file of it is open (a folder without files shows the empty page, which has the button).
+    pub fn open_folder(&mut self, root: PathBuf) {
+        self.open_workspace(root);
+    }
+
+    /// Reviews the workspace of `self.source`, which belongs to `root`; the folder dialog's answer, and the start.
+    fn open_workspace(&mut self, root: PathBuf) {
+        self.root = root.clone();
+        self.source = std::sync::Arc::new(symbols_source::DiskSource::new(root));
+        self.start_workspace();
+    }
+
+    /// The tree starts afresh from the source's root: listed now, the first file open.
+    fn start_workspace(&mut self) {
+        self.workspace += 1;
+        self.tree = tree::Tree::new();
         self.chips = chips::Chips::default();
-        let first = if self.files.is_empty() { None } else { Some(0) };
-        self.begin_file(first);
+        self.begin_file(None);
+        let root = self.tree.root();
+        match self.source.list("") {
+            Ok(entries) => {
+                let listed = self.tree.list(root, &entries, &tree::Rules::default());
+                if listed.capped {
+                    eprintln!("[AzReview] the folder has more entries than the tree keeps: the rest is not shown");
+                }
+            }
+            Err(why) => eprintln!("[AzReview] the folder could not be listed: {why:?}"),
+        }
+        self.refresh_rows();
+        self.root_listed_ms = Some(u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX));
+        // The first file of the root that can be shown opens; one that cannot (no text, too large) is passed over
+        // without a word: the reviewer did not ask for it.
+        let candidates: Vec<String> = self
+            .tree
+            .children(self.tree.root())
+            .iter()
+            .copied()
+            .filter(|&id| self.tree.kind(id) == Some(tree::Kind::File))
+            .take(START_CANDIDATES)
+            .map(|id| self.tree.path(id))
+            .collect();
+        for path in candidates {
+            if self.open_path(&path) {
+                break;
+            }
+            self.problem = None;
+        }
         self.rederive();
+    }
+
+    /// Whether the workspace has anything to show in the tree.
+    #[must_use]
+    pub fn has_entries(&self) -> bool {
+        !self.tree.children(self.tree.root()).is_empty()
+    }
+
+    /// Lists every folder that was not listed and opens all of them, on this thread; how many folders were listed. For a
+    /// script that measures a whole tree (`azreview_expand_all`): the app lists a folder when the reviewer opens it.
+    pub fn expand_all(&mut self) -> usize {
+        let mut listed = 0;
+        loop {
+            let pending = self.tree.unlisted_dirs();
+            if pending.is_empty() || listed >= tree::MAX_NODES {
+                break;
+            }
+            for id in pending {
+                let path = self.tree.path(id);
+                match self.source.list(&path) {
+                    Ok(entries) => {
+                        self.tree.list(id, &entries, &tree::Rules::default());
+                        listed += 1;
+                    }
+                    // A folder that cannot be listed is listed as empty: the loop must end.
+                    Err(_) => {
+                        self.tree.list(id, &[], &tree::Rules::default());
+                    }
+                }
+            }
+        }
+        self.tree.expand_all();
+        self.refresh_rows();
+        listed
+    }
+
+    /// The rows of the tree, built again (after a folder was opened, closed or listed).
+    pub fn refresh_rows(&mut self) {
+        self.rows = self.tree.rows();
+    }
+
+    /// A click on the folder `id`: it opens or closes. The job that lists it when it was never listed, for the caller to
+    /// run on a thread (`tree_load::spawn`).
+    pub fn toggle_dir(&mut self, id: tree::NodeId) -> Option<tree_load::ListJob> {
+        let job = match self.tree.toggle(id) {
+            tree::Toggle::Opened { needs_listing: true } if self.tree.node(id).is_some() => {
+                self.tree.set_listing(id, true);
+                Some(tree_load::ListJob {
+                    source: self.source.clone(),
+                    dir: self.tree.path(id),
+                    workspace: self.workspace,
+                })
+            }
+            _ => None,
+        };
+        self.refresh_rows();
+        job
+    }
+
+    /// A listing of the folder `dir` of workspace `workspace` came back; whether the tree changed (a listing of a
+    /// workspace that is gone changes nothing).
+    pub fn take_listing(
+        &mut self,
+        workspace: u64,
+        dir: &str,
+        result: Result<Vec<symbols_source::DirEntry>, symbols_source::ReadError>,
+    ) -> bool {
+        if workspace != self.workspace {
+            return false;
+        }
+        let Some(id) = self.tree.find(dir) else {
+            return false;
+        };
+        match result {
+            Ok(entries) => {
+                let listed = self.tree.list(id, &entries, &tree::Rules::default());
+                if listed.capped {
+                    eprintln!("[AzReview] {dir}: more entries than the tree keeps, the rest is not shown");
+                }
+            }
+            Err(why) => {
+                eprintln!("[AzReview] {dir}: it could not be listed: {why:?}");
+                self.tree.set_listing(id, false);
+            }
+        }
+        self.refresh_rows();
+        true
     }
 
     /// What starts afresh with another file: no ink, no notes, nothing to undo, no dictation (what
     /// listens writes into the file being left: it ends, and its words are kept there).
-    fn begin_file(&mut self, index: Option<usize>) {
+    fn begin_file(&mut self, node: Option<tree::NodeId>) {
         self.voice.request_stop(dictation::Cause::File);
         self.voice.pending = None;
-        self.current = index;
+        self.open_node = node;
+        self.open = None;
         self.strokes.clear();
         self.slashes.clear();
         self.notes.clear();
@@ -520,7 +729,7 @@ impl AppState {
         match self.file() {
             Some(file) if !self.slashes.is_empty() => {
                 let (first_line, lines) = file.page(page);
-                deletion::hidden_ranges(&self.slashes, first_line, lines)
+                deletion::hidden_ranges(&self.slashes, first_line, &lines)
             }
             _ => Vec::new(),
         }
@@ -653,7 +862,7 @@ impl AppState {
     }
 
     pub(crate) fn file(&self) -> Option<&code::SourceFile> {
-        self.current.and_then(|i| self.files.get(i))
+        self.open.as_ref()
     }
 
     fn rederive(&mut self) {
@@ -761,13 +970,13 @@ pub fn run() {
         remember,
         Path::is_dir,
     );
-    let files = code::load_tree(&root, 400);
-    if let Some(first) = files.first() {
-        println!("AZREVIEW_FILE {}", first.display);
-    }
     // A folder named on the command line is the one reviewed last from now on (not for a fixture run).
     let remembered = named_root.filter(|_| remember && !root.as_os_str().is_empty());
-    let mut state = AppState::create(root, files, kit_ref.clone(), data_root);
+    // The root is listed now (one `read_dir`) and the first file of it opened; every other folder when it is opened.
+    let mut state = AppState::on_disk(root, kit_ref.clone(), data_root);
+    if let Some(first) = state.file() {
+        println!("AZREVIEW_FILE {}", first.display);
+    }
     state.remember_folder = remembered;
     let (panels, panel_notes) = layout::Panels::remembered(&|key| values.get(key).cloned());
     for note in &panel_notes {
@@ -775,8 +984,7 @@ pub fn run() {
     }
     let remembered_open = values.contains_key(layout::KEY_TREE_OPEN).then_some(panels.tree_open);
     state.panels = layout::Panels {
-        tree_open: layout::initial_tree_open(remembered_open, start_w)
-            && !state.files.is_empty(),
+        tree_open: layout::initial_tree_open(remembered_open, start_w) && state.has_entries(),
         ..panels
     };
     state.slide = layout::Slide::settled(&state.panels);
@@ -839,6 +1047,16 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
         if let Some(folder) = named {
             kit::set_value(&kit_ref, &mut info, switches::KEY_FOLDER, &folder.to_string_lossy());
         }
+    }
+    // How long the start took, for the scripts that measure it (and for a report of a folder that opens slowly).
+    if let Some(s) = data.downcast_ref::<AppState>() {
+        println!(
+            "AZREVIEW_STARTUP root_listed_ms={} window_created_ms={} files={} folders={}",
+            s.root_listed_ms.map_or_else(|| "-".to_string(), |ms| ms.to_string()),
+            s.started.elapsed().as_millis(),
+            s.tree.file_count(),
+            s.tree.dir_count(),
+        );
     }
     // What was marked on the first file in an earlier run comes back.
     load_session(&data, &mut info);
@@ -1014,17 +1232,16 @@ extern "C" fn on_folder_chosen(mut data: RefAny, mut info: CallbackInfo, result:
     let folder = PathBuf::from(path.inner.as_str());
     // The file being left is kept first (its archive is built now).
     save_session(&data, &mut info);
-    let files = code::load_tree(&folder, 400);
-    println!("AZREVIEW_FOLDER {} {}", folder.display(), files.len());
     let kit_ref = {
         let Some(mut s) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
         };
-        s.open_folder(folder.clone(), files);
+        s.open_folder(folder.clone());
+        println!("AZREVIEW_FOLDER {} {}", folder.display(), s.tree.file_count() + s.tree.dir_count());
         s.kit.clone()
     };
     kit::set_value(&kit_ref, &mut info, switches::KEY_FOLDER, &folder.to_string_lossy());
-    if let Some(first) = data.downcast_ref::<AppState>().and_then(|s| s.files.first().map(|f| f.display.clone())) {
+    if let Some(first) = data.downcast_ref::<AppState>().and_then(|s| s.file().map(|f| f.display.clone())) {
         println!("AZREVIEW_FILE {first}");
     }
     load_session(&data, &mut info);
@@ -1580,6 +1797,36 @@ fn log_window(data: &mut RefAny, info: &mut CallbackInfo, kind: pointer::Kind) {
     }
 }
 
+/// The files of the tests' workspace: kept in memory, and the tree of their paths (every folder listed and open).
+fn memory_workspace(files: &[code::SourceFile]) -> (symbols_source::MemSource, tree::Tree) {
+    let mut source = symbols_source::MemSource::new();
+    for f in files {
+        source.put(&f.display, f.lines.join("\n").into_bytes());
+    }
+    let paths: Vec<&str> = files.iter().map(|f| f.display.as_str()).collect();
+    (source, tree::Tree::from_paths(&paths))
+}
+
+/// Why a file is not shown, in the words of the window.
+fn not_shown(path: &str, why: &code::NotShown) -> String {
+    let mib = |bytes: u64| format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0));
+    let reason = match why {
+        code::NotShown::Binary => t("azreview-not-shown-binary"),
+        code::NotShown::TooLarge(bytes) => t_args(
+            "azreview-not-shown-large",
+            &[
+                ("size", Arg::from(mib(*bytes))),
+                ("limit", Arg::from(mib(code::MAX_OPEN_BYTES as u64))),
+            ],
+        ),
+        code::NotShown::Unreadable(why) => t_args("azreview-not-shown-unreadable", &[("why", Arg::from(why.clone()))]),
+    };
+    t_args(
+        "azreview-not-shown",
+        &[("file", Arg::from(path.to_string())), ("why", Arg::from(reason))],
+    )
+}
+
 /// One change to the ink that Mod+Z can take back.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Edit {
@@ -1677,7 +1924,11 @@ pub extern "C" fn on_strip_scroll(mut data: RefAny, mut info: CallbackInfo) -> U
     }
     s.visible_page = page;
     drop(s);
-    ui::reveal_pill(&mut info, page);
+    // The strip of a file of many pages is rebuilt around the page in view (`layout::strip_items`); one that shows every
+    // page is scrolled to its number.
+    if pages <= layout::STRIP_ALL {
+        ui::reveal_pill(&mut info, page);
+    }
     Update::RefreshDom
 }
 
@@ -1799,31 +2050,47 @@ pub extern "C" fn on_pen_double_click(mut data: RefAny, mut info: CallbackInfo) 
     Update::RefreshDom
 }
 
+/// A click on a file of the tree: it opens (the node is the row's).
 pub extern "C" fn on_pick_file(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some(index) = ui::index_of(&mut info) else {
+    let Some(id) = ui::index_of(&mut info) else {
         return Update::DoNothing;
     };
-    let Some(open) = data.downcast_ref::<AppState>().map(|s| s.current) else {
+    let Some((open, path)) = data
+        .downcast_ref::<AppState>()
+        .map(|s| (s.open_node, s.tree.path(id)))
+    else {
         return Update::DoNothing;
     };
-    if open != Some(index) {
-        // The file being left is kept first (its archive is built now).
-        save_session(&data, &mut info);
-    }
-    let Some(mut s) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    if open == Some(index) {
+    if open == Some(id) {
         return Update::DoNothing;
     }
-    let Some(file) = s.files.get(index) else {
+    // The file being left is kept first (its archive is built now).
+    save_session(&data, &mut info);
+    let opened = {
+        let Some(mut s) = data.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        s.open_path(&path)
+    };
+    if opened {
+        println!("AZREVIEW_FILE {path}");
+        // What was marked on it in an earlier run comes back.
+        load_session(&data, &mut info);
+    }
+    info.trigger_all_virtual_view_rerender();
+    Update::RefreshDom
+}
+
+/// A click on a folder of the tree: it opens or closes, and is listed on a thread when it never was.
+pub extern "C" fn on_toggle_dir(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(id) = ui::index_of(&mut info) else {
         return Update::DoNothing;
     };
-    println!("AZREVIEW_FILE {}", file.display);
-    s.open_file(index);
-    drop(s);
-    // What was marked on it in an earlier run comes back.
-    load_session(&data, &mut info);
+    let job = data.downcast_mut::<AppState>().and_then(|mut s| s.toggle_dir(id));
+    if let Some(job) = job {
+        tree_load::spawn(&mut info, &data, job);
+    }
+    info.trigger_all_virtual_view_rerender();
     Update::RefreshDom
 }
 

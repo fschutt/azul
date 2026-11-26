@@ -38,7 +38,7 @@ extern "C" fn on_op(mut data: RefAny, mut info: CallbackInfo, name: AzString, ar
     }
     let count = asked(args.as_str());
     if let Some(mut s) = data.downcast_mut::<AppState>() {
-        let files: Vec<String> = s.files.iter().map(|f| f.display.clone()).collect();
+        let files: Vec<String> = s.tree.file_paths(400);
         s.chips = chips::mock(count, &files);
     }
     // The window is built again, now that it has the conversations.

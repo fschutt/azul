@@ -681,7 +681,7 @@ fn start(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update {
         // The words of the page under the pen, for the recogniser's keyword biasing (what it cut is told once).
         if let Some(speech) = &s.voice.speech {
             let words = s.file().map_or_else(Vec::new, |f| {
-                crate::vocabulary::vocabulary(f.page(anchor.page).1, &f.display, VOCABULARY_CAP)
+                crate::vocabulary::vocabulary(&f.page(anchor.page).1, &f.display, VOCABULARY_CAP)
             });
             let cut = speech.set_vocabulary(string_vec(&words));
             if !cut.as_str().is_empty() {

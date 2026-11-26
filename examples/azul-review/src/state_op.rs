@@ -11,7 +11,7 @@ pub const OP_NAME: &str = "azreview_state";
 
 /// The state as JSON: `pen` (the place of the pen in hand), `meaning`, `nib`, `tree_open`, `tree_w`, `right_open`,
 /// `right_w`, `chips` (the open file's conversations), `mic` (the microphone's state), `dictating` (a dictation runs),
-/// `ready` (its microphone takes words), `partial` (the words so far), `slashes` and `deleted_words` (what quick slashes took), `standby` (the policy: `mode`, `enabled`, `armed`, `arms`,
+/// `ready` (its microphone takes words), `partial` (the words so far), `tree` (the rows, the files and folders known so far, the file open), `slashes` and `deleted_words` (what quick slashes took), `standby` (the policy: `mode`, `enabled`, `armed`, `arms`,
 /// `disarms`).
 #[must_use]
 pub fn state_json(s: &AppState) -> String {
@@ -28,6 +28,12 @@ pub fn state_json(s: &AppState) -> String {
         "dictating": s.voice.running.is_some(),
         "ready": s.voice.is_ready(),
         "partial": s.voice.partial(),
+        "tree": {
+            "rows": s.rows.len(),
+            "files": s.tree.file_count(),
+            "folders": s.tree.dir_count(),
+            "open": s.file().map(|f| f.display.clone()),
+        },
         "slashes": s.slashes.len(),
         "deleted_words": s.slashes.iter().map(|d| d.words.len()).sum::<usize>(),
         "standby": {
@@ -41,16 +47,48 @@ pub fn state_json(s: &AppState) -> String {
     .to_string()
 }
 
-/// Adds the debug server's op to `config`.
+/// The op that lists and opens every folder of the tree (for the scripts that measure a whole workspace).
+pub const OP_EXPAND_ALL: &str = "azreview_expand_all";
+
+/// Adds the debug server's ops to `config`.
 pub fn register_ops(config: &mut AppConfig) {
     let def = format!(
+        "{{\"name\":\"{OP_EXPAND_ALL}\",\"summary\":\"list and open every folder of the tree\",\
+         \"description\":\"On the window's thread: how many folders were listed, how long it took (ms), and the tree's \
+         files, folders and rows afterwards.\",\"args\":[],\"examples\":[]}}"
+    );
+    let json = Json::parse(AzString::from(def.as_str()))
+        .into_result()
+        .unwrap_or_else(|_| Json::null());
+    config.add_e2e_command(AzString::from(OP_EXPAND_ALL), json, on_expand_all);
+    let def = format!(
         "{{\"name\":\"{OP_NAME}\",\"summary\":\"what AzReview's state is\",\
-         \"description\":\"pen, meaning, nib, tree_open, tree_w, right_open, right_w, chips, mic, dictating, ready, partial, slashes, deleted_words, standby.\",\"args\":[],\"examples\":[]}}"
+         \"description\":\"pen, meaning, nib, tree_open, tree_w, right_open, right_w, chips, mic, dictating, ready, partial, tree, slashes, deleted_words, standby.\",\"args\":[],\"examples\":[]}}"
     );
     let json = Json::parse(AzString::from(def.as_str()))
         .into_result()
         .unwrap_or_else(|_| Json::null());
     config.add_e2e_command(AzString::from(OP_NAME), json, on_op);
+}
+
+extern "C" fn on_expand_all(mut data: RefAny, mut info: CallbackInfo, name: AzString, _args: AzString) -> CustomE2eOpResult {
+    if name.as_str() != OP_EXPAND_ALL {
+        return CustomE2eOpResult { handled: false, json: AzString::from("") };
+    }
+    let started = std::time::Instant::now();
+    let (listed, files, folders, rows) = data.downcast_mut::<AppState>().map_or((0, 0, 0, 0), |mut s| {
+        let listed = s.expand_all();
+        (listed, s.tree.file_count(), s.tree.dir_count(), s.rows.len())
+    });
+    info.trigger_all_virtual_view_rerender();
+    let ms = started.elapsed().as_millis();
+    CustomE2eOpResult {
+        handled: true,
+        json: AzString::from(
+            format!("{{\"success\":true,\"listed\":{listed},\"ms\":{ms},\"files\":{files},\"folders\":{folders},\"rows\":{rows}}}")
+                .as_str(),
+        ),
+    }
 }
 
 extern "C" fn on_op(mut data: RefAny, _info: CallbackInfo, name: AzString, _args: AzString) -> CustomE2eOpResult {

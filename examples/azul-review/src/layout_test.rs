@@ -227,3 +227,75 @@ fn a_grip_on_the_right_panels_edge_gives_the_width_the_pointer_makes_of_it() {
     // beside an open tree the panel has less room
     assert_eq!(grip.width_at(0.0, 1280.0, 300.0), 1280.0 - 300.0 - STRIP_W - RIGHT_BAR_W - PAGES_MIN_W);
 }
+
+// ---- the strip of page numbers of a file of any number of pages ----
+
+fn pages_of(items: &[StripItem]) -> Vec<usize> {
+    items.iter().filter_map(|i| if let StripItem::Page(p) = i { Some(*p) } else { None }).collect()
+}
+
+#[test]
+fn a_file_of_a_few_pages_shows_every_page_number() {
+    assert_eq!(strip_items(1, 0), vec![StripItem::Page(0)]);
+    let all: Vec<StripItem> = (0..STRIP_ALL).map(StripItem::Page).collect();
+    assert_eq!(strip_items(STRIP_ALL, 17), all);
+    assert!(strip_items(0, 0).is_empty());
+}
+
+#[test]
+fn a_file_of_thousands_of_pages_shows_the_first_the_last_and_the_ones_around_the_page_in_view_and_a_way_to_the_rest() {
+    let items = strip_items(15_082, 7_000);
+    let pages = pages_of(&items);
+    assert_eq!(pages.first(), Some(&0));
+    assert_eq!(pages.last(), Some(&15_081));
+    let around: Vec<usize> = pages.iter().copied().filter(|p| (6_992..=7_008).contains(p)).collect();
+    assert_eq!(around, (6_992..=7_008).collect::<Vec<_>>(), "STRIP_AROUND either side of the one in view");
+    assert_eq!(items.len(), 1 + 1 + (2 * STRIP_AROUND + 1) + 1 + 1, "first, a skip, the window, a skip, last");
+    assert!(matches!(items[1], StripItem::Skip { to } if to > 0 && to < 6_992), "{:?}", items[1]);
+    assert!(matches!(items[items.len() - 2], StripItem::Skip { to } if to > 7_008 && to < 15_081));
+}
+
+#[test]
+fn near_either_end_the_window_leans_on_the_end() {
+    let first = strip_items(15_082, 0);
+    assert_eq!(pages_of(&first), (0..=STRIP_AROUND).chain([15_081]).collect::<Vec<_>>());
+    let last = strip_items(15_082, 15_081);
+    assert_eq!(pages_of(&last), std::iter::once(0).chain(15_081 - STRIP_AROUND..=15_081).collect::<Vec<_>>());
+    assert!(matches!(first[first.len() - 2], StripItem::Skip { .. }));
+    assert!(matches!(last[1], StripItem::Skip { .. }));
+}
+
+#[test]
+fn a_gap_of_one_page_is_that_page_not_a_skip_and_every_skip_lies_inside_its_gap() {
+    for total in [STRIP_ALL + 1, 200, 5_000] {
+        for current in [0, 1, 9, 30, total / 2, total - 2, total - 1] {
+            let items = strip_items(total, current);
+            let mut last_page = None;
+            let mut pending_skip: Option<usize> = None;
+            for item in &items {
+                match *item {
+                    StripItem::Page(p) => {
+                        if let Some(prev) = last_page {
+                            assert!(p > prev, "{total}/{current}: in order, no page twice: {items:?}");
+                            match pending_skip.take() {
+                                Some(to) => assert!(to > prev && to < p, "{total}/{current}: the skip {to} lies between {prev} and {p}"),
+                                None => assert_eq!(p, prev + 1, "{total}/{current}: a gap of one page shows that page: {items:?}"),
+                            }
+                        }
+                        last_page = Some(p);
+                    }
+                    StripItem::Skip { to } => pending_skip = Some(to),
+                }
+            }
+            assert!(pages_of(&items).contains(&current.min(total - 1)), "the page in view is shown");
+            assert!(items.len() <= 2 * STRIP_AROUND + 1 + 4, "{total}/{current}: {} items", items.len());
+        }
+    }
+}
+
+#[test]
+fn a_page_in_view_past_the_last_is_the_last() {
+    let items = strip_items(500, 9_999);
+    assert!(pages_of(&items).contains(&499));
+    assert!(pages_of(&items).iter().all(|p| *p < 500));
+}
