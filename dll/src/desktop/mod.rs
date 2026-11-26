@@ -48,6 +48,8 @@ pub mod webrender_settings;
 pub mod shell_settings;
 /// Where the first milliseconds of an app go: the marks of the start from the process creation to
 /// the first frame (`AZ_STARTUP=1`)
+/// The static instances of variable fonts, kept in a directory of the app's cache between runs.
+pub mod font_instance_store;
 pub mod startup_timeline;
 /// Client-Side Decorations (CSD) - Custom window titlebar
 pub(crate) mod csd;
