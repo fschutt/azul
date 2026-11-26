@@ -26,7 +26,7 @@ features="azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-se
 # 1. the pure parts: the language tags, the info's localizer slot, the layout tests of the phone work
 run css_language cargo test -p azul-css --lib system_language
 run core_callbacks cargo test -p azul-core --lib callbacks_test
-run layout_lib cargo test -p azul-layout --lib -- fluent widgets::button widgets::themes
+run layout_lib cargo test -p azul-layout --lib -- fluent widgets::button widgets::themes widgets::ribbon
 run layout_tests cargo test -p azul-layout --test all -- safe_area_inset azul_widgets_video azul_maps_sidebar azul_maps_drive azul_paint_toolbar azul_writer_phone a_button_is_a_touch azul_widgets_toolbar
 
 # 1b. RED of the layout tests of the phone work: with the themes of the engine and the files of the apps as they were on the
