@@ -87,7 +87,8 @@ impl LocalDiscoveryState {
                 let mut text = if *announcing {
                     "on".to_string()
                 } else {
-                    "on, looking only (this endpoint accepts nobody, so it does not announce itself)"
+                    "on, looking only (this endpoint announces nothing: it accepts nobody, or the \
+                     platform, iOS, never announces)"
                         .to_string()
                 };
                 if ignored > 0 {
@@ -103,6 +104,12 @@ impl LocalDiscoveryState {
 /// How an endpoint finds peers on the local network. The engine starts one once its endpoint is
 /// bound; a test starts its own.
 pub(super) trait LocalDiscovery: Send + Sync {
+    /// Whether this platform can announce the endpoint at all. An iPhone does not: it is a client
+    /// of the Mac, and Bonjour of an app without the multicast entitlement only browses.
+    fn can_announce(&self) -> bool {
+        true
+    }
+
     /// Starts it for `endpoint`, inside the engine's runtime. `announce`: whether this endpoint
     /// announces itself too; `ignored` counts the announced addresses that were not used.
     /// `Err(reason)`: the network or the OS refused it; the engine keeps the endpoint without it.

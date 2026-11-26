@@ -13,6 +13,10 @@ mod discovery;
 mod engine;
 #[cfg(az_iroh_engine)]
 mod multicast_lock;
+#[cfg(az_iroh_engine)]
+mod dns_wire;
+#[cfg(az_iroh_bonjour)]
+mod bonjour;
 #[cfg(az_iroh_mdns)]
 mod mdns;
 

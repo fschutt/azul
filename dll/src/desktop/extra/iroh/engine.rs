@@ -95,7 +95,7 @@ fn start_local_discovery(
     let announce = match discovery::wanted(config) {
         Wanted::Off => return (LocalDiscoveryState::Off, None),
         Wanted::Look => false,
-        Wanted::LookAndAnnounce => true,
+        Wanted::LookAndAnnounce => discovery.can_announce(),
     };
     match discovery.start(endpoint, announce, ignored) {
         Ok(held) => (LocalDiscoveryState::On { announcing: announce }, held),
@@ -289,6 +289,12 @@ impl Engine {
             ignored,
             _held: held,
         })
+    }
+
+    /// The sockets the endpoint is bound to (the Bonjour test compares ports).
+    #[cfg(test)]
+    pub(super) fn bound_sockets(&self) -> Vec<SocketAddr> {
+        self.endpoint.bound_sockets()
     }
 
     /// What local-network discovery does for this endpoint (`IrohEndpoint::local_discovery_status`).
