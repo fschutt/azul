@@ -262,7 +262,7 @@ fn the_measures_a_word_is_found_by_are_the_pages() {
 fn with_chips(files: usize, count: usize) -> AppState {
     let mut s = reviewing("/work/proj");
     let _ = files;
-    let names: Vec<String> = s.files.iter().map(|f| f.display.clone()).collect();
+    let names: Vec<String> = s.tree.file_paths(100);
     s.chips = crate::chips::mock(count, &names);
     s
 }
@@ -296,11 +296,14 @@ fn the_bar_has_a_chip_per_conversation_of_the_open_file_each_named_by_its_words_
 
 #[test]
 fn a_file_is_marked_in_the_tree_by_the_state_of_its_conversations() {
+    let row_of = |s: &AppState| {
+        let row = s.rows.iter().find(|r| r.name == "lib.rs").expect("the file's row").clone();
+        tree_row(s, &RefAny::new(0u8), &row)
+    };
     let s = with_chips(1, 3);
-    let list = file_list(&s, &RefAny::new(0u8));
-    assert!(has_id(&list, "__azreview_file-mark-working"), "an agent is at work on the file");
+    assert!(has_id(&row_of(&s), "__azreview_file-mark-working"), "an agent is at work on the file");
     let none = reviewing("/work/proj");
-    assert!(!has_id(&file_list(&none, &RefAny::new(0u8)), "__azreview_file-mark-working"), "no conversation, no mark");
+    assert!(!has_id(&row_of(&none), "__azreview_file-mark-working"), "no conversation, no mark");
 }
 
 // ---- what the window as a whole listens to ----

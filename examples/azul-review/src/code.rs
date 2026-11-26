@@ -1,10 +1,14 @@
-use std::path::{Path, PathBuf};
+//! The file under review as the pages show it: its lines, in pages of [`LINES_PER_PAGE`].
+//!
+//! What the workspace holds is the tree's (`tree.rs`), read through a `FileSource` (`symbols_source.rs`); this is only
+//! the content of the one file that is open.
+
+use std::path::PathBuf;
 
 pub const LINES_PER_PAGE: usize = 46;
 
-const REVIEWABLE: &[&str] = &[
-    "rs", "toml", "md", "c", "h", "cpp", "hpp", "py", "js", "ts", "sh", "yml", "yaml", "json",
-];
+/// The largest file that is shown, bytes: a bigger one is not read (the tree says why).
+pub const MAX_OPEN_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct SourceFile {
@@ -28,60 +32,32 @@ impl SourceFile {
     }
 }
 
-pub fn load_tree(root: &Path, limit: usize) -> Vec<SourceFile> {
-    let mut out = Vec::new();
-    walk(root, root, &mut out, limit, 0);
-    out.sort_by(|a, b| a.display.cmp(&b.display));
-    out
+/// Why a file is not shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotShown {
+    /// It holds a NUL byte: it is no text.
+    Binary,
+    /// It is over [`MAX_OPEN_BYTES`] (the number of bytes it has).
+    TooLarge(u64),
+    /// It could not be read (what the system said).
+    Unreadable(String),
 }
 
-fn walk(root: &Path, dir: &Path, out: &mut Vec<SourceFile>, limit: usize, depth: usize) {
-    if out.len() >= limit || depth > 12 {
-        return;
+/// The lines of the bytes of a file as a page shows them: text that is not UTF-8 is read with its bad bytes replaced, a
+/// tab is four spaces (a column is a character), `\r\n` ends a line as `\n` does. The bytes of a binary file are refused.
+///
+/// # Errors
+/// The file holds a NUL byte in its first 8 KiB.
+pub fn lines_of(bytes: &[u8]) -> Result<Vec<String>, NotShown> {
+    if bytes[..bytes.len().min(8192)].contains(&0) {
+        return Err(NotShown::Binary);
     }
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
-    entries.sort_by_key(std::fs::DirEntry::file_name);
-    for e in entries {
-        if out.len() >= limit {
-            return;
-        }
-        let p = e.path();
-        let name = e.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') || name == "target" || name == "node_modules" {
-            continue;
-        }
-        if p.is_dir() {
-            walk(root, &p, out, limit, depth + 1);
-        } else if is_reviewable(&p) {
-            if let Some(f) = load_file(root, &p) {
-                out.push(f);
-            }
-        }
-    }
+    Ok(String::from_utf8_lossy(bytes)
+        .lines()
+        .map(|l| l.replace('\t', "    "))
+        .collect())
 }
 
-fn is_reviewable(p: &Path) -> bool {
-    p.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| REVIEWABLE.contains(&e))
-}
-
-fn load_file(root: &Path, p: &Path) -> Option<SourceFile> {
-    let text = std::fs::read_to_string(p).ok()?;
-    if text.lines().count() > 20_000 {
-        return None;
-    }
-    let display = p
-        .strip_prefix(root)
-        .unwrap_or(p)
-        .to_string_lossy()
-        .to_string();
-    Some(SourceFile {
-        path: p.to_path_buf(),
-        display,
-        lines: text.lines().map(|l| l.replace('\t', "    ")).collect(),
-    })
-}
+#[cfg(test)]
+#[path = "code_test.rs"]
+mod code_test;

@@ -54,7 +54,7 @@ fn with_no_recorder_the_window_tells_nobody_and_nothing_fails() {
 fn opening_a_file_says_which_and_how_long_it_is() {
     let hook = Arc::new(Collect::default());
     let mut s = app_with(hook.clone());
-    s.open_file(1);
+    assert!(s.open_path("b.rs"));
     let events = told(&hook);
     let nav: Vec<_> = events.iter().filter(|(k, _)| k == "nav.file").collect();
     assert_eq!(nav.len(), 1, "{events:?}");
@@ -105,7 +105,7 @@ fn a_panel_that_stays_as_it_is_says_nothing() {
 fn every_event_the_window_makes_is_a_kind_of_the_recorders_vocabulary() {
     let hook = Arc::new(Collect::default());
     let mut s = app_with(hook.clone());
-    s.open_file(1);
+    assert!(s.open_path("b.rs"));
     s.select_pen(3);
     s.set_panel_open(Panel::Tree, false);
     for (kind, _) in told(&hook) {
