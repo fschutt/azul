@@ -82,6 +82,7 @@ pub mod recorder_edl;
 pub mod recorder_events;
 pub mod recorder_export;
 pub mod recorder_fs;
+pub mod recorder_host;
 pub mod recorder_manifest;
 pub mod recorder_mp4;
 pub mod recorder_panel;

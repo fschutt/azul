@@ -95,6 +95,14 @@ azreview-rec-error-busy = A recording is going already.
 azreview-rec-error-nothing = The screen, the camera and the microphone are all off in the settings: there is nothing to record.
 azreview-rec-error-disk-full = The disk has { $free } free, under the { $min } the recorder keeps free: make room, or lower that limit in the settings.
 azreview-rec-error-io = The recording could not be made: { $why }
+azreview-rec-error-window-source = Recording one window needs the system's number for the window, which is not available yet: choose the display or AzReview's own frames in the settings. The whole display is not recorded in its place.
+azreview-rec-notice-saved = Saved: { $name } ({ $length }, { $size })
+azreview-rec-notice-recovered = { $count ->
+    [one] { $count } recording that was cut off when the app ended has been put right.
+   *[other] { $count } recordings that were cut off when the app ended have been put right.
+ }
+azreview-rec-error-delete = { $name } was not deleted: { $why }
+azreview-rec-error-recover = { $name } could not be put right: { $why }
 azreview-rec-who-unknown = the program that started AzReview
 azreview-rec-state-complete = Complete
 azreview-rec-state-recovered = Recovered after the app ended

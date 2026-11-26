@@ -95,6 +95,14 @@ azreview-rec-error-busy = Es läuft schon eine Aufnahme.
 azreview-rec-error-nothing = Bildschirm, Kamera und Mikrofon sind in den Einstellungen alle aus: es gibt nichts aufzunehmen.
 azreview-rec-error-disk-full = Auf dem Datenträger sind { $free } frei, weniger als die { $min }, die der Recorder frei hält: schaffe Platz oder senke diese Grenze in den Einstellungen.
 azreview-rec-error-io = Die Aufnahme konnte nicht angelegt werden: { $why }
+azreview-rec-error-window-source = Ein einzelnes Fenster aufzunehmen braucht die Nummer des Fensters im System, die es noch nicht gibt: wähle in den Einstellungen den Bildschirm oder die eigenen Bilder von AzReview. Der ganze Bildschirm wird nicht stattdessen aufgenommen.
+azreview-rec-notice-saved = Gespeichert: { $name } ({ $length }, { $size })
+azreview-rec-notice-recovered = { $count ->
+    [one] { $count } Aufnahme, die beim Ende der App abgebrochen wurde, ist wieder in Ordnung.
+   *[other] { $count } Aufnahmen, die beim Ende der App abgebrochen wurden, sind wieder in Ordnung.
+ }
+azreview-rec-error-delete = { $name } wurde nicht gelöscht: { $why }
+azreview-rec-error-recover = { $name } konnte nicht wiederhergestellt werden: { $why }
 azreview-rec-who-unknown = das Programm, das AzReview gestartet hat
 azreview-rec-state-complete = Vollständig
 azreview-rec-state-recovered = Nach dem Ende der App wiederhergestellt
