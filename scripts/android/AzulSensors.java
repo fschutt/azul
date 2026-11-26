@@ -20,8 +20,36 @@ public final class AzulSensors {
     private static SensorManager manager;
     private static SensorEventListener listener;
 
-    /** Begin delivering readings. Idempotent. */
+    /**
+     * Whether the app asked for readings and has not stopped them: set by {@link #start}, kept
+     * across {@link #pause} and {@link #resume} (the activity's own pause and resume), cleared by
+     * {@link #stop}. Without it the readings stopped at the first onPause and never came back: the
+     * Rust side still believed it was subscribed.
+     */
+    private static boolean wanted = false;
+
+    /** Begin delivering readings, until {@link #stop}. Idempotent. */
     public static void start(Activity activity) {
+        if (activity == null) {
+            return;
+        }
+        wanted = true;
+        listen(activity);
+    }
+
+    /** The activity is paused: stop listening, keep what the app asked for. */
+    public static void pause(Activity activity) {
+        unlisten();
+    }
+
+    /** The activity is resumed: listen again if the app asked for readings. */
+    public static void resume(Activity activity) {
+        if (wanted) {
+            listen(activity);
+        }
+    }
+
+    private static void listen(Activity activity) {
         if (activity == null || listener != null) {
             return;
         }
@@ -106,8 +134,13 @@ public final class AzulSensors {
         }
     }
 
-    /** Stop delivering readings. Safe to call when never started. */
+    /** Stop delivering readings for good. Safe to call when never started. */
     public static void stop(Activity activity) {
+        wanted = false;
+        unlisten();
+    }
+
+    private static void unlisten() {
         try {
             if (manager != null && listener != null) {
                 manager.unregisterListener(listener);

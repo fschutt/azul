@@ -24,6 +24,9 @@ use azul_layout::managers::permission::{
 
 #[cfg(target_os = "android")]
 pub mod android;
+/// Which Android permissions a capability needs by API level, and what the answers mean: pure, so it is
+/// compiled (and tested) on every host.
+pub mod android_table;
 #[cfg(target_os = "ios")]
 pub mod ios;
 #[cfg(target_os = "linux")]
