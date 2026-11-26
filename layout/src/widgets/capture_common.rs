@@ -347,21 +347,24 @@ impl Exclusions {
     /// skipped, an id twice is once, an id over [`BUNDLE_ID_BYTES`] bytes is left out, and no more than
     /// [`MAX_EXCLUDED_APPS`] are kept.
     #[must_use]
-    pub fn from_apps<'a>(ids: impl IntoIterator<Item = &'a str>) -> (Self, Vec<String>) {
+    pub fn from_apps<S: AsRef<str>>(ids: impl IntoIterator<Item = S>) -> (Self, Vec<String>) {
         let mut out = Self::NONE;
         let mut notes = Vec::new();
-        for id in ids.into_iter().map(str::trim).filter(|id| !id.is_empty()) {
+        for id in ids {
+            let id = id.as_ref().trim();
+            if id.is_empty() || out.apps().any(|known| known == id) {
+                continue;
+            }
             if id.len() > BUNDLE_ID_BYTES {
                 notes.push(format!("the bundle id {id:?} is {} bytes, over the most of {BUNDLE_ID_BYTES}: it is not left out of the capture", id.len()));
-            } else if out.apps().any(|known| known == id) {
                 continue;
-            } else if usize::from(out.count) == MAX_EXCLUDED_APPS {
+            }
+            if usize::from(out.count) == MAX_EXCLUDED_APPS {
                 notes.push(format!("more than {MAX_EXCLUDED_APPS} apps to leave out of the capture: the rest are not"));
                 break;
-            } else {
-                out.apps[usize::from(out.count)][..id.len()].copy_from_slice(id.as_bytes());
-                out.count += 1;
             }
+            out.apps[usize::from(out.count)][..id.len()].copy_from_slice(id.as_bytes());
+            out.count += 1;
         }
         (out, notes)
     }

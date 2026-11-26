@@ -283,6 +283,7 @@ const fn capture_request(config: &ScreenCaptureConfig) -> CaptureRequest {
         exclude_self: !config.include_own_windows,
         show_cursor: config.show_cursor,
         format: config.output_format,
+        exclude: Exclusions::NONE,
     }
 }
 
