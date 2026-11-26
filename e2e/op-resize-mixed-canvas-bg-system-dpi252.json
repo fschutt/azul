@@ -1,0 +1,75 @@
+{
+  "name": "op_resize_mixed_canvas_bg_system_dpi252",
+  "description": "ROTATION TO LANDSCAPE - a root (canvas) background over a MIXED resize (wider, shorter). The Android emulator run 45797870060 (AzWidgets, dpi 252 = 2.625) showed the page's white only up to the OLD width after the rotation while a render of the same list from scratch was right, and the presents wrote every row. The harness clears to white, so a page background that is NOT white is what tells 'cleared and never repainted' from 'painted'. Probe, not yet a ruling: expect red if the strip's canvas rect is not painted.",
+  "setup": {
+    "window_width": 411,
+    "window_height": 914,
+    "dpi": 252
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div class=\"bar\"></div>",
+        "  <div class=\"scroller\">",
+        "    <p id=\"t\">rotation probe</p>",
+        "    <div class=\"card\"><div class=\"field\"></div></div>",
+        "  </div>",
+        "</div>"
+      ],
+      "css": [
+        "body  { margin: 0; font-size: 20px; color: black; background-color: system:window-background; display: flex; flex-direction: column; height: 100%; }",
+        "#root { display: flex; flex-direction: column; flex-grow: 1; min-height: 0; }",
+        ".bar  { width: 100%; height: 30px; background-color: system:background; flex-shrink: 0; }",
+        ".scroller { display: flex; flex-direction: column; overflow-y: auto; flex-grow: 1; min-height: 0; padding: 12px; }",
+        ".card { margin: 8px 0; padding: 10px; background-color: system:background; border-radius: 8px; }",
+        ".field { width: 100%; height: 36px; background: white; border: 1px solid #888; }"
+      ]
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "wait",
+      "ms": 120
+    },
+    {
+      "op": "assert_exists",
+      "selector": ".bar"
+    },
+    {
+      "op": "reset_frame_counters"
+    },
+    {
+      "op": "snapshot_frame",
+      "as": "before_rotate"
+    },
+    {
+      "op": "resize",
+      "width": 866,
+      "height": 411
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "wait",
+      "ms": 120
+    },
+    {
+      "op": "get_frame_report"
+    },
+    {
+      "op": "assert_damage",
+      "which": "paint",
+      "kind": "rects"
+    },
+    {
+      "op": "assert_damage_sound",
+      "vs": "before_rotate",
+      "pixel_identity": true,
+      "max_overpaint_ratio": 2000
+    }
+  ]
+}
