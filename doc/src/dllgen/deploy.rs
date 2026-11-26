@@ -1878,7 +1878,7 @@ const PAGES_PINNED: &[&str] = &[
 /// MUST stay in sync with the collector in rust.yml's "Host LARGE assets on the
 /// GitHub Release" step — this function decides where the link points, that
 /// step decides where the file ends up, and a disagreement is a 404.
-fn is_large(filename: &str) -> bool {
+pub(crate) fn is_large(filename: &str) -> bool {
     let basename = filename.rsplit('/').next().unwrap_or(filename);
 
     // The `.a` rule predates the `mobile/` guard below and the deploy uploads
@@ -1927,7 +1927,7 @@ fn is_large(filename: &str) -> bool {
 /// download than as a tarball.
 /// MUST stay in sync with the `*.a|*.lib|*/demos/*` case in rust.yml's
 /// "Host LARGE assets on the GitHub Release" step.
-fn is_tarred(filename: &str) -> bool {
+pub(crate) fn is_tarred(filename: &str) -> bool {
     filename.ends_with(".a")
         || filename.ends_with(".lib")
         || filename.starts_with("demos/")
@@ -1940,7 +1940,7 @@ fn is_tarred(filename: &str) -> bool {
 /// LARGE (see [`is_large`]) → `https://github.com/fschutt/azul/releases/download/{version}/{basename}`
 /// (GitHub flattens the path: a demo at `demos/azul-maps-linux` uploads as the
 /// bare `azul-maps-linux` asset). SMALL → `https://azul.rs/ui/release/{version}/{filename}`.
-fn asset_url(version: &str, filename: &str) -> String {
+pub(crate) fn asset_url(version: &str, filename: &str) -> String {
     if is_large(filename) {
         // GitHub Release assets are flat — strip any `demos/` path prefix so the
         // link matches the uploaded asset name. Tarred assets (.a, demos) get a
