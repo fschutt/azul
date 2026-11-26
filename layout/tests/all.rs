@@ -174,6 +174,8 @@ mod azul_maps_drive_banner_fits_a_phone;
 mod azul_maps_sidebar_is_a_sheet_on_a_phone;
 #[path = "azul_paint_toolbar_fits_a_phone.rs"]
 mod azul_paint_toolbar_fits_a_phone;
+#[path = "azul_widgets_mail_window_fits_a_phone.rs"]
+mod azul_widgets_mail_window_fits_a_phone;
 #[path = "azul_widgets_video_card_fits_a_phone.rs"]
 mod azul_widgets_video_card_fits_a_phone;
 #[path = "azul_writer_phone_bar_fits_a_phone.rs"]

@@ -66,6 +66,15 @@ const PANE_CSS: &str =
     "display: flex; flex-direction: column; height: 280px; border: 1px solid system:separator;";
 /// The three panes of the mail window side by side.
 const WINDOW_CSS: &str = "display: flex; flex-direction: row; gap: 12px; align-items: stretch;";
+/// The window width under which the screen is a phone's: the three panes stand one over the other, each as
+/// wide as its card (side by side they are 540 px and a gap of 24 in a card that leaves a 411 dp phone 327).
+pub(crate) const COMPACT_WIDTH: f32 = 560.0;
+/// The panes of a phone's window, one over the other.
+const WINDOW_CSS_PHONE: &str = "display: flex; flex-direction: column; gap: 12px;";
+/// The width of the list pane and of the to-do bar beside the reading pane, and on a phone.
+const LIST_WIDTH: &str = "width: 300px;";
+const TODO_WIDTH: &str = "width: 240px;";
+const FULL_WIDTH: &str = "width: 100%;";
 
 /// Every value the mail cards show.
 #[derive(Clone)]
@@ -167,7 +176,7 @@ fn note(text: &str) -> Dom {
 }
 
 /// The "Mail" section.
-pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
+pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme, compact: bool) -> Dom {
     let list = SummaryList::create(m.rows())
         .with_scopes(strs(&["Alle", "Ungelesen"]), m.scope)
         .with_search(m.search.clone())
@@ -316,10 +325,10 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
             captioned(
                 "SummaryList, ReadingPane + InfoBar, ToDoBar",
                 Dom::create_div()
-                    .with_css(WINDOW_CSS)
+                    .with_css(if compact { WINDOW_CSS_PHONE } else { WINDOW_CSS })
                     .with_child(
                         Dom::create_div()
-                            .with_css(format!("{PANE_CSS} width: 300px;"))
+                            .with_css(format!("{PANE_CSS} {}", if compact { FULL_WIDTH } else { LIST_WIDTH }))
                             .with_child(list),
                     )
                     .with_child(
@@ -329,7 +338,7 @@ pub(crate) fn mail_section(data: &RefAny, m: &MailDemo, theme: UiTheme) -> Dom {
                     )
                     .with_child(
                         Dom::create_div()
-                            .with_css(format!("{PANE_CSS} width: 240px;"))
+                            .with_css(format!("{PANE_CSS} {}", if compact { FULL_WIDTH } else { TODO_WIDTH }))
                             .with_child(todo),
                     ),
             ),
