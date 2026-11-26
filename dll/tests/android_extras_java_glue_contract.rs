@@ -9,6 +9,8 @@
 //!   (e.g. fingerprint, face, etc.) is presented but not recognized as belonging to the user" - the prompt stays up,
 //!   and the terminal answer comes from onAuthenticationSucceeded or onAuthenticationError. The Rust side resolves a
 //!   request at its FIRST result, so reporting the rejection made the later success a dropped call;
+//! * a location request whose preferred provider is switched off falls back to the OTHER provider (the code asked for
+//!   GPS again when GPS was the one that was off: no fix ever came);
 //! * a picked document is copied off the UI thread: `onActivityResult` runs on it, and a cloud provider streams the
 //!   file while it is read (minutes for a video): "input dispatching timed out" after five seconds, the ANR dialog.
 //!
@@ -113,4 +115,24 @@ fn a_picked_document_is_copied_off_the_ui_thread() {
     assert!(worker.contains("uriToCachedFile("));
     assert!(worker.contains("catch (Throwable"), "an error on the worker must still answer the request");
     assert!(worker.contains("nativeOnResult("));
+}
+
+/// `LocationManager.requestLocationUpdates` on a provider the user switched off delivers nothing. The fallback when
+/// the preferred provider is off must be the OTHER one: it was `fine ? GPS : NETWORK`, which is GPS again for the
+/// (usual) case that GPS was preferred and is off. GPS needs the fine permission; the network provider works with
+/// either.
+///
+/// Mutation: the fallback `provider = fine ? LocationManager.GPS_PROVIDER : LocationManager.NETWORK_PROVIDER`.
+#[test]
+fn a_switched_off_location_provider_falls_back_to_the_other_one() {
+    let src = java_code("scripts/android/AzulGeolocation.java");
+    let body = method_body(&src, "public static void subscribe(");
+    assert!(
+        !body.contains("provider = fine ?"),
+        "the fallback must not be a function of the permission alone: it picked the switched-off provider again"
+    );
+    assert!(
+        body.contains("isProviderEnabled(other)"),
+        "the other provider is asked whether it is on before it is used"
+    );
 }
