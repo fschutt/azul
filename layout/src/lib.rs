@@ -399,6 +399,10 @@ pub use file::{
 /// a bare path, or `http(s)://` through [`http`].
 pub mod fetch;
 pub mod http;
+/// The engine's HTTP client waits through a signal: a transport that starts an interrupted wait
+/// again until its deadline.
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+mod http_retry;
 /// Throwaway certificate authorities and a loopback TLS server, for tests only.
 #[cfg(all(
     any(test, feature = "tls-testing"),

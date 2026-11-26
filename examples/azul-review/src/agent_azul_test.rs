@@ -47,6 +47,18 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
+/// One read of the stream: a signal in the middle of it (`Interrupted`) is no end of the request, a
+/// real failure is (0).
+fn read_on(stream: &mut TcpStream, buffer: &mut [u8]) -> usize {
+    loop {
+        match stream.read(buffer) {
+            Ok(n) => return n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return 0,
+        }
+    }
+}
+
 /// Reads one request: the head, then as many bytes of body as its length says.
 fn read_request(stream: &mut TcpStream) -> Received {
     let mut data = Vec::new();
@@ -55,7 +67,7 @@ fn read_request(stream: &mut TcpStream) -> Received {
         if let Some(at) = find(&data, b"\r\n\r\n") {
             break at;
         }
-        let n = stream.read(&mut buffer).unwrap_or(0);
+        let n = read_on(stream, &mut buffer);
         if n == 0 {
             break data.len();
         }
@@ -75,7 +87,7 @@ fn read_request(stream: &mut TcpStream) -> Received {
         .unwrap_or(0);
     let body_start = (head_end + 4).min(data.len());
     while data.len() < body_start + length {
-        let n = stream.read(&mut buffer).unwrap_or(0);
+        let n = read_on(stream, &mut buffer);
         if n == 0 {
             break;
         }
@@ -220,6 +232,7 @@ fn request() -> Request {
             text: "say ok".to_string(),
             start_ms: 0,
             end_ms: 500,
+            words: Vec::new(),
         }],
         strokes: Vec::new(),
         context: Context {

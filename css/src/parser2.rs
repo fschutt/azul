@@ -1246,6 +1246,9 @@ pub enum CssParseWarnMsgInner<'a> {
     /// A `font-variation-settings` value that writes `count` distinct axis tags, more than the
     /// `MAX_VARIATION_AXES` a node keeps: the first ones are kept, the rest is dropped.
     TooManyVariationAxes { key: &'a str, count: usize },
+    /// A `font-feature-settings` value that writes `count` distinct feature tags, more than the
+    /// `MAX_FONT_FEATURES` a node keeps: the first ones are kept, the rest is dropped.
+    TooManyFontFeatures { key: &'a str, count: usize },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1277,6 +1280,10 @@ pub enum CssParseWarnMsgInnerOwned {
         count: usize,
     },
     TooManyVariationAxes {
+        key: String,
+        count: usize,
+    },
+    TooManyFontFeatures {
         key: String,
         count: usize,
     },
@@ -1326,6 +1333,12 @@ impl CssParseWarnMsgInner<'_> {
                     count: *count,
                 }
             }
+            Self::TooManyFontFeatures { key, count } => {
+                CssParseWarnMsgInnerOwned::TooManyFontFeatures {
+                    key: (*key).to_string(),
+                    count: *count,
+                }
+            }
         }
     }
 }
@@ -1363,6 +1376,9 @@ impl CssParseWarnMsgInnerOwned {
             Self::TooManyVariationAxes { key, count } => {
                 CssParseWarnMsgInner::TooManyVariationAxes { key, count: *count }
             }
+            Self::TooManyFontFeatures { key, count } => {
+                CssParseWarnMsgInner::TooManyFontFeatures { key, count: *count }
+            }
         }
     }
 }
@@ -1379,6 +1395,7 @@ impl_display! { CssParseWarnMsgInner<'a>, {
     VarWithoutFallback { key, value } => format!("'{}: {}' reads a variable without a fallback: where it is undefined the property takes its initial value; write var(--name, <fallback>)", key, value),
     TooManyShadows { key, value, count } => format!("'{}: {}' lists {} shadows: a node keeps the first {}, the rest is dropped", key, value, count, crate::props::style::box_shadow::MAX_BOX_SHADOWS),
     TooManyVariationAxes { key, count } => format!("'{}' lists {} axes: a node keeps the first {}, the rest is dropped", key, count, crate::props::basic::font_variation::MAX_VARIATION_AXES),
+    TooManyFontFeatures { key, count } => format!("'{}' lists {} features: a node keeps the first {}, the rest is dropped", key, count, crate::props::basic::font::MAX_FONT_FEATURES),
 }}
 
 /// Parses @media conditions from the content following "@media"
@@ -2543,6 +2560,11 @@ fn css_blocks_to_stylesheet<'a>(
                     {
                         warnings.push(CssParseWarnMsg { warning, location });
                     }
+                    if let Some(warning) =
+                        too_many_font_features(unparsed_css_key, unparsed_css_value, css_key_map)
+                    {
+                        warnings.push(CssParseWarnMsg { warning, location });
+                    }
                     declarations.extend(decls);
                 }
                 Err(e) => {
@@ -2599,6 +2621,21 @@ fn too_many_variation_axes<'a>(
     }
     let count = count_variation_axes(strip_important(value))?;
     (count > MAX_VARIATION_AXES).then_some(CssParseWarnMsgInner::TooManyVariationAxes { key, count })
+}
+
+/// The warning a KEPT `font-feature-settings` value that writes more distinct feature tags than a
+/// node keeps (`MAX_FONT_FEATURES`) earns: the tags after them are dropped as the value is read.
+fn too_many_font_features<'a>(
+    key: &'a str,
+    value: &str,
+    css_key_map: &CssKeyMap,
+) -> Option<CssParseWarnMsgInner<'a>> {
+    use crate::props::basic::font::{count_font_features, MAX_FONT_FEATURES};
+    if CssPropertyType::from_str(key, css_key_map) != Some(CssPropertyType::FontFeatureSettings) {
+        return None;
+    }
+    let count = count_font_features(strip_important(value))?;
+    (count > MAX_FONT_FEATURES).then_some(CssParseWarnMsgInner::TooManyFontFeatures { key, count })
 }
 
 /// A declaration's value without its `!important` flag (CSS Cascade 4, 6.4:
