@@ -84,14 +84,35 @@ fn the_android_shell_fires_it_once_when_the_surface_exists_and_before_the_first_
     assert!(fire < pass, "the pass that applies the callback's changes comes after it");
 }
 
-/// The iOS shell has to reach it too; its agent adds the call site (ledger row O-24 of
-/// briefs/mobile_review_android_2026-11-26.md) and removes this `ignore` with it.
+/// The iOS window keeps the callback the options carry (it dropped it) and fires it ONCE, from `application:
+/// didFinishLaunching:` as soon as the window is the app's window: its real size and scale are in the window state
+/// (read from the screen in `IOSWindow::new`), the first layout is still owed (it runs from the display link) and has
+/// not run. The pass that applies what the callback asked comes AFTER it.
+///
+/// Mutation: `IOSWindow::new` without `options.create_callback` (the state of 0f3e1eb093).
 #[test]
-#[ignore = "the iOS shell agent adds its call site: ledger row O-24 of briefs/mobile_review_android_2026-11-26.md"]
-fn the_ios_shell_fires_it() {
-    let code = code_of("dll/src/desktop/shell2/ios/mod.rs");
+fn the_ios_shell_fires_it_once_when_the_window_exists_and_before_the_first_layout() {
+    // without whitespace: rustfmt breaks the calls over lines
+    let code: String = code_of("dll/src/desktop/shell2/ios/mod.rs").chars().filter(|c| !c.is_whitespace()).collect();
     assert!(
-        code.contains("invoke_create_callback("),
+        code.contains("options.create_callback"),
         "IOSWindow::new drops the options' create_callback: no app timer or worker ever starts on an iPhone"
     );
+    assert!(
+        code.contains("mem::replace(&mutself.create_callback"),
+        "the callback is taken out of the window when it fires: once per window lifetime"
+    );
+    let fire_fn = code.find("fnfire_create_callback(").expect("IOSWindow::fire_create_callback");
+    let body = &code[fire_fn..fire_fn + 900.min(code.len() - fire_fn)];
+    let fire = body.find("invoke_create_callback(").expect("fire_create_callback calls the shared function");
+    let pass = body.find("process_window_events(0)").expect("fire_create_callback runs a pass");
+    assert!(fire < pass, "the pass that applies the callback's changes comes after it");
+    // the delegate fires it once the window is the app's window (the callbacks of UIKit find it), and the first layout
+    // (display link / displayLayer:) has not run yet because the display link only ticks after didFinishLaunching returns
+    let launching = code.find("fndid_finish_launching(").expect("the launching delegate method");
+    let launching_end = code[launching..].find("fnapp_did_become_active(").expect("the next delegate method");
+    let launching_body = &code[launching..launching + launching_end];
+    let assigned = launching_body.find("AZUL_IOS_WINDOW=Box::into_raw").expect("the window is made the app's window");
+    let called = launching_body.find(".fire_create_callback()").expect("didFinishLaunching fires the create callback");
+    assert!(assigned < called, "the callback fires after the window is the app's window");
 }

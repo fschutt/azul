@@ -12,7 +12,7 @@ use crate::{
             },
             font_variation::{
                 StyleFontLigatureChoice, StyleFontStretch, StyleFontSynthesis,
-                StyleFontVariantEastAsian, StyleFontVariantLigatures,
+                StyleFontVariantEastAsian, StyleFontVariantLigatures, StyleFontVariantPosition,
             },
             length::{FloatValue, PercentageValue},
             pixel::PixelValue,
@@ -97,7 +97,7 @@ impl FontValue {
         }
     }
 
-    /// The eighteen longhands, in the order of the contract.
+    /// The nineteen longhands, in the order of the contract.
     fn expansion(self) -> Vec<CssProperty> {
         fn or_initial<T>(value: Option<T>) -> CssPropertyValue<T> {
             match value {
@@ -116,6 +116,7 @@ impl FontValue {
             CssProperty::FontVariantNumeric(CssPropertyValue::Initial),
             CssProperty::FontVariantLigatures(CssPropertyValue::Initial),
             CssProperty::FontVariantEastAsian(CssPropertyValue::Initial),
+            CssProperty::FontVariantPosition(CssPropertyValue::Initial),
             CssProperty::FontKerning(CssPropertyValue::Initial),
             CssProperty::FontOpticalSizing(CssPropertyValue::Initial),
             CssProperty::FontVariationSettings(CssPropertyValue::Initial),
@@ -134,7 +135,7 @@ fn a_12px() -> FontValue {
     FontValue::new(px(12.0), family(&["a"]))
 }
 
-/// What a `font-variant` value is expected to set: the four longhands, all `Exact`.
+/// What a `font-variant` value is expected to set: the five longhands, all `Exact`.
 #[cfg(feature = "parser")]
 struct VariantValue {
     numeric: StyleFontVariantNumeric,
@@ -155,13 +156,19 @@ impl VariantValue {
         }
     }
 
-    /// The four longhands, in the order of the contract.
+    /// The five longhands, in the order of the contract, the position `normal`.
     fn expansion(self) -> Vec<CssProperty> {
+        self.expansion_with_position(StyleFontVariantPosition::Normal)
+    }
+
+    /// The five longhands, in the order of the contract.
+    fn expansion_with_position(self, position: StyleFontVariantPosition) -> Vec<CssProperty> {
         vec![
             CssProperty::FontVariantNumeric(CssPropertyValue::Exact(self.numeric)),
             CssProperty::FontVariantCaps(CssPropertyValue::Exact(self.caps)),
             CssProperty::FontVariantLigatures(CssPropertyValue::Exact(self.ligatures)),
             CssProperty::FontVariantEastAsian(CssPropertyValue::Exact(self.east_asian)),
+            CssProperty::FontVariantPosition(CssPropertyValue::Exact(position)),
         ]
     }
 }
@@ -195,7 +202,7 @@ fn synthesis_expansion(
 
 #[cfg(feature = "parser")]
 #[test]
-fn font_sets_the_eighteen_longhands_in_the_documented_order() {
+fn font_sets_the_nineteen_longhands_in_the_documented_order() {
     let types: Vec<CssPropertyType> = font("12px a").iter().map(CssProperty::get_type).collect();
     assert_eq!(
         types,
@@ -210,6 +217,7 @@ fn font_sets_the_eighteen_longhands_in_the_documented_order() {
             CssPropertyType::FontVariantNumeric,
             CssPropertyType::FontVariantLigatures,
             CssPropertyType::FontVariantEastAsian,
+            CssPropertyType::FontVariantPosition,
             CssPropertyType::FontKerning,
             CssPropertyType::FontOpticalSizing,
             CssPropertyType::FontVariationSettings,
@@ -240,6 +248,7 @@ fn font_with_a_size_and_a_family_resets_everything_it_does_not_name_to_initial()
             CssProperty::FontVariantNumeric(CssPropertyValue::Initial),
             CssProperty::FontVariantLigatures(CssPropertyValue::Initial),
             CssProperty::FontVariantEastAsian(CssPropertyValue::Initial),
+            CssProperty::FontVariantPosition(CssPropertyValue::Initial),
             CssProperty::FontKerning(CssPropertyValue::Initial),
             CssProperty::FontOpticalSizing(CssPropertyValue::Initial),
             CssProperty::FontVariationSettings(CssPropertyValue::Initial),
@@ -979,7 +988,7 @@ fn a_system_font_keyword_with_anything_else_is_no_system_font() {
 
 #[cfg(feature = "parser")]
 #[test]
-fn font_variant_sets_the_four_longhands_in_the_documented_order() {
+fn font_variant_sets_the_five_longhands_in_the_documented_order() {
     let types: Vec<CssPropertyType> = variant("normal")
         .iter()
         .map(CssProperty::get_type)
@@ -991,13 +1000,14 @@ fn font_variant_sets_the_four_longhands_in_the_documented_order() {
             CssPropertyType::FontVariantCaps,
             CssPropertyType::FontVariantLigatures,
             CssPropertyType::FontVariantEastAsian,
+            CssPropertyType::FontVariantPosition,
         ]
     );
 }
 
 #[cfg(feature = "parser")]
 #[test]
-fn font_variant_normal_is_normal_for_all_four_longhands() {
+fn font_variant_normal_is_normal_for_all_five_longhands() {
     assert_eq!(variant("normal"), VariantValue::normal().expansion());
     assert_eq!(variant("  NORMAL "), VariantValue::normal().expansion());
     // Spelled out: every value is `Exact`, none is `initial`.
@@ -1013,6 +1023,9 @@ fn font_variant_normal_is_normal_for_all_four_longhands() {
             )),
             CssProperty::FontVariantEastAsian(CssPropertyValue::Exact(
                 StyleFontVariantEastAsian::NORMAL
+            )),
+            CssProperty::FontVariantPosition(CssPropertyValue::Exact(
+                StyleFontVariantPosition::Normal
             )),
         ]
     );
@@ -1278,20 +1291,47 @@ fn font_variant_takes_a_function_and_sets_nothing_for_it() {
 #[cfg(feature = "parser")]
 #[test]
 fn font_variant_takes_the_keywords_without_a_longhand_and_sets_nothing_for_them() {
-    // `sub` is accepted and ignored, so are `super` and the rest.
-    for input in [
-        "sub",
-        "super",
-        "historical-forms",
-        "text",
-        "emoji",
-        "unicode",
-        "SUB",
-    ] {
+    // `historical-forms`, `text`, `emoji` and `unicode` are accepted and ignored.
+    for input in ["historical-forms", "text", "emoji", "unicode", "HISTORICAL-FORMS"] {
         assert_eq!(variant(input), VariantValue::normal().expansion(), "`{input}`");
     }
     assert_eq!(
+        variant("text small-caps"),
+        VariantValue {
+            caps: StyleFontVariantCaps::SmallCaps,
+            ..VariantValue::normal()
+        }
+        .expansion()
+    );
+}
+
+/// `sub` and `super` are the keywords of `font-variant-position`: the shorthand sets it.
+#[cfg(feature = "parser")]
+#[test]
+fn font_variant_sub_and_super_set_the_position() {
+    for (input, position) in [
+        ("sub", StyleFontVariantPosition::Subscript),
+        ("SUB", StyleFontVariantPosition::Subscript),
+        ("super", StyleFontVariantPosition::Superscript),
+        ("Super", StyleFontVariantPosition::Superscript),
+    ] {
+        assert_eq!(
+            variant(input),
+            VariantValue::normal().expansion_with_position(position),
+            "`{input}`"
+        );
+    }
+    assert_eq!(
         variant("sub small-caps"),
+        VariantValue {
+            caps: StyleFontVariantCaps::SmallCaps,
+            ..VariantValue::normal()
+        }
+        .expansion_with_position(StyleFontVariantPosition::Subscript)
+    );
+    // a value that names no position is `normal`
+    assert_eq!(
+        variant("small-caps"),
         VariantValue {
             caps: StyleFontVariantCaps::SmallCaps,
             ..VariantValue::normal()
@@ -1317,7 +1357,7 @@ fn font_variant_with_keywords_of_every_kind() {
             },
             numeric: StyleFontVariantNumeric::NORMAL,
         }
-        .expansion()
+        .expansion_with_position(StyleFontVariantPosition::Superscript)
     );
 }
 
@@ -1342,7 +1382,7 @@ fn font_variant_takes_a_keyword_of_a_group_once() {
     // Different groups are different longhands: one of each stands together.
     assert_eq!(
         variant("sub text historical-forms swash(a) ornaments(b) stylistic(c)"),
-        VariantValue::normal().expansion()
+        VariantValue::normal().expansion_with_position(StyleFontVariantPosition::Subscript)
     );
 }
 
