@@ -337,9 +337,13 @@ def body(args, logs, out):
 
         # A label under a cutout: the selected cutout has its label zone under it, a double click there types the
         # label (the text area takes the keyboard when it mounts), leaving the area keeps it.
-        def label_of(kind, nth=0):
-            found = [i for i in read_board(board_file(data_dir))[0]["items"] if i["kind"] == kind]
-            return (found[nth].get("label"), found[nth]["id"]) if len(found) > nth else (None, None)
+        def label_of(item_id):
+            found = [i for i in read_board(board_file(data_dir))[0]["items"] if i["id"] == item_id]
+            return found[0].get("label") if found else None
+
+        def arrow_id():
+            found = [i["id"] for i in read_board(board_file(data_dir))[0]["items"] if i["kind"] == "arrow"]
+            return found[0] if found else None
 
         first, second = (app.rect("__azreview_whiteboard-cutout-%d" % i) for i in (1, 2))
         cx, cy = first["x"] + first["width"] / 2.0, first["y"] + first["height"] / 2.0
@@ -348,24 +352,25 @@ def body(args, logs, out):
         app.must("mouse_up", x=cx, y=cy)
         app.frame(2)
         double_click(app, cx, first["y"] + first["height"] + 8.0)
-        area = "__azreview_whiteboard-label-%d" % label_of("cutout", 0)[1]
+        area = "__azreview_whiteboard-label-1"
         app.until("the label's text area", lambda: app.has_id(area))
         app.frame(2)
         focus = app.value("get_focus_state") or {}
-        print("[azwhiteboard] autofocus: %s" % ("the label's area has the keyboard" if focus.get("has_focus") else "NO node has the keyboard"))
+        has = next((d["has_focus"] for d in [focus] + list(e2e.dicts(focus)) if isinstance(d, dict) and "has_focus" in d), None)
+        print("[azwhiteboard] autofocus: %s (%s)" % ("the label's area has the keyboard" if has else "NO node has the keyboard", json.dumps(focus)[:200]))
         app.text_input("#" + area, "the parser")
         shoot(app, os.path.join(out, "8a-typing.png"))
         app.key("Tab")
-        app.until("the cutout's label kept", lambda: label_of("cutout", 0)[0] == "the parser")
+        app.until("the cutout's label kept", lambda: label_of(1) == "the parser")
         # ... and on an arrow, on its line (the straight line from where it starts to the second cutout's middle).
         sx, sy = first["x"] + first["width"] - 3.0, first["y"] + first["height"] / 2.0
         ex, ey = second["x"] + second["width"] / 2.0, second["y"] + second["height"] / 2.0
         double_click(app, sx + 0.3 * (ex - sx), sy + 0.3 * (ey - sy))
-        arrow_area = "__azreview_whiteboard-label-%d" % label_of("arrow", 0)[1]
+        arrow_area = "__azreview_whiteboard-label-%d" % arrow_id()
         app.until("the arrow's text area", lambda: app.has_id(arrow_area))
         app.text_input("#" + arrow_area, "calls")
         app.key("Tab")
-        app.until("the arrow's label kept", lambda: label_of("arrow", 0)[0] == "calls")
+        app.until("the arrow's label kept", lambda: label_of(arrow_id()) == "calls")
         app.frame(2)
         shoot(app, os.path.join(out, "8b-labelled.png"))
     except Failure:
