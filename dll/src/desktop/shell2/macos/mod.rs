@@ -7194,6 +7194,9 @@ impl MacOSWindow {
         // A worker wakes the main queue when it has something to say, so no window
         // polls its workers every frame (`wake_main_for_threads`).
         azul_layout::thread::set_thread_wake(Some(wake_main_for_threads));
+        // The marks of the app's start (`AZ_STARTUP=1`): a handle of its own, the window moves out of here.
+        let startup = app_shared.startup_handle();
+        startup.mark("window:new_begin");
 
         // If background_color is None and no material effect, use system window background
         // Note: When a material is set, the renderer will use transparent clear color automatically
@@ -7359,6 +7362,7 @@ impl MacOSWindow {
             "[MacOSWindow::new] Content view created, backend: {:?}",
             backend
         );
+        startup.mark_with("window:content_view_created", || format!("backend={backend:?}"));
 
         // Create window style mask
         log_trace!(
@@ -7435,6 +7439,7 @@ impl MacOSWindow {
                 }
             };
         log_trace!(LogCategory::Window, "[MacOSWindow::new] NSWindow created");
+        startup.mark("window:nswindow_allocated");
         // We hold the window in a `Retained` (+1) and release it in `Drop`.
         // NSWindow's default `releasedWhenClosed = YES` makes `close()` release
         // it TOO — for a window that is closed and then dropped (every popup
@@ -7762,6 +7767,7 @@ impl MacOSWindow {
                 }
             };
 
+            startup.mark("window:webrender_instance_created");
             renderer.set_external_image_handler(Box::new(WrCompositor::default()));
 
             let render_api = sender.create_api();
@@ -7834,6 +7840,7 @@ impl MacOSWindow {
             }
         };
 
+        startup.mark_with("window:render_backend_ready", || format!("renderer={renderer_type:?}"));
         // Initialize window state with actual HiDPI factor from screen
         let actual_dpi = (actual_hidpi_factor * BASE_DPI) as u32; // Convert scale factor to DPI
         // Read before the window state takes its fields out of `options`.
@@ -7893,6 +7900,7 @@ impl MacOSWindow {
             })?,
         };
 
+        startup.mark("window:layout_window_built");
         // Set document_id and id_namespace for this window (if GPU path)
         if let Some(did) = wr_document_id {
             layout_window.document_id = did;
@@ -8083,6 +8091,7 @@ impl MacOSWindow {
             released: false,
         };
 
+        startup.mark("window:struct_built");
         // The titlebar in the mode the window will show, before it is ever
         // drawn: a window opened under a dark pin on a light desktop must not
         // flash a light titlebar.
@@ -8160,6 +8169,7 @@ impl MacOSWindow {
                 LogCategory::Callbacks,
                 "[Window Init] create_callback completed"
             );
+            startup.mark("window:create_callback_done");
         }
 
         // Register debug timer is now done from run() with explicit channel + component map
@@ -8177,6 +8187,7 @@ impl MacOSWindow {
             );
         }
 
+        startup.mark("window:initial_layout_done");
         // A window created to fit its content (a window-drawn menu) takes the size
         // its first layout measured, before it is ever shown.
         if options.size_to_content {
@@ -8185,6 +8196,7 @@ impl MacOSWindow {
 
         // Install the application menu bar from the root DOM's menu_bar (if any).
         window.apply_menu_bar_from_dom();
+        startup.mark("window:menu_bar_applied");
 
         // Initialize accessibility adapter after first layout
         #[cfg(feature = "a11y")]
@@ -8194,15 +8206,18 @@ impl MacOSWindow {
                 "[Window Init] Initializing accessibility support"
             );
             window.init_accessibility();
+            startup.mark("window:a11y_initialized");
         }
 
         // Request a regeneration so drawRect will build and send the transaction
         window
             .common
             .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        startup.mark("window:regeneration_requested_at_end_of_init");
 
         // Detect current monitor and set monitor_id
         window.detect_current_monitor();
+        startup.mark("window:monitor_detected");
 
         // Initialize CVDisplayLink for VSYNC (if enabled and available)
         if let Err(e) = window.initialize_display_link() {
@@ -8213,6 +8228,7 @@ impl MacOSWindow {
             );
             // Not a fatal error - window will still work, just without VSYNC
         }
+        startup.mark("window:display_link_ready");
 
         // Apply initial background material if not Opaque
         // This must be done after the window struct is built but before showing
@@ -8275,6 +8291,7 @@ impl MacOSWindow {
             }
             // Ordering the window in lays its titlebar out: again.
             window.apply_traffic_light_position();
+            startup.mark("window:ordered_in");
         } else {
             log_debug!(
                 LogCategory::Window,
@@ -8320,6 +8337,7 @@ impl MacOSWindow {
             LogCategory::Window,
             "[Window Init] Window initialization complete"
         );
+        startup.mark("window:new_done");
         Ok(window)
     }
 
@@ -10554,12 +10572,24 @@ impl MacOSWindow {
         if shown_after_draw(shows_document, self.blank_first_draws) {
             self.awaiting_first_frame = false;
             self.window.setAlphaValue(1.0);
+            self.mark_first_present(shows_document);
         } else {
             // The frame WebRender is building asks for the draw that shows
             // it; the request keeps a window whose frame never comes on its
             // way to being shown anyway.
             self.blank_first_draws += 1;
             self.request_redraw();
+        }
+    }
+
+    /// The first frame is on its way to the screen: the startup timeline (`AZ_STARTUP=1`) marks the first
+    /// present and prints its table (the later marks print as lines of their own).
+    fn mark_first_present(&self, shows_document: bool) {
+        let startup = self.common.app.startup();
+        if startup.mark_once_with("first_present", || {
+            format!("shows_document={shows_document} blank_draws_before={}", self.blank_first_draws)
+        }) {
+            startup.print_table();
         }
     }
 

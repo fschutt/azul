@@ -219,17 +219,20 @@ impl App {
         // the process again; the libraries read no environment themselves.
         let env = crate::env::ProcessEnv::new();
         let settings = AppSettings::from_lookup(&env);
+        // The startup timeline of this app: ONE, owned by the app and handed to every window and worker thread through its
+        // `AppShared`; off (a test of a bool at each mark) unless `AZ_STARTUP` asked. Made as soon as the settings say
+        // whether it is on; the time the environment took to read (on Android the `getprop` of the properties) is its
+        // first step.
+        let startup = Arc::new(
+            StartupTimeline::for_process(settings.shell.startup_timeline, began, entered_wall)
+                .with_sink(log_gate::startup_line),
+        );
+        startup.mark("app_create:env_and_settings");
         // What azul-css and azul-core ask of it (the theme and mode pins, the log filter, the
         // profiling gate, the diagnostic dials, the test hooks) is installed where their
         // context-free code finds it, before the first log record and before the system style is
         // discovered. The first install of a process wins.
         settings.install_libraries();
-        // The startup timeline of this app: ONE, owned by the app and handed to every window and worker thread through its
-        // `AppShared`; off (a test of a bool at each mark) unless `AZ_STARTUP` asked.
-        let startup = Arc::new(
-            StartupTimeline::for_process(settings.shell.startup_timeline, began, entered_wall)
-                .with_sink(log_gate::startup_line),
-        );
         // The end user's rice (`~/.azul/css/<theme>/*.css` and the legacy per-app file,
         // `azul_css::rice`), in the `AZ_RICING` mode, with the real home directory: installed
         // HERE (a test or a tool that never creates an App never reads it), and before the system
@@ -558,6 +561,10 @@ impl App {
     }
 
     pub fn run(&self, root_window: WindowCreateOptions) {
+        // The marks of the app's start (`AZ_STARTUP=1`): everything between `App::create` returning and the
+        // first window being made is the app's own code and `run`'s preparations.
+        let startup = self.ptr.app_shared.startup_handle();
+        startup.mark("app_run:entered");
         // This thread runs the event loop (and the callbacks): a blocking
         // request here would stop the frames that deliver every other answer.
         azul_layout::http::mark_event_loop_thread();
@@ -700,6 +707,7 @@ impl App {
         self.ptr.undo_manager.services().clipboard.install(Some(
             crate::desktop::shell2::common::clipboard::read_clipboard_for_callbacks,
         ));
+        startup.mark("app_run:services_ready");
 
         // Use shell2 for the actual run loop
         let err = crate::desktop::shell2::run(

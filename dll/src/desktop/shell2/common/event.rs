@@ -1582,6 +1582,29 @@ pub struct HitTestNode {
     pub node_id: u64,
 }
 
+/// Whether an event of this type is something a person (or a script standing in for one) did to the app:
+/// the first one the app handles is the moment it is interactive (`AZ_STARTUP=1`). Focus, window and
+/// lifecycle events are not.
+#[must_use]
+pub fn is_user_input_event(event_type: azul_core::events::EventType) -> bool {
+    use azul_core::events::EventType;
+    matches!(
+        event_type,
+        EventType::MouseDown
+            | EventType::MouseUp
+            | EventType::Click
+            | EventType::DoubleClick
+            | EventType::ContextMenu
+            | EventType::KeyDown
+            | EventType::KeyUp
+            | EventType::KeyPress
+            | EventType::Scroll
+            | EventType::TouchStart
+            | EventType::TouchEnd
+            | EventType::LongPress
+    )
+}
+
 /// Borrowed resources needed for `invoke_single_callback`.
 ///
 /// This struct borrows individual fields from the window, allowing the borrow checker
@@ -5243,6 +5266,9 @@ pub trait PlatformWindow {
                     "{passes} pass(es) in {:.2}ms",
                     started.elapsed().as_secs_f64() * 1000.0
                 ));
+                if self.a11y_tree_updates().is_some_and(|n| n > 0) {
+                    startup.mark_once("a11y_tree_first_built");
+                }
                 startup.layout_end(layout_no, passes, "");
                 return Ok(result);
             }
@@ -12366,6 +12392,26 @@ pub trait PlatformWindow {
             // Fallback: no events if managers not available
             Vec::new()
         };
+
+        // The startup timeline (`AZ_STARTUP=1`): the first pass that brings an input event is the first input
+        // the app handles, whoever sent it (the OS, or the debug server's synthetic events).
+        if synthetic_events.iter().any(|e| is_user_input_event(e.event_type)) {
+            let startup = self.get_app_shared().startup();
+            if startup.mark_once_with("first_event", || {
+                let first = synthetic_events
+                    .iter()
+                    .find(|e| is_user_input_event(e.event_type))
+                    .map_or(String::new(), |e| format!("{:?}", e.event_type));
+                format!("type={first}")
+            }) && startup.table_printed()
+            {
+                // The table came out at the first present: the interactive moment is told on its own line.
+                crate::desktop::shell2::common::log_gate::startup_line(&format!(
+                    "[startup] first_event handled at {:.3} ms",
+                    startup.at_us_of("first_event").unwrap_or(0) as f64 / 1000.0
+                ));
+            }
+        }
 
         // PRESS-TARGET CAPTURE: the node a button was pressed on gets that
         // button's release even when the pointer released elsewhere (or the
