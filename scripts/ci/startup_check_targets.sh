@@ -6,13 +6,18 @@
 # side (cargo locks a target directory).
 #   scripts/remote.sh run <sha> ubuntu-22.04 'bash scripts/ci/startup_check_targets.sh' --codegen
 set +e
+# Which checks run: the names given (windows, ios, android), all three by default.
+wanted="${*:-windows ios android}"
 mkdir -p out
 rustup target add x86_64-pc-windows-gnu aarch64-apple-ios >/dev/null 2>&1
-echo "=== runner: $(uname -a), cores $(nproc)"
+# ring's build script compiles C for the Windows target: the MinGW cross compiler (the runner image does not ship it)
+sudo apt-get install -y -qq gcc-mingw-w64-x86-64 >/dev/null 2>&1
+echo "=== runner: $(uname -a), cores $(nproc), checks: $wanted, mingw: $(command -v x86_64-w64-mingw32-gcc)"
 
 check() {
     name="$1"
     shift
+    case " $wanted " in *" $name "*) ;; *) return;; esac
     ( "$@" > "out/check-$name.log" 2>&1; echo "$?" > "out/check-$name.rc" ) &
 }
 
@@ -28,7 +33,7 @@ check android env CARGO_TARGET_DIR="$PWD/target-android" bash scripts/ci/android
 wait
 
 status=0
-for name in windows ios android; do
+for name in $wanted; do
     rc="$(cat "out/check-$name.rc" 2>/dev/null || echo missing)"
     if [ "$rc" = "0" ]; then
         echo "CHECK $name: ok"
