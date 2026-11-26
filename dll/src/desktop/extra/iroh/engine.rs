@@ -20,6 +20,7 @@ use std::{
 };
 
 use iroh::{
+    address_lookup::UserData,
     endpoint::{presets, Connection, ReadToEndError, RecvStream, SendStream, VarInt},
     Endpoint, EndpointAddr, EndpointId, RelayMode, RelayUrl, SecretKey, Watcher,
 };
@@ -33,6 +34,7 @@ use azul_core::tls::TrustRoots;
 
 use super::{
     discovery::{self, Held, LocalDiscovery, LocalDiscoveryState, Wanted},
+    nearby::{advertised_text, Nearby, NearbyPeer, MAX_ADVERTISED_BYTES, MAX_NEARBY_PEERS},
     types::{IrohConfig, IrohEvent, IrohEventKind, IrohPeerStats, IrohRelayMode},
 };
 
@@ -84,6 +86,16 @@ fn endpoint_ids(
         .collect()
 }
 
+/// An advertised text (already cleaned and cut by [`advertised_text`]) as iroh's user data;
+/// `None` for no text.
+fn user_data_of(text: &str) -> Option<UserData> {
+    if text.is_empty() {
+        None
+    } else {
+        text.parse::<UserData>().ok()
+    }
+}
+
 /// Starts local-network discovery as `config` asks (`discovery::wanted`): what it came to, and what
 /// it keeps alive. A failure is a state, never an error of the bind.
 fn start_local_discovery(
@@ -91,13 +103,14 @@ fn start_local_discovery(
     endpoint: &Endpoint,
     discovery: &dyn LocalDiscovery,
     ignored: &Arc<AtomicU64>,
+    nearby: &Arc<Nearby>,
 ) -> (LocalDiscoveryState, Option<Held>) {
     let announce = match discovery::wanted(config) {
         Wanted::Off => return (LocalDiscoveryState::Off, None),
         Wanted::Look => false,
         Wanted::LookAndAnnounce => discovery.can_announce(),
     };
-    match discovery.start(endpoint, announce, ignored) {
+    match discovery.start(endpoint, announce, ignored, nearby) {
         Ok(held) => (LocalDiscoveryState::On { announcing: announce }, held),
         Err(reason) => (LocalDiscoveryState::Unavailable(reason), None),
     }
@@ -118,6 +131,11 @@ pub(super) struct Engine {
     local: LocalDiscoveryState,
     /// The announced addresses that local discovery did not use (`discovery::sanitised`).
     ignored: Arc<AtomicU64>,
+    /// The endpoints on the local network, as local discovery heard them.
+    nearby: Arc<Nearby>,
+    /// The length of the advertised text before it was cut to what an announcement holds
+    /// (`nearby::advertised_text`); 0 when it was not cut.
+    advertised_cut: AtomicU64,
     /// What local discovery keeps alive until the engine is dropped (Android's multicast lock).
     _held: Option<Held>,
 }
@@ -262,16 +280,24 @@ impl Engine {
                 .bind_addr(SocketAddr::from((Ipv4Addr::UNSPECIFIED, config.port)))
                 .map_err(|e| format!("invalid port {}: {e}", config.port))?;
         }
+        // What the endpoint says about itself on the local network: published to the local
+        // lookups only (the endpoint has no others), and only while discovery announces it.
+        let advertised = advertised_text(config.advertised.as_str());
+        if let Some(user_data) = user_data_of(&advertised.text) {
+            builder = builder.user_data_for_address_lookup(user_data);
+        }
         let ignored = Arc::new(AtomicU64::new(0));
         // Local discovery starts inside the runtime (its lookups spawn tasks on it); a network
         // that refuses it leaves the endpoint as it was, bound without it.
-        let (endpoint, local, held) = runtime.block_on(async {
+        let (endpoint, local, held, nearby) = runtime.block_on(async {
             let endpoint = builder
                 .bind()
                 .await
                 .map_err(|e| format!("could not bind the endpoint: {e}"))?;
-            let (local, held) = start_local_discovery(config, &endpoint, discovery, &ignored);
-            Ok::<_, String>((endpoint, local, held))
+            let nearby = Arc::new(Nearby::new(endpoint.id()));
+            let (local, held) =
+                start_local_discovery(config, &endpoint, discovery, &ignored, &nearby);
+            Ok::<_, String>((endpoint, local, held, nearby))
         })?;
         let state = Arc::new(State {
             max_frame: config.max_frame_bytes as usize,
@@ -287,8 +313,29 @@ impl Engine {
             state,
             local,
             ignored,
+            nearby,
+            advertised_cut: AtomicU64::new(advertised.cut_from.map_or(0, |n| n as u64)),
             _held: held,
         })
+    }
+
+    /// Changes what this endpoint advertises about itself on the local network (see
+    /// `IrohConfig::advertised`); an empty text advertises nothing.
+    pub(super) fn set_advertised(&self, text: &str) {
+        let advertised = advertised_text(text);
+        self.advertised_cut
+            .store(advertised.cut_from.map_or(0, |n| n as u64), Ordering::Relaxed);
+        if let Ok(runtime) = runtime() {
+            // inside the runtime's context, as the lookups that are told expect to be
+            let _inside = runtime.enter();
+            self.endpoint
+                .set_user_data_for_address_lookup(user_data_of(&advertised.text));
+        }
+    }
+
+    /// The endpoints on the local network now, by endpoint id.
+    pub(super) fn nearby_peers(&self) -> Vec<NearbyPeer> {
+        self.nearby.list()
     }
 
     /// The sockets the endpoint is bound to (the Bonjour test compares ports).
@@ -299,7 +346,24 @@ impl Engine {
 
     /// What local-network discovery does for this endpoint (`IrohEndpoint::local_discovery_status`).
     pub(super) fn local_discovery_status(&self) -> String {
-        self.local.status(self.ignored.load(Ordering::Relaxed))
+        let mut text = self.local.status(self.ignored.load(Ordering::Relaxed));
+        let cut = self.advertised_cut.load(Ordering::Relaxed);
+        if cut > 0 {
+            text.push_str(&format!(
+                "; the advertised text was cut from {cut} to {MAX_ADVERTISED_BYTES} bytes"
+            ));
+        }
+        if let Some(reason) = self.nearby.trouble() {
+            text.push_str(&format!("; looking for nearby endpoints failed: {reason}"));
+        }
+        let refused = self.nearby.refused();
+        if refused > 0 {
+            text.push_str(&format!(
+                "; {refused} announcements of other endpoints were not listed (the list holds \
+                 {MAX_NEARBY_PEERS})"
+            ));
+        }
+        text
     }
 
     /// Accepts incoming connections from `peers` only (`None`: from every peer), from the
@@ -521,6 +585,10 @@ impl Engine {
 
     pub(super) fn recv(&self) -> Option<IrohEvent> {
         if let Some(event) = lock(&self.state.events).pop_front() {
+            return Some(event);
+        }
+        // what changed on the local network since the app last asked
+        if let Some(event) = self.nearby.take_event() {
             return Some(event);
         }
         let mut frames = lock(&self.state.frames);

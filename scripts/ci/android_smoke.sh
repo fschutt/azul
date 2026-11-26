@@ -9,7 +9,9 @@
 #   screenshot.png   what the app showed after the wait
 #   logcat.txt       the log of that run
 #   result.json      {app, package, booted, alive, fatal: "<first fatal line>" | null, rust_log_lines, screen_nonblank}
-# and <out-dir>/summary.json lists them. Exit 0 when every app is alive after the wait with no fatal line in
+# (and screenshot-after-tap.png, tap.json when the manifest names a button for the app: AZ_SMOKE_TAPS, a JSON map
+# of app name -> the label to press, from scripts/demo_apps.toml's [app.smoke] tap) and <out-dir>/summary.json
+# lists them. Exit 0 when every app is alive after the wait with no fatal line in
 # the log; 1 when one is not; 2 when the emulator itself could not be started (nothing is said about the apps).
 set -uo pipefail
 
@@ -66,7 +68,7 @@ for apk in "$@"; do
   badging="$("$aapt2" dump badging "$apk" 2>/dev/null)"
   pkg="$(echo "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
   act="$(echo "$badging" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" | head -n 1)"
-  alive=0; fatal=""; rust_lines=0; nonblank=0
+  alive=0; fatal=""; rust_lines=0; nonblank=0; expect_text=""; expect_found=""
   if [ -z "$pkg" ] || [ -z "$act" ]; then
     fatal="no package or launchable activity in the APK's badging"
   else
@@ -83,20 +85,69 @@ for apk in "$@"; do
       # emulator crash now and then and are not this app's verdict)
       fatal="$(grep -E "FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|UnsatisfiedLinkError|dlopen failed|ANR in $pkg|Process $pkg .*(died|killed)|AndroidRuntime.*$pkg" "$dir/logcat.txt" | head -n 1)"
       rust_lines="$(grep -c -E 'RustStdoutStderr| azul' "$dir/logcat.txt" || true)"
-      python3 - "$dir/screenshot.png" <<'PY' && nonblank=1
-import sys
-data = open(sys.argv[1], "rb").read()
-sys.exit(0 if data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) > 8000 else 1)
+      python3 "$(dirname "$0")/png_nonblank.py" "$dir/screenshot.png" >/dev/null && nonblank=1
+      # The text the manifest expects on the first screen ([app.smoke] expect): in uiautomator's dump of it.
+      expect_text="$(python3 -c 'import json,os,sys; print(json.loads(os.environ.get("AZ_SMOKE_EXPECTS") or "{}").get(sys.argv[1], ""))' "${app%-android-x86_64}")"
+      expect_found=""
+      if [ -n "$expect_text" ] && [ "$alive" = "1" ]; then
+        adb shell uiautomator dump /sdcard/ui-first.xml >/dev/null 2>&1 && adb pull /sdcard/ui-first.xml "$dir/ui-first.xml" >/dev/null 2>&1
+        if grep -qiF -- "$expect_text" "$dir/ui-first.xml" 2>/dev/null; then expect_found="yes"; else expect_found="no"; fi
+      fi
+      # A button the manifest names ([app.smoke] tap): press it, wait, and look again. Found by its accessibility
+      # name in uiautomator's dump; else where the app's own notes put it (130 dp above the bottom edge, centred).
+      tap_label="$(python3 -c 'import json,os,sys; print(json.loads(os.environ.get("AZ_SMOKE_TAPS") or "{}").get(sys.argv[1], ""))' "${app%-android-x86_64}")"
+      if [ -n "$tap_label" ] && [ "$alive" = "1" ]; then
+        tapped="no"
+        adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 && adb pull /sdcard/ui.xml "$dir/ui-before.xml" >/dev/null 2>&1
+        xy="$(python3 - "$dir/ui-before.xml" "$tap_label" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+try:
+    root = ET.parse(sys.argv[1]).getroot()
+except Exception:
+    sys.exit(1)
+for n in root.iter("node"):
+    if sys.argv[2].lower() in (n.get("text", "") + " " + n.get("content-desc", "")).lower():
+        m = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", n.get("bounds", ""))
+        if m:
+            a, b, c, d = map(int, m.groups())
+            print((a + c) // 2, (b + d) // 2)
+            sys.exit(0)
+sys.exit(1)
 PY
+)" && tapped="by its name"
+        if [ -z "$xy" ]; then
+          wh="$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -n 1)"; dpi="$(adb shell wm density | grep -o '[0-9]*' | tail -n 1)"
+          xy="$(( ${wh%x*} / 2 )) $(( ${wh#*x} - 130 * ${dpi:-160} / 160 ))"; tapped="by its place"
+        fi
+        # shellcheck disable=SC2086
+        adb shell input tap $xy
+        sleep 5
+        adb exec-out screencap -p >"$dir/screenshot-after-tap.png" 2>/dev/null || true
+        tap_alive=0
+        [ -n "$(adb shell pidof "$pkg" 2>/dev/null | tr -d '\r')" ] && tap_alive=1
+        adb logcat -d -v threadtime >"$dir/logcat-after-tap.txt" 2>&1 || true
+        tap_fatal="$(grep -E "FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|UnsatisfiedLinkError|ANR in $pkg|Process $pkg .*(died|killed)|AndroidRuntime.*$pkg" "$dir/logcat-after-tap.txt" | head -n 1)"
+        python3 - "$dir/tap.json" "$tap_label" "$tapped" "$xy" "$tap_alive" "$tap_fatal" <<'PY'
+import json, sys
+path, label, how, xy, alive, fatal = sys.argv[1:]
+json.dump({"label": label, "found": how, "at": xy, "alive": alive == "1", "fatal": fatal or None}, open(path, "w"), indent=2)
+PY
+        [ "$tap_alive" = "1" ] && [ -z "$tap_fatal" ] || fatal="${fatal:-after pressing \"$tap_label\": ${tap_fatal:-the app is gone}}"
+      fi
       adb shell am force-stop "$pkg" >/dev/null 2>&1 || true
       adb uninstall "$pkg" >/dev/null 2>&1 || true
     fi
   fi
-  python3 - "$dir/result.json" "$app" "$pkg" "$alive" "$fatal" "${rust_lines:-0}" "$nonblank" <<'PY'
-import json, sys
-path, app, pkg, alive, fatal, rust, nonblank = sys.argv[1:]
-json.dump({"app": app, "package": pkg, "booted": True, "alive": alive == "1", "fatal": fatal or None,
-           "rust_log_lines": int(rust), "screen_nonblank": nonblank == "1"}, open(path, "w"), indent=2)
+  python3 - "$dir/result.json" "$app" "$pkg" "$alive" "$fatal" "${rust_lines:-0}" "$nonblank" "$dir/tap.json" "${expect_text:-}" "${expect_found:-}" <<'PY'
+import json, os, sys
+path, app, pkg, alive, fatal, rust, nonblank, tap, expect, found = sys.argv[1:]
+r = {"app": app, "package": pkg, "booted": True, "alive": alive == "1", "fatal": fatal or None,
+     "rust_log_lines": int(rust), "screen_nonblank": nonblank == "1"}
+if os.path.exists(tap):
+    r["tap"] = json.load(open(tap))
+if expect:
+    r["expect"] = {"text": expect, "found": found == "yes"}
+json.dump(r, open(path, "w"), indent=2)
 PY
   echo "[$([ "$alive" = 1 ] && [ -z "$fatal" ] && echo PASS || echo FAIL)] $app: alive=$alive fatal=${fatal:-none} rust_lines=${rust_lines:-0} screen=$nonblank"
   { [ "$alive" = "1" ] && [ -z "$fatal" ]; } || all_ok=1

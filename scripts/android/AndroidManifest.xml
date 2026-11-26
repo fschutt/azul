@@ -62,6 +62,7 @@
 
     <application
         android:label="@LABEL@"
+        @ICON_ATTR@
         android:hasCode="false">
 
         <!-- singleTop: a notification tap on the running app arrives in
