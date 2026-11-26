@@ -68,6 +68,8 @@ After the table come two lines for a script: `[startup-json] {...}` (the headlin
 | `font_dirs_scanned`, `font_scan_complete` | the scan on its worker threads: what the first layout can wait for on a machine without the font cache |
 | `app_run:*`, `run:*` | `App::run` and the platform's `run`: NSApplication, the menu, the launch hooks, `finishLaunching`, the event loop |
 | `window:*` | the window: the native window, the content view, the GL context and WebRender (GPU only), the layout window, the menu bar, accessibility, the display link |
+| `x11:*`, `wayland:*`, `win:*`, `android:*` | the same for the Linux, Windows and Android windows: the libraries, the display or the window class, the native window, the renderer (`render_backend` says `cpu` or `gpu` and what was asked for), the accessibility adapter, the map or the show |
+| `gtk_im_loaded` | libgtk-3's input method context (X11 and Wayland): loaded at the first caret position a text field hands over, not at window creation; it shows as a late mark, and only in a run that has such a field |
 | `layout_begin`, `layout_phases`, `layout_end` | one layout pass, its reason and its phases |
 | `a11y_tree_first_built` | the layout pass that built the first accessibility tree |
 | `first_present` | the first frame handed to the OS (macOS: the window is revealed) |
