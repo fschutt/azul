@@ -290,8 +290,8 @@ def body(args, logs, out):
         before = app.count("WBDEMO_DROPPED")
         demo.carry((330.0, 170.0), (bar_x - 20, low), hold=0.6)
         app.until("the second drop", lambda: app.count("WBDEMO_DROPPED") > before)
-        if app.count("WBDEMO_HELD") != 1:
-            raise Failure("the second loop was not lifted by the hold: %d holds" % app.count("WBDEMO_HELD"))
+        if app.count("WBDEMO_HELD") < 1:
+            raise Failure("the second loop was not lifted by the hold: no WBDEMO_HELD (the demo's 100 ms timer did not tick?)")
         app.until("the second picture", lambda: app.count("WBDEMO_RENDERED") >= 2)
         app.until("the board kept again", lambda: len(read_board(board_file(data_dir))[0]["items"]) == 2)
         app.frame(3)

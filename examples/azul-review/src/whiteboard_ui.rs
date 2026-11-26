@@ -362,8 +362,8 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
     }
     let arrows: Vec<Arrow> = panel.wb.board.arrows().cloned().collect();
     for a in &arrows {
-        if let Some(label) = arrow_label_dom(panel, host, a) {
-            root.add_child(label);
+        if let Some(on_its_line) = arrow_label_dom(panel, host, a) {
+            root.add_child(on_its_line);
         }
     }
     if cutouts.is_empty() {
