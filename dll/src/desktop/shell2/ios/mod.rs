@@ -429,6 +429,8 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
                     frames_now.saturating_add(1),
                     core::sync::atomic::Ordering::Relaxed,
                 );
+                // the frame times of a scroll are measured here and in the GPU path's present alike
+                window.present_log.note(None);
             }
             CGDataProviderRelease(provider);
             CGColorSpaceRelease(cs);
@@ -2062,6 +2064,8 @@ pub struct IOSWindow {
     /// The GPU path's context, surface, lifecycle machine and renderer; `None` while the window draws on the CPU
     /// (and for good once a GPU window has fallen back).
     gpu: Option<gpu::IosGpu>,
+    /// What this window says about its own presents (the frame times of a scroll), CPU and GPU alike.
+    present_log: gpu::PresentLog,
     /// `false` after `applicationWillTerminate:`.
     pub is_open: bool,
     /// Shared icon provider — needed by `regenerate_layout()`.
@@ -2307,6 +2311,7 @@ impl IOSWindow {
             ui_view_controller,
             backend: RenderBackend::Cpu,
             gpu: None,
+            present_log: gpu::PresentLog::new(),
             is_open: true,
             icon_provider,
             font_registry,

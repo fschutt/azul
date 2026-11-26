@@ -222,6 +222,16 @@ fn a_gpu_frame_is_asked_of_the_machine() {
     assert_eq!(GPU.matches("self.gpu_draw_frame()").count(), 1);
 }
 
+/// Both renderers note their presents, so the QA compares the frame times of a scroll measured by the same
+/// clock in the same place: where the frame is handed to the system.
+///
+/// Mutation: a renderer that presents without noting it (its frame times are missing from the comparison).
+#[test]
+fn both_renderers_note_their_presents() {
+    assert!(function_body(SHELL, "extern \"C\" fn display_layer").contains("present_log.note(None)"));
+    assert!(function_body(GPU, "fn gpu_draw_frame").contains("present_log.note(Some(render_us))"));
+}
+
 /// The one line the QA harness reads is written by the decision, not composed by hand in the shell.
 #[test]
 fn the_render_line_comes_from_the_decision() {

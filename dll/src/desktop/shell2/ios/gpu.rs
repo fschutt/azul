@@ -52,6 +52,31 @@ use crate::{
     log_debug, log_error, log_info, log_warn,
 };
 
+/// What a window says about its own presents: the frame times of a scroll, measured where the frame is handed to
+/// the system (`common::frame_stats`: the lines the phone QA reads). The CPU path notes its presents too, so the
+/// two renderers are measured by the same clock.
+pub(super) struct PresentLog {
+    started: Instant,
+    stats: crate::desktop::shell2::common::frame_stats::FrameStats,
+}
+
+impl PresentLog {
+    pub(super) fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            stats: crate::desktop::shell2::common::frame_stats::FrameStats::new(),
+        }
+    }
+
+    /// A frame was handed to the system; `draw_us` is how long its draw took, when known.
+    pub(super) fn note(&mut self, draw_us: Option<u64>) {
+        let at_us = u64::try_from(self.started.elapsed().as_micros()).unwrap_or(u64::MAX);
+        if let Some(line) = self.stats.record(at_us, draw_us) {
+            log_info!(LogCategory::Rendering, "{}", line);
+        }
+    }
+}
+
 /// What an iOS window keeps while it runs on the GPU. `None` in [`IOSWindow`] for a window that draws on the CPU.
 pub(super) struct IosGpu {
     /// The lifecycle machine: the one that says what exists and what may be done.
@@ -630,6 +655,7 @@ impl IOSWindow {
         let draw_calls = results.stats.total_draw_calls as u64;
         drawable.present(context)?;
         let render_us = elapsed_us(started);
+        self.present_log.note(Some(render_us));
 
         if let Some(layout_window) = self.common.layout_window.as_ref() {
             // the frame report and `get_frame_timings` know what the GPU path did
