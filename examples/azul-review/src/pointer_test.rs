@@ -17,6 +17,7 @@ fn at(x: f32, y: f32) -> InkPoint {
         pressure: 0.5,
         tilt_x: 0.0,
         tilt_y: 0.0,
+        t_ms: 0,
     }
 }
 
@@ -248,4 +249,152 @@ fn the_switch_says_where_the_events_are_echoed() {
         Echo::parse(Some("/tmp/events.log")),
         Echo::File(std::path::PathBuf::from("/tmp/events.log"))
     );
+}
+
+// ---- the time of a stroke, and the quick slash ----
+
+use crate::{
+    lib_test::{app_with_slash_file, draw_fixture},
+    stroke_fixtures::{self as fx, Meaning},
+};
+
+#[test]
+fn a_stroke_keeps_the_time_of_each_sample_and_the_moment_it_began() {
+    let mut s = app();
+    let at_ms = |x: f32, t_ms: u32| InkPoint { t_ms, ..at(x, 10.0) };
+    s.stroke_begin_at(0, at_ms(10.0, 0), false, 1_764_000_000_000);
+    s.stroke_move_at(at_ms(20.0, 16), true);
+    s.stroke_move_at(at_ms(30.0, 33), true);
+    s.stroke_end();
+    let kept = &s.strokes[0];
+    assert_eq!(kept.started_unix_ms, 1_764_000_000_000);
+    assert_eq!(kept.points.iter().map(|p| p.t_ms).collect::<Vec<_>>(), vec![0, 16, 33]);
+}
+
+#[test]
+fn the_clock_stamps_the_moves_of_a_live_stroke_with_the_time_since_the_press() {
+    let mut s = app();
+    s.stroke_begin(0, at(10.0, 10.0), false);
+    std::thread::sleep(std::time::Duration::from_millis(6));
+    s.stroke_move(at(20.0, 10.0), true);
+    std::thread::sleep(std::time::Duration::from_millis(6));
+    s.stroke_move(at(30.0, 10.0), true);
+    s.stroke_end();
+    let kept = &s.strokes[0];
+    let times: Vec<u32> = kept.points.iter().map(|p| p.t_ms).collect();
+    assert_eq!(times[0], 0, "the press is the start of the time");
+    assert!(times[1] >= 6 && times[2] >= times[1] + 6, "time runs forward: {times:?}");
+    assert!(times[2] < 5_000, "it is milliseconds since the press: {times:?}");
+    assert!(kept.started_unix_ms > 1_700_000_000_000, "the wall clock, Unix ms: {}", kept.started_unix_ms);
+}
+
+#[test]
+fn a_quick_slash_across_a_word_takes_the_word_and_leaves_no_ink() {
+    let mut s = app_with_slash_file();
+    let ended = draw_fixture(&mut s, &fx::slash(), 0).expect("the stroke ended");
+    assert_eq!(ended.up, Up::Slashed);
+    assert_eq!(ended.page, 0);
+    assert!(s.strokes.is_empty(), "the slash is a gesture, not a mark on the page");
+    assert!(s.findings.is_empty(), "and no finding");
+    assert_eq!(s.slashes.len(), 1);
+    let d = &s.slashes[0];
+    assert_eq!((d.page, d.started_unix_ms), (0, 1_764_000_000_000));
+    assert_eq!(d.words.len(), 1);
+    assert_eq!((d.words[0].line, d.words[0].start, d.words[0].end), (12, 33, 43));
+    assert_eq!(d.words[0].text, "abcdefghij");
+    assert_eq!(d.points.len(), fx::slash().samples.len(), "the samples stay with it, for the agent");
+    assert_eq!(s.history.len(), 1);
+    assert_eq!(s.hidden_ranges(0)[11], vec![(33, 43)]);
+}
+
+#[test]
+fn the_slash_of_a_mouse_takes_a_word_too() {
+    let mut s = app_with_slash_file();
+    let f = fx::slash();
+    let point = |p: &fx::Sample| InkPoint { t_ms: p.t_ms, ..at(p.x, p.y) };
+    s.stroke_begin_at(0, point(&f.samples[0]), false, 1);
+    for p in &f.samples[1..] {
+        s.stroke_move_at(point(p), true);
+    }
+    assert_eq!(s.stroke_end().map(|e| e.up), Some(Up::Slashed));
+}
+
+#[test]
+fn a_slash_across_a_longer_stretch_takes_each_word_it_covers() {
+    let mut s = app_with_slash_file();
+    draw_fixture(&mut s, &fx::slash_through_a_long_word(), 0);
+    let words: Vec<&str> = s.slashes[0].words.iter().map(|w| w.text.as_str()).collect();
+    // x 300 to 460 covers the word at 301.8 and the next one at 374.4 to 394.2, "=" and "1" and ";" after it
+    assert_eq!(words, vec!["abcdefghij", "klm", "=", "1", ";"]);
+}
+
+#[test]
+fn a_quick_slash_where_there_is_no_word_is_ink_like_any_other_stroke() {
+    let mut s = app_with_slash_file();
+    // line 30 holds "fn f29() {}": nothing at x 300 to 372
+    let mut f = fx::slash();
+    for p in &mut f.samples {
+        p.y += 18.0 * 15.0;
+    }
+    let ended = draw_fixture(&mut s, &f, 0).expect("ended");
+    assert_eq!(ended.up, Up::Kept);
+    assert_eq!(s.strokes.len(), 1);
+    assert!(s.slashes.is_empty());
+}
+
+#[test]
+fn no_other_stroke_of_the_fixtures_takes_a_word_where_the_slash_would() {
+    for f in fx::all() {
+        if f.meaning == Meaning::Slash {
+            continue;
+        }
+        let mut s = app_with_slash_file();
+        let ended = draw_fixture(&mut s, &f, 0).expect("ended");
+        assert!(s.slashes.is_empty(), "{} took a word", f.name);
+        assert_ne!(ended.up, Up::Slashed, "{}", f.name);
+    }
+}
+
+#[test]
+fn a_slow_stroke_across_the_word_is_a_highlight_not_a_deletion() {
+    let mut s = app_with_slash_file();
+    let mut f = fx::slash();
+    let end = f.samples.last().map_or(1, |l| l.t_ms);
+    for p in &mut f.samples {
+        p.t_ms = p.t_ms * 500 / end;
+    }
+    assert_eq!(draw_fixture(&mut s, &f, 0).map(|e| e.up), Some(Up::Kept));
+    assert!(s.slashes.is_empty());
+    assert_eq!(s.strokes.len(), 1);
+}
+
+#[test]
+fn a_stroke_with_no_time_is_never_a_slash() {
+    let mut s = app_with_slash_file();
+    let f = fx::slash();
+    // drawn through the clock, as the window draws: the samples come within a millisecond of each other
+    s.stroke_begin(0, InkPoint { x: f.samples[0].x, y: f.samples[0].y, ..at(0.0, 0.0) }, true);
+    for p in &f.samples[1..] {
+        s.stroke_move(InkPoint { x: p.x, y: p.y, ..at(0.0, 0.0) }, true);
+    }
+    assert_eq!(s.stroke_end().map(|e| e.up), Some(Up::Kept), "no hand is that quick");
+    assert!(s.slashes.is_empty());
+}
+
+#[test]
+fn the_slash_of_an_audio_pen_leaves_the_clip_without_the_stroke_that_is_gone() {
+    let mut s = app_with_slash_file();
+    s.recording = Some(crate::model::VoiceClip::default());
+    draw_fixture(&mut s, &fx::slash(), 0);
+    assert!(s.recording.as_ref().is_some_and(|c| c.stroke_ids.is_empty()), "{:?}", s.recording);
+    assert_eq!(s.slashes.len(), 1);
+}
+
+#[test]
+fn a_slash_has_the_page_drawn_anew_the_live_stroke_is_gone_from_its_layer() {
+    let mut s = app_with_slash_file();
+    let before = s.ink.key(0, (1000, 730));
+    let ended = draw_fixture(&mut s, &fx::slash(), 0).expect("ended");
+    assert_eq!((ended.layer, ended.page), (Layer::of(s.pens.semantic()), 0));
+    assert_ne!(s.ink.key(0, (1000, 730)), before, "a frame drawn before shows a stroke that is not kept");
 }
