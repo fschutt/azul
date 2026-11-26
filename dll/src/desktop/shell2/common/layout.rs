@@ -2103,6 +2103,7 @@ pub fn regenerate_layout(
     let span_capabilities = azul_layout::probe::Probe::span("regen_capability_walks");
     let mut wants_gamepad = false;
     let mut wants_sensors = false;
+    let mut wants_hid = false;
     let permission_bearing: Vec<(
         azul_layout::managers::permission::Capability,
         azul_core::dom::DomNodeId,
@@ -2140,6 +2141,9 @@ pub fn regenerate_layout(
                         | EventFilter::Window(WindowEventFilter::SensorChanged) => {
                             wants_sensors = true;
                         }
+                        EventFilter::Window(WindowEventFilter::HidReport) => {
+                            wants_hid = true;
+                        }
                         _ => {}
                     }
                 }
@@ -2153,6 +2157,7 @@ pub fn regenerate_layout(
     layout_window
         .sensor_manager
         .set_has_listeners(wants_sensors);
+    layout_window.hid_manager.set_has_listeners(wants_hid);
     layout_window.permission_manager.diff_layout(|emit| {
         for (capability, node_id) in &permission_bearing {
             emit(*capability, *node_id);

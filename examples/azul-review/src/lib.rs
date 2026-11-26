@@ -117,6 +117,7 @@ pub mod recorder_patch;
 pub mod recorder_policy;
 pub mod recorder_probe;
 pub mod recorder_screen;
+pub mod recorder_ticks;
 pub mod recorder_ui;
 pub mod recorder_settings;
 pub mod recorder_track;

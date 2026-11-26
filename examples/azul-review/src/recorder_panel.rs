@@ -12,6 +12,7 @@ use azul_appkit::phrase::{Arg, Phrase, Text};
 
 use crate::{
     recorder::{Indicator, Notice, PauseReason, Perm, StartError, State, TrackName},
+    recorder_clock::CivilTime,
     recorder_export_job::{JobState, VIDEO_FILE},
     recorder_fs::RecordingInfo,
     recorder_manifest::SessionState,
@@ -414,7 +415,7 @@ pub fn export_notes(line: &ExportLine) -> Vec<Text> {
 pub struct Row {
     /// The folder's name: what Reveal and Delete are given.
     pub name: String,
-    /// When it began, `2026-11-26 10:00:00` (the folder's name is the local time).
+    /// When it began on the clock of the person who made it, `2026-11-26 10:00:00` (the folder's name is the UTC time).
     pub when: String,
     pub length: String,
     pub size: String,
@@ -474,7 +475,7 @@ pub fn rows(list: &[RecordingInfo], decimal: char, exports: &BTreeMap<String, Jo
             let exportable = matches!(r.state, Some(SessionState::Complete | SessionState::Recovered)) && r.tracks.contains(&"screen");
             Row {
                 name: r.name.clone(),
-                when: when_text(&r.name),
+                when: local_when_text(&r.name, r.started_unix_ms, r.utc_offset_minutes),
                 length: duration_text(r.recorded_us),
                 size: size_text(r.bytes, decimal),
                 tracks: r.tracks.clone(),
@@ -490,6 +491,23 @@ pub fn rows(list: &[RecordingInfo], decimal: char, exports: &BTreeMap<String, Jo
             }
         })
         .collect()
+}
+
+/// When a recording began, on the clock of the person who made it: the folder's name is the UTC time (so two sessions of
+/// a machine never collide across a change of time zone), the manifest says the moment and the local offset, and the
+/// list says the time that was on the wall, the date following it. A second session of the same second keeps its number.
+/// A recording whose notes cannot be read, and a folder that is named by no time, say the name ([`when_text`]).
+fn local_when_text(name: &str, started_unix_ms: Option<u64>, utc_offset_minutes: i32) -> String {
+    let by_name = when_text(name);
+    let Some(ms) = started_unix_ms else { return by_name };
+    // The name's own words are the time, and then the number of a second session of the second, if there is one.
+    if by_name == name || by_name.len() < 19 {
+        return by_name;
+    }
+    let local_ms = i64::try_from(ms).unwrap_or(i64::MAX).saturating_add(i64::from(utc_offset_minutes) * 60_000);
+    let Ok(local_ms) = u64::try_from(local_ms) else { return by_name };
+    let t = CivilTime::from_unix_ms(local_ms);
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}{}", t.year, t.month, t.day, t.hour, t.minute, t.second, by_name.get(19..).unwrap_or(""))
 }
 
 /// A session folder's name (`2026-11-26_10-00-00`, with `-2`, `-3` for a second session of the same second) as
