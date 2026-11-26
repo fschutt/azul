@@ -244,7 +244,7 @@ impl Expr {
     }
 
     #[must_use]
-    pub fn f32_text(text: String) -> Self {
+    pub const fn f32_text(text: String) -> Self {
         Self::Float { text, ty: Prim::F32 }
     }
 

@@ -457,7 +457,7 @@ fn racket_registration(m: &Module, lib: &LibrarySpec) -> String {
     s
 }
 
-fn is_union(e: &Expr) -> bool {
+const fn is_union(e: &Expr) -> bool {
     matches!(
         e,
         Expr::Variant {

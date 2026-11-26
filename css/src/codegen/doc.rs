@@ -47,7 +47,7 @@ impl Doc {
     }
 
     #[must_use]
-    pub fn cat(parts: Vec<Self>) -> Self {
+    pub const fn cat(parts: Vec<Self>) -> Self {
         Self::Cat(parts)
     }
 
