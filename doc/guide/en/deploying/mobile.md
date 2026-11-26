@@ -99,6 +99,20 @@ links against it:
 A mobile `libazul` is per-ABI/arch (`aarch64` for devices, `x86_64` for the
 emulator/simulator) — you bundle the slice(s) you target, not a single file.
 
+**How the demo apps are built.** The demos on the
+[release page](https://azul.rs/ui/release/$VERSION) do not compile the engine each:
+CI builds ONE `libazul` per phone target (`libazul.so` for Android, `libazul.a` for
+iOS), and every app is `cargo build -p <App>` against it with `azul-dll`'s
+`link-dynamic` feature (the Rust facade, the C ABI as `extern` declarations; no
+`azul-core`, `azul-layout` or `azul-css` compiles in an app build, and CI fails an app
+that does). On Android the APK carries `libazul.so` next to the app's own library
+(`lib/<abi>/`); NativeActivity finds `ANativeActivity_onCreate` and the JNI entry
+points through the app library's dependency. On iOS the app links `libazul.a`, and the
+system frameworks it needs are the ones `rustc --print native-static-libs` printed
+when the archive was built (kept in `libazul.a.native-libs` next to it, which
+`AZ_LINK_PATH` consumers read). Your own app can do the same: depend on `azul-dll` with
+`features = ["link-dynamic"]` and point `AZ_LINK_PATH` at the library file.
+
 ## Minimal toolchain (only the stubs you need)
 
 You do **not** need the full NDK or the iOS SDK. Both are mostly *link stubs*
@@ -182,9 +196,10 @@ fn main() { start(); }
 fn azul_android_init() { start(); }
 ```
 
-(`azul-maps` / `azul-paint` in the repo are set up exactly like this.) Your crate
-must build as a `cdylib` for Android, and pulls the android-activity glue + `ctor`
-only on Android:
+(`azul-maps` / `azul-paint` in the repo have the same entry point; they link the
+prebuilt `libazul` instead of compiling it, see "How the demo apps are built" above.)
+Your crate must build as a `cdylib` for Android, and pulls the android-activity glue +
+`ctor` only on Android:
 
 ```toml
 [lib]
@@ -319,7 +334,10 @@ The APKs are debug-signed, so they sideload directly.
 ```sh
 # Over USB (enable Settings → Developer options → USB debugging first):
 adb install AzMaps-android-arm64.apk
-# Replace an existing install: adb install -r …; uninstall: adb uninstall com.azul.azul_maps
+# Replace an existing install: adb install -r …; uninstall: adb uninstall com.azul.AzMaps
+# (every APK of every release is signed with the same debug key, scripts/android/debug.keystore,
+#  so an update installs over an older version of the same app)
+# On an emulator use the x86_64 file: adb install AzMaps-android-x86_64.apk
 ```
 
 Or copy the `.apk` to the phone and tap it (allow "install unknown apps" for the
@@ -338,22 +356,26 @@ faulting library; pull `/data/tombstones/` for the full dump.
 
 ### iOS Simulator (`.app`, no signing)
 
-The Simulator slice (`<App>-ios-sim.app.zip`, for example `AzMaps-ios-sim.app.zip`) runs **unsigned** — easiest to try
-on a Mac:
+The Simulator slice (`<App>-ios-sim.app.zip`) runs **unsigned** (ad-hoc signed by the
+build) — easiest to try on a Mac:
 
 ```sh
-unzip AzMaps-ios-sim.app.zip
+unzip AzMaps-ios-sim.app.zip                   # -> AzMaps.app
 open -a Simulator                              # boot a simulator
 xcrun simctl install booted AzMaps.app
-xcrun simctl launch --console booted <bundle-id>   # --console streams stdout/stderr
+xcrun simctl launch --console booted com.azul.AzMaps   # --console streams stdout/stderr
 ```
 
 ### iOS device (`.app` → signed)
 
 A physical iPhone needs the binary code-signed (a **free** Apple ID / personal
-team works for a 7-day sideload). On a Mac:
+team works for a 7-day sideload). The release's device slice (`<App>-ios-device.app.zip`)
+is **unsigned on purpose**: CI holds no signing identity, and the identity has to be
+yours (AzReview signs and installs the AzReview Companion for the phone it is attached
+to, with your own Apple ID). On a Mac:
 
 ```sh
+unzip AzMaps-ios-device.app.zip
 codesign --force --sign "Apple Development: you@example.com (TEAMID)" \
   --entitlements entitlements.plist AzMaps.app
 xcrun devicectl device install app --device <udid> AzMaps.app

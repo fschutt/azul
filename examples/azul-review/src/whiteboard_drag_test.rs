@@ -294,3 +294,86 @@ fn escape_puts_the_region_down_and_the_next_press_starts_afresh() {
     assert_eq!(drag.release(Pt::new(1_050.0, 300.0), &bar(true)), Release::Nothing);
     assert_eq!(drag.press(&regions, at(0, grip), 500), Press::Grip(id));
 }
+
+// ---- how long a loop stays armed
+
+#[test]
+fn how_much_of_its_time_is_left_is_the_ring_round_the_grip() {
+    let (regions, id) = armed();
+    let r = regions.get(id).expect("armed");
+    assert_eq!(r.lifetime_ms, ARM_MS);
+    assert_eq!(r.fraction_left(0), 1.0, "a full ring when it was armed");
+    assert!((r.fraction_left(2_000) - 0.75).abs() < 1e-6);
+    assert!((r.fraction_left(4_000) - 0.5).abs() < 1e-6);
+    assert!((r.fraction_left(ARM_MS - 800) - 0.1).abs() < 1e-6);
+    assert_eq!(r.fraction_left(ARM_MS), 0.0, "nothing when it is up");
+    assert_eq!(r.fraction_left(ARM_MS + 5_000), 0.0, "and not less");
+    let mut last = 2.0;
+    for t in (0..=ARM_MS + 1_000).step_by(250) {
+        let f = r.fraction_left(t);
+        assert!((0.0..=1.0).contains(&f) && f <= last, "{t}: {f}");
+        last = f;
+    }
+    // It is the ring while the region answers: the last moment it is armed is the last moment the ring is more than nothing.
+    assert!(regions.armed_region_at(0, word(), ARM_MS - 1).is_some() && r.fraction_left(ARM_MS - 1) > 0.0);
+}
+
+#[test]
+fn the_seconds_left_are_rounded_up_so_a_reader_never_hears_zero_of_a_loop_that_is_there() {
+    let (regions, id) = armed();
+    let r = regions.get(id).expect("armed");
+    for (now, seconds) in [(0, 8), (1, 8), (999, 8), (1_000, 7), (7_000, 1), (7_001, 1), (ARM_MS - 1, 1), (ARM_MS, 0), (ARM_MS + 1, 0), (u64::MAX, 0)] {
+        assert_eq!(r.seconds_left(now), seconds, "{now}");
+    }
+}
+
+#[test]
+fn the_time_a_loop_stays_armed_is_a_parameter_held_to_a_range() {
+    let lasso = recognize(&pts(&fx::closed_loop())).expect("a lasso");
+    let draft = |stroke_id| Armed { page: 0, polygon: lasso.polygon.clone(), first_line: 12, last_line: 12, stroke_id };
+    let mut regions = ArmedRegions::default();
+    assert_eq!(regions.lifetime_ms(), ARM_MS, "eight seconds unless told");
+    assert_eq!(regions.set_lifetime_ms(30_000), 30_000);
+    let long = regions.arm(draft(1), PAGE, 1_000);
+    assert_eq!(regions.get(long).map(|r| (r.lifetime_ms, r.expires_at_ms())), Some((30_000, 31_000)));
+    assert!((regions.get(long).expect("there").fraction_left(16_000) - 0.5).abs() < 1e-6);
+    assert!(regions.armed_region_at(0, word(), 30_999).is_some() && regions.armed_region_at(0, word(), 31_000).is_none());
+    // What is out of range is held to it, and what it is held to is told.
+    assert_eq!(regions.set_lifetime_ms(0), ARM_MIN_MS);
+    assert_eq!(regions.set_lifetime_ms(1_999), ARM_MIN_MS);
+    assert_eq!(regions.set_lifetime_ms(u64::MAX), ARM_MAX_MS);
+    assert_eq!(regions.set_lifetime_ms(ARM_MIN_MS), ARM_MIN_MS);
+    assert_eq!(regions.set_lifetime_ms(ARM_MAX_MS), ARM_MAX_MS);
+    // A region that was armed keeps the time it was given; one armed after has the new.
+    assert_eq!(regions.get(long).map(|r| r.lifetime_ms), Some(30_000));
+    regions.set_lifetime_ms(3_000);
+    let short = regions.arm(draft(2), PAGE, 1_000);
+    assert_eq!(regions.get(short).map(|r| r.lifetime_ms), Some(3_000));
+    assert!(regions.expire(4_000), "the short one is up");
+    assert!(regions.get(short).is_none() && regions.get(long).is_some());
+}
+
+#[test]
+fn a_region_the_pointer_holds_is_not_taken_from_under_the_hand() {
+    let (mut regions, id) = armed();
+    let mut drag = Drag::default();
+    assert_eq!(drag.region(), None);
+    let grip = regions.get(id).expect("armed").grip.center();
+    assert_eq!(drag.press(&regions, at(0, grip), ARM_MS - 100), Press::Grip(id));
+    assert_eq!(drag.region(), Some(id), "pressed");
+    assert!(!regions.expire_except(ARM_MS + 500, drag.region()), "its time is up, the hand is on it");
+    assert!(regions.get(id).is_some());
+    assert!(matches!(drag.motion(win(Pt::new(grip.x + 40.0, grip.y)), ARM_MS + 600, &bar(true)), Motion::Lifted(r) if r == id));
+    assert_eq!(drag.region(), Some(id), "carried");
+    assert!(!regions.expire_except(ARM_MS + 900, drag.region()));
+    // A region that nothing holds goes as always, with the held one still there.
+    let lasso = recognize(&pts(&fx::closed_loop())).expect("a lasso");
+    let other = regions.arm(Armed { page: 0, polygon: lasso.polygon, first_line: 1, last_line: 1, stroke_id: 9 }, PAGE, 0);
+    assert!(regions.expire_except(ARM_MS + 900, drag.region()));
+    assert!(regions.get(other).is_none() && regions.get(id).is_some());
+    // Let go over the bar: the region is dropped from where it was held. Let go elsewhere: it is put down, and its time is up.
+    assert!(matches!(drag.release(win(Pt::new(grip.x + 40.0, grip.y)), &bar(true)), Release::Cancelled));
+    assert_eq!(drag.region(), None);
+    assert!(regions.expire_except(ARM_MS + 1_000, drag.region()));
+    assert!(regions.is_empty());
+}
