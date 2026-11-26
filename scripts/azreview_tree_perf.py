@@ -90,7 +90,8 @@ def body(args, logs, out):
         t0 = time.perf_counter()
         answer = app.must("azreview_expand_all")["data"]["value"]["result"]
         app.frame(5)
-        result["all"] = {"walk_ms_on_the_window_thread": answer["ms"], "wall_ms": millis(t0), "listed": answer["listed"],
+        result["all"] = {"walk_ms_on_the_window_thread": answer["ms"], "totals_of_the_whole_tree_us": answer.get("rollup_us"),
+                         "wall_ms": millis(t0), "listed": answer["listed"],
                          "files": answer["files"], "folders": answer["folders"], "rows": answer["rows"],
                          **{"after_" + k: v for k, v in rss_mb(app).items()}}
         app.screenshot(os.path.join(out, "tree-all.png"))

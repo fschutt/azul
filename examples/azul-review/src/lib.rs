@@ -63,6 +63,7 @@ pub mod agent_process;
 pub mod agent_review;
 pub mod agent_settings;
 pub mod agent_stroke;
+pub mod census;
 pub mod chips;
 pub mod chips_op;
 pub mod code;
@@ -82,6 +83,8 @@ pub mod model;
 pub mod perf;
 pub mod pens;
 pub mod pointer;
+pub mod progress;
+pub mod progress_store;
 pub mod recorder;
 pub mod recorder_azul;
 pub mod recorder_clock;
@@ -99,6 +102,7 @@ pub mod recorder_settings;
 pub mod recorder_track;
 pub mod recorder_wb;
 pub mod recorder_writer;
+pub mod seen_watch;
 pub mod session;
 pub mod slash;
 pub mod standby;
@@ -179,12 +183,13 @@ pub fn window_renderer() -> RendererOptions {
 }
 
 /// The keys AzReview answers (the kit adds Mod+, / F1 / Escape).
-pub const SHORTCUTS: [Shortcut; 8] = [
+pub const SHORTCUTS: [Shortcut; 9] = [
     Shortcut::new("azreview-shortcuts-review", "Mod+S", "azreview-shortcut-save"),
     Shortcut::new("azreview-shortcuts-review", "Mod+O", "azreview-shortcut-open-folder"),
     Shortcut::new("azreview-shortcuts-review", "Mod+B", "azreview-shortcut-files"),
     Shortcut::new("azreview-shortcuts-review", "Mod+Shift+B", "azreview-shortcut-whiteboard"),
     Shortcut::new("azreview-shortcuts-review", "Mod+Z", "azreview-shortcut-undo"),
+    Shortcut::new("azreview-shortcuts-review", "Mod+Shift+R", "azreview-shortcut-not-reviewed"),
     Shortcut::new("azreview-shortcuts-review", "Pen rest", "azreview-shortcut-dictate"),
     Shortcut::new("azreview-shortcuts-review", "1 to 5", "azreview-shortcut-meaning"),
     Shortcut::new("azreview-shortcuts-review", "Right click", "azreview-shortcut-previous-nib"),
@@ -221,6 +226,25 @@ pub struct AppState {
     /// measures the start reads (`AZREVIEW_STARTUP`).
     pub started: std::time::Instant,
     pub root_listed_ms: Option<u64>,
+    /// What has been looked at: the pages seen of each file, and what the reviewer said is not reviewed.
+    pub progress: progress::Book,
+    /// The totals of every node of the tree (`progress::rollup`), built again when what they sum changes.
+    pub rollup: Vec<progress::Totals>,
+    pub rollup_dirty: bool,
+    /// Some of the workspace is not known yet: a folder not listed, a file whose lines are not counted.
+    pub counting: bool,
+    /// The window is the one the reviewer is at: nothing is seen while it is not.
+    pub window_active: bool,
+    /// The seen-watcher's timer runs, and when it last looked.
+    pub watching: bool,
+    pub watched_at: Option<std::time::Instant>,
+    /// A write of the progress file is under way (one writer); another change waits for it.
+    pub progress_saving: bool,
+    pub progress_save_pending: bool,
+    /// When the progress file was last asked to be written.
+    pub progress_saved_at: Option<std::time::Instant>,
+    /// The count of the workspace is under way: setting this ends it.
+    pub census_stop: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     pub strokes: Vec<Stroke>,
     /// The words of the open file that quick slashes took, in the order they were (the page draws them in its own
     /// colour; nothing is written to the file).
@@ -306,6 +330,7 @@ impl AppState {
             }
         }
         state.refresh_rows();
+        state.refresh_rollup();
         state
     }
 
@@ -336,6 +361,17 @@ impl AppState {
             workspace: 0,
             started: std::time::Instant::now(),
             root_listed_ms: None,
+            progress: progress::Book::default(),
+            rollup: Vec::new(),
+            rollup_dirty: true,
+            counting: true,
+            window_active: true,
+            watching: false,
+            watched_at: None,
+            progress_saving: false,
+            progress_save_pending: false,
+            progress_saved_at: None,
+            census_stop: None,
             strokes: Vec::new(),
             slashes: Vec::new(),
             live: None,
@@ -452,6 +488,10 @@ impl AppState {
     /// The tree starts afresh from the source's root: listed now, the first file open.
     fn start_workspace(&mut self) {
         self.workspace += 1;
+        if let Some(old) = self.census_stop.take() {
+            old.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        self.progress = progress::Book::default();
         self.tree = tree::Tree::new();
         self.chips = chips::Chips::default();
         self.begin_file(None);
@@ -485,6 +525,106 @@ impl AppState {
             self.problem = None;
         }
         self.rederive();
+        self.refresh_rollup();
+    }
+
+    // ---- what has been looked at ----
+
+    /// What the file `id` adds to the totals above it: its lines, the lines on the pages seen, whether it is reviewed
+    /// (every page seen, no conversation of it working or waiting, and the reviewer has not said otherwise).
+    fn file_info(&self, id: tree::NodeId) -> progress::FileInfo {
+        let Some(node) = self.tree.node(id).filter(|n| n.kind == tree::Kind::File) else {
+            return progress::FileInfo::default();
+        };
+        let path = self.tree.path(id);
+        let entry = self.progress.get(&path);
+        let seen = entry.map_or(0, |e| e.seen.count());
+        let held = entry.is_some_and(|e| e.held);
+        let pages = node.lines.map_or(0, |l| (l as usize).div_ceil(code::LINES_PER_PAGE).max(1));
+        progress::FileInfo {
+            lines: node.lines,
+            lines_seen: node
+                .lines
+                .map_or(0, |l| u32::try_from(entry.map_or(0, |e| e.seen.lines_seen(l as usize))).unwrap_or(u32::MAX)),
+            reviewed: node.lines.is_some() && progress::is_reviewed(seen, pages, self.chips.counts(&path), held),
+        }
+    }
+
+    /// Builds the totals of every node again.
+    pub fn refresh_rollup(&mut self) {
+        let totals = progress::rollup(&self.tree, &|id| self.file_info(id));
+        self.counting = totals.get(self.tree.root()).is_some_and(progress::Totals::is_partial)
+            || !self.tree.unlisted_dirs().is_empty();
+        self.rollup = totals;
+        self.rollup_dirty = false;
+    }
+
+    /// The totals of a node (a file's own, a folder's, the root's those of the workspace).
+    #[must_use]
+    pub fn totals_of(&self, id: tree::NodeId) -> progress::Totals {
+        self.rollup.get(id).copied().unwrap_or_default()
+    }
+
+    /// The mark the tree shows for a file: blue while an agent works on it, yellow while a suggestion waits, green when it
+    /// is reviewed; nothing otherwise.
+    #[must_use]
+    pub fn file_mark(&self, id: tree::NodeId) -> Option<chips::State> {
+        match self.chips.file_state(&self.tree.path(id)) {
+            Some(chips::State::Working) => Some(chips::State::Working),
+            Some(chips::State::Suggested) => Some(chips::State::Suggested),
+            _ => self.rollup.get(id).filter(|t| t.files_reviewed == 1).map(|_| chips::State::Done),
+        }
+    }
+
+    /// Time passes (`elapsed_ms`) with the strip of pages scrolled `scroll_x` in a viewport `view_w` wide: the pages in
+    /// view long enough are seen. Whether a page became seen.
+    pub fn watch_pages(&mut self, scroll_x: f32, view_w: f32, elapsed_ms: u32) -> bool {
+        if !self.window_active {
+            return false;
+        }
+        let Some(file) = self.file() else {
+            return false;
+        };
+        let (path, total) = (file.display.clone(), file.page_count());
+        let in_view = progress::pages_in_view(scroll_x, view_w, ui::PAGE_W, ui::page_stride(), total);
+        let Some(entry) = self.progress.entry(&path) else {
+            return false;
+        };
+        let changed = entry.seen.watch(&in_view, elapsed_ms);
+        if changed {
+            self.progress.set_dirty();
+            self.rollup_dirty = true;
+        }
+        changed
+    }
+
+    /// A page of the open file carries ink: it is seen.
+    pub fn mark_page_seen(&mut self, page: usize) {
+        let Some(path) = self.file().map(|f| f.display.clone()) else {
+            return;
+        };
+        if self.progress.entry(&path).is_some_and(|e| e.seen.mark(page)) {
+            self.progress.set_dirty();
+            self.rollup_dirty = true;
+        }
+    }
+
+    /// The reviewer says the file `path` is not reviewed (or says it is again): whatever its pages say, it is not until then.
+    /// The new answer (`true`: held back).
+    pub fn toggle_held(&mut self, path: &str) -> bool {
+        let Some(entry) = self.progress.entry(path) else {
+            return false;
+        };
+        entry.held = !entry.held;
+        let held = entry.held;
+        self.progress.set_dirty();
+        self.refresh_rollup();
+        held
+    }
+
+    /// Conversations changed: what is reviewed may have.
+    pub fn chips_changed(&mut self) {
+        self.rollup_dirty = true;
     }
 
     /// Whether the workspace has anything to show in the tree.
@@ -542,6 +682,29 @@ impl AppState {
         };
         self.refresh_rows();
         job
+    }
+
+    /// A folder was counted by the walk of the workspace `workspace`: its listing and the lines of its files go into the
+    /// tree. Whether the rows changed (a folder that is open was listed).
+    pub fn take_census(&mut self, workspace: u64, batch: census::Batch) -> bool {
+        if workspace != self.workspace {
+            return false;
+        }
+        let Some(dir) = self.tree.find(&batch.dir) else {
+            return false;
+        };
+        self.tree.list(dir, &batch.entries, &tree::Rules::default());
+        for (name, lines) in &batch.lines {
+            let path = if batch.dir.is_empty() { name.clone() } else { format!("{}/{name}", batch.dir) };
+            if let Some(id) = self.tree.find(&path) {
+                self.tree.set_lines(id, *lines);
+            }
+        }
+        self.rollup_dirty = true;
+        let rows = self.tree.rows();
+        let changed = rows != self.rows;
+        self.rows = rows;
+        changed
     }
 
     /// A listing of the folder `dir` of workspace `workspace` came back; whether the tree changed (a listing of a
@@ -700,6 +863,7 @@ impl AppState {
     /// Keeps a finished stroke (what Mod+Z takes back); a new stroke ends what Mod+Shift+Z would have
     /// brought back.
     pub fn keep(&mut self, stroke: Stroke) {
+        self.mark_page_seen(stroke.page);
         self.ink.appended(stroke.page, stroke.id);
         self.history.push(Edit::Added(stroke.clone()));
         self.redo_stack.clear();
@@ -713,6 +877,7 @@ impl AppState {
         if let Some(clip) = self.recording.as_mut() {
             clip.stroke_ids.retain(|id| *id != deletion.id);
         }
+        self.mark_page_seen(deletion.page);
         self.ink.touch(deletion.page);
         self.history.push(Edit::Slashed(deletion.clone()));
         self.redo_stack.clear();
@@ -852,6 +1017,7 @@ impl AppState {
             self.strokes.iter().map(|s| s.page).chain(self.slashes.iter().map(|d| d.page)).collect();
         for page in pages {
             self.ink.touch(page);
+            self.mark_page_seen(page);
         }
         self.rederive();
         true
@@ -1054,6 +1220,11 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
             s.tree.dir_count(),
         );
     }
+    // The pages that are looked at long enough are seen; the workspace is counted behind the window.
+    seen_watch::start(&mut info, &data);
+    census::start(&mut info, &data);
+    // What was seen of the workspace in an earlier run comes back.
+    progress_store::load(&data, &mut info);
     // What was marked on the first file in an earlier run comes back.
     load_session(&data, &mut info);
     Update::DoNothing
@@ -1240,6 +1411,8 @@ extern "C" fn on_folder_chosen(mut data: RefAny, mut info: CallbackInfo, result:
     if let Some(first) = data.downcast_ref::<AppState>().and_then(|s| s.file().map(|f| f.display.clone())) {
         println!("AZREVIEW_FILE {first}");
     }
+    census::start(&mut info, &data);
+    progress_store::load(&data, &mut info);
     load_session(&data, &mut info);
     info.trigger_all_virtual_view_rerender();
     Update::RefreshDom
@@ -1331,6 +1504,11 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         info.prevent_default();
         let panel = if mods.shift { layout::Panel::Right } else { layout::Panel::Tree };
         return toggle_panel(&mut data, &mut info, panel);
+    }
+    // Mod+Shift+R: the file under review is not reviewed (or is again), whatever its pages say.
+    if matches!(key, VirtualKeyCode::R) && mods.primary_down() && mods.shift {
+        info.prevent_default();
+        return on_hold_open_file(&mut data, &mut info);
     }
     // Typing in a note: the letters and digits are the note's, and Mod+Z undoes its text, not the ink.
     let typing = info.get_focused_node().into_option().is_some_and(|node| {
@@ -1681,9 +1859,22 @@ pub extern "C" fn on_window_left(mut data: RefAny, mut info: CallbackInfo) -> Up
 /// while another window has the focus is not heard here.
 pub extern "C" fn on_focus_lost(mut data: RefAny, mut info: CallbackInfo) -> Update {
     log_window(&mut data, &mut info, pointer::Kind::FocusLost);
+    // What is on the screen while the reviewer is at another window is not being looked at.
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        s.window_active = false;
+    }
     // The microphone opened ahead of a dictation closes with the window going to the back.
     voice::window_deactivated(&mut data);
     end_stroke(&mut data, &mut info)
+}
+
+/// The window got the focus back: what is on the screen is looked at again, and the time away is not counted.
+pub extern "C" fn on_focus_received(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        s.window_active = true;
+        s.watched_at = None;
+    }
+    Update::DoNothing
 }
 
 /// The pointer left a page's pen layer: the dwell's rest is over, and a stroke live under a pointer that
@@ -2060,8 +2251,9 @@ pub extern "C" fn on_pick_file(mut data: RefAny, mut info: CallbackInfo) -> Upda
     if open == Some(id) {
         return Update::DoNothing;
     }
-    // The file being left is kept first (its archive is built now).
+    // The file being left is kept first (its archive is built now), and what was seen of it.
     save_session(&data, &mut info);
+    progress_store::save(&data, &mut info);
     let opened = {
         let Some(mut s) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
@@ -2075,6 +2267,35 @@ pub extern "C" fn on_pick_file(mut data: RefAny, mut info: CallbackInfo) -> Upda
     }
     info.trigger_all_virtual_view_rerender();
     Update::RefreshDom
+}
+
+/// The reviewer says the file under review is not reviewed (or says it is again).
+fn on_hold_open_file(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    let path = data.downcast_ref::<AppState>().and_then(|s| s.file().map(|f| f.display.clone()));
+    if let Some(path) = path {
+        let held = data.downcast_mut::<AppState>().is_some_and(|mut s| s.toggle_held(&path));
+        println!("AZREVIEW_HELD {path} {held}");
+        progress_store::save(data, info);
+        info.trigger_all_virtual_view_rerender();
+        return Update::RefreshDom;
+    }
+    Update::DoNothing
+}
+
+/// A right click on a file of the tree: it is not reviewed (or is again), whatever its pages say.
+pub extern "C" fn on_tree_hold_file(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(id) = ui::index_of(&mut info) else {
+        return Update::DoNothing;
+    };
+    let path = data.downcast_ref::<AppState>().map(|s| s.tree.path(id));
+    if let Some(path) = path {
+        let held = data.downcast_mut::<AppState>().is_some_and(|mut s| s.toggle_held(&path));
+        println!("AZREVIEW_HELD {path} {held}");
+        progress_store::save(&data, &mut info);
+        info.trigger_all_virtual_view_rerender();
+        return Update::RefreshDom;
+    }
+    Update::DoNothing
 }
 
 /// A click on a folder of the tree: it opens or closes, and is listed on a thread when it never was.

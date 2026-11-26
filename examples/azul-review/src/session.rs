@@ -22,7 +22,7 @@ fn bytes(v: &[u8]) -> U8Vec {
 }
 
 /// A JSON string literal of `text`, escaped (quotes, backslashes, control characters; the rest as it is).
-fn push_string(out: &mut String, text: &str) {
+pub(crate) fn push_string(out: &mut String, text: &str) {
     use std::fmt::Write;
     out.push('"');
     for c in text.chars() {
@@ -285,12 +285,12 @@ impl Loaded {
 }
 
 /// The value under `key` of the object `json`.
-fn key(json: &Json, key: &str) -> Option<Json> {
+pub(crate) fn key(json: &Json, key: &str) -> Option<Json> {
     json.get_key(key).into_option()
 }
 
 /// A number under `key` (an integer counts: `1` and `1.0` are the same number to a reader).
-fn num(json: &Json, name: &str) -> Option<f64> {
+pub(crate) fn num(json: &Json, name: &str) -> Option<f64> {
     let v = key(json, name)?;
     v.as_float()
         .into_option()
@@ -298,7 +298,7 @@ fn num(json: &Json, name: &str) -> Option<f64> {
 }
 
 /// A whole number under `key`, not below 0.
-fn count(json: &Json, name: &str) -> Option<u64> {
+pub(crate) fn count(json: &Json, name: &str) -> Option<u64> {
     let v = key(json, name)?;
     let i = v
         .as_int()
@@ -307,7 +307,7 @@ fn count(json: &Json, name: &str) -> Option<u64> {
     u64::try_from(i).ok()
 }
 
-fn text_of(json: &Json, name: &str) -> Option<String> {
+pub(crate) fn text_of(json: &Json, name: &str) -> Option<String> {
     key(json, name)?
         .as_string()
         .into_option()
@@ -315,7 +315,7 @@ fn text_of(json: &Json, name: &str) -> Option<String> {
 }
 
 /// The items of the list under `key` (none when it is missing or no list).
-fn items(json: &Json, name: &str) -> Vec<Json> {
+pub(crate) fn items(json: &Json, name: &str) -> Vec<Json> {
     key(json, name)
         .and_then(|list| list.to_array().into_option())
         .map(|list| list.as_slice().to_vec())

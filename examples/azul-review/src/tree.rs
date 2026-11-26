@@ -170,6 +170,32 @@ fn display_order(a: &DirEntry, b: &DirEntry) -> std::cmp::Ordering {
         .then_with(|| a.name.cmp(&b.name))
 }
 
+/// The entries of a folder (`depth` levels under the root) that a review shows, and how many it leaves out: no name that
+/// is no name, hidden names, build output beside a manifest, folders too deep, links, files that are no text of code. The
+/// walk that counts the workspace asks the same (`census.rs`): one rule, one place.
+#[must_use]
+pub fn shown<'a>(entries: &'a [DirEntry], depth: usize, rules: &Rules) -> (Vec<&'a DirEntry>, usize) {
+    let beside_manifest = entries
+        .iter()
+        .any(|e| e.kind == EntryKind::File && symbols_source::is_manifest_name(&e.name));
+    let mut kept: Vec<&DirEntry> = Vec::new();
+    let mut left_out = 0;
+    for e in entries {
+        let is_shown = is_name(&e.name)
+            && match e.kind {
+                EntryKind::Dir => depth < rules.exclusions.max_depth && !rules.exclusions.skips_dir(&e.name, beside_manifest),
+                EntryKind::File => !rules.exclusions.skips_file(&e.name) && is_reviewable(&e.name),
+                EntryKind::Other => false,
+            };
+        if is_shown {
+            kept.push(e);
+        } else {
+            left_out += 1;
+        }
+    }
+    (kept, left_out)
+}
+
 impl Tree {
     /// A tree of the root alone: open, and not listed.
     #[must_use]
@@ -226,6 +252,12 @@ impl Tree {
     #[must_use]
     pub fn kind(&self, id: NodeId) -> Option<Kind> {
         self.node(id).map(|n| n.kind)
+    }
+
+    /// How many places the tree has made for nodes, those that are gone from it too (an id is below this).
+    #[must_use]
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
     }
 
     /// How many files and how many folders the tree holds (the root is none of them).
@@ -365,26 +397,10 @@ impl Tree {
         if self.kind(dir) != Some(Kind::Dir) {
             return out;
         }
-        let beside_manifest = entries
-            .iter()
-            .any(|e| e.kind == EntryKind::File && symbols_source::is_manifest_name(&e.name));
         let depth = self.depth(dir);
-        let mut kept: Vec<&DirEntry> = Vec::new();
-        for e in entries {
-            let shown = is_name(&e.name)
-                && match e.kind {
-                    EntryKind::Dir => {
-                        depth < rules.exclusions.max_depth && !rules.exclusions.skips_dir(&e.name, beside_manifest)
-                    }
-                    EntryKind::File => !rules.exclusions.skips_file(&e.name) && is_reviewable(&e.name),
-                    EntryKind::Other => false,
-                };
-            if shown {
-                kept.push(e);
-            } else {
-                out.left_out += 1;
-            }
-        }
+        let (kept, left_out) = shown(entries, depth, rules);
+        out.left_out = left_out;
+        let mut kept = kept;
         kept.sort_by(|a, b| display_order(a, b));
         let old: HashMap<(String, bool), NodeId> = self
             .children(dir)

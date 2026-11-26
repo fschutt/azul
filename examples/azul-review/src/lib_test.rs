@@ -521,6 +521,11 @@ fn on_disk(name: &str, files: &[(&str, &str)]) -> AppState {
     AppState::on_disk(scratch_folder(name, files), RefAny::new(0u8), PathBuf::new())
 }
 
+/// [`on_disk`] for the other test modules.
+pub(crate) fn on_disk_for_state(name: &str, files: &[(&str, &str)]) -> AppState {
+    on_disk(name, files)
+}
+
 #[test]
 fn a_folder_of_a_disk_lists_its_root_only_and_opens_the_first_file_of_it() {
     let s = on_disk(
@@ -637,4 +642,137 @@ fn a_first_file_that_cannot_be_shown_is_passed_over_at_the_start_without_a_word(
     let s = AppState::on_disk(folder, RefAny::new(0u8), PathBuf::new());
     assert_eq!(s.file().map(|f| f.display.as_str()), Some("b.rs"));
     assert!(s.problem.is_none(), "the reviewer did not ask for a.rs: {:?}", s.problem);
+}
+
+// ---- what has been looked at ----
+
+/// A folder of a disk with `a.rs` of 100 lines (three pages) and `b.rs` of 10, `a.rs` open.
+fn reviewing_two() -> AppState {
+    let a: String = (0..100).map(|i| format!("fn a{i}() {{}}\n")).collect();
+    let b: String = (0..10).map(|i| format!("fn b{i}() {{}}\n")).collect();
+    on_disk("progress", &[("a.rs", a.as_str()), ("b.rs", b.as_str())])
+}
+
+/// Looks at page `page` of the open file long enough for it to be seen (the strip scrolled to it, a viewport of 1,200).
+fn read_page(s: &mut AppState, page: usize) {
+    for _ in 0..4 {
+        s.watch_pages(page as f32 * ui::page_stride(), 1_200.0, 400);
+    }
+}
+
+fn id_of(s: &AppState, path: &str) -> crate::tree::NodeId {
+    s.tree.find(path).expect(path)
+}
+
+#[test]
+fn a_file_all_of_whose_pages_were_looked_at_is_reviewed_and_the_tree_marks_it_green() {
+    let mut s = reviewing_two();
+    let a = id_of(&s, "a.rs");
+    read_page(&mut s, 0);
+    read_page(&mut s, 1);
+    s.refresh_rollup();
+    assert_eq!(s.file_mark(a), None, "two pages of three");
+    read_page(&mut s, 2);
+    s.refresh_rollup();
+    assert_eq!(s.file_mark(a), Some(chips::State::Done), "every page seen, no conversation");
+    let root = s.totals_of(s.tree.root());
+    assert_eq!((root.files, root.files_reviewed, root.lines, root.lines_reviewed, root.lines_seen), (2, 1, 100, 100, 100));
+    assert_eq!(root.unknown_files, 1, "b.rs has not been counted yet");
+    assert!(root.is_partial());
+    assert!(s.progress.is_dirty(), "what was seen is to be kept");
+}
+
+#[test]
+fn a_page_that_carries_ink_is_seen_without_being_looked_at() {
+    let mut s = reviewing_two();
+    s.keep(kept(1, 2));
+    assert_eq!(s.progress.get("a.rs").map(|e| e.seen.ranges()), Some(vec![(2, 2)]));
+    s.slashes.clear();
+    let mut t = reviewing_two();
+    t.keep(kept(1, 0));
+    t.undo();
+    assert!(t.progress.get("a.rs").is_some_and(|e| e.seen.is_seen(0)), "taking the ink back does not unsee the page");
+}
+
+#[test]
+fn a_conversation_that_waits_or_works_keeps_a_file_from_being_reviewed_and_shows_its_own_colour() {
+    let mut s = reviewing_two();
+    for p in 0..3 {
+        read_page(&mut s, p);
+    }
+    let a = id_of(&s, "a.rs");
+    let chip = |state| chips::Chip { id: 1, file: "a.rs".to_string(), page: 0, line: 3, state, title: "why".to_string() };
+    s.chips.push(chip(chips::State::Suggested));
+    s.chips_changed();
+    s.refresh_rollup();
+    assert_eq!(s.file_mark(a), Some(chips::State::Suggested));
+    assert_eq!(s.totals_of(a).files_reviewed, 0);
+    s.chips.set_state(1, chips::State::Working);
+    s.refresh_rollup();
+    assert_eq!(s.file_mark(a), Some(chips::State::Working));
+    s.chips.set_state(1, chips::State::Done);
+    s.refresh_rollup();
+    assert_eq!(s.file_mark(a), Some(chips::State::Done), "resolved, and every page seen");
+}
+
+#[test]
+fn conversations_all_done_are_not_green_while_a_page_was_never_seen() {
+    let mut s = reviewing_two();
+    read_page(&mut s, 0);
+    s.chips.push(chips::Chip { id: 1, file: "a.rs".to_string(), page: 0, line: 3, state: chips::State::Done, title: "x".to_string() });
+    s.refresh_rollup();
+    assert_eq!(s.file_mark(id_of(&s, "a.rs")), None);
+}
+
+#[test]
+fn the_reviewer_can_hold_a_file_back_and_let_it_go_again() {
+    let mut s = reviewing_two();
+    for p in 0..3 {
+        read_page(&mut s, p);
+    }
+    s.refresh_rollup();
+    let a = id_of(&s, "a.rs");
+    assert_eq!(s.file_mark(a), Some(chips::State::Done));
+    assert!(s.toggle_held("a.rs"), "held back");
+    assert_eq!(s.file_mark(a), None, "not reviewed, whatever the pages say");
+    assert_eq!(s.totals_of(s.tree.root()).files_reviewed, 0);
+    assert!(!s.toggle_held("a.rs"), "let go");
+    assert_eq!(s.file_mark(a), Some(chips::State::Done));
+}
+
+#[test]
+fn nothing_is_seen_while_the_window_is_not_the_one_the_reviewer_is_at() {
+    let mut s = reviewing_two();
+    s.window_active = false;
+    for _ in 0..10 {
+        assert!(!s.watch_pages(0.0, 1_200.0, 400));
+    }
+    assert_eq!(s.progress.get("a.rs").map(|e| e.seen.count()).unwrap_or(0), 0);
+    s.window_active = true;
+    read_page(&mut s, 0);
+    assert!(s.progress.get("a.rs").is_some_and(|e| e.seen.is_seen(0)));
+}
+
+#[test]
+fn a_file_that_is_not_open_is_not_looked_at() {
+    let mut s = AppState::create(PathBuf::new(), Vec::new(), RefAny::new(0u8), PathBuf::new());
+    assert!(!s.watch_pages(0.0, 1_200.0, 400));
+    s.mark_page_seen(0);
+    assert!(s.progress.is_empty());
+}
+
+#[test]
+fn the_totals_of_a_folder_follow_its_files_once_they_are_counted() {
+    let mut s = reviewing_two();
+    read_page(&mut s, 0);
+    s.refresh_rollup();
+    let root = s.totals_of(s.tree.root());
+    assert_eq!((root.lines, root.lines_seen, root.files_reviewed), (100, 46, 0));
+    // b.rs is counted (the background count tells it): the totals have its lines
+    let b = id_of(&s, "b.rs");
+    s.tree.set_lines(b, 10);
+    s.refresh_rollup();
+    let root = s.totals_of(s.tree.root());
+    assert_eq!((root.lines, root.unknown_files), (110, 0));
+    assert!(!root.is_partial());
 }

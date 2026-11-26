@@ -2,7 +2,7 @@ use azul::{
     audio::AudioConfig,
     callbacks::{ButtonOnClickCallbackType, CallbackType},
     dom::{
-        AccessibilityInfo, AccessibilityRole, DomNodeId, NodeId, RenderImageCallback, VirtualKeyCode,
+        AccessibilityInfo, AccessibilityRole, DomId, DomNodeId, NodeId, RenderImageCallback, VirtualKeyCode,
         VirtualKeyCodeCombo,
     },
     option::OptionVirtualKeyCodeCombo,
@@ -63,7 +63,7 @@ fn page_h() -> f32 {
     code::LINES_PER_PAGE as f32 * LINE_H + 40.0
 }
 
-fn page_stride() -> f32 {
+pub(crate) fn page_stride() -> f32 {
     PAGE_W + PAGE_GAP
 }
 
@@ -243,6 +243,11 @@ pub(crate) fn with_window_listeners(body: Dom, data: &RefAny) -> Dom {
         data.clone(),
         crate::on_focus_lost,
     )
+    .with_callback(
+        EventFilter::Window(WindowEventFilter::WindowFocusReceived),
+        data.clone(),
+        crate::on_focus_received,
+    )
 }
 
 /// The width of the tree's switch, which sits next to the traffic lights.
@@ -294,6 +299,10 @@ fn tree_column(s: &AppState, data: &RefAny, solved: &crate::layout::Solved) -> D
                 .with_css(format!("height: {}px; flex-shrink: 0; -azul-app-region: drag;", crate::layout::TOP_H).as_str()),
         )
         .with_child(file_list(s, data));
+    let inner = match reviewed_line(s) {
+        Some(line) => inner.with_child(line),
+        None => inner,
+    };
     Dom::create_div()
         .with_id(ids::TREE)
         .with_css(
@@ -607,6 +616,7 @@ fn tree_row(s: &AppState, data: &RefAny, row: &crate::tree::Row) -> Dom {
             row.expanded,
             row.loading,
             None,
+            folder_trail(s, row.id),
             data,
         ),
         crate::tree::Kind::File => finder_row(
@@ -618,10 +628,62 @@ fn tree_row(s: &AppState, data: &RefAny, row: &crate::tree::Row) -> Dom {
             RowAction::File(row.id),
             false,
             false,
-            s.chips.file_state(&s.tree.path(row.id)),
+            s.file_mark(row.id),
+            None,
             data,
         ),
     }
+}
+
+/// What a folder's row says of its review: the part of its lines that is reviewed, in whole percent; nothing for a
+/// folder whose files are not counted yet.
+fn folder_trail(s: &AppState, id: usize) -> Option<String> {
+    let totals = s.totals_of(id);
+    (totals.lines > 0).then(|| format!("{}%", totals.percent_reviewed()))
+}
+
+/// How many, with a comma between the thousands.
+#[must_use]
+pub fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// The sentence at the foot of the tree: how much of the workspace is reviewed, in lines, and how much of it has only been
+/// seen; and that the count is not done while some files are not counted.
+fn reviewed_line(s: &AppState) -> Option<Dom> {
+    let totals = s.totals_of(s.tree.root());
+    if totals.files == 0 {
+        return None;
+    }
+    let mut said = t_args(
+        "azreview-reviewed-line",
+        &[
+            ("reviewed", Arg::from(grouped(totals.lines_reviewed))),
+            ("total", Arg::from(grouped(totals.lines))),
+            ("percent", Arg::from(totals.percent_reviewed())),
+            ("seen", Arg::from(grouped(totals.lines_seen))),
+        ],
+    );
+    if s.counting {
+        said.push(' ');
+        said.push_str(&t("azreview-reviewed-counting"));
+    }
+    Some(
+        Dom::create_p_with_text(said.as_str())
+            .with_id(ids::REVIEWED)
+            .with_css(
+                "margin: 0px; padding: 6px 10px; font-size: 10px; line-height: 1.35; flex-shrink: 0; \
+                 color: system:secondary-text; border-top: 1px solid system:separator;",
+            ),
+    )
 }
 
 /// The primary modifier of a menu item's key: Command on a Mac, Control elsewhere.
@@ -733,6 +795,7 @@ fn finder_row(
     expanded: bool,
     loading: bool,
     mark: Option<crate::chips::State>,
+    trail: Option<String>,
     data: &RefAny,
 ) -> Dom {
     // A selected file: flat's accent row; under flora flora's selection (the soft wash and
@@ -779,6 +842,12 @@ fn finder_row(
         ),
     );
     row.add_child(Dom::create_span_with_text(label).with_css("flex-grow: 1; min-width: 0px; overflow: hidden;"));
+    if let Some(trail) = trail {
+        // What a folder has of reviewed lines: a few characters, lighter than its name.
+        row.add_child(
+            Dom::create_span_with_text(trail.as_str()).with_css("font-size: 10px; color: system:secondary-text; flex-shrink: 0;"),
+        );
+    }
     if loading {
         row.add_child(
             Dom::create_span_with_text("\u{2026}")
@@ -800,8 +869,19 @@ fn finder_row(
         RowAction::Dir(id) => (id, crate::on_toggle_dir as CallbackType),
         RowAction::File(id) => (id, crate::on_pick_file as CallbackType),
     };
-    row.with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: id })))
-        .with_callback(EventFilter::Hover(HoverEventFilter::Click), data.clone(), on_click)
+    let row = row
+        .with_id(format!("__azreview_tree-row-{id}").as_str())
+        .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: id })))
+        .with_callback(EventFilter::Hover(HoverEventFilter::Click), data.clone(), on_click);
+    match action {
+        // A right click on a file: it is not reviewed (or is again), whatever its pages say.
+        RowAction::File(_) => row.with_callback(
+            EventFilter::Hover(HoverEventFilter::RightMouseUp),
+            data.clone(),
+            crate::on_tree_hold_file,
+        ),
+        RowAction::Dir(_) => row,
+    }
 }
 
 /// The recording's meter: how long the clip is and the level of the last packet of voice, a level
@@ -1073,6 +1153,7 @@ fn page_pill(page: usize, here: bool, data: &RefAny) -> Dom {
         data.clone(),
         crate::on_jump_to_page,
     )
+    .with_id(format!("__azreview_page-pill-{}", page + 1).as_str())
     .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: page })))
     .with_child(Dom::create_span_with_text(format!("{}", page + 1).as_str()))
 }
@@ -1105,6 +1186,19 @@ pub fn strip_scroll_x(info: &CallbackInfo) -> Option<f32> {
     info.get_scroll_offset_for_node(dom, NodeId::create(index))
         .into_option()
         .map(|offset| offset.x)
+}
+
+/// How far the strip of pages is scrolled sideways and how wide it is, as a timer sees the window (`None`: no strip).
+pub fn strip_view(info: &CallbackInfo) -> Option<(f32, f32)> {
+    let dom = DomId { inner: 0 };
+    let node = info.get_node_id_by_id_attribute(dom, STRIP_ID);
+    let index = node.into_raw().checked_sub(1)?;
+    let x = info
+        .get_scroll_offset_for_node(dom, NodeId::create(index))
+        .into_option()
+        .map_or(0.0, |offset| offset.x);
+    let width = info.get_node_rect(DomNodeId { dom, node }).into_option()?.size.width;
+    Some((x, width))
 }
 
 /// Scrolls the page numbers' column so page `page`'s number is in view. Its place in the column is the heights of the

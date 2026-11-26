@@ -407,3 +407,58 @@ fn the_strip_of_page_numbers_of_a_file_of_thousands_of_pages_is_a_couple_of_doze
     assert!(said.contains(&"1".to_string()) && said.contains(&"15000".to_string()) && said.contains(&"7001".to_string()), "{said:?}");
     assert!(said.iter().any(|t| t == "\u{2026}"), "a way to the pages between");
 }
+
+// ---- how much is reviewed ----
+
+fn progressing() -> AppState {
+    crate::l10n::in_english();
+    let a: String = (0..100).map(|i| format!("fn a{i}() {{}}\n")).collect();
+    let folder = crate::lib_test::scratch_folder("ui-progress", &[("a.rs", a.as_str()), ("src/b.rs", "fn b() {}\n")]);
+    AppState::on_disk(folder, RefAny::new(0u8), PathBuf::new())
+}
+
+#[test]
+fn numbers_are_grouped_by_thousands() {
+    assert_eq!(grouped(0), "0");
+    assert_eq!(grouped(999), "999");
+    assert_eq!(grouped(1_000), "1,000");
+    assert_eq!(grouped(12_345), "12,345");
+    assert_eq!(grouped(3_100_000), "3,100,000");
+}
+
+#[test]
+fn the_foot_of_the_tree_says_how_much_of_the_workspace_is_reviewed_and_that_some_files_are_not_counted_yet() {
+    let mut s = progressing();
+    for _ in 0..4 {
+        s.watch_pages(0.0, 1_200.0, 400);
+    }
+    s.refresh_rollup();
+    let line = reviewed_line(&s).expect("a workspace with files");
+    let said = texts(&line).join(" ");
+    assert!(said.contains("0 of 100 lines reviewed (0%)") && said.contains("46 seen"), "{said}");
+    assert!(said.contains("Still counting"), "src is not listed yet: {said}");
+    assert!(has_id(&line, "__azreview_reviewed"));
+    assert!(reviewed_line(&AppState::create(PathBuf::new(), Vec::new(), RefAny::new(0u8), PathBuf::new())).is_none(), "no files, no sentence");
+}
+
+#[test]
+fn a_folder_row_says_the_part_of_its_lines_that_is_reviewed_and_a_file_row_says_nothing_of_the_kind() {
+    let mut s = progressing();
+    let src = s.tree.find("src").expect("src");
+    assert_eq!(folder_trail(&s, src), None, "its files are not counted: no lines to take a part of");
+    let list = s.source.list("src").expect("listed");
+    s.take_listing(s.workspace, "src", Ok(list));
+    let b = s.tree.find("src/b.rs").expect("b.rs");
+    s.tree.set_lines(b, 10);
+    s.refresh_rollup();
+    assert_eq!(folder_trail(&s, src), Some("0%".to_string()));
+    let row = s.rows.iter().find(|r| r.name == "src").expect("the folder's row").clone();
+    assert!(texts(&tree_row(&s, &RefAny::new(0u8), &row)).contains(&"0%".to_string()));
+    let file = s.rows.iter().find(|r| r.name == "a.rs").expect("the file's row").clone();
+    assert!(!texts(&tree_row(&s, &RefAny::new(0u8), &file)).iter().any(|t| t.ends_with('%')));
+}
+
+#[test]
+fn the_key_that_holds_a_file_back_is_among_the_shortcuts() {
+    assert!(crate::SHORTCUTS.iter().any(|s| s.keys == "Mod+Shift+R"), "the shortcuts page lists it");
+}
