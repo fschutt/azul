@@ -274,7 +274,7 @@ fn a_note_has_a_localization_key_and_its_arguments() {
         Note::TooManyFiles { cap: 3 },
     ];
     for n in notes {
-        assert!(n.l10n_key().starts_with("azreview-symbols-note-"), "{n:?}");
+        assert!(n.l10n_key().starts_with(&format!("azreview-symbols-{}", "note-")), "{n:?}");
         assert!(!n.l10n_args().is_empty(), "{n:?}");
     }
 }

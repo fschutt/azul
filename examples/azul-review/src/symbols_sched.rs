@@ -1028,14 +1028,20 @@ fn worker(shared: &Arc<Shared>) {
         if shared.stop.load(Ordering::Relaxed) {
             return;
         }
-        // What the app asked for, read before the queue is locked (the index is never locked under it).
-        let mut mail = std::mem::take(&mut *lock(&shared.mail));
-        let focus = mail.focus.take().map(|path| {
+        // What the focus is known to be, read before the queue is locked (the index is never locked under it).
+        let peeked = lock(&shared.mail).focus.clone().map(|path| {
             let idx = shared.index_read();
             FocusInfo { scanned: idx.has_scanned(&path), imports: idx.imports_of(&path).to_vec(), path }
         });
         let (task, is_focus) = {
             let mut q = lock(&shared.queue);
+            // The mail is taken under the queue's lock, so that "idle" is never seen between taking what
+            // the app asked for and queueing it.
+            let mut mail = std::mem::take(&mut *lock(&shared.mail));
+            let focus = mail.focus.take().map(|path| match peeked {
+                Some(info) if info.path == path => info,
+                _ => FocusInfo { path, scanned: false, imports: Vec::new() },
+            });
             if focus.is_some() || !mail.saved.is_empty() {
                 shared.apply_mail(&mut q, mail, focus);
                 shared.cv.notify_all();
