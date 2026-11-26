@@ -15,6 +15,7 @@ pub mod env;
 pub mod l10n;
 pub mod theme;
 pub mod layout;
+pub mod net;
 pub mod offline;
 pub mod pad;
 pub mod padscene;
@@ -43,10 +44,14 @@ const HELP: &str = "companion_sim: the AzReview phone companion in a window\n\
   --trace                               print every line of the panel's log too (for a script that drives the window)\n\
   --list-scenes                         the scenes and what they show\n";
 
-/// The phone's app: the screens in the shape the phone is held, on a connection that has no network layer yet (the first
-/// screen says so by not finding a Mac; "Try it without a Mac" shows the rest). Runs until the app is closed.
+/// The phone's app: the screens in the shape the phone is held, on the connection to AzReview over the local network (what the phone
+/// keeps, and the client over azul's iroh endpoint: [`net`]). "Try it without a Mac" shows the rest of the screens. Runs until the app
+/// is closed.
 pub fn start() {
-    let root = Root::new(Box::new(offline::OfflinePhone::new()), EnvSource::Window);
+    // the screens start on a stand-in; the real connection is made when the window exists (glue::on_window_ready): an Android app has
+    // no activity yet when this runs from the library's constructor
+    let mut root = Root::new(Box::new(offline::OfflinePhone::new()), EnvSource::Window);
+    root.connect_later = true;
     let mut config = AppConfig::create();
     config.set_mode(azul::option::OptionDarkLightMode::Some(azul::css::DarkLightMode::Dark));
     let app = App::create(RefAny::new(root), config);

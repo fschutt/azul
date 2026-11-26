@@ -175,6 +175,17 @@ public final class AzulFilePicker {
             return true;
         }
 
+        // This is the UI thread, and the copy of a picked document is as slow as its provider: a cloud
+        // provider streams the file while it is read (minutes for a video), and the system shows the ANR
+        // dialog after five seconds of an unresponsive UI thread. A worker copies and answers.
+        final Intent result = data;
+        final long id = requestId;
+        new Thread(() -> deliver(activity, id, result), "azul-file-copy").start();
+        return true;
+    }
+
+    /** The copy and the answer, on the worker thread: the request is answered whatever happens. */
+    private static void deliver(Activity activity, long requestId, Intent data) {
         ArrayList<String> paths = new ArrayList<>();
         try {
             if (data.getClipData() != null) {
@@ -189,14 +200,13 @@ public final class AzulFilePicker {
                 String p = uriToCachedFile(activity, uri);
                 if (p != null) paths.add(p);
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
             Log.e(TAG, "result extraction failed", e);
             nativeOnResult(requestId, new String[0], "extraction: " + e.getMessage());
-            return true;
+            return;
         }
 
         nativeOnResult(requestId, paths.toArray(new String[0]), null);
-        return true;
     }
 
     /** Copy a SAF `content://` URI into the app's cache dir and return the

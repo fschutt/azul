@@ -25,6 +25,8 @@ pub mod client;
 pub mod discovery;
 pub mod frame;
 pub mod host;
+#[cfg(feature = "azul")]
+pub mod iroh_link;
 pub mod limits;
 pub mod link;
 pub mod mock;

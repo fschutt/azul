@@ -8,6 +8,7 @@ use std::time::Instant;
 use azul_review_link::frame::{is_safe_relative_path, AgentFinished, ButtonSet, Focus, Haptic, Phase, QuickButton, Rect, ReplyStatus};
 use azul_review_link::limits::Capped;
 use azul_review_link::link::Millis;
+use azul_review_link::pairing::OfferError;
 use azul_review_link::phone::PhoneApi;
 use azul_review_link::view::{PhoneView, Session};
 use azul_review_link::viewport::{apply_gesture_in, resolve_focus, PanDirection, Space};
@@ -61,6 +62,8 @@ pub enum Action {
     ForgetNo,
     PairFind,
     PairScan,
+    /// "Paste pairing code": the pairing text AzReview showed, from the clipboard (the shell fills it in when the key is tapped).
+    PairPaste(String),
     PairCancel,
     PairRetry,
     PairStart,
@@ -107,6 +110,8 @@ pub struct Ui {
     pub pair_card: bool,
     /// The pairing screen is open over a Mac that cannot be reached ("Pair again").
     pub pair_again: bool,
+    /// The screens are drawn as the phone's own app draws them (a scene of the layout study: the simulator shows less on the pairing screen).
+    pub device_look: bool,
     /// What the session was at the last look (a pairing that just went through shows the card).
     pub last_session: SessionKind,
     /// When each button's last status was first seen (the green tick goes away after a while).
@@ -177,6 +182,7 @@ impl Ui {
             hint: true,
             pair_card: false,
             pair_again: false,
+            device_look: false,
             last_session: SessionKind::Unpaired,
             status_seen: [None; 4],
             suppress_click_until: 0,
@@ -204,6 +210,15 @@ pub enum EnvSource {
     Fixed(Env),
 }
 
+/// What the window's setup has to do when the window says it is ready.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowSetup {
+    /// Start the timer that lets the connection work.
+    pub timer: bool,
+    /// Make the phone's real connection (the phone's own app waited for the window).
+    pub connect: bool,
+}
+
 /// The whole app state.
 pub struct Root {
     pub api: Box<dyn PhoneApi>,
@@ -216,13 +231,48 @@ pub struct Root {
     /// The demo is on: a pretend Mac answers (the real connection waits in `stashed`).
     pub demo: bool,
     stashed: Option<Box<dyn PhoneApi>>,
+    /// The phone's own app makes its real connection when the window exists (`glue::on_window_ready`), not when the library loads: an
+    /// Android app has no activity yet then, and the engine's local-network discovery needs the activity's Wi-Fi multicast lock. Until
+    /// then the screens talk to the stand-in they were made with.
+    pub connect_later: bool,
+    /// The window's setup (the timer, the real connection) has been done: it is asked for twice (the window's creation callback, which
+    /// the phones' shells never call, and the first mount of the screens, which every shell reports) and done once.
+    pub window_ready: bool,
 }
 
 impl Root {
     /// An app with this connection.
     #[must_use]
     pub fn new(api: Box<dyn PhoneApi>, env: EnvSource) -> Root {
-        Root { api, ui: Ui::new(), strings: Strings::builtin(), env, started: Instant::now(), sim: None, demo: false, stashed: None }
+        Root {
+            api,
+            ui: Ui::new(),
+            strings: Strings::builtin(),
+            env,
+            started: Instant::now(),
+            sim: None,
+            demo: false,
+            stashed: None,
+            connect_later: false,
+            window_ready: false,
+        }
+    }
+
+    /// The window says it is ready (its creation callback and the first mount of the screens both say so): what is to be done now. It is
+    /// something the first time only, so the setup runs once however often and in whichever order the window says it.
+    pub fn window_setup(&mut self) -> WindowSetup {
+        let first = !std::mem::replace(&mut self.window_ready, true);
+        WindowSetup { timer: first, connect: first && self.connect_later }
+    }
+
+    /// The real connection, made once the window exists: it takes the place of the stand-in (behind the pretend Mac when the demo is on).
+    pub fn connect_now(&mut self, api: Box<dyn PhoneApi>) {
+        self.connect_later = false;
+        if self.demo {
+            self.stashed = Some(api);
+        } else {
+            self.api = api;
+        }
     }
 
     /// Milliseconds since the app started.
@@ -241,6 +291,12 @@ impl Root {
     #[must_use]
     pub fn view(&self) -> &PhoneView {
         self.api.view()
+    }
+
+    /// What the connection noticed (the settings screen's "Connection log").
+    #[must_use]
+    pub fn log(&self) -> Vec<String> {
+        self.api.log()
     }
 
     /// The part of the page the pad shows as the viewport: while a gesture is in progress what it has made of the view
@@ -327,6 +383,23 @@ impl Root {
             }
         }
         changed
+    }
+
+    /// Starts pairing with the text from the clipboard. The key of the words that say why it was not an offer, when it was not.
+    fn pair_with_text(&mut self, now: Millis, text: &str) -> Result<(), &'static str> {
+        if text.trim().is_empty() {
+            return Err("pair-paste-empty");
+        }
+        match self.api.begin_pairing(now, text) {
+            Ok(()) => {
+                self.ui.pair_again = false;
+                Ok(())
+            }
+            Err(OfferError::NotAnOffer) => Err("pair-paste-not-offer"),
+            Err(OfferError::WrongVersion) => Err("pair-paste-version"),
+            Err(OfferError::BadSecret | OfferError::BadCheck | OfferError::BadTicket) => Err("pair-paste-damaged"),
+            Err(OfferError::TooLong) => Err("pair-paste-toolong"),
+        }
     }
 
     /// Does what a tap asks. True when the DOM must be built again.
@@ -460,6 +533,12 @@ impl Root {
             }
             Action::PairFind | Action::PairRetry => {
                 self.api.retry(now);
+                true
+            }
+            Action::PairPaste(text) => {
+                if let Err(key) = self.pair_with_text(now, &text) {
+                    self.ui.toast = Some((String::from(key), now));
+                }
                 true
             }
             Action::PairScan => {
