@@ -143,14 +143,17 @@ fn ffprobe() -> Option<std::path::PathBuf> {
 /// What the real encoders make goes through the track writer into files the system reads: a made-up
 /// moving picture and tone (nothing from any device) through VideoToolbox and AudioToolbox, the files
 /// scanned, AVFoundation's `avmediainfo` and ffprobe asked. Each half runs where its encoder works: a
-/// virtual machine that gives no H.264 encoder says so and still checks the sound.
+/// virtual machine that gives no H.264 encoder says so and still checks the sound. Where both work the same
+/// pictures and packets also go into one camera file of two tracks (the picture and the voice, as the recorder
+/// makes the camera's chunks), and that file must list both tracks, every one decodable by the system, with
+/// every voice packet in it.
 #[test]
 fn what_the_real_encoders_make_goes_through_the_track_writer_into_files_the_system_reads() {
     use std::{fs::File, process::Command};
 
     use crate::{
         recorder_fs::DiskStore,
-        recorder_mp4::{scan, TrackKind},
+        recorder_mp4::{scan, Limits, TrackKind},
         recorder_track::{Kind, TrackWriter},
     };
 
@@ -188,6 +191,28 @@ fn what_the_real_encoders_make_goes_through_the_track_writer_into_files_the_syst
         assert!(a.finished && a.samples as usize == packets.len() && a.codec == Some(*b"Opus"), "{a:?}");
         files.push(("audio/0001.mp4", packets.len() as f64 * 0.02, "Opus"));
     }
+    // The camera's file as the recorder makes it: the pictures and the voice in one file, a fragment each second
+    // (the pictures' keyframes are a second apart), each voice packet laid in after the picture before it.
+    if let (Some(aus), Some(packets)) = (&aus, &packets) {
+        let mut camera = TrackWriter::new("camera", Kind::Video, 300_000_000, 1, 0).with_limits(Limits::chunked(1_000_000)).with_voice(true);
+        let mut voice = packets.iter().enumerate().peekable();
+        for (i, au) in aus.iter().enumerate() {
+            camera.push_video(&mut store, i as u64 * 33_333, au).unwrap();
+            let next = (i as u64 + 1) * 33_333;
+            while let Some((n, p)) = voice.next_if(|(n, _)| (*n as u64) * 20_000 < next) {
+                camera.push_voice(&mut store, n as u64 * 20_000, p.clone()).unwrap();
+            }
+        }
+        for (n, p) in voice {
+            camera.push_voice(&mut store, n as u64 * 20_000, p.clone()).unwrap();
+        }
+        camera.finish(aus.len() as u64 * 33_333).unwrap();
+        let c = scan(&mut File::open(dir.join("camera/0001.mp4")).unwrap()).unwrap();
+        assert!(c.finished && !c.truncated, "{c:?}");
+        assert_eq!((c.kind, c.codec, c.width, c.height), (Some(TrackKind::Video), Some(*b"avc1"), 640, 360));
+        assert_eq!(c.samples as usize, aus.len(), "the file's own track is the pictures");
+        files.push(("camera/0001.mp4", aus.len() as f64 * 0.033_333, "H.264 + Opus"));
+    }
 
     // What they cost in bytes: size and bitrate of what the encoders made, for the seconds they were given.
     for (file, secs, what) in &files {
@@ -200,9 +225,13 @@ fn what_the_real_encoders_make_goes_through_the_track_writer_into_files_the_syst
         for (file, _, _) in &files {
             let out = Command::new(AVMEDIAINFO).arg(dir.join(file)).output().unwrap();
             let text = String::from_utf8_lossy(&out.stdout);
-            eprintln!("avmediainfo {file}:\n{}", text.lines().take(40).collect::<Vec<_>>().join("\n"));
+            eprintln!("avmediainfo {file}:\n{}", text.lines().take(70).collect::<Vec<_>>().join("\n"));
             assert!(text.contains("Movie analyzed with 0 error"), "{file}: {text}");
-            assert!(text.contains("System support for decoding this track: Yes"), "{file}: {text}");
+            // Every track the file lists is one the system decodes (and the camera's file lists two).
+            let tracks = text.lines().filter(|l| l.starts_with("Track ") && !l.starts_with("Track count")).count();
+            let decodable = text.matches("System support for decoding this track: Yes").count();
+            assert!(tracks >= 1 && decodable == tracks, "{file}: {tracks} tracks, {decodable} that the system decodes: {text}");
+            assert_eq!(tracks, if file.starts_with("camera") { 2 } else { 1 }, "{file}: {text}");
         }
     }
     if let Some(ffprobe) = ffprobe() {
@@ -215,11 +244,24 @@ fn what_the_real_encoders_make_goes_through_the_track_writer_into_files_the_syst
             assert!(out.status.success(), "ffprobe {file}: {}", String::from_utf8_lossy(&out.stderr));
             eprintln!("ffprobe {file}:\n{}", String::from_utf8_lossy(&out.stdout));
         }
+        // The camera's file: the picture and the voice as two streams, and every voice packet in it.
+        if let (Some(aus), Some(packets), true) = (&aus, &packets, dir.join("camera/0001.mp4").exists()) {
+            let out = Command::new(&ffprobe)
+                .args(["-v", "error", "-count_packets", "-show_entries", "stream=codec_name,nb_read_packets", "-of", "csv=p=0"])
+                .arg(dir.join("camera/0001.mp4"))
+                .output()
+                .unwrap();
+            let counted = String::from_utf8_lossy(&out.stdout).replace('\r', "");
+            eprintln!("ffprobe camera/0001.mp4 packets: {}", counted.trim().replace('\n', " "));
+            assert!(out.status.success(), "ffprobe: {}", String::from_utf8_lossy(&out.stderr));
+            assert!(counted.lines().any(|l| l == format!("h264,{}", aus.len())), "the pictures: {counted}");
+            assert!(counted.lines().any(|l| l == format!("opus,{}", packets.len())), "every packet of the voice: {counted}");
+        }
     }
     // One small clip may be kept to look at, where the caller names a folder for it.
     if let Ok(keep) = std::env::var("AZREVIEW_KEEP_CLIP") {
         std::fs::create_dir_all(&keep).unwrap();
-        for (file, name) in [("screen/0001.mp4", "synthetic-picture.mp4"), ("audio/0001.mp4", "synthetic-tone.mp4")] {
+        for (file, name) in [("screen/0001.mp4", "synthetic-picture.mp4"), ("audio/0001.mp4", "synthetic-tone.mp4"), ("camera/0001.mp4", "synthetic-camera-with-voice.mp4")] {
             if dir.join(file).exists() {
                 let to = std::path::Path::new(&keep).join(name);
                 std::fs::copy(dir.join(file), &to).unwrap();
