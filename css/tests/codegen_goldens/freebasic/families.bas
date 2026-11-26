@@ -43,6 +43,8 @@ End Function
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleDirectionValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleTextDecorationColorValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleTextDecorationThicknessValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleTextUnderlineOffsetValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleTextUnderlinePositionValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleHyphenationLanguageValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleExclusionMarginValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `CaretWidthValue` (or for the CssPropertyValue<T> in its payload)

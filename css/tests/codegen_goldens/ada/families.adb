@@ -37,7 +37,7 @@ package body Styles is
    function Style_Text return Az_CssPropertyWithConditionsVec is
       t1 : aliased array (0 .. 1) of Az_StyleFontFamily;
       t2 : aliased array (0 .. 0) of Az_StyleFontFamily;
-      t3 : aliased array (0 .. 64) of Az_CssPropertyWithConditions;
+      t3 : aliased array (0 .. 66) of Az_CssPropertyWithConditions;
    begin
       t1 (0) := Az_StyleFontFamily_System_K (To_Az_String ("Arial"));
       t1 (1) := Az_StyleFontFamily_System_K (To_Az_String ("sans-serif"));
@@ -98,16 +98,18 @@ package body Styles is
       t3 (53) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Text_Decoration (Az_StyleTextDecoration'(Underline)));
       t3 (54) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Text_Decoration_Color (Az_StyleTextDecorationColorValue'(Tag => Exact, Payload_Exact => Az_StyleTextDecorationColor_Color (Az_ColorU'(R => 204, G => 51, B => 0, A => 255)))));
       t3 (55) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Text_Decoration_Thickness (Az_StyleTextDecorationThicknessValue'(Tag => Exact, Payload_Exact => Az_StyleTextDecorationThickness_Length (Az_PixelValue_Px (2.0)))));
-      t3 (56) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Hyphenation_Language (Az_StyleHyphenationLanguageValue'(Tag => Exact, Payload_Exact => Az_StyleHyphenationLanguage'(Inner => To_Az_String ("en-US")))));
-      t3 (57) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Exclusion_Margin (Az_StyleExclusionMarginValue'(Tag => Exact, Payload_Exact => Az_StyleExclusionMargin'(Inner => Az_FloatValue_Create (10.5)))));
-      t3 (58) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Caret_Color (Az_CaretColor'(Inner => Az_ColorU'(R => 255, G => 0, B => 0, A => 255))));
-      t3 (59) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Caret_Animation_Duration (Az_CaretAnimationDuration'(Inner => Az_CssDuration'(Inner => 500, Unit => Az_CssDurationUnit'(Milliseconds)))));
-      t3 (60) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Caret_Width (Az_CaretWidthValue'(Tag => Exact, Payload_Exact => Az_CaretWidth'(Inner => Az_PixelValue_Px (2.0)))));
-      t3 (61) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Selection_Background_Color (Az_SelectionBackgroundColor'(Inner => Az_ColorU'(R => 51, G => 153, B => 255, A => 255))));
-      t3 (62) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Selection_Color (Az_SelectionColor'(Inner => Az_ColorU'(R => 255, G => 255, B => 255, A => 255))));
-      t3 (63) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Selection_Radius (Az_SelectionRadiusValue'(Tag => Exact, Payload_Exact => Az_SelectionRadius'(Inner => Az_PixelValue_Px (3.0)))));
-      t3 (64) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font (Az_StyleFontFamilyVec_Copy_From_Ptr (t2 (0)'Address, 1)));
-      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t3 (0)'Address, 65);
+      t3 (56) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Text_Underline_Offset (Az_StyleTextUnderlineOffsetValue'(Tag => Exact, Payload_Exact => Az_StyleTextUnderlineOffset_Length (Az_PixelValue_Px (3.0)))));
+      t3 (57) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Text_Underline_Position (Az_StyleTextUnderlinePositionValue'(Tag => Exact, Payload_Exact => Az_StyleTextUnderlinePosition'(UnderLeft))));
+      t3 (58) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Hyphenation_Language (Az_StyleHyphenationLanguageValue'(Tag => Exact, Payload_Exact => Az_StyleHyphenationLanguage'(Inner => To_Az_String ("en-US")))));
+      t3 (59) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Exclusion_Margin (Az_StyleExclusionMarginValue'(Tag => Exact, Payload_Exact => Az_StyleExclusionMargin'(Inner => Az_FloatValue_Create (10.5)))));
+      t3 (60) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Caret_Color (Az_CaretColor'(Inner => Az_ColorU'(R => 255, G => 0, B => 0, A => 255))));
+      t3 (61) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Caret_Animation_Duration (Az_CaretAnimationDuration'(Inner => Az_CssDuration'(Inner => 500, Unit => Az_CssDurationUnit'(Milliseconds)))));
+      t3 (62) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Caret_Width (Az_CaretWidthValue'(Tag => Exact, Payload_Exact => Az_CaretWidth'(Inner => Az_PixelValue_Px (2.0)))));
+      t3 (63) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Selection_Background_Color (Az_SelectionBackgroundColor'(Inner => Az_ColorU'(R => 51, G => 153, B => 255, A => 255))));
+      t3 (64) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Selection_Color (Az_SelectionColor'(Inner => Az_ColorU'(R => 255, G => 255, B => 255, A => 255))));
+      t3 (65) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Selection_Radius (Az_SelectionRadiusValue'(Tag => Exact, Payload_Exact => Az_SelectionRadius'(Inner => Az_PixelValue_Px (3.0)))));
+      t3 (66) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font (Az_StyleFontFamilyVec_Copy_From_Ptr (t2 (0)'Address, 1)));
+      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t3 (0)'Address, 67);
    end Style_Text;
 
    --  CSS: .shorthands
