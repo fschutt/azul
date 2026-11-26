@@ -244,6 +244,7 @@ azreview-whiteboard-head-material = { $n } Dinge, die seit dem letzten Schnappsc
 azreview-whiteboard-head-take = Schnappschuss machen ...
 azreview-whiteboard-head-dismiss = Jetzt nicht
 azreview-whiteboard-material-intro = Seit dem letzten Schnappschuss:
+azreview-whiteboard-material-more = ... und { $n } weitere
 azreview-whiteboard-summary-references = Der Code, auf den die Ausschnitte zeigen: { $moved } verschoben, { $changed } geändert, { $vanished } verschwunden.
 azreview-whiteboard-flag-moved = verschoben
 azreview-whiteboard-flag-changed = geändert

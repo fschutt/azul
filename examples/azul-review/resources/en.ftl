@@ -244,6 +244,7 @@ azreview-whiteboard-head-material = { $n } things that were done since the last 
 azreview-whiteboard-head-take = Take snapshot...
 azreview-whiteboard-head-dismiss = Not now
 azreview-whiteboard-material-intro = Since the last snapshot:
+azreview-whiteboard-material-more = ... and { $n } more
 azreview-whiteboard-summary-references = The code the cutouts point at: { $moved } moved, { $changed } changed, { $vanished } gone.
 azreview-whiteboard-flag-moved = moved
 azreview-whiteboard-flag-changed = changed

@@ -26,6 +26,11 @@ use crate::{
     whiteboard_ui::{say, Host, Panel},
 };
 
+/// How many lines of what was done since the last snapshot start the reason, and how long each may be (a host that has
+/// hundreds of them gets the first ones and a line that says how many are left out).
+pub const MAX_MATERIAL_LINES: usize = 40;
+pub const MAX_MATERIAL_CHARS: usize = 200;
+
 /// What the sheet that takes a snapshot is for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SheetKind {
@@ -124,9 +129,14 @@ impl Panel {
                 // When the code moved on, what the app knows of what happened since is where the reason starts.
                 let why = if self.wb.head_moved().is_some() && !self.history_ui.material.is_empty() {
                     let mut text = t("azreview-whiteboard-material-intro");
-                    for line in &self.history_ui.material {
+                    for line in self.history_ui.material.iter().take(MAX_MATERIAL_LINES) {
                         text.push_str("\n- ");
-                        text.push_str(line);
+                        text.extend(line.chars().filter(|c| !c.is_control()).take(MAX_MATERIAL_CHARS));
+                    }
+                    let more = self.history_ui.material.len().saturating_sub(MAX_MATERIAL_LINES);
+                    if more > 0 {
+                        text.push_str("\n- ");
+                        text.push_str(&t_args("azreview-whiteboard-material-more", &[("n", Arg::from(more))]));
                     }
                     text.push_str("\n\n");
                     text
