@@ -380,20 +380,17 @@ fn accesses(info: &CallbackInfo) -> Accesses {
     }
 }
 
-/// The display the window is on: the system's number and its size in pixels.
-fn display_of(info: &CallbackInfo) -> DisplayFacts {
-    let monitor = info.get_current_monitor().into_option().or_else(|| info.get_monitors().as_ref().iter().find(|m| m.is_primary_monitor).cloned());
-    match monitor {
-        Some(m) => {
-            let scale = m.scale_factor.max(1.0);
-            DisplayFacts {
-                id: m.native_id,
-                width: (m.size.width as f64 * scale).round() as u32,
-                height: (m.size.height as f64 * scale).round() as u32,
-            }
-        }
-        None => DisplayFacts { id: 0, width: 0, height: 0 },
-    }
+/// A monitor as the recorder knows a display: the system's number and its size in pixels.
+fn facts_of(m: &azul::window::Monitor) -> DisplayFacts {
+    let scale = m.scale_factor.max(1.0);
+    DisplayFacts { id: m.native_id, width: (m.size.width as f64 * scale).round() as u32, height: (m.size.height as f64 * scale).round() as u32 }
+}
+
+/// The display the window is on, and all the displays there are.
+fn displays_of(info: &CallbackInfo) -> (DisplayFacts, Vec<DisplayFacts>) {
+    let all: Vec<DisplayFacts> = info.get_monitors().as_ref().iter().map(facts_of).collect();
+    let window = info.get_current_monitor().into_option().map(|m| facts_of(&m)).or_else(|| info.get_monitors().as_ref().iter().find(|m| m.is_primary_monitor).map(facts_of));
+    (window.unwrap_or(DisplayFacts { id: 0, width: 0, height: 0 }), all)
 }
 
 fn ensure_timer(host: &Host, info: &mut CallbackInfo) {
@@ -417,11 +414,11 @@ fn ensure_timer(host: &Host, info: &mut CallbackInfo) {
 fn press(host: &Host, what: Do, info: &mut CallbackInfo) -> Update {
     match what {
         Do::Start => {
-            let (access, display) = (accesses(info), display_of(info));
+            let (access, (display, all)) = (accesses(info), displays_of(info));
             let devices = Devices { screen: Some(String::from("display")), camera: None, microphone: None };
             let started = host.run(|app| {
                 app.display = Some(display);
-                app.host.start(access, devices.clone(), display)
+                app.host.start(access, devices, display, &all)
             });
             if started == Some(true) {
                 ensure_timer(host, info);

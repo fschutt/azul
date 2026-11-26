@@ -73,6 +73,21 @@ pub struct DisplayFacts {
     pub height: u32,
 }
 
+/// The display a recording is of: `wanted` (the system's number, as the settings name it; 0: none named) among
+/// `all` the displays there are, else the display the window is on (`window`). A number that names no display
+/// is said, and the window's display is recorded: a recording that is of nothing is no better than one of
+/// the wrong display, and the wrong display is the one the person is looking at.
+#[must_use]
+pub fn pick_display(wanted: u32, window: DisplayFacts, all: &[DisplayFacts]) -> (DisplayFacts, Option<Text>) {
+    if wanted == 0 {
+        return (window, None);
+    }
+    match all.iter().find(|d| d.id == wanted) {
+        Some(display) => (*display, None),
+        None => (window, Some(Text::from(Phrase::new("azreview-rec-notice-display-missing").arg("id", wanted)))),
+    }
+}
+
 /// What the screen capture is asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreenWant {
@@ -256,10 +271,11 @@ impl RecorderHost {
 
     // ---- a recording ----
 
-    /// Starts a recording with what the system allows; `false` (and [`RecorderHost::error`] says why) when it does
+    /// Starts a recording of the display `pick_display` chooses with what the system allows; `false` (and [`RecorderHost::error`] says why) when it does
     /// not start. A device the system refused is named in the panel and the others record.
-    pub fn start(&mut self, access: Accesses, devices: Devices, display: DisplayFacts) -> bool {
+    pub fn start(&mut self, access: Accesses, devices: Devices, window_display: DisplayFacts, displays: &[DisplayFacts]) -> bool {
         self.error = None;
+        let (display, missing) = pick_display(self.settings.screen_display, window_display, displays);
         if self.settings.screen && self.settings.screen_source == ScreenKind::Window {
             // Recording one window needs the system's id of AzReview's window, which azul does not give yet; the
             // whole display is never recorded in its place (that is more than was asked for).
@@ -286,6 +302,9 @@ impl RecorderHost {
                 self.access = access;
                 self.display = Some(display);
                 self.recent.clear();
+                if let Some(text) = missing {
+                    self.push(Severity::Warning, text);
+                }
                 true
             }
             Err(e) => {

@@ -75,7 +75,7 @@ const ALL: Accesses = Accesses { screen: Access::Allowed, camera: Access::Allowe
 const DISPLAY: DisplayFacts = DisplayFacts { id: 1, width: 2560, height: 1664 };
 
 fn start(host: &Host) -> bool {
-    host.run(|app| app.host.start(ALL, Devices::default(), DISPLAY)).expect("an app")
+    host.run(|app| app.host.start(ALL, Devices::default(), DISPLAY, &[DISPLAY])).expect("an app")
 }
 
 fn nodes(dom: &Dom) -> Vec<&Dom> {

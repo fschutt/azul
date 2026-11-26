@@ -92,7 +92,7 @@ fn devices() -> Devices {
 
 impl Rig {
     fn start(&mut self) -> bool {
-        self.host.start(ALL_ALLOWED, devices(), DISPLAY)
+        self.host.start(ALL_ALLOWED, devices(), DISPLAY, &[DISPLAY])
     }
 }
 
@@ -165,7 +165,7 @@ fn the_settings_and_the_systems_answers_take_devices_out_of_what_is_asked_for() 
     assert!(wants.screen.is_some() && !wants.camera && !wants.microphone);
 
     let mut r = rig();
-    assert!(r.host.start(Accesses { camera: Access::Denied, microphone: Access::Restricted, ..ALL_ALLOWED }, devices(), DISPLAY));
+    assert!(r.host.start(Accesses { camera: Access::Denied, microphone: Access::Restricted, ..ALL_ALLOWED }, devices(), DISPLAY, &[DISPLAY]));
     let wants = r.host.wants();
     assert!(wants.screen.is_some() && !wants.camera && !wants.microphone, "{wants:?}");
 
@@ -179,7 +179,7 @@ fn the_settings_and_the_systems_answers_take_devices_out_of_what_is_asked_for() 
     assert_eq!((r.host.wants().screen, r.host.wants().tap), (None, false));
 
     let mut r = rig();
-    assert!(r.host.start(Accesses { screen: Access::Denied, ..ALL_ALLOWED }, devices(), DISPLAY));
+    assert!(r.host.start(Accesses { screen: Access::Denied, ..ALL_ALLOWED }, devices(), DISPLAY, &[DISPLAY]));
     assert_eq!(r.host.wants().screen, None, "a refused screen is not asked for again every second");
 }
 
@@ -191,6 +191,41 @@ fn the_apps_to_leave_out_are_the_settings() {
     assert_eq!(r.host.wants().screen.unwrap().exclude, vec!["com.example.One", "com.example.Two"]);
 }
 
+/// The display of a recording is the one the window is on, unless the settings name another by the system's
+/// number; a number of a display that is not there is said, and the window's display is recorded (never none).
+///
+/// Mutation: a named display that is ignored; an unknown number that records nothing or says nothing.
+#[test]
+fn the_display_is_the_windows_unless_the_settings_name_another_and_a_missing_one_is_said() {
+    let (a, b) = (DisplayFacts { id: 11, width: 2560, height: 1664 }, DisplayFacts { id: 22, width: 1920, height: 1080 });
+    assert_eq!(pick_display(0, a, &[a, b]), (a, None), "no display named: the window's");
+    assert_eq!(pick_display(22, a, &[a, b]), (b, None), "another, by the system's number");
+    assert_eq!(pick_display(11, a, &[a, b]), (a, None));
+    let (picked, said) = pick_display(99, a, &[a, b]);
+    assert_eq!(picked, a, "the window's, since display 99 is not there");
+    let said = said.expect("it is said");
+    assert_eq!(said.phrase("azreview-rec-notice-display-missing").unwrap().get("id"), Some(&Arg::Int(99)));
+    assert_eq!(pick_display(22, a, &[]), (a, Some(Text::from(Phrase::new("azreview-rec-notice-display-missing").arg("id", 22_u32)))), "no list, no choice");
+}
+
+/// A recording of the display the settings name is of that display, at its own size, and one of a display that is
+/// not there says so in the panel and records the window's.
+///
+/// Mutation: the named display's size not used; the missing display not said in the panel.
+#[test]
+fn a_named_display_is_the_one_recorded_at_its_own_size_and_a_missing_one_is_said_in_the_panel() {
+    let (a, b) = (DisplayFacts { id: 11, width: 2560, height: 1664 }, DisplayFacts { id: 22, width: 1920, height: 1080 });
+    let mut r = rig_with(RecorderSettings { screen_display: 22, ..quiet() });
+    assert!(r.host.start(ALL_ALLOWED, devices(), a, &[a, b]), "{:?}", r.host.error());
+    let screen = r.host.wants().screen.expect("the screen");
+    assert_eq!((screen.display_id, screen.width, screen.height), (22, 1920, 1080));
+    let mut r = rig_with(RecorderSettings { screen_display: 99, ..quiet() });
+    assert!(r.host.start(ALL_ALLOWED, devices(), a, &[a, b]));
+    let screen = r.host.wants().screen.expect("the screen");
+    assert_eq!((screen.display_id, screen.width, screen.height), (11, 1920, 1248), "the window's display");
+    assert!(r.host.recent().any(|n| n.severity == Severity::Warning && n.text.phrase("azreview-rec-notice-display-missing").is_some()), "{:?}", r.host.recent().collect::<Vec<_>>());
+}
+
 // ---- starting ----
 
 /// A recording starts with what the system allows, and a refusal of one device does not stop the others: the panel
@@ -200,7 +235,7 @@ fn the_apps_to_leave_out_are_the_settings() {
 #[test]
 fn a_recording_starts_and_a_refused_device_is_named_while_the_rest_records() {
     let mut r = rig();
-    assert!(r.host.start(Accesses { camera: Access::Denied, ..ALL_ALLOWED }, devices(), DISPLAY), "{:?}", r.host.error());
+    assert!(r.host.start(Accesses { camera: Access::Denied, ..ALL_ALLOWED }, devices(), DISPLAY, &[DISPLAY]), "{:?}", r.host.error());
     assert_eq!(r.host.hud().dot, Dot::Recording);
     assert!(r.host.error().is_none());
     r.clock.advance_ms(200);
