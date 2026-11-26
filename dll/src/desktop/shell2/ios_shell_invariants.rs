@@ -13,6 +13,8 @@ const FILE_PICKER_RS: &str = include_str!("../extra/file_picker/ios.rs");
 const CAMERA_RS: &str = include_str!("../extra/camera/avfoundation.rs");
 const AVF_AUTH_RS: &str = include_str!("../extra/camera/avf_auth.rs");
 const SENSORS_APPLE_RS: &str = include_str!("../extra/sensors/apple.rs");
+const SPEECH_APPLE_RS: &str = include_str!("../extra/speech/apple.rs");
+const AUDIO_SINK_RS: &str = include_str!("../extra/audio/avfoundation_sink.rs");
 const RUN_RS: &str = include_str!("run.rs");
 
 /// The body of the first fn declared by `decl`, from its opening brace to the matching closing one.
@@ -497,5 +499,27 @@ fn the_protected_requests_of_the_ios_build_check_their_purpose_string_first() {
         "request_would_stop_the_process(keys::MOTION)",
         "startPedometerUpdatesFromDate_withHandler",
         "start_push_only_sensors",
+    );
+}
+
+/// The default iOS audio session "disallows audio recording" (the engine's input reads zero Hz:
+/// "there is no microphone to listen with", every time) and is silenced by the Ring/Silent switch
+/// and the screen lock. The microphone of the speech recognizer and the audio sink set a session
+/// that allows what they do before they build their engine.
+#[test]
+fn the_audio_users_of_the_ios_build_set_an_audio_session_before_their_engine() {
+    let mic = body(SPEECH_APPLE_RS, "unsafe fn start() -> Result<Self, (Outcome, String)>");
+    in_order(
+        mic,
+        "SessionUse::Record",
+        "msg_send![engine, inputNode]",
+        "AppleMicrophone::start",
+    );
+    let sink = body(AUDIO_SINK_RS, "pub(super) fn open(rate: u32, channels: u16)");
+    in_order(
+        sink,
+        "SessionUse::Playback",
+        "AVAudioEngine::new()",
+        "AvfSink::open",
     );
 }
