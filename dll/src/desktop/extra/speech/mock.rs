@@ -12,7 +12,12 @@ use std::{
     },
 };
 
-use super::recognizer::{Answer, Clock, Kind, Listen, Outcome, Readiness, Recognizer, Word};
+use super::recognizer::{
+    Answer, Clock, EventKind, Kind, Listen, Outcome, Readiness, Recognizer, StreamOptions, Word,
+};
+
+/// How long a scripted room is quiet before the stream says so, ms.
+const QUIET_MS: u64 = 1_000;
 
 /// A clock that stands still until somebody waits on it: `sleep_ms` moves it by that much and
 /// returns at once. `unix_ms` is a fixed origin plus the same time.
@@ -159,6 +164,93 @@ impl Recognizer for MockSpeech {
 
     fn label(&self) -> String {
         self.label.clone()
+    }
+
+    fn listen_stream(
+        &mut self,
+        call: &Listen<'_>,
+        options: &StreamOptions,
+        stop: &dyn Fn() -> bool,
+        emit: &dyn Fn(EventKind, Answer),
+    ) -> Answer {
+        let began = call.clock.now_ms();
+        let budget = u64::from(call.timeout_ms);
+        let mut finals = 0u32;
+        loop {
+            let used = call.clock.now_ms().saturating_sub(began);
+            if stop() || (call.cancel)() || used >= budget || (options.max_utterances > 0 && finals >= options.max_utterances) {
+                break;
+            }
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let started_unix_ms = call.clock.unix_ms();
+            let step = self.next_step();
+            self.last = Some(step.clone());
+            if !matches!(step, Step::Refuse { .. }) {
+                (call.flowing)();
+            }
+            match step {
+                Step::Refuse { outcome, message } => return Answer::none(outcome, &message),
+                Step::Silence => {
+                    // A stretch of the room: a second of it is reported, then the stream goes on.
+                    let waited = call.wait((budget - used).min(QUIET_MS));
+                    if (call.cancel)() {
+                        break;
+                    }
+                    if waited >= QUIET_MS {
+                        emit(EventKind::Quiet, Answer::none(Outcome::NothingHeard, "nothing was said"));
+                    }
+                }
+                Step::Say { delay_ms, words, language } => {
+                    let delay = u64::from(delay_ms);
+                    let mut waited = 0u64;
+                    let mut cut = false;
+                    if options.partials {
+                        for at in 0..words.len() {
+                            let moment = u64::from(words[at].end_ms).min(delay);
+                            if moment > waited {
+                                waited += call.wait(moment - waited);
+                            }
+                            if (call.cancel)() {
+                                cut = true;
+                                break;
+                            }
+                            emit(EventKind::Partial, Answer::heard_words(words[..=at].to_vec(), &language, started_unix_ms));
+                        }
+                    }
+                    if !cut && delay > waited {
+                        waited += call.wait(delay - waited);
+                    }
+                    if cut || (call.cancel)() {
+                        // Cancelled in the middle of it: no final for the utterance that was cut.
+                        break;
+                    }
+                    finals += 1;
+                    emit(EventKind::Final, Answer::heard_words(words, &language, started_unix_ms));
+                }
+                Step::Fail { after_ms, message, partial } => {
+                    let after = u64::from(after_ms);
+                    let mut waited = 0u64;
+                    if options.partials {
+                        for at in 0..partial.len() {
+                            let moment = u64::from(partial[at].end_ms).min(after);
+                            if moment > waited {
+                                waited += call.wait(moment - waited);
+                            }
+                            emit(EventKind::Partial, Answer::heard_words(partial[..=at].to_vec(), "", started_unix_ms));
+                        }
+                    }
+                    if after > waited {
+                        call.wait(after - waited);
+                    }
+                    let mut answer = Answer::none(Outcome::Failed, &message);
+                    answer.text = partial.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ");
+                    answer.words = partial;
+                    answer.started_unix_ms = started_unix_ms;
+                    return answer;
+                }
+            }
+        }
+        Answer::none(if finals > 0 { Outcome::Heard } else { Outcome::NothingHeard }, "")
     }
 
     fn warm(&self) -> bool {

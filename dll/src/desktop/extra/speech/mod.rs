@@ -38,10 +38,11 @@
 
 use core::ffi::c_void;
 use std::{
+    collections::VecDeque,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
-        Arc, Mutex, PoisonError,
+        Arc, Condvar, Mutex, PoisonError,
     },
 };
 
@@ -75,6 +76,9 @@ mod tests;
 #[cfg(test)]
 #[path = "session_test.rs"]
 mod session_test;
+#[cfg(test)]
+#[path = "stream_test.rs"]
+mod stream_test;
 
 #[cfg(target_os = "android")]
 use self::android as platform;
@@ -91,7 +95,10 @@ use self::{
     keeper::{MicKeeper, DEFAULT_ARMED_IDLE_MS, DEFAULT_KEEP_MS},
     mock::{words_of, MockSpeech},
     order::Preference,
-    recognizer::{Answer, Kind, Limits, Listen, Outcome, Readiness, Recognizer, SharedClock, SystemClock, Word},
+    recognizer::{
+        Answer, Event, EventKind, Kind, Limits, Listen, Outcome, Readiness, Recognizer, SharedClock, StreamOptions,
+        SystemClock, Word,
+    },
     vocabulary::Vocabulary,
 };
 
@@ -498,6 +505,97 @@ impl From<BuiltinStatus> for BuiltinSpeechStatus {
     }
 }
 
+/// What a stream reports.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechEventKind {
+    /// Sound reaches the recognizer: say "speak now". The first event of a stream that could listen.
+    Ready,
+    /// What the utterance that goes on has come to so far (`heard.text`, `heard.words`).
+    Partial,
+    /// An utterance is over: its text and its words with their times, who gave them.
+    Final,
+    /// A stretch of the room without speech.
+    Quiet,
+    /// The stream is over; `heard.status` says how (`Heard` something was heard, `NothingHeard`,
+    /// `Denied`, `Unavailable`, `Failed`) and `heard.message` why.
+    Ended,
+}
+
+impl From<EventKind> for SpeechEventKind {
+    fn from(kind: EventKind) -> Self {
+        match kind {
+            EventKind::Ready => Self::Ready,
+            EventKind::Partial => Self::Partial,
+            EventKind::Final => Self::Final,
+            EventKind::Quiet => Self::Quiet,
+            EventKind::Ended => Self::Ended,
+        }
+    }
+}
+
+/// One thing a stream reports.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpeechEvent {
+    pub kind: SpeechEventKind,
+    /// Milliseconds since the stream began.
+    pub at_ms: u32,
+    /// What was heard: for a partial or a final the text, the words with their times and who gave
+    /// them; for an end how it ended (the status) and why (the message).
+    pub heard: SpeechHeard,
+}
+
+impl_option!(SpeechEvent, OptionSpeechEvent, copy = false, [Debug, Clone, PartialEq]);
+impl_vec!(
+    SpeechEvent,
+    SpeechEventVec,
+    SpeechEventVecDestructor,
+    SpeechEventVecDestructorType,
+    SpeechEventVecSlice,
+    OptionSpeechEvent
+);
+impl_vec_debug!(SpeechEvent, SpeechEventVec);
+impl_vec_clone!(SpeechEvent, SpeechEventVec, SpeechEventVecDestructor);
+impl_vec_partialeq!(SpeechEvent, SpeechEventVec);
+
+/// What a stream is asked to do.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct SpeechStreamOptions {
+    /// Report what an utterance has come to while it goes on (the built-in recognizer decodes
+    /// the growing utterance about every 500 ms; the system's gives its own).
+    pub partials: bool,
+    /// How long a pause ends an utterance, ms (0: the default; kept to 200 .. 3000).
+    pub endpoint_ms: u32,
+    /// How long the stream runs at most, ms (0: until it is stopped; at most one hour).
+    pub max_ms: u32,
+    /// How many utterances end the stream (0: until it is stopped or its time is up).
+    pub max_utterances: u32,
+}
+
+impl Default for SpeechStreamOptions {
+    fn default() -> Self {
+        Self {
+            partials: true,
+            endpoint_ms: 0,
+            max_ms: 0,
+            max_utterances: 0,
+        }
+    }
+}
+
+impl From<SpeechStreamOptions> for StreamOptions {
+    fn from(options: SpeechStreamOptions) -> Self {
+        Self {
+            partials: options.partials,
+            endpoint_ms: options.endpoint_ms,
+            max_ms: options.max_ms,
+            max_utterances: options.max_utterances,
+        }
+    }
+}
+
 /// What a caller may ask of the speech recognizers: every value outside is kept to it and the
 /// answer says so (never a crash).
 #[repr(C)]
@@ -781,6 +879,41 @@ impl SpeechSession {
         AzString::from(note.unwrap_or_default())
     }
 
+    /// Listens as a stream: utterance after utterance on one microphone, with what each has
+    /// come to as it goes, until [`SpeechStream::stop`], [`SpeechStream::cancel`], the options'
+    /// time or utterance count. Returns at once; the stream listens on a thread of its own, through
+    /// the same chain as [`Self::listen_blocking`] (the same order, the same hand-over to the next
+    /// recognizer on a refusal before the first event). What was said before the call and is
+    /// still in the microphone's buffer (an armed session keeps the last 2 s) is part of the first
+    /// utterance. A call or another stream that runs waits for this one to end.
+    #[must_use]
+    pub fn start_stream(&self, language: AzString, options: SpeechStreamOptions) -> SpeechStream {
+        let shared = Arc::new(StreamShared::new());
+        let handle = SpeechStream::from_shared(Arc::clone(&shared));
+        let ended = |status: HeardStatus, message: &str| {
+            shared.push(SpeechEvent {
+                kind: SpeechEventKind::Ended,
+                at_ms: 0,
+                heard: SpeechHeard::none(status, message),
+            });
+            shared.finish();
+        };
+        if self.inner().is_none() {
+            ended(HeardStatus::Unavailable, "this speech session is closed");
+            return handle;
+        }
+        let session = self.clone();
+        let weak = Arc::downgrade(&shared);
+        let language = language.as_str().to_string();
+        let spawned = std::thread::Builder::new()
+            .name("azul-speech-stream".to_string())
+            .spawn(move || run_stream(&session, &weak, &language, options.into()));
+        if spawned.is_err() {
+            ended(HeardStatus::Failed, "no thread could be started for the stream");
+        }
+        handle
+    }
+
     /// What the session is ready for ([`SpeechState`]).
     #[must_use]
     pub fn state(&self) -> SpeechState {
@@ -927,6 +1060,222 @@ impl SpeechSession {
             inner.refresh_lines();
         }
     }
+}
+
+/// The most events a stream keeps for an app that does not collect them.
+const STREAM_QUEUE: usize = 1_000;
+
+/// What a stream shares between its handles and its thread.
+struct StreamShared {
+    events: Mutex<VecDeque<SpeechEvent>>,
+    arrived: Condvar,
+    stop: AtomicBool,
+    cancel: AtomicBool,
+    running: AtomicBool,
+}
+
+impl StreamShared {
+    fn new() -> Self {
+        Self {
+            events: Mutex::new(VecDeque::new()),
+            arrived: Condvar::new(),
+            stop: AtomicBool::new(false),
+            cancel: AtomicBool::new(false),
+            running: AtomicBool::new(true),
+        }
+    }
+
+    fn push(&self, event: SpeechEvent) {
+        let mut queue = self.events.lock().unwrap_or_else(PoisonError::into_inner);
+        if queue.len() >= STREAM_QUEUE {
+            // Nobody collects: the oldest partial goes first, then the oldest.
+            let at = queue.iter().position(|e| e.kind == SpeechEventKind::Partial).unwrap_or(0);
+            queue.remove(at);
+        }
+        queue.push_back(event);
+        drop(queue);
+        self.arrived.notify_all();
+    }
+
+    fn finish(&self) {
+        let queue = self.events.lock().unwrap_or_else(PoisonError::into_inner);
+        self.running.store(false, Ordering::SeqCst);
+        drop(queue);
+        self.arrived.notify_all();
+    }
+}
+
+fn public_event(event: Event) -> SpeechEvent {
+    SpeechEvent {
+        kind: event.kind.into(),
+        at_ms: u32::try_from(event.at_ms).unwrap_or(u32::MAX),
+        heard: answer_to_heard(event.answer, event.by),
+    }
+}
+
+/// A listen that goes on: utterance after utterance, with what each has come to as it goes
+/// ([`SpeechSession::start_stream`]). The events are collected with `wait_events` (blocks until
+/// there is one) or `poll_events` (never blocks).
+///
+/// ```text
+/// let stream = session.start_stream(language, SpeechStreamOptions { partials: true, ..Default::default() });
+/// loop {
+///     for event in stream.wait_events(100).as_slice() { /* Ready, Partial, Final, Quiet, Ended */ }
+///     if !stream.is_running() { break }
+/// }
+/// ```
+#[repr(C)]
+pub struct SpeechStream {
+    /// Opaque pointer to the shared stream (null on a default handle).
+    pub ptr: *mut c_void,
+    /// Whether this handle owns one reference of the stream (every `clone` does).
+    pub run_destructor: bool,
+}
+
+// SAFETY: the stream behind the pointer is `Sync` (its parts are mutexes and atomics).
+unsafe impl Send for SpeechStream {}
+unsafe impl Sync for SpeechStream {}
+
+impl Default for SpeechStream {
+    fn default() -> Self {
+        Self {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+
+impl Clone for SpeechStream {
+    fn clone(&self) -> Self {
+        if self.ptr.is_null() {
+            return Self::default();
+        }
+        // SAFETY: `ptr` came from `Arc::into_raw` of a `StreamShared` and is alive while a handle
+        // that owns a reference exists; a clone takes one reference of its own.
+        unsafe { Arc::increment_strong_count(self.ptr.cast::<StreamShared>()) };
+        Self {
+            ptr: self.ptr,
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for SpeechStream {
+    fn drop(&mut self) {
+        if self.run_destructor && !self.ptr.is_null() {
+            // SAFETY: this handle owns one reference.
+            let shared = unsafe { Arc::from_raw(self.ptr.cast::<StreamShared>()) };
+            // The last handle going ends the stream: nobody is left to hear it.
+            if Arc::strong_count(&shared) == 1 {
+                shared.cancel.store(true, Ordering::SeqCst);
+            }
+            drop(shared);
+            self.ptr = core::ptr::null_mut();
+            self.run_destructor = false;
+        }
+    }
+}
+
+impl SpeechStream {
+    fn from_shared(shared: Arc<StreamShared>) -> Self {
+        Self {
+            ptr: Arc::into_raw(shared).cast_mut().cast::<c_void>(),
+            run_destructor: true,
+        }
+    }
+
+    fn shared(&self) -> Option<&StreamShared> {
+        // SAFETY: a non-null `ptr` is alive while this handle is (see `Clone` and `Drop`).
+        unsafe { self.ptr.cast::<StreamShared>().as_ref() }
+    }
+
+    /// The events that came since the last call, oldest first; never waits.
+    #[must_use]
+    pub fn poll_events(&self) -> SpeechEventVec {
+        let Some(shared) = self.shared() else {
+            return SpeechEventVec::from_vec(Vec::new());
+        };
+        let mut queue = shared.events.lock().unwrap_or_else(PoisonError::into_inner);
+        SpeechEventVec::from_vec(queue.drain(..).collect())
+    }
+
+    /// The events that came since the last call, waiting up to `timeout_ms` for the first one:
+    /// returns as soon as there is one (a worker thread that waits here neither spins nor adds a
+    /// polling period to the latency), at once when the stream is over, empty when the time ran
+    /// out first.
+    #[must_use]
+    pub fn wait_events(&self, timeout_ms: u32) -> SpeechEventVec {
+        let Some(shared) = self.shared() else {
+            return SpeechEventVec::from_vec(Vec::new());
+        };
+        let mut queue = shared.events.lock().unwrap_or_else(PoisonError::into_inner);
+        if queue.is_empty() && shared.running.load(Ordering::SeqCst) {
+            queue = shared
+                .arrived
+                .wait_timeout_while(queue, std::time::Duration::from_millis(u64::from(timeout_ms)), |queue| {
+                    queue.is_empty() && shared.running.load(Ordering::SeqCst)
+                })
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        SpeechEventVec::from_vec(queue.drain(..).collect())
+    }
+
+    /// Ends the stream after the utterance that goes on (an `Ended` event follows).
+    pub fn stop(&self) {
+        if let Some(shared) = self.shared() {
+            shared.stop.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Ends the stream now: the utterance that goes on is dropped without a final (an `Ended`
+    /// event follows).
+    pub fn cancel(&self) {
+        if let Some(shared) = self.shared() {
+            shared.cancel.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Whether the stream is still listening (events may still be waiting to be collected).
+    #[must_use]
+    pub fn is_running(&self) -> bool {
+        self.shared().is_some_and(|shared| shared.running.load(Ordering::SeqCst))
+    }
+}
+
+/// The thread of a stream: listens through the chain and hands every event to the handles.
+fn run_stream(session: &SpeechSession, shared: &std::sync::Weak<StreamShared>, language: &str, options: StreamOptions) {
+    let Some(inner) = session.inner() else {
+        return;
+    };
+    let push = |event: Event| {
+        if let Some(shared) = shared.upgrade() {
+            shared.push(public_event(event));
+        }
+    };
+    let stopped = || shared.upgrade().map_or(true, |s| s.stop.load(Ordering::SeqCst));
+    let cancelled =
+        || inner.cancel.load(Ordering::SeqCst) || shared.upgrade().map_or(true, |s| s.cancel.load(Ordering::SeqCst));
+    inner.cancel.store(false, Ordering::SeqCst);
+    inner.flowing.store(false, Ordering::SeqCst);
+    let _listening = ActiveGuard::new(&inner.active);
+    {
+        let mut chain = inner.chain.lock().unwrap_or_else(PoisonError::into_inner);
+        let _ = inner.arrange(&mut chain, language);
+        let _ = chain.stream_with(
+            language,
+            &options,
+            &cancelled,
+            &stopped,
+            &|| inner.flowing.store(true, Ordering::SeqCst),
+            &push,
+        );
+    }
+    inner.flowing.store(false, Ordering::SeqCst);
+    if let Some(shared) = shared.upgrade() {
+        shared.finish();
+    }
+    inner.refresh_lines();
 }
 
 enum BuiltinSource {

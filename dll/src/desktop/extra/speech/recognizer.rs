@@ -226,6 +226,58 @@ impl Listen<'_> {
     }
 }
 
+/// What a stream reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EventKind {
+    /// Sound reaches the recognizer: the first event of a stream that could listen.
+    Ready,
+    /// What the utterance that is going on has come to so far.
+    Partial,
+    /// An utterance is over: its text and its words with their times.
+    Final,
+    /// A stretch of the room without speech.
+    Quiet,
+    /// The stream is over; the answer says how (heard something, nothing, refused, failed).
+    Ended,
+}
+
+/// One thing a stream reports.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Event {
+    pub kind: EventKind,
+    /// Milliseconds since the stream began.
+    pub at_ms: u64,
+    /// What was heard (a partial: so far; a final: the utterance; an end: why and how).
+    pub answer: Answer,
+    /// Who gave it.
+    pub by: Option<Kind>,
+}
+
+/// What a stream is asked to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamOptions {
+    /// Report what an utterance has come to while it goes on.
+    pub partials: bool,
+    /// How long a pause ends an utterance, ms (0: the recognizer's own, which the built-in
+    /// recognizer takes from [`super::builtin::Vad`]).
+    pub endpoint_ms: u32,
+    /// How long the stream runs at most, ms (0: as long as the limits allow).
+    pub max_ms: u32,
+    /// How many utterances end the stream (0: until it is stopped or its time is up).
+    pub max_utterances: u32,
+}
+
+impl Default for StreamOptions {
+    fn default() -> Self {
+        Self {
+            partials: true,
+            endpoint_ms: 0,
+            max_ms: 0,
+            max_utterances: 0,
+        }
+    }
+}
+
 /// What a recognizer says about itself without listening.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Readiness {
@@ -248,6 +300,50 @@ pub trait Recognizer: Send {
     /// Listens for up to `call.timeout_ms` and answers what was said. It looks at `call.cancel`
     /// at least every few hundred milliseconds and answers `NothingHeard` when it is set.
     fn listen(&mut self, call: &Listen<'_>) -> Answer;
+
+    /// Listens as a stream: utterance after utterance, until `stop` (after the utterance that
+    /// runs), `call.cancel` (now), the options' time or utterance count, or a failure.
+    /// `call.flowing` is called when sound begins to flow; `emit` gets the partials, finals and
+    /// quiet stretches as they come. Answers how it ended: `Heard` (some utterance was heard),
+    /// `NothingHeard`, a refusal (before any event the chain hands the stream on) or `Failed`.
+    ///
+    /// The provided body listens one utterance at a time through [`Self::listen`] (a recognizer that
+    /// cannot stream: a pause between two utterances, no partials); the built-in recognizer and the
+    /// system's on macOS stream for real.
+    fn listen_stream(
+        &mut self,
+        call: &Listen<'_>,
+        options: &StreamOptions,
+        stop: &dyn Fn() -> bool,
+        emit: &dyn Fn(EventKind, Answer),
+    ) -> Answer {
+        let began = call.clock.now_ms();
+        let budget = u64::from(call.timeout_ms);
+        let mut finals = 0u32;
+        loop {
+            let used = call.clock.now_ms().saturating_sub(began);
+            if stop() || (call.cancel)() || used >= budget || (options.max_utterances > 0 && finals >= options.max_utterances) {
+                break;
+            }
+            let per_call = u32::try_from((budget - used).min(60_000)).unwrap_or(60_000).max(500);
+            let answer = self.listen(&Listen {
+                language: call.language,
+                timeout_ms: per_call,
+                clock: call.clock,
+                cancel: call.cancel,
+                flowing: call.flowing,
+            });
+            match answer.outcome {
+                Outcome::Heard => {
+                    finals += 1;
+                    emit(EventKind::Final, answer);
+                }
+                Outcome::NothingHeard => emit(EventKind::Quiet, answer),
+                _ => return answer,
+            }
+        }
+        Answer::none(if finals > 0 { Outcome::Heard } else { Outcome::NothingHeard }, "")
+    }
 
     /// Whether it is initialised: its model is loaded, its recognizer made; what a first call
     /// would otherwise have to do first (a status, not a promise that a call will not wait).
@@ -272,6 +368,8 @@ pub struct Limits {
     pub max_listen_ms: u32,
     /// The longest language tag.
     pub max_language_chars: usize,
+    /// The longest a stream runs, ms: an hour.
+    pub max_stream_ms: u32,
 }
 
 impl Default for Limits {
@@ -280,6 +378,7 @@ impl Default for Limits {
             min_listen_ms: 500,
             max_listen_ms: 60_000,
             max_language_chars: 35,
+            max_stream_ms: 3_600_000,
         }
     }
 }
