@@ -94,6 +94,7 @@ pub mod model;
 pub mod perf;
 pub mod pens;
 pub mod page_marks;
+pub mod page_view;
 pub mod patch;
 pub mod patch_store;
 pub mod pointer;
