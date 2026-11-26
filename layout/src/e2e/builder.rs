@@ -989,13 +989,6 @@ impl BuilderSession {
         self.doc.is_some()
     }
 
-    /// The project stylesheet (`styles/**.css`, B4) the document is mounted
-    /// with — not the document's own ([`BuilderDocument::stylesheet`]).
-    #[must_use]
-    pub(super) fn project_stylesheet(&self) -> &str {
-        &self.stylesheet
-    }
-
     /// Replace the project stylesheet. Answers the remount that shows it:
     /// the document again if the builder has the window, else nothing (the
     /// next edit mounts it).
