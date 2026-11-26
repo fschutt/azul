@@ -7402,6 +7402,9 @@ impl X11Window {
 
             self.common.display_list_initialized = true;
 
+            // The startup timeline (`AZ_STARTUP=1`): the first frame is on its way to the screen.
+            self.common.app.startup().mark_first_present(|| String::from("x11 cpu"));
+
             // CI testing: Exit successfully after first frame render if env var is set
             if self.common.app.settings().shell.exit_after_first_frame {
                 log_debug!(
@@ -7665,6 +7668,9 @@ impl X11Window {
         if needs_fade_frame {
             self.request_redraw();
         }
+
+        // The startup timeline (`AZ_STARTUP=1`): the first frame is on its way to the screen.
+        self.common.app.startup().mark_first_present(|| String::from("x11 gpu"));
 
         // CI testing: Exit successfully after first frame render if env var is set
         if self.common.app.settings().shell.exit_after_first_frame {

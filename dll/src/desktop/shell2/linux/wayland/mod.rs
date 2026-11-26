@@ -8704,6 +8704,9 @@ impl WaylandWindow {
             return;
         }
 
+        // The startup timeline (`AZ_STARTUP=1`): a buffer reached the compositor, the first present.
+        self.common.app.startup().mark_first_present(|| String::from("wayland"));
+
         // `AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1` exits 0 as soon as one frame has
         // genuinely reached the compositor. Placed HERE, after the
         // `surface_committed` guard, because that is the strongest evidence

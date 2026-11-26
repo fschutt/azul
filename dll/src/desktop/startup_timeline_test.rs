@@ -250,7 +250,12 @@ fn the_table_prints_once_and_later_marks_print_as_single_lines() {
     assert!(t.print_table());
     let table = taken();
     assert!(table.len() >= 4, "{table:?}");
-    assert!(table.iter().all(|l| l.starts_with("[startup] ")), "{table:?}");
+    assert!(table.iter().all(|l| l.starts_with("[startup] ") || l.starts_with("[startup-json] ")), "{table:?}");
+    assert_eq!(
+        table.iter().filter(|l| l.starts_with("[startup-json] {")).count(),
+        1,
+        "the data comes once more as one line of JSON: {table:?}"
+    );
     assert!(table.iter().any(|l| l.contains("early")));
     assert!(table.iter().any(|l| l.contains("first_present")));
     assert!(!t.print_table(), "the table is printed once");
@@ -325,6 +330,16 @@ fn the_json_escapes_what_it_holds_and_names_the_headline_numbers() {
     assert!(json.contains("\"first_present_ms\":100.000"), "{json}");
     assert!(json.contains("\"detail\":\"say \\\"hi\\\"\""), "{json}");
     assert!(json.contains("\"layout_passes\":1"), "{json}");
+    assert!(!json.contains("render_backend"), "no renderer was marked: {json}");
+    let mut with_backend = marks.clone();
+    with_backend.push(Mark {
+        name: "render_backend",
+        detail: "backend=cpu requested=auto device=none".into(),
+        at_us: 5_000,
+        thread: "main".into(),
+    });
+    let json_backend = render_json(true, &with_backend, Some(age), 1);
+    assert!(json_backend.contains("\"render_backend\":\"backend=cpu requested=auto device=none\""), "{json_backend}");
     assert!(json.ends_with('}'));
     let off = StartupTimeline::disabled().to_json();
     assert!(off.starts_with("{\"enabled\":false"), "{off}");
@@ -357,4 +372,23 @@ fn a_timeline_made_for_the_process_starts_with_the_library_entry_at_zero() {
     assert_eq!(on.before_origin().is_some(), known);
     let off = StartupTimeline::for_process(false, Instant::now(), std::time::SystemTime::now());
     assert!(off.is_empty() && !off.enabled());
+}
+
+/// The first present marks itself once and prints the table with it; a second present prints nothing.
+///
+/// Mutation: the table printed at every present; the mark made twice; nothing printed.
+#[test]
+fn the_first_present_prints_the_table_once() {
+    let t = timeline_with_sink();
+    t.mark("before");
+    assert!(t.mark_first_present(|| "cpu".to_owned()));
+    let table = taken();
+    assert!(table.iter().any(|l| l.contains("first_present") && l.contains("cpu")), "{table:?}");
+    assert!(!t.mark_first_present(|| "again".to_owned()));
+    assert!(taken().is_empty(), "the second present printed");
+    assert_eq!(t.marks().iter().filter(|m| m.name == "first_present").count(), 1);
+    let off = StartupTimeline::disabled().with_sink(collect);
+    taken();
+    assert!(!off.mark_first_present(String::new));
+    assert!(taken().is_empty());
 }

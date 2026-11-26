@@ -7767,7 +7767,7 @@ impl MacOSWindow {
                 }
             };
 
-            startup.mark("window:webrender_instance_created");
+            startup.mark("webrender_ready");
             renderer.set_external_image_handler(Box::new(WrCompositor::default()));
 
             let render_api = sender.create_api();
@@ -7840,7 +7840,12 @@ impl MacOSWindow {
             }
         };
 
-        startup.mark_with("window:render_backend_ready", || format!("renderer={renderer_type:?}"));
+        startup.mark_with("render_backend", || {
+            format!(
+                "backend={} requested={requested_backend:?} device=macos {renderer_type:?}",
+                if renderer_type == RendererType::Hardware { "gpu" } else { "cpu" }
+            )
+        });
         // Initialize window state with actual HiDPI factor from screen
         let actual_dpi = (actual_hidpi_factor * BASE_DPI) as u32; // Convert scale factor to DPI
         // Read before the window state takes its fields out of `options`.
@@ -10585,12 +10590,9 @@ impl MacOSWindow {
     /// The first frame is on its way to the screen: the startup timeline (`AZ_STARTUP=1`) marks the first
     /// present and prints its table (the later marks print as lines of their own).
     fn mark_first_present(&self, shows_document: bool) {
-        let startup = self.common.app.startup();
-        if startup.mark_once_with("first_present", || {
+        self.common.app.startup().mark_first_present(|| {
             format!("shows_document={shows_document} blank_draws_before={}", self.blank_first_draws)
-        }) {
-            startup.print_table();
-        }
+        });
     }
 
     /// Whether the GPU renderer's current frame holds this window's

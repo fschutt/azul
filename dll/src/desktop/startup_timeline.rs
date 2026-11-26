@@ -17,8 +17,9 @@
 //! Linux and Android `/proc/self/stat` against `/proc/uptime`, Windows `GetProcessTimes`), `+ms` is
 //! the time since the previous mark OF THE SAME THREAD, so a worker thread's mark does not
 //! shorten a main-thread step. When the first frame is presented the whole table is printed
-//! through the engine's own log (stderr, the log file and, with the debug server, its queue: on
-//! Android that is logcat, on iOS the console), later marks print as single lines, and
+//! through the engine's own log (stderr and the log file: on Android that is logcat, on iOS the
+//! console), followed by the same data as one `[startup-json]` line, later marks print as single
+//! lines, and
 //! `GET /startup` of the debug server answers the same data as JSON ([`StartupTimeline::to_json`]).
 //!
 //! The parts that read the OS are small; what they parse is pure ([`proc_stat_start_ticks`],
@@ -208,6 +209,16 @@ impl StartupTimeline {
         self.record(name, text, true)
     }
 
+    /// The first frame is handed to the OS: marks `first_present` (once, by whoever gets there first)
+    /// and prints the table. True when this call was the first.
+    pub fn mark_first_present(&self, detail: impl FnOnce() -> String) -> bool {
+        if self.mark_once_with("first_present", detail) {
+            self.print_table();
+            return true;
+        }
+        false
+    }
+
     /// Whether a mark of `name` exists.
     #[must_use]
     pub fn has(&self, name: &str) -> bool {
@@ -316,6 +327,8 @@ impl StartupTimeline {
             for line in self.report_lines() {
                 sink(&line);
             }
+            // The same table as ONE line of JSON, for a harness that wants numbers and not a layout.
+            sink(&format!("[startup-json] {}", self.to_json()));
         }
         true
     }
@@ -481,6 +494,11 @@ pub fn render_json(enabled: bool, marks: &[Mark], before: Option<ProcessAge>, la
         ));
     }
     out.push(']');
+    // The renderer the window ended up with (the detail of its `render_backend` mark), as the GPU and
+    // phone harnesses read it: `backend=<cpu|gpu> requested=<cpu|gpu|auto> device=<text>`.
+    if let Some(m) = marks.iter().find(|m| m.name == "render_backend") {
+        out.push_str(&format!(",\"render_backend\":\"{}\"", json_escape(&m.detail)));
+    }
     // The numbers a script wants without walking the marks.
     for (key, name) in [
         ("first_present_ms", "first_present"),

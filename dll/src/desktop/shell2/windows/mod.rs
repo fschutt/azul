@@ -1664,6 +1664,9 @@ impl Win32Window {
                 self.request_redraw();
             }
 
+            // The startup timeline (`AZ_STARTUP=1`): the first frame is on its way to the screen.
+            self.common.app.startup().mark_first_present(|| String::from("windows"));
+
             // CI testing
             if self.common.app.settings().shell.exit_after_first_frame {
                 std::process::exit(0);
@@ -1907,6 +1910,9 @@ impl Win32Window {
             if crate::desktop::shell2::common::webview::sync(self) {
                 self.request_redraw();
             }
+
+            // The startup timeline (`AZ_STARTUP=1`): the first frame is on its way to the screen.
+            self.common.app.startup().mark_first_present(|| String::from("windows"));
 
             // CI testing
             if self.common.app.settings().shell.exit_after_first_frame {
