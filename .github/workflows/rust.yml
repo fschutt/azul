@@ -3342,291 +3342,6 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  build_demos:
-    # Builds demos linking dynamically to the prebuilt static libazul.
-    # Uses fingerprinting to reuse existing release binaries if source has not changed.
-    name: Build Demo Apps (${{ matrix.label }})
-    # cross_build_binaries makes the x86_64 libazul.a the Intel macOS demos link against. It
-    # runs on master and tags only, so this job runs whether it ran or not (!cancelled()), and
-    # the Intel leg skips itself where it did not.
-    needs: [build_binaries, cross_build_binaries, codegen_linux, codegen_macos, codegen_windows]
-    timeout-minutes: 30
-    if: >-
-      !cancelled()
-      && needs.build_binaries.result == 'success' && needs.codegen_linux.result == 'success'
-      && needs.codegen_macos.result == 'success' && needs.codegen_windows.result == 'success'
-      && (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
-    continue-on-error: true
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            label: Linux
-            os_suffix: linux
-            bin_ext: ""
-            artifact_name: azul-demos-ubuntu
-            dll_artifact: azul-linux-amd64
-          # macos-15 is an Apple Silicon runner: its own builds are arm64 only (M1 and later;
-          # an Intel Mac says "bad CPU type in executable"). The Intel demos are built on it
-          # for x86_64, against the x86_64 libazul.a of cross_build_binaries.
-          - os: macos-15
-            label: macOS (M1+)
-            os_suffix: macos
-            bin_ext: ""
-            artifact_name: azul-demos-macos
-            dll_artifact: azul-macos-amd64
-            # An empty MACOSX_DEPLOYMENT_TARGET (what the step's env gave a leg without this key) is an error for rustc:
-            # "cannot parse integer from empty string". 11.0 is the first macOS on Apple Silicon.
-            macos_deployment_target: "11.0"
-          - os: macos-15
-            label: macOS (Intel)
-            os_suffix: macos-intel
-            bin_ext: ""
-            artifact_name: azul-demos-macos-intel
-            dll_artifact: azul-macos-x86_64
-            target: x86_64-apple-darwin
-            macos_deployment_target: "10.12"
-          - os: windows-2022
-            label: Windows
-            os_suffix: windows
-            bin_ext: ".exe"
-            artifact_name: azul-demos-windows
-            dll_artifact: azul-windows-amd64
-    steps:
-      - name: Does this leg run
-        id: gate
-        shell: bash
-        run: |
-          # the Intel macOS demos link the x86_64 libazul.a of cross_build_binaries (master and tags)
-          if [ "${{ matrix.target }}" = "x86_64-apple-darwin" ] && [ "${{ needs.cross_build_binaries.result }}" != "success" ]; then
-            echo "::notice::no x86_64 libazul.a in this run (cross_build_binaries: ${{ needs.cross_build_binaries.result }}): no Intel macOS demos"
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Checkout repository
-        if: steps.gate.outputs.run == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
-
-      - name: Install Rust
-        if: steps.gate.outputs.run == 'true'
-        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
-        with:
-          toolchain: 1.91.0
-          targets: ${{ matrix.target || '' }}
-
-      - name: Install clang + deps (Linux)
-        if: steps.gate.outputs.run == 'true' && matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
-
-      - name: Install MinGW (Windows)
-        if: steps.gate.outputs.run == 'true' && matrix.os == 'windows-2022'
-        shell: bash
-        run: |
-          if command -v gcc >/dev/null 2>&1; then
-            echo "gcc already on PATH: $(gcc --version | head -1)"
-            exit 0
-          fi
-          if [ -x /c/msys64/mingw64/bin/gcc.exe ]; then
-            echo "using the image's MinGW-w64 at C:\msys64\mingw64\bin"
-            echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
-            exit 0
-          fi
-          for attempt in 1 2 3; do
-            if choco install mingw --version 16.1.0 -y --no-progress; then exit 0; fi
-            echo "::warning::choco install mingw failed (attempt $attempt/3); retrying"
-            sleep 15
-          done
-          echo "::error::MinGW unavailable: no gcc on PATH, none in the image, and choco failed 3x"
-          exit 1
-
-      - name: Install coreutils (macOS)
-        if: steps.gate.outputs.run == 'true' && matrix.os == 'macos-15'
-        run: brew install coreutils
-
-      - name: Download generated bindings (built once per OS)
-        if: steps.gate.outputs.run == 'true'
-        uses: ./.github/actions/codegen-tree
-        with:
-          os: ${{ runner.os }}
-
-      - name: Download prebuilt libazul (static .a for self-contained demos)
-        if: steps.gate.outputs.run == 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ matrix.dll_artifact }}
-          path: libazul-prebuilt
-
-      - name: Build demos (best-effort)
-        if: steps.gate.outputs.run == 'true'
-        env:
-          CARGO_PROFILE_RELEASE_LTO: "off"
-          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target || '' }}
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -uo pipefail
-          rm -f libazul-prebuilt/libazul.so libazul-prebuilt/libazuldbg.so \
-                libazul-prebuilt/libazul.dylib libazul-prebuilt/libazuldbg.dylib \
-                libazul-prebuilt/azul.dll libazul-prebuilt/azuldbg.dll \
-                libazul-prebuilt/azul.dll.lib libazul-prebuilt/azul.so \
-                libazul-prebuilt/azul.pyd 2>/dev/null
-          echo "Linking against static lib(s):"; ls -la libazul-prebuilt/
-          # Name the archive FILE, not the directory: build_link.rs links a named
-          # file as-is, while a directory search would also find the stub libazul
-          # cdylib this job builds into target/ (a shared library wins over a .a).
-          for f in libazul.a azul.lib; do
-            if [ -f "libazul-prebuilt/$f" ]; then
-              export AZ_LINK_PATH="$GITHUB_WORKSPACE/libazul-prebuilt/$f"
-              break
-            fi
-          done
-          echo "AZ_LINK_PATH=${AZ_LINK_PATH:-<unset: no static archive in the artifact>}"
-          ENGINE_PATHS="core layout css dll api.json Cargo.toml Cargo.lock"
-          prev_manifest=""
-          if gh release download "${AZUL_VERSION}" --repo "$GITHUB_REPOSITORY" \
-               --pattern "demo-build-manifest-${{ matrix.os_suffix }}.json" --dir /tmp --clobber 2>/dev/null; then
-            prev_manifest="/tmp/demo-build-manifest-${{ matrix.os_suffix }}.json"
-            echo "found previous demo manifest:"; cat "$prev_manifest"
-          else
-            echo "::notice::no demo-build-manifest-${{ matrix.os_suffix }}.json on release ${AZUL_VERSION}"
-          fi
-
-          : > /tmp/demo-manifest-lines
-          : > demo-exe-paths.txt
-          : > demo-reused.txt
-          failed=()
-          reused=()
-          built=()
-          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter AzBuilder; do
-            demo_dir=""
-            for cand in "examples/$demo" "demos/$demo" "$demo"; do
-              [ -d "$cand" ] && { demo_dir="$cand"; break; }
-            done
-            fp=$(git log -1 --format=%H -- $demo_dir $ENGINE_PATHS 2>/dev/null || echo "")
-            [ -n "$fp" ] || fp="unknown-$(git rev-parse HEAD)"
-
-            prev_fp=""
-            if [ -n "$prev_manifest" ]; then
-              prev_fp=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$prev_manifest" "$demo" 2>/dev/null || echo "")
-            fi
-
-            asset="${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
-            if [ -n "$prev_fp" ] && [ "$prev_fp" = "$fp" ] \
-               && gh release view "${AZUL_VERSION}" --repo "$GITHUB_REPOSITORY" \
-                    --json assets -q '.assets[].name' 2>/dev/null | grep -qx "${asset}.tar.gz\|${asset}"; then
-              echo "::notice::[$demo] REUSING the published binary from release ${AZUL_VERSION}"
-              reused+=("$demo")
-              echo "$demo=$fp" >> /tmp/demo-manifest-lines
-              echo "$demo" >> demo-reused.txt
-              continue
-            fi
-
-            if [ -n "$prev_fp" ]; then
-              echo "=== Building $demo on ${{ matrix.os }} (source changed: ${prev_fp:0:12} -> ${fp:0:12}) ==="
-            else
-              echo "=== Building $demo on ${{ matrix.os }} (no published fingerprint) ==="
-            fi
-            # (a leg with a target builds for it: the Intel macOS one, on an Apple Silicon runner)
-            if cargo build --release -p "$demo" ${{ matrix.target && format('--target {0}', matrix.target) || '' }} \
-                 --message-format=json-render-diagnostics > "demo-build-$demo.json"; then
-              exe="$(python3 scripts/cargo_bin_path.py "demo-build-$demo.json" "$demo")" || exe=""
-              if [ -n "$exe" ] && command -v cygpath >/dev/null 2>&1; then
-                exe="$(cygpath -u "$exe")"
-              fi
-              if [ -z "$exe" ] || [ ! -f "$exe" ]; then
-                echo "::error::[$demo] cargo exited 0 on ${{ matrix.os }} but named no executable it produced (resolved: '${exe:-<none>}')"
-                failed+=("$demo")
-                continue
-              fi
-              echo "  [OK] $demo -> $exe"
-              echo "$demo=$exe" >> demo-exe-paths.txt
-              built+=("$demo")
-              echo "$demo=$fp" >> /tmp/demo-manifest-lines
-            else
-              echo "::error::[$demo] FAILED TO BUILD on ${{ matrix.os }}."
-              failed+=("$demo")
-            fi
-          done
-
-          echo "=== demo build summary (${{ matrix.os }}) ==="
-          echo "  built:  ${built[*]:-none}"
-          echo "  reused: ${reused[*]:-none}"
-          echo "  FAILED: ${failed[*]:-none}"
-          if [ ${#failed[@]} -gt 0 ]; then
-            echo "::error::${#failed[@]} demo(s) failed to build on ${{ matrix.os }}: ${failed[*]}"
-            exit 1
-          fi
-          if [ ${#built[@]} -eq 0 ] && [ ${#reused[@]} -eq 0 ]; then
-            echo "::error::no demo was built OR reused on ${{ matrix.os }}"
-            exit 1
-          fi
-
-      - name: Stage demo binaries
-        if: steps.gate.outputs.run == 'true'
-        shell: bash
-        run: |
-          mkdir -p demos-staging
-          staged=()
-          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter AzBuilder; do
-            src="$(sed -n "s|^${demo}=||p" demo-exe-paths.txt 2>/dev/null | tail -1 || true)"
-            if [ -n "$src" ] && [ -f "$src" ]; then
-              dst="demos-staging/${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
-              cp "$src" "$dst"
-              before=$(wc -c < "$dst" 2>/dev/null || echo 0)
-              strip "$dst" 2>/dev/null || strip -S "$dst" 2>/dev/null || true
-              after=$(wc -c < "$dst" 2>/dev/null || echo 0)
-              echo "  [OK] staged ${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }} ($before -> $after bytes)"
-              staged+=("$demo")
-            elif grep -qx "$demo" demo-reused.txt 2>/dev/null; then
-              echo "  [reuse] $demo"
-            else
-              echo "::error::no staged binary and no verified reuse for $demo on ${{ matrix.os }}"
-              missing_staged=1
-            fi
-          done
-          # (an Intel leg must not ship an arm64 binary: the Mac it is for says "bad CPU type";
-          # nor one that asks for a newer macOS than the release page promises)
-          if [ -n "${{ matrix.target }}" ] && command -v lipo >/dev/null 2>&1; then
-            for f in demos-staging/*; do
-              case "$f" in *.json) continue;; esac
-              archs=$(lipo -archs "$f" 2>/dev/null || echo "?")
-              minos=$(otool -l "$f" | awk '/LC_VERSION_MIN_MACOSX/ {v=1} v && $1 == "version" {print $2; exit}
-                                          /LC_BUILD_VERSION/ {b=1} b && $1 == "minos" {print $2; exit}')
-              echo "  $f: $archs, macOS $minos and later"
-              case "${{ matrix.target }}" in
-                x86_64-apple-darwin) [ "$archs" = "x86_64" ] || { echo "::error::$f is '$archs', not x86_64"; exit 1; } ;;
-              esac
-              if [ -n "${{ matrix.macos_deployment_target }}" ] && [ "$minos" != "${{ matrix.macos_deployment_target }}" ]; then
-                echo "::error::$f needs macOS $minos, not ${{ matrix.macos_deployment_target }}"
-                exit 1
-              fi
-            done
-          fi
-          ls -la demos-staging/ || echo "No demos staged"
-          echo "=== demo staging summary (${{ matrix.os }}) ==="
-          echo "  staged: ${staged[*]:-none}"
-          [ "${missing_staged:-0}" = 0 ] || exit 1
-
-          manifest_lines="/tmp/demo-manifest-lines"
-          command -v cygpath >/dev/null 2>&1 && manifest_lines="$(cygpath -m "$manifest_lines")"
-          python3 -c 'import json,sys; out=sys.argv[1]; e=dict(l.strip().split("=",1) for l in open(sys.argv[2]) if "=" in l); json.dump(e, open(out,"w"), indent=2, sort_keys=True); print("wrote", out, len(e), "fingerprints")' "demos-staging/demo-build-manifest-${{ matrix.os_suffix }}.json" "$manifest_lines"
-
-      - name: Upload demo binaries
-        if: steps.gate.outputs.run == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: demos-staging/*
-          retention-days: 30
-          if-no-files-found: error
-
   build_dll_e2e:
     # Builds the debug-server DLL and codegen bindings once per OS for the E2E matrix.
     name: Build E2E DLL (${{ matrix.os }})
@@ -4836,253 +4551,6 @@ jobs:
           path: mobile/${{ matrix.label }}
           if-no-files-found: warn
 
-  build_mobile_apps:
-    # Builds iOS demo apps.
-    name: Mobile demo apps (iOS)
-    needs: [content_state_lint, documentation_paths, clippy, check_crates, feature_matrix_check, test_lib, codegen_macos]
-    # Six demos, each for the device and the simulator, one after the other: azul-dll is built again
-    # for every one (each demo pins its own azul features), ~14 minutes a build on a runner, so the
-    # twelve take ~170 minutes. At 60 the job was cancelled after four builds (website run 45178260225).
-    timeout-minutes: 240
-    if: >-
-      (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
-      && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
-          || github.event_name == 'workflow_dispatch')
-    continue-on-error: true
-    runs-on: macos-15
-    env:
-      HAVE_APPLE_CERT: ${{ secrets.APPLE_CERT_P12 != '' }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
-      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
-        with:
-          toolchain: 1.91.0
-          targets: aarch64-apple-ios, aarch64-apple-ios-sim
-      - name: Download generated bindings (built once per OS)
-        uses: ./.github/actions/codegen-tree
-        with:
-          os: ${{ runner.os }}
-
-      - name: Import Apple signing cert (optional)
-        if: ${{ env.HAVE_APPLE_CERT == 'true' }}
-        env:
-          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
-          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
-        run: |
-          KCHAIN="$RUNNER_TEMP/azul.keychain-db"
-          security create-keychain -p actions "$KCHAIN"
-          security set-keychain-settings -lut 21600 "$KCHAIN"
-          security unlock-keychain -p actions "$KCHAIN"
-          echo "$APPLE_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KCHAIN"
-          security list-keychain -d user -s "$KCHAIN"
-          IDENT=$(security find-identity -v -p codesigning "$KCHAIN" | awk '/Apple (Development|Distribution)|Developer ID/{print $2; exit}')
-          echo "IOS_SIGNING_IDENTITY=$IDENT" >> "$GITHUB_ENV"
-
-      - name: Resolve the iOS toolchain
-        shell: bash
-        run: |
-          set -uo pipefail
-          echo "xcrun:          $(command -v xcrun || echo '<not on PATH>')"
-          echo "xcode-select -p: $(xcode-select -p 2>&1 || true)"
-          echo "iphoneos SDK:   $(xcrun --sdk iphoneos --show-sdk-path 2>&1 || echo '<unresolved>')"
-          echo "DEVELOPER_DIR:  ${DEVELOPER_DIR:-<unset>}"
-          if ! xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1; then
-            xc=""
-            for cand in /Applications/Xcode*.app; do
-              [ -d "$cand" ] && xc="$cand"
-            done
-            if [ -n "$xc" ]; then
-              echo "::warning::xcrun could not resolve a toolchain - selecting $xc"
-              sudo xcode-select -s "$xc/Contents/Developer"
-              echo "DEVELOPER_DIR=$xc/Contents/Developer" >> "$GITHUB_ENV"
-            fi
-          fi
-          if ! xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1; then
-            echo "::error::no usable Xcode toolchain on this runner"
-            exit 1
-          fi
-          missing_sdk=0
-          for sdk in iphoneos iphonesimulator; do
-            if p="$(xcrun --sdk "$sdk" --show-sdk-path 2>/dev/null)" && [ -n "$p" ]; then
-              echo "  SDK $sdk: $p"
-            else
-              echo "::error::iOS SDK '$sdk' is not installed"
-              missing_sdk=1
-            fi
-          done
-          exit "$missing_sdk"
-
-      - name: State up front whether signed .ipa files are possible
-        shell: bash
-        run: |
-          if [ -n "${IOS_SIGNING_IDENTITY:-}" ]; then
-            echo "::notice::signing identity present - device .app will be signed and an .ipa emitted per demo"
-          else
-            echo "::warning::no Apple signing identity configured - this run CANNOT produce any .ipa."
-          fi
-
-      - name: Build + bundle each demo as a .app (device + simulator)
-        shell: bash
-        run: |
-          set -uo pipefail
-          mkdir -p mobile-apps
-          ios_failed=()
-          ios_built=()
-          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter AzBuilder; do
-            for tgt in aarch64-apple-ios aarch64-apple-ios-sim; do
-              echo "=== iOS .app: $demo ($tgt) ==="
-              suffix="ios"; [ "$tgt" = "aarch64-apple-ios-sim" ] && suffix="ios-sim"
-              if ! AZ_IOS_DRYRUN=1 APP_NAME="$demo" bash scripts/build-ios.sh "$tgt" "$demo"; then
-                echo "::error::[$demo/$tgt] failed to bundle."
-                ios_failed+=("$demo/$tgt")
-                continue
-              fi
-              APP_DIR="target/ios-bundle/${demo}-${tgt}.app"
-              if [ ! -d "$APP_DIR" ]; then
-                echo "::error::[$demo/$tgt] build-ios.sh exited 0 but produced no $APP_DIR"
-                ios_failed+=("$demo/$tgt")
-                continue
-              fi
-              if [ -d "$APP_DIR" ]; then
-                ( cd "$(dirname "$APP_DIR")" && zip -qr "$OLDPWD/mobile-apps/${demo}-${suffix}.app.zip" "$(basename "$APP_DIR")" )
-                ios_built+=("${demo}-${suffix}.app.zip")
-                if [ "$tgt" = "aarch64-apple-ios" ] && [ -n "${IOS_SIGNING_IDENTITY:-}" ]; then
-                  rm -rf "$RUNNER_TEMP/Payload" && mkdir -p "$RUNNER_TEMP/Payload"
-                  cp -R "$APP_DIR" "$RUNNER_TEMP/Payload/"
-                  ( cd "$RUNNER_TEMP" && zip -qr "$OLDPWD/mobile-apps/${demo}-ios.ipa" Payload )
-                  ios_built+=("${demo}-ios.ipa")
-                fi
-              fi
-            done
-          done
-          ls -l mobile-apps || true
-          echo "=== iOS demo app summary ==="
-          echo "  built:  ${ios_built[*]:-none}"
-          echo "  FAILED: ${ios_failed[*]:-none}"
-          {
-            echo "### iOS demo apps"
-            echo ""
-            echo "- built: \`${ios_built[*]:-none}\`"
-            echo "- FAILED: \`${ios_failed[*]:-none}\`"
-            [ -n "${IOS_SIGNING_IDENTITY:-}" ] || echo "- no Apple signing identity: **no .ipa can be produced by this run**"
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ "${#ios_failed[@]}" -gt 0 ]; then
-            echo "::error::${#ios_failed[@]} iOS demo bundle(s) failed: ${ios_failed[*]}"
-            exit 1
-          fi
-          if [ "${#ios_built[@]}" -eq 0 ]; then
-            echo "::error::no iOS demo app was produced"
-            exit 1
-          fi
-      - name: Upload mobile demo apps
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: azul-mobile-apps-ios
-          path: mobile-apps
-          if-no-files-found: error
-
-  build_mobile_apps_android:
-    # Builds Android demo APKs.
-    name: Mobile demo apps (Android)
-    needs: [content_state_lint, documentation_paths, clippy, check_crates, feature_matrix_check, test_lib, codegen_linux]
-    timeout-minutes: 60
-    if: >-
-      (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
-      && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
-          || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
-        with:
-          toolchain: 1.91.0
-          targets: aarch64-linux-android, x86_64-linux-android
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          distribution: temurin
-          java-version: "17"
-      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
-        with:
-          cmdline-tools-version: 12266719
-          # The action's default is `tools platform-tools`. The legacy `tools`
-          # package is gone from the SDK repository the runner's cmdline-tools
-          # 16.0 queries, so `sdkmanager tools` exits 1 ("Failed to find package
-          # 'tools'") and the job dies before building anything. Nothing here
-          # uses it: the next step installs build-tools and the platform
-          # explicitly, and platform-tools stays.
-          packages: platform-tools
-      - name: Install SDK build-tools + platform
-        run: sdkmanager "build-tools;34.0.0" "platforms;android-34"
-      - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
-        id: ndk
-        with:
-          ndk-version: r27
-      - name: Download generated bindings (built once per OS)
-        uses: ./.github/actions/codegen-tree
-        with:
-          os: ${{ runner.os }}
-
-      - name: Build cdylib demos as APKs
-        shell: bash
-        env:
-          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
-        run: |
-          set -euo pipefail
-          NDKBIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDKBIN/aarch64-linux-android24-clang"
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
-          BT="$ANDROID_SDK_ROOT/build-tools/34.0.0"
-          mkdir -p mobile-apps
-          for demo in AzMaps AzPaint AzWidgets AzMeet AzWriter AzBuilder; do
-            echo "=== Android APK: $demo ==="
-            AZ_ANDROID_NO_DEPLOY=1 \
-              bash scripts/build-android.sh aarch64-linux-android "$demo" "com.azul.${demo//-/_}" "$demo"
-            APK="target/android-bundle/${demo}-arm64-v8a/aligned.apk"
-            [ -f "$APK" ] || { echo "::error::$demo produced no APK at $APK"; exit 1; }
-
-            "$BT/apksigner" verify --verbose "$APK" \
-              || { echo "::error::$demo APK is not validly signed"; exit 1; }
-            if ! unzip -l "$APK" | grep -q 'classes\.dex'; then
-              echo "::error::$demo APK has no classes.dex - the launcher activity"
-              exit 1
-            fi
-            "$BT/aapt2" dump badging "$APK" | grep -q "launchable-activity" \
-              || { echo "::error::$demo APK declares no launchable activity"; exit 1; }
-
-            cp "$APK" "mobile-apps/${demo}-android.apk"
-          done
-
-          # The emulator variant used to be `azul-self-test`, which was deleted
-          # from the workspace; this job kept building it and failed with
-          # "package ID specification `azul-self-test` did not match any
-          # packages". AzWidgets is the natural stand-in: it is already one of
-          # the demos built above, and exercising the widget showcase on the
-          # emulator is a broader smoke test than the old one was.
-          echo "=== Android APK (x86_64 emulator variant): AzWidgets ==="
-          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$NDKBIN/x86_64-linux-android24-clang"
-          export CARGO_TARGET_X86_64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
-          AZ_ANDROID_NO_DEPLOY=1 \
-            bash scripts/build-android.sh x86_64-linux-android AzWidgets com.azul.AzWidgets AzWidgets
-          APK="target/android-bundle/AzWidgets-x86_64/aligned.apk"
-          [ -f "$APK" ] || { echo "::error::x86_64 emulator APK missing at $APK"; exit 1; }
-          "$BT/apksigner" verify --verbose "$APK" \
-            || { echo "::error::x86_64 emulator APK is not validly signed"; exit 1; }
-          unzip -l "$APK" | grep -q 'lib/x86_64/.*\.so' \
-            || { echo "::error::x86_64 emulator APK has no lib/x86_64/*.so"; exit 1; }
-          cp "$APK" "mobile-apps/AzWidgets-android-x86_64.apk"
-          ls -l mobile-apps
-      - name: Upload mobile demo apps (Android)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: azul-mobile-apps-android
-          path: mobile-apps
-          if-no-files-found: warn
-
   build_linux_packages:
     # Builds Linux packages (deb/rpm) using nfpm, and generates an apt mirror.
     name: Build Linux Packages (.deb/.rpm)
@@ -5488,7 +4956,7 @@ jobs:
     # Deploys to GitHub Pages. Merges all artifacts into the website tree.
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
-    needs: [test_lib, test_heavy, miri, wasm32_check, windows_storage_check, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_native_expensive, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
+    needs: [test_lib, test_heavy, miri, wasm32_check, windows_storage_check, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, docs_pdf, build_mobile, e2e_native, e2e_native_expensive, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -5682,34 +5150,6 @@ jobs:
           name: reftest-results
           path: artifacts-reftest
 
-      - name: Download Linux demo binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
-        with:
-          name: azul-demos-ubuntu
-          path: artifacts-demos-linux
-
-      - name: Download macOS demo binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
-        with:
-          name: azul-demos-macos
-          path: artifacts-demos-macos
-
-      - name: Download macOS (Intel) demo binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
-        with:
-          name: azul-demos-macos-intel
-          path: artifacts-demos-macos-intel
-
-      - name: Download Windows demo binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
-        with:
-          name: azul-demos-windows
-          path: artifacts-demos-windows
-
       - name: Download coverage report
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
@@ -5844,20 +5284,6 @@ jobs:
           pattern: azul-mobile-ios-*
           path: artifacts-mobile
 
-      - name: Download mobile demo apps
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
-        with:
-          name: azul-mobile-apps-ios
-          path: artifacts-mobile-apps
-
-      - name: Download mobile demo apps (Android)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
-        with:
-          name: azul-mobile-apps-android
-          path: artifacts-mobile-apps
-
       - name: Debug - Tree after download
         run: |
           sudo apt-get update -qq || true && sudo apt-get install -y tree
@@ -5885,11 +5311,6 @@ jobs:
             mkdir -p "$RELEASE_DIR/mobile/$label"
             cp -r "$d/." "$RELEASE_DIR/mobile/$label/" 2>/dev/null || true
           done
-
-          if [ -d artifacts-mobile-apps ] && [ -n "$(ls -A artifacts-mobile-apps 2>/dev/null)" ]; then
-            mkdir -p "$RELEASE_DIR/mobile-apps"
-            cp artifacts-mobile-apps/*.zip artifacts-mobile-apps/*.apk "$RELEASE_DIR/mobile-apps/" 2>/dev/null || true
-          fi
 
           find artifacts-linux -name "libazul.so" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
           find artifacts-linux -name "libazuldbg.so" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
@@ -5931,31 +5352,11 @@ jobs:
           find artifacts-windows-rust9x -name "azul.dll" -exec cp {} "$RELEASE_DIR/azul.rust9x.dll" \; 2>/dev/null || true
           find artifacts-windows-rust9x -name "azul.lib" -exec cp {} "$RELEASE_DIR/azul.rust9x.lib" \; 2>/dev/null || true
 
-          mkdir -p "$RELEASE_DIR/demos"
-          for demodir in artifacts-demos-linux artifacts-demos-macos artifacts-demos-macos-intel artifacts-demos-windows; do
-            if [ -d "$demodir" ]; then
-              find "$demodir" -type f -exec cp {} "$RELEASE_DIR/demos/" \; 2>/dev/null || true
-            fi
-          done
-          mkdir -p /tmp/demo-manifests
-          find "$RELEASE_DIR/demos" -maxdepth 1 -name 'demo-build-manifest-*.json' \
-            -exec mv {} /tmp/demo-manifests/ \; 2>/dev/null || true
-          if ls /tmp/demo-manifests/*.json >/dev/null 2>&1; then
-            echo "uploading demo fingerprint manifests to the ${AZUL_VERSION} release:"
-            ls -la /tmp/demo-manifests/
-            gh release upload "${AZUL_VERSION}" /tmp/demo-manifests/*.json --clobber \
-              || echo "::warning::could not upload the demo manifests"
-          else
-            echo "::notice::no demo fingerprint manifests in this run"
-          fi
-
-          chmod +x "$RELEASE_DIR/demos/"* 2>/dev/null || true
+          # The demo apps are not part of this tree: the `demos` run (demos.yml) publishes them to the release itself
+          # (publish_demos), under the names scripts/demo_apps.toml gives, and the page links release assets.
           chmod +x "$RELEASE_DIR"/*.so "$RELEASE_DIR"/*.so.* "$RELEASE_DIR"/*.dylib \
                    "$RELEASE_DIR"/*.dll "$RELEASE_DIR"/mobile/*/*.so \
                    "$RELEASE_DIR"/mobile/*/*.dylib 2>/dev/null || true
-          echo "=== Demo binaries ==="
-          ls -la "$RELEASE_DIR/demos/" 2>/dev/null || echo "  (no demo binaries shipped)"
-
           if [ -d artifacts-coverage/coverage ]; then
             rm -rf "$RELEASE_DIR/coverage"
             cp -r artifacts-coverage/coverage "$RELEASE_DIR/coverage"
@@ -6353,7 +5754,7 @@ jobs:
             echo "AZUL_CHANNEL_DIGESTS"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Bundle dll + demos into examples.zip
+      - name: Bundle dll into examples.zip
         run: |
           set -u
           REL="website/ui/release/0.2.0"
@@ -6362,8 +5763,7 @@ jobs:
           ( cd "$REL" && \
             for lib in libazul.so libazul.dylib azul.dll; do
               [ -s "$lib" ] && zip -gj examples.zip "$lib" || true
-            done
-            if [ -d demos ]; then zip -gr examples.zip demos || true; fi )
+            done )
           echo "examples.zip after bundling:"; du -h "$ZIP" || true
 
       - name: Debug - Final website tree
@@ -6381,19 +5781,6 @@ jobs:
           [ -d "$REL" ] || { echo "no $REL - skipping"; exit 0; }
           echo "release dir before:"; du -sh "$REL" || true
 
-          write_macos_readme() {
-            printf '%s\n' \
-              '## How to run the demos on macOS ("developer cannot be verified" error)' \
-              '' \
-              'macOS marks everything downloaded from the web as quarantined,' \
-              'so to run the demo programs, you will need to strip the com.apple.quarantine attribute first with:' \
-              '' \
-              '    chmod +x ./unquarantine.sh' \
-              '    ./unquarantine.sh' \
-              '' \
-              > "$1/README-macOS.txt"
-          }
-
           LARGE=()
           while IFS= read -r f; do LARGE+=("$f"); done < <(
             {
@@ -6406,8 +5793,6 @@ jobs:
                    -o -name 'examples.zip' -o -name 'guide.pdf' \) \
                 ! -name 'libazul.so' ! -name 'libazul.dylib' ! -name 'libazul.x86_64.dylib' \
                 ! -name 'azul.dll' ! -name 'azul.i686.dll' ! -name 'azul.dll.lib'
-              [ -d "$REL/demos" ] && find "$REL/demos" -type f
-              [ -d "$REL/mobile-apps" ] && find "$REL/mobile-apps" -type f
             } 2>/dev/null | sort -u
           )
 
@@ -6426,26 +5811,7 @@ jobs:
             UPLOAD=()
             for f in "${LARGE[@]}"; do
               case "$f" in
-                */demos/*-macos)
-                  bn="$(basename "$f")"; dir="$(dirname "$f")"
-                  printf '%s\n' \
-                    '#!/bin/bash' \
-                    "# Double-click me - I live next to $bn. I clear the macOS" \
-                    '# download quarantine on that azul demo, then launch it.' \
-                    'cd "$(dirname "$0")" || exit 1' \
-                    'xattr -dr com.apple.quarantine . 2>/dev/null || true' \
-                    "chmod +x \"./$bn\" 2>/dev/null || true" \
-                    "echo \"Unquarantined ./$bn - launching...\"" \
-                    "exec \"./$bn\"" \
-                    > "$dir/unquarantine.sh"
-                  chmod +x "$dir/unquarantine.sh"
-                  write_macos_readme "$dir" "$bn"
-                  tar -czf "$f.tar.gz" -C "$dir" "$bn" unquarantine.sh README-macOS.txt
-                  rm -f "$dir/unquarantine.sh" "$dir/README-macOS.txt"
-                  UPLOAD+=("$f.tar.gz")
-                  echo "tar.gz $bn (+ unquarantine.sh + README)"
-                  ;;
-                *.a|*.lib|*/demos/*)
+                *.a|*.lib)
                   tar -czf "$f.tar.gz" -C "$(dirname "$f")" "$(basename "$f")"
                   UPLOAD+=("$f.tar.gz")
                   echo "tar.gz $(basename "$f") -> $(du -h "$f.tar.gz" | cut -f1)"
@@ -6458,7 +5824,6 @@ jobs:
 
             echo "=== trimming LARGE assets from the Pages artifact ==="
             for f in "${LARGE[@]}"; do rm -f "$f" "$f.tar.gz" && echo "removed $f"; done
-            rmdir "$REL/demos" "$REL/mobile-apps" 2>/dev/null || true
           fi
 
           for adir in "$REL"/mobile/*/; do
