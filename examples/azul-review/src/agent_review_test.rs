@@ -75,6 +75,7 @@ fn review(task: Task) -> ReviewRequest {
             text: "rename this one to count".to_string(),
             start_ms: 4_100,
             end_ms: 5_300,
+            words: Vec::new(),
         }],
         strokes: vec![
             stroke(12, true, Some(Meaning::Issue)),
@@ -131,6 +132,7 @@ fn an_editing_prompt_has_the_file_the_code_the_strokes_the_words_and_the_convers
         at("Strokes (SVG"),
         at("Shape features of the strokes"),
         at("What the reviewer said"),
+        at("Vocabulary near the strokes"),
         at("Meaning of the strokes"),
         at("Conversation so far"),
         at("Reply with the JSON object."),
@@ -265,6 +267,7 @@ fn the_words_are_tied_to_the_strokes_drawn_while_they_were_said() {
         text: "and later".to_string(),
         start_ms: 60_000,
         end_ms: 61_000,
+        words: Vec::new(),
     });
     let p = prompt_of(r);
     assert!(
@@ -337,6 +340,8 @@ fn a_request_with_nothing_to_say_has_no_empty_sections() {
         "Strokes (SVG",
         "Shape features",
         "What the reviewer said",
+        "Vocabulary",
+        "word probabilities",
         "Meaning of the strokes",
         "Conversation so far",
     ] {
@@ -569,6 +574,376 @@ fn the_words_under_the_strokes_are_capped() {
 }
 
 // ==== reading an answer ====
+
+// ==== what the words are read against ====
+
+fn said(words: &[(&str, Option<f32>, bool)]) -> Vec<SaidWord> {
+    words
+        .iter()
+        .map(|(w, p, biased)| SaidWord {
+            w: (*w).to_string(),
+            p: *p,
+            biased: *biased,
+        })
+        .collect()
+}
+
+#[test]
+fn the_vocabulary_is_the_words_under_the_strokes_then_the_names_near_them_then_the_files_path() {
+    let names = vocabulary(&context(), 48);
+    // foo is under the stroke; main, bar (one line from it), stale and comment (two), println (three)
+    assert_eq!(
+        names,
+        vec!["foo", "main", "bar", "stale", "comment", "println", "src", "lib"]
+    );
+}
+
+#[test]
+fn the_vocabulary_leaves_out_what_every_line_has_and_what_is_too_small_to_be_a_name() {
+    let mut ctx = context();
+    ctx.lines = vec![
+        "    let mut i = 0; // x".to_string(),
+        "    if self.ok { return None; }".to_string(),
+        "    let n = 12345 + abc123;".to_string(),
+    ];
+    ctx.focus = Some((38, 40));
+    ctx.words_under.clear();
+    ctx.file = "main.rs".to_string();
+    assert_eq!(vocabulary(&ctx, 48), vec!["abc123", "main"]);
+}
+
+#[test]
+fn the_vocabulary_is_capped_and_each_name_comes_once() {
+    let mut ctx = context();
+    ctx.lines = (0..100)
+        .map(|i| format!("let name_{i} = name_{i} + shared;"))
+        .collect();
+    ctx.first_line = 1;
+    ctx.focus = Some((50, 50));
+    let names = vocabulary(&ctx, 10);
+    assert_eq!(names.len(), 10);
+    assert_eq!(names[0], "foo", "the word under the stroke first");
+    assert_eq!(names[1], "name_49", "then the lines nearest the stroke");
+    assert_eq!(names.iter().filter(|n| n.as_str() == "shared").count(), 1);
+    assert!(vocabulary(&ctx, 0).is_empty());
+}
+
+#[test]
+fn how_a_name_is_spoken_is_its_parts_in_lower_case() {
+    for (name, said) in [
+        ("get_user_name", Some("get user name")),
+        ("getUserName", Some("get user name")),
+        ("AzReview", Some("az review")),
+        ("HTTPServer", Some("http server")),
+        ("XMLHttpRequest", Some("xml http request")),
+        ("render-frame", Some("render frame")),
+        ("src/lib", Some("src lib")),
+        ("foo", None),
+        ("a1b2", None),
+        ("", None),
+    ] {
+        assert_eq!(spoken(name).as_deref(), said, "{name}");
+    }
+}
+
+#[test]
+fn a_word_is_biased_when_the_recogniser_says_so_or_the_vocabulary_has_it() {
+    let names = vec!["foo".to_string(), "AzReview".to_string()];
+    let word = |w: &str, biased: bool| SaidWord {
+        w: w.to_string(),
+        p: Some(0.3),
+        biased,
+    };
+    assert!(is_biased(&word("foo", false), &names), "in the vocabulary");
+    assert!(
+        is_biased(&word("FOO,", false), &names),
+        "case and punctuation do not matter"
+    );
+    assert!(is_biased(&word("azreview", false), &names));
+    assert!(
+        is_biased(&word("enum", true), &names),
+        "the recogniser says so"
+    );
+    assert!(!is_biased(&word("enum", false), &names));
+    assert!(!is_biased(&word("...", false), &names), "no word at all");
+}
+
+#[test]
+fn the_prompt_lists_the_vocabulary_with_how_each_name_is_spoken() {
+    let mut r = review(Task::Editing);
+    r.context.lines[1] = "    let n = get_user_name(userId);".to_string();
+    let p = prompt_of(r);
+    assert!(
+        p.contains("\nVocabulary near the strokes (names the reviewer may have said; how a name is spoken is in brackets):\nfoo, get_user_name [get user name], userId [user id], main, bar, "),
+        "{p}"
+    );
+}
+
+#[test]
+fn the_prompt_lists_the_words_with_their_probabilities_and_marks_the_biased_ones() {
+    let mut r = review(Task::Editing);
+    r.utterances[0].words = said(&[
+        ("rename", Some(0.91), false),
+        ("foo", Some(0.32), false), // in the vocabulary: the recogniser was told to listen for it
+        ("to", Some(0.95), false),
+        ("enum", Some(0.58), true), // the speech layer says so
+        ("count", None, false),
+    ]);
+    let p = prompt_of(r);
+    assert!(
+        p.contains("  word probabilities: rename 0.91, foo 0.32 (biased), to 0.95, enum 0.58 (biased), count\n"),
+        "{p}"
+    );
+    // the raw transcript is what the reviewer's line says, untouched
+    assert!(p.contains("\"rename this one to count\""), "{p}");
+}
+
+#[test]
+fn an_utterance_the_recogniser_gave_no_probabilities_for_has_no_such_line_and_a_long_one_is_cut() {
+    let p = prompt_of(review(Task::Editing));
+    assert!(!p.contains("word probabilities"), "{p}");
+    let mut r = review(Task::Editing);
+    r.utterances[0].words = said(
+        &(0..100)
+            .map(|_| ("word", Some(0.9), false))
+            .collect::<Vec<_>>(),
+    );
+    let p = prompt_of(r);
+    let line = p
+        .lines()
+        .find(|l| l.contains("word probabilities"))
+        .expect("a line");
+    assert_eq!(
+        line.matches("word 0.90").count(),
+        Limits::default().max_said_words,
+        "{line}"
+    );
+    assert!(line.ends_with("... (40 more words)"), "{line}");
+}
+
+#[test]
+fn both_system_prompts_say_when_to_do_nothing_and_how_to_read_the_words_once() {
+    for system in [EDITING_SYSTEM, EXPLORATION_SYSTEM] {
+        assert_eq!(system.matches(NO_ACTION_RULES).count(), 1, "{system}");
+        assert_eq!(system.matches(SPEECH_RULES).count(), 1, "{system}");
+    }
+    for needle in [
+        "{\"action\": \"none\"",
+        "a test phrase (\"hello world, this is a test\", \"testing one two\", \"can you hear me\")",
+        "nonsense, unrelated to the code at hand",
+        "empty, too short, or made of words the recogniser was unsure of",
+        "ambiguous between several different edits",
+        "When in doubt, do nothing",
+        "never change code on a doubtful input",
+        "A clear instruction is not doubtful: do it.",
+    ] {
+        assert!(
+            NO_ACTION_RULES.contains(needle),
+            "{needle:?} missing in:\n{NO_ACTION_RULES}"
+        );
+    }
+    for needle in [
+        "speech-to-text",
+        "probability",
+        "vocabulary",
+        "\"heard_as\"",
+        "Heard as: ...",
+        "the raw transcript stays untouched",
+        "A word marked biased",
+        "a low probability on a biased word is no reason to do nothing",
+        "If you cannot resolve the words with confidence, do nothing.",
+    ] {
+        assert!(
+            SPEECH_RULES.contains(needle),
+            "{needle:?} missing in:\n{SPEECH_RULES}"
+        );
+    }
+    assert!(
+        EDITING_SYSTEM.contains("\"heard_as\": \"what you understood"),
+        "the JSON example has the field"
+    );
+}
+
+// ==== doing nothing, and what was heard ====
+
+#[test]
+fn a_reply_that_does_nothing_is_read_in_every_shape_models_write_it() {
+    for (name, text) in [
+        ("bare", r#"{"action": "none", "reason": "a test phrase"}"#),
+        ("fenced", "```json\n{\"action\": \"none\", \"reason\": \"a test phrase\"}\n```"),
+        ("prose first", "That is a test phrase, so:\n{\"action\": \"none\", \"reason\": \"a test phrase\"}"),
+        ("prose after", "{\"action\": \"none\", \"reason\": \"a test phrase\"}\n\nLet me know if you need anything."),
+        ("upper case", r#"{"action": "NONE", "reason": "a test phrase"}"#),
+        ("another word", r#"{"action": "no_action", "reason": "a test phrase"}"#),
+        ("nothing", r#"{"action": "nothing", "why": "a test phrase"}"#),
+        ("reply keys too", r#"{"action": "none", "reason": "a test phrase", "answer": "", "suggestions": []}"#),
+    ] {
+        let (result, _) = parse(text);
+        let reply = result.unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        assert_eq!(reply.no_action.as_deref(), Some("a test phrase"), "{name}");
+        assert!(reply.answer.is_empty() && reply.suggestions.is_empty() && reply.intent.is_none(), "{name}");
+        assert!(reply.is_no_action());
+    }
+}
+
+#[test]
+fn a_reply_that_does_nothing_and_says_something_anyway_loses_what_it_said() {
+    let text = r##"{"action": "none", "reason": "nonsense", "answer": "I could not understand you.",
+        "suggestions": [{"kind": "insert_lines", "after_line": 39, "lines": ["// huh"]}]}"##;
+    let (result, notes) = parse(text);
+    let reply = result.expect("reads");
+    assert_eq!(reply.no_action.as_deref(), Some("nonsense"));
+    assert!(reply.answer.is_empty() && reply.suggestions.is_empty());
+    assert!(
+        notes
+            .iter()
+            .any(|n| n.contains("do nothing") && n.contains("dropped")),
+        "{notes:?}"
+    );
+}
+
+#[test]
+fn the_reason_may_be_missing_or_long_and_the_exploration_does_nothing_too() {
+    let (result, _) = parse(r#"{"action": "none"}"#);
+    assert_eq!(
+        result.expect("reads").no_action.as_deref(),
+        Some("the agent chose to do nothing")
+    );
+    let long = format!(
+        "{{\"action\": \"none\", \"reason\": \"{}\"}}",
+        "very ".repeat(200)
+    );
+    let reason = parse(&long).0.expect("reads").no_action.expect("a reason");
+    assert!(
+        reason.chars().count() <= Limits::default().max_rationale_chars,
+        "{reason}"
+    );
+    let r = review(Task::Exploration);
+    let (result, _) = parse_for(&r, r#"{"action": "none", "reason": "unrelated"}"#);
+    assert_eq!(
+        result.expect("reads").no_action.as_deref(),
+        Some("unrelated")
+    );
+    let (result, notes) = parse_for(
+        &r,
+        "I do not understand.\n```json\n{\"action\": \"none\", \"reason\": \"unrelated\"}\n```",
+    );
+    let reply = result.expect("reads");
+    assert!(reply.is_no_action() && reply.answer.is_empty(), "{reply:?}");
+    assert!(
+        notes.iter().any(|n| n.contains("wrote a text before it")),
+        "{notes:?}"
+    );
+}
+
+#[test]
+fn a_reply_that_says_nothing_at_all_is_an_agent_that_does_nothing_not_an_error() {
+    for text in [
+        r#"{"answer": "", "suggestions": []}"#,
+        r#"{"answer": ""}"#,
+        "{}",
+        r#"{"suggestions": []}"#,
+    ] {
+        let (result, notes) = parse(text);
+        let reply = result.unwrap_or_else(|e| panic!("{text}: {e:?}"));
+        assert_eq!(
+            reply.no_action.as_deref(),
+            Some("the agent answered with nothing"),
+            "{text}"
+        );
+        assert!(
+            notes.iter().any(|n| n.contains("empty")),
+            "{text}: {notes:?}"
+        );
+    }
+    // but suggestions that were given and none of which could be used are still a failure, and an
+    // empty text is too: those are not an agent that chose
+    let (result, _) = parse(r##"{"answer": "", "suggestions": [{"kind": "teleport"}]}"##);
+    assert!(
+        matches!(result, Err(AgentError::BadOutput { .. })),
+        "{result:?}"
+    );
+    assert!(matches!(parse("").0, Err(AgentError::BadOutput { .. })));
+}
+
+#[test]
+fn what_the_agent_heard_is_read_and_cut_and_the_answer_stays_the_answer() {
+    let text = r##"{"answer": "I renamed foo.", "heard_as": "rename foo\nto count",
+        "suggestions": [{"kind": "replace", "start": {"line": 39, "col": 12}, "end": {"line": 39, "col": 15}, "old": "foo", "text": "count"}]}"##;
+    let reply = parse(text).0.expect("reads");
+    assert_eq!(reply.heard_as.as_deref(), Some("rename foo to count"));
+    assert_eq!(reply.answer, "I renamed foo.");
+    assert_eq!(reply.suggestions.len(), 1);
+    let long = format!(
+        "{{\"answer\": \"ok\", \"heard_as\": \"{}\"}}",
+        "x".repeat(2_000)
+    );
+    assert_eq!(
+        parse(&long)
+            .0
+            .expect("reads")
+            .heard_as
+            .expect("heard")
+            .chars()
+            .count(),
+        400
+    );
+    let none = parse(r#"{"answer": "fine", "heard_as": "   "}"#)
+        .0
+        .expect("reads");
+    assert_eq!(none.heard_as, None, "nothing but blanks is nothing heard");
+    let other = parse(r#"{"answer": "fine", "understood_as": "remove foo"}"#)
+        .0
+        .expect("reads");
+    assert_eq!(other.heard_as.as_deref(), Some("remove foo"));
+}
+
+#[test]
+fn a_plain_text_answer_may_begin_with_a_line_of_what_was_heard() {
+    let r = review(Task::Exploration);
+    let (result, _) = parse_for(&r, "Heard as: what does foo return\nIt returns the config.");
+    let reply = result.expect("reads");
+    assert_eq!(reply.heard_as.as_deref(), Some("what does foo return"));
+    assert_eq!(reply.answer, "It returns the config.");
+    // case does not matter, and a line that is only the label is no answer
+    let reply = parse_for(&r, "HEARD AS: why is foo here\n\nBecause of x.")
+        .0
+        .expect("reads");
+    assert_eq!(
+        (reply.heard_as.as_deref(), reply.answer.as_str()),
+        (Some("why is foo here"), "Because of x.")
+    );
+    assert!(matches!(
+        parse_for(&r, "Heard as: foo").0,
+        Err(AgentError::BadOutput { .. })
+    ));
+    // an editing reply in prose too
+    let reply = parse("Heard as: remove stale\nI would remove it.")
+        .0
+        .expect("reads");
+    assert_eq!(reply.heard_as.as_deref(), Some("remove stale"));
+    // a first line that only looks like it is an answer
+    let reply = parse_for(&r, "It was heard as: foo").0.expect("reads");
+    assert_eq!(reply.heard_as, None);
+}
+
+#[test]
+fn replies_that_do_nothing_or_were_heard_differently_are_written_and_read_back_the_same() {
+    let nothing = Reply::nothing("a test phrase");
+    let again = parse(&reply_text(&nothing)).0.expect("reads back");
+    assert_eq!(again, nothing);
+    let heard = Reply {
+        answer: "done".to_string(),
+        heard_as: Some("rename foo to count".to_string()),
+        ..Reply::default()
+    };
+    let again = parse(&reply_text(&heard)).0.expect("reads back");
+    assert_eq!(again, heard);
+    assert_eq!(
+        reply_json(&nothing),
+        json!({"action": "none", "reason": "a test phrase"})
+    );
+}
 
 fn editing() -> ReviewRequest {
     review(Task::Editing)

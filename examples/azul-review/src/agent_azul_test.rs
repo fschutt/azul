@@ -220,6 +220,7 @@ fn request() -> Request {
             text: "say ok".to_string(),
             start_ms: 0,
             end_ms: 500,
+            words: Vec::new(),
         }],
         strokes: Vec::new(),
         context: Context {
