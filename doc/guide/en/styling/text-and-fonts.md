@@ -160,6 +160,8 @@ without the property.
 | `font-variant-east-asian` | `jis78`, `jis83`, `jis90`, `jis04`, `simplified`, `traditional` | `jp78`, `jp83`, `jp90`, `jp04`, `smpl`, `trad` |
 | | `full-width`, `proportional-width` | `fwid`, `pwid` |
 | | `ruby` | `ruby` |
+| `font-variant-position` | `sub`, `super` | `subs`, `sups` |
+| `text-rendering` | `optimizeSpeed` | turns `kern` and the ligatures (`liga`, `clig`, `dlig`, `hlig`, `calt`) off where `font-kerning` and `font-variant-ligatures` say nothing; `auto`, `optimizeLegibility` and `geometricPrecision` leave the shaper as it is |
 | `font-feature-settings` | `"tag"`, `"tag" 1`, `"tag" on` / `"tag" 0`, `"tag" off` / `"tag" N` | the feature on / off / its Nth alternate, counted from 1 |
 
 The order is the one of CSS Fonts 4: the features a script turns on by itself, the properties above
@@ -168,6 +170,8 @@ The order is the one of CSS Fonts 4: the features a script turns on by itself, t
 and last `font-feature-settings`, which has the last word. `font-feature-settings: "kern" 0`
 turns the kerning off and `"kern" 1` on again after `font-kerning: none`, and the pair
 adjustments of a font are applied once.
+
+`font-variant: sub` and `font-variant: super` are accepted and set nothing: use `font-variant-position`.
 
 A `font-feature-settings` value keeps its first 64 distinct tags (`MAX_FONT_FEATURES`; a font has a
 few dozen features at most) and the stylesheet parser warns about more.
@@ -183,7 +187,7 @@ longhands take `auto` (fake it, the initial value) or `none`; the shorthand is `
 | `font-synthesis-weight` | the thickened bold of a text that asks for a weight of 600 or more from a face that has no bold cut: in both rasterizers and in the PDF writer (the run is filled and stroked) |
 | `font-synthesis-small-caps` | the small capitals of `font-variant-caps` that the shaper builds from scaled capitals (at 0.7 of the size) where the font has no `smcp`: `none` sets the text as it is |
 | `font-synthesis-style` | the slant of an italic that a family has no face for. Parsed, inherited and carried by the style of the run; **no consumer yet**: the engine draws no synthetic italic or oblique (see "What is not drawn yet") |
-| `font-synthesis-position` | the smaller, raised glyphs of a super- or subscript that a font has no `sups` or `subs` for. Parsed, inherited and carried by the style of the run; **no consumer yet**: there is no `font-variant-position` either |
+| `font-synthesis-position` | the smaller, raised glyphs of a super- or subscript that a font has no `sups` or `subs` for. Parsed, inherited and carried by the style of the run; **no consumer yet**: a `font-variant-position` that the font has no feature for is drawn plain |
 
 ## Vertical text
 
@@ -238,6 +242,13 @@ pre   { tab-size: 4; }
 - `pre-wrap`. Preserves whitespace and wraps.
 - `pre-line`. Collapses whitespace but preserves newlines. Wraps.
 - `break-spaces`. Preserves whitespace and breaks at every space. Wraps.
+
+`text-wrap` decides how the lines of a paragraph are broken (inherited):
+
+- `wrap` (default) and `stable`. Each line takes all the words that fit.
+- `nowrap`. The text stays on one line. A `white-space` that does not wrap (`nowrap`, `pre`) wins over every other value.
+- `balance`. The paragraph is broken as a whole so that its lines are as even in length as the words allow; the last line counts as much as the others, so it is no single word where the words allow better. Up to ten lines and 3,000 shaped items: a longer text is broken as `wrap` is.
+- `pretty`. The paragraph is broken as a whole to avoid a ragged edge (the same breaker as `balance`; the last line is as long as it falls). Up to 3,000 shaped items.
 
 `word-break` and `overflow-wrap` decide what to do with long unbreakable
 sequences (URLs, code, CJK):
@@ -363,4 +374,4 @@ what they say. Each row says what the layout does today.
 | `initial-letter` | makes room: the lines beside the first letter start after a box N lines high, and the letter is drawn at the size of the text, not bigger and not moved into the room |
 | `text-decoration-style`, `-color`, `-thickness`, `text-underline-position`, `-offset`, `text-emphasis` | not properties: `text-decoration` is three switches (underline, overline, line-through) drawn in the colour of the text |
 | `font-size-adjust` | not a property: the font size never follows the x-height of the face |
-| `text-wrap` (`balance`, `pretty`, `nowrap`), `text-rendering`, `hyphenate-character`, `font-variant-position`, `font-variant-alternates` | not properties (the stylesheet parser reports them as unknown); `white-space: nowrap` is the one that sets a text on one line |
+| `hyphenate-character`, `font-variant-alternates` | not properties (the stylesheet parser reports them as unknown): the hyphen drawn at the end of a line is a `-` of the font of the text, and the alternates of a font are reached by `font-feature-settings` |
