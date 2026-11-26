@@ -308,6 +308,76 @@ impl SystemLanguage {
                 .is_some_and(|l| l.is_rtl);
         Self::new(&tag, is_rtl)
     }
+
+    /// The language a PHONE reports, as the BCP 47 tag the engine translates and formats for:
+    /// Android's `Configuration` (language `en` and country `US` joined as `en-US`, with the old
+    /// Java codes `iw`, `in`, `ji` and `jw` for Hebrew, Indonesian, Yiddish and Javanese), iOS's
+    /// `NSLocale.preferredLanguages` (`en-US`, `zh-Hans-CN`) or `localeIdentifier`
+    /// (`en_US@calendar=gregorian`), a POSIX name (`de_DE.UTF-8`). `None` when the string names
+    /// no language (empty, `und`, `C`, `POSIX`): the caller keeps the language it has.
+    ///
+    /// The case is fixed (language lower, script Title, region UPPER), `_` is `-`, an encoding or a
+    /// modifier suffix and any `-u-` / `-x-` extension go, the Java codes are the current ones;
+    /// then [`Self::resolve`] gives it the right-to-left-ness of `known`.
+    #[must_use]
+    pub fn from_platform_tag(tag: &str, known: &[Self]) -> Option<Self> {
+        canonical_language_tag(tag).map(|canonical| Self::resolve(&canonical, known))
+    }
+}
+
+/// `tag` as a canonical BCP 47 language tag (see [`SystemLanguage::from_platform_tag`]), or `None`
+/// where it names no language.
+fn canonical_language_tag(tag: &str) -> Option<String> {
+    // An encoding (`.UTF-8`) and a modifier (`@calendar=gregorian`) are no part of a language.
+    let head = tag.split(['.', '@']).next().unwrap_or("").trim();
+    let mut parts = head.split(['-', '_']).filter(|part| !part.is_empty());
+    let language = parts.next()?.to_ascii_lowercase();
+    if !(2..=3).contains(&language.len()) || !language.bytes().all(|b| b.is_ascii_alphabetic()) {
+        return None;
+    }
+    let language = match language.as_str() {
+        "und" => return None,
+        // The codes Java (and so Android's `Configuration`) still reports.
+        "iw" => "he",
+        "in" => "id",
+        "ji" => "yi",
+        "jw" => "jv",
+        other => other,
+    };
+    let mut out = String::from(language);
+    let (mut script_allowed, mut region_allowed) = (true, true);
+    for part in parts {
+        let alphabetic = part.bytes().all(|b| b.is_ascii_alphabetic());
+        match part.len() {
+            // `u`, `x`, `t`: an extension, and everything after it is no part of the language.
+            1 => break,
+            4 if script_allowed && alphabetic => {
+                let mut script = part.to_ascii_lowercase();
+                script[..1].make_ascii_uppercase();
+                out.push('-');
+                out.push_str(&script);
+                script_allowed = false;
+            }
+            2 if region_allowed && alphabetic => {
+                out.push('-');
+                out.push_str(&part.to_ascii_uppercase());
+                (script_allowed, region_allowed) = (false, false);
+            }
+            3 if region_allowed && part.bytes().all(|b| b.is_ascii_digit()) => {
+                out.push('-');
+                out.push_str(part);
+                (script_allowed, region_allowed) = (false, false);
+            }
+            // A variant (`oxendict`, `1996`): after the region, as it is written.
+            4..=8 if part.bytes().all(|b| b.is_ascii_alphanumeric()) => {
+                out.push('-');
+                out.push_str(&part.to_ascii_lowercase());
+                (script_allowed, region_allowed) = (false, false);
+            }
+            _ => break,
+        }
+    }
+    Some(out)
 }
 
 
@@ -5012,3 +5082,7 @@ mod titlebar_area_tests {
         assert_eq!(measured.or(TitlebarReport::NoArea), measured);
     }
 }
+
+#[cfg(test)]
+#[path = "system_language_test.rs"]
+mod system_language_platform_test;
