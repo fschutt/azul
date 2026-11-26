@@ -6924,17 +6924,22 @@ jobs:
           set -o pipefail
           cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets -- -D warnings 2>&1 | tee clippy.txt
 
-      # The engine's HTTP client (layout/src/http.rs, http_retry.rs: the connector every agent the engine builds uses)
-      # is behind the `http` feature, which the step above does not turn on: its code was never linted here, and two
-      # findings in http.rs (unused_qualifications, let_underscore_drop) and two in http_retry.rs were found only by a
-      # runner of the AzReview work. NOT linted by any step yet: the rest of the feature set the tests compile
-      # (azul-layout `e2e-server`, `json`, `updater`; azul-css / azul-core `codegen`): about 1,200 findings on
-      # 2026-11-26 (layout/src/e2e 775, css/src/codegen 420, core/src/codegen 45), mostly format!/doc-backtick style.
-      - name: clippy (azul-layout with the http feature)
+      # The feature set the tests compile, linted as the step above lints the default features. The `--features` list
+      # is EQUAL to the one of the `test_lib` job's step "Run workspace lib + integration tests": code that a step
+      # compiles is code that a step lints (before this step about 1,250 findings sat unseen in it, 2026-11-26).
+      # It holds the E2E op-dispatch, the JSON scenario runner and AzBuilder's project and export code
+      # (`azul-layout/e2e-server`, `json`: layout/src/e2e, layout/src/json.rs), the code generators (`e2e-server`
+      # turns on azul-layout's `codegen`, which turns on the `codegen` features of azul-css and azul-core:
+      # css/src/codegen, core/src/codegen) and the updater and, through it (`updater` turns on `http`), the engine's
+      # HTTP client (layout/src/http.rs, http_retry.rs: the connector every agent the engine builds uses).
+      # When the test step's list changes, change this one with it.
+      - name: clippy (the feature set the tests compile)
         shell: bash
         run: |
           set -o pipefail
-          cargo clippy -p azul-layout --features azul-layout/http --all-targets -- -D warnings 2>&1 | tee clippy-http.txt
+          cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets \
+            --features azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server,azul-layout/updater \
+            -- -D warnings 2>&1 | tee clippy-features.txt
 
       # azul-storage, azlin-compress and azlin-preflate deny the panic family outside tests
       # (`#![cfg_attr(not(test), deny(clippy::unwrap_used, ..))]`, kept in place by the source gate
@@ -6959,12 +6964,19 @@ jobs:
           {
             echo '## Clippy (extreme lints - azul-core / azul-css / azul-layout)'
             echo ''
-            echo "Findings: **$(grep -cE '^(warning|error):' clippy.txt 2>/dev/null || echo 0)**"
+            echo "Findings: **$(cat clippy.txt clippy-features.txt 2>/dev/null | grep -cE '^(warning|error):' || true)** (default features, then the feature set the tests compile)"
             echo ''
             echo '<details><summary>output (tail)</summary>'
             echo ''
             echo '```'
             tail -200 clippy.txt 2>/dev/null || true
+            echo '```'
+            echo '</details>'
+            echo ''
+            echo '<details><summary>output of the feature set the tests compile (tail)</summary>'
+            echo ''
+            echo '```'
+            tail -200 clippy-features.txt 2>/dev/null || true
             echo '```'
             echo '</details>'
           } >> "$GITHUB_STEP_SUMMARY"

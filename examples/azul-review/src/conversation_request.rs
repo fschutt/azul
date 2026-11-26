@@ -117,6 +117,8 @@ pub fn review_request(
     // the words the strokes are on, so that the agent can name the columns of what the reviewer marked
     let grid = ui::page_grid(first_line);
     let words_under = crate::request_strokes::words_under(&strokes, &grid, &lines);
+    // what the reviewer circled is what they talk about: the lines a loop goes round, else the line of the anchor
+    let focus = crate::request_strokes::circled_lines(&strokes, first_line, &lines).unwrap_or((anchor, anchor));
     ReviewRequest {
         task,
         conversation: note.id,
@@ -129,7 +131,7 @@ pub fn review_request(
             first_line,
             lines: lines.to_vec(),
             total_lines: total,
-            focus: Some((anchor, anchor)),
+            focus: Some(focus),
             words_under,
             grid: Some(grid),
         },
