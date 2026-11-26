@@ -168,6 +168,8 @@ mod app_target;
 mod azul_widgets_demo_follows_the_theme;
 #[path = "azul_widgets_toolbar_wraps_on_a_narrow_screen.rs"]
 mod azul_widgets_toolbar_wraps_on_a_narrow_screen;
+#[path = "azul_widgets_video_card_fits_a_phone.rs"]
+mod azul_widgets_video_card_fits_a_phone;
 #[path = "block_edge_keys.rs"]
 mod block_edge_keys;
 #[path = "block_merge_filter.rs"]
