@@ -134,6 +134,11 @@ pub struct AndroidWindow {
     /// that changed a pixel had to claim it had changed the DOM.
     needs_rerender: bool,
 
+    /// `WindowCreateOptions::create_callback`, kept until the first `InitWindow` fires it (the shell used to
+    /// DROP it: an app that starts a timer or a worker there was dead on a phone). Taken out when it fires,
+    /// so it runs once per window lifetime.
+    create_callback: azul_layout::callbacks::OptionCallback,
+
     /// Last touch position of an in-progress one-finger pan, in logical px.
     ///
     /// Android delivers absolute positions; the scroll funnel wants deltas, so
@@ -177,6 +182,9 @@ impl AndroidWindow {
             &config.system_style,
             app_shared.mode(),
         );
+        // The app's create callback, kept for the first InitWindow (every other shell fires it when its window
+        // exists; this one dropped it).
+        let create_callback = options.create_callback;
         // `WindowCreateOptions::window_state` is already a `FullWindowState`,
         // mirroring how `HeadlessWindow::new` consumes it. No constructor call.
         let full_window_state = options.window_state;
@@ -248,6 +256,7 @@ impl AndroidWindow {
             selection_toolbar_shown: false,
             ime_dirty: false,
             needs_rerender: false,
+            create_callback,
             touch_pan_last: None,
             primary_pointer_id: None,
             pan_pointer_id: None,
@@ -442,11 +451,6 @@ impl AndroidWindow {
         // inert. `headless/mod.rs` already carries this exact fix and the same
         // explanation; both mobile backends were missing the one line.
         self.common.rebuild_cpu_hit_tester();
-
-        // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
-        // layout's reconciliation — the SAME step headless + X11 run. Without it,
-        // EventFilter::Component(AfterMount) callbacks never fire on Android (e.g.
-        // the MapWidget's first tile fetch never starts).
 
         // #27 native backbuffer: Android stays LEGACY by design.
         // `ANativeWindow_lock` rotates double/triple buffers with NO content
@@ -1565,6 +1569,17 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         // WindowResized) it tags the pass `Resize`.
                         let reason = resize_reason(window);
                         window.common.request_regeneration(reason);
+                        // The app's `WindowCreateOptions::create_callback`, ONCE per window lifetime, as the
+                        // desktop shells fire it: the window exists (the surface, its real size and density),
+                        // nothing is laid out yet. An app starts its timers, workers, locale and requests
+                        // here; the pass below applies what the callback asked for.
+                        let callback = core::mem::replace(
+                            &mut window.create_callback,
+                            azul_layout::callbacks::OptionCallback::None,
+                        );
+                        crate::desktop::shell2::common::create_callback::invoke_create_callback(
+                            window, callback,
+                        );
                     }
                 }
                 let _ = window.process_window_events(0);
@@ -1657,8 +1672,18 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
             MainEvent::Destroy => {
                 window.close();
             }
-            MainEvent::Pause | MainEvent::Resume { .. } => {
+            MainEvent::Pause => {
                 // No-op for now; future: pause timers, stop animations.
+            }
+            MainEvent::Resume { .. } => {
+                // Back in front (HOME and back, recents, another app's dialog that covered this one): the
+                // surface may have lost what it showed without a `RedrawNeeded` (a black window until
+                // something redrew it, QA run 45776829730). The frame the shell holds is posted once,
+                // whole; a shell with no frame or no surface yet gets its first from InitWindow's request.
+                if window.present.has_frame() && has_surface(window) {
+                    window.present.redraw_needed();
+                    window.needs_rerender = true;
+                }
             }
             _ => {}
         },
@@ -1815,6 +1840,8 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                         action_pointer_id = p.pointer_id();
                     }
 
+                    let tool = p.tool_type();
+
                     // The finger this PointerUp is about is lifting — it still
                     // appears in pointers(), but it is no longer touching.
                     // (Stylus lift is handled separately below via the action.)
@@ -1834,11 +1861,12 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                             major: 0.0,
                             minor: 0.0,
                             orientation_rad: 0.0,
-                            tool_type: azul_core::window::TouchToolType::Unknown,
+                            // What touches (`MotionEvent.getToolType`): the engine tells a finger, which
+                            // scrolls, from a mouse or a stylus, which select by dragging.
+                            tool_type: touch_tool_of(tool),
                         });
                     }
 
-                    let tool = p.tool_type();
                     if matches!(tool, ToolType::Stylus | ToolType::Eraser) {
                         let pressure = p.pressure().clamp(0.0, 1.0);
                         let tilt_rad = p.axis_value(Axis::Tilt);
@@ -2400,6 +2428,19 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.clear_native_gesture();
         lw.gesture_drag_manager.note_pinch_dispatched();
+    }
+}
+
+/// What touches, as the engine names it. `ToolType` has a hidden catch-all for a tool a newer NDK adds: Unknown.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn touch_tool_of(tool: ToolType) -> azul_core::window::TouchToolType {
+    use azul_core::window::TouchToolType as Engine;
+    match tool {
+        ToolType::Finger => Engine::Finger,
+        ToolType::Stylus => Engine::Stylus,
+        ToolType::Eraser => Engine::Eraser,
+        ToolType::Mouse => Engine::Mouse,
+        _ => Engine::Unknown,
     }
 }
 

@@ -37,6 +37,8 @@ pub mod capability_pump;
 /// shell makes about it, and the values the platforms take.
 pub mod capture_exclusion;
 pub mod clipboard;
+/// `WindowCreateOptions::create_callback`: the one function a shell calls to fire it (a phone shell dropped it).
+pub mod create_callback;
 pub mod debug_server;
 #[cfg(feature = "e2e-test")]
 pub mod e2e_test;
@@ -69,6 +71,8 @@ pub mod session_end;
 pub mod style_discovery;
 /// A closing window hands the app's background threads to a window that stays open.
 pub mod thread_handover;
+/// Which presses may start a text selection by dragging (a finger scrolls).
+pub mod touch_selection;
 pub mod transient;
 /// `<webview>`: the backend trait every platform's native web view
 /// implements, the headless one, and the pump that runs them.

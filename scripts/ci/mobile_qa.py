@@ -472,7 +472,9 @@ class Step:
 
 class Run:
     def __init__(self, out, platform, meta):
-        self.out = Path(out)
+        # ABSOLUTE: the Simulator's launchd opens `simctl launch --stdout=<path>` itself, in its own root (`//demo-out/qa/...` of a
+        # run folder given as `demo-out/qa`: "Read-only file system", the app never started, exit(78) in 100 ms)
+        self.out = Path(out).resolve()
         self.shots_dir = self.out / "shots"
         self.logs_dir = self.out / "logs"
         for d in (self.out, self.shots_dir, self.logs_dir):
@@ -551,6 +553,21 @@ def displayed_ms(text, package=""):
         m = re.search(r"Displayed \S*" + re.escape(package) + r"\S*(?: for user \d+)?: \+(?:(\d+)s)?(\d+)ms", line)
         if m:
             found = int(m.group(1) or 0) * 1000 + int(m.group(2))
+    return found
+
+
+def marker_values(text, name, since=None):
+    """The values of the app's own stdout lines `NAME <value>` in a `logcat -v threadtime` dump, in order (the apps print them for
+    scripts: `AZPAINT_STROKES 1`, `AZMAPS_VIEW 48.52 9.05 14`, `AZMAPS_SIDEBAR open`); `since` = 'MM-DD HH:MM:SS' keeps the lines
+    at or after that device time. A line without a value gives ''."""
+    found = []
+    pattern = re.compile(r"RustStdoutStderr:\s*" + re.escape(name) + r"(?: (.*?))?\s*$")
+    for line in text.splitlines():
+        if since and line[:18] < since:
+            continue
+        m = pattern.search(line)
+        if m:
+            found.append(m.group(1) or "")
     return found
 
 

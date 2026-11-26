@@ -276,9 +276,12 @@ fn main() {
 /// * the folder of the archive is `AZUL_CACTUS_LIB_DIR` or `target/speech-engine/static`, where
 ///   `scripts/fetch_whistle.sh --static` puts it (pinned by sha256); nothing is fetched here;
 /// * the engine is C++ on libc++ (`std::__1`), not libstdc++: on Apple it is the system's `libc++`,
-///   on Linux `libc++` and `libc++abi` (packages `libc++-dev` and `libc++abi-dev`; `AZUL_CACTUS_CXX_DIR`
-///   names their folder when it is not on the linker's path, `AZUL_CACTUS_CXX_STATIC=1` links the
-///   archives instead of the libraries), on Android the NDK's `c++_static`;
+///   on Linux `libc++` and `libc++abi` of LLVM 21 or newer (the Linux archive calls
+///   `std::__hash_memory`, which the libc++ 14 and 18 of the distributions' own packages do not have:
+///   `libc++-21-dev` and `libc++abi-21-dev` of apt.llvm.org; `AZUL_CACTUS_CXX_DIR` names their folder,
+///   `/usr/lib/llvm-21/lib`, when it is not on the linker's path, `AZUL_CACTUS_CXX_STATIC=1` links the
+///   archives instead of the libraries), on Android the NDK's `c++_static` (the Android archive carries
+///   its own libc++);
 /// * the release's archives for Windows are built for MinGW (their exceptions are `__gxx_personality_seh0`
 ///   on libc++), so only the `windows-gnu` targets can take them, not MSVC; macOS on Intel, musl and
 ///   Android on x86_64 have no archive at all: the engine then stays a shared library opened at run

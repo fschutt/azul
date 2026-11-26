@@ -48,15 +48,21 @@ const HELP: &str = "companion_sim: the AzReview phone companion in a window\n\
 /// keeps, and the client over azul's iroh endpoint: [`net`]). "Try it without a Mac" shows the rest of the screens. Runs until the app
 /// is closed.
 pub fn start() {
-    let net = net::connect();
-    for note in &net.notes {
-        eprintln!("AzCompanion: {note}");
-    }
-    let root = Root::new(net.api, EnvSource::Window);
     let mut config = AppConfig::create();
     config.set_mode(azul::option::OptionDarkLightMode::Some(azul::css::DarkLightMode::Dark));
-    let app = App::create(RefAny::new(root), config);
+    let app = App::create(RefAny::new(phone_root()), config);
     app.run(glue::phone_window_options("AzReview Companion"));
+}
+
+/// The state the phone's own app starts with: the screens on a stand-in that looks for a Mac, and the real connection still to be made, when
+/// the window exists (`glue::on_window_ready`). It makes no connection itself: on Android [`start`] runs from the library's load-time
+/// constructor, during `System.loadLibrary`, when the engine has no Android context yet, and the iroh endpoint's bind aborts the process
+/// without one ("android context was not initialized": the emulator, 2026-11-26).
+#[must_use]
+pub fn phone_root() -> Root {
+    let mut root = Root::new(Box::new(offline::OfflinePhone::new()), EnvSource::Window);
+    root.connect_later = true;
+    root
 }
 
 /// Android has no `main`: the system loads the library and calls into libazul, which reads the window options this puts
@@ -172,3 +178,7 @@ fn primary_work_area(app: &App) -> Option<(f32, f32)> {
     let monitor = list.iter().find(|m| m.is_primary_monitor).or_else(|| list.first())?;
     Some((monitor.work_area.size.width as f32, monitor.work_area.size.height as f32))
 }
+
+#[cfg(test)]
+#[path = "lib_test.rs"]
+mod lib_test;
