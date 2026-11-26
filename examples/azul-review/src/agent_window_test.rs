@@ -165,7 +165,7 @@ impl Recorder {
 }
 
 fn flight(file: &str, note: u64) -> InFlight {
-    InFlight { file: file.to_string(), note, task: Task::Editing }
+    InFlight { file: file.to_string(), note, task: Task::Editing, line: 12 }
 }
 
 fn hub_with(recorder: &Arc<Recorder>) -> Hub {
@@ -196,7 +196,7 @@ fn an_answer_for_the_open_file_lands_there_and_whoever_listens_is_told() {
     let outcome = Outcome::Reply(Reply { answer: "Fine.".to_string(), ..Reply::default() });
     let answered = h.answered(Some("a.rs"), &flight("a.rs", 4), outcome.clone());
     assert_eq!(answered, Answered::Lands(outcome));
-    assert_eq!(recorder.told(), vec![Finished { file: "a.rs".to_string(), conversation: 4, finish: Finish::Done }]);
+    assert_eq!(recorder.told(), vec![Finished { file: "a.rs".to_string(), conversation: 4, line: 12, finish: Finish::Done }]);
     assert!(h.late.is_empty());
 }
 
@@ -212,7 +212,7 @@ fn an_answer_for_a_file_that_is_not_open_waits_for_it_with_its_colour_and_whoeve
     let answered = h.answered(Some("b.rs"), &flight("a.rs", 4), Outcome::Reply(suggested));
     assert_eq!(answered, Answered::Waits(chips::State::Suggested));
     assert_eq!(h.late.len(), 1);
-    assert_eq!(recorder.told(), vec![Finished { file: "a.rs".to_string(), conversation: 4, finish: Finish::Suggested(1) }], "the phone is told at once, not when the file is opened");
+    assert_eq!(recorder.told(), vec![Finished { file: "a.rs".to_string(), conversation: 4, line: 12, finish: Finish::Suggested(1) }], "the phone is told at once, not when the file is opened");
     // no file open at all is another file
     let none = h.answered(None, &flight("a.rs", 5), Outcome::Failed("x".to_string()));
     assert_eq!(none, Answered::Waits(chips::State::Failed));

@@ -519,8 +519,8 @@ fn the_states_of_the_microphone_have_names_a_script_can_read() {
 #[test]
 fn an_utterance_is_handed_over_with_its_words_their_times_and_the_moment_its_call_began() {
     let words = vec![
-        HeardWord { text: "this".to_string(), start_ms: 40, end_ms: 310, probability: 0.75 },
-        HeardWord { text: "loop".to_string(), start_ms: 330, end_ms: 700, probability: 0.5 },
+        HeardWord { text: "this".to_string(), start_ms: 40, end_ms: 310, probability: 0.75, biased: false },
+        HeardWord { text: "loop".to_string(), start_ms: 330, end_ms: 700, probability: 0.5, biased: false },
     ];
     let utterance = Heard { words: words.clone(), started_unix_ms: 1_700_000_000_000, recognizer: Recognizer::Scripted, ..said("this loop") };
     let (mut listener, mut clock) = streaming(vec![call(vec![(0, Event::Ready), (900, Event::Final(utterance))], 50, said("this loop"))]);
@@ -533,7 +533,7 @@ fn an_utterance_is_handed_over_with_its_words_their_times_and_the_moment_its_cal
 
 #[test]
 fn a_call_that_cannot_stream_hands_over_its_one_utterance_with_its_words_too() {
-    let words = vec![HeardWord { text: "hello".to_string(), start_ms: 0, end_ms: 400, probability: 0.9 }];
+    let words = vec![HeardWord { text: "hello".to_string(), start_ms: 0, end_ms: 400, probability: 0.9, biased: false }];
     let one = Heard { words: words.clone(), started_unix_ms: 42, ..said("hello") };
     let mut clock = FakeClock { now: Rc::new(Cell::new(0)), slept: Vec::new() };
     let mut listener = Script { now: clock.now.clone(), answers: VecDeque::from(vec![(100, one)]), calls: Rc::new(Cell::new(0)), meanwhile: None };
@@ -548,4 +548,169 @@ fn a_call_that_cannot_stream_hands_over_its_one_utterance_with_its_words_too() {
 fn a_said_has_a_plain_form_for_what_has_no_words_and_no_time() {
     let s = Said::plain("  spaced  words ");
     assert_eq!(s, Said { text: "  spaced  words ".to_string(), started_unix_ms: 0, words: Vec::new() }, "kept as given: the loop trims");
+}
+
+// ---- a stream that runs on until it is told to end ----
+
+/// A listener whose stream lasts until `should_stop` says so (what the engine's stream does): it plays its steps - the time
+/// that passes, then what it tells - asking `should_stop` after each, and when told to end it answers what was said so far
+/// as the last utterance, the way a stop does. A stream whose steps are over runs on, a tenth of a second at a time, until
+/// it is told.
+struct Continuous {
+    now: Time,
+    steps: VecDeque<(u64, Option<Event>)>,
+    /// The last words said and not yet ended: what a stop turns into the last `Final`.
+    pending: String,
+    asked: Rc<Cell<usize>>,
+    /// How many times the stream was asked whether to end.
+    polls: Rc<Cell<usize>>,
+}
+
+impl Listener for Continuous {
+    fn listen(&mut self, _language: &str, _timeout_ms: u32) -> Heard {
+        unreachable!("a stream that runs on is asked to stream")
+    }
+
+    fn listen_stream(&mut self, _language: &str, _timeout_ms: u32, _events: &mut dyn FnMut(Event)) -> Heard {
+        unreachable!("a stream that runs on is asked to run until it is told to end")
+    }
+
+    fn listen_stream_until(
+        &mut self,
+        _language: &str,
+        _timeout_ms: u32,
+        events: &mut dyn FnMut(Event),
+        should_stop: &mut dyn FnMut() -> bool,
+    ) -> Heard {
+        self.asked.set(self.asked.get() + 1);
+        loop {
+            let (after, event) = self.steps.pop_front().unwrap_or((100, None));
+            self.now.set(self.now.get() + after);
+            if let Some(event) = event {
+                if let Event::Partial(text) = &event {
+                    self.pending.clone_from(text);
+                }
+                if matches!(event, Event::Final(_)) {
+                    self.pending.clear();
+                }
+                events(event);
+            }
+            self.polls.set(self.polls.get() + 1);
+            if should_stop() {
+                if !self.pending.is_empty() {
+                    let last = std::mem::take(&mut self.pending);
+                    events(Event::Final(said(&last)));
+                }
+                return heard(Status::Nothing, "", "ended");
+            }
+        }
+    }
+}
+
+fn continuous(steps: Vec<(u64, Option<Event>)>) -> (Continuous, FakeClock) {
+    let now: Time = Rc::new(Cell::new(0));
+    (
+        Continuous {
+            now: now.clone(),
+            steps: steps.into(),
+            pending: String::new(),
+            asked: Rc::new(Cell::new(0)),
+            polls: Rc::new(Cell::new(0)),
+        },
+        FakeClock { now, slept: Vec::new() },
+    )
+}
+
+#[test]
+fn a_stream_that_runs_on_is_asked_between_its_events_whether_to_end_and_a_stop_keeps_the_words_so_far() {
+    let (mut listener, mut clock) = continuous(vec![
+        (0, Some(Event::Ready)),
+        (300, Some(partial("rename this"))),
+        (200, Some(Event::Final(said("rename this loop")))),
+        (500, Some(partial("and then"))),
+    ]);
+    let stop = Rc::new(Cell::new(false));
+    let polls = listener.polls.clone();
+    let mut outs = Vec::new();
+    let stop_in = stop.clone();
+    run(
+        &plan(),
+        &mut listener,
+        &mut clock,
+        // the stop is asked for after the fourth step
+        &mut || {
+            if polls.get() >= 4 {
+                stop_in.set(true);
+            }
+            stop_in.get()
+        },
+        &mut |out| outs.push(out),
+    );
+    let texts: Vec<&str> = outs.iter().filter_map(|o| if let Out::Text(s) = o { Some(s.text.as_str()) } else { None }).collect();
+    assert_eq!(texts, vec!["rename this loop", "and then"], "what was said while the stop was asked for is kept");
+    assert!(matches!(outs.last(), Some(Out::Ended(End::Stopped))), "{outs:?}");
+    assert_eq!(listener.asked.get(), 1, "one call: the stream was not started again");
+}
+
+#[test]
+fn quiet_ends_a_stream_that_runs_on_where_it_is_and_not_when_its_chunk_would_have_ended() {
+    // one word at 1 s, then nothing for ever; the plan's silence is 8 s
+    let (mut listener, mut clock) = continuous(vec![(1_000, Some(Event::Final(said("hello"))))]);
+    let mut outs = Vec::new();
+    run(&plan(), &mut listener, &mut clock, &mut || false, &mut |out| outs.push(out));
+    assert!(matches!(outs.last(), Some(Out::Ended(End::Silence))), "{outs:?}");
+    let ended_at = clock.now.get();
+    assert!((9_000..=9_300).contains(&ended_at), "8 s after the last words (at 1 s), a tenth of a second late at most: {ended_at}");
+    assert_eq!(listener.asked.get(), 1);
+}
+
+#[test]
+fn words_being_spoken_keep_a_stream_that_runs_on_from_ending_in_the_quiet() {
+    // a partial every 5 s for 40 s: more than the silence time in all, never that long without words
+    let mut steps = Vec::new();
+    for i in 0..8 {
+        steps.push((5_000, Some(partial(&format!("words {i}")))));
+    }
+    let (mut listener, mut clock) = continuous(steps);
+    let polls = listener.polls.clone();
+    let mut outs = Vec::new();
+    let mut stopped = false;
+    run(
+        &plan(),
+        &mut listener,
+        &mut clock,
+        &mut || {
+            // the reviewer stops it after the eighth partial
+            stopped |= polls.get() >= 8;
+            stopped
+        },
+        &mut |out| outs.push(out),
+    );
+    assert!(matches!(outs.last(), Some(Out::Ended(End::Stopped))), "the quiet did not end it: {outs:?}");
+}
+
+#[test]
+fn a_listener_that_does_not_run_on_answers_the_stream_call_as_it_always_did() {
+    // the default of listen_stream_until is listen_stream: the earlier tests of a streaming listener are the proof, and this
+    // is the same call asked the new way
+    let (mut listener, mut clock) = streaming(vec![call(vec![(0, Event::Ready), (200, Event::Final(said("one")))], 100, heard(Status::Nothing, "", ""))]);
+    let mut out = Vec::new();
+    let answered = listener.listen_stream_until("en", 4_000, &mut |e| out.push(e), &mut || false);
+    assert_eq!(answered.status, Status::Nothing);
+    assert_eq!(out.len(), 2);
+    let _ = &mut clock;
+}
+
+#[test]
+fn the_end_point_is_the_engine_s_own_or_between_what_the_engine_takes() {
+    assert_eq!(cap_endpoint_ms(0), (0, None), "0 asks for the engine's own");
+    assert_eq!(cap_endpoint_ms(800), (800, None));
+    assert_eq!(cap_endpoint_ms(MIN_ENDPOINT_MS), (MIN_ENDPOINT_MS, None));
+    assert_eq!(cap_endpoint_ms(MAX_ENDPOINT_MS), (MAX_ENDPOINT_MS, None));
+    let (low, why) = cap_endpoint_ms(100);
+    assert_eq!(low, MIN_ENDPOINT_MS);
+    assert!(why.is_some_and(|w| w.contains("100")));
+    let (high, why) = cap_endpoint_ms(10_000);
+    assert_eq!(high, MAX_ENDPOINT_MS);
+    assert!(why.is_some_and(|w| w.contains("10000")));
 }

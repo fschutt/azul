@@ -244,3 +244,37 @@ fn the_symbol_index_is_built_unless_a_setting_or_a_switch_says_not_and_the_switc
     let r = resolve(&values, &Switches::default());
     assert!(r.symbols && r.notes.iter().any(|n| n.contains(KEY_SYMBOLS)), "{:?}", r.notes);
 }
+
+// ---- how long a pause ends an utterance (the engine's end-point) ----
+
+#[test]
+fn the_pause_that_ends_an_utterance_is_a_switch_a_setting_and_by_default_the_engine_s_own() {
+    let (sw, rest) = Switches::extract(argv(&["folder", "--endpoint-ms", "900"])).expect("valid");
+    assert_eq!(sw.endpoint_ms, Some(900));
+    assert_eq!(rest, argv(&["folder"]));
+    assert!(Switches::extract(argv(&["--endpoint-ms", "later"])).expect_err("no number").contains("--endpoint-ms"));
+    assert!(HELP.contains("--endpoint-ms"));
+
+    // nothing says: 0, which is the engine's own (600 ms)
+    assert_eq!(resolve(&BTreeMap::new(), &Switches::default()).endpoint_ms, 0);
+    // the settings file's value
+    let mut values = BTreeMap::new();
+    values.insert(KEY_ENDPOINT.to_string(), "1000".to_string());
+    assert_eq!(resolve(&values, &Switches::default()).endpoint_ms, 1_000);
+    // a switch over the settings file's value
+    assert_eq!(resolve(&values, &Switches { endpoint_ms: Some(800), ..Switches::default() }).endpoint_ms, 800);
+}
+
+#[test]
+fn a_pause_that_no_dictation_can_mean_is_held_to_what_one_can_and_said() {
+    let r = resolve(&BTreeMap::new(), &Switches { endpoint_ms: Some(50), ..Switches::default() });
+    assert_eq!(r.endpoint_ms, u32::try_from(dictation::MIN_ENDPOINT_MS).expect("small"));
+    assert!(r.notes.iter().any(|n| n.contains("50")), "{:?}", r.notes);
+    let r = resolve(&BTreeMap::new(), &Switches { endpoint_ms: Some(60_000), ..Switches::default() });
+    assert_eq!(u64::from(r.endpoint_ms), dictation::MAX_ENDPOINT_MS);
+    let mut values = BTreeMap::new();
+    values.insert(KEY_ENDPOINT.to_string(), "soon".to_string());
+    let r = resolve(&values, &Switches::default());
+    assert_eq!(r.endpoint_ms, 0, "a setting that is no number is the engine's own");
+    assert!(r.notes.iter().any(|n| n.contains(KEY_ENDPOINT)), "{:?}", r.notes);
+}

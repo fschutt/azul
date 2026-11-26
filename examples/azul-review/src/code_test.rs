@@ -105,3 +105,18 @@ fn text_is_held_as_lines_up_to_the_limit_and_as_a_big_text_above_it() {
     assert!(matches!(open_bytes(PathBuf::from("a"), "a".into(), over), Ok(f) if f.big.is_some()));
     assert_eq!(open_bytes(PathBuf::from("a"), "a".into(), b"\x7fELF\0".to_vec()).err(), Some(NotShown::Binary));
 }
+
+#[test]
+fn the_page_a_line_is_on_and_how_many_lines_a_page_has_without_making_them() {
+    assert_eq!(SourceFile::page_of_line(0), 0, "before the first line is the first page");
+    assert_eq!(SourceFile::page_of_line(1), 0);
+    assert_eq!(SourceFile::page_of_line(46), 0, "the last line of the first page");
+    assert_eq!(SourceFile::page_of_line(47), 1);
+    assert_eq!(SourceFile::page_of_line(138), 2);
+    let file = SourceFile::new(PathBuf::from("f.rs"), "f.rs".to_string(), (0..100).map(|i| format!("l{i}")).collect());
+    assert_eq!((file.lines_on_page(0), file.lines_on_page(1), file.lines_on_page(2), file.lines_on_page(3)), (46, 46, 8, 0));
+    // the same numbers as the lines the page makes
+    for page in 0..4 {
+        assert_eq!(file.lines_on_page(page), file.page(page).1.len(), "page {page}");
+    }
+}
