@@ -48,7 +48,7 @@ fn every_screen_of_the_study_has_scenes_and_the_names_are_unique() {
 fn a_spec_picks_all_scenes_a_screen_or_names() {
     assert_eq!(pick("all").len(), ALL.len());
     assert_eq!(pick("").len(), ALL.len());
-    assert!(pick("a").iter().all(|n| n.starts_with('a')) && pick("a").len() == 9);
+    assert!(pick("a").iter().all(|n| n.starts_with('a')) && pick("a").len() == 10, "the pairing's nine screens and the first one as the phone's own app draws it");
     assert_eq!(pick("b1-remote"), ["b1-remote"]);
     assert_eq!(pick("a1-intro, e1-settings"), ["a1-intro", "e1-settings"]);
     assert!(pick("zz").is_empty());

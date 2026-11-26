@@ -60,6 +60,7 @@ autofix_agrees() {
     cargo run -r -p azul-doc -- autofix apply 2>&1 | grep -E "Total changes|Failed" | head -3
   done
   git diff --stat | tail -4
+  git diff api.json | head -80
   section "CHECK LAYOUT"
   cargo run -r -p azul-doc -- check layout 2>&1 | tail -8
 }
@@ -81,9 +82,15 @@ compile_checks() {
   cargo check -p azul-dll --no-default-features --features "link-dynamic" > /tmp/dyncheck.log 2>&1
   echo "link-dynamic check exit $?"
   grep -E "^error" -A8 /tmp/dyncheck.log | head -30
-  section "CLIPPY (azul-layout with the updater, the lint set CI holds the library to)"
+  section "ENGINE PROFILE (azul-dll without the desktop: the stubs of the unified speech module)"
+  cargo check -p azul-dll --no-default-features --features engine > /tmp/enginecheck.log 2>&1
+  echo "engine profile check exit $?"
+  grep -E "^error" -A8 /tmp/enginecheck.log | head -30
+  section "CLIPPY (css, core and layout with the feature set the tests compile, the step CI holds them to)"
   rustup component add clippy > /dev/null 2>&1
-  cargo clippy -p azul-layout --features updater --lib -- -D warnings > /tmp/clippy.log 2>&1
+  cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets \
+    --features azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server,azul-layout/updater \
+    -- -D warnings > /tmp/clippy.log 2>&1
   echo "clippy exit $?"
   grep -E "^(error|warning)" -A6 /tmp/clippy.log | head -40
 }
@@ -122,13 +129,23 @@ real_download() {
 
 static_linux() {
   section "STATIC ENGINE ON LINUX: packages and files"
-  sudo apt-get install -y libc++-14-dev libc++abi-14-dev espeak-ng > /tmp/apt.log 2>&1
-  echo "apt exit $?"
+  # The Linux archive calls std::__hash_memory, which only a libc++ of LLVM 21 or newer has (the distributions'
+  # libc++ 14 and 18 have not): libc++ and libc++abi of LLVM 21 come from apt.llvm.org.
+  wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key
+  sudo cp /tmp/llvm-snapshot.gpg.key /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+  echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main" | sudo tee /etc/apt/sources.list.d/llvm21.list > /dev/null
+  sudo apt-get update > /tmp/apt-update.log 2>&1
+  echo "apt update exit $?"
+  sudo apt-get install -y libc++-21-dev libc++abi-21-dev espeak-ng > /tmp/apt.log 2>&1
+  echo "apt install exit $?"
+  tail -3 /tmp/apt.log | cut -c1-200
+  ls /usr/lib/llvm-21/lib | grep -E "^libc\+\+" | head
+  export LD_LIBRARY_PATH=/usr/lib/llvm-21/lib
   scripts/fetch_whistle.sh --static target/speech-engine > /tmp/fetch.log 2>&1
   echo "fetch exit $?"
   tail -2 /tmp/fetch.log | cut -c1-200
   sentences_linux
-  export AZUL_CACTUS_CXX_DIR=/usr/lib/llvm-14/lib
+  export AZUL_CACTUS_CXX_DIR=/usr/lib/llvm-21/lib
   section "LINKED ENGINE ON LINUX: the engine seam and the built-in recognizer (libc++ as archives, else as libraries)"
   for archives in 1 0; do
     export AZUL_CACTUS_CXX_STATIC=$archives
@@ -212,11 +229,20 @@ case "$part" in
   static)
     static_linux
     ;;
+  all)
+    speech_tests
+    layout_tests
+    doc_tests
+    autofix_agrees
+    source_gates
+    compile_checks
+    static_linux
+    ;;
   macos)
     macos
     ;;
   *)
-    echo "usage: bash scripts/check_speech.sh gate | static | macos"
+    echo "usage: bash scripts/check_speech.sh gate | static | all | macos"
     ;;
 esac
 section "END"

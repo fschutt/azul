@@ -70,7 +70,7 @@
              second android_main). -->
         <activity
             android:name="com.azul.app.AzulActivity"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|density|uiMode"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|touchscreen|density|uiMode|locale|layoutDirection|fontScale|colorMode|fontWeightAdjustment|grammaticalGender|mcc|mnc"
             android:launchMode="singleTop"
             android:exported="true">
 
