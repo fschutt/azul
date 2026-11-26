@@ -20,8 +20,11 @@ import sys
 
 try:
     import tomllib
-except ImportError:  # pragma: no cover
-    sys.exit("demo_apps.py needs Python 3.11 or later (tomllib)")
+except ImportError:  # pragma: no cover  (Python 3.10: a runner's default; the backport has the same API)
+    try:
+        import tomli as tomllib
+    except ImportError:
+        sys.exit("demo_apps.py needs Python 3.11 or later (tomllib), or the tomli package (python3 -m pip install --user tomli)")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "scripts" / "demo_apps.toml"
@@ -147,6 +150,19 @@ def check(m=None):
             f"add it, with its platforms (an app that does not belong on the page says why in `known_failing`)")
     for pkg in sorted(set(names) - set(workspace)):
         err(f"{pkg} is in scripts/demo_apps.toml but is no AzXxx package of the workspace")
+    # the SDK levels the manifest records are the ones the template of the Android manifest says
+    android = m.get("android", {})
+    template = (ROOT / "scripts" / "android" / "AndroidManifest.xml").read_text(encoding="utf-8")
+    for key, attr in (("min_sdk", "minSdkVersion"), ("target_sdk", "targetSdkVersion")):
+        want = android.get(key)
+        if isinstance(want, bool) or not isinstance(want, int):
+            err(f"[android] {key} must be a number (the {attr} of scripts/android/AndroidManifest.xml), not {want!r}")
+            continue
+        found = re.search(rf'android:{attr}="(\d+)"', template)
+        if not found or int(found.group(1)) != want:
+            err(f"[android] {key} = {want} but scripts/android/AndroidManifest.xml says {attr}=\"{found.group(1) if found else '?'}\"")
+    if all(isinstance(android.get(k), int) for k in ("min_sdk", "target_sdk")) and android["target_sdk"] < android["min_sdk"]:
+        err(f"[android] target_sdk {android['target_sdk']} is below min_sdk {android['min_sdk']}")
     libs = m.get("lib", {})
     for name, lib in artifact_only_libs(m).items():
         bad = [t for t in lib.get("targets", []) if t not in MOBILE_TARGETS]
@@ -459,6 +475,11 @@ def boot_text(r):
         if not r["pass"]:
             return "BOOT FAILED: " + str(r.get("reason") or "no reason given")[:110]
         text = "boots"
+        # the platform's own launch number: informational, never part of the verdict
+        if r.get("displayed_ms") is not None:
+            text += f", first window {r['displayed_ms']} ms (the platform's own number)"
+        elif r.get("launch_ms") is not None:
+            text += f", launched in {r['launch_ms']} ms (the platform's own number)"
     elif r.get("alive") and not r.get("fatal"):
         text = "boots" + ("" if r.get("screen_nonblank") else " (blank screen)")
     else:
@@ -494,6 +515,8 @@ def status(dirs, m=None, extra=None):
             else:
                 cell = {k: r.get(k) for k in ("status", "reason", "artifact", "sha256", "size", "shipped_size", "seconds",
                                                "engine_crates", "first_error")}
+            cell["staged"] = staged_name(a, col)      # the file the build stages and the asset the release serves: a failed or
+            cell["release"] = release_name(a, col)    # missing cell has no `artifact`, and the page's link pruning needs the names
             if known:
                 cell["known"] = known
             boot = boot_text(smoke.get((a["package"], col)))

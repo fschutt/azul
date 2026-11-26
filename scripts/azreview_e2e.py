@@ -772,6 +772,258 @@ def dictation_stream(args, logs, out, binary):
     app.log("PASS: a dictation through the engine's stream: the words as they are said, the quiet ends it, a stop ends it at once")
 
 
+def line_box(app, strip, first, last):
+    """The window's box (x, y, width, height) of the text of lines `first` to `last` of the page in view: the rects of the lines are
+    in the page strip's DOM, whose origin is the strip's (the rect of a node of a VirtualView's DOM is local to it)."""
+    boxes = []
+    for number in range(first, last + 1):
+        r = app.rect("__azreview_line-%d-text" % number, every_dom=True)
+        if r is None:
+            raise Failure("line %d is not on the screen" % number)
+        boxes.append((strip["x"] + r["x"], strip["y"] + r["y"], r["width"], r["height"]))
+    left = min(b[0] for b in boxes)
+    top = min(b[1] for b in boxes)
+    right = max(b[0] + b[2] for b in boxes)
+    bottom = max(b[1] + b[3] for b in boxes)
+    return left, top, right - left, bottom - top
+
+
+def draw_loop(app, box, turns=1.04, points=44):
+    """A loop with the pen (the mouse, as the other steps draw) round `box`, a little larger than it, begun at its right: what a
+    person circles code with. The ellipse is closed a little past its start, as a hand closes one."""
+    import math
+    x, y, w, h = box
+    cx, cy = x + w / 2.0, y + h / 2.0
+    rx, ry = w / 2.0 + 10.0, h / 2.0 + 6.0
+    at = lambda t: (cx + rx * math.cos(2 * math.pi * t), cy + ry * math.sin(2 * math.pi * t))
+    x0, y0 = at(0.0)
+    app.must("mouse_move", x=x0, y=y0)
+    app.must("mouse_down", x=x0, y=y0)
+    for i in range(1, points + 1):
+        px, py = at(turns * i / points)
+        app.must("mouse_move", x=px, y=py)
+        if i % 4 == 0:
+            app.frame(1)
+    app.must("mouse_up", x=px, y=py)
+    app.frame(3)
+
+
+def board_of(app):
+    return state(app)["whiteboard"]
+
+
+def settle_saves(app, quiet=1.5, limit=20.0):
+    """Waits until the board has been kept and no write is going on: the number of saves told stays the same for `quiet` s."""
+    end = time.time() + limit
+    last, since = -1, time.time()
+    while time.time() < end:
+        n = app.count("AZREVIEW_WB", r"saved.*")
+        if n != last:
+            last, since = n, time.time()
+        elif n > 0 and time.time() - since >= quiet:
+            return n
+        app.frame(1)
+        time.sleep(0.1)
+    raise Failure("the board is still being written after %.0f s" % limit)
+
+
+def whiteboard(args, logs, out, binary):
+    """The whiteboard in the window, from a loop to a cutout and back: a loop drawn with the pen round some lines is ARMED (its
+    outline, its grip, the words that say what to do with it and the key that sends it); the grip carried onto the right panel
+    becomes a cutout with its source (the file, the lines) and a picture drawn on a Thread; a double click on the cutout goes to
+    its lines (the page comes into view, the lines are lit); the key sends a loop without any dragging (and opens the panel); the
+    board is kept and comes back at the next start; a loop that is not taken is let go of when its time is up."""
+    data_dir = os.path.join(logs, "data-wb")
+    folder = os.path.join(logs, "folder-wb")
+    os.makedirs(os.path.join(data_dir, "review"), exist_ok=True)
+    fixture(folder)
+    # 30 s for a loop to be taken: the proof run has time for its pictures; the second run is the short one.
+    with open(os.path.join(data_dir, "review", "settings.json"), "w", encoding="utf-8") as f:
+        json.dump({"values": {"whiteboard-armed-seconds": "30"}}, f)
+    argv = [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en", "--dwell-input", "off",
+            "--standby", "off", "--agent", "mock", "--agent-auto", "off"]
+    app = e2e.App("review-wb", binary, argv, args.debug_port + 11, logs, args.timeout)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        show_files(app)
+        pick(app, "src", "lib.rs")
+        app.until("lib.rs open", lambda: state(app)["tree"]["open"] == os.path.join("src", "lib.rs"))
+        app.until("the board is read", lambda: board_of(app)["started"])
+        app.frame(3)
+        if board_of(app)["armed_ms"] != 30000:
+            raise Failure("the setting of how long a loop waits was not read: %s" % board_of(app)["armed_ms"])
+        if not state(app)["right_open"]:
+            app.click(selector="#__azreview_right-toggle")
+        app.until("the whiteboard's panel", lambda: app.has_id("__azreview_right-panel"))
+        panel = settled(app, "__azreview_right-panel")
+        app.screenshot(os.path.join(out, "34-wb-empty-board.png"))
+
+        # 1. a loop round lines 7 to 9 is armed, with words and a key beside it
+        strip = app.rect(STRIP)
+        draw_loop(app, line_box(app, strip, 7, 9))
+        app.until("the loop is armed", lambda: len(board_of(app)["armed"]) == 1)
+        armed = board_of(app)["armed"][0]
+        if (armed["first"], armed["last"]) != (7, 9):
+            raise Failure("the loop is round lines 7 to 9, the board armed %s" % armed)
+        region = armed["id"]
+        app.until("the words and the key beside it", lambda: app.has_id("__azreview_wb-send-%d" % region, every_dom=True))
+        if not app.shows("Drag me to the whiteboard", every_dom=True):
+            raise Failure("the words that say what to do with the loop are not on the page")
+        if not app.shows("Send to whiteboard", every_dom=True):
+            raise Failure("the key that sends the loop is not on the page")
+        if not app.shows("Tip: circle some code", every_dom=True):
+            raise Failure("the first loop there ever was does not say the tip")
+        if not app.has_id("__azreview_wb-overlay-0", every_dom=True):
+            raise Failure("the page has no layer for the outline and the grip")
+        app.screenshot(os.path.join(out, "34-wb-armed.png"))
+
+        # 2. the grip carried onto the panel: a cutout with its source and a picture
+        overlay = app.rect("__azreview_wb-overlay-0", every_dom=True)
+        grip = armed["grip"]
+        gx = strip["x"] + overlay["x"] + grip["x"] + grip["w"] / 2.0
+        gy = strip["y"] + overlay["y"] + grip["y"] + grip["h"] / 2.0
+        tx, ty = panel["x"] + panel["width"] / 2.0, panel["y"] + 180.0
+        app.must("mouse_move", x=gx, y=gy)
+        app.must("mouse_down", x=gx, y=gy)
+        for i in range(1, 13):
+            app.must("mouse_move", x=gx + (tx - gx) * i / 12.0, y=gy + (ty - gy) * i / 12.0)
+            app.frame(1)
+            if i == 9:
+                if not board_of(app)["press"]["carrying"]:
+                    raise Failure("the grip was pressed and carried and the loop is not on its way: %s" % board_of(app)["press"])
+                app.screenshot(os.path.join(out, "34-wb-carried.png"))
+        app.must("mouse_up", x=tx, y=ty)
+        app.until("the cutout is on the board", lambda: len(board_of(app)["cutouts"]) == 1)
+        if state(app)["strokes"] != 1:
+            raise Failure("a press on the grip drew a stroke: %d strokes, the loop is the one" % state(app)["strokes"])
+        cut = board_of(app)["cutouts"][0]
+        if (cut["file"], cut["first"], cut["last"]) != (os.path.join("src", "lib.rs").replace(os.sep, "/"), 7, 9):
+            raise Failure("the cutout does not say where it comes from: %s" % cut)
+        app.until("its picture is drawn", lambda: board_of(app)["cutouts"][0]["picture"] == "ready")
+        if board_of(app)["armed"]:
+            raise Failure("the loop is still armed after it was dropped: %s" % board_of(app)["armed"])
+        if app.has_id("__azreview_wb-send-%d" % region, every_dom=True):
+            app.until("the words and the key are gone with the loop", lambda: not app.has_id("__azreview_wb-send-%d" % region, every_dom=True))
+        app.frame(3)
+        app.screenshot(os.path.join(out, "34-wb-cutout.png"))
+        saved = os.path.join(data_dir, "review", "boards")
+        app.until("the board is kept", lambda: os.path.isdir(saved) and any(n.endswith(".azboard.zip") for n in os.listdir(saved)))
+
+        # 3. away from the lines, a double click on the cutout goes back to them and lights them
+        app.click(selector="#__azreview_page-pill-3")
+        app.until("the third page is in view", lambda: state(app)["visible_page"] == 2)
+        app.must("double_click", selector="#__azreview_whiteboard-cutout-%d" % cut["id"])
+        app.until("the page of its lines is in view", lambda: state(app)["visible_page"] == 0)
+        flash = board_of(app)["flash"]
+        if not flash or (flash["first"], flash["last"]) != (7, 9):
+            raise Failure("the lines of the jump are not lit: %s" % flash)
+        app.until("the lines are lit on the page", lambda: app.has_id("__azreview_wb-flash-0", every_dom=True))
+        app.screenshot(os.path.join(out, "34-wb-jumped.png"))
+        app.until("the lines are dark again", lambda: board_of(app)["flash"] is None)
+        if not app.shows("Continue reviewing", every_dom=False) and state(app).get("progress", {}).get("back") is None:
+            print("[review-wb] note: no way back is offered after the jump", flush=True)
+
+        # 4. the key sends a loop without any dragging, and opens the panel that was closed
+        app.click(selector="#__azreview_right-toggle")
+        app.until("the panel is closed", lambda: not state(app)["right_open"])
+        app.frame(8)
+        strip = app.rect(STRIP)
+        draw_loop(app, line_box(app, strip, 20, 22))
+        app.until("the second loop is armed", lambda: len(board_of(app)["armed"]) == 1)
+        second = board_of(app)["armed"][0]["id"]
+        if app.shows("Tip: circle some code", every_dom=True):
+            raise Failure("the tip is said again for the second loop")
+        app.click(selector="#__azreview_wb-send-%d" % second, every_dom=True)
+        app.until("the second cutout is on the board", lambda: len(board_of(app)["cutouts"]) == 2)
+        app.until("the panel opened for it", lambda: state(app)["right_open"])
+        app.until("its picture is drawn", lambda: all(c["picture"] == "ready" for c in board_of(app)["cutouts"]))
+        if state(app)["strokes"] != 2:
+            raise Failure("the key was pressed and a stroke was drawn with it: %d strokes, the two loops are two" % state(app)["strokes"])
+        a, b = board_of(app)["cutouts"]
+        ra, rb = a["rect"], b["rect"]
+        apart = (ra["x"] + ra["w"] <= rb["x"] or rb["x"] + rb["w"] <= ra["x"] or ra["y"] + ra["h"] <= rb["y"] or rb["y"] + rb["h"] <= ra["y"])
+        if not apart:
+            raise Failure("the sent cutout lies over the other: %s %s" % (ra, rb))
+        app.frame(10)
+        app.screenshot(os.path.join(out, "34-wb-sent.png"))
+        app.until("the board is kept again", lambda: any(n.endswith(".azboard.zip") for n in os.listdir(saved)))
+
+        # 5. a press INSIDE a loop that is held takes it (no grip): the dab it began is no stroke, and it is carried to the panel
+        strip = app.rect(STRIP)
+        panel = settled(app, "__azreview_right-panel")
+        box = line_box(app, strip, 30, 32)
+        draw_loop(app, box)
+        app.until("the third loop is armed", lambda: len(board_of(app)["armed"]) == 1)
+        strokes = state(app)["strokes"]
+        ix, iy = box[0] + 24.0, box[1] + box[3] / 2.0
+        app.must("mouse_move", x=ix, y=iy)
+        app.must("mouse_down", x=ix, y=iy)
+        end = time.time() + 0.7
+        while time.time() < end:
+            app.frame(1)
+            time.sleep(0.05)
+        app.until("the held press is told", lambda: app.count("AZREVIEW_WB", r"held") > 0)
+        tx, ty = panel["x"] + panel["width"] / 2.0, panel["y"] + panel["height"] - 180.0
+        for i in range(1, 13):
+            app.must("mouse_move", x=ix + (tx - ix) * i / 12.0, y=iy + (ty - iy) * i / 12.0)
+            app.frame(1)
+        app.must("mouse_up", x=tx, y=ty)
+        app.until("the third cutout is on the board", lambda: len(board_of(app)["cutouts"]) == 3)
+        if state(app)["strokes"] != strokes:
+            raise Failure("the held press left a stroke behind: %d strokes, %d before it" % (state(app)["strokes"], strokes))
+        app.until("all the pictures are drawn", lambda: all(c["picture"] == "ready" for c in board_of(app)["cutouts"]))
+        app.frame(10)
+        app.screenshot(os.path.join(out, "34-wb-three-cutouts.png"))
+        settle_saves(app)
+        no_lint(app, "the whiteboard run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+
+    # 5. the next start: the board comes back, and a loop that is not taken is let go of when its time is up (3 s here)
+    # the settings the first run left (the panel open, the tip said) stay; only the time a loop waits is changed
+    settings_path = os.path.join(data_dir, "review", "settings.json")
+    left = json.loads(read_text(settings_path) or "{}")
+    if left.get("values", {}).get("whiteboard-tip-seen") != "1":
+        raise Failure("the first loop's tip was said and the setting did not remember it: %s" % left)
+    left.setdefault("values", {})["whiteboard-armed-seconds"] = "3"
+    with open(settings_path, "w", encoding="utf-8") as f:
+        json.dump(left, f)
+    app = e2e.App("review-wb2", binary, argv, args.debug_port + 12, logs, args.timeout)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        show_files(app)
+        pick(app, "src", "lib.rs")
+        app.until("lib.rs open", lambda: state(app)["tree"]["open"] == os.path.join("src", "lib.rs"))
+        app.until("the board is read", lambda: board_of(app)["started"])
+        if len(board_of(app)["cutouts"]) != 3:
+            raise Failure("the board did not come back: %s" % board_of(app)["cutouts"])
+        app.until("the pictures are back", lambda: all(c["picture"] == "ready" for c in board_of(app)["cutouts"]))
+        if not state(app)["right_open"]:
+            raise Failure("the panel was open when the window was closed and is not now")
+        app.frame(3)
+        app.screenshot(os.path.join(out, "34-wb-after-restart.png"))
+        strip = app.rect(STRIP)
+        draw_loop(app, line_box(app, strip, 30, 31))
+        app.until("a loop is armed", lambda: len(board_of(app)["armed"]) == 1)
+        if board_of(app)["armed_ms"] != 3000:
+            raise Failure("the setting did not make it 3 s: %s" % board_of(app)["armed_ms"])
+        lone = board_of(app)["armed"][0]["id"]
+        if app.shows("Tip: circle some code", every_dom=True):
+            raise Failure("the tip was said again at the next start")
+        app.until("its time is up and it is let go of", lambda: not board_of(app)["armed"])
+        app.until("its words are gone", lambda: not app.has_id("__azreview_wb-chip-%d" % lone, every_dom=True))
+        no_lint(app, "the whiteboard restart run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: the whiteboard: a loop is armed with its words and key, its grip carried to the panel is a cutout with its source and its picture, a double click goes back to the lines, the key sends one and opens the panel, the board comes back, a loop that is not taken is let go of")
+
+
 def restore(args, logs, out, binary):
     """A second AzReview on the folder and the data folder of the first: the saved session comes back
     when its file is opened (`AZREVIEW_LOADED 1 0`: the stroke), and a stroke drawn now is added to it -
@@ -1455,7 +1707,7 @@ def notes_in(path):
 
 def run_all(args, logs, out):
     binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
-    # AZREVIEW_E2E_ONLY=slash, progress, growth, ink, dictation, stream, mic (by hand: it opens the microphone) or conversations runs that step alone (the others each take minutes).
+    # AZREVIEW_E2E_ONLY=slash, progress, growth, ink, whiteboard, dictation, stream, mic (by hand: it opens the microphone) or conversations runs that step alone (the others each take minutes).
     only = os.environ.get("AZREVIEW_E2E_ONLY", "")
     if only == "slash":
         slash(args, logs, out, binary)
@@ -1468,6 +1720,9 @@ def run_all(args, logs, out):
         return True
     if only == "ink":
         ink_to_agent(args, logs, out, binary)
+        return True
+    if only == "whiteboard":
+        whiteboard(args, logs, out, binary)
         return True
     if only == "growth":
         page_growth(args, logs, out, binary)
@@ -1510,6 +1765,7 @@ def run_all(args, logs, out):
     conversations_return(args, logs, out, binary)
     page_growth(args, logs, out, binary)
     ink_to_agent(args, logs, out, binary)
+    whiteboard(args, logs, out, binary)
     restore(args, logs, out, binary)
     return True
 

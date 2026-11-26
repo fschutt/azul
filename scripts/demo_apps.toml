@@ -27,6 +27,17 @@
 
 schema = 1
 
+[android]
+# The SDK levels of every APK, as scripts/android/AndroidManifest.xml says them (`demo_apps.py check` fails when the two differ):
+# the lowest Android the apps run on (API 24, Android 7.0: the NDK camera and media stubs the engine links are API 24) and the
+# level they are built for and tested at (34, Android 14; platforms;android-34 and build-tools 34.0.0 on the runner).
+# Google requires apps that target 35 and later to support 16 KiB memory pages from 2027-02-01, and a device with 16 KiB pages
+# cannot load a library whose segments are 4 KiB aligned: the libraries are linked 16 KiB aligned already (the rustflags of the
+# Android targets in .cargo/config.toml) and scripts/android_elf_check.py fails a lib job or an app whose library is not, so
+# raising target_sdk to 35 is a change of the template and of the emulator image, not of the libraries.
+min_sdk = 24
+target_sdk = 34
+
 # ---------------------------------------------------------------------------------------------------
 # The libazul every app of a target links. One build per target and variant, uploaded once.
 # ---------------------------------------------------------------------------------------------------
@@ -143,11 +154,6 @@ permissions = [
 [app.smoke]
 expect = "Connect to AzReview"
 tap = "Try it without a Mac"
-# The crate is not mobile-ready on master yet (no cdylib for Android, no AzCompanion bin for iOS; the companion
-# agent lands it). The build is still tried, and a pass shows in the table; delete these two lines then.
-[app.known_failing]
-android = "the crate has no cdylib and no ctor entry point yet"
-ios = "the crate has no AzCompanion bin (main.rs) yet"
 [app.ios]
 # build-ios.sh writes NSLocalNetworkUsageDescription and NSBonjourServices = [_irohv1._udp] from this text
 local_network = "AzReview Companion finds AzReview on your Mac over your Wi-Fi to use your phone as its remote control."

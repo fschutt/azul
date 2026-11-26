@@ -339,20 +339,28 @@ pub mod ffi {
 }
 
 // A parsed font is shared between threads: `FontRef` counts its copies atomically and is
-// `Send + Sync`, but its mirror holds the same handle as raw pointers, and the codegen derives
-// no auto traits. An app parses a font once and lays text out with it on any thread
-// (`TextLayout::create` from a worker, a server's requests).
+// `Send + Sync`, but its mirror holds the same handle as raw pointers. An app parses a font once
+// and lays text out with it on any thread (`TextLayout::create` from a worker, a server's
+// requests). The mirror's `Send` and `Sync` are not written here: the codegen emits them for every
+// type the engine declares by hand (`custom_impls` of api.json, read by autofix from the
+// `unsafe impl`), so this stays as the check that the engine's own type is both.
 #[cfg(feature = "cabi_internal")]
 const _: () = {
     const fn shared_between_threads<T: Send + Sync>() {}
     shared_between_threads::<azul_css::props::basic::FontRef>();
 };
-// SAFETY: the same layout and the same handle as `azul_css::props::basic::FontRef` (the
-// C-ABI transmutes between the two), which is `Send + Sync` (asserted above).
-#[cfg(feature = "cabi_internal")]
-unsafe impl Send for dll::AzFontRef {}
-#[cfg(feature = "cabi_internal")]
-unsafe impl Sync for dll::AzFontRef {}
+
+// The mirrors the codegen emits (the internal ones and the dynamic ones) are thread-safe like the types
+// they mirror: an app moves a speech session to the thread of its microphone, a stream to the thread
+// that reads its events, a parsed font to a worker. This stops compiling when autofix or the codegen
+// stops carrying the engine's `unsafe impl Send` and `Sync` over to them.
+#[cfg(any(feature = "cabi_internal", feature = "cabi_external"))]
+const _: () = {
+    const fn shared_between_threads<T: Send + Sync>() {}
+    shared_between_threads::<dll::AzFontRef>();
+    shared_between_threads::<dll::AzSpeechSession>();
+    shared_between_threads::<dll::AzSpeechStream>();
+};
 
 // =============================================================================
 // External Bindings: extern "C" declarations for dynamic linking

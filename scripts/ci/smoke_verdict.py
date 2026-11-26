@@ -11,11 +11,14 @@ An app BOOTS when all of these hold, and the verdict says which one failed first
   5. no fatal line of the app in the log and no crash report (`--fatal`, empty when none),
   6. the button the manifest names (`--tap`: a JSON file {label, found, alive, fatal}) did not take the app down, and the text it
      expects on the first screen (`--expect-found`) is there when it names one.
+Informational only, never part of the verdict: the platform's own launch numbers of an Android app, `launch_ms` (the TotalTime
+`am start -W` printed, --start-log) and `displayed_ms` (the "Displayed <package>/<activity>: +1s234ms" line of the activity manager
+in the log, --logcat); the status table shows them next to the verdict.
 A screenshot that is "not black" is NOT in this list: the iOS home screen of 2026-11-26 passed that test while the app had died.
 
     smoke_verdict.py --out result.json --app <name> --id <package or bundle id> --alive 1 --alive-after 1 [--fatal "<line>"]
         [--rust-lines N] [--baseline b.png --after a.png] [--resumed yes|no] [--tap tap.json]
-        [--expect-text "<text>" --expect-found yes|no] [--extra '{"key": value}']
+        [--expect-text "<text>" --expect-found yes|no] [--start-log start.log] [--logcat logcat.txt] [--extra '{"key": value}']
 
 Writes result.json ({app, id, booted, alive, alive_after, differs_from_home, home_similarity, screen_nonblank, drawn_fraction,
 resumed, fatal, tap, expect, pass, reason, ...}) and exits 0 when the app booted, 1 when not.
@@ -24,12 +27,27 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import png_compare  # noqa: E402
 import png_nonblank  # noqa: E402
+
+
+def parse_total_time(text):
+    """The TotalTime (ms) of `am start -W`, or None."""
+    m = re.search(r"(?m)^TotalTime:\s*(\d+)", text or "")
+    return int(m.group(1)) if m else None
+
+
+def parse_displayed(text, package):
+    """The ms of the last "Displayed <package>/<activity>: +1s234ms" line of the activity manager for `package`, or None."""
+    found = None
+    for m in re.finditer(r"Displayed\s+" + re.escape(package) + r"/\S+:\s+\+(?:(\d+)s)?(\d+)ms", text or ""):
+        found = int(m.group(1) or 0) * 1000 + int(m.group(2))
+    return found
 
 
 def judge(facts):
@@ -74,6 +92,8 @@ def main(argv):
     ap.add_argument("--tap")
     ap.add_argument("--expect-text", default="")
     ap.add_argument("--expect-found", default="")
+    ap.add_argument("--start-log")
+    ap.add_argument("--logcat")
     ap.add_argument("--extra", default="{}")
     a = ap.parse_args(argv)
 
@@ -103,6 +123,11 @@ def main(argv):
         facts["tap"] = json.load(open(a.tap))
     if a.expect_text:
         facts["expect"] = {"text": a.expect_text, "found": a.expect_found == "yes"}
+    for key, path, parse in (("launch_ms", a.start_log, parse_total_time), ("displayed_ms", a.logcat, lambda t: parse_displayed(t, a.id))):
+        if path and os.path.exists(path):
+            value = parse(pathlib.Path(path).read_text(encoding="utf-8", errors="replace"))
+            if value is not None:
+                facts[key] = value
     facts.update(json.loads(a.extra))
     passed, reason = judge(facts)
     facts["pass"] = passed
