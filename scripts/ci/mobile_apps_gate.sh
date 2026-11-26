@@ -27,7 +27,7 @@ features="azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-se
 run css_language cargo test -p azul-css --lib system_language
 run core_callbacks cargo test -p azul-core --lib callbacks_test
 run layout_lib cargo test -p azul-layout --lib -- fluent widgets::button widgets::themes
-run layout_tests cargo test -p azul-layout --test all -- safe_area_inset azul_widgets_video azul_maps_sidebar a_button_is_a_touch azul_widgets_toolbar
+run layout_tests cargo test -p azul-layout --test all -- safe_area_inset azul_widgets_video azul_maps_sidebar azul_paint_toolbar a_button_is_a_touch azul_widgets_toolbar
 
 # 2. the engine through the headless shell: RED (the guard out), then GREEN
 file=dll/src/desktop/shell2/common/layout.rs
