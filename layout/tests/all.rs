@@ -176,6 +176,8 @@ mod azul_maps_sidebar_is_a_sheet_on_a_phone;
 mod azul_paint_toolbar_fits_a_phone;
 #[path = "azul_widgets_video_card_fits_a_phone.rs"]
 mod azul_widgets_video_card_fits_a_phone;
+#[path = "azul_writer_phone_bar_fits_a_phone.rs"]
+mod azul_writer_phone_bar_fits_a_phone;
 #[path = "block_edge_keys.rs"]
 mod block_edge_keys;
 #[path = "block_merge_filter.rs"]

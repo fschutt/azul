@@ -27,7 +27,7 @@ features="azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-se
 run css_language cargo test -p azul-css --lib system_language
 run core_callbacks cargo test -p azul-core --lib callbacks_test
 run layout_lib cargo test -p azul-layout --lib -- fluent widgets::button widgets::themes
-run layout_tests cargo test -p azul-layout --test all -- safe_area_inset azul_widgets_video azul_maps_sidebar azul_maps_drive azul_paint_toolbar a_button_is_a_touch azul_widgets_toolbar
+run layout_tests cargo test -p azul-layout --test all -- safe_area_inset azul_widgets_video azul_maps_sidebar azul_maps_drive azul_paint_toolbar azul_writer_phone a_button_is_a_touch azul_widgets_toolbar
 
 # 1b. RED of the layout tests of the phone work: with the themes of the engine and the files of the apps as they were on the
 #     base commit (MOBILE_APPS_BASE, a commit of master before the fixes) the tests that see the bugs must FAIL, each by name
@@ -39,7 +39,7 @@ red_layout() {
   git fetch -q --depth=1 origin "$base" || { echo "cannot fetch $base"; return 2; }
   local files=(layout/src/widgets/themes/decl.rs layout/src/widgets/themes/flat.rs layout/src/widgets/themes/flora.rs
                examples/azul-maps/src/lib.rs examples/azul-maps/src/drive_ui.rs examples/azul-widgets/src/video.rs
-               examples/azul-paint/src/lib.rs)
+               examples/azul-paint/src/lib.rs examples/azul-writer/src/ribbon.rs)
   local must_fail=(
     a_button_is_a_touch_target_on_a_phone::a_button_is_48_dp_in_each_direction_on_android_in_every_theme
     a_button_is_a_touch_target_on_a_phone::a_button_is_44_pt_in_each_direction_on_ios_in_every_theme
@@ -51,11 +51,13 @@ red_layout() {
     azul_maps_drive_banner_fits_a_phone::on_a_phone_the_banner_and_the_bar_are_the_screen_less_8_px_each_side_and_no_node_crosses_an_edge
     azul_maps_drive_banner_fits_a_phone::the_end_key_of_the_bar_is_on_the_screen_and_a_finger_wide
     azul_paint_toolbar_fits_a_phone::the_six_keys_fit_the_narrowest_phone_and_are_48_dp_each
+    azul_writer_phone_bar_fits_a_phone::the_bar_is_the_width_of_the_screen_and_every_key_is_48_dp
+    azul_writer_phone_bar_fits_a_phone::the_first_keys_are_on_the_screen_without_scrolling
   )
   git checkout -q "$base" -- "${files[@]}" || { echo "cannot take the previous files from $base"; return 2; }
   local out
   out="$(mktemp)"
-  cargo test -p azul-layout --test all -- a_button_is_a_touch azul_widgets_video azul_maps_sidebar azul_maps_drive azul_paint_toolbar > "$out" 2>&1
+  cargo test -p azul-layout --test all -- a_button_is_a_touch azul_widgets_video azul_maps_sidebar azul_maps_drive azul_paint_toolbar azul_writer_phone > "$out" 2>&1
   git checkout -q HEAD -- "${files[@]}"
   grep -E '^test .* \.\.\. (ok|FAILED)$' "$out" || true
   local missing=0 name

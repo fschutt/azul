@@ -232,6 +232,15 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_title_row(kit::title_row(&title))
                 .with_backstage(backstage::backstage(&app, st))
                 .dom(),
+            // A phone: the format bar, not the ribbon (its keys are not a finger's and its groups
+            // do not fit the screen). A narrow window of any machine has the same room.
+            Screen::Editor if width < ribbon::PHONE_WIDTH => {
+                DocumentShell::create(pages::document_area(&app, st, width))
+                    .office_shell()
+                    .with_ribbon(ribbon::phone_bar(&app, st))
+                    .with_status_bar(pages::status_bar(&app, st))
+                    .dom()
+            }
             // No title row: the ribbon's tabs are the title bar.
             Screen::Editor => DocumentShell::create(pages::document_area(&app, st, width))
                 .office_shell()
