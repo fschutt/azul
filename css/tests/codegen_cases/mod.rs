@@ -84,6 +84,8 @@ pub const FAMILIES: &str = r#"
     text-decoration: underline;
     text-decoration-color: #cc3300;
     text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+    text-underline-position: under left;
     -azul-hyphenation-language: en-US;
     -azul-exclusion-margin: 10.5;
     caret-color: #ff0000;
