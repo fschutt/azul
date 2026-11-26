@@ -500,9 +500,13 @@ that is going. `cargo run -p AzReview --example recorder_demo` is that window on
 `review/recordings` of the data folder; a cut-off one is put right at the start). `--record screen,camera,mic`
 says which of the three it takes, and `--auto SECONDS` makes it record without anyone pressing the button: the
 window starts a recording with the call the Start button makes, a timer stops it after SECONDS (2 to 600; a
-number outside is brought into the range with a note on stderr) and the window closes. For a script it prints
-`RECDEMO_STARTED <folder>` and `RECDEMO_STOPPED <folder>` (or `RECDEMO_FAILED <why>`). It is how the real devices
-are tried with no one at the keyboard: `recorder_demo --record camera,mic --auto 10`.
+number outside is brought into the range with a note on stderr) and the window closes. `--auto-delay-ms MS` (0 to
+60000) waits that long after the window is up before it starts, so that the program's own start (frameworks loading,
+the window activating) is over and the start of the devices is measured alone. For a script it prints
+`RECDEMO_STARTED <folder>`, `RECDEMO_TICKS count=<n> first_ms=<ms> max_gap_ms=<ms>` (how steadily the window's 100 ms
+timer ran: the first tick's distance from the start and the longest gap between two ticks, a window whose thread is
+busy for a while shows as a long gap) and `RECDEMO_STOPPED <folder>` (or `RECDEMO_FAILED <why>`). It is how the real
+devices are tried with no one at the keyboard: `recorder_demo --record camera,mic --auto 10 --auto-delay-ms 3000`.
 
 ## 9. What it costs
 
