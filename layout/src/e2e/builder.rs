@@ -56,20 +56,20 @@ use azul_core::{
 use azul_css::{css::Css, AzString};
 
 /// First line of a builder template in `ComponentDef::render_fn_source`.
-pub const TEMPLATE_MARKER: &str = "<!-- azul-builder-template -->";
+pub(super) const TEMPLATE_MARKER: &str = "<!-- azul-builder-template -->";
 
 /// The document root (`<body>`) always has this uid.
-pub const ROOT_UID: u64 = 0;
+pub(super) const ROOT_UID: u64 = 0;
 
 /// Every element the document mounts carries the marker class
 /// `azb-<uid>`: how a live node (a hit test, the Inspector) finds its
 /// document node. The builder's plumbing, never the user's markup.
-pub const MARKER_PREFIX: &str = "azb-";
+pub(super) const MARKER_PREFIX: &str = "azb-";
 
 /// The document uid a marker class `azb-<uid>` names; `None` for any other
 /// class (`azb-card` is an ordinary class).
 #[must_use]
-pub fn marker_uid(class: &str) -> Option<u64> {
+pub(super) fn marker_uid(class: &str) -> Option<u64> {
     let digits = class.strip_prefix(MARKER_PREFIX)?;
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -80,7 +80,7 @@ pub fn marker_uid(class: &str) -> Option<u64> {
 /// The document uid the live node `id` carries in its marker class, if it
 /// is a mounted document element.
 #[must_use]
-pub fn node_marker(sd: &StyledDom, id: NodeId) -> Option<u64> {
+pub(super) fn node_marker(sd: &StyledDom, id: NodeId) -> Option<u64> {
     sd.node_data
         .as_ref()
         .get(id.index())?
@@ -121,7 +121,7 @@ thread_local! {
 
 /// What a document node is.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BuilderNodeKind {
+pub(super) enum BuilderNodeKind {
     /// A plain element (`div`, `p`, … — every builtin component). The only
     /// kind that takes children.
     Element { tag: String },
@@ -134,7 +134,7 @@ pub enum BuilderNodeKind {
 
 /// One node of the builder document.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BuilderNode {
+pub(super) struct BuilderNode {
     /// Stable identity: survives moves, undo and redo. `0` is the root.
     pub uid: u64,
     pub kind: BuilderNodeKind,
@@ -189,7 +189,7 @@ impl BuilderNode {
 
     /// The node as the builder UI reads it.
     #[must_use]
-    pub fn to_json(&self) -> serde_json::Value {
+    pub(super) fn to_json(&self) -> serde_json::Value {
         let mut m = serde_json::Map::new();
         m.insert("uid".into(), serde_json::json!(self.uid));
         match &self.kind {
@@ -224,7 +224,7 @@ impl BuilderNode {
     /// Not an object, an unknown `kind`, an invalid tag / attribute /
     /// component name, children on a node that takes none, a nesting the
     /// HTML parser would undo, or a tree nested deeper than the cap.
-    pub fn from_json(v: &serde_json::Value) -> Result<Self, String> {
+    pub(super) fn from_json(v: &serde_json::Value) -> Result<Self, String> {
         Self::from_json_at(v, 0)
     }
 
@@ -343,7 +343,7 @@ impl BuilderNode {
 
 /// The tree the builder edits, with its undo history.
 #[derive(Debug, Clone)]
-pub struct BuilderDocument {
+pub(super) struct BuilderDocument {
     /// Always an element `body` with uid [`ROOT_UID`].
     pub root: BuilderNode,
     /// The document's own stylesheet (B5): mounted after the component CSS
@@ -365,7 +365,7 @@ struct Snapshot {
 
 /// The `format` of a saved builder document (`document.json`,
 /// `builder_save_document`).
-pub const DOCUMENT_FORMAT: &str = "azul-builder-document";
+pub(super) const DOCUMENT_FORMAT: &str = "azul-builder-document";
 
 /// Largest document stylesheet `builder_set_stylesheet` takes.
 const MAX_STYLESHEET: usize = 4 * 1024 * 1024;
@@ -379,7 +379,7 @@ impl Default for BuilderDocument {
 impl BuilderDocument {
     /// An empty `<body>`.
     #[must_use]
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             root: BuilderNode::element(ROOT_UID, "body"),
             stylesheet: String::new(),
@@ -396,7 +396,7 @@ impl BuilderDocument {
     /// import. Engine-internal subtrees (`__azul-*` classes: widget internals,
     /// the client-side titlebar) are left out.
     #[must_use]
-    pub fn from_styled_dom(live: Option<&StyledDom>) -> Self {
+    pub(super) fn from_styled_dom(live: Option<&StyledDom>) -> Self {
         let mut doc = Self::new();
         let Some(sd) = live else {
             return doc;
@@ -435,7 +435,7 @@ impl BuilderDocument {
     /// DFS order from the root (uid 0), like [`BuilderDocument::from_styled_dom`];
     /// the history starts empty (opening a file is not an edit).
     #[must_use]
-    pub fn from_root(root: BuilderNode) -> Self {
+    pub(super) fn from_root(root: BuilderNode) -> Self {
         let is_body = matches!(&root.kind, BuilderNodeKind::Element { tag } if tag == "body");
         let mut root = if is_body {
             root
@@ -466,7 +466,7 @@ impl BuilderDocument {
     /// `{format, version, root, stylesheet}`, the tree without the session's
     /// uids.
     #[must_use]
-    pub fn to_file_json(&self) -> serde_json::Value {
+    pub(super) fn to_file_json(&self) -> serde_json::Value {
         fn strip(v: &mut serde_json::Value) {
             if let serde_json::Value::Object(m) = v {
                 m.remove("uid");
@@ -494,7 +494,7 @@ impl BuilderDocument {
     /// # Errors
     /// Another `format`, a `stylesheet` that is not a string, or a tree
     /// [`BuilderNode::from_json`] refuses.
-    pub fn from_file_json(v: &serde_json::Value) -> Result<Self, String> {
+    pub(super) fn from_file_json(v: &serde_json::Value) -> Result<Self, String> {
         if let Some(f) = v.get("format").and_then(serde_json::Value::as_str) {
             if f != DOCUMENT_FORMAT {
                 return Err(format!("the format is {f:?}, not {DOCUMENT_FORMAT:?}"));
@@ -512,12 +512,12 @@ impl BuilderDocument {
     }
 
     #[must_use]
-    pub fn can_undo(&self) -> bool {
+    pub(super) fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
 
     #[must_use]
-    pub fn can_redo(&self) -> bool {
+    pub(super) fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }
 
@@ -558,7 +558,7 @@ impl BuilderDocument {
     ///
     /// # Errors
     /// There is nothing to undo.
-    pub fn undo(&mut self) -> Result<(), String> {
+    pub(super) fn undo(&mut self) -> Result<(), String> {
         let prev = self.undo.pop().ok_or("nothing to undo")?;
         let current = self.restore(prev);
         self.redo.push(current);
@@ -569,7 +569,7 @@ impl BuilderDocument {
     ///
     /// # Errors
     /// There is nothing to redo.
-    pub fn redo(&mut self) -> Result<(), String> {
+    pub(super) fn redo(&mut self) -> Result<(), String> {
         let next = self.redo.pop().ok_or("nothing to redo")?;
         let current = self.restore(next);
         self.undo.push(current);
@@ -581,7 +581,7 @@ impl BuilderDocument {
     ///
     /// # Errors
     /// A stylesheet larger than 4 MiB.
-    pub fn set_stylesheet(&mut self, css: &str) -> Result<(), String> {
+    pub(super) fn set_stylesheet(&mut self, css: &str) -> Result<(), String> {
         if css.len() > MAX_STYLESHEET {
             return Err(format!(
                 "the stylesheet is {} bytes; the limit is {MAX_STYLESHEET}",
@@ -638,7 +638,7 @@ impl BuilderDocument {
     ///
     /// # Errors
     /// No such node.
-    pub fn node(&self, uid: u64) -> Result<&BuilderNode, String> {
+    pub(super) fn node(&self, uid: u64) -> Result<&BuilderNode, String> {
         let path = self.path(uid)?;
         Ok(self.at(&path))
     }
@@ -648,7 +648,7 @@ impl BuilderDocument {
     ///
     /// # Errors
     /// Unknown parent, a parent that takes no children, or an index past the end.
-    pub fn insert(
+    pub(super) fn insert(
         &mut self,
         parent: u64,
         index: Option<usize>,
@@ -699,7 +699,7 @@ impl BuilderDocument {
     /// # Errors
     /// Moving the root, moving a node into itself or its own subtree, an
     /// unknown node, a parent that takes no children, an index past the end.
-    pub fn move_node(&mut self, uid: u64, parent: u64, index: Option<usize>) -> Result<(), String> {
+    pub(super) fn move_node(&mut self, uid: u64, parent: u64, index: Option<usize>) -> Result<(), String> {
         if uid == ROOT_UID {
             return Err("the document root cannot be moved".to_string());
         }
@@ -761,7 +761,7 @@ impl BuilderDocument {
     ///
     /// # Errors
     /// The root, or an unknown node.
-    pub fn delete(&mut self, uid: u64) -> Result<(), String> {
+    pub(super) fn delete(&mut self, uid: u64) -> Result<(), String> {
         if uid == ROOT_UID {
             return Err("the document root cannot be deleted".to_string());
         }
@@ -780,7 +780,7 @@ impl BuilderDocument {
     /// # Errors
     /// Unknown node, an invalid attribute name, or a non-`text` attribute on
     /// a text node.
-    pub fn set_attribute(
+    pub(super) fn set_attribute(
         &mut self,
         uid: u64,
         name: &str,
@@ -817,7 +817,7 @@ impl BuilderDocument {
     ///
     /// # Errors
     /// The root, or an unknown node.
-    pub fn duplicate(&mut self, uid: u64) -> Result<u64, String> {
+    pub(super) fn duplicate(&mut self, uid: u64) -> Result<u64, String> {
         if uid == ROOT_UID {
             return Err("the document root cannot be duplicated".to_string());
         }
@@ -847,7 +847,7 @@ impl BuilderDocument {
     ///
     /// # Errors
     /// None today; `Result` for [`BuilderSession::edit`].
-    pub fn replace_with(&mut self, loaded: BuilderDocument) -> Result<(), String> {
+    pub(super) fn replace_with(&mut self, loaded: BuilderDocument) -> Result<(), String> {
         let BuilderDocument {
             mut root,
             stylesheet,
@@ -868,7 +868,7 @@ impl BuilderDocument {
     ///
     /// # Errors
     /// The root, or an unknown node.
-    pub fn replace_with_instance(
+    pub(super) fn replace_with_instance(
         &mut self,
         uid: u64,
         library: &str,
@@ -892,7 +892,7 @@ impl BuilderDocument {
 
     /// The document as the builder UI reads it.
     #[must_use]
-    pub fn to_json(&self, active: bool) -> serde_json::Value {
+    pub(super) fn to_json(&self, active: bool) -> serde_json::Value {
         serde_json::json!({
             "active": active,
             "can_undo": self.can_undo(),
@@ -905,7 +905,7 @@ impl BuilderDocument {
     /// The whole document as the XML the window mounts, with every component
     /// instance expanded and every component's CSS in the `<style>`.
     #[must_use]
-    pub fn to_mount_xml(&self, map: &ComponentMap) -> String {
+    pub(super) fn to_mount_xml(&self, map: &ComponentMap) -> String {
         self.to_mount_xml_with(map, "")
     }
 
@@ -923,7 +923,7 @@ impl BuilderDocument {
     /// cascade ranks below the outer one (`collect_css_from_dom`), and a
     /// component's CSS would beat the document's on equal specificity.
     #[must_use]
-    pub fn to_mount_xml_with(&self, map: &ComponentMap, stylesheet: &str) -> String {
+    pub(super) fn to_mount_xml_with(&self, map: &ComponentMap, stylesheet: &str) -> String {
         let mut w = XmlWriter::new(map);
         let mut body = String::new();
         w.write_node(&mut body, &self.root, true, 0);
@@ -950,7 +950,7 @@ impl BuilderDocument {
 
 /// What a builder op asks the window to do after it answered.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Remount {
+pub(super) enum Remount {
     /// Nothing changed on screen.
     Keep,
     /// Mount this XML document.
@@ -961,7 +961,7 @@ pub enum Remount {
 
 /// A builder op's answer: the JSON for the UI and the remount for the window.
 #[derive(Debug, Clone)]
-pub struct BuilderReply {
+pub(super) struct BuilderReply {
     pub json: serde_json::Value,
     pub remount: Remount,
 }
@@ -980,7 +980,7 @@ struct Thumbnail {
 /// This window's builder state: the document once the builder has taken the
 /// window over, and the palette thumbnail cache.
 #[derive(Debug, Default)]
-pub struct BuilderSession {
+pub(super) struct BuilderSession {
     doc: Option<BuilderDocument>,
     thumbnails: BTreeMap<u64, Thumbnail>,
     /// The open project's stylesheets (`styles/**/*.css`, concatenated in
@@ -991,21 +991,21 @@ pub struct BuilderSession {
 impl BuilderSession {
     /// Whether the builder has taken over the window.
     #[must_use]
-    pub fn is_active(&self) -> bool {
+    pub(super) fn is_active(&self) -> bool {
         self.doc.is_some()
     }
 
     /// The project stylesheet (`styles/**.css`, B4) the document is mounted
     /// with — not the document's own ([`BuilderDocument::stylesheet`]).
     #[must_use]
-    pub fn project_stylesheet(&self) -> &str {
+    pub(super) fn project_stylesheet(&self) -> &str {
         &self.stylesheet
     }
 
     /// Replace the project stylesheet. Answers the remount that shows it:
     /// the document again if the builder has the window, else nothing (the
     /// next edit mounts it).
-    pub fn set_project_stylesheet(&mut self, map: &ComponentMap, css: String) -> Remount {
+    pub(super) fn set_project_stylesheet(&mut self, map: &ComponentMap, css: String) -> Remount {
         if self.stylesheet == css {
             return Remount::Keep;
         }
@@ -1019,7 +1019,7 @@ impl BuilderSession {
     /// Take the window over with a document read back from a file (a
     /// project's `document.json`): its history starts empty, the window
     /// shows it at once.
-    pub fn load_document(&mut self, map: &ComponentMap, doc: BuilderDocument) -> BuilderReply {
+    pub(super) fn load_document(&mut self, map: &ComponentMap, doc: BuilderDocument) -> BuilderReply {
         let reply = BuilderReply {
             json: doc.to_json(true),
             remount: Remount::Mount(doc.to_mount_xml_with(map, &self.stylesheet)),
@@ -1031,7 +1031,7 @@ impl BuilderSession {
     /// The document — or, before the first edit, what the first edit would
     /// start from (`active: false`, not stored).
     #[must_use]
-    pub fn document_json(&self, live: Option<&StyledDom>) -> serde_json::Value {
+    pub(super) fn document_json(&self, live: Option<&StyledDom>) -> serde_json::Value {
         match &self.doc {
             Some(d) => d.to_json(true),
             None => BuilderDocument::from_styled_dom(live).to_json(false),
@@ -1041,7 +1041,7 @@ impl BuilderSession {
     /// The mount XML for the current document, if the builder is active —
     /// for re-mounting after a component the document uses changed.
     #[must_use]
-    pub fn remount_xml(&self, map: &ComponentMap) -> Option<String> {
+    pub(super) fn remount_xml(&self, map: &ComponentMap) -> Option<String> {
         self.doc
             .as_ref()
             .map(|d| d.to_mount_xml_with(map, &self.stylesheet))
@@ -1050,7 +1050,7 @@ impl BuilderSession {
     /// The document the code export reads: the builder's, or — before the
     /// first edit — what the window shows (imported, not stored).
     #[must_use]
-    pub fn export_document(&self, live: Option<&StyledDom>) -> std::borrow::Cow<'_, BuilderDocument> {
+    pub(super) fn export_document(&self, live: Option<&StyledDom>) -> std::borrow::Cow<'_, BuilderDocument> {
         match &self.doc {
             Some(d) => std::borrow::Cow::Borrowed(d),
             None => std::borrow::Cow::Owned(BuilderDocument::from_styled_dom(live)),
@@ -1095,7 +1095,7 @@ impl BuilderSession {
     /// See [`BuilderDocument::insert`]; also an unknown component, an invalid
     /// tag or attribute name.
     #[allow(clippy::too_many_arguments)]
-    pub fn insert(
+    pub(super) fn insert(
         &mut self,
         live: Option<&StyledDom>,
         map: &ComponentMap,
@@ -1118,7 +1118,7 @@ impl BuilderSession {
     ///
     /// # Errors
     /// See [`BuilderDocument::move_node`].
-    pub fn move_node(
+    pub(super) fn move_node(
         &mut self,
         live: Option<&StyledDom>,
         map: &ComponentMap,
@@ -1135,7 +1135,7 @@ impl BuilderSession {
     ///
     /// # Errors
     /// See [`BuilderDocument::delete`].
-    pub fn delete(
+    pub(super) fn delete(
         &mut self,
         live: Option<&StyledDom>,
         map: &ComponentMap,
@@ -1148,7 +1148,7 @@ impl BuilderSession {
     ///
     /// # Errors
     /// See [`BuilderDocument::set_attribute`].
-    pub fn set_attribute(
+    pub(super) fn set_attribute(
         &mut self,
         live: Option<&StyledDom>,
         map: &ComponentMap,
@@ -1166,7 +1166,7 @@ impl BuilderSession {
     ///
     /// # Errors
     /// See [`BuilderDocument::set_stylesheet`].
-    pub fn set_document_stylesheet(
+    pub(super) fn set_document_stylesheet(
         &mut self,
         live: Option<&StyledDom>,
         map: &ComponentMap,
@@ -1180,7 +1180,7 @@ impl BuilderSession {
     ///
     /// # Errors
     /// See [`BuilderDocument::duplicate`].
-    pub fn duplicate(
+    pub(super) fn duplicate(
         &mut self,
         live: Option<&StyledDom>,
         map: &ComponentMap,
@@ -1197,7 +1197,7 @@ impl BuilderSession {
     ///
     /// # Errors
     /// See [`BuilderDocument::replace_with`].
-    pub fn replace_document(
+    pub(super) fn replace_document(
         &mut self,
         live: Option<&StyledDom>,
         map: &ComponentMap,
@@ -1210,7 +1210,7 @@ impl BuilderSession {
     ///
     /// # Errors
     /// Nothing to undo.
-    pub fn undo(&mut self, map: &ComponentMap) -> Result<BuilderReply, String> {
+    pub(super) fn undo(&mut self, map: &ComponentMap) -> Result<BuilderReply, String> {
         Ok(self.edit(None, map, BuilderDocument::undo)?.1)
     }
 
@@ -1218,12 +1218,12 @@ impl BuilderSession {
     ///
     /// # Errors
     /// Nothing to redo.
-    pub fn redo(&mut self, map: &ComponentMap) -> Result<BuilderReply, String> {
+    pub(super) fn redo(&mut self, map: &ComponentMap) -> Result<BuilderReply, String> {
         Ok(self.edit(None, map, BuilderDocument::redo)?.1)
     }
 
     /// `builder_reset`: drop the document and give the window back to the app.
-    pub fn reset(&mut self) -> BuilderReply {
+    pub(super) fn reset(&mut self) -> BuilderReply {
         let was_active = self.doc.take().is_some();
         BuilderReply {
             json: serde_json::json!({ "active": false, "was_active": was_active }),
@@ -1244,7 +1244,7 @@ impl BuilderSession {
     /// Invalid names, the root / a text node / an instance as the subtree, a
     /// library that is not modifiable, a component that already exists.
     #[allow(clippy::too_many_arguments)]
-    pub fn convert_to_component(
+    pub(super) fn convert_to_component(
         &mut self,
         live: Option<&StyledDom>,
         map: &mut ComponentMap,
@@ -1357,7 +1357,7 @@ impl BuilderSession {
     /// # Errors
     /// Unknown component, a failing `render_fn`, a failing render.
     #[allow(clippy::too_many_arguments)] // one per field of the op
-    pub fn thumbnail(
+    pub(super) fn thumbnail(
         &mut self,
         callback_info: &crate::callbacks::CallbackInfo,
         map: &ComponentMap,
@@ -1474,7 +1474,7 @@ fn thumbnail_json(
 ///
 /// # Errors
 /// A failing `render_fn`.
-pub fn preview_styled_dom(
+pub(super) fn preview_styled_dom(
     callback_info: &crate::callbacks::CallbackInfo,
     library: &str,
     def: &ComponentDef,
@@ -1813,7 +1813,7 @@ fn rendered_roots(sd: &StyledDom) -> Vec<BuilderNode> {
 /// uses (the code export takes that CSS; its markup is
 /// [`export_node_markup`]).
 #[must_use]
-pub fn export_node_xml(node: &BuilderNode, map: &ComponentMap) -> (String, String) {
+pub(super) fn export_node_xml(node: &BuilderNode, map: &ComponentMap) -> (String, String) {
     let mut w = XmlWriter::new(map);
     let mut out = String::new();
     w.write_node(&mut out, node, false, 0);
@@ -1825,7 +1825,7 @@ pub fn export_node_xml(node: &BuilderNode, map: &ComponentMap) -> (String, Strin
 /// `<library:name field="value" ..>` (the export calls each component's
 /// function instead of inlining it), no `azb-<uid>` markers.
 #[must_use]
-pub fn export_node_markup(node: &BuilderNode) -> String {
+pub(super) fn export_node_markup(node: &BuilderNode) -> String {
     let mut out = String::new();
     write_template(&mut out, node, None, "div");
     out
@@ -1973,7 +1973,7 @@ fn node_from_xml(child: &XmlNodeChild, depth: usize) -> Option<BuilderNode> {
 
 /// The template of a component made by the builder, if it is one.
 #[must_use]
-pub fn template_of(def: &ComponentDef) -> Option<&str> {
+pub(super) fn template_of(def: &ComponentDef) -> Option<&str> {
     let src = def.render_fn_source.as_ref()?;
     src.as_str()
         .trim_start()
@@ -1986,7 +1986,7 @@ pub fn template_of(def: &ComponentDef) -> Option<&str> {
 /// component CSS. Falls back to `user_defined_render_fn` for a component
 /// without a template, and renders a visible error instead of failing.
 #[must_use]
-pub fn builder_template_render_fn(
+pub(super) fn builder_template_render_fn(
     def: &ComponentDef,
     data: &ComponentDataModel,
     map: &ComponentMap,
@@ -2060,7 +2060,7 @@ fn template_to_dom(
 /// Replace `{name}` by `args[name]` (XML-escaped); `{{` / `}}` are literal
 /// braces; an unknown or malformed placeholder stays as written.
 #[must_use]
-pub fn substitute(template: &str, args: &BTreeMap<String, String>) -> String {
+pub(super) fn substitute(template: &str, args: &BTreeMap<String, String>) -> String {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
     while let Some(pos) = rest.find(|c: char| c == '{' || c == '}') {
@@ -2097,7 +2097,7 @@ pub fn substitute(template: &str, args: &BTreeMap<String, String>) -> String {
 
 /// A parameter inferred from a subtree.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InferredParam {
+pub(super) struct InferredParam {
     pub name: String,
     pub default: String,
     pub description: String,
@@ -2180,7 +2180,7 @@ impl Inference {
 /// parameters. Text params are `text`, `text_2`, …; attribute params are
 /// named after the attribute.
 #[must_use]
-pub fn infer_template(root: &BuilderNode) -> (String, Vec<InferredParam>) {
+pub(super) fn infer_template(root: &BuilderNode) -> (String, Vec<InferredParam>) {
     let mut inf = Inference::default();
     let mut out = String::new();
     write_template(&mut out, root, Some(&mut inf), "div");
@@ -2277,7 +2277,7 @@ fn write_template(
 
 /// A new user-defined component whose `render_fn` is the template.
 #[must_use]
-pub fn template_component_def(
+pub(super) fn template_component_def(
     library: &str,
     name: &str,
     display_name: &str,
@@ -2310,7 +2310,7 @@ pub fn template_component_def(
 /// export calls it through its render function
 /// (`ComponentCodegen::RenderFunction`), defined from this template (see
 /// `export::template_markup`).
-pub fn set_template(def: &mut ComponentDef, template: &str) {
+pub(super) fn set_template(def: &mut ComponentDef, template: &str) {
     def.render_fn = builder_template_render_fn;
     def.codegen = ComponentCodegen::RenderFunction;
     def.render_fn_source = Some(AzString::from(
@@ -2325,7 +2325,7 @@ pub fn set_template(def: &mut ComponentDef, template: &str) {
 ///
 /// # Errors
 /// A malformed or empty `render_tree`.
-pub fn install_inferred_template(
+pub(super) fn install_inferred_template(
     def: &mut ComponentDef,
     tree: &serde_json::Value,
 ) -> Result<(), String> {
@@ -2350,7 +2350,7 @@ pub fn install_inferred_template(
 ///
 /// # Errors
 /// A malformed `render_tree`.
-pub fn install_template(def: &mut ComponentDef, tree: &serde_json::Value) -> Result<(), String> {
+pub(super) fn install_template(def: &mut ComponentDef, tree: &serde_json::Value) -> Result<(), String> {
     let nodes = nodes_from_render_tree(tree)?;
     let mut template = String::new();
     for n in &nodes {
@@ -2365,7 +2365,7 @@ pub fn install_template(def: &mut ComponentDef, tree: &serde_json::Value) -> Res
 /// placeholders and all — so editing it and sending it back through
 /// `update_component {render_tree}` round-trips.
 #[must_use]
-pub fn template_render_tree_json(def: &ComponentDef) -> Option<serde_json::Value> {
+pub(super) fn template_render_tree_json(def: &ComponentDef) -> Option<serde_json::Value> {
     let template = template_of(def)?;
     let nodes = parse_fragment(template).ok()?;
     Some(serde_json::json!({
@@ -2415,7 +2415,7 @@ fn render_tree_node_json(node: &BuilderNode) -> serde_json::Value {
 ///
 /// # Errors
 /// Not an object / array, a node that is not an object, invalid names.
-pub fn nodes_from_render_tree(tree: &serde_json::Value) -> Result<Vec<BuilderNode>, String> {
+pub(super) fn nodes_from_render_tree(tree: &serde_json::Value) -> Result<Vec<BuilderNode>, String> {
     match tree {
         serde_json::Value::Array(items) => {
             items.iter().map(|v| node_from_render_json(v, 0)).collect()
@@ -2549,7 +2549,7 @@ fn element_from_render_json(
 ///
 /// # Errors
 /// The library is not modifiable, or already has a component of that name.
-pub fn add_component(
+pub(super) fn add_component(
     map: &mut ComponentMap,
     library: &str,
     def: ComponentDef,

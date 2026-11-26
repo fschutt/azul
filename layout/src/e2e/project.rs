@@ -44,9 +44,9 @@ use super::builder::{self, BuilderDocument, BuilderReply, BuilderSession, Remoun
 use crate::settings::PlatformEnv;
 
 /// The manifest file at the project root.
-pub const MANIFEST: &str = "azul-project.json";
+pub(super) const MANIFEST: &str = "azul-project.json";
 /// The builder document.
-pub const DOCUMENT: &str = "document.json";
+pub(super) const DOCUMENT: &str = "document.json";
 const COMPONENTS: &str = "components";
 const STYLES: &str = "styles";
 /// The folders a new project starts with.
@@ -72,7 +72,7 @@ const MAX_TREE_DEPTH: usize = 16;
 
 /// One `project_*` op, as `full.rs` hands it over.
 #[derive(Debug, Clone, Copy)]
-pub enum ProjectOp<'a> {
+pub(super) enum ProjectOp<'a> {
     Info,
     Open {
         path: &'a str,
@@ -115,7 +115,7 @@ pub enum ProjectOp<'a> {
 /// # Errors
 /// No project open (except `project_info` / `project_open`), a refused path,
 /// an I/O error, a malformed file or archive.
-pub fn handle(
+pub(super) fn handle(
     op: ProjectOp<'_>,
     project: &mut ProjectSession,
     builder: &mut BuilderSession,
@@ -213,7 +213,7 @@ pub fn handle(
 
 /// This window's open project (one per window, like the builder document).
 #[derive(Debug, Default)]
-pub struct ProjectSession {
+pub(super) struct ProjectSession {
     /// The CANONICAL root folder; every resolved path must stay under it.
     root: Option<PathBuf>,
 }

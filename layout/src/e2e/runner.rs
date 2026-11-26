@@ -4848,7 +4848,7 @@ pub fn run_e2e_test_with_settings(
 /// the same ops (`click`, `text_input`, ...) a JSON scenario uses — which is
 /// how the widgets (whose DOM no HTML `mount` can express: they carry
 /// datasets, callbacks and empty text nodes) get exercised end to end.
-pub fn run_e2e_test_with_dom(test: &E2eTest, initial_dom: Option<StyledDom>) -> E2eTestResult {
+pub(super) fn run_e2e_test_with_dom(test: &E2eTest, initial_dom: Option<StyledDom>) -> E2eTestResult {
     run_e2e_test_keeping_runner(test, initial_dom).0
 }
 
