@@ -422,3 +422,37 @@ fn a_unit_offset_inside_a_surrogate_pair_snaps_by_direction() {
     assert_eq!(snap_utf16_offset(MIXED, 3, true), 3, "already a boundary");
     assert_eq!(snap_utf16_offset(MIXED, 99, true), 6, "past the end is the end");
 }
+
+/// What the touch handler did before: any landing finger became primary when there was no primary.
+fn the_primary_before_the_fix(current: Option<u64>, began: &[u64]) -> Option<u64> {
+    if current.is_none() {
+        began.first().copied()
+    } else {
+        current
+    }
+}
+
+/// Two fingers down, the first (primary) lifts and the second stays; a third lands. The mouse
+/// must not jump to the third finger.
+#[test]
+fn a_finger_landing_while_another_is_still_down_is_never_primary() {
+    const B: u64 = 0xB;
+    const C: u64 = 0xC;
+    // The state after the primary lifted: no primary, one finger (B) still down; C lands.
+    assert_eq!(
+        the_primary_before_the_fix(None, &[C]),
+        Some(C),
+        "the old handler gave the mouse to the third finger (this is the bug)"
+    );
+    assert_eq!(primary_after_began(None, 1, &[C]), None, "the mouse stays where it was left");
+
+    // The first finger of a group is primary, and a later one never takes over.
+    assert_eq!(primary_after_began(None, 0, &[B]), Some(B));
+    assert_eq!(primary_after_began(Some(B), 1, &[C]), Some(B));
+    // Two fingers landing in one event: the first of them.
+    assert_eq!(primary_after_began(None, 0, &[B, C]), Some(B));
+    // Once every finger has lifted, the next one starts a new group.
+    assert_eq!(primary_after_began(None, 0, &[C]), Some(C));
+    // Nothing landed: nothing to decide.
+    assert_eq!(primary_after_began(None, 0, &[]), None);
+}

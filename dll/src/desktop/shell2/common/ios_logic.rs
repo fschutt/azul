@@ -267,6 +267,25 @@ pub fn uti_query_for_descriptor(descriptor: &str) -> Option<UtiQuery> {
     Some(UtiQuery::Identifier(identifier))
 }
 
+/// Which finger the emulated mouse follows after a `touchesBegan:`.
+///
+/// The W3C pointer rule the shell documents (U2-a-iii): the FIRST finger of a group is primary, no
+/// later finger inherits that, and the next primary is born only once EVERY finger has lifted.
+/// `current` is the primary now (if any), `fingers_before` how many fingers were already down
+/// before this event, `began` the identities that just landed.
+///
+/// The shell made the first landed finger primary whenever there was no primary - which is also
+/// the case after the primary lifted while another finger stayed down: a third finger landing then
+/// took the mouse and pressed the button (a phantom drag in the middle of a two-finger gesture).
+#[must_use]
+pub fn primary_after_began(current: Option<u64>, fingers_before: usize, began: &[u64]) -> Option<u64> {
+    match current {
+        Some(_) => current,
+        None if fingers_before == 0 => began.first().copied(),
+        None => None,
+    }
+}
+
 /// What the frame path owes after a pass of `process_window_events`, at the weight the pass
 /// classified it (`ProcessEventResult`'s own ladder, lightest first).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

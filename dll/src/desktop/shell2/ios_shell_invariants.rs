@@ -561,3 +561,15 @@ fn the_ios_shell_links_the_exported_constants_it_names() {
         at(&code, linked, "the extern blocks of the iOS shell");
     }
 }
+
+/// The first finger of a group is primary and the next primary is born only once every finger has
+/// lifted: the touch handler asks the pure rule instead of promoting any landing finger.
+#[test]
+fn the_touch_handler_asks_the_pure_rule_for_the_primary_finger() {
+    let touch = body(IOS_MOD_RS, "fn handle_touch(");
+    at(touch, "primary_after_began(", "handle_touch");
+    assert!(
+        !code_of(touch).contains("window.primary_touch_id = points.first()"),
+        "no landing finger is promoted without asking the rule"
+    );
+}

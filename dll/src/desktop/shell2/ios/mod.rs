@@ -611,8 +611,16 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
     // hit test use - is the primary's position when this phase carries it,
     // and nothing otherwise: other fingers' moves do not move the mouse.
     let position_of = |id: u64| points.iter().find(|p| p.id == id).map(|p| p.position);
-    if phase == 0 && window.primary_touch_id.is_none() {
-        window.primary_touch_id = points.first().map(|p| p.id);
+    if phase == 0 {
+        // `ios_logic::primary_after_began`: only the first finger of a group is primary (the
+        // fingers down BEFORE this event are the count the touch state still holds).
+        let fingers_before = window.common.touch_state_mut().num_touches;
+        let landed: Vec<u64> = points.iter().map(|p| p.id).collect();
+        window.primary_touch_id = crate::desktop::shell2::common::ios_logic::primary_after_began(
+            window.primary_touch_id,
+            fingers_before,
+            &landed,
+        );
     }
     let primary_in_set = window
         .primary_touch_id
