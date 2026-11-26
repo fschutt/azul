@@ -617,6 +617,7 @@ def device_is_software(device):
 
 
 GPU_FIRST_FRAME_SECONDS = 120
+IDLE_SECONDS = 4.0         # an idle window is watched this long for frames lines (a window that draws while nothing moves)
 SWIPE_SECONDS = 4.0        # the scripted swipe of the render-mode step: at least three full seconds of frames lines
 
 
@@ -1680,6 +1681,14 @@ class IOS:
         lines = self.process_console().splitlines()[before:]
         return summarize_frames(swipe_windows("\n".join(lines))), made, took
 
+    def idle_windows(self, seconds=4.0):
+        """Nothing touches the app for `seconds`: the engine's frames lines of full seconds written meanwhile. A window that is not
+        animating presents nothing, so there must be none: one is a window that draws continuously while it shows the same picture
+        (power). -> [the dicts of `engine_frames`]"""
+        before = len(self.process_console().splitlines())
+        time.sleep(seconds)
+        return swipe_windows("\n".join(self.process_console().splitlines()[before:]))
+
     def look(self, step, name, expect_changed_from=None, allow_launcher=False):
         sig, w, h, fname = self.capture(name)
         step.shots.append(fname)
@@ -1938,6 +1947,12 @@ def ios_scenarios(args):
                            f"each waits for a frame)" + ("" if frames else "; no frames line of a full second (fewer than 8 frames in a second)"))
                     if frames and frames.get("draw_median") is not None:
                         s.note(f"AZ_BACKEND={mode}: the draw alone takes median {frames['draw_median']:.1f} / p95 {frames['draw_p95']:.1f} ms")
+            if t is not None:
+                idle = dev.idle_windows(IDLE_SECONDS)
+                s.check(f"AZ_BACKEND={mode}: an idle window draws no frames ({IDLE_SECONDS:.0f} s with nothing touching it)", not idle,
+                        (f"{len(idle)} frames line(s) while idle, the last: n={idle[-1]['n']} median {idle[-1]['median']} ms: the window draws "
+                         "continuously while it shows the same picture") if idle else "no frames line",
+                        required=(mode == "gpu" and args.expect_gpu))
             rss = dev.rss_mb()
             if rss is not None:
                 run.meta[f"rss_mb_{mode}"] = round(rss)
