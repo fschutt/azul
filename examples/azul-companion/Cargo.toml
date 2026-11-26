@@ -1,0 +1,26 @@
+[package]
+name = "AzCompanion"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = """
+    AzCompanion - the AzReview phone companion: a remote control for the review on the Mac. The
+    phone is the touch surface of a desk with a pen tablet that has no touch: drag to pan, pinch to
+    zoom around the pen, the files of the workspace, four quick buttons with the user's recurring
+    instructions. One azul app for iOS, Android and a macOS simulator window (companion_sim); it
+    talks to AzReview over the local network (azul-review-link) and keeps nothing but its pairing.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# What the phone and AzReview say to each other: frames, pairing, the phone's client, the host.
+azul-review-link = { path = "../azul-review-link" }
+
+[lib]
+name = "azul_companion"
+path = "src/lib.rs"
+
+[[bin]]
+name = "companion_sim"
+path = "src/bin/companion_sim.rs"
