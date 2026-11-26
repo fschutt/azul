@@ -65,6 +65,14 @@ spans a chunk and a half). A crash costs at most one chunk, and the file is cut 
 is ordinary fragmented MP4 that ffmpeg and HandBrake read as it is, so combining it with the screen track
 is a cheap overlay and not a re-encode of the camera (section 10).
 
+**The video encoder is got ready at the start.** The first VideoToolbox session of a process is 0.3 to 0.4 s (the
+framework, the hardware encoder, the engine's own probe), and opened at the first picture of the camera it held the
+window's thread that long (a stack sample of the demo: 173 of 1536 samples of the main thread in
+`AzVideoEncoder::open`, timers and the pointer stood still). A recording that takes pictures now asks the factory to
+get ready when it starts (`CodecFactory::warm_up`, once for the recorder's life; the azul factory opens and drops a
+128 x 128 session on a thread of its own, `recorder_codec::in_background`), a second or more before the first picture
+comes. A voice-only recording and a refused start ask for nothing.
+
 **The camera's files carry the voice** (`recorder-camera-voice`, on by default): a camera file is one fragmented
 MP4 of two tracks, the picture (H.264, track 1) and a copy of the microphone's voice (Opus, track 2), so that
 the one file plays with its sound in any player and opens in HandBrake. Every fragment closes where the
@@ -503,9 +511,10 @@ window starts a recording with the call the Start button makes, a timer stops it
 number outside is brought into the range with a note on stderr) and the window closes. `--auto-delay-ms MS` (0 to
 60000) waits that long after the window is up before it starts, so that the program's own start (frameworks loading,
 the window activating) is over and the start of the devices is measured alone. For a script it prints
-`RECDEMO_STARTED <folder>`, `RECDEMO_TICKS count=<n> first_ms=<ms> max_gap_ms=<ms>` (how steadily the window's 100 ms
-timer ran: the first tick's distance from the start and the longest gap between two ticks, a window whose thread is
-busy for a while shows as a long gap) and `RECDEMO_STOPPED <folder>` (or `RECDEMO_FAILED <why>`). It is how the real
+`RECDEMO_STARTED <folder>`, `RECDEMO_TICKS count=<n> first_ms=<ms> max_gap_ms=<ms> max_work_ms=<ms>` (how steadily the
+window's 100 ms timer ran: the first tick's distance from the start, the longest gap between two ticks (a window whose
+thread is busy for a while shows as a long gap) and the longest time one tick spent in its own work: a long gap with a
+short work is a loop that did not run the tick, a long work is a call the tick made) and `RECDEMO_STOPPED <folder>` (or `RECDEMO_FAILED <why>`). It is how the real
 devices are tried with no one at the keyboard: `recorder_demo --record camera,mic --auto 10 --auto-delay-ms 3000`.
 
 ## 9. What it costs

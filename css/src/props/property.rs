@@ -12525,7 +12525,6 @@ mod font_variant_shorthand_tests {
                 "font-variant-caps: small-caps".to_string(),
                 "font-variant-ligatures: normal".to_string(),
                 "font-variant-east-asian: normal".to_string(),
-                "font-variant-position: normal".to_string(),
             ])
         );
         assert_eq!(
@@ -12535,7 +12534,6 @@ mod font_variant_shorthand_tests {
                 "font-variant-caps: small-caps".to_string(),
                 "font-variant-ligatures: normal".to_string(),
                 "font-variant-east-asian: normal".to_string(),
-                "font-variant-position: normal".to_string(),
             ]),
             "a longhand left out is reset, keywords ignore case"
         );
@@ -12546,7 +12544,6 @@ mod font_variant_shorthand_tests {
                 "font-variant-caps: normal".to_string(),
                 "font-variant-ligatures: normal".to_string(),
                 "font-variant-east-asian: normal".to_string(),
-                "font-variant-position: normal".to_string(),
             ])
         );
         assert_eq!(
@@ -12556,7 +12553,6 @@ mod font_variant_shorthand_tests {
                 "font-variant-caps: normal".to_string(),
                 "font-variant-ligatures: normal".to_string(),
                 "font-variant-east-asian: normal".to_string(),
-                "font-variant-position: normal".to_string(),
             ])
         );
         // `none` is the ligatures' `none`: the other longhands are `normal`.
@@ -12567,13 +12563,12 @@ mod font_variant_shorthand_tests {
                 "font-variant-caps: normal".to_string(),
                 "font-variant-ligatures: none".to_string(),
                 "font-variant-east-asian: normal".to_string(),
-                "font-variant-position: normal".to_string(),
             ])
         );
     }
 
     #[test]
-    fn font_variant_sets_ligatures_east_asian_and_position_and_takes_the_keywords_azul_has_not() {
+    fn font_variant_sets_ligatures_and_east_asian_and_takes_the_keywords_azul_has_not() {
         assert_eq!(
             expand("no-common-ligatures all-small-caps jis78 super styleset(ss01, ss02)"),
             Ok(vec![
@@ -12581,9 +12576,8 @@ mod font_variant_shorthand_tests {
                 "font-variant-caps: all-small-caps".to_string(),
                 "font-variant-ligatures: no-common-ligatures".to_string(),
                 "font-variant-east-asian: jis78".to_string(),
-                "font-variant-position: super".to_string(),
             ]),
-            "`super` is `font-variant-position`, `styleset()` belongs to a longhand azul has not: taken, sets nothing"
+            "`super` and `styleset()` belong to longhands azul has not: taken, set nothing"
         );
     }
 

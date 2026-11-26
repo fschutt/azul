@@ -426,6 +426,15 @@ crash-mail = ["telemetry", "dep:micromail"]
 # runtime — the system package manager owns those updates.
 updater = ["std", "http", "dep:serde_json", "dep:sha2", "dep:minisign-verify"]
 
+# A build that is delivered by a store that updates it (the App Store, Google Play; for a desktop
+# build the Mac App Store or the Microsoft Store): no code that downloads or installs a program is
+# compiled in, because the stores forbid an app to fetch code of its own (App Store Review
+# Guideline 2.5.2, Google Play's Device and Network Abuse policy). Always so on iOS and Android, by
+# target: there is nothing to switch on there. This feature is for a desktop store build and for the
+# test run of the store paths on a computer without a phone
+# (`cargo test -p azul-layout --lib --features updater,store_app -- updater::store_tests`).
+store_app = []
+
 # Sign-in sessions (OAuth 2.0 for native apps): PKCE's S256 challenge needs SHA-256 (sha2,
 # already in the tree through the updater and rustls-rustcrypto). See src/auth_session.rs.
 auth_session = ["std", "dep:sha2"]
@@ -608,7 +617,11 @@ path = "tests/virtualview_hit_matches_render.rs"
 # never shipped and never affect the published dependency graph, so this does
 # NOT rely on the optional `json` crate feature.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"], optional = true }
+# `gzip` and `brotli`: the request names both in `Accept-Encoding` and a body that arrives compressed is
+# decoded before the caller sees it; the size cap (`HttpRequestConfig::max_response_size`) counts the
+# DECODED bytes, so a decompression bomb is refused at the cap. flate2 (pure-Rust miniz_oxide) and
+# brotli-decompressor are in Cargo.lock already.
+ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots", "gzip", "brotli"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"], optional = true }
 rustls-rustcrypto = { package = "rustls-rustcrypto-azul", version = "0.1.0", optional = true }
 webpki-roots = { version = "1.0", optional = true }
@@ -618,6 +631,10 @@ webpki-roots = { version = "1.0", optional = true }
 minisign = "0.9"
 # The throwaway authorities and the TLS test server (azul-core's tls_testing), TESTS ONLY.
 azul-core = { version = "0.0.21", path = "../core", default-features = false, features = ["tls-testing"] }
+# Compressed HTTP bodies for the tests of the client's decoding (gzip, brotli, a decompression
+# bomb), TESTS ONLY. Both are in Cargo.lock already (zip, allsorts, the dll's web backend).
+flate2 = "1"
+brotli = "8"
 # The REAL accesskit consumer, TESTS ONLY: the a11y contract test feeds every
 # TreeUpdate the manager parks through the same crate whose invariant
 # `panic!`s abort a `panic = "abort"` release build.

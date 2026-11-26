@@ -1028,6 +1028,8 @@ mod azul_engine {
                 AzInstallKind::WindowsStore => InstallKind::WindowsStore,
                 AzInstallKind::UserWritable => InstallKind::UserWritable,
                 AzInstallKind::ReadOnly => InstallKind::ReadOnly,
+                // a store delivers the updates of such a program: nobody here may replace it
+                AzInstallKind::AppStore => InstallKind::ReadOnly,
             }
         }
 

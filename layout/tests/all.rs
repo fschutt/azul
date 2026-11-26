@@ -276,8 +276,6 @@ mod gpu_synchronize;
 mod h1_margin_em_resolution;
 #[path = "h1_p_margin_collapse.rs"]
 mod h1_p_margin_collapse;
-#[path = "hanging_punctuation_lets_a_mark_hang_outside_its_line.rs"]
-mod hanging_punctuation_lets_a_mark_hang_outside_its_line;
 #[path = "hover_manager.rs"]
 mod hover_manager;
 #[path = "initial_letter_makes_room_for_a_big_first_letter_in_the_first_lines.rs"]
