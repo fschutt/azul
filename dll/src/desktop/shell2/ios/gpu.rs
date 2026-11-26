@@ -503,10 +503,12 @@ impl IOSWindow {
         let (mut renderer, sender) = match created {
             Ok(Ok(made)) => made,
             Ok(Err(e)) => {
+                // the cause of a fallback line is one capped line; a driver's compile log is longer: all of it, once
+                log_warn!(LogCategory::Rendering, "[iOS GPU] create_webrender_instance failed: {:?}", e);
                 return Err(GpuFallback::new(
                     GpuStage::Renderer,
                     &format!("create_webrender_instance: {e:?}"),
-                ))
+                ));
             }
             Err(payload) => {
                 return Err(GpuFallback::new(
@@ -733,7 +735,8 @@ impl IOSWindow {
         let results = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| renderer.render(size, 0))) {
             Ok(Ok(results)) => results,
             Ok(Err(errors)) => {
-                return Err(GpuFallback::new(GpuStage::Frame, &format!("render: {errors:?}")))
+                log_warn!(LogCategory::Rendering, "[iOS GPU] render failed: {:?}", errors);
+                return Err(GpuFallback::new(GpuStage::Frame, &format!("render: {errors:?}")));
             }
             Err(payload) => {
                 return Err(GpuFallback::new(
