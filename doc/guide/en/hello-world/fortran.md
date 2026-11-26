@@ -91,7 +91,7 @@ next to your program.
 ```fortran
 module counter
   use azul, only: dom_t, button_t, layout_callback_info_t, callback_info_t, &
-                  dom_create_body, dom_create_p_with_text, &
+                  dom_create_body, dom_create_p_with_text, button_create, &
                   ButtonType_Primary, Update_DoNothing, Update_RefreshDom, &
                   AppLogLevel_Error
   implicit none
@@ -116,7 +116,7 @@ contains
       label = dom_create_p_with_text(trim(text))
       call label%with_css('font-size: 32px; margin: 0;')
 
-      button = button_t('Increase counter')
+      button = button_create('Increase counter')
       call button%with_button_type(ButtonType_Primary)
       call button%with_on_click(model, on_click)
 
@@ -246,16 +246,20 @@ accessor. Now:
 
 ### Class Constructors
 
-In modern Fortran, you can often use the type name as a constructor 
-(e.g., `button_t('Increase counter')` or `app_t(model, config)`). Under the hood, 
-this routes to the explicit constructor function (like `button_create(...)`). You 
-can use either spelling freely.
+In modern Fortran the type name can be the constructor: `app_t(model, config)` calls
+`app_create(model, config)` and `window_create_options_t(layout)` calls
+`window_create_options_create(layout)`. A type gets that spelling when the types of the
+arguments tell all of its constructors apart; the flat name works for every type either
+way.
 
-However, some types like `dom_t` have dozens of constructors with identical argument 
-signatures (e.g., `create_body()` and `create_div()` both take zero arguments). 
-Because Fortran cannot resolve overloaded interfaces with identical signatures, `dom_t` 
-does not have a generic constructor. For these types, you must call the explicit creation 
-functions by name, such as `dom_create_body()` or `dom_create_p_with_text(text)`.
+`button_t` does not get it. `button_create(label)`, `button_create_reset(label)` and
+`button_create_submit(label)` all take one string, Fortran resolves a generic by the type,
+kind and rank of the arguments alone, and a type name that quietly meant the first of
+them would hide which button you built. So you call the creation function by name:
+`button_create('Increase counter')`. Likewise `dom_t` has dozens of constructors with
+identical argument lists (`dom_create_body()` and `dom_create_div()` both take none), so
+you build a `dom_t` with `dom_create_body()` or `dom_create_p_with_text(text)`. A comment
+above each such type in `azul_api.f90` lists the constructors to use.
 
 ## Build and run
 

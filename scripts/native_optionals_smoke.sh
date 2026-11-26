@@ -293,7 +293,11 @@ smoke_c() {
 smoke_pascal() {
   local out="$WORK_DIR/pascal"; mkdir -p "$out"
   cp "$CODEGEN_DIR/azul.pas" "$SRC_DIR/pascal.pas" "$out/" || return 1
-  (cd "$out" && fpc -O1 -v0 -Fl"$LIB_DIR" -k-rpath -k"$LIB_DIR" -opascal_smoke pascal.pas >/dev/null) || return 1
+  # Linux: -Aas (azul.pas has more sections than fpc 3.2's ELF writer can number; see lang_pascal in
+  # e2e_language_matrix.sh).
+  local asflag=""
+  [ "$(uname -s)" = Linux ] && asflag="-Aas"
+  (cd "$out" && fpc -O1 -v0 $asflag -Fl"$LIB_DIR" -k-rpath -k"$LIB_DIR" -opascal_smoke pascal.pas >/dev/null) || return 1
   "$out/pascal_smoke"
 }
 
