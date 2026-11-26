@@ -28,6 +28,9 @@ use crate::{
 pub const MAX_SNAPSHOTS: usize = 200;
 /// The most items all the snapshots of a board hold together (a snapshot holds a copy of every item of the board).
 pub const MAX_HISTORY_ITEMS: usize = 20_000;
+/// The most text all the snapshots of a board are written as together, bytes: the board's file holds them in its manifest,
+/// and a manifest is read up to [`crate::whiteboard_json::MAX_TEXT`] (16 MiB), the rest of the board taking what is left.
+pub const MAX_HISTORY_BYTES: usize = 12 * 1024 * 1024;
 /// The longest a reason is, characters.
 pub const MAX_WHY_CHARS: usize = 20_000;
 /// The most tags a snapshot has, and the longest one, characters.
@@ -275,6 +278,9 @@ pub struct Snapshot {
     /// The snapshot as it was written, without its hash: made once and written again as it is, never made again from the
     /// model (what is derived - a link, a language - stays what it was when the snapshot was taken).
     pub value: Json,
+    /// The snapshot's object with its hash, written for a document as it lies in the list of snapshots (made once, so that a
+    /// save of a board that has a long history copies text and does not write it again); what the history's size is counted by.
+    pub text: String,
     /// `sha256:` and the hash of [`Self::value`] in RFC 8785's canonical form ([`crate::whiteboard_json::canonical`]); what
     /// was read for a snapshot read from a file.
     pub hash: String,
@@ -334,10 +340,23 @@ impl History {
         self.snapshots.iter().map(|s| s.data.items.len()).sum()
     }
 
-    /// Whether another snapshot of a board of `items` items fits.
+    /// How much text the snapshots are written as together, bytes.
+    #[must_use]
+    pub fn bytes(&self) -> usize {
+        self.snapshots.iter().map(|s| s.text.len()).sum()
+    }
+
+    /// Whether another snapshot of a board of `items` items fits (by their number; its text is counted when it is written,
+    /// [`Self::fits`]).
     #[must_use]
     pub fn has_room_for(&self, items: usize) -> bool {
         self.snapshots.len() < MAX_SNAPSHOTS && self.items_held() + items <= MAX_HISTORY_ITEMS
+    }
+
+    /// Whether `snapshots` more snapshots of `items` items in all and `bytes` bytes of text fit.
+    #[must_use]
+    pub fn fits(&self, snapshots: usize, items: usize, bytes: usize) -> bool {
+        self.snapshots.len() + snapshots <= MAX_SNAPSHOTS && self.items_held() + items <= MAX_HISTORY_ITEMS && self.bytes() + bytes <= MAX_HISTORY_BYTES
     }
 }
 

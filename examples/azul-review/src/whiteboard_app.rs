@@ -831,12 +831,49 @@ impl Whiteboard {
         (was != now).then_some((was, now))
     }
 
+    /// A snapshot of `data` made final (not in the history yet): `before` is what it is set against for its summary.
+    #[allow(clippy::too_many_arguments)]
+    fn build_snapshot(
+        &self,
+        id: String,
+        parent: Option<String>,
+        data: BoardData,
+        before: Option<&BoardData>,
+        references: Vec<RefChange>,
+        why: &str,
+        tags: &str,
+        now_ms: u64,
+    ) -> Snapshot {
+        let snapshot = Snapshot {
+            id,
+            parent,
+            taken_ms: now_ms,
+            author: self.author_name(),
+            code: self.repo.as_ref().map_or_else(Code::default, Code::of),
+            why: history::clean_why(why),
+            tags: history::parse_tags(tags),
+            summary: Summary { references, ..history::diff(before, &data) },
+            evidence: None,
+            data,
+            value: crate::whiteboard_json::Json::Null,
+            text: String::new(),
+            hash: String::new(),
+            verified: false,
+            pictures: std::collections::BTreeMap::new(),
+        };
+        azboard::seal(snapshot, self.settings.permalink_template.as_deref())
+    }
+
+    fn history_full() -> Notice {
+        Notice::HistoryFull { snapshots: history::MAX_SNAPSHOTS, items: history::MAX_HISTORY_ITEMS, megabytes: history::MAX_HISTORY_BYTES / (1024 * 1024) }
+    }
+
     /// The board as it is now becomes a snapshot of the history: why it is as it is (`why`), the tags typed for it (`tags`,
     /// split at commas). Its text is written once and hashed; the board is kept again by the next save.
     ///
     /// # Errors
     /// A board is being read or a picture drawn ([`Notice::BoardBusy`], [`Notice::PicturesPending`]: again in a moment), or
-    /// the history is full ([`Notice::HistoryFull`]).
+    /// the history is full ([`Notice::HistoryFull`]: as many snapshots, items or text as a board keeps).
     pub fn take_snapshot(&mut self, why: &str, tags: &str, now_ms: u64) -> Result<String, Notice> {
         if self.loading {
             return Err(Notice::BoardBusy);
@@ -847,25 +884,12 @@ impl Whiteboard {
         }
         let data = self.board.snapshot();
         if !self.history.has_room_for(data.items.len()) {
-            return Err(Notice::HistoryFull { snapshots: history::MAX_SNAPSHOTS, items: history::MAX_HISTORY_ITEMS });
+            return Err(Self::history_full());
         }
-        let snapshot = Snapshot {
-            id: self.history.next_id(),
-            parent: draft.parent,
-            taken_ms: now_ms,
-            author: self.author_name(),
-            code: draft.code,
-            why: history::clean_why(why),
-            tags: history::parse_tags(tags),
-            summary: Summary { references: draft.references, ..draft.summary },
-            evidence: None,
-            data,
-            value: crate::whiteboard_json::Json::Null,
-            hash: String::new(),
-            verified: false,
-            pictures: std::collections::BTreeMap::new(),
-        };
-        let sealed = azboard::seal(snapshot, self.settings.permalink_template.as_deref());
+        let sealed = self.build_snapshot(self.history.next_id(), draft.parent, data, self.history.latest().map(|s| &s.data), draft.references, why, tags, now_ms);
+        if !self.history.fits(1, sealed.data.items.len(), sealed.text.len()) {
+            return Err(Self::history_full());
+        }
         let id = sealed.id.clone();
         self.history.snapshots.push(sealed);
         self.history_revision += 1;
@@ -945,31 +969,49 @@ impl Whiteboard {
     /// items are the snapshot's.
     ///
     /// # Errors
-    /// There is no such snapshot, a board is being read, or the history has no room for the one or two snapshots
-    /// ([`Notice::HistoryFull`]); nothing is changed then.
+    /// There is no such snapshot, a board is being read or a picture drawn, or the history has no room for the one or two
+    /// snapshots ([`Notice::HistoryFull`]); nothing is changed then.
     pub fn restore_snapshot(&mut self, id: &str, why: &str, tags: &str, now_ms: u64) -> Result<String, Notice> {
         if self.loading {
             return Err(Notice::BoardBusy);
         }
         let target = self.history.get(id).ok_or(Notice::NoSuchSnapshot)?.data.clone();
+        let draft = self.snapshot_draft();
         let live = self.board.snapshot();
-        let unsaved_state = history::diff(self.history.latest().map(|s| &s.data), &live);
-        let rooms = if unsaved_state.is_empty() { 1 } else { 2 };
-        if self.history.snapshots.len() + rooms > history::MAX_SNAPSHOTS || self.history.items_held() + live.items.len() + target.items.len() > history::MAX_HISTORY_ITEMS {
-            return Err(Notice::HistoryFull { snapshots: history::MAX_SNAPSHOTS, items: history::MAX_HISTORY_ITEMS });
+        let latest = self.history.latest();
+        let unsaved = history::diff(latest.map(|s| &s.data), &live);
+        if !unsaved.is_empty() && draft.pending > 0 {
+            return Err(Notice::PicturesPending);
         }
-        if !unsaved_state.is_empty() {
-            let before = format!("The state of the board before it was restored to snapshot {id} (taken by itself).");
-            self.take_snapshot(&before, "", now_ms)?;
+        // Both snapshots are made before anything is changed: if the history cannot hold them, nothing happened.
+        let first = self.history.next_id();
+        let number: u64 = first.strip_prefix('s').and_then(|n| n.parse().ok()).unwrap_or(0);
+        let (mut parent, mut before) = (latest.map(|s| s.id.clone()), latest.map(|s| s.data.clone()));
+        let mut made: Vec<Snapshot> = Vec::new();
+        if !unsaved.is_empty() {
+            let reason = format!("The state of the board before it was restored to snapshot {id} (taken by itself).");
+            let s = self.build_snapshot(first, parent.clone(), live.clone(), before.as_ref(), draft.references.clone(), &reason, "", now_ms);
+            parent = Some(s.id.clone());
+            before = Some(s.data.clone());
+            made.push(s);
         }
         let mut data = target;
         data.next_id = data.next_id.max(live.next_id);
         data.view = live.view;
+        let restored_id = format!("s{}", number + u64::try_from(made.len()).unwrap_or(0));
+        let restored = self.build_snapshot(restored_id.clone(), parent, data.clone(), before.as_ref(), Vec::new(), why, tags, now_ms);
+        made.push(restored);
+        let (items, bytes) = (made.iter().map(|s| s.data.items.len()).sum(), made.iter().map(|s| s.text.len()).sum());
+        if !self.history.fits(made.len(), items, bytes) {
+            return Err(Self::history_full());
+        }
+        self.history.snapshots.extend(made);
+        self.history_revision += 1;
         let _notices = self.board.replace_with(data);
         self.board.mark_unsaved();
         self.viewing = None;
         self.relocated.clear();
-        self.take_snapshot(why, tags, now_ms)
+        Ok(restored_id)
     }
 
     // ---- the file

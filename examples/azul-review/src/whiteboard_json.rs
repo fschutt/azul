@@ -589,6 +589,16 @@ fn render(v: &Json, depth: usize, out: &mut String) {
     }
 }
 
+/// `v` written as [`pretty`] writes it when it lies `depth` levels down in a document: the lines after the first are indented for
+/// that depth, the first has no indentation and the text has no line feed at its end. A text made once can be put in a document
+/// without being written again.
+#[must_use]
+pub fn pretty_at(v: &Json, depth: usize) -> String {
+    let mut out = String::new();
+    render(v, depth, &mut out);
+    out
+}
+
 /// `v` as text a person can read and a diff can follow: two spaces for each level, a list or object of a few scalars
 /// on one line, a line feed at the end. What [`parse`] reads back to `v`.
 #[must_use]

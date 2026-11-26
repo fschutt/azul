@@ -688,6 +688,7 @@ fn snapshot(id: &str, parent: Option<&str>, data: BoardData, why: &str, before: 
         evidence: None,
         data,
         value: Json::Null,
+        text: String::new(),
         hash: String::new(),
         verified: false,
         pictures: BTreeMap::new(),
@@ -857,6 +858,7 @@ fn what_explains_a_snapshot_is_read_back_the_evidence_the_code_the_tags_and_the_
         evidence: Some(Evidence { session: "rec-42".to_string(), start_ms: 1_000, end_ms: 9_500, transcript: "we split the solver\nout of the window".to_string() }),
         data: first,
         value: Json::Null,
+        text: String::new(),
         hash: String::new(),
         verified: false,
         pictures: BTreeMap::new(),
@@ -937,5 +939,52 @@ fn what_looking_for_the_code_again_found_is_written_with_the_snapshot_and_read_b
     let loaded = read(bad.as_bytes(), &|_| None, &Codec, &LIMITS).expect("read");
     assert_eq!(loaded.history.snapshots[0].summary.references.len(), 1, "only the vanished one is left");
     assert!(!loaded.history.snapshots[0].verified, "and the text was changed after it was written");
+}
+
+/// A board of `n` cutouts each holding 200 lines of 300 characters (the most a cutout keeps).
+fn heavy_board(n: u64) -> BoardData {
+    let big = Source {
+        lines: (0..200).map(|i| format!("{i:04} {}", "x".repeat(290))).collect(),
+        ..source("src/big.rs", 1, 200, REV)
+    };
+    BoardData {
+        items: (1..=n).map(|i| cutout(i, i as f32 * 10.0, "", ImageSlot::Failed("none".to_string()), big.clone())).collect(),
+        view: View::default(),
+        next_id: n + 1,
+    }
+}
+
+#[test]
+fn a_document_with_a_history_is_written_exactly_as_it_would_be_written_in_one_piece() {
+    let (history, live) = history_of_two();
+    let w = document_with(&live, &meta(), &Pictures::Embedded, &history);
+    // The snapshots are put in as the text they were written as: the document is what writing the whole tree gives.
+    assert_eq!(crate::whiteboard_json::pretty(&parse(&w.text).expect("JSON")), w.text);
+    // And with none, or after a read, the same.
+    let none = document_with(&live, &meta(), &Pictures::Embedded, &History::default());
+    assert_eq!(crate::whiteboard_json::pretty(&parse(&none.text).expect("JSON")), none.text);
+    let loaded = read(w.text.as_bytes(), &|_| None, &Codec, &LIMITS).expect("read");
+    let again = document_with(&loaded.data, &loaded.meta, &Pictures::Embedded, &loaded.history);
+    assert_eq!(again.text.replace(&loaded.meta.modified_ms.to_string(), "T"), w.text.replace(&loaded.meta.modified_ms.to_string(), "T"));
+    assert_eq!(history.bytes(), history.snapshots.iter().map(|s| s.text.len()).sum::<usize>());
+    assert!(history.bytes() > 1_000 && w.text.len() > history.bytes());
+}
+
+#[test]
+fn a_history_that_is_more_text_than_the_boards_file_can_hold_is_cut_when_it_is_read() {
+    // Six snapshots of a board of 40 heavy cutouts: more than the 12 MiB a history may be written as.
+    let data = heavy_board(40);
+    let mut snapshots = Vec::new();
+    for n in 1..=6_u64 {
+        snapshots.push(snapshot(&format!("s{n}"), (n > 1).then(|| format!("s{}", n - 1)).as_deref(), data.clone(), "heavy", None, n));
+    }
+    let history = History { snapshots };
+    assert!(history.bytes() > history::MAX_HISTORY_BYTES, "{} bytes", history.bytes());
+    let w = document_with(&data, &meta(), &Pictures::Embedded, &history);
+    let loaded = read_capped(w.text.as_bytes(), &|_| None, &Codec, &LIMITS, 128 * 1024 * 1024).expect("read");
+    assert!(loaded.history.bytes() <= history::MAX_HISTORY_BYTES);
+    assert_eq!(loaded.history.snapshots.len() + loaded.snapshots_left_out, 6);
+    assert!(loaded.snapshots_left_out >= 1, "the last does not fit");
+    assert!(loaded.history.snapshots.iter().all(|s| s.verified), "what was read checks");
 }
 

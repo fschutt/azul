@@ -1017,3 +1017,44 @@ fn the_code_moved_on_is_told_when_the_revision_differs_from_the_last_snapshot_s(
     assert_eq!(wb.head_moved(), None, "no revision known: nothing to say");
 }
 
+#[test]
+fn the_history_is_full_at_the_most_text_too_so_that_the_boards_file_stays_one_that_can_be_read() {
+    let mut wb = Whiteboard::new("/work/azul");
+    // 40 cutouts, each with the most code a cutout keeps (200 lines of 300 characters): about 2.4 MB of text a snapshot.
+    for i in 0..40 {
+        let source = Source {
+            rev: String::new(),
+            sha256: String::new(),
+            file: format!("src/f{i}.rs"),
+            page: 0,
+            first_line: 1,
+            last_line: 200,
+            shape: Vec::new(),
+            file_hash: 1,
+            range_hash: 2,
+            lines: (0..200).map(|n| format!("{n:04} {}", "x".repeat(290))).collect(),
+        };
+        let image = Arc::new(CutoutImage { width: 2, height: 2, scale: 2.0, rgba: vec![255; 16], png: vec![1] });
+        wb.board.add_cutout(CutoutDraft::ready(Pt::new(i as f32 * 300.0, 0.0), image, source)).expect("room");
+    }
+    let mut taken = 0;
+    let err = loop {
+        match wb.take_snapshot("heavy", "", taken) {
+            Ok(_) => taken += 1,
+            Err(e) => break e,
+        }
+        assert!(taken < 20, "the text of the history was never counted");
+    };
+    assert!(matches!(err, Notice::HistoryFull { megabytes: 12, .. }), "{err:?}");
+    assert!(wb.history().bytes() <= crate::whiteboard_history::MAX_HISTORY_BYTES);
+    assert!((4..=6).contains(&taken), "{taken} snapshots of about 2.4 MB");
+    // The file that is written is one that can be read again.
+    let job = wb.save_job(99).expect("a save");
+    let manifest = job.entries.iter().find(|e| e.name == store::MANIFEST).expect("the manifest");
+    assert!(manifest.bytes.len() < crate::whiteboard_json::MAX_TEXT, "{} bytes", manifest.bytes.len());
+    // A restore that does not fit changes nothing.
+    let before = wb.board.len();
+    assert!(matches!(wb.restore_snapshot("s1", "no room", "", 100).err(), Some(Notice::HistoryFull { .. })));
+    assert_eq!((wb.board.len(), wb.history().snapshots.len()), (before, taken as usize));
+}
+

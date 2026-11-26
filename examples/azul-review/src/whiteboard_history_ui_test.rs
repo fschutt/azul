@@ -238,6 +238,7 @@ fn a_snapshot_that_does_not_check_says_so_in_the_list_and_in_the_banner() {
             evidence: None,
             data: crate::whiteboard::BoardData::default(),
             value: crate::whiteboard_json::Json::Null,
+            text: String::new(),
             hash: String::new(),
             verified: false,
             pictures: std::collections::BTreeMap::new(),

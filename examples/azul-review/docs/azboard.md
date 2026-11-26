@@ -144,4 +144,5 @@ A reader ignores a field it does not know and leaves out (and counts) an item of
 not followed: a path that leaves the folder (`..`, absolute, a backslash, a drive), a picture that is not a `data:` address
 or a plain file beside the document, a document or a picture larger than a board is, more than 5000 items, nesting deeper
 than 16 levels, numbers that are none or are out of range. AzReview keeps 500 items on a board, and a history of at most 200
-snapshots and 20,000 items in all of them.
+snapshots, 20,000 items and 12 MiB of text in all of them (a snapshot that would go beyond one of these is refused with a
+message; one that is read beyond them is left out and counted).

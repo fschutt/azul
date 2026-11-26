@@ -27,7 +27,7 @@ use crate::{
     whiteboard_git::{self as git, Host, RepoFacts},
     whiteboard_hash,
     whiteboard_history::{self as history, Brief, Changed, Code, Evidence, History, Moved, RefChange, Snapshot, Summary},
-    whiteboard_json::{canonical, from_f32, from_str, from_u64, object, pretty, Json},
+    whiteboard_json::{canonical, from_f32, from_str, from_u64, object, pretty, pretty_at, Json},
     whiteboard_relocate::RefStatus,
     whiteboard_store::{self as store, Budget, Entry, ImageCodec, Loaded},
 };
@@ -444,12 +444,13 @@ pub fn hash_of(value: &Json) -> String {
 }
 
 /// The snapshot made final: its text written (links made with `template`), hashed, and its pictures named. What `s` holds in
-/// `value`, `hash`, `verified` and `pictures` is replaced; nothing of it is changed afterwards.
+/// `value`, `hash`, `text`, `verified` and `pictures` is replaced; nothing of it is changed afterwards.
 #[must_use]
 pub fn seal(mut s: Snapshot, template: Option<&str>) -> Snapshot {
     let (value, pictures) = snapshot_value(&s, template);
     s.hash = hash_of(&value);
     s.value = value;
+    s.text = pretty_at(&snapshot_object(&s), 2);
     s.verified = true;
     s.pictures = pictures;
     s
@@ -515,8 +516,23 @@ pub fn document_with(data: &BoardData, meta: &Meta, pictures: &Pictures, history
     let n_assets = assets.len();
     root.push(("assets", Json::Obj(assets)));
     root.push(("items", Json::Arr(items)));
-    root.push(("snapshots", Json::Arr(history.snapshots.iter().map(snapshot_object).collect())));
-    Written { text: pretty(&object(root)), pictures: files, assets: n_assets }
+    // The snapshots are written already (each as text, once): the document is written with a mark where they go and they are put
+    // in as they are.
+    let mark = "__azboard_snapshots__";
+    root.push(("snapshots", Json::Arr(if history.snapshots.is_empty() { Vec::new() } else { vec![from_str(mark)] })));
+    let mut text = pretty(&object(root));
+    if !history.snapshots.is_empty() {
+        let mut list = String::with_capacity(history.bytes() + 16 * history.snapshots.len() + 8);
+        list.push_str("[\n");
+        for (i, s) in history.snapshots.iter().enumerate() {
+            list.push_str("    ");
+            list.push_str(&s.text);
+            list.push_str(if i + 1 < history.snapshots.len() { ",\n" } else { "\n" });
+        }
+        list.push_str("  ]");
+        text = text.replacen(&format!("[\"{mark}\"]"), &list, 1);
+    }
+    Written { text, pictures: files, assets: n_assets }
 }
 
 // ---- reading
@@ -797,7 +813,7 @@ impl Reader<'_> {
         let stored = j.get("hash").and_then(Json::as_str).filter(|h| whiteboard_hash::is_tagged(h)).unwrap_or_default().to_string();
         let verified = !stored.is_empty() && stored == hash_of(&value);
         let held = read.items.len();
-        let snapshot = Snapshot {
+        let mut snapshot = Snapshot {
             id,
             parent: str_of(j, "parent").filter(|p| board_id_ok(p)),
             taken_ms: ms_of(j, "taken_ms"),
@@ -809,10 +825,12 @@ impl Reader<'_> {
             evidence: evidence_of(j.get("evidence")),
             data: BoardData { items: read.items, view, next_id },
             value,
+            text: String::new(),
             hash: stored,
             verified,
             pictures,
         };
+        snapshot.text = pretty_at(&snapshot_object(&snapshot), 2);
         Some((snapshot, held))
     }
 }
@@ -959,7 +977,8 @@ pub fn read_root(root: &Json, picture: &dyn Fn(&str) -> Option<Vec<u8>>, codec: 
             break;
         }
         match reader.snapshot(j, held) {
-            Some((snapshot, items)) if history.get(&snapshot.id).is_none() => {
+            // (A history that is more text than the board's file can hold is cut here, as it would be when it was made.)
+            Some((snapshot, items)) if history.get(&snapshot.id).is_none() && history.bytes() + snapshot.text.len() <= history::MAX_HISTORY_BYTES => {
                 held += items;
                 history.snapshots.push(snapshot);
             }

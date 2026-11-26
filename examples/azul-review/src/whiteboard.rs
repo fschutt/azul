@@ -110,8 +110,9 @@ pub enum Notice {
     NoSuchBoard,
     /// The board that is open is not kept yet, or a board is being read: the whiteboard is not left until it is.
     BoardBusy,
-    /// A snapshot cannot be added: the board keeps `snapshots` of them, or `items` items in all of them, at most.
-    HistoryFull { snapshots: usize, items: usize },
+    /// A snapshot cannot be added: the board keeps `snapshots` of them, or `items` items, or `megabytes` MB of text in all of them,
+    /// at most.
+    HistoryFull { snapshots: usize, items: usize, megabytes: usize },
     NoSuchSnapshot,
     /// A snapshot waits until the pictures that are being drawn are.
     PicturesPending,
@@ -158,8 +159,8 @@ impl Notice {
             Self::BoardNameEmpty => "A whiteboard needs a name.".to_string(),
             Self::NoSuchBoard => "There is no such whiteboard in this folder.".to_string(),
             Self::BoardBusy => "The whiteboard is being kept or opened: one moment.".to_string(),
-            Self::HistoryFull { snapshots, items } => format!(
-                "The history of this whiteboard is full ({snapshots} snapshots, or {items} items in all of them, at most): it keeps what it has."
+            Self::HistoryFull { snapshots, items, megabytes } => format!(
+                "The history of this whiteboard is full ({snapshots} snapshots, or {items} items, or {megabytes} MB of text in all of them, at most): it keeps what it has."
             ),
             Self::NoSuchSnapshot => "There is no such snapshot on this whiteboard.".to_string(),
             Self::PicturesPending => "A picture is still being drawn: one moment, then take the snapshot.".to_string(),
@@ -207,7 +208,7 @@ impl Notice {
             }
             Self::NoSuchItem { id } => vec![("id", *id)],
             Self::BoardRepaired { dropped } => vec![("dropped", *dropped as u64)],
-            Self::HistoryFull { snapshots, items } => vec![("snapshots", *snapshots as u64), ("items", *items as u64)],
+            Self::HistoryFull { snapshots, items, megabytes } => vec![("snapshots", *snapshots as u64), ("items", *items as u64), ("megabytes", *megabytes as u64)],
             Self::PictureInvalid
             | Self::ArrowToItself
             | Self::ArrowNeedsACutout
