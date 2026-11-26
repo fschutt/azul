@@ -10,6 +10,7 @@ const IOS_TEXT_INPUT_RS: &str = include_str!("ios/text_input.rs");
 const IOS_CLIPBOARD_RS: &str = include_str!("ios/clipboard.rs");
 const IOS_WEBVIEW_RS: &str = include_str!("ios/webview.rs");
 const FILE_PICKER_RS: &str = include_str!("../extra/file_picker/ios.rs");
+const CAMERA_RS: &str = include_str!("../extra/camera/avfoundation.rs");
 const RUN_RS: &str = include_str!("run.rs");
 
 /// The body of the first fn declared by `decl`, from its opening brace to the matching closing one.
@@ -442,4 +443,26 @@ fn the_ios_text_input_converts_between_utf16_units_and_bytes_at_every_seam() {
 fn the_ios_frame_is_presented_in_the_srgb_colour_space() {
     let layer = body(IOS_MOD_RS, "extern \"C\" fn display_layer(");
     at(layer, "CGColorSpaceCreateWithName(kCGColorSpaceSRGB)", "display_layer");
+}
+
+/// A Rust `extern static` is a STRONG import: the Mach-O requires the symbol and dyld refuses to
+/// launch the whole app where it is missing - a null check on its value comes too late. The camera
+/// module named `AVCaptureDeviceTypeExternal` and `AVCaptureDeviceTypeContinuityCamera` (iOS 17.0)
+/// and `AVCaptureDeviceTypeExternalUnknown` (unavailable on iOS) as statics in an app whose
+/// `MinimumOSVersion` is 16.0. They are looked up by name at run time (`dlsym`); the build's
+/// `scripts/ci/ios_symbol_gate.py` fails on any other symbol newer than the target.
+#[test]
+fn the_camera_does_not_import_device_types_newer_than_the_deployment_target() {
+    let code = code_of(CAMERA_RS);
+    for newer in [
+        "AVCaptureDeviceTypeExternal",
+        "AVCaptureDeviceTypeExternalUnknown",
+        "AVCaptureDeviceTypeContinuityCamera",
+    ] {
+        assert!(
+            !code.contains(&format!("addr_of!({newer})")) && !code.contains(&format!("{newer},")),
+            "{newer} must not be an extern static: dlsym it"
+        );
+    }
+    at(&code, "dlsym(RTLD_DEFAULT", "the camera's device types");
 }
