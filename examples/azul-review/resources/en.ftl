@@ -94,7 +94,7 @@ azreview-conv-suggestions =
        *[other] { $n } suggestions wait
     }
 azreview-conv-done = Done
-azreview-conv-title = Conversation { $n } - { $where }
+azreview-conv-title = { $n }: { $where }
 azreview-conv-close = Close the conversation
 azreview-conv-reply-placeholder = Reply to the agent
 azreview-conv-reply-name = Reply to the agent
@@ -103,6 +103,25 @@ azreview-conv-resolve = Mark the conversation as done
 azreview-conv-send = Send to the agent
 azreview-conv-ask-again = Ask the agent again
 azreview-conv-heard-as = Heard as: { $words }
+azreview-sugg-insert =
+    { $n ->
+        [one] Insert one line after line { $line }
+       *[other] Insert { $n } lines after line { $line }
+    }
+azreview-sugg-replace = Replace { $old } with the words below (line { $line })
+azreview-sugg-remove = Remove { $old } (line { $line })
+azreview-sugg-accept = Take this suggestion
+azreview-sugg-reject = Refuse this suggestion
+azreview-sugg-undo = Decide again
+azreview-sugg-accept-all = Take all that wait
+azreview-sugg-reject-all = Refuse all that wait
+azreview-sugg-taken = Taken
+azreview-sugg-refused = Refused
+azreview-insert-rule =
+    { $n ->
+        [one] One line after line { $line }
+       *[other] { $n } lines after line { $line }
+    }
 azreview-conv-understood = Understood as: { $words }
 azreview-conv-earlier =
     { $n ->
@@ -225,6 +244,8 @@ azreview-page-skip = Skip to page { $n }
 azreview-reviewed-line = { $reviewed } of { $total } lines reviewed ({ $percent }%), { $seen } seen
 azreview-reviewed-counting = Still counting the workspace...
 azreview-shortcut-not-reviewed = Say the file is not reviewed, or is again (also a right click on it in the tree)
+azreview-shortcut-continue = Continue reviewing: back to where the jump to a conversation began
+azreview-back-label = Back to { $place }
 azreview-not-shown = { $file } is not shown: { $why }
 azreview-not-shown-binary = it is no text.
 azreview-not-shown-large = it is { $size }, over the { $limit } a page strip holds.

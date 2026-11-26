@@ -94,7 +94,7 @@ azreview-conv-suggestions =
        *[other] { $n } Vorschläge warten
     }
 azreview-conv-done = Erledigt
-azreview-conv-title = Gespräch { $n } - { $where }
+azreview-conv-title = { $n }: { $where }
 azreview-conv-close = Das Gespräch schließen
 azreview-conv-reply-placeholder = Dem Agenten antworten
 azreview-conv-reply-name = Antwort an den Agenten
@@ -103,6 +103,25 @@ azreview-conv-resolve = Das Gespräch als erledigt markieren
 azreview-conv-send = An den Agenten senden
 azreview-conv-ask-again = Den Agenten noch einmal fragen
 azreview-conv-heard-as = Verstanden als: { $words }
+azreview-sugg-insert =
+    { $n ->
+        [one] Eine Zeile nach Zeile { $line } einfügen
+       *[other] { $n } Zeilen nach Zeile { $line } einfügen
+    }
+azreview-sugg-replace = { $old } durch die Wörter darunter ersetzen (Zeile { $line })
+azreview-sugg-remove = { $old } entfernen (Zeile { $line })
+azreview-sugg-accept = Diesen Vorschlag übernehmen
+azreview-sugg-reject = Diesen Vorschlag ablehnen
+azreview-sugg-undo = Neu entscheiden
+azreview-sugg-accept-all = Alle offenen übernehmen
+azreview-sugg-reject-all = Alle offenen ablehnen
+azreview-sugg-taken = Übernommen
+azreview-sugg-refused = Abgelehnt
+azreview-insert-rule =
+    { $n ->
+        [one] Eine Zeile nach Zeile { $line }
+       *[other] { $n } Zeilen nach Zeile { $line }
+    }
 azreview-conv-understood = Verstanden (nach den Namen des Ordners) als: { $words }
 azreview-conv-earlier =
     { $n ->
@@ -225,6 +244,8 @@ azreview-page-skip = Weiter zu Seite { $n }
 azreview-reviewed-line = { $reviewed } von { $total } Zeilen geprüft ({ $percent } %), { $seen } gesehen
 azreview-reviewed-counting = Der Ordner wird noch gezählt ...
 azreview-shortcut-not-reviewed = Die Datei als nicht geprüft markieren oder wieder als geprüft (auch ein Rechtsklick im Baum)
+azreview-shortcut-continue = Weiter prüfen: zurück dorthin, wo der Sprung zu einem Gespräch begann
+azreview-back-label = Zurück zu { $place }
 azreview-not-shown = { $file } wird nicht angezeigt: { $why }
 azreview-not-shown-binary = Es ist kein Text.
 azreview-not-shown-large = Es hat { $size }, mehr als die { $limit }, die ein Seitenstreifen aufnimmt.

@@ -1087,6 +1087,11 @@ fn bottom_bar(s: &AppState, data: &RefAny) -> Dom {
         )
         .as_str(),
     );
+    // Continue reviewing: back to where the jump to a conversation began (the first jump only), shown while there is such
+    // a place.
+    if let Some(back) = s.progress.back() {
+        bar.add_child(back_key(back, data));
+    }
     let chips = s.open_chips();
     if chips.is_empty() {
         bar.add_child(Dom::create_span_with_text(label("azreview-agents-none")));
@@ -1156,6 +1161,23 @@ pub(crate) fn state_mark_on(state: crate::chips::State, size: isize, on_accent: 
             .as_str(),
         ),
     }
+}
+
+/// "Back to <place>": the key that continues the review where the jump to a conversation began.
+fn back_key(back: &crate::progress::Back, data: &RefAny) -> Dom {
+    let name = AzString::from(t_args("azreview-back-label", &[("place", Arg::from(back.words()))]).as_str());
+    with_tip(
+        key(
+            "padding: 0px 10px; gap: 6px; background: system:accent; border: 1px solid system:accent; color: system:accent-text;",
+            name.clone(),
+            data.clone(),
+            crate::on_back,
+        ),
+        &name,
+    )
+    .with_id(ids::BACK)
+    .with_child(Dom::create_icon("undo").with_css("font-size: 14px;"))
+    .with_child(Dom::create_span_with_text(name.as_str()).with_css("overflow: hidden; white-space: nowrap;"))
 }
 
 /// The key that stands for the finished conversations that are folded away: "N done"; it shows them all.
@@ -1444,6 +1466,7 @@ extern "C" fn sheets_virtual_view(
         let total = file.page_count().max(1);
 
         let viewport_w = info.bounds.get_logical_size().width;
+        let viewport_h = info.bounds.get_logical_size().height;
         let leftmost = page_at(info.scroll_offset.x, total);
         let first_visible = (info.scroll_offset.x.max(0.0) / stride) as usize;
         let first = first_visible.saturating_sub(1);
@@ -1455,7 +1478,7 @@ extern "C" fn sheets_virtual_view(
         for page in first..first + count {
             // how far across this page the window shows: the open conversation keeps inside it
             let visible_right = info.scroll_offset.x.max(0.0) + viewport_w - page as f32 * stride;
-            row.add_child(page_sheet(&cb_app, file, page, &s, &s.hidden_ranges(page), visible_right));
+            row.add_child(page_sheet(&cb_app, file, page, &s, &s.hidden_ranges(page), visible_right, viewport_h));
         }
         (row, first, count, total, leftmost)
     };
@@ -1484,6 +1507,7 @@ fn page_sheet(
     s: &AppState,
     hidden: &[Vec<(usize, usize)>],
     visible_right: f32,
+    visible_bottom: f32,
 ) -> Dom {
     let (notes, listening) = (&s.notes[..], s.voice.ready_note());
     let (first_line, lines) = file.page(page);
@@ -1516,7 +1540,14 @@ fn page_sheet(
         ),
     );
 
-    sheet.add_child(page_code_column_hidden(first_line, &lines, hidden));
+    // What the agents' suggestions do to the page's lines (none where nobody suggested anything).
+    if s.notes.iter().any(|n| !n.talk.proposals.is_empty()) {
+        let marks = crate::page_marks::marks_of(&s.notes, first_line, &lines);
+        let inserts = crate::page_marks::inserts_of(&s.notes, first_line, lines.len());
+        sheet.add_child(page_code_column_marked(first_line, &lines, hidden, &marks, &inserts));
+    } else {
+        sheet.add_child(page_code_column_hidden(first_line, &lines, hidden));
+    }
     // The markers of the dictated notes: over the code, under the pen layer (they take no stroke).
     for marker in column::markers(notes, page, listening) {
         sheet.add_child(marker);
@@ -1524,10 +1555,10 @@ fn page_sheet(
     sheet.add_child(ink_layer(data, page, Layer::Pen));
     // The conversations of the page: a chip for each in the margin, and the open one over it (above the pen's layer, which
     // they take no stroke and no rest from).
-    if let Some(margin) = crate::conv_ui::margin(s, data, page) {
+    if let Some(margin) = crate::conv_ui::margin(s, data, page, visible_bottom) {
         sheet.add_child(margin);
     }
-    if let Some(open) = crate::conv_ui::popover(s, data, page, visible_right) {
+    if let Some(open) = crate::conv_ui::popover(s, data, page, visible_right, visible_bottom) {
         sheet.add_child(open);
     }
     sheet
@@ -1546,6 +1577,21 @@ pub fn page_code_column(first_line: usize, lines: &[String]) -> Dom {
 /// its own width), so nothing reflows and no page break moves.
 #[must_use]
 pub fn page_code_column_hidden(first_line: usize, lines: &[String], hidden: &[Vec<(usize, usize)>]) -> Dom {
+    page_code_column_marked(first_line, lines, hidden, &[], &[])
+}
+
+/// [`page_code_column_hidden`] with what the suggestions of the agents do to the lines (`marks`, one for each line: words
+/// struck, taken or added) and a rule where lines would be inserted (`inserts`): the page's code as the reviewer reads it.
+/// The rows, their heights and the places of the words that are in the file stay what they were: nothing reflows.
+#[must_use]
+pub fn page_code_column_marked(
+    first_line: usize,
+    lines: &[String],
+    hidden: &[Vec<(usize, usize)>],
+    marks: &[crate::page_marks::LineMarks],
+    inserts: &[crate::page_marks::Insert],
+) -> Dom {
+    let no_marks = crate::page_marks::LineMarks::default();
     let mut col = Dom::create_div().with_css(
         format!(
             "position: relative; display: flex; flex-direction: column; width: {}px; overflow: \
@@ -1556,21 +1602,64 @@ pub fn page_code_column_hidden(first_line: usize, lines: &[String], hidden: &[Ve
     );
     for (i, line) in lines.iter().enumerate() {
         let ranges = hidden.get(i).map_or(&[][..], Vec::as_slice);
-        col.add_child(code_row(first_line + i, line.as_str(), ranges));
+        col.add_child(code_row(first_line + i, line.as_str(), ranges, marks.get(i).unwrap_or(&no_marks)));
+    }
+    // Where an agent would put lines: a rule under the line they follow (a yellow one while it waits, green once taken)
+    // with how many lines, over the rows and never between them.
+    for insert in inserts {
+        let rows_above = if insert.after_line == 0 { 0 } else { insert.after_line + 1 - first_line };
+        col.add_child(insert_rule(insert, rows_above));
     }
     col
 }
 
-/// How a piece of a line is drawn: the ink of the code, or the colour of the page where a slash took it.
-fn piece_css(hidden: bool) -> String {
-    let color = if hidden { PAGE_BG } else { "#1f1f1f" };
-    format!("font-family: monospace; font-size: 11px; color: {color}; white-space: pre;")
+/// The rule that says where lines would be inserted: `rows_above` rows of the page are above it.
+fn insert_rule(insert: &crate::page_marks::Insert, rows_above: usize) -> Dom {
+    let (line, label) = if insert.accepted { ("#2fa84f", "#bfe9c8") } else { ("#e5a800", "#ffe58a") };
+    let words = t_args(
+        "azreview-insert-rule",
+        &[("n", Arg::from(insert.rows.len())), ("line", Arg::from(insert.after_line))],
+    );
+    Dom::create_div()
+        .with_id(format!("__azreview_insert-{}-{}", insert.conversation, insert.after_line).as_str())
+        .with_css(
+            format!(
+                "position: absolute; left: 0px; top: {}px; width: {}px; height: 2px; background: {line};",
+                (rows_above as f32 * LINE_H) as isize - 1,
+                CODE_W as isize
+            )
+            .as_str(),
+        )
+        .with_child(
+            Dom::create_span_with_text(words.as_str()).with_css(
+                format!(
+                    "position: absolute; right: 0px; top: -7px; padding: 0px 6px; font-size: 9px; line-height: 13px; \
+                     background: {label}; color: #1f1f1f; border-radius: 3px;"
+                )
+                .as_str(),
+            ),
+        )
+}
+
+/// How a piece of a line is drawn: the ink of the code; the colour of the page where a slash or an accepted suggestion took
+/// it; grey and struck where a suggestion that waits would take it; yellow or green where new words would go or went.
+fn piece_css(look: crate::page_marks::Look) -> String {
+    use crate::page_marks::Look;
+    let face = match look {
+        Look::Plain => "color: #1f1f1f;".to_string(),
+        Look::Hidden => format!("color: {PAGE_BG};"),
+        Look::Struck => "color: #9a958c; text-decoration: line-through;".to_string(),
+        Look::Yellow => "color: #1f1f1f; background: #ffe58a;".to_string(),
+        Look::Green => "color: #14532d; background: #bfe9c8;".to_string(),
+    };
+    format!("font-family: monospace; font-size: 11px; {face} white-space: pre;")
 }
 
 /// One line of code: its number in the gutter, then the line (cut where words are hidden). The row and the line's
 /// text have ids for the scripts that measure them (`__azreview_line-<n>`, `__azreview_line-<n>-text`), a hidden piece
 /// one of its own (`__azreview_hidden-<n>-<byte>`).
-fn code_row(number: usize, line: &str, hidden: &[(usize, usize)]) -> Dom {
+fn code_row(number: usize, line: &str, hidden: &[(usize, usize)], marks: &crate::page_marks::LineMarks) -> Dom {
+    use crate::page_marks::Look;
     // What is past the right edge of the page is not seen: it is not shaped (a line of a minified bundle is a million
     // characters, and shaping it for a page that shows a hundred and ten takes seconds).
     let line = clip_line(line);
@@ -1588,21 +1677,27 @@ fn code_row(number: usize, line: &str, hidden: &[(usize, usize)]) -> Dom {
         ),
     );
     let text_id = format!("__azreview_line-{number}-text");
-    if hidden.is_empty() {
+    if hidden.is_empty() && *marks == crate::page_marks::LineMarks::default() {
         row.add_child(
             Dom::create_span_with_text(line)
                 .with_id(text_id.as_str())
-                .with_css(piece_css(false).as_str()),
+                .with_css(piece_css(Look::Plain).as_str()),
         );
     } else {
         let mut pieces = Dom::create_div()
             .with_id(text_id.as_str())
             .with_css("display: flex; flex-direction: row; flex-shrink: 0;");
-        for piece in crate::deletion::segments(line, hidden) {
-            let mut span = Dom::create_span_with_text(&line[piece.start..piece.end])
-                .with_css(piece_css(piece.hidden).as_str());
-            if piece.hidden {
-                span = span.with_id(format!("__azreview_hidden-{number}-{}", piece.start).as_str());
+        let mut added = 0;
+        for piece in crate::page_marks::pieces(line, hidden, marks) {
+            let mut span = Dom::create_span_with_text(piece.text.as_str()).with_css(piece_css(piece.look).as_str());
+            match (piece.look, piece.from) {
+                (Look::Hidden, Some(from)) => span = span.with_id(format!("__azreview_hidden-{number}-{from}").as_str()),
+                (Look::Struck, Some(from)) => span = span.with_id(format!("__azreview_struck-{number}-{from}").as_str()),
+                (Look::Yellow | Look::Green, _) => {
+                    span = span.with_id(format!("__azreview_added-{number}-{added}").as_str());
+                    added += 1;
+                }
+                _ => {}
             }
             pieces.add_child(span);
         }
@@ -1728,7 +1823,7 @@ mod tests {
     /// quiet).
     #[test]
     fn a_code_line_and_its_number_are_text_spans() {
-        let row = code_row(7, "fn main() {}", &[]);
+        let row = code_row(7, "fn main() {}", &[], &crate::page_marks::LineMarks::default());
         let kinds: Vec<bool> = row
             .children
             .as_slice()

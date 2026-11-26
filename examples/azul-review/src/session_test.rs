@@ -365,7 +365,10 @@ fn the_conversation_of_a_note_travels_with_it() {
     n.talk.turns.push(Turn { who: Who::Reviewer, text: "and the second?".to_string(), at_unix_ms: 1_700_000_009_000 });
     n.talk.heard_as = Some("this loop is off by one".to_string());
     n.talk.phase = Phase::Suggested;
-    n.talk.pending = 2;
+    n.talk.proposals = vec![
+        crate::conversation::Proposal { suggestion: crate::agent_review::Suggestion::InsertLines { after_line: 1, lines: vec!["a".to_string()] }, decision: crate::conversation::Decision::Waiting },
+        crate::conversation::Proposal { suggestion: crate::agent_review::Suggestion::InsertLines { after_line: 2, lines: vec!["b".to_string()] }, decision: crate::conversation::Decision::Waiting },
+    ];
     n.talk.asked = 1;
     s.notes.push(n.clone());
     let (_, bytes) = archive(&s);
@@ -373,7 +376,7 @@ fn the_conversation_of_a_note_travels_with_it() {
     assert_eq!(back.notes.len(), 1);
     let got = &back.notes[0].talk;
     assert_eq!(got.phase, Phase::Suggested);
-    assert_eq!((got.pending, got.asked), (2, 1));
+    assert_eq!((got.pending(), got.asked), (2, 1));
     assert_eq!(got.turns, n.talk.turns, "the words, their speakers and their moments");
     assert_eq!(got.heard_as.as_deref(), Some("this loop is off by one"));
     assert_eq!(got.said.len(), 1);
@@ -388,7 +391,7 @@ fn a_note_nobody_talked_to_writes_no_conversation_keys() {
     let (_, bytes) = archive(&s);
     let json = session_json(&bytes);
     let first = json.get_key("notes").into_option().and_then(|n| n.get_index(0).into_option()).expect("one note");
-    for key in ["phase", "turns", "said", "heard_as", "problem", "asked", "pending"] {
+    for key in ["phase", "turns", "said", "heard_as", "problem", "asked", "suggestions"] {
         assert!(first.get_key(key).into_option().is_none(), "{key} is not written for a draft nobody asked about");
     }
 }
@@ -469,4 +472,77 @@ fn an_archive_from_before_the_index_has_nothing_understood_and_keeps_its_utteran
     let talk = &back.notes[0].talk;
     assert_eq!(talk.said.len(), 1);
     assert_eq!(talk.understood, vec![None]);
+}
+
+#[test]
+fn the_suggestions_of_an_agent_travel_with_what_the_reviewer_decided_about_each() {
+    use crate::{
+        agent_review::{Pos, Suggestion},
+        conversation::{Decision, Phase, Proposal},
+    };
+    let mut s = state();
+    let mut n = note(5, 0, "rename it and drop the stale one");
+    n.talk.phase = Phase::Suggested;
+    n.talk.proposals = vec![
+        Proposal { suggestion: Suggestion::InsertLines { after_line: 41, lines: vec!["    let n = items.len();".to_string(), "    // two\"quoted\"".to_string()] }, decision: Decision::Accepted },
+        Proposal {
+            suggestion: Suggestion::ReplaceRange { start: Pos { line: 39, col: 8 }, end: Pos { line: 39, col: 11 }, old: "foo".to_string(), text: "bar".to_string() },
+            decision: Decision::Waiting,
+        },
+        Proposal {
+            suggestion: Suggestion::RemoveRange { start: Pos { line: 40, col: 4 }, end: Pos { line: 40, col: 9 }, old: "stale".to_string() },
+            decision: Decision::Rejected,
+        },
+    ];
+    s.notes.push(n.clone());
+    let (_, bytes) = archive(&s);
+    let back = load(&bytes).expect("it loads");
+    assert_eq!(back.notes[0].talk.proposals, n.talk.proposals, "the edits, their places and what was decided");
+    assert_eq!(back.notes[0].talk.pending(), 1);
+}
+
+#[test]
+fn a_suggestion_that_cannot_be_read_is_left_out_and_the_number_is_bounded() {
+    use crate::conversation::MAX_PROPOSALS;
+    let good = r#"{"k":"ins","after":3,"lines":["x"],"d":"waiting"}"#;
+    let junk = [r#"{"k":"teleport","after":3}"#, r#"{"k":"ins"}"#, r#"{"k":"rem","sl":1,"sc":0,"el":1,"ec":3}"#, r#"{"k":"ins","after":1,"lines":["y"],"d":"maybe"}"#];
+    let many: Vec<String> = std::iter::repeat(good.to_string()).take(MAX_PROPOSALS + 10).collect();
+    let json = format!(
+        r#"{{"format":"azreview/1","root":"/w","file":"a.rs","strokes":[],"notes":[{{"id":1,"page":0,"x":1.0,"y":2.0,"language":"en","text":"x","phase":"suggested","suggestions":[{},{}]}}],"findings":[],"clips":[]}}"#,
+        junk.join(","),
+        many.join(",")
+    );
+    let back = load(&zip_of(&json)).expect("it loads");
+    let got = &back.notes[0].talk.proposals;
+    assert_eq!(got.len(), MAX_PROPOSALS, "the readable ones, no more than a conversation keeps");
+    assert!(got.iter().all(|p| matches!(&p.suggestion, crate::agent_review::Suggestion::InsertLines { after_line: 3, .. })));
+}
+
+#[test]
+fn whether_a_resolution_was_written_and_which_patch_it_made_come_back_from_the_archive() {
+    use crate::conversation::Phase;
+    let mut s = state();
+    let mut written = note(1, 0, "rename it");
+    written.talk.phase = Phase::Done;
+    written.talk.mark_logged(Some("20251126-054012-c1.patch".to_string()));
+    let mut waiting = note(2, 0, "and this");
+    waiting.talk.phase = Phase::Done;
+    waiting.talk.logged = false;
+    s.notes.push(written);
+    s.notes.push(waiting);
+    let (_, bytes) = archive(&s);
+    let back = load(&bytes).expect("it loads");
+    assert!(back.notes[0].talk.logged && !back.notes[0].talk.due(), "written: not written again");
+    assert_eq!(back.notes[0].talk.patch.as_deref(), Some("20251126-054012-c1.patch"));
+    assert!(back.notes[1].talk.due(), "a resolution that was never written (the window closed first) is written when it is read");
+}
+
+#[test]
+fn a_conversation_finished_in_an_archive_from_before_the_log_counts_as_written() {
+    use crate::conversation::Phase;
+    let old = r#"{"format":"azreview/1","root":"/w","file":"a.rs","strokes":[],"notes":[{"id":4,"page":0,"x":10.0,"y":20.0,"line":2,"language":"en","text":"hello","phase":"done","turns":[{"who":"agent","text":"ok","at":1}]},{"id":5,"page":0,"x":10.0,"y":40.0,"line":4,"language":"en","text":"hi","phase":"suggested"}],"findings":[],"clips":[]}"#;
+    let back = load(&zip_of(old)).expect("an old archive loads");
+    assert_eq!(back.notes[0].talk.phase, Phase::Done);
+    assert!(!back.notes[0].talk.due(), "it was finished before there was a log: no patch of it is made now");
+    assert!(back.notes[1].talk.phase == Phase::Suggested && !back.notes[1].talk.due());
 }

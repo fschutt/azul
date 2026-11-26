@@ -236,9 +236,14 @@ fn a_line_with_hidden_words_is_the_same_rows_with_those_words_in_the_colour_of_t
         "a line with nothing hidden is as it was"
     );
     // the hidden piece has the colour of the page, the others the ink of the code
-    assert!(piece_css(true).contains(&format!("color: {PAGE_BG};")), "{}", piece_css(true));
-    assert!(piece_css(false).contains("color: #1f1f1f;"), "{}", piece_css(false));
-    assert!(piece_css(true).contains("white-space: pre;") && piece_css(false).contains("white-space: pre;"));
+    use crate::page_marks::Look;
+    assert!(piece_css(Look::Hidden).contains(&format!("color: {PAGE_BG};")), "{}", piece_css(Look::Hidden));
+    assert!(piece_css(Look::Plain).contains("color: #1f1f1f;"), "{}", piece_css(Look::Plain));
+    assert!(piece_css(Look::Hidden).contains("white-space: pre;") && piece_css(Look::Plain).contains("white-space: pre;"));
+    // what the suggestions of the agents do has looks of its own
+    assert!(piece_css(Look::Struck).contains("line-through"), "{}", piece_css(Look::Struck));
+    assert!(piece_css(Look::Yellow).contains("background: #ffe58a"), "{}", piece_css(Look::Yellow));
+    assert!(piece_css(Look::Green).contains("background: #bfe9c8"), "{}", piece_css(Look::Green));
 }
 
 #[test]

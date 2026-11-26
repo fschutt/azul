@@ -88,6 +88,9 @@ mod l10n_tests;
 pub mod model;
 pub mod perf;
 pub mod pens;
+pub mod page_marks;
+pub mod patch;
+pub mod patch_store;
 pub mod pointer;
 pub mod progress;
 pub mod progress_store;
@@ -196,13 +199,14 @@ pub fn window_renderer() -> RendererOptions {
 }
 
 /// The keys AzReview answers (the kit adds Mod+, / F1 / Escape).
-pub const SHORTCUTS: [Shortcut; 9] = [
+pub const SHORTCUTS: [Shortcut; 10] = [
     Shortcut::new("azreview-shortcuts-review", "Mod+S", "azreview-shortcut-save"),
     Shortcut::new("azreview-shortcuts-review", "Mod+O", "azreview-shortcut-open-folder"),
     Shortcut::new("azreview-shortcuts-review", "Mod+B", "azreview-shortcut-files"),
     Shortcut::new("azreview-shortcuts-review", "Mod+Shift+B", "azreview-shortcut-whiteboard"),
     Shortcut::new("azreview-shortcuts-review", "Mod+Z", "azreview-shortcut-undo"),
     Shortcut::new("azreview-shortcuts-review", "Mod+Shift+R", "azreview-shortcut-not-reviewed"),
+    Shortcut::new("azreview-shortcuts-review", "Mod+Shift+C", "azreview-shortcut-continue"),
     Shortcut::new("azreview-shortcuts-review", "Pen rest", "azreview-shortcut-dictate"),
     Shortcut::new("azreview-shortcuts-review", "1 to 5", "azreview-shortcut-meaning"),
     Shortcut::new("azreview-shortcuts-review", "Right click", "azreview-shortcut-previous-nib"),
@@ -1046,6 +1050,17 @@ impl AppState {
         }
     }
 
+    /// Where the reviewer is: the page in view of the open file, and its first line.
+    #[must_use]
+    pub fn review_place(&self) -> Option<progress::Back> {
+        let file = self.file()?;
+        Some(progress::Back {
+            file: file.display.clone(),
+            page: self.visible_page,
+            line: u32::try_from(code::SourceFile::first_line_of(self.visible_page)).unwrap_or(u32::MAX),
+        })
+    }
+
     /// Takes the last edit back; whether there was one.
     pub fn undo(&mut self) -> bool {
         let Some(edit) = self.history.pop() else {
@@ -1410,6 +1425,8 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
 /// Writes the session as it is now (`review/<file>.azreview.zip`), on a
 /// Thread; a write asked for while one is in flight runs after it.
 pub(crate) fn save_session(data: &RefAny, info: &mut CallbackInfo) {
+    // every change of a conversation comes here: one that was resolved is written as its patch file
+    patch_store::record_due(data, info);
     let mut handle = data.clone();
     let job = {
         let Some(mut s) = handle.downcast_mut::<AppState>() else {
@@ -1687,6 +1704,11 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         info.prevent_default();
         let panel = if mods.shift { layout::Panel::Right } else { layout::Panel::Tree };
         return toggle_panel(&mut data, &mut info, panel);
+    }
+    // Mod+Shift+C: continue reviewing, back to where the jump to a conversation began.
+    if matches!(key, VirtualKeyCode::C) && mods.primary_down() && mods.shift {
+        info.prevent_default();
+        return on_back(data, info);
     }
     // Mod+Shift+R: the file under review is not reviewed (or is again), whatever its pages say.
     if matches!(key, VirtualKeyCode::R) && mods.primary_down() && mods.shift {
@@ -2325,6 +2347,27 @@ pub extern "C" fn on_bar_more(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
+/// "Continue reviewing" (the bar's key, Mod+Shift+C): back to the place the reviewer was taken from, which is then none.
+pub extern "C" fn on_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let place = {
+        let Some(mut s) = data.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        let Some(place) = s.progress.come_back() else {
+            return Update::DoNothing;
+        };
+        if s.file().is_none_or(|f| f.display != place.file) {
+            // another file: it opens, and the session of the one that is left is kept
+            let _ = s.open_path(&place.file);
+        }
+        s.visible_page = place.page;
+        place
+    };
+    ui::scroll_to_page(&mut info, place.page);
+    info.trigger_all_virtual_view_rerender();
+    Update::RefreshDom
+}
+
 /// A click on a conversation's chip: the pages go to where it is anchored.
 pub extern "C" fn on_chip_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(index) = ui::index_of(&mut info) else {
@@ -2336,6 +2379,16 @@ pub extern "C" fn on_chip_click(mut data: RefAny, mut info: CallbackInfo) -> Upd
     else {
         return Update::DoNothing;
     };
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    // The place the reviewer was reviewing at is where they come back to: the first jump only (a jump from one
+    // conversation to another keeps it).
+    let here = s.review_place();
+    if let Some(here) = here {
+        let _ = s.progress.jumped_from(here);
+    }
+    drop(s);
     ui::scroll_to_page(&mut info, page);
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;

@@ -28,7 +28,7 @@ use crate::{
     agent_process::Host,
     agent_review::Reply,
     agent_settings::{AgentSettings, Env, Keys, Problem, TaskSettings},
-    chips, conversation_request, AppState,
+    chips, code, conversation_request, ui, AppState,
 };
 
 /// How often the pool is asked for the workers that never reported, ms.
@@ -90,11 +90,13 @@ pub enum Finish {
     Failed,
 }
 
-/// A conversation that finished: in which file (as the tree names it), which one, and how.
+/// A conversation that finished: in which file (as the tree names it), which one, the line it is anchored to, and how.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finished {
     pub file: String,
     pub conversation: u64,
+    /// The line of the file under the conversation's anchor (the first being 1).
+    pub line: u32,
     pub finish: Finish,
 }
 
@@ -127,6 +129,8 @@ struct InFlight {
     file: String,
     note: u64,
     task: Task,
+    /// The line of the file under the conversation's anchor.
+    line: u32,
 }
 
 /// What the window keeps of its agents.
@@ -190,7 +194,12 @@ impl Hub {
     /// An answer came for `flight`: whoever listens is told that the conversation finished, and the answer goes where it
     /// belongs (`open` is the file that is open now): to the conversation, or to wait for its file.
     fn answered(&mut self, open: Option<&str>, flight: &InFlight, outcome: Outcome) -> Answered {
-        self.events.finished(&Finished { file: flight.file.clone(), conversation: flight.note, finish: outcome.finish() });
+        self.events.finished(&Finished {
+            file: flight.file.clone(),
+            conversation: flight.note,
+            line: flight.line,
+            finish: outcome.finish(),
+        });
         if open == Some(flight.file.as_str()) {
             return Answered::Lands(outcome);
         }
@@ -330,7 +339,8 @@ pub fn ask(data: &mut RefAny, info: &mut CallbackInfo, note_id: u64) -> Update {
             symbols,
         );
         s.notes[at].talk.asking();
-        s.hub.inflight.insert(started.ticket.id, InFlight { file: file.display.clone(), note: note_id, task });
+        let line = u32::try_from(code::SourceFile::first_line_of(s.notes[at].page) + ui::line_of(s.notes[at].y)).unwrap_or(u32::MAX);
+        s.hub.inflight.insert(started.ticket.id, InFlight { file: file.display.clone(), note: note_id, task, line });
         let spec = JobSpec {
             conversation: note_id,
             request: Request::Review(request),
