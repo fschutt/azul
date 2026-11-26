@@ -420,6 +420,17 @@ impl AppState {
         })
     }
 
+    /// The stroke that is live was no stroke (the press that began it was held, or was on a grip, and lifts a loop of the page
+    /// instead): it is dropped and not kept; the page's frame no longer shows the dab. Whether there was one.
+    pub fn stroke_drop(&mut self) -> bool {
+        let Some(done) = self.live.take() else {
+            return false;
+        };
+        self.live_clock = None;
+        self.ink.touch(done.page);
+        true
+    }
+
     /// The release - over the pen layer or anywhere in the window - the pointer leaving the window,
     /// the window losing its focus: the stroke that is live ends. A tap is dropped (it cycles the nib,
     /// or does nothing while a dictation listens); a stroke is kept.

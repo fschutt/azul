@@ -270,6 +270,13 @@ azreview-dictation-unavailable = Diktieren ist hier nicht verfügbar: { $why }
 azreview-dictation-failed = Diktieren ist fehlgeschlagen: { $why }
 azreview-load-failed = Die gespeicherte Sitzung konnte nicht gelesen werden: { $why }
 azreview-category-dictation = Diktieren
+azreview-menu-whiteboard-help = Das Whiteboard benutzen...
+azreview-category-whiteboard = Whiteboard
+azreview-whiteboard-armed-when = Ein Kreis wartet darauf, mitgenommen zu werden
+azreview-armed-8 = 8 s
+azreview-armed-15 = 15 s
+azreview-armed-30 = 30 s
+azreview-armed-60 = 60 s
 azreview-dictation-when = Start durch Ruhen
 azreview-dictation-off = Aus
 azreview-dictation-pen = Stift
@@ -369,7 +376,6 @@ azreview-agent-problem-unknown-field = { $field }: keine solche Einstellung ({ $
 ## Das Layout: der Dateibaum, die rechte Leiste, die untere Leiste
 
 azreview-right-bar = Whiteboard ein- oder ausblenden
-azreview-whiteboard-placeholder = Das Whiteboard: Code mit dem Stift einkreisen, hierher ziehen und Pfeile zwischen den Ausschnitten zeichnen.
 azreview-agents-none = Kein Agent arbeitet.
 azreview-resize-tree = Breite des Dateibaums ändern
 azreview-resize-panel = Breite des Whiteboards ändern

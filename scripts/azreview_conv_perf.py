@@ -62,7 +62,8 @@ def add_note(app, text, y, page=0, ask=False):
 def back_to_the_first_page(app):
     """The strip scrolled to the first page (the wheel's two ways need not end where they began)."""
     app.click(selector="#__azreview_page-pill-1", frames=2)
-    app.until("the first page", lambda: app.has_id("__azreview_conv-1", every_dom=True))
+    # (with no conversation there is no chip to wait for: the page in view says where the strip is)
+    app.until("the first page", lambda: state(app).get("visible_page") == 0)
 
 
 def scroll_across(app, tail, steps, label):
