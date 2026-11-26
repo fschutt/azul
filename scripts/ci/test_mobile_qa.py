@@ -299,5 +299,42 @@ class ModeComparisonTests(unittest.TestCase):
                 self.assertIn("render_modes", run.meta)
 
 
+class ExitReasonTests(unittest.TestCase):
+    EXIT = """ACTIVITY MANAGER PROCESS EXIT INFO (dumpsys activity exit-info)
+  package: com.azul.AzWidgets
+    Historical Process Exit for uid=10141
+        ApplicationExitInfo #0:
+          timestamp=2026-11-26 07:02:04.972 pid=3889 realUid=10141 packageUid=10141 definingUid=10141 user=0
+          process=com.azul.AzWidgets reason=4 (APP CRASH(EXCEPTION)) subreason=0 (UNKNOWN) status=0
+          importance=100 pss=0.00 rss=0.00 description=crash state=empty trace=null
+        ApplicationExitInfo #1:
+          timestamp=2026-11-26 07:01:58.140 pid=3791 realUid=10141 packageUid=10141 definingUid=10141 user=0
+          process=com.azul.AzWidgets reason=10 (USER REQUESTED) subreason=24 (KILL BACKGROUND) status=0
+        ApplicationExitInfo #2:
+          timestamp=2026-11-26 07:01:50.767 pid=3095 realUid=10141 packageUid=10141 definingUid=10141 user=0
+          process=com.azul.AzWidgets reason=2 (SIGNALED) subreason=0 (UNKNOWN) status=9
+"""
+
+    def test_the_exit_reasons_are_read_and_only_crashes_count(self):
+        got = q.parse_exit_reasons(self.EXIT)
+        self.assertEqual([g[2] for g in got], [4, 10, 2])
+        self.assertEqual(got[0][3], "APP CRASH(EXCEPTION)")
+        self.assertEqual([g for g in got if g[2] in q.CRASH_EXIT_REASONS], [got[0]])   # a self-kill (SIGNALED) is not a crash
+
+    def test_has_died_is_not_a_fatal_line_but_a_crash_is(self):
+        died = "11-26 06:57:07.897 516 1880 I ActivityManager: Process com.azul.AzWidgets (pid 2528) has died: fg  TOP"
+        self.assertEqual(q.fatal_lines(died, "com.azul.AzWidgets"), [])
+        crash = "11-26 06:57:07.858 2528 2528 E AndroidRuntime: FATAL EXCEPTION: main (com.azul.AzWidgets)"
+        self.assertEqual(len(q.fatal_lines(crash, "com.azul.AzWidgets")), 1)
+
+    def test_activity_creations_are_found_in_the_events_buffer(self):
+        ev = ("11-26 06:57:55.100   516  1234 I wm_create_activity: [0,12345,8,com.azul.AzWidgets/com.azul.app.AzulActivity,android.intent.action.MAIN,NULL,NULL,268435456]\n"
+              "11-26 06:57:56.100   516  1234 I wm_create_activity: [0,12346,9,com.other.app/.Main,android.intent.action.MAIN,NULL,NULL,0]\n"
+              "11-26 06:57:57.100   516  1234 I am_proc_start: [0,1,2,3]\n")
+        got = q.create_activity_lines(ev, "com.azul.AzWidgets")
+        self.assertEqual(len(got), 1)
+        self.assertTrue(got[0][:18] >= "11-26 06:57:55")
+
+
 if __name__ == "__main__":
     unittest.main()

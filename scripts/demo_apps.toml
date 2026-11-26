@@ -62,14 +62,17 @@ targets = ["android-arm64", "android-x86_64", "ios-device", "ios-sim"]
 reason = "azul.iroh for the phone companion (AzReview talks to it over the local network)"
 
 [lib.mobile-e2e]
-# A QA variant, ARTIFACT ONLY: the phone libazul plus the engine's debug server and E2E scripting. AZ_DEBUG=<port> serves
-# HTTP on the app's loopback (take_screenshot, click, get_dom, wait_frame, run_e2e_tests) and AZ_E2E=<file> runs a scenario in
-# the process. An open debug port is what `e2e-scripting` exists to keep out of shipped builds, so this variant is never a
+# A QA variant, ARTIFACT ONLY: the phone libazul plus the engine's debug server, E2E scripting and test hooks. AZ_DEBUG=<port>
+# serves HTTP on the app's loopback (take_screenshot, click, get_dom, wait_frame, run_e2e_tests) and AZ_E2E=<file> runs a scenario
+# in the process. An open debug port is what `e2e-scripting` exists to keep out of shipped builds, so this variant is never a
 # release asset and never a link of the page (no app's mobile_lib may name it: scripts/demo_apps.py check), it is built only
-# when a run asks for it (rust.yml's demos_e2e input) and only for the apps that say `e2e = true`, as
-# <Name>-e2e-<column> in artifacts named demoe2e-*. No test-hooks: those stand in for the keyring and the biometrics and
-# switch the headless backend on, which a phone must not get.
-features = "std,logging,link-static,a11y,map-tiles,pdf,debug-server,e2e-scripting"
+# when a run asks for it (rust.yml's demos_e2e input) and only for the apps that say `e2e = true`, as <Name>-e2e-<column> in
+# artifacts named demoe2e-*. `test-hooks` is the cargo feature of the failure injections of the QA matrix (AZ_GPU_FAIL=<stage>,
+# ...): a build with it reads them from the environment, and its stand-ins (keyring, sign-in, sensors, speech, headless) switch on
+# only when AZ_BACKEND=headless or AZ_E2E_TEST is set, which a phone run does not do. The library carries the marker
+# AZLIN-BUILD-MARKER:test-hooks, and scripts/demo_lib.sh checks it both ways: a library WITHOUT the feature (everything that
+# ships) must not hold the marker, this one must; `demo_apps.py check` refuses the feature in any lib that is not artifact_only.
+features = "std,logging,link-static,a11y,map-tiles,pdf,debug-server,e2e-scripting,test-hooks"
 targets = ["android-x86_64", "ios-sim"]
 artifact_only = true
 reason = "the engine's debug server for the E2E and lifecycle tests of the phone shells (never shipped)"

@@ -16,7 +16,12 @@
 //! `WBDEMO_OPENED <id> <items>` (a board that was switched to has been read), `WBDEMO_COPY_SAVED <file>`,
 //! `WBDEMO_REPO <rev> <branch> <web address>` (what the repository of the demo's folder says, at the start),
 //! `WBDEMO_EXPORTED <path> <bytes> <pictures> <links> <remote>` / `WBDEMO_EXPORT_ERROR <why>`,
-//! `WBDEMO_IMPORTED <id> <name> <items> <left out> <pictures lost>` / `WBDEMO_IMPORT_ERROR <why>`.
+//! `WBDEMO_IMPORTED <id> <name> <items> <left out> <pictures lost>` / `WBDEMO_IMPORT_ERROR <why>`,
+//! `WBDEMO_HISTORY <snapshots>` (what the board that was read holds), `WBDEMO_HEAD <rev>` (the code is at another revision
+//! than a moment ago). Environment, for scripts: `WBDEMO_WORKSPACE` (the folder the repository is looked at from),
+//! `WBDEMO_AUTHOR`, `WBDEMO_PERMALINK` (the settings), `WBDEMO_FILES` (a folder whose `whiteboard_demo.rs` is the page and
+//! whose files are read from the disk when the cutouts are looked for again), `WBDEMO_MATERIAL` (a file with a line for each
+//! thing done since the last snapshot).
 
 use std::path::{Path, PathBuf};
 
@@ -88,6 +93,16 @@ struct Demo {
     loading_raw: Option<Vec<u8>>,
     /// The export that waits for the person to say where the file goes.
     exporting: Option<ExportRequest>,
+    /// The workspace's folder (where the repository is looked at) and where the global git config is.
+    folder: PathBuf,
+    home: Option<PathBuf>,
+    /// `WBDEMO_FILES`: a folder whose files the cutouts point at, read from the disk as they are when asked (the page is its
+    /// `whiteboard_demo.rs`): what a script changes there is what the board finds again. Without it the demo's one file is
+    /// its own source.
+    disk: Option<PathBuf>,
+    /// `WBDEMO_MATERIAL`: a file with a line for each thing done since the last snapshot (what the review's conversations
+    /// would tell), read again every few seconds.
+    material: Option<PathBuf>,
     timer: Option<TimerId>,
     /// `WBDEMO_PROFILE`: the frame times are printed every two seconds.
     profile: bool,
@@ -99,6 +114,48 @@ struct Demo {
 fn demo_text() -> (String, Vec<String>) {
     let text = include_str!("whiteboard_demo.rs");
     ("whiteboard_demo.rs".to_string(), text.lines().take(46).map(|l| l.replace('\t', "    ")).collect())
+}
+
+/// The page of the demo: its own source, or (with `WBDEMO_FILES`) the first lines of the `whiteboard_demo.rs` of that folder.
+fn demo_page(disk: Option<&Path>) -> (String, Vec<String>) {
+    match disk.and_then(|root| read_lines(root, "whiteboard_demo.rs")) {
+        Some(lines) => ("whiteboard_demo.rs".to_string(), lines.into_iter().take(46).collect()),
+        None => demo_text(),
+    }
+}
+
+/// The lines of the file `file` of the folder `root` as the disk has them now (tabs as four spaces), `None` for a file that
+/// is not there or is no path inside the folder.
+fn read_lines(root: &Path, file: &str) -> Option<Vec<String>> {
+    if !crate::whiteboard_azboard::safe_path(file) {
+        return None;
+    }
+    let text = std::fs::read_to_string(root.join(file)).ok()?;
+    Some(text.lines().map(|l| l.replace('\t', "    ")).collect())
+}
+
+/// The files of a folder, read from the disk each time they are asked about.
+struct DiskFiles<'a> {
+    root: &'a Path,
+}
+
+impl FileView for DiskFiles<'_> {
+    fn file_hash(&self, file: &str) -> Option<u64> {
+        read_lines(self.root, file).map(|l| lines_hash(&l))
+    }
+
+    fn line_count(&self, file: &str) -> Option<u32> {
+        read_lines(self.root, file).map(|l| u32::try_from(l.len()).unwrap_or(u32::MAX))
+    }
+
+    fn lines(&self, file: &str, first: u32, last: u32) -> Option<Vec<String>> {
+        let all = read_lines(self.root, file)?;
+        Some(all.get((first.saturating_sub(1) as usize)..(last as usize).min(all.len()))?.to_vec())
+    }
+
+    fn find_block(&self, file: &str, block: &[String], near: u32) -> Option<u32> {
+        find_block_in(&read_lines(self.root, file)?, block, near)
+    }
 }
 
 /// The one file of the demo, as the jump asks about files.
@@ -136,7 +193,20 @@ fn with_panel(app: &mut RefAny, f: &mut dyn FnMut(&mut Panel)) -> bool {
 }
 
 fn host(app: &RefAny) -> Host {
-    Host { app: app.clone(), with: with_panel, on_jump, on_changed, on_plan }
+    Host { app: app.clone(), with: with_panel, on_jump, on_changed, on_plan, with_files }
+}
+
+/// The panel and the workspace's files, for a snapshot to look for the code again in.
+fn with_files(app: &mut RefAny, f: &mut dyn FnMut(&mut Panel, &dyn FileView)) -> bool {
+    let Some(mut d) = app.downcast_mut::<Demo>() else {
+        return false;
+    };
+    let Demo { panel, file, lines, disk, .. } = &mut *d;
+    match disk {
+        Some(root) => f(panel, &DiskFiles { root: root.as_path() }),
+        None => f(panel, &OneFile { name: file.as_str(), lines: lines.as_slice() }),
+    }
+    true
 }
 
 /// The bar as the window has it now (the window is `window` px; the bar is its right edge).
@@ -676,6 +746,7 @@ extern "C" fn on_imported(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
                 if matches!(outcome, BoardOutcome::Done(_)) {
                     let (id, shown) = (d.panel.wb.active_board().0.to_string(), d.panel.wb.active_board().1.to_string());
                     say(&format!("WBDEMO_IMPORTED {id} {} {} {left_out} {lost}", name.replace(' ', "_"), d.panel.wb.board.len()));
+                    say(&format!("WBDEMO_HISTORY {}", d.panel.wb.history().snapshots.len()));
                     let told = t_args("azreview-whiteboard-imported", &[("name", Arg::from(shown)), ("file", Arg::from(answer.file.clone()))]);
                     d.panel.tell(told);
                 }
@@ -745,6 +816,7 @@ extern "C" fn on_board_read(mut app: RefAny, mut msg: RefAny, mut info: Callback
         let now = d.panel.now_ms();
         let effects = d.panel.wb.loaded(result, raw, now);
         say(&format!("WBDEMO_OPENED {} {}", d.panel.wb.active_board().0, d.panel.wb.board.len()));
+        say(&format!("WBDEMO_HISTORY {}", d.panel.wb.history().snapshots.len()));
         (effects, d.panel.after_wait(), d.files.clone())
     };
     for e in &effects {
@@ -758,9 +830,12 @@ fn on_jump(app: &mut RefAny, id: ItemId, _info: &mut CallbackInfo) -> Update {
     let Some(mut d) = app.downcast_mut::<Demo>() else {
         return Update::DoNothing;
     };
-    let (name, lines) = (d.file.clone(), d.lines.clone());
-    let files = OneFile { name: &name, lines: &lines };
-    match jump(&mut d.panel.wb.board, id, &files) {
+    let (name, lines, disk) = (d.file.clone(), d.lines.clone(), d.disk.clone());
+    let jumped = match &disk {
+        Some(root) => jump(&mut d.panel.wb.board, id, &DiskFiles { root }),
+        None => jump(&mut d.panel.wb.board, id, &OneFile { name: &name, lines: &lines }),
+    };
+    match jumped {
         Ok(target) => {
             say(&format!("WBDEMO_JUMP {} {} {} {:?}", target.file, target.first_line, target.last_line, target.freshness));
             let until = d.panel.now_ms() + 1_500;
@@ -805,6 +880,11 @@ extern "C" fn on_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbac
             update = Update::RefreshDom;
         }
         d.ticks += 1;
+        // The repository is looked at again every few seconds (HEAD can move while the board is open), and so is the file
+        // that says what was done since the last snapshot.
+        if d.ticks % 50 == 0 && refresh_repo(&mut d) {
+            update = Update::RefreshDom;
+        }
         if d.profile && d.ticks % 20 == 0 {
             if let Some(line) = d.panel.perf.take_summary() {
                 say(&format!("WBDEMO_PERF items={} {line}", d.panel.wb.board.len()));
@@ -817,6 +897,27 @@ extern "C" fn on_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbac
     }
     let _ = info;
     TimerCallbackReturn { should_update: update, should_terminate: TerminateTimer::Continue }
+}
+
+/// The repository's facts are read again (the files of `.git`) and what was done since the last snapshot is read from
+/// `WBDEMO_MATERIAL`; whether either changed what the panel shows.
+fn refresh_repo(d: &mut Demo) -> bool {
+    let mut changed = false;
+    let facts = whiteboard_git::read(&d.folder, d.home.as_deref());
+    let (known, now) = (d.panel.wb.repo().and_then(|r| r.rev.clone()), facts.as_ref().and_then(|f| f.rev.clone()));
+    if known != now {
+        say(&format!("WBDEMO_HEAD {}", now.as_deref().unwrap_or("-")));
+        d.panel.wb.set_repo(facts);
+        changed = true;
+    }
+    if let Some(path) = &d.material {
+        let lines: Vec<String> = std::fs::read_to_string(path).map(|t| t.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect()).unwrap_or_default();
+        if lines != d.panel.history_ui.material {
+            d.panel.history_ui.material = lines;
+            changed = true;
+        }
+    }
+    changed
 }
 
 // ---- the start
@@ -849,7 +950,9 @@ pub fn run() {
     // small cutouts and the arrows between them on a fresh board (a full board to time).
     let profile = std::env::var_os("WBDEMO_PROFILE").is_some();
     let fill = std::env::var("WBDEMO_FILL").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
-    let (file, lines) = demo_text();
+    let disk = std::env::var_os("WBDEMO_FILES").map(PathBuf::from);
+    let material = std::env::var_os("WBDEMO_MATERIAL").map(PathBuf::from);
+    let (file, lines) = demo_page(disk.as_deref());
     let files = data_root.join("review");
     let mut panel = Panel::new("whiteboard-demo");
     panel.wb.set_bar(true, BAR_W, 1_280.0);
@@ -866,7 +969,7 @@ pub fn run() {
         facts.as_ref().and_then(|f| f.branch.as_deref()).unwrap_or("-"),
         facts.as_ref().and_then(|f| f.web_url.as_deref()).unwrap_or("-"),
     ));
-    panel.wb.set_folder(Some(folder));
+    panel.wb.set_folder(Some(folder.clone()));
     panel.wb.set_repo(facts);
     let (settings, notes) = Settings::parse(&|key| {
         let env = match key {
@@ -906,6 +1009,7 @@ pub fn run() {
                 write_effect(&files, e);
             }
             say(&format!("WBDEMO_LOADED {items}"));
+            say(&format!("WBDEMO_HISTORY {}", panel.wb.history().snapshots.len()));
         }
         Err(_) => {
             panel.wb.loaded_none();
@@ -928,6 +1032,10 @@ pub fn run() {
         saving_to: None,
         loading_raw: None,
         exporting: None,
+        folder,
+        home,
+        disk,
+        material,
         timer: None,
         profile,
         ticks: 0,
