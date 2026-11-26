@@ -2125,12 +2125,12 @@ pub fn gradient_item_info(
 
 /// The concrete colours of a gradient's stops (a system-colour stop has none here).
 #[cfg(feature = "std")]
-fn concrete_stop_colors<'a>(
-    colors: impl Iterator<Item = &'a azul_css::props::basic::color::ColorOrSystem>,
+fn concrete_stop_colors(
+    colors: impl Iterator<Item = azul_css::props::basic::color::ColorOrSystem>,
 ) -> Vec<azul_css::props::basic::color::ColorU> {
     colors
         .filter_map(|c| match c {
-            azul_css::props::basic::color::ColorOrSystem::Color(c) => Some(*c),
+            azul_css::props::basic::color::ColorOrSystem::Color(c) => Some(c),
             azul_css::props::basic::color::ColorOrSystem::System(_) => None,
         })
         .collect()
@@ -16223,7 +16223,7 @@ fn styled_dom_to_render_tree(styled_dom: &azul_core::styled_dom::StyledDom) -> s
             .attributes()
             .as_ref()
             .iter()
-            .filter_map(|attr| attr.as_class().map(std::string::ToString::to_string))
+            .filter_map(|attr| attr.as_class().map(ToString::to_string))
             .collect();
 
         // Collect children
@@ -20079,17 +20079,17 @@ fn serve_debug_event(
                         }
                         azul_layout::solver3::display_list::DisplayListItem::LinearGradient { bounds, gradient, .. } => {
                             other_count += 1;
-                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| &s.color));
+                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| s.color));
                             gradient_item_info(idx, "linear_gradient", bounds.0, &stops, clip_depth, scroll_depth)
                         }
                         azul_layout::solver3::display_list::DisplayListItem::RadialGradient { bounds, gradient, .. } => {
                             other_count += 1;
-                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| &s.color));
+                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| s.color));
                             gradient_item_info(idx, "radial_gradient", bounds.0, &stops, clip_depth, scroll_depth)
                         }
                         azul_layout::solver3::display_list::DisplayListItem::ConicGradient { bounds, gradient, .. } => {
                             other_count += 1;
-                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| &s.color));
+                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| s.color));
                             gradient_item_info(idx, "conic_gradient", bounds.0, &stops, clip_depth, scroll_depth)
                         }
                         _ => {

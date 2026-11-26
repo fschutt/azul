@@ -4824,7 +4824,7 @@ fn window_listeners(styled_dom: &StyledDom) -> Vec<NodeId> {
         .nodes_with_window_callbacks
         .as_ref()
         .iter()
-        .filter_map(azul_core::styled_dom::NodeHierarchyItemId::into_crate_internal)
+        .filter_map(NodeHierarchyItemId::into_crate_internal)
         .collect();
     nodes.sort_unstable();
     nodes.dedup();

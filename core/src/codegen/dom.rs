@@ -1233,7 +1233,7 @@ impl Lower<'_, '_> {
         let style = if is_field("style") {
             None
         } else {
-            node.attributes.get_key("style").map(azul_css::AzString::as_str)
+            node.attributes.get_key("style").map(AzString::as_str)
         };
         let css = inline_css(&get_css_blocks(self.css, &matcher), None, style);
         if !css.is_empty() {

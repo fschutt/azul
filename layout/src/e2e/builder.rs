@@ -1536,7 +1536,7 @@ fn thumbnail_key(def: &ComponentDef, library: &str, width: f32, dpi: f32, dark: 
     def.css.as_str().hash(&mut h);
     def.render_fn_source
         .as_ref()
-        .map(azul_css::AzString::as_str)
+        .map(AzString::as_str)
         .hash(&mut h);
     format!("{:?}", def.data_model).hash(&mut h);
     (def.render_fn as usize).hash(&mut h);
