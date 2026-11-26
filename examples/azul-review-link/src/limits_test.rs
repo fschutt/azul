@@ -4,14 +4,14 @@ use super::*;
 
 #[test]
 fn the_protocol_this_build_speaks_is_at_least_the_oldest_it_understands() {
-    assert!(PROTOCOL_VERSION >= MIN_PROTOCOL_VERSION);
+    const _: () = assert!(PROTOCOL_VERSION >= MIN_PROTOCOL_VERSION);
     assert!(ALPN.ends_with(&format!("/{PROTOCOL_VERSION}")), "the protocol name carries the major version");
 }
 
 #[test]
 fn a_frame_may_hold_a_full_thumbnail_and_its_header() {
-    assert!(MAX_FRAME_BYTES > MAX_THUMBNAIL_BYTES + MAX_STRING_BYTES);
-    assert!(MAX_ROWS * (MAX_ENTRY_NAME_BYTES + 3) < MAX_FRAME_BYTES, "a full listing fits in a frame");
+    const _: () = assert!(MAX_FRAME_BYTES > MAX_THUMBNAIL_BYTES + MAX_STRING_BYTES);
+    const _: () = assert!(MAX_ROWS * (MAX_ENTRY_NAME_BYTES + 3) < MAX_FRAME_BYTES, "a full listing fits in a frame");
 }
 
 #[test]
@@ -51,4 +51,11 @@ fn bytes_are_cut_on_a_character_boundary() {
 fn a_cap_says_what_it_cut_in_words() {
     let said = Capped { what: "button text", got: 300, limit: 280 }.to_string();
     assert!(said.contains("button text") && said.contains("300") && said.contains("280"), "{said}");
+}
+
+#[test]
+fn the_oldest_azreview_is_a_version_of_three_numbers() {
+    let parts: Vec<&str> = MIN_AZREVIEW_VERSION.split('.').collect();
+    assert_eq!(parts.len(), 3, "{MIN_AZREVIEW_VERSION}");
+    assert!(parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())), "{MIN_AZREVIEW_VERSION}");
 }

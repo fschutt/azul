@@ -30,6 +30,9 @@ pub trait PhoneApi {
     /// The default zoom at the top of the page.
     fn reset_view(&mut self, now: Millis);
 
+    /// "Continue reviewing": AzReview goes back to the return point it saved (and clears it).
+    fn continue_reviewing(&mut self, now: Millis);
+
     /// Asks for the rows of a folder from row `offset` on.
     fn list_dir(&mut self, now: Millis, path: &str, offset: u32);
 

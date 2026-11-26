@@ -204,6 +204,8 @@ text-decoration: underline;
 - `text-align-last` accepts `auto`, `start`, `end`, `left`, `right`, `center`, or `justify`. Type `StyleTextAlignLast`.
 - `text-justify` accepts `auto`, `none`, `inter-word`, `inter-character`, or `distribute`. Type `LayoutTextJustify`.
 - `text-decoration` accepts `none`, `underline`, `overline`, `line-through`, or combinations. Type `StyleTextDecoration`.
+- `text-decoration-color` accepts `currentcolor` (the initial value) or a colour. Type `StyleTextDecorationColor`. Not inherited. The line is in the colour of the box that sets it, whatever the colour of the text under it.
+- `text-decoration-thickness` accepts `auto`, `from-font`, a length, or a percentage (of one em). Type `StyleTextDecorationThickness`. Not inherited. An `em` and a percentage are parts of the font size of the box that sets the line.
 - `text-transform` accepts `none`, `uppercase`, `lowercase`, `capitalize`, or `full-width`. Type `StyleTextTransform`.
 - `text-orientation` accepts `mixed`, `upright`, or `sideways`. Type `StyleTextOrientation`. Parsed; no value turns a glyph yet (see [Styling Text](text-and-fonts.md#what-is-not-drawn-yet)).
 - `direction` accepts `ltr` or `rtl`. Type `StyleDirection`.

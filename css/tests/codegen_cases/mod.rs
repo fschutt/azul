@@ -82,6 +82,8 @@ pub const FAMILIES: &str = r#"
     direction: rtl;
     user-select: none;
     text-decoration: underline;
+    text-decoration-color: #cc3300;
+    text-decoration-thickness: 2px;
     -azul-hyphenation-language: en-US;
     -azul-exclusion-margin: 10.5;
     caret-color: #ff0000;

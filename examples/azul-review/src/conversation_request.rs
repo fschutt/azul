@@ -114,6 +114,9 @@ pub fn review_request(
     let (first_line, lines) = file.page(note.page);
     let total = file.line_count();
     let anchor = (first_line + ui::line_of(note.y)).min(total.max(1));
+    // the words the strokes are on, so that the agent can name the columns of what the reviewer marked
+    let grid = ui::page_grid(first_line);
+    let words_under = crate::request_strokes::words_under(&strokes, &grid, &lines);
     ReviewRequest {
         task,
         conversation: note.id,
@@ -127,8 +130,8 @@ pub fn review_request(
             lines: lines.to_vec(),
             total_lines: total,
             focus: Some((anchor, anchor)),
-            words_under: Vec::new(),
-            grid: Some(ui::page_grid(first_line)),
+            words_under,
+            grid: Some(grid),
         },
         turns,
         workspace,

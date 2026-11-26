@@ -2,25 +2,41 @@
 //! and the total decoder: truncation, garbage, flipped bytes, lies about lengths, numbers that are no numbers.
 
 use super::*;
+use crate::access::ScreenId;
 use crate::frame::*;
-use crate::limits::*;
 
 fn pen_state() -> PenState {
     PenState {
         seq: 41,
+        screen: ScreenId(2),
         folder: "azul".into(),
-        file: "layout/src/solver3/fc.rs".into(),
-        page_index: 2,
-        page_count: 9,
-        line: 1337,
-        line_count: 4000,
-        page_w: 794.0,
-        page_h: 1123.0,
-        view: Rect { x: 0.125, y: 0.25, w: 0.5, h: 0.375 },
+        surface: Surface::Page(PageSurface {
+            file: "layout/src/solver3/fc.rs".into(),
+            page_index: 2,
+            page_count: 9,
+            line: 1337,
+            line_count: 4000,
+            aspect: 794.0 / 1123.0,
+            gap: 0.04,
+        }),
+        view: Rect { x: 0.125, y: 3.25, w: 0.5, h: 0.375 },
         zoom: 1.75,
-        pen: Some(PenMark { x: 0.5, y: 0.625, down: true }),
+        pen: Some(PenMark { x: 0.5, y: 3.625, down: true }),
         thumb_id: 7,
         context: Context::Line,
+        return_point: Some(ReturnPoint { file: "layout/src/window.rs".into(), page_index: 1, line: 214, label: "window.rs p2 l214".into() }),
+    }
+}
+
+fn board_state() -> PenState {
+    PenState {
+        seq: 42,
+        surface: Surface::Whiteboard(WhiteboardSurface { board_id: 3, name: "Layout engine".into(), aspect: 1.6, item_count: 27 }),
+        view: Rect { x: 0.1, y: 0.05, w: 0.4, h: 0.25 },
+        zoom: 2.5,
+        pen: Some(PenMark { x: 0.3, y: 0.2, down: false }),
+        thumb_id: 9,
+        ..PenState::empty()
     }
 }
 
@@ -29,7 +45,7 @@ fn hello(role: Role) -> Hello {
 }
 
 fn gesture(seq: u32, phase: Phase, pan_x: f32, pan_y: f32, zoom: f32, focus: Focus) -> Frame {
-    Frame::Viewport(ViewportCmd { seq, op: ViewportOp::Gesture { id: 3, phase, pan_x, pan_y, zoom, focus } })
+    Frame::Viewport(ViewportCmd { screen: ScreenId(1), seq, op: ViewportOp::Gesture { id: 3, phase, pan_x, pan_y, zoom, focus } })
 }
 
 /// One of every frame, and the empty and the odd ones.
@@ -45,21 +61,25 @@ fn samples() -> Vec<Frame> {
         gesture(9, Phase::Begin, 0.0, 0.0, 1.0, Focus::Pen),
         gesture(10, Phase::Update, -0.25, 0.5, 1.5, Focus::Point { x: 0.3, y: 0.7 }),
         gesture(11, Phase::End, 1.0, 2.0, 0.5, Focus::Center),
-        Frame::Viewport(ViewportCmd { seq: 12, op: ViewportOp::Fit }),
-        Frame::Viewport(ViewportCmd { seq: 13, op: ViewportOp::PageStep(-1) }),
-        Frame::Viewport(ViewportCmd { seq: 14, op: ViewportOp::PageStep(1) }),
-        Frame::Viewport(ViewportCmd { seq: 15, op: ViewportOp::Reset }),
+        Frame::Viewport(ViewportCmd { screen: ScreenId::MAIN, seq: 12, op: ViewportOp::Fit }),
+        Frame::Viewport(ViewportCmd { screen: ScreenId::MAIN, seq: 13, op: ViewportOp::PageStep(-1) }),
+        Frame::Viewport(ViewportCmd { screen: ScreenId::MAIN, seq: 14, op: ViewportOp::PageStep(1) }),
+        Frame::Viewport(ViewportCmd { screen: ScreenId::MAIN, seq: 15, op: ViewportOp::Reset }),
         Frame::ListDir { request_id: 5, path: String::new(), offset: 0 },
         Frame::ListDir { request_id: 6, path: "layout/src".into(), offset: 500 },
-        Frame::OpenFile { request_id: 7, path: "src/lib.rs".into(), line: Some(42) },
-        Frame::OpenFile { request_id: 8, path: "README.md".into(), line: None },
-        Frame::Button { request_id: 9, index: 3 },
+        Frame::OpenFile { screen: ScreenId::MAIN, request_id: 7, path: "src/lib.rs".into(), line: Some(42) },
+        Frame::OpenFile { screen: ScreenId::MAIN, request_id: 8, path: "README.md".into(), line: None },
+        Frame::Button { screen: ScreenId::MAIN, request_id: 9, index: 3 },
         Frame::SetButtons { request_id: 10, buttons: ButtonSet::defaults() },
         Frame::NeedThumbnail { id: 7 },
         Frame::PairAccepted { code: 482_913 },
         Frame::Refused(Refusal::NotPaired),
         Frame::PenState(pen_state()),
+        Frame::PenState(board_state()),
         Frame::PenState(PenState::empty()),
+        Frame::ContinueReviewing { screen: ScreenId(4) },
+        Frame::AgentFinished(AgentFinished { conversation_id: 12, file: "layout/src/fc.rs".into(), line: 1337, kind: FinishKind::Done }),
+        Frame::AgentFinished(AgentFinished { conversation_id: 0, file: String::new(), line: 0, kind: FinishKind::NoAction }),
         Frame::Thumbnail(Thumbnail { id: 7, width: 2, height: 2, format: ThumbFormat::Rgba8, bytes: vec![1; 16] }),
         Frame::Thumbnail(Thumbnail { id: 8, width: 64, height: 80, format: ThumbFormat::Png, bytes: vec![9; 1000] }),
         Frame::Thumbnail(Thumbnail { id: 9, width: 64, height: 80, format: ThumbFormat::Jpeg, bytes: Vec::new() }),
@@ -83,8 +103,23 @@ fn samples() -> Vec<Frame> {
     for reason in [PairReject::WrongSecret, PairReject::Expired, PairReject::NoPairingOpen, PairReject::Busy, PairReject::TooManyPhones, PairReject::Declined] {
         all.push(Frame::PairRejected(reason));
     }
-    for refusal in [Refusal::UpdateCompanion, Refusal::UpdateAzReview] {
+    for refusal in [Refusal::UpdateCompanion, Refusal::UpdateAzReview, Refusal::UnsupportedRole] {
         all.push(Frame::Refused(refusal));
+    }
+    for kind in [FinishKind::Suggestion, FinishKind::NoAction, FinishKind::Failed] {
+        all.push(Frame::AgentFinished(AgentFinished { conversation_id: 3, file: "a.rs".into(), line: 9, kind }));
+    }
+    for role in [Role::Review, Role::ReviewMirror, Role::Whiteboard] {
+        all.push(Frame::Hello(hello(role)));
+    }
+    for bits in 0u8..32 {
+        all.push(Frame::Settings(HostSettings {
+            reverse_pan: bits & 1 != 0,
+            snap_to_page_top: bits & 2 != 0,
+            haptic_done: bits & 4 != 0,
+            haptic_suggestion: bits & 8 != 0,
+            haptic_failed: bits & 16 != 0,
+        }));
     }
     for status in [ReplyStatus::Received, ReplyStatus::Working, ReplyStatus::Done, ReplyStatus::Failed] {
         all.push(Frame::Reply(Reply { request_id: 1, status }));
@@ -131,10 +166,22 @@ fn every_frame_round_trips_and_writes_the_same_bytes_again() {
 fn the_exact_bytes_of_a_few_frames_are_a_promise() {
     assert_eq!(encode(&Frame::Ping { nonce: 0x0102_0304 }).unwrap(), [0xA7, 1, tag::PING, 4, 3, 2, 1]);
     assert_eq!(encode(&Frame::Bye).unwrap(), [0xA7, 1, tag::BYE]);
-    assert_eq!(encode(&Frame::Button { request_id: 7, index: 3 }).unwrap(), [0xA7, 1, tag::BUTTON, 7, 0, 0, 0, 3]);
+    // a frame that acts on a screen starts with the screen's number
+    assert_eq!(encode(&Frame::Button { screen: ScreenId(2), request_id: 7, index: 3 }).unwrap(), [0xA7, 1, tag::BUTTON, 2, 0, 0, 0, 7, 0, 0, 0, 3]);
     assert_eq!(
-        encode(&Frame::Viewport(ViewportCmd { seq: 5, op: ViewportOp::Fit })).unwrap(),
-        [0xA7, 1, tag::VIEWPORT, 5, 0, 0, 0, 1]
+        encode(&Frame::Viewport(ViewportCmd { screen: ScreenId::MAIN, seq: 5, op: ViewportOp::Fit })).unwrap(),
+        [0xA7, 1, tag::VIEWPORT, 0, 0, 0, 0, 5, 0, 0, 0, 1]
+    );
+    assert_eq!(encode(&Frame::ContinueReviewing { screen: ScreenId(9) }).unwrap(), [0xA7, 1, tag::CONTINUE_REVIEWING, 9, 0, 0, 0]);
+    // the settings are one byte: reverse pan, snap, buzz for a result, for a suggestion, for a failure
+    assert_eq!(encode(&Frame::Settings(HostSettings::default())).unwrap(), [0xA7, 1, tag::SETTINGS, 0b1_1100]);
+    assert_eq!(
+        encode(&Frame::Settings(HostSettings { reverse_pan: true, snap_to_page_top: true, haptic_done: false, haptic_suggestion: false, haptic_failed: false })).unwrap(),
+        [0xA7, 1, tag::SETTINGS, 0b0_0011]
+    );
+    assert_eq!(
+        encode(&Frame::AgentFinished(AgentFinished { conversation_id: 5, file: "a".into(), line: 6, kind: FinishKind::Suggestion })).unwrap(),
+        [0xA7, 1, tag::AGENT_FINISHED, 5, 0, 0, 0, 1, 0, b'a', 6, 0, 0, 0, 1]
     );
     assert_eq!(encode(&Frame::PairAccepted { code: 482_913 }).unwrap(), [0xA7, 1, tag::PAIR_ACCEPTED, 0x61, 0x5E, 0x07, 0x00]);
     // a string is a u16 length and the UTF-8
@@ -160,7 +207,7 @@ fn every_kind_of_frame_has_a_tag_of_its_own() {
     tags.sort_unstable();
     tags.dedup();
     assert_eq!(tags.len(), count, "two kinds share a tag: {seen:?}");
-    assert_eq!(count, 20, "{seen:?}");
+    assert_eq!(count, 23, "{seen:?}");
 }
 
 // ---- the decoder is total
@@ -281,7 +328,7 @@ fn a_thumbnail_whose_pixels_are_not_its_size_is_refused() {
         payload.extend_from_slice(&u16::to_le_bytes(height));
         payload.push(0); // Rgba8
         payload.extend_from_slice(&u32::to_le_bytes(len as u32));
-        payload.extend(std::iter::repeat(0u8).take(len));
+        payload.extend(std::iter::repeat_n(0u8, len));
         raw(tag::THUMBNAIL, &payload)
     };
     assert!(decode(&thumb(4, 4, 64)).is_ok());
@@ -307,8 +354,8 @@ fn a_number_that_is_no_number_is_refused_in_every_float_field() {
     let good = encode(&gesture(1, Phase::Update, 0.5, 0.0, 1.0, Focus::Pen)).unwrap();
     let mut hurt = good.clone();
     let nan = f32::NAN.to_le_bytes();
-    // seq (4) + op tag (1) + id (4) + phase (1) = the pan_x float starts 10 bytes after the header
-    hurt[3 + 10..3 + 14].copy_from_slice(&nan);
+    // screen (4) + seq (4) + op tag (1) + id (4) + phase (1) = the pan_x float starts 14 bytes after the header
+    hurt[3 + 14..3 + 18].copy_from_slice(&nan);
     assert_eq!(decode(&hurt), Err(DecodeError::BadValue { field: "pan" }));
 }
 
@@ -323,9 +370,26 @@ fn a_kind_byte_out_of_range_is_refused() {
     let mut bytes = encode(&Frame::Reply(Reply { request_id: 1, status: ReplyStatus::Done })).unwrap();
     bytes[7] = 200;
     assert_eq!(decode(&bytes), Err(DecodeError::BadValue { field: "reply status" }));
-    let mut bytes = encode(&Frame::Viewport(ViewportCmd { seq: 1, op: ViewportOp::Reset })).unwrap();
-    bytes[7] = 42;
+    let mut bytes = encode(&Frame::Viewport(ViewportCmd { screen: ScreenId::MAIN, seq: 1, op: ViewportOp::Reset })).unwrap();
+    bytes[11] = 42;
     assert_eq!(decode(&bytes), Err(DecodeError::BadValue { field: "viewport op" }));
+    // what a NEWER AzReview may say is read for what this build understands, not refused
+    let mut bytes = encode(&Frame::Settings(HostSettings::default())).unwrap();
+    bytes[3] = 0b1010_0100;
+    assert_eq!(
+        decode(&bytes),
+        Ok(Frame::Settings(HostSettings { reverse_pan: false, snap_to_page_top: false, haptic_done: true, haptic_suggestion: false, haptic_failed: false })),
+        "a bit this build does not know is left alone"
+    );
+    let mut bytes = encode(&Frame::AgentFinished(AgentFinished { conversation_id: 1, file: String::new(), line: 1, kind: FinishKind::Done })).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] = 9;
+    assert!(matches!(decode(&bytes), Ok(Frame::AgentFinished(AgentFinished { kind: FinishKind::NoAction, .. }))), "an ending this build does not know is nothing to do");
+    bytes[last] = 3;
+    assert!(matches!(decode(&bytes), Ok(Frame::AgentFinished(AgentFinished { kind: FinishKind::Failed, .. }))));
+    let mut bytes = encode(&Frame::Refused(Refusal::NotPaired)).unwrap();
+    bytes[3] = 4;
+    assert_eq!(decode(&bytes), Err(DecodeError::BadValue { field: "refusal" }));
 }
 
 #[test]
@@ -389,7 +453,7 @@ fn the_biggest_allowed_things_round_trip_and_fit_in_a_frame() {
             ticket: "t".repeat(MAX_TICKET_BYTES),
         }),
         Frame::Notice(Notice { level: NoticeLevel::Info, text: "n".repeat(MAX_NOTICE_BYTES) }),
-        Frame::OpenFile { request_id: u32::MAX, path: "p".repeat(MAX_PATH_BYTES), line: Some(u32::MAX) },
+        Frame::OpenFile { screen: ScreenId::MAIN, request_id: u32::MAX, path: "p".repeat(MAX_PATH_BYTES), line: Some(u32::MAX) },
     ];
     for frame in biggest {
         let bytes = encode(&frame).unwrap_or_else(|e| panic!("{} did not encode: {e}", frame.name()));
@@ -402,7 +466,7 @@ fn the_biggest_allowed_things_round_trip_and_fit_in_a_frame() {
 fn things_over_their_caps_are_refused_on_the_way_out_with_the_cap_named() {
     let over = |frame: Frame| encode(&frame).unwrap_err();
     assert_eq!(
-        over(Frame::OpenFile { request_id: 1, path: "p".repeat(MAX_PATH_BYTES + 1), line: None }),
+        over(Frame::OpenFile { screen: ScreenId::MAIN, request_id: 1, path: "p".repeat(MAX_PATH_BYTES + 1), line: None }),
         EncodeError::TooLong { field: "path", len: MAX_PATH_BYTES + 1, max: MAX_PATH_BYTES }
     );
     assert_eq!(
@@ -447,5 +511,84 @@ fn an_error_says_in_words_what_was_wrong() {
     ] {
         let said = error.to_string();
         assert!(said.len() > 12 && !said.contains("{}"), "{said}");
+    }
+}
+
+// ---- the surfaces of a pen state
+
+/// The bytes of `state`, and a copy of them with the byte at `at` (counted from the end) changed to `value`.
+fn state_bytes(state: &PenState) -> Vec<u8> {
+    encode(&Frame::PenState(state.clone())).unwrap()
+}
+
+#[test]
+fn a_page_shape_that_is_no_shape_is_refused_both_ways() {
+    for (aspect, gap) in [(0.0, 0.04), (-1.0, 0.04), (0.01, 0.04), (21.0, 0.04), (0.7, -0.1), (0.7, 2.5)] {
+        let mut state = pen_state();
+        state.surface = Surface::Page(PageSurface { aspect, gap, ..PageSurface::empty() });
+        assert_eq!(encode(&Frame::PenState(state)), Err(EncodeError::BadValue { field: "page shape" }), "aspect {aspect} gap {gap}");
+    }
+    // somebody else's frame: the aspect float sits at the end of a page surface, before the gap
+    let good = state_bytes(&pen_state());
+    let mut hurt = good.clone();
+    let at = hurt.len() - 8;
+    hurt[at..at + 4].copy_from_slice(&0.0f32.to_le_bytes());
+    assert_eq!(decode(&hurt), Err(DecodeError::BadValue { field: "page shape" }));
+    let mut hurt = good;
+    let at = hurt.len() - 4;
+    hurt[at..at + 4].copy_from_slice(&5.0f32.to_le_bytes());
+    assert_eq!(decode(&hurt), Err(DecodeError::BadValue { field: "page shape" }));
+}
+
+#[test]
+fn a_page_count_over_the_cap_is_refused_before_anything_follows_it() {
+    let mut state = pen_state();
+    state.surface = Surface::Page(PageSurface { page_count: MAX_PAGE_COUNT + 1, ..PageSurface::empty() });
+    assert!(matches!(encode(&Frame::PenState(state.clone())), Err(EncodeError::TooLong { field: "pages", .. })));
+    state.surface = Surface::Page(PageSurface { page_count: MAX_PAGE_COUNT, ..PageSurface::empty() });
+    assert!(encode(&Frame::PenState(state)).is_ok());
+}
+
+#[test]
+fn a_whiteboard_is_named_shaped_and_counted_within_its_caps() {
+    let board = |name: &str, aspect: f32, items: u32| {
+        let mut state = board_state();
+        state.surface = Surface::Whiteboard(WhiteboardSurface { board_id: 1, name: name.into(), aspect, item_count: items });
+        Frame::PenState(state)
+    };
+    assert!(encode(&board("Layout", 1.6, 5)).is_ok());
+    assert!(matches!(encode(&board(&"n".repeat(MAX_NAME_BYTES + 1), 1.6, 5)), Err(EncodeError::TooLong { field: "board name", .. })));
+    assert_eq!(encode(&board("x", 0.0, 5)), Err(EncodeError::BadValue { field: "board shape" }));
+    assert_eq!(encode(&board("x", f32::NAN, 5)), Err(EncodeError::BadValue { field: "board shape" }));
+    assert!(matches!(encode(&board("x", 1.0, MAX_BOARD_ITEMS + 1)), Err(EncodeError::TooLong { field: "board items", .. })));
+    let back = decode(&encode(&board("Übersicht", 2.0, MAX_BOARD_ITEMS)).unwrap()).unwrap();
+    assert_eq!(back, board("Übersicht", 2.0, MAX_BOARD_ITEMS));
+}
+
+#[test]
+fn a_return_point_keeps_its_file_page_line_and_label_and_its_strings_are_capped() {
+    let mut state = pen_state();
+    state.return_point = Some(ReturnPoint { file: "a".repeat(MAX_PATH_BYTES + 1), page_index: 0, line: 0, label: String::new() });
+    assert!(matches!(encode(&Frame::PenState(state.clone())), Err(EncodeError::TooLong { field: "return file", .. })));
+    state.return_point = Some(ReturnPoint { file: "ok.rs".into(), page_index: 4, line: 10, label: "l".repeat(MAX_NAME_BYTES + 1) });
+    assert!(matches!(encode(&Frame::PenState(state.clone())), Err(EncodeError::TooLong { field: "return label", .. })));
+    state.return_point = None;
+    let back = decode(&state_bytes(&state)).unwrap();
+    assert_eq!(back, Frame::PenState(state), "no return point comes back as none");
+}
+
+#[test]
+fn the_surface_byte_of_a_pen_state_is_one_of_two_and_a_pen_state_cut_inside_a_surface_is_an_error() {
+    let good = state_bytes(&board_state());
+    for cut in 0..good.len() {
+        assert!(decode(&good[..cut]).is_err(), "cut at {cut}");
+    }
+    let page = state_bytes(&pen_state());
+    // find the surface byte: it follows the return point, so it is the first 0 before the page's file string... instead of
+    // guessing the offset, flip every byte once: the decoder must answer with a frame or an error, never a panic
+    for at in 3..page.len() {
+        let mut hurt = page.clone();
+        hurt[at] ^= 0xFF;
+        let _ = decode(&hurt);
     }
 }

@@ -3,7 +3,8 @@
 //! screens draw from a [`PhoneView`] and nothing else; the client (`phone.rs`) keeps it up to date from the frames
 //! that arrive ([`PhoneView::apply_frame`]), a simulator or a test feeds it frames directly.
 
-use crate::frame::{ButtonSet, Entry, Frame, Notice, PenState, ReplyStatus, Thumbnail};
+use crate::access::ScreenId;
+use crate::frame::{AgentFinished, ButtonSet, Entry, Frame, HostSettings, Notice, PenState, ReplyStatus, Thumbnail};
 use crate::limits::BUTTON_COUNT;
 
 /// Why a connection or a pairing did not work, in the terms the phone explains to the user.
@@ -92,6 +93,12 @@ pub struct PhoneView {
     pub files: FilesView,
     /// The newest line AzReview sent for the screen.
     pub notice: Option<Notice>,
+    /// What the user settled on the Mac that the phone obeys (the defaults until the Mac says).
+    pub settings: HostSettings,
+    /// How many agents have finished since the phone connected (a screen that sees it grow knows there is news).
+    pub finished_count: u32,
+    /// The newest agent that finished.
+    pub finished: Option<AgentFinished>,
 }
 
 impl Default for PhoneView {
@@ -115,7 +122,16 @@ impl PhoneView {
             button_status: [None; BUTTON_COUNT],
             files: FilesView::default(),
             notice: None,
+            settings: HostSettings::default(),
+            finished_count: 0,
+            finished: None,
         }
+    }
+
+    /// The screen of AzReview the phone is looking at (the one the newest pen state is of; the main screen before one came).
+    #[must_use]
+    pub fn screen(&self) -> ScreenId {
+        self.pen.as_ref().map_or(ScreenId::MAIN, |p| p.screen)
     }
 
     /// Whether the thumbnail is the picture of the page the pen state names.
@@ -143,7 +159,7 @@ impl PhoneView {
                         return false;
                     }
                 }
-                let changed = self.pen.as_ref().map_or(true, |old| {
+                let changed = self.pen.as_ref().is_none_or(|old| {
                     let mut same_seq = old.clone();
                     same_seq.seq = new.seq;
                     same_seq != *new
@@ -184,6 +200,18 @@ impl PhoneView {
                     return false;
                 }
                 self.notice = Some(notice.clone());
+                true
+            }
+            Frame::Settings(settings) => {
+                if self.settings == *settings {
+                    return false;
+                }
+                self.settings = *settings;
+                true
+            }
+            Frame::AgentFinished(done) => {
+                self.finished_count = self.finished_count.wrapping_add(1);
+                self.finished = Some(done.clone());
                 true
             }
             _ => false,

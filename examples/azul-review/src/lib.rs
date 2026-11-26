@@ -122,6 +122,7 @@ pub mod recorder_settings;
 pub mod recorder_track;
 pub mod recorder_wb;
 pub mod recorder_writer;
+pub mod request_strokes;
 pub mod seen_watch;
 pub mod session;
 pub mod slash;
@@ -786,11 +787,11 @@ impl AppState {
         self.sync_chips();
     }
 
-    /// The strokes an agent is told of for conversation `id`: the ink near its anchor (the stroke samples come with the
-    /// request's strokes; none are sent yet).
+    /// The strokes an agent is told of for conversation `id`: the ink near its anchor and the ink drawn while its words were said,
+    /// as the samples the pen gave ([`request_strokes::pick`]).
     #[must_use]
-    pub fn strokes_for_request(&self, _id: u64) -> Vec<agent_stroke::StrokeInput> {
-        Vec::new()
+    pub fn strokes_for_request(&self, id: u64) -> Vec<agent_stroke::StrokeInput> {
+        self.notes.iter().find(|n| n.id == id).map_or_else(Vec::new, |n| request_strokes::pick(n, &self.strokes))
     }
 
     /// Whether the workspace has anything to show in the tree.
