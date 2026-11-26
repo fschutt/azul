@@ -6,6 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import layout_audit as la  # noqa: E402
+import audit_compare as ac  # noqa: E402
 
 SCALE = 2.625
 
@@ -143,6 +144,33 @@ class AuditTests(unittest.TestCase):
         self.assertIn("# Layout audit: AzDemo", text)
         self.assertIn("Not measured: a text clipped inside its own box", text)
         self.assertIn("portrait: window 411.4 x 914.3 dp", text)
+
+
+class CompareTests(unittest.TestCase):
+    def audit_of(self, tree, layout=None):
+        bars = la.parse_system_bars(WINDOW_DUMP)
+        return la.audit(answer(layout or [node(1, "button", 10, 10, 100, 50)]), answer(tree), STATE, bars, "portrait")
+
+    def test_a_box_is_the_same_box_after_it_moved_down_the_page(self):
+        b = [{"node": "button#a", "text": "Save", "x": 10.0, "y": 100.0, "w": 30.0, "h": 30.0}]
+        a = [{"node": "button#a", "text": "Save", "x": 10.0, "y": 140.0, "w": 30.4, "h": 30.2}]
+        self.assertEqual(ac.diff_lists(b, a), ([], []))
+
+    def test_what_is_gone_and_what_is_new_are_told_apart(self):
+        b = [{"node": "button#a", "text": "Save", "w": 30.0, "h": 30.0}, {"node": "p", "text": "Old", "w": 50.0, "h": 10.0}]
+        a = [{"node": "button#a", "text": "Save", "w": 48.0, "h": 48.0}, {"node": "p", "text": "Old", "w": 50.0, "h": 10.0}]
+        gone, new = ac.diff_lists(b, a)
+        self.assertEqual([k for k, _n in gone], [("button#a", "Save", 30, 30)])
+        self.assertEqual([k for k, _n in new], [("button#a", "Save", 48, 48)])
+
+    def test_the_comparison_names_the_lists_and_the_fixed_box(self):
+        before = {"AzPaint": {"portrait": self.audit_of([a11y(1, 1, "Button", "Undo", 10, 10, 30, 30, clickable=True)])}}
+        after = {"AzPaint": {"portrait": self.audit_of([a11y(1, 1, "Button", "Undo", 10, 80, 48, 48, clickable=True)], [node(1, "button", 10, 80, 48, 48)])}}
+        text = ac.compare(before, after)
+        self.assertIn("## AzPaint", text)
+        self.assertIn("| tappable nodes under 48 dp | 1 | 0 |", text)
+        self.assertIn("| tappable boxes under a bar | 1 | 0 |", text)
+        self.assertIn("gone: ", text)
 
 
 if __name__ == "__main__":
