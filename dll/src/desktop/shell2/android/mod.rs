@@ -928,6 +928,16 @@ pub fn android_main(app: AndroidApp) {
             let _ = crate::desktop::shell2::common::webview::sync(&mut window);
         }
 
+        // THE SOFT KEYBOARD the engine asked for while it handled this iteration's events (a text field took
+        // the focus) is raised AFTER the mirror below is published: the IME calls `onCreateInputConnection`
+        // within milliseconds of `showSoftInput` and asks the mirror which kind of field has the focus. Raised
+        // from inside the event handling it reached the UI thread first and read the PREVIOUS field's kind (a
+        // plain keyboard for an e-mail field, no phone pad for a phone number).
+        let keyboard_request = window.bridge.queues.take_keyboard_request();
+        if keyboard_request.is_some() {
+            window.ime_dirty = true;
+        }
+
         // THE IME'S VIEW OF THE FOCUSED TEXT: published when anything that can change it happened, and
         // whenever the UI thread pushed an event this iteration's drain did not see (a reader waits for a
         // mirror that has seen the events it pushed before it asked).
@@ -937,6 +947,9 @@ pub fn android_main(app: AndroidApp) {
             window.ime_dirty = false;
             let mirror = ime_mirror_of(&mut window);
             window.bridge.queues.publish(ui_applied, mirror);
+        }
+        if let Some(visible) = keyboard_request {
+            raise_soft_keyboard(visible);
         }
     }
 
@@ -2716,6 +2729,18 @@ fn publish_jni_context(app: &AndroidApp) {
     ANDROID_ACTIVITY.store(app.activity_as_ptr(), core::sync::atomic::Ordering::SeqCst);
 }
 
+/// The engine asks for the on-screen keyboard to be shown or hidden (called from inside the event handling,
+/// where the focus has just changed). Only recorded: the loop raises it after it has published the mirror of
+/// the focused text the IME reads (`UiQueues::take_keyboard_request`, `raise_soft_keyboard`).
+#[cfg(all(target_os = "android", feature = "jni"))]
+pub fn set_soft_keyboard_visible(visible: bool) {
+    match bridge::published() {
+        Some(bridge) => bridge.queues.request_keyboard(visible),
+        // before `android_main` published its bridge nothing is focused: nothing to wait for
+        None => raise_soft_keyboard(visible),
+    }
+}
+
 /// Ask Android to show or hide the on-screen keyboard.
 ///
 /// Rust -> Java, the opposite direction from every other bridge in this file.
@@ -2727,7 +2752,7 @@ fn publish_jni_context(app: &AndroidApp) {
 /// Best-effort by design: a failure here means the user gets no keyboard, which
 /// is bad, but it is not a reason to take the app down mid-layout.
 #[cfg(all(target_os = "android", feature = "jni"))]
-pub fn set_soft_keyboard_visible(visible: bool) {
+fn raise_soft_keyboard(visible: bool) {
     use jni::JavaVM;
 
     let vm_ptr = java_vm_ptr();
@@ -2901,6 +2926,10 @@ pub fn set_selection_toolbar_visible(_visible: bool, _native_ptr: i64) {}
 /// which is what happened before this function existed at all.
 #[cfg(all(target_os = "android", not(feature = "jni")))]
 pub fn set_soft_keyboard_visible(_visible: bool) {}
+
+/// No-op without `jni`, as `set_soft_keyboard_visible`.
+#[cfg(all(target_os = "android", not(feature = "jni")))]
+fn raise_soft_keyboard(_visible: bool) {}
 
 /// Pointer capture on the input view (9d-android, the grab behind
 /// `CallbackInfo::set_pointer_lock`; it is also what makes a pad's touch

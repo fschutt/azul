@@ -90,6 +90,8 @@ pub struct UiQueues {
     closed: AtomicBool,
     /// The device's night mode as the activity last reported it: 0 none pending, 1 light, 2 dark.
     theme: AtomicI32,
+    /// The soft keyboard the engine asked for since the loop last raised it: -1 nothing, 0 hide, 1 show.
+    keyboard: AtomicI32,
     /// Events pushed by the UI thread, oldest first.
     events: Mutex<Vec<UiEvent>>,
     /// The number of events ever pushed.
@@ -139,6 +141,7 @@ impl UiQueues {
         Self {
             closed: AtomicBool::new(false),
             theme: AtomicI32::new(0),
+            keyboard: AtomicI32::new(-1),
             events: Mutex::new(Vec::new()),
             pushed: AtomicU64::new(0),
             mirror: Mutex::new(Published {
@@ -211,6 +214,24 @@ impl UiQueues {
     /// Take the pending night mode: `0` when none, else `1` light or `2` dark.
     pub fn take_theme(&self) -> i32 {
         self.theme.swap(0, Ordering::AcqRel)
+    }
+
+    /// The engine asks for the soft keyboard (`true`) or for it to go (`false`) while it handles an event.
+    /// Only recorded, the last word wins: the loop raises it AFTER it has published the mirror of the focused
+    /// text (see [`Self::take_keyboard_request`]).
+    pub fn request_keyboard(&self, visible: bool) {
+        self.keyboard.store(i32::from(visible), Ordering::Release);
+    }
+
+    /// Take the keyboard request of this iteration of the loop, once. The loop publishes the mirror first and
+    /// raises the keyboard then: the IME asks the mirror which kind of field has the focus
+    /// (`onCreateInputConnection`) within milliseconds of `showSoftInput`, and a keyboard raised from inside
+    /// the event handling reached the UI thread before the mirror said which field that was.
+    pub fn take_keyboard_request(&self) -> Option<bool> {
+        match self.keyboard.swap(-1, Ordering::AcqRel) {
+            -1 => None,
+            wanted => Some(wanted != 0),
+        }
     }
 
     /// The number of events pushed so far.

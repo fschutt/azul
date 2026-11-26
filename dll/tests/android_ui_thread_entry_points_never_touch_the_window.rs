@@ -65,3 +65,31 @@ fn the_window_module_has_no_jni_entry_point_and_no_window_address_is_published()
         assert!(!code.contains(gone), "{gone} hands the window's address to another thread");
     }
 }
+
+/// The IME asks which kind of field has the focus (`onCreateInputConnection` -> `nativeGetInputHints`) within
+/// milliseconds of `showSoftInput`, and the answer comes from the mirror the loop publishes at the end of its
+/// iteration. A keyboard raised from inside the event handling (where the focus changed) reached the UI thread
+/// before that mirror existed: the IME read the PREVIOUS field's kind (a plain keyboard for an e-mail field, no
+/// phone pad). The engine's request is therefore only recorded, and the loop raises the keyboard after the
+/// publication.
+///
+/// Mutation: `set_soft_keyboard_visible` calling the JNI helper itself (the state of 0f3e1eb093).
+#[test]
+fn the_soft_keyboard_is_raised_after_the_mirror_it_reads_is_published() {
+    let code = code_of("dll/src/desktop/shell2/android/mod.rs");
+
+    // the engine's entry point only records the request
+    let at = code
+        .find("pub fn set_soft_keyboard_visible(visible: bool) {")
+        .expect("the engine calls set_soft_keyboard_visible");
+    let body_end = at + code[at..].find("\n}\n").expect("end of function");
+    let entry = &code[at..body_end];
+    assert!(entry.contains("request_keyboard("), "the request is recorded in the bridge");
+    assert!(!entry.contains("attach_current_thread"), "no JNI call from inside the event handling");
+
+    // the loop takes the request, publishes the mirror, then raises the keyboard
+    let take = code.find("take_keyboard_request()").expect("the loop takes the request");
+    let publish = code[take..].find("queues.publish(").map(|i| take + i).expect("the loop publishes the mirror after taking it");
+    let raise = code[publish..].find("raise_soft_keyboard(visible)").map(|i| publish + i).expect("the loop raises the keyboard after publishing");
+    assert!(take < publish && publish < raise);
+}

@@ -213,3 +213,24 @@ fn the_night_mode_is_latest_wins_and_taken_once() {
     q.set_theme(-1);
     assert_eq!(q.take_theme(), 0, "no preference expressed is no change");
 }
+
+/// The soft keyboard the engine asks for while it handles events is raised by the loop AFTER it published
+/// the mirror of the focused text (the IME asks the mirror which kind of field has the focus within
+/// milliseconds of `showSoftInput`): the request is a slot, the last word wins, and it is taken once.
+///
+/// Mutation: the request raised on the spot, from inside the event handling (the mirror then still described the
+/// previous field: a plain keyboard for an e-mail field).
+#[test]
+fn the_keyboard_request_is_a_slot_the_loop_takes_once_and_the_last_word_wins() {
+    let q = UiQueues::new();
+    assert_eq!(q.take_keyboard_request(), None, "nothing asked: nothing to raise");
+    q.request_keyboard(true);
+    assert_eq!(q.take_keyboard_request(), Some(true));
+    assert_eq!(q.take_keyboard_request(), None, "taken once");
+    q.request_keyboard(true);
+    q.request_keyboard(false);
+    assert_eq!(q.take_keyboard_request(), Some(false), "the app's later 'keep it down' overrides the focus default");
+    q.request_keyboard(false);
+    q.request_keyboard(true);
+    assert_eq!(q.take_keyboard_request(), Some(true));
+}
