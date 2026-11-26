@@ -84,7 +84,7 @@ main: func [
     app-data:  azul-refany-create as byte-ptr! the-model
     layout-cb: azul-register-layout-callback :on-layout
 
-    wco: AzWindowCreateOptions_default
+    wco: AzWindowCreateOptions_createDefault
     wco/window_state/layout_callback: layout-cb
 
     the-app: AzApp_create app-data AzAppConfig_create

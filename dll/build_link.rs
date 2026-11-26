@@ -276,7 +276,7 @@ fn link_static(target: &str, src: &Path, out_dir: &str) {
     println!("cargo:warning=Linking against {} [static]", src.display());
     println!("cargo:rustc-link-search=native={}", link_dir.display());
     println!("cargo:rustc-link-lib=static=azul");
-    emit_static_system_deps(target);
+    emit_static_system_deps(target, src);
 }
 
 /// Link a shared library found at `src` (any file name; for MSVC, the DLL or
@@ -471,6 +471,54 @@ fn refuse_to_overwrite_the_linked_library(found_in: &Path, out_dir: &str, target
     );
 }
 
+/// One system library a prebuilt `libazul.a` needs, as the compiler that built it names it.
+#[derive(Clone, Debug, PartialEq)]
+enum NativeLib {
+    /// `-framework Foundation` (Apple)
+    Framework(String),
+    /// `-lSystem`, `-lc++`, or an MSVC `kernel32.lib`
+    Library(String),
+    /// `-L/some/dir`
+    SearchPath(String),
+}
+
+/// Reads the text `rustc --print native-static-libs` prints for a staticlib
+/// (`note: native-static-libs: -framework Foundation -lSystem -lc++`; the text after the colon is
+/// what is given here) into the libraries a consumer links the archive with. Anything it does not
+/// know (a linker argument) is returned as the second list, never dropped silently.
+fn parse_native_static_libs(text: &str) -> (Vec<NativeLib>, Vec<String>) {
+    let mut libs = Vec::new();
+    let mut ignored = Vec::new();
+    let mut words = text.split_whitespace();
+    while let Some(w) = words.next() {
+        if w == "-framework" {
+            match words.next() {
+                Some(name) => libs.push(NativeLib::Framework(name.to_string())),
+                None => ignored.push(w.to_string()),
+            }
+        } else if let Some(dir) = w.strip_prefix("-L").filter(|d| !d.is_empty()) {
+            libs.push(NativeLib::SearchPath(dir.to_string()));
+        } else if let Some(name) = w.strip_prefix("-l").filter(|n| !n.is_empty()) {
+            libs.push(NativeLib::Library(name.to_string()));
+        } else if let Some(name) = w.strip_suffix(".lib").filter(|n| !n.is_empty()) {
+            libs.push(NativeLib::Library(name.to_string()));
+        } else {
+            ignored.push(w.to_string());
+        }
+    }
+    (libs, ignored)
+}
+
+/// The file next to a static archive that says what the archive needs: `<archive name>.native-libs`
+/// holds the text after `native-static-libs:` that rustc printed when it built the archive. The
+/// job that builds libazul for a target writes it, so a target whose list is not written down
+/// below (iOS, Android) never depends on somebody's guess of it.
+fn native_libs_file(archive: &Path) -> PathBuf {
+    let mut name = archive.file_name().unwrap_or_default().to_os_string();
+    name.push(".native-libs");
+    archive.with_file_name(name)
+}
+
 /// System libraries a consumer must link ALONGSIDE the prebuilt `libazul.a`.
 ///
 /// A static archive carries no link metadata. When azul is consumed as a Rust
@@ -486,7 +534,26 @@ fn refuse_to_overwrite_the_linked_library(found_in: &Path, out_dir: &str, target
 /// `_AVCaptureDeviceTypeBuiltInWideAngleCamera`, `_AVMediaTypeVideo`,
 /// `_CFArrayCreate` … — while CI reported the job green and the release served
 /// binaries from 26 days earlier.
-fn emit_static_system_deps(target: &str) {
+fn emit_static_system_deps(target: &str, archive: &Path) {
+    // The archive's own list, when its builder wrote one (see `native_libs_file`): exact, and the
+    // only list that exists for a target the built-in ones below do not cover.
+    let listed = native_libs_file(archive);
+    if let Ok(text) = fs::read_to_string(&listed) {
+        println!("cargo:rerun-if-changed={}", listed.display());
+        let (libs, ignored) = parse_native_static_libs(&text);
+        for lib in libs {
+            match lib {
+                NativeLib::Framework(f) => println!("cargo:rustc-link-lib=framework={f}"),
+                NativeLib::Library(l) => println!("cargo:rustc-link-lib=dylib={l}"),
+                NativeLib::SearchPath(p) => println!("cargo:rustc-link-search=native={p}"),
+            }
+        }
+        for w in ignored {
+            println!("cargo:warning={}: ignoring `{w}`", listed.display());
+        }
+        return;
+    }
+    println!("cargo:rerun-if-changed={}", listed.display());
     if target.contains("apple") {
         // Camera (AVCaptureDevice*/AVMediaType*), the CoreMedia/CoreVideo
         // sample-buffer path, CF types used throughout, and Security for the

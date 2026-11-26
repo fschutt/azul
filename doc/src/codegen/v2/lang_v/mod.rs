@@ -11,6 +11,12 @@
 //! and every exported symbol a top-level `fn C.AzFoo(...)` extern
 //! declaration.
 //!
+//! # Names
+//!
+//! V refuses an uppercase letter in a field name, so an enum variant and a union field are
+//! snake_case (`azul.AzUpdate.refresh_dom`, `AzTabIndex.override_in_parent`): [`snake_field`].
+//! Types and functions keep the C names.
+//!
 //! # Why plain V structs (not `struct C.Foo`)
 //!
 //! V only *emits* a struct definition for structs it owns (`struct Foo`);
@@ -54,6 +60,10 @@
 pub mod fields;
 pub mod functions;
 pub mod types;
+
+#[cfg(test)]
+#[path = "names_test.rs"]
+mod names_test;
 
 use std::collections::BTreeSet;
 
@@ -104,6 +114,8 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("// every exported symbol is declared as a top-level `fn C.AzFoo(...)` extern.");
     b.line("// Symbol names match the C bindings verbatim (AzApp_create, ...); call them");
     b.line("// through the `C.` namespace (C.AzApp_create) and use the `azul.Az*` types.");
+    b.line("// Enum variants and union fields are snake_case (azul.AzUpdate.refresh_dom):");
+    b.line("// V refuses an uppercase letter in a field name.");
     b.line("//");
     b.line("// Callbacks are C-direct: a top-level V `fn` is a real C function pointer, so");
     b.line("// pass `on_click` / `layout` straight to C.AzButton_setOnClick /");
@@ -262,6 +274,69 @@ pub fn arg_type_for_ref_kind(type_name: &str, ref_kind: &ArgRefKind, ir: &Codege
         ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
             ptr_to_v(type_name, ir)
         }
+    }
+}
+
+/// The spelling of an enum variant or a union field in V: snake_case. V refuses an uppercase letter
+/// in a field name ("field name `LineStart` cannot contain uppercase letters, use snake_case
+/// instead", V 0.5.2: every enum variant and every union field of `azul.v` was an error), so
+/// `RefreshDomAllWindows` is `refresh_dom_all_windows`, `KeyA` is `key_a` and `UTF8Mode` is
+/// `utf8_mode`; a word V reserves gets its trailing underscore (`Type` is `type_`).
+pub fn snake_field(name: &str) -> String {
+    let chars: Vec<char> = name.chars().collect();
+    let mut out = String::with_capacity(name.len() + 4);
+    for (i, &c) in chars.iter().enumerate() {
+        if c.is_ascii_uppercase() {
+            let prev = i.checked_sub(1).map(|j| chars[j]);
+            let next = chars.get(i + 1).copied();
+            // A word starts at an uppercase letter after a lowercase letter or a digit, and at the
+            // last capital of an acronym when a lowercase letter follows it (`HTTPRequest`).
+            let word_start = match prev {
+                Some(p) if p.is_ascii_lowercase() || p.is_ascii_digit() => true,
+                Some(p) if p.is_ascii_uppercase() => next.is_some_and(|n| n.is_ascii_lowercase()),
+                _ => false,
+            };
+            if word_start {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    sanitize_identifier(&out)
+}
+
+/// [`snake_field`] of each name of one enum or union, kept apart: two names that fold to the same
+/// word get a trailing underscore on the later one.
+pub fn snake_fields<'a>(names: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    names
+        .into_iter()
+        .map(|n| {
+            let mut field = snake_field(n);
+            while !seen.insert(field.clone()) {
+                field.push('_');
+            }
+            field
+        })
+        .collect()
+}
+
+/// The name of a struct field in V. V refuses a field name that starts with an underscore ("field
+/// name `_reserved` cannot start with `_`", V 0.5.2: 27 members of `azul.v` - `_reserved`,
+/// `_abi_mut`, `_abi_ref` and the fields of tuple structs, `_0`, `_1`, `_2`), so the underscores
+/// move to the end (`reserved_`, `abi_mut_`) and a name that would then start with a digit gets an
+/// `f` (`f0`, `f1`). Layout is by position, the names are the binding's own.
+pub fn v_field_name(name: &str) -> String {
+    let rest = name.trim_start_matches('_');
+    if rest.len() == name.len() {
+        return sanitize_identifier(name);
+    }
+    match rest.chars().next() {
+        None => "unnamed".to_string(),
+        Some(c) if c.is_ascii_digit() => format!("f{rest}"),
+        Some(_) => format!("{rest}_"),
     }
 }
 

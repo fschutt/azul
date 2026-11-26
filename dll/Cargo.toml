@@ -247,6 +247,20 @@ aegis = { version = "0.9", features = ["pure-rust"], optional = true }
 iroh = { version = "1.2", default-features = false, features = ["tls-ring"], optional = true }
 iroh-tickets = { version = "1.0", optional = true }
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "sync", "macros", "time", "net"], optional = true }
+# The stream type of an iroh address lookup (`BoxStream`) and its combinators, for the local-network
+# lookups (extra/iroh/discovery.rs). Already in Cargo.lock through iroh itself.
+n0-future = { version = "0.3", optional = true }
+
+# Local-network discovery of the iroh engine (mDNS, ON by default: `IrohConfig::local_discovery`).
+# iroh 1.2 does not carry it ("mDNS address lookup is no longer built into iroh"): it is this crate,
+# on swarm-discovery's raw multicast sockets, pure Rust, no C toolchain. NOT on iOS: Apple allows
+# multicast there only to an app with the restricted `com.apple.developer.networking.multicast`
+# entitlement (TN3179), which a personal (free) team cannot have; iOS asks the system's Bonjour
+# instead (extra/iroh/bonjour.rs). build.rs turns this same target set into `cfg(az_iroh_mdns)`.
+# Cargo.lock holds swarm-discovery 0.6.5 or newer ON PURPOSE: 0.6.0 to 0.6.4 announce with a TTL of 0
+# and no PTR record, which Apple's Bonjour and Android's NsdManager do not see.
+[target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64", target_arch = "arm"), not(target_family = "wasm"), not(target_os = "ios")))'.dependencies]
+iroh-mdns-address-lookup = { version = "0.6.1", optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tfd = { version = "0.1.0", default-features = false, optional = true }
@@ -828,9 +842,10 @@ db-sqlite = ["dep:turso", "dep:aegis"]
 # db-sqlite; the export API is always present (stub when off), so it flows
 # through codegen with no feature-gating.
 pdf = ["dep:printpdf", "serde_json"]
-# The iroh engine behind `IrohEndpoint`. The handle is always present; without the
-# feature `bind` reports an `Error` event instead of binding.
-iroh = ["dep:iroh", "dep:iroh-tickets", "dep:tokio", "azul-core/tls-roots"]
+# The iroh engine behind `IrohEndpoint`, with local-network discovery (mDNS; the system's Bonjour on
+# iOS). The handle is always present; without the feature `bind` reports an `Error` event instead of
+# binding.
+iroh = ["dep:iroh", "dep:iroh-tickets", "dep:iroh-mdns-address-lookup", "dep:n0-future", "dep:tokio", "azul-core/tls-roots"]
 
 # -----------------------------------------------------------------------------
 # Link Modes (for consumers of the library)

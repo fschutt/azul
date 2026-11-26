@@ -278,6 +278,33 @@ or even a Mac:
 - Simulator builds and personal-team device installs over a debug bridge need no
   signing at all.
 
+## Local network on a phone
+
+An app that uses an `IrohEndpoint` finds the computer it controls by its endpoint id on the local
+network ([Networking](../data/networking.md#finding-a-peer-on-the-local-network)); a phone needs
+two things the engine cannot grant itself.
+
+**Android.** `AndroidManifest.xml` declares `android.permission.CHANGE_WIFI_MULTICAST_STATE` (the
+template in `scripts/android/` already does; it is a normal permission, granted at install, no
+prompt). The engine takes a `WifiManager.MulticastLock` for as long as an endpoint with local
+discovery is bound: the Wi-Fi chip drops multicast without it. Without the permission the endpoint
+works and `local_discovery_status()` says `unavailable`.
+
+**iOS.** The Info.plist needs `NSLocalNetworkUsageDescription` (the text of the Local Network
+prompt) and `NSBonjourServices` with `_irohv1._udp`. `build-ios.sh` writes both for
+`AZ_IOS_LOCAL_NETWORK="Find the computer you control on your network"`; `AZ_IOS_USAGE` adds other
+usage descriptions (one `NSKey=text` per line) and `AZ_IOS_BONJOUR_SERVICES` other service types.
+An iPhone does not open multicast sockets (the entitlement for that is restricted to teams Apple
+approves, and a personal team cannot hold it): it asks the system's Bonjour, which needs the
+prompt's permission and the listed service type and nothing else. The first lookup shows the prompt;
+the Simulator does not implement it, test on a device. If the user denies it, or the keys are
+missing, the lookup answers `kDNSServiceErr_PolicyDenied` and the dial's error says so in words.
+
+```sh
+AZ_IOS_LOCAL_NETWORK="Find the computer you control on your network" \
+  bash scripts/build-ios.sh aarch64-apple-ios my-app
+```
+
 ## Installing & debugging the built app
 
 You don't have to build anything to try the demos — every example is published
