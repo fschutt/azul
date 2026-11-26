@@ -159,7 +159,8 @@ def main(argv):
     if args.json:
         pathlib.Path(args.json).write_text(json.dumps(verdict, indent=2))
     for item in found:
-        print("ios_symbol_gate: %s (from %s): %s" % (item["name"], item["lib"] or "?", item["why"]))
+        # "error: " first: the demo builder reports the first line that starts with it as the failure
+        print("error: ios_symbol_gate: %s (from %s): %s" % (item["name"], item["lib"] or "?", item["why"]))
     print("ios_symbol_gate: %d import(s), %d unchecked, %d newer than iOS %s" % (len(imports), unchecked, len(found), args.min_os))
     return 1 if found else 0
 
