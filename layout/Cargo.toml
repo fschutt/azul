@@ -334,10 +334,10 @@ pnm = ["image_decoding", "image/pnm"]
 # Formats that no default turns on: a user asks for them (the decoders read files nobody vetted, and exr
 # brings its own crates: exr, half, lebe, bit_field, flume, zune-inflate). `decode_raw_image_from_any_bytes`
 # sniffs the format, so the feature is all it takes. QOI, farbfeld, DirectDraw Surface, OpenEXR.
-qoi = ["image_decoding"]
-ff = ["image_decoding"]
-dds = ["image_decoding"]
-exr = ["image_decoding"]
+qoi = ["image_decoding", "image/qoi"]
+ff = ["image_decoding", "image/ff"]
+dds = ["image_decoding", "image/dds"]
+exr = ["image_decoding", "image/exr"]
 
 # XML parsing support (for SVG and font configs)
 xml = ["dep:roxmltree", "dep:xmlwriter", "dep:xmlparser"]
@@ -402,7 +402,7 @@ http = ["dep:ureq", "azul-core/url", "azul-core/tls-roots", "dep:rustls", "dep:r
 # to it, for the requests of one agent: the agent behind an `HttpClient` and its clones (a request without
 # a client opens an agent of its own). Off by default: an app that needs a session keeps its own Cookie
 # header, and a jar in the engine is a decision about who may see which cookie.
-http-cookies = ["http"]
+http-cookies = ["http", "ureq/cookies"]
 
 # Throwaway certificate authorities and a loopback TLS server for the tests of what a TLS
 # connection trusts (azul-core's `tls_testing`, re-exported); never part of an app.
@@ -413,12 +413,12 @@ zip = ["dep:zip", "std"]
 
 # ZIP entries that 7-Zip wrote with Deflate64 (method 9) are read too: one small pure-Rust crate. Off by
 # default: such archives are rare, and an entry of another method is refused as before.
-zip-deflate64 = ["zip"]
+zip-deflate64 = ["zip", "zip/deflate64"]
 
 # The faster pure-Rust deflate and inflate of the png crate (zlib-rs) for the PNGs that the engine
 # encodes and decodes. Cargo unifies the feature across the build: flate2 in the same build graph
 # (zip, fonts) moves onto zlib-rs too. Off by default until the gain is measured.
-png-zlib-rs = ["dep:png"]
+png-zlib-rs = ["dep:png", "png/zlib-rs"]
 
 # JSON parsing support
 json = ["dep:serde_json", "std", "azul-core/serde-json"]

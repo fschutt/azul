@@ -80,6 +80,8 @@ A `null_image` keeps a slot in the cache without uploading data. It's useful as 
 
 `RawImage` also exposes encoders (`encode_png`, `encode_jpeg`, `encode_bmp`, `encode_gif`, `encode_pnm`, `encode_tga`, `encode_tiff`) and two decoders. `RawImage::decode_image_bytes_any` is the synchronous, pure-compute decoder that works on every target. `RawImage::decode_image_bytes` is the request form: it resumes a callback with an `ImageDecodeResult` and, in the browser, hands the work to the hardware decoder - the faster choice for large images. Decoded pixels may differ slightly per backend (premultiplication, ICC handling).
 
+The decoders sniff the format. The shipped libraries decode PNG, JPEG, GIF, BMP, ICO, TGA, TIFF, WebP, HDR and PNM; four more formats are behind Cargo features that no shipped set turns on, because their decoders read files nobody has vetted: `qoi` (QOI), `ff` (farbfeld), `dds` (DirectDraw Surface) and `exr` (OpenEXR, which brings six crates). Build with the feature and the same decoders read them; without it such a file is an error, not a crash.
+
 ## SVG
 
 Vector graphics go through tessellation: every closed path is converted to a triangle list, then rendered on the CPU or uploaded to the GPU. Build paths in memory with `SvgPath::create` and combine them via `SvgMultiPolygon::create`. Then call `SvgMultiPolygon::tessellate_fill` or `tessellate_stroke` to produce a `TessellatedSvgNode`.
