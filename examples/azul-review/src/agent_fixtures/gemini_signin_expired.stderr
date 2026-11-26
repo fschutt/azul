@@ -1,0 +1,6 @@
+Error authenticating: FatalCancellationError: Authentication cancelled by user.
+    at initOauthClient (file:///opt/homebrew/Cellar/gemini-cli/0.65.0/libexec/lib/node_modules/@google/gemini-cli/bundle/chunk-DKZARV6U.js:279463:15)
+    at ... (stack trace left out)
+  exitCode: 130
+}
+[31mAuthentication cancelled by user.[0m

@@ -57,6 +57,13 @@ azreview-whiteboard-jump-file-missing = Die Datei gibt es nicht mehr.
 azreview-whiteboard-store-not-a-board = Diese Datei ist kein Whiteboard, das AzReview öffnen kann ({ $why }). Sie bleibt, wie sie ist, und das Whiteboard beginnt leer.
 azreview-whiteboard-store-too-new = Dieses Whiteboard wurde von einem neueren AzReview gespeichert (Format { $found }). Es bleibt, wie es ist, und das Whiteboard beginnt leer.
 azreview-whiteboard-store-too-large = Die Datei dieses Whiteboards ist weit größer, als ein Whiteboard sein kann ({ $bytes } Bytes). Sie bleibt, wie sie ist, und das Whiteboard beginnt leer.
+azreview-whiteboard-surface = Whiteboard
+azreview-whiteboard-empty = Kreise Code mit dem Stift ein und ziehe den Kreis in diese Leiste, um ihn hier zu behalten. Zeichne Pfeile zwischen den Stücken, um zu zeigen, wie sie zusammengehören.
+azreview-whiteboard-drawing = Das Bild wird gezeichnet...
+azreview-whiteboard-picture-missing = Das Bild ist nicht verfügbar. Das sind die Zeilen, die es zeigt:
+azreview-whiteboard-cutout-name = { $file }, Zeilen { $first } bis { $last }
+azreview-whiteboard-label-placeholder = Beschriftung hinzufügen
+azreview-whiteboard-label-name = Beschriftung von { $file }, Zeilen { $first } bis { $last }
 
 ## Diktieren und die Seitenspalte der Notizen
 
@@ -170,3 +177,6 @@ azreview-agent-problem-arg-forbidden = { $field }: { $arg } ist hier nicht erlau
 azreview-agent-problem-model-required = { $field }: nenne ein Modell
 azreview-agent-problem-url-invalid = { $field }: { $text } ist keine http://- oder https://-Adresse
 azreview-agent-problem-unknown-field = { $field }: keine solche Einstellung ({ $word })
+azreview-agent-field-effort = Aufwand
+azreview-agent-hint-effort = Wie gründlich das Modell nachdenkt: low ist schnell und billig, max gründlich. Leer: der Standard des Modells. Ein Modell, das Aufwand nicht kennt, lehnt ihn ab: leere dann die Zeile.
+azreview-agent-problem-not-a-choice = { $field }: „{ $word }“ gehört nicht zu den Möglichkeiten ({ $choices })

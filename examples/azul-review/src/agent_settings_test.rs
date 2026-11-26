@@ -392,6 +392,7 @@ fn the_rows_of_a_backend_are_the_ones_that_matter_to_it() {
             "timeout",
             "budget",
             "max-turns",
+            "effort",
             "key",
             "program",
             "args"
@@ -404,6 +405,7 @@ fn the_rows_of_a_backend_are_the_ones_that_matter_to_it() {
             "model",
             "timeout",
             "max-tokens",
+            "effort",
             "key",
             "base-url"
         ]
@@ -461,6 +463,13 @@ fn what_cannot_work_as_it_stands_is_found_by_validate() {
     let mut s = AgentSettings::default();
     s.set(Task::Editing, "backend", "anthropic-api")
         .expect("backend");
+    assert_eq!(
+        s.task(Task::Editing).model,
+        "claude-haiku-5-5",
+        "the API starts with the id of the same family"
+    );
+    assert!(s.validate().is_empty());
+    s.set(Task::Editing, "model", "").expect("empty on purpose");
     let problems = s.validate();
     assert_eq!(problems.len(), 1, "{problems:?}");
     assert_eq!(problems[0].kind, ProblemKind::ModelRequired);
@@ -671,6 +680,10 @@ fn problem_samples() -> Vec<Problem> {
         p(ProblemKind::NotANumber {
             word: "soon".to_string(),
         }),
+        p(ProblemKind::NotAChoice {
+            word: "turbo".to_string(),
+            choices: "low, medium, high, xhigh, max".to_string(),
+        }),
         p(ProblemKind::OutOfRange {
             value: 99_999,
             min: 5,
@@ -739,7 +752,7 @@ fn the_german_resource_has_every_problem_with_the_same_placeholders() {
 fn a_problem_is_named_by_its_task_and_row() {
     let p = &problem_samples()[0];
     assert_eq!(p.path(), "editing.model");
-    assert_eq!(problem_samples()[8].path(), "field");
+    assert_eq!(problem_samples().last().expect("a sample").path(), "field");
 }
 
 // ==== test this backend ====
@@ -748,7 +761,7 @@ fn a_problem_is_named_by_its_task_and_row() {
 fn the_test_request_is_a_tiny_editing_request_that_builds() {
     let request = test_request("de");
     assert_eq!(request.task(), Task::Editing);
-    let Request::Review(review) = &request;
+    let review = request.as_review().expect("a review request");
     let call =
         crate::agent_review::build_call(&request, review, &Limits::default()).expect("builds");
     assert!(call.prompt.len() < 800, "{}", call.prompt.len());
@@ -806,4 +819,50 @@ fn a_task_settings_identity_is_its_backend_and_trimmed_model() {
             model: "haiku".to_string()
         }
     );
+}
+
+#[test]
+fn the_effort_is_one_of_the_levels_or_empty_and_its_case_does_not_matter() {
+    let mut s = AgentSettings::default();
+    assert_eq!(
+        s.get(Task::Editing, "effort").as_deref(),
+        Some(""),
+        "the model's own default"
+    );
+    s.set(Task::Editing, "effort", " Low ").expect("a level");
+    assert_eq!(s.task(Task::Editing).effort, "low");
+    s.set(Task::Editing, "effort", "").expect("none");
+    assert_eq!(s.task(Task::Editing).effort, "");
+    let err = s
+        .set(Task::Editing, "effort", "turbo")
+        .expect_err("no such level");
+    assert_eq!(
+        err.kind,
+        ProblemKind::NotAChoice {
+            word: "turbo".to_string(),
+            choices: "low, medium, high, xhigh, max".to_string()
+        }
+    );
+    assert_eq!(s.task(Task::Editing).effort, "", "an error writes nothing");
+    s.set(Task::Exploration, "effort", "xhigh")
+        .expect("a level");
+    let (again, problems) = AgentSettings::from_values(&s.to_values());
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(again.task(Task::Exploration).effort, "xhigh");
+}
+
+#[test]
+fn the_apis_ids_follow_the_aliases_of_the_claude_cli() {
+    assert_eq!(api_model("haiku"), "claude-haiku-5-5");
+    assert_eq!(api_model("sonnet"), "claude-sonnet-5-5");
+    assert_eq!(
+        api_model("something-else"),
+        "something-else",
+        "an id given as it is stays"
+    );
+    for task in Task::all() {
+        let id = default_model(task, BackendKind::AnthropicApi);
+        assert!(id.starts_with("claude-"), "{id}");
+        assert!(presets(BackendKind::AnthropicApi).contains(&id), "{id}");
+    }
 }

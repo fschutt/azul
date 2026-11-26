@@ -129,6 +129,7 @@ fn an_editing_prompt_has_the_file_the_code_the_strokes_the_words_and_the_convers
         at("Layout of the page"),
         at("Words under the strokes"),
         at("Strokes (SVG"),
+        at("Shape features of the strokes"),
         at("What the reviewer said"),
         at("Meaning of the strokes"),
         at("Conversation so far"),
@@ -191,6 +192,65 @@ fn the_strokes_are_an_svg_with_the_pens_widths_and_times() {
         "a straight stroke keeps its two ends and their times: {p}"
     );
     assert!(p.contains("data-w=\"1.6 1.6\""), "{p}");
+}
+
+/// The lines of the shape-features section of a prompt (the header is not one).
+fn feature_lines(prompt: &str) -> Vec<String> {
+    prompt
+        .split("Shape features of the strokes")
+        .nth(1)
+        .map(|rest| {
+            rest.split("\n\n")
+                .next()
+                .unwrap_or("")
+                .lines()
+                .filter(|l| l.starts_with("- stroke "))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn what_the_strokes_look_like_is_said_in_a_line_each_with_the_words_they_cover() {
+    let p = prompt_of(review(Task::Editing));
+    assert!(
+        p.contains("Shape features of the strokes (computed on this machine from the strokes: hints, not facts):\n- stroke 12: open; straight (1.00); 99 px long in 1.3 s; looks like: strike-through; covers \"x\", \"foo\", \"1\"; on line 39; pressure mean 0.50, peak 0.50\n- stroke 13: "),
+        "{p}"
+    );
+    assert_eq!(feature_lines(&p).len(), 2, "a line for each stroke:\n{p}");
+}
+
+#[test]
+fn a_stroke_with_nothing_readable_has_no_features_line_and_the_others_keep_theirs() {
+    let mut r = review(Task::Editing);
+    r.strokes[1].samples.iter_mut().for_each(|s| s.x = f32::NAN);
+    let lines = feature_lines(&prompt_of(r));
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("- stroke 12: "), "{lines:?}");
+}
+
+#[test]
+fn without_the_pages_grid_the_line_has_the_shape_but_no_words_and_no_lines() {
+    let mut r = review(Task::Editing);
+    r.context.grid = None;
+    let lines = feature_lines(&prompt_of(r));
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    let line = &lines[0];
+    assert!(
+        line.contains("no special shape") && !line.contains("covers") && !line.contains(" on line"),
+        "{line}"
+    );
+}
+
+#[test]
+fn both_system_prompts_tell_the_agent_what_the_shape_features_are() {
+    for system in [EDITING_SYSTEM, EXPLORATION_SYSTEM] {
+        assert!(
+            system.contains("\"Shape features\"") && system.contains("can be wrong"),
+            "{system}"
+        );
+    }
 }
 
 #[test]
@@ -275,6 +335,7 @@ fn a_request_with_nothing_to_say_has_no_empty_sections() {
         "Layout of the page",
         "Words under",
         "Strokes (SVG",
+        "Shape features",
         "What the reviewer said",
         "Meaning of the strokes",
         "Conversation so far",

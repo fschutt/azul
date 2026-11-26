@@ -44,11 +44,18 @@ use azul_appkit::{
     ui as kit,
 };
 
+pub mod agent_api;
+pub mod agent_azul;
 pub mod agent_backend;
+pub mod agent_claude;
+pub mod agent_export;
+pub mod agent_factory;
+pub mod agent_gemini;
 pub mod agent_json;
 pub mod agent_limits;
 pub mod agent_mock;
 pub mod agent_pool;
+pub mod agent_process;
 pub mod agent_review;
 pub mod agent_settings;
 pub mod agent_stroke;
@@ -82,6 +89,7 @@ pub mod recorder_track;
 pub mod recorder_wb;
 pub mod recorder_writer;
 pub mod session;
+pub mod stroke_features;
 /// The pen strokes every gesture is tested on (a loop, a slash, an underline, a scribble): shared by the
 /// whiteboard's lasso and the quick slash that deletes a word.
 #[cfg(test)]
@@ -90,13 +98,19 @@ pub mod switches;
 pub mod ui;
 pub mod voice;
 pub mod whiteboard;
+pub mod whiteboard_app;
+pub mod whiteboard_archive;
 pub mod whiteboard_cutout;
+pub mod whiteboard_demo;
 pub mod whiteboard_drag;
 pub mod whiteboard_geom;
+pub mod whiteboard_input;
 pub mod whiteboard_jump;
 pub mod whiteboard_json;
 pub mod whiteboard_lasso;
+pub mod whiteboard_render;
 pub mod whiteboard_store;
+pub mod whiteboard_ui;
 
 #[cfg(test)]
 #[path = "lib_test.rs"]
