@@ -105,6 +105,7 @@ pub mod symbols_sched;
 pub mod symbols_source;
 pub mod symbols_spoken;
 pub mod symbols_tokens;
+pub mod symbols_vocab;
 pub mod ui;
 pub mod voice;
 pub mod whiteboard;
