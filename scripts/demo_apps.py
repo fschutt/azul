@@ -20,8 +20,11 @@ import sys
 
 try:
     import tomllib
-except ImportError:  # pragma: no cover
-    sys.exit("demo_apps.py needs Python 3.11 or later (tomllib)")
+except ImportError:  # pragma: no cover  (Python 3.10: a runner's default; the backport has the same API)
+    try:
+        import tomli as tomllib
+    except ImportError:
+        sys.exit("demo_apps.py needs Python 3.11 or later (tomllib), or the tomli package (python3 -m pip install --user tomli)")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "scripts" / "demo_apps.toml"
@@ -472,6 +475,11 @@ def boot_text(r):
         if not r["pass"]:
             return "BOOT FAILED: " + str(r.get("reason") or "no reason given")[:110]
         text = "boots"
+        # the platform's own launch number: informational, never part of the verdict
+        if r.get("displayed_ms") is not None:
+            text += f", first window {r['displayed_ms']} ms (the platform's own number)"
+        elif r.get("launch_ms") is not None:
+            text += f", launched in {r['launch_ms']} ms (the platform's own number)"
     elif r.get("alive") and not r.get("fatal"):
         text = "boots" + ("" if r.get("screen_nonblank") else " (blank screen)")
     else:
