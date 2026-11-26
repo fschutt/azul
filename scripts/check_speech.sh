@@ -85,9 +85,11 @@ compile_checks() {
   cargo check -p azul-dll --no-default-features --features engine > /tmp/enginecheck.log 2>&1
   echo "engine profile check exit $?"
   grep -E "^error" -A8 /tmp/enginecheck.log | head -30
-  section "CLIPPY (azul-layout with the updater, the lint set CI holds the library to)"
+  section "CLIPPY (css, core and layout with the feature set the tests compile, the step CI holds them to)"
   rustup component add clippy > /dev/null 2>&1
-  cargo clippy -p azul-layout --features updater --lib -- -D warnings > /tmp/clippy.log 2>&1
+  cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets \
+    --features azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server,azul-layout/updater \
+    -- -D warnings > /tmp/clippy.log 2>&1
   echo "clippy exit $?"
   grep -E "^(error|warning)" -A6 /tmp/clippy.log | head -40
 }
