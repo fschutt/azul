@@ -845,6 +845,20 @@ jobs:
           cargo test -p AzMeet --lib --no-fail-fast 2>&1 | tee azul-meet-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-meet-tests.txt
 
+      - name: Run azul-review-link tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-review-link --lib --no-fail-fast 2>&1 | tee azul-review-link-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-review-link-tests.txt
+
+      - name: Run AzCompanion tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzCompanion --lib --no-fail-fast 2>&1 | tee azul-companion-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-companion-tests.txt
+
       - name: Run azul-calendar-core tests
         run: |
           set -o pipefail
