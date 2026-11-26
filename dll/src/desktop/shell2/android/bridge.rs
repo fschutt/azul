@@ -41,6 +41,14 @@ impl Default for UiBridge {
     }
 }
 
+impl core::fmt::Debug for UiBridge {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("UiBridge")
+            .field("queues", &self.queues)
+            .finish_non_exhaustive()
+    }
+}
+
 impl UiBridge {
     /// An open bridge with nothing queued and no waker.
     #[must_use]

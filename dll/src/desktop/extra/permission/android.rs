@@ -32,6 +32,9 @@ use azul_layout::managers::permission::{
     Capability, PermissionDiffEvent, PermissionQuality, PermissionState,
 };
 
+#[cfg(target_os = "android")]
+use super::android_table::{needs, state_of_check, state_of_result, Needs};
+
 /// requestCode → the capability it was requested for, so the async result
 /// callback can recover which permission resolved.
 #[cfg(target_os = "android")]
@@ -62,28 +65,35 @@ pub fn handle_event(event: &PermissionDiffEvent) {
     let _ = request(capability);
 }
 
-/// Show the runtime-permission dialog for `capability` if - and only if - it
-/// was never answered. Returns whether a dialog was requested; its answer
-/// arrives through `nativeOnPermissionResult`. Also the entry point of
-/// `CallbackInfo::request_notification_permission` (POST_NOTIFICATIONS).
+/// Show the runtime-permission dialog for `capability` unless it is granted already or has none at this
+/// API level. Returns whether a dialog was requested; its answer arrives through
+/// `nativeOnPermissionResult`. Also the entry point of `CallbackInfo::request_notification_permission`
+/// (POST_NOTIFICATIONS, API 33 and up).
+///
+/// What is asked depends on the API level (`android_table::needs`): location as the fine + coarse pair in
+/// ONE request, notifications only from API 33. A capability the user denied once is asked again: Android
+/// shows the dialog a second time and answers a third request at once with a denial, which is the
+/// documented flow ("rationale: explain, then ask again"); the shell used to give up at the first denial.
 #[cfg(target_os = "android")]
 pub fn request(capability: Capability) -> bool {
-    let perm = match capability_to_permission(capability) {
-        Some(p) => p,
-        None => return false,
-    };
-    // Only NotDetermined needs the OS dialog. Already-Granted/Denied is
-    // surfaced by probe_status; a None (JNI unavailable) also means
-    // "nothing to do".
-    if probe_permission(perm) != Some(PermissionState::NotDetermined) {
+    let Some(sdk) = sdk_int() else {
         return false;
+    };
+    let perms = match needs(capability, sdk) {
+        Needs::Ask(perms) => perms,
+        Needs::NothingToAsk | Needs::NotAPermission => return false,
+    };
+    // Granted already (or the JNI failed): nothing to ask.
+    match probe_permissions(capability, perms) {
+        Some(PermissionState::NotDetermined | PermissionState::Denied) => {}
+        _ => return false,
     }
 
     let request_code = next_request_code();
     if let Ok(mut pending) = PENDING_REQUESTS.lock() {
         pending.insert(request_code, capability);
     }
-    if request_permission(perm, request_code).is_none() {
+    if request_permissions(perms, request_code).is_none() {
         // JNI failed — don't leak the pending entry.
         if let Ok(mut pending) = PENDING_REQUESTS.lock() {
             pending.remove(&request_code);
@@ -98,57 +108,39 @@ pub fn handle_event(event: &PermissionDiffEvent) {
     let _ = event;
 }
 
-/// Map a `Capability` onto the single Android runtime permission that
-/// gates it, or `None` for capabilities Android doesn't gate with a
-/// `checkSelfPermission`-style permission (scoped-storage writes, raw
-/// motion sensors, the `MediaProjection` consent dialog, or iOS-only
-/// concepts). `None` → the probe reports `NotDetermined`.
-#[cfg(target_os = "android")]
-fn capability_to_permission(capability: Capability) -> Option<&'static str> {
-    use Capability::*;
-    Some(match capability {
-        Camera => "android.permission.CAMERA",
-        Microphone => "android.permission.RECORD_AUDIO",
-        Geolocation => "android.permission.ACCESS_FINE_LOCATION",
-        GeolocationBackground => "android.permission.ACCESS_BACKGROUND_LOCATION",
-        PhotoLibrary => "android.permission.READ_MEDIA_IMAGES",
-        Contacts => "android.permission.READ_CONTACTS",
-        // Android folds reminders into the calendar permission.
-        Calendars | Reminders => "android.permission.READ_CALENDAR",
-        Notifications => "android.permission.POST_NOTIFICATIONS",
-        Bluetooth => "android.permission.BLUETOOTH_CONNECT",
-        NearbyWifi => "android.permission.NEARBY_WIFI_DEVICES",
-        Biometric => "android.permission.USE_BIOMETRIC",
-        // Scoped storage needs no runtime permission to *add* media;
-        // accel/gyro/magnetometer are sensor-free; ScreenCapture is a
-        // MediaProjection consent dialog; the rest are iOS-only.
-        // ...and `InputMonitoring` is macOS's TCC gate on reading input
-        // devices the app does not own. Android exposes no raw HID at all, so
-        // there is no permission to name and nothing an app could be granted.
-        PhotoLibraryWrite
-        | ScreenCapture
-        | Motion
-        | BluetoothBackground
-        | LocalNetwork
-        | AppTrackingTransparency
-        | InputMonitoring => return None,
-    })
-}
-
 #[cfg(target_os = "android")]
 pub fn probe_status(capability: Capability) -> PermissionState {
-    let perm = match capability_to_permission(capability) {
-        Some(p) => p,
-        None => return PermissionState::NotDetermined,
+    let Some(sdk) = sdk_int() else {
+        return PermissionState::NotDetermined;
     };
-    // JNI failure (VM not yet published, etc.) degrades to NotDetermined.
-    probe_permission(perm).unwrap_or(PermissionState::NotDetermined)
+    match needs(capability, sdk) {
+        Needs::Ask(perms) => {
+            // JNI failure (VM not yet published, etc.) degrades to NotDetermined.
+            probe_permissions(capability, perms).unwrap_or(PermissionState::NotDetermined)
+        }
+        // Nothing to ask at this API level: an install-time permission, usable.
+        Needs::NothingToAsk => PermissionState::Granted(PermissionQuality::Full),
+        Needs::NotAPermission => PermissionState::NotDetermined,
+    }
 }
 
 #[cfg(not(target_os = "android"))]
 pub fn probe_status(capability: Capability) -> PermissionState {
     let _ = capability;
     PermissionState::NotDetermined
+}
+
+/// `Build.VERSION.SDK_INT` of the device: what `android_table::needs` keys on.
+#[cfg(target_os = "android")]
+fn sdk_int() -> Option<u32> {
+    attach(|env, _activity| {
+        let sdk = env
+            .get_static_field("android/os/Build$VERSION", "SDK_INT", "I")
+            .ok()?
+            .i()
+            .ok()?;
+        u32::try_from(sdk).ok()
+    })
 }
 
 /// Attach the current thread to the published JavaVM and run `f` with the
@@ -172,65 +164,63 @@ fn attach<R>(f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Option<R
     f(&mut env, activity)
 }
 
-/// `Context.checkSelfPermission(perm)` (+ the rationale flag on denial).
+/// `Context.checkSelfPermission` of each permission of a request (+ the rationale flag on a denial), as the
+/// state `android_table::state_of_check` makes of them.
 #[cfg(target_os = "android")]
-fn probe_permission(perm: &str) -> Option<PermissionState> {
+fn probe_permissions(capability: Capability, perms: &[&str]) -> Option<PermissionState> {
     use jni::objects::JValue;
 
     attach(|env, activity| {
-        let perm_jstr = env.new_string(perm).ok()?;
+        let mut granted = Vec::with_capacity(perms.len());
+        let mut rationale = false;
+        for perm in perms {
+            let perm_jstr = env.new_string(*perm).ok()?;
 
-        // PackageManager.PERMISSION_GRANTED == 0, PERMISSION_DENIED == -1.
-        let granted = env
-            .call_method(
-                &activity,
-                "checkSelfPermission",
-                "(Ljava/lang/String;)I",
-                &[JValue::Object(&perm_jstr)],
-            )
-            .ok()?
-            .i()
-            .ok()?;
+            // PackageManager.PERMISSION_GRANTED == 0, PERMISSION_DENIED == -1.
+            let check = env
+                .call_method(
+                    &activity,
+                    "checkSelfPermission",
+                    "(Ljava/lang/String;)I",
+                    &[JValue::Object(&perm_jstr)],
+                )
+                .ok()?
+                .i()
+                .ok()?;
+            granted.push(check == 0);
 
-        if granted == 0 {
-            return Some(PermissionState::Granted(PermissionQuality::Full));
+            if check != 0 {
+                // `shouldShowRequestPermissionRationale` is true only after a real user denial; on a
+                // fresh install it's false. Android can't distinguish "never asked" from "denied +
+                // don't ask again" (both false) — false reads as NotDetermined so the framework will
+                // attempt the prompt and learn the truth.
+                rationale |= env
+                    .call_method(
+                        &activity,
+                        "shouldShowRequestPermissionRationale",
+                        "(Ljava/lang/String;)Z",
+                        &[JValue::Object(&perm_jstr)],
+                    )
+                    .ok()?
+                    .z()
+                    .ok()?;
+            }
         }
-
-        // Denied. `shouldShowRequestPermissionRationale` is true only after
-        // a real user denial; on a fresh install it's false. Android can't
-        // distinguish "never asked" from "denied + don't ask again" (both
-        // false) — we treat false as NotDetermined so the framework will
-        // attempt the prompt and learn the truth.
-        let rationale = env
-            .call_method(
-                &activity,
-                "shouldShowRequestPermissionRationale",
-                "(Ljava/lang/String;)Z",
-                &[JValue::Object(&perm_jstr)],
-            )
-            .ok()?
-            .z()
-            .ok()?;
-
-        Some(if rationale {
-            PermissionState::Denied
-        } else {
-            PermissionState::NotDetermined
-        })
+        Some(state_of_check(capability, &granted, rationale))
     })
 }
 
-/// `AzulPermissions.request(activity, String[]{perm}, requestCode)`: the
-/// helper runs `Activity.requestPermissions` on the UI thread
-/// (`runOnUiThread`). This runs on `android_main`'s thread, and the framework
-/// starts the permission dialog's activity from the UI thread only.
+/// `AzulPermissions.request(activity, String[] perms, requestCode)`: the helper runs
+/// `Activity.requestPermissions` on the UI thread (`runOnUiThread`), ONE request for all of `perms`. This
+/// runs on `android_main`'s thread, and the framework starts the permission dialog's activity from the UI
+/// thread only.
 ///
 /// The helper is an APK class, which a native-attached thread resolves only
 /// through the ACTIVITY's class loader (`find_app_class`). It is the same
 /// class that forwards the answer (`nativeOnPermissionResult`), so an APK
 /// without it could never report one - there is nothing to fall back to.
 #[cfg(target_os = "android")]
-fn request_permission(perm: &str, request_code: i32) -> Option<()> {
+fn request_permissions(perms: &[&str], request_code: i32) -> Option<()> {
     use jni::objects::JValue;
 
     attach(|env, activity| {
@@ -240,8 +230,15 @@ fn request_permission(perm: &str, request_code: i32) -> Option<()> {
             "com/azul/permission/AzulPermissions",
         )?;
         let str_cls = env.find_class("java/lang/String").ok()?;
-        let perm_jstr = env.new_string(perm).ok()?;
-        let arr = env.new_object_array(1, &str_cls, &perm_jstr).ok()?;
+        let first = env.new_string(*perms.first()?).ok()?;
+        let arr = env
+            .new_object_array(i32::try_from(perms.len()).ok()?, &str_cls, &first)
+            .ok()?;
+        for (i, perm) in perms.iter().enumerate() {
+            let jstr = env.new_string(*perm).ok()?;
+            env.set_object_array_element(&arr, i32::try_from(i).ok()?, &jstr)
+                .ok()?;
+        }
         let called = env.call_static_method(
             &helper,
             "request",
@@ -264,19 +261,19 @@ fn request_permission(perm: &str, request_code: i32) -> Option<()> {
 // ───────── JNI inbound: Java → Rust ─────────────────────────────────
 
 /// Receives a permission result from `AzulActivity.onRequestPermissionsResult`
-/// (forwarded through `AzulPermissions.nativeOnPermissionResult`). Maps the
-/// request code back to its `Capability` and parks the resolved state in
-/// the app's permission queue for the next layout pass to apply.
-///
-/// The Java forwarding glue is pending; this is the native entry point of
-/// that contract (same split as `AzulFilePicker.nativeOnResult`).
+/// (forwarded through `AzulPermissions.nativeOnPermissionResult`): the request code, whether EVERY permission
+/// of the request was granted, and whether ANY was (a user may grant the approximate location only).
+/// Maps the request code back to its `Capability` and parks the resolved state in the app's permission
+/// queue for the next layout pass to apply, and wakes the loop: a backgrounded loop would not see it
+/// until the next event.
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_azul_permission_AzulPermissions_nativeOnPermissionResult(
     _env: *mut jni::sys::JNIEnv,
     _class: jni::sys::jclass,
     request_code: jni::sys::jint,
-    granted: jni::sys::jboolean,
+    all_granted: jni::sys::jboolean,
+    any_granted: jni::sys::jboolean,
 ) {
     let capability = match PENDING_REQUESTS.lock() {
         Ok(mut pending) => pending.remove(&(request_code as i32)),
@@ -285,13 +282,10 @@ pub unsafe extern "system" fn Java_com_azul_permission_AzulPermissions_nativeOnP
     let Some(capability) = capability else {
         return;
     };
-    let state = if granted != 0 {
-        PermissionState::Granted(PermissionQuality::Full)
-    } else {
-        PermissionState::Denied
-    };
+    let state = state_of_result(capability, all_granted != 0, any_granted != 0);
     // The JNI entry has no context: the App's services are where `App::run` put them.
     if let Some(services) = crate::desktop::process_app::services() {
         services.permission.push((capability, state));
     }
+    crate::desktop::shell2::android::wake_event_loop();
 }

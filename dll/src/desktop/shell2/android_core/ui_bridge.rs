@@ -111,6 +111,16 @@ impl Default for UiQueues {
     }
 }
 
+impl core::fmt::Debug for UiQueues {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("UiQueues")
+            .field("closed", &self.is_closed())
+            .field("pushed", &self.pushed())
+            .field("published_through", &self.published_through())
+            .finish_non_exhaustive()
+    }
+}
+
 /// A poisoned lock still holds consistent queues (nothing in here panics while holding one): take it.
 fn locked<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)

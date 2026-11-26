@@ -1541,6 +1541,23 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                     window.needs_rerender = true;
                 }
             }
+            MainEvent::LowMemory => {
+                // NDK `onLowMemory`: "Use this callback to release resources you do not need". What
+                // the CPU backend keeps only to make frames cheaper (kept group surfaces, halos,
+                // the layered compositor), the glyph cache's idle entries and the allocator's free
+                // arenas go back, as on macOS under memory pressure; the frame on screen stays and
+                // the next frames make again what they need.
+                #[cfg(feature = "cpurender")]
+                {
+                    window.cpu_backend.release_caches();
+                    window.cpu_backend.glyph_cache.gc();
+                }
+                azul_layout::probe::hint_purge_allocator();
+                // `release_caches` may have turned the next frame into a whole one.
+                if window.present.has_frame() && has_surface(window) {
+                    window.needs_rerender = true;
+                }
+            }
             MainEvent::Destroy => {
                 window.close();
             }

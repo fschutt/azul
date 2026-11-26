@@ -101,7 +101,7 @@ pub struct PresentPlan {
 }
 
 /// What the shell remembers between two presents.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PresentState {
     /// Everything that changed since the last frame posted to this surface: the damage of every render
     /// in between (one regeneration may render several times), not only the last one.
