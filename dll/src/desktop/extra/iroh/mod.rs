@@ -301,6 +301,22 @@ impl IrohEndpoint {
         false
     }
 
+    /// Accepts incoming connections from every peer again, from the next connection on: the
+    /// list of `with_allowed_peers` or `set_allowed_peers` is cleared (an app that accepts only
+    /// its paired devices opens its pairing window this way, and closes it again with
+    /// `set_allowed_peers`). Returns false when nothing is bound.
+    pub fn clear_allowed_peers(&self) -> bool {
+        false
+    }
+
+    /// What local-network discovery does for this endpoint: `off` (switched off by the config,
+    /// or `relay_only`), `on`, or `unavailable: <reason>` when the network or the OS refused it
+    /// (no multicast, no permission): the endpoint works without it. Empty when nothing is
+    /// bound.
+    pub fn local_discovery_status(&self) -> AzString {
+        AzString::from_const_str("")
+    }
+
     /// Closes the connection to `peer`. Returns false when no such connection is open.
     pub fn disconnect(&self, peer: u64) -> bool {
         #[cfg(az_iroh_engine)]

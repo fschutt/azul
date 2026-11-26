@@ -47,12 +47,17 @@ pub struct IrohConfig {
     /// peer that knows the protocol name, and the app decides whom it trusts. `Some`: only
     /// these (an app's paired devices); any other peer is refused before any of its streams is
     /// read, and an `Error` event names it. An empty list accepts nobody (an endpoint that only
-    /// dials). `IrohEndpoint::set_allowed_peers` changes it while bound.
+    /// dials). `IrohEndpoint::set_allowed_peers` changes it while bound and
+    /// `IrohEndpoint::clear_allowed_peers` goes back to accepting every peer.
     pub allowed_peers: OptionStringVec,
     /// Local UDP port, 0 for any free port.
     pub port: u16,
     /// Largest inbound frame or message in bytes. Larger ones are dropped.
     pub max_frame_bytes: u32,
+    /// Find peers on the local network by their endpoint id (mDNS), without a ticket's saved
+    /// addresses or a relay, and announce this endpoint there. On by default; see
+    /// [`IrohConfig::with_local_discovery`] for what is announced and how to turn it off.
+    pub local_discovery: bool,
 }
 
 impl IrohConfig {
@@ -68,6 +73,7 @@ impl IrohConfig {
             allowed_peers: OptionStringVec::None,
             port: 0,
             max_frame_bytes: 16 * 1024 * 1024,
+            local_discovery: false,
         }
     }
 
@@ -119,6 +125,20 @@ impl IrohConfig {
     /// Returns the config accepting inbound frames and messages up to `max_frame_bytes`.
     pub fn with_max_frame_bytes(mut self, max_frame_bytes: u32) -> Self {
         self.max_frame_bytes = max_frame_bytes;
+        self
+    }
+
+    /// Returns the config with local-network discovery switched on or off. On (the default), the
+    /// endpoint finds peers on the local network by their endpoint id alone (mDNS), so a phone
+    /// finds a Mac whose address changed without the ticket's saved addresses or a relay, and it
+    /// announces itself there: its endpoint id (a public key) and its network addresses, to the
+    /// local link only (multicast, never routed; its relay is not announced). Turn it off for a
+    /// server or an app that must not announce itself to the network it sits on. An endpoint
+    /// that accepts nobody (`with_allowed_peers` with an empty list) only looks and does not
+    /// announce, and `relay_only` never uses it. When the network or the OS refuses multicast
+    /// the endpoint works without it; `IrohEndpoint::local_discovery_status` says why.
+    pub fn with_local_discovery(self, local_discovery: bool) -> Self {
+        let _ = local_discovery;
         self
     }
 }
