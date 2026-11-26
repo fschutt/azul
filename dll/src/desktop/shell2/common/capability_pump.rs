@@ -77,14 +77,20 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
 
     // Generic HID. Enumerated ONCE (hidraw offers no hotplug signal without
     // libudev, and re-scanning /dev every pass would stat dozens of nodes at
-    // frame rate), then polled. Unlike sensors this is NOT listener-gated:
-    // `get_hid_devices()` is a poll-style accessor an app can call from any
-    // callback without ever subscribing to `HidReport`, so gating enumeration
-    // on listeners would make that accessor return an empty list forever.
-    // Polling is skipped when nothing is open, which is the cost on a machine
-    // with no accessible hidraw node.
+    // frame rate), then polled - and enumerated from the FIRST USE on, not at
+    // the first window activation: opening every HID device of the machine is
+    // 146 ms of this thread on a Mac (IOHIDDeviceOpen, measured by a stack
+    // sample of the recorder's demo) for an app that uses none of them. The
+    // first use is a node that listens for `HidReport`, a pad listened to
+    // (its IMU and touch surface ride the raw HID stream, below) or a callback
+    // that asks (`get_hid_devices()` / `get_hid_reports()`, poll-style
+    // accessors an app can call without ever subscribing: they ask for the
+    // enumeration, and the list is there from the next pass). Polling is
+    // skipped when nothing is open, which is the cost on a machine with no
+    // accessible hidraw node.
     {
-        if lw.app_services.hid.claim_enumeration() {
+        let listening = lw.hid_manager.has_listeners() || lw.gamepad_manager.has_listeners();
+        if lw.app_services.hid.claim_enumeration_if_used(listening) {
             crate::desktop::extra::hid::enumerate(&lw.app_services.hid);
         }
         crate::desktop::extra::hid::poll(&lw.app_services.hid);
