@@ -14,7 +14,9 @@ An app BOOTS when all of these hold, and the verdict says which one failed first
      manifest says what must come up), and the text it expects on the first screen (`--expect-found`) is there when it names one.
 Informational only, never part of the verdict: the platform's own launch numbers of an Android app, `launch_ms` (the TotalTime
 `am start -W` printed, --start-log) and `displayed_ms` (the "Displayed <package>/<activity>: +1s234ms" line of the activity manager
-in the log, --logcat); the status table shows them next to the verdict.
+in the log, --logcat); the status table shows them next to the verdict. So are the engine's own startup numbers (AZ_STARTUP=1: the
+`[startup-json] {...}` line an app writes at its first present, --startup-log): first_present_ms from the process creation,
+before_library_ms, layout_passes and render_backend (cpu or gpu); a run without the switch has none, and the table shows nothing.
 A screenshot that is "not black" is NOT in this list: the iOS home screen of 2026-11-26 passed that test while the app had died.
 
     smoke_verdict.py --out result.json --app <name> --id <package or bundle id> --alive 1 --alive-after 1 [--fatal "<line>"]
@@ -49,6 +51,41 @@ def parse_displayed(text, package):
     for m in re.finditer(r"Displayed\s+" + re.escape(package) + r"/\S+:\s+\+(?:(\d+)s)?(\d+)ms", text or ""):
         found = int(m.group(1) or 0) * 1000 + int(m.group(2))
     return found
+
+
+STARTUP_MARK = "[startup-json] "
+STARTUP_KEYS = ("first_present_ms", "before_library_ms", "layout_passes", "render_backend")
+
+
+def parse_startup(text):
+    """The engine's own startup numbers from the LAST `[startup-json] {...}` line of `text` (the line AZ_STARTUP=1 makes an app write
+    to stderr at its first present: Android's logcat, the console of an iOS process), as a dict of first_present_ms (counted from the
+    process creation the OS recorded), before_library_ms, layout_passes and render_backend; None for a run without the switch."""
+    text = text or ""
+    at = text.rfind(STARTUP_MARK)
+    if at < 0:
+        return None
+    rest = text[at + len(STARTUP_MARK):].lstrip()
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(rest)
+    except ValueError:
+        obj = None
+    if isinstance(obj, dict):
+        got = {k: obj[k] for k in STARTUP_KEYS if k in obj}
+        return got or None
+    # a line the log cut off (logcat splits what is longer than 4 KB): the numbers that come first are still whole
+    got = {}
+    for key in ("first_present_ms", "before_library_ms"):
+        m = re.search(r'"%s":\s*(-?[0-9.]+)' % key, rest)
+        if m:
+            got[key] = float(m.group(1))
+    m = re.search(r'"layout_passes":\s*(\d+)', rest)
+    if m:
+        got["layout_passes"] = int(m.group(1))
+    m = re.search(r'"render_backend":\s*"([^"]*)"', rest)
+    if m:
+        got["render_backend"] = m.group(1)
+    return got or None
 
 
 def judge(facts):
@@ -102,6 +139,7 @@ def main(argv):
                     "height (default 0.08,0.94; the Android emulator 0.045,0.94, an iPhone 0.075,0.965)")
     ap.add_argument("--start-log")
     ap.add_argument("--logcat")
+    ap.add_argument("--startup-log", action="append", default=[], help="a log that may hold the [startup-json] line of AZ_STARTUP=1")
     ap.add_argument("--extra", default="{}")
     a = ap.parse_args(argv)
     band = png_nonblank.DEFAULT_BAND
@@ -153,6 +191,11 @@ def main(argv):
             value = parse(pathlib.Path(path).read_text(encoding="utf-8", errors="replace"))
             if value is not None:
                 facts[key] = value
+    for path in a.startup_log:
+        if os.path.exists(path):
+            got = parse_startup(pathlib.Path(path).read_text(encoding="utf-8", errors="replace"))
+            if got:
+                facts.update(got)
     facts.update(json.loads(a.extra))
     passed, reason = judge(facts)
     facts["pass"] = passed

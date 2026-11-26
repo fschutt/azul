@@ -62,6 +62,18 @@ fn a_loop_is_armed_until_its_time_is_up_and_then_the_clock_has_nothing_to_wait_f
 }
 
 #[test]
+fn the_ring_of_a_loop_is_drawn_again_four_times_a_second_and_not_at_every_look_at_the_clock() {
+    let mut g = glue();
+    arm(&mut g, 0);
+    assert!(tick_at(&mut g, 2_000).redraw, "the first look draws");
+    assert!(!tick_at(&mut g, 2_100).redraw, "the same quarter of a second");
+    assert!(!tick_at(&mut g, 2_249).redraw);
+    assert!(tick_at(&mut g, 2_250).redraw, "the next quarter of a second");
+    g.panel.wb.armed.clear();
+    assert!(!tick_at(&mut g, 3_000).redraw, "nothing waits: nothing is drawn");
+}
+
+#[test]
 fn lines_that_a_jump_lit_are_dark_again_when_their_moment_is_over() {
     let mut g = glue();
     g.flash = Some(crate::whiteboard_glue::Flash { file: "a.rs".into(), first: 3, last: 4, until_ms: 1_500 });
@@ -96,6 +108,31 @@ fn a_loop_that_is_held_in_the_hand_is_not_taken_away_under_it() {
     assert!(matches!(press, crate::whiteboard_drag::Press::Grip(_)), "{press:?}");
     let way_past = tick_at(&mut g, ARM_MS_DEFAULT * 3);
     assert!(g.panel.wb.armed.get(id).is_some(), "the owner keeps what the pointer holds: {way_past:?}");
+}
+
+#[test]
+fn what_was_done_is_kept_oldest_first_not_twice_and_never_more_than_the_most() {
+    let mut g = glue();
+    g.note_patch(200, "b".to_string());
+    g.note_patch(100, "a".to_string());
+    g.note_patch(200, "b".to_string());
+    assert_eq!(g.patches, vec![(100, "a".to_string()), (200, "b".to_string())]);
+    for i in 0..(MAX_PATCH_LINES as u64 + 20) {
+        g.note_patch(1_000 + i, format!("line {i}"));
+    }
+    assert_eq!(g.patches.len(), MAX_PATCH_LINES);
+    assert_eq!(g.patches.last().map(|(_, l)| l.as_str()), Some(format!("line {}", MAX_PATCH_LINES + 19).as_str()), "the newest are kept");
+}
+
+#[test]
+fn the_panel_is_offered_what_was_done_since_the_last_snapshot() {
+    let mut g = glue();
+    assert!(g.panel.history_ui.material.is_empty());
+    g.note_patch(300, "later".to_string());
+    g.note_patch(100, "earlier".to_string());
+    g.refresh_material();
+    // no snapshot was taken yet: everything is offered, by the time
+    assert_eq!(g.panel.history_ui.material, vec!["earlier".to_string(), "later".to_string()]);
 }
 
 #[test]

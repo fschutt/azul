@@ -235,6 +235,19 @@ fn a_patch_has_a_name_that_sorts_by_time_and_says_which_conversation() {
 }
 
 #[test]
+fn a_time_a_header_wrote_is_read_back_as_the_moment_it_was() {
+    for ms in [0_u64, 951_782_400_000, 1_764_135_612_000, 1_767_225_599_000, 4_102_444_799_000] {
+        assert_eq!(unix_ms_of(&time_text(ms)), Some(ms), "{}", time_text(ms));
+    }
+    // what is not a time of ours is none: another form, a month that is not one, a day, a letter, the wrong length
+    for bad in ["", "2025-11-26", "2025-11-26 05:40:12Z", "2025-13-26T05:40:12Z", "2025-11-32T05:40:12Z", "2025-11-26T24:40:12Z", "2025-11-26T05:40:12", "20x5-11-26T05:40:12Z", "2025-11-26T05:40:12ZZ"] {
+        assert_eq!(unix_ms_of(bad), None, "{bad:?}");
+    }
+    // before 1970 is no moment of this clock
+    assert_eq!(unix_ms_of("1969-12-31T23:59:59Z"), None);
+}
+
+#[test]
 fn only_what_the_app_names_a_patch_is_a_patch_name() {
     assert!(is_name(&file_name(7, 1_764_135_612_000)));
     assert!(is_name(&file_name(u64::MAX, u64::MAX / 1000)), "the longest name is within the bound");

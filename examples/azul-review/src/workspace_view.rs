@@ -86,6 +86,40 @@ impl FileView for WorkspaceView {
             Some(text) => (first - 1..last).map(|i| text.line(i)).collect(),
         })
     }
+
+    /// Where the lines `block` are now: the first line (from 1) of the nearest place to `near`. A file held as lines is looked
+    /// through where it lies; one held as its text is looked through line by line (its lines are made one at a time and only as
+    /// far as the block's first line matches, so no list of all of them is held).
+    fn find_block(&self, file: &str, block: &[String], near: u32) -> Option<u32> {
+        let f = self.read(file)?;
+        match &f.big {
+            None => crate::whiteboard_jump::find_block_in(&f.lines, block, near),
+            Some(text) => find_block_in_text(text, block, near),
+        }
+    }
+}
+
+/// [`crate::whiteboard_jump::find_block_in`] on a file held as its text: the lines of the block are compared where the first
+/// of them is found, and the lines of the file are made one at a time (never all of them at once).
+fn find_block_in_text(text: &crate::code::BigText, block: &[String], near: u32) -> Option<u32> {
+    let first = block.first()?;
+    if block.len() > text.line_count() {
+        return None;
+    }
+    let mut best: Option<(u32, u32)> = None;
+    for start in 0..=(text.line_count() - block.len()) {
+        if text.line(start) != *first {
+            continue;
+        }
+        if (1..block.len()).all(|k| text.line(start + k) == block[k]) {
+            let number = u32::try_from(start + 1).unwrap_or(u32::MAX);
+            let away = number.abs_diff(near);
+            if best.is_none_or(|(_, d)| away < d) {
+                best = Some((number, away));
+            }
+        }
+    }
+    best.map(|(number, _)| number)
 }
 
 #[cfg(test)]
