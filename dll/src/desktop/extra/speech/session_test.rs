@@ -17,7 +17,8 @@ use super::{
     mock::{words_of, ManualClock, MockSpeech, Step},
     recognizer::{Kind, Outcome, SharedClock, SystemClock},
     answer_to_heard, heard_to_answer, with_timed_words, BuiltinSpeechStatus, HeardStatus, SpeechHeard,
-    SpeechLimits, SpeechPreference, SpeechRecognizer, SpeechSession, SpeechStandby, SpeechState,
+    SpeechLimits, SpeechPreference, SpeechRecognizer, SpeechSession, SpeechStandby, SpeechState, SpeechStream,
+    SpeechStreamOptions,
 };
 
 const ORIGIN: u64 = 1_700_000_000_000;
@@ -512,4 +513,31 @@ fn the_standby_decides_what_stays_open_and_arm_says_why_when_it_cannot() {
     session.set_standby(SpeechStandby::OnDemand);
     assert_eq!(SpeechStandby::default(), SpeechStandby::OnDemand);
     assert_eq!(SpeechLimits::default().armed_idle_ms, 60_000);
+}
+
+/// What is printed of a handle for a log line: its state and its counters, never the pointer, a
+/// device handle or audio.
+#[test]
+fn a_session_and_a_stream_print_their_state_and_counters_and_nothing_else() {
+    let (session, keeper, _closed) = watched_session(vec![say(100, "first")]);
+    let shown = format!("{session:?}");
+    assert!(shown.starts_with("SpeechSession"), "{shown}");
+    assert!(shown.contains("Cold") && shown.contains("active_calls: 0"), "{shown}");
+    assert!(session.arm().as_str().is_empty());
+    let shown = format!("{session:?}");
+    assert!(shown.contains("Armed") && shown.contains("armed: true"), "{shown}");
+    assert!(!shown.contains("ptr") && !shown.contains("0x"), "no address in {shown}");
+    drop(keeper);
+    assert_eq!(format!("{:?}", SpeechSession::default()), "SpeechSession(closed)");
+
+    let stream = session.start_stream(AzString::from("en".to_string()), SpeechStreamOptions::default());
+    let shown = format!("{stream:?}");
+    assert!(shown.starts_with("SpeechStream") && shown.contains("running"), "{shown}");
+    assert!(!shown.contains("0x"), "{shown}");
+    stream.cancel();
+    while stream.is_running() {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(format!("{stream:?}").contains("running: false"));
+    assert_eq!(format!("{:?}", SpeechStream::default()), "SpeechStream(closed)");
 }

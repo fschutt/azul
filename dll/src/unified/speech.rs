@@ -308,6 +308,13 @@ pub struct SpeechStream {
 }
 
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl core::fmt::Debug for SpeechStream {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("SpeechStream(closed)")
+    }
+}
+
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for SpeechStream {
     fn default() -> Self {
         Self {
@@ -350,6 +357,13 @@ impl SpeechStream {
 pub struct SpeechSession {
     pub ptr: *mut core::ffi::c_void,
     pub run_destructor: bool,
+}
+
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl core::fmt::Debug for SpeechSession {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("SpeechSession(closed)")
+    }
 }
 
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]

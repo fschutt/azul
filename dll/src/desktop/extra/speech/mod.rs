@@ -764,6 +764,22 @@ pub struct SpeechSession {
     pub run_destructor: bool,
 }
 
+impl core::fmt::Debug for SpeechSession {
+    /// The state and the counters of the session; never the pointer, a device handle or audio.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.inner() {
+            None => f.write_str("SpeechSession(closed)"),
+            Some(inner) => f
+                .debug_struct("SpeechSession")
+                .field("state", &self.state())
+                .field("active_calls", &inner.active.load(Ordering::SeqCst))
+                .field("armed", &inner.keeper.is_held())
+                .field("keep_ms", &inner.keeper.keep_ms())
+                .finish_non_exhaustive(),
+        }
+    }
+}
+
 // SAFETY: the session behind the pointer is `Sync` (its parts are mutexes and an atomic).
 unsafe impl Send for SpeechSession {}
 unsafe impl Sync for SpeechSession {}
@@ -1221,6 +1237,23 @@ pub struct SpeechStream {
     pub ptr: *mut c_void,
     /// Whether this handle owns one reference of the stream (every `clone` does).
     pub run_destructor: bool,
+}
+
+impl core::fmt::Debug for SpeechStream {
+    /// Whether the stream runs and how many events wait; never the pointer or what was heard.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.shared() {
+            None => f.write_str("SpeechStream(closed)"),
+            Some(shared) => f
+                .debug_struct("SpeechStream")
+                .field("running", &shared.running.load(Ordering::SeqCst))
+                .field(
+                    "events_waiting",
+                    &shared.events.lock().unwrap_or_else(PoisonError::into_inner).len(),
+                )
+                .finish_non_exhaustive(),
+        }
+    }
 }
 
 // SAFETY: the stream behind the pointer is `Sync` (its parts are mutexes and atomics).
