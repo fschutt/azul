@@ -335,6 +335,40 @@ fn a_label_is_typed_in_a_text_area_under_its_cutout_while_it_is_being_edited() {
 }
 
 #[test]
+fn an_arrows_label_is_shown_on_its_line_and_typed_in_a_text_area_that_takes_the_keyboard() {
+    crate::l10n::in_english();
+    let host = host();
+    let arrow = host
+        .run(|p| {
+            let (a, b) = with_cutouts(p);
+            p.wb.board.add_arrow(End::item(a), End::item(b), 0.0, "calls").expect("an arrow")
+        })
+        .expect("a panel");
+    let area = format!("__azreview_whiteboard-label-{arrow}");
+    let shown = host.run(|p| panel_dom(p, &host)).expect("a panel");
+    assert!(texts(&shown).iter().any(|t| t == "calls"), "{:?}", texts(&shown));
+    assert!(with_id(&shown, &area).is_none(), "it is not being typed");
+    let typing = host
+        .run(|p| {
+            p.editing = Some(arrow);
+            panel_dom(p, &host)
+        })
+        .expect("a panel");
+    let editor = with_id(&typing, &area).expect("the text area");
+    let asks = editor.root.attributes().as_slice().iter().any(|a| matches!(a, AttributeType::Autofocus));
+    assert!(asks, "the person double-clicked to type: the area takes the keyboard when it mounts");
+    // An arrow with no label shows nothing of the kind.
+    let bare = host
+        .run(|p| {
+            p.editing = None;
+            p.wb.board.set_label(arrow, "").expect("a label");
+            panel_dom(p, &host)
+        })
+        .expect("a panel");
+    assert!(!texts(&bare).iter().any(|t| t == "calls"), "{:?}", texts(&bare));
+}
+
+#[test]
 fn what_the_board_told_is_shown_in_the_panel_until_the_next_press() {
     crate::l10n::in_english();
     let host = host();

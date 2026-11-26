@@ -172,6 +172,10 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(key) = whiteboard_ui::key_of(code, mods.primary_down(), mods.shift) else {
         return Update::DoNothing;
     };
+    // While a label is typed in its text area the keys are the text's (Delete, Backspace, Mod+Z).
+    if data.downcast_ref::<Demo>().is_some_and(|d| d.panel.editing.is_some()) {
+        return Update::DoNothing;
+    }
     info.prevent_default();
     let acted = {
         let Some(mut d) = data.downcast_mut::<Demo>() else {

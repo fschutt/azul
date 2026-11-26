@@ -11,7 +11,7 @@ use std::{collections::BTreeMap, time::Instant};
 
 use azul::{
     callbacks::{RenderImageCallbackInfo, TextAreaOnFocusLostCallbackType, TextAreaOnTextInputCallbackType},
-    dom::{AccessibilityInfo, AccessibilityRole, DomNodeId, NodeId, RenderImageCallback, VirtualKeyCode},
+    dom::{AccessibilityInfo, AccessibilityRole, AttributeType, DomNodeId, NodeId, RenderImageCallback, VirtualKeyCode},
     image::{Brush, ImageRef, RawImage, RawImageFormat},
     prelude::*,
     str::String as AzString,
@@ -21,7 +21,7 @@ use azul::{
 use azul_appkit::l10n::{label, t, t_args, Arg};
 
 use crate::{
-    whiteboard::{Cutout, ImageSlot, ItemId, Notice},
+    whiteboard::{Arrow, Cutout, ImageSlot, ItemId, Notice},
     whiteboard_app::Whiteboard,
     whiteboard_drag::{ArmedRegions, GRIP_PX},
     whiteboard_geom::{arrowhead, Curve, Pt, Size},
@@ -221,7 +221,15 @@ fn cutout_dom(panel: &mut Panel, host: &Host, c: &Cutout, selected: bool) -> Dom
     }
     let mut group = Dom::create_div().with_child(node);
     if panel.editing == Some(c.id) {
-        group.add_child(label_editor(host, c, Pt::new(o.x, o.y + h + 3.0), w));
+        let name = t_args(
+            "azreview-whiteboard-label-name",
+            &[
+                ("file", Arg::from(c.source.file.clone())),
+                ("first", Arg::from(c.source.first_line as usize)),
+                ("last", Arg::from(c.source.last_line as usize)),
+            ],
+        );
+        group.add_child(label_editor(host, c.id, c.label.as_str(), name, Pt::new(o.x, o.y + h + 3.0), w));
     } else if !c.label.is_empty() {
         group.add_child(
             Dom::create_span_with_text(c.label.as_str()).with_css(
@@ -245,25 +253,58 @@ struct LabelTag {
     id: ItemId,
 }
 
-/// The text area a cutout's label is typed in, under the cutout.
-fn label_editor(host: &Host, c: &Cutout, at: Pt, w: f32) -> Dom {
-    let tag = RefAny::new(LabelTag { host: host.clone(), id: c.id });
+/// The text area the label of item `id` (a cutout's, under it; an arrow's, on its line) is typed in. `name` is
+/// what a screen reader says of it. It takes the keyboard when it mounts: the person double-clicked to type.
+fn label_editor(host: &Host, id: ItemId, text: &str, name: String, at: Pt, w: f32) -> Dom {
+    let tag = RefAny::new(LabelTag { host: host.clone(), id });
     TextArea::create()
-        .with_text(c.label.as_str())
+        .with_text(text)
         .with_placeholder(label("azreview-whiteboard-label-placeholder"))
-        .with_accessibility_name(t_args(
-            "azreview-whiteboard-label-name",
-            &[
-                ("file", Arg::from(c.source.file.clone())),
-                ("first", Arg::from(c.source.first_line as usize)),
-                ("last", Arg::from(c.source.last_line as usize)),
-            ],
-        ))
+        .with_accessibility_name(name)
         .with_on_text_input(tag.clone(), on_label_text as TextAreaOnTextInputCallbackType)
         .with_on_focus_lost(tag, on_label_blur as TextAreaOnFocusLostCallbackType)
         .dom()
-        .with_id(format!("__azreview_whiteboard-label-{}", c.id).as_str())
+        .with_id(format!("__azreview_whiteboard-label-{id}").as_str())
+        .with_attribute(AttributeType::Autofocus)
         .with_css(format!("position: absolute; left: {}; top: {}; width: {}; min-height: 24px;", css_px(at.x), css_px(at.y), css_px(w)).as_str())
+}
+
+/// The width of the box an arrow's label is centred in, px: the label is as wide as its text, up to this and then
+/// some (labels are short).
+const ARROW_LABEL_W: f32 = 160.0;
+
+/// The label of an arrow, on its line at the middle (or the text area it is being typed in): `None` for an arrow
+/// with no label that is not being edited.
+fn arrow_label_dom(panel: &Panel, host: &Host, a: &Arrow) -> Option<Dom> {
+    let editing = panel.editing == Some(a.id);
+    if a.label.is_empty() && !editing {
+        return None;
+    }
+    let board = &panel.wb.board;
+    let mid = board.view().to_screen(board.place_arrow(a.id)?.curve.at(0.5));
+    if editing {
+        let name = t("azreview-whiteboard-arrow-label-name");
+        return Some(label_editor(host, a.id, a.label.as_str(), name, Pt::new(mid.x - ARROW_LABEL_W * 0.5, mid.y - 12.0), ARROW_LABEL_W));
+    }
+    // The text sits in a pill that is as wide as the text, centred on the line's middle: a row that centres its one item.
+    Some(
+        Dom::create_div()
+            .with_css(
+                format!(
+                    "position: absolute; left: {}; top: {}; width: {}; display: flex; flex-direction: row; justify-content: center;",
+                    css_px(mid.x - ARROW_LABEL_W * 0.5),
+                    css_px(mid.y - 9.0),
+                    css_px(ARROW_LABEL_W)
+                )
+                .as_str(),
+            )
+            .with_child(
+                Dom::create_span_with_text(a.label.as_str()).with_css(
+                    "padding: 1px 7px; background: #f4f1ea; border: 1px solid #b9b4ab; border-radius: 8px; font-size: 11px; \
+                     color: system:text; white-space: pre;",
+                ),
+            ),
+    )
 }
 
 /// A character typed in a label: the label is taken when the area is left.
@@ -318,6 +359,12 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
         .with_css("position: relative; flex-grow: 1; min-height: 0px; min-width: 0px; overflow: hidden; background: #f4f1ea;");
     for c in &cutouts {
         root.add_child(cutout_dom(panel, host, c, selected == Some(c.id)));
+    }
+    let arrows: Vec<Arrow> = panel.wb.board.arrows().cloned().collect();
+    for a in &arrows {
+        if let Some(label) = arrow_label_dom(panel, host, a) {
+            root.add_child(label);
+        }
     }
     if cutouts.is_empty() {
         root.add_child(
