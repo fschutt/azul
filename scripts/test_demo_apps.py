@@ -354,6 +354,9 @@ class IconTest(unittest.TestCase):
         self.assertNotEqual(demo_icon.colour("AzMaps"), demo_icon.colour("AzPaint"))
         r, g, b = demo_icon.colour("AzCompanion")
         self.assertGreater(b, r)
+        # the same phone remote under its display name: the same blue, the same letters
+        self.assertEqual(demo_icon.colour("AzReview Companion"), demo_icon.colour("AzCompanion"))
+        self.assertEqual(demo_icon.letters("AzReview Companion"), demo_icon.letters("AzCompanion"))
 
     def test_the_icons_of_a_platform_land_where_its_packager_looks(self):
         with tempfile.TemporaryDirectory() as d:
@@ -362,6 +365,63 @@ class IconTest(unittest.TestCase):
             demo_icon.main(["ios", "AzMaps", str(root / "app")])
             self.assertTrue((root / "res" / "mipmap-xxxhdpi" / "ic_launcher.png").is_file())
             self.assertTrue((root / "app" / "AppIcon60x60@3x.png").is_file())
+
+
+class IconLettersTest(unittest.TestCase):
+    """The launcher icon says which app it is: the first letters of its name on a rounded square (no art of anybody's)."""
+
+    def test_the_letters_are_the_first_two_after_the_family_prefix_or_the_humps_of_a_long_name(self):
+        expect = {"AzWidgets": "WI", "AzMaps": "MA", "AzBuilder": "BU", "AzPdf": "PD", "AzERP": "ER", "AzInstallManager": "IM",
+                  "AzPasswordManager": "PM", "AzVideoCut": "VC", "AzCompanion": "RC", "AzReview Companion": "RC",
+                  "Notes": "NO", "AzX": "X"}
+        for name, letters in expect.items():
+            self.assertEqual(demo_icon.letters(name), letters, name)
+
+    def test_every_app_of_the_manifest_gets_two_letters_of_its_own_alphabet(self):
+        for app in demo_apps.load()["app"]:
+            letters = demo_icon.letters(app["package"])
+            self.assertTrue(1 <= len(letters) <= 2, app["package"])
+            self.assertTrue(all(c in demo_icon.FONT for c in letters), (app["package"], letters))
+
+    def test_the_font_has_every_letter_and_digit_as_seven_rows_of_five_and_no_two_alike(self):
+        self.assertEqual(sorted(demo_icon.FONT), sorted("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789?"))
+        for ch, rows in demo_icon.FONT.items():
+            self.assertEqual(len(rows), 7, ch)
+            for row in rows:
+                self.assertRegex(row, r"^[#.]{5}$", ch)
+        self.assertEqual(len({tuple(r) for r in demo_icon.FONT.values()}), len(demo_icon.FONT))
+
+    def test_the_cells_of_the_icon_are_the_cells_of_the_font(self):
+        # the centre of every cell of the two letters is lit exactly where the font has a '#'
+        for text in ("WI", "MA", "RC"):
+            for letter_index, ch in enumerate(text):
+                for row in range(7):
+                    for col in range(5):
+                        x, y = demo_icon.cell_centre(text, letter_index, col, row)
+                        self.assertEqual(demo_icon.lit(text, x, y), demo_icon.FONT[ch][row][col] == "#", (text, ch, col, row))
+
+    def test_the_letters_fit_inside_the_rounded_square(self):
+        x0, y0, x1, y1 = demo_icon.text_box("WI")
+        self.assertGreaterEqual(x0, 0.12)
+        self.assertLessEqual(x1, 0.88)
+        self.assertGreaterEqual(y0, 0.2)
+        self.assertLessEqual(y1, 0.8)
+        # the box is centred
+        self.assertAlmostEqual((x0 + x1) / 2, 0.5, places=3)
+        self.assertAlmostEqual((y0 + y1) / 2, 0.5, places=3)
+
+    def test_the_picture_shows_the_letters_in_white_and_two_apps_with_other_letters_look_other(self):
+        def white(name):
+            rows = demo_icon.render(name, 96, False)
+            return [[row[i * 4:i * 4 + 3] == b"\xff\xff\xff" for i in range(96)] for row in rows]
+        wi, ma, ma2 = white("AzWidgets"), white("AzMaps"), white("AzMail")
+        self.assertGreater(sum(map(sum, wi)), 300)       # there is something white
+        self.assertNotEqual(wi, ma)                      # other letters, other picture
+        self.assertEqual(ma, ma2)                        # the same letters in the same place (the colours of the two differ)
+        self.assertNotEqual(demo_icon.colour("AzMaps"), demo_icon.colour("AzMail"))
+
+    def test_the_old_family_letter_is_gone(self):
+        self.assertFalse(hasattr(demo_icon, "STROKES"))
 
 
 def synthetic_png(width, height, pixel):
