@@ -233,7 +233,7 @@ impl Renderer for Waits {
         let file = video_path(session);
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(&file, vec![0_u8; 3_000_000]).unwrap();
-        Ok(Made { file, bytes: 3_000_000, notes: Vec::new() })
+        Ok(Made { file, bytes: 3_000_000, notes: vec![String::from("this ffmpeg cannot round the camera")] })
     }
 }
 
@@ -252,7 +252,8 @@ fn until_texts(host: &Host, what: &str, want: impl Fn(&[String]) -> bool) -> Dom
 /// A recording of the list has the buttons the panel decides, and its export is in the window in words: not offered
 /// while the recording has no video, a cancel and how far it is while it is made, then the video named and offered.
 ///
-/// Mutation: a row without its buttons; an export line that is not drawn; the delete button left while it is exported.
+/// Mutation: a row without its buttons; an export line that is not drawn; its notes that are not drawn; the delete
+/// button left while it is exported.
 #[test]
 fn a_row_of_the_list_has_its_buttons_and_says_how_its_export_stands() {
     crate::l10n::in_english();
@@ -287,5 +288,6 @@ fn a_row_of_the_list_has_its_buttons_and_says_how_its_export_stands() {
     release.store(true, Ordering::SeqCst);
     let dom = until_texts(&host, "the video is made", |t| t.iter().any(|t| t == "azreview-rec-export-done"));
     assert_eq!(buttons(&dom), 6, "start, the camera, export again, open the video, show folder, delete");
+    assert!(texts(&dom).iter().any(|t| t == "azreview-rec-export-note"), "what did not work as asked is under the video: {:?}", texts(&dom));
 }
 
