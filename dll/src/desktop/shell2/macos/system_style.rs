@@ -273,6 +273,10 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
 
     // Start with a sensible base (light or dark will be overridden below).
     let mut style = defaults::macos_modern_light();
+    // NSWorkspace answered the accessibility flags (reduce motion, increase contrast): a False is an answer.
+    let mut native_accessibility = false;
+    // The application's effective appearance answered light or dark.
+    let mut native_appearance = false;
 
     unsafe {
         // ── 1. Theme detection ───────────────────────────────────────
@@ -288,6 +292,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
                 if let Some(name) =
                     nsstring_to_string(&lib, lib.send_id(appearance, lib.sel(b"name\0")))
                 {
+                    native_appearance = true;
                     if name.contains("Dark") {
                         style = defaults::macos_modern_dark();
                     }
@@ -456,6 +461,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
         let nsworkspace = lib.cls(b"NSWorkspace\0");
         let ws = lib.send_id(nsworkspace, lib.sel(b"sharedWorkspace\0"));
         if !ws.is_null() {
+            native_accessibility = true;
             let reduce_motion =
                 lib.send_bool(ws, lib.sel(b"accessibilityDisplayShouldReduceMotion\0"));
             let increase_contrast =
@@ -545,7 +551,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     };
 
     // ── CLI-based fallback discovery ────────────────────────────────────
-    discover_macos_cli_extras(&mut style, known_languages);
+    discover_macos_cli_extras(&mut style, known_languages, native_appearance);
 
     // OS version: if native detection did not set it, try sw_vers
     if style.os_version == OsVersion::MACOS_SONOMA {
@@ -556,11 +562,15 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
         }
     }
 
-    // Reduced motion / high contrast: CLI fallback if native left them at False
-    if style.prefers_reduced_motion == BoolCondition::False {
+    // Reduced motion / high contrast: the command line answers only where NSWorkspace did not (it did not run: the
+    // library did not load, the class was not there). It used to run for everyone whose answer is False - nearly everyone -
+    // and `defaults read` twice cost 12 ms of the first 61 of `App::create` on the window's thread, for the answer the
+    // native query had already given.
+    use crate::desktop::shell2::common::style_discovery::cli_fallback_wanted;
+    if cli_fallback_wanted(native_accessibility, style.prefers_reduced_motion) {
         style.prefers_reduced_motion = detect_macos_reduced_motion();
     }
-    if style.prefers_high_contrast == BoolCondition::False {
+    if cli_fallback_wanted(native_accessibility, style.prefers_high_contrast) {
         style.prefers_high_contrast = detect_macos_high_contrast();
     }
 
@@ -626,11 +636,17 @@ fn run_command_with_timeout(
 /// Fill in SystemStyle fields from `defaults read` CLI commands.
 ///
 /// Only overwrites fields that have not already been set by native discovery.
-fn discover_macos_cli_extras(style: &mut SystemStyle, known_languages: &[azul_css::system::SystemLanguage]) {
+fn discover_macos_cli_extras(
+    style: &mut SystemStyle,
+    known_languages: &[azul_css::system::SystemLanguage],
+    native_appearance: bool,
+) {
     let timeout = core::time::Duration::from_millis(500);
 
     // ── Dark mode detection ─────────────────────────────────────────────
-    if style.mode == DarkLightMode::Light {
+    // Only where the application's own appearance could not be read: a native light is an answer, and asking
+    // `defaults read -g AppleInterfaceStyle` for it again is a process on the window's thread.
+    if !native_appearance && style.mode == DarkLightMode::Light {
         if let Ok(val) =
             run_command_with_timeout("defaults", &["read", "-g", "AppleInterfaceStyle"], timeout)
         {

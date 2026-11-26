@@ -344,6 +344,8 @@ pub struct RecordingInfo {
     pub bytes: u64,
     /// The tracks it has.
     pub tracks: Vec<&'static str>,
+    /// The offset of the local clock from UTC when it was made, minutes (the manifest says it; 0 when it cannot be read).
+    pub utc_offset_minutes: i32,
     /// What is wrong with it (the manifest cannot be read), in words.
     pub problem: Option<String>,
     /// The size of the video an export made in its folder (`export/video.mp4`), when there is one.
@@ -380,6 +382,7 @@ pub fn list_recordings(recordings: &Path) -> Vec<RecordingInfo> {
                 name,
                 state: Some(m.state),
                 started_unix_ms: Some(m.clock.origin_unix_ms),
+                utc_offset_minutes: m.clock.utc_offset_minutes,
                 recorded_us: m.recorded_us(m.end_us()),
                 bytes,
                 tracks: m.tracks.present().into_iter().map(|(n, _)| n).collect(),
@@ -390,6 +393,7 @@ pub fn list_recordings(recordings: &Path) -> Vec<RecordingInfo> {
                 name,
                 state: None,
                 started_unix_ms: None,
+                utc_offset_minutes: 0,
                 recorded_us: 0,
                 bytes,
                 tracks: Vec::new(),

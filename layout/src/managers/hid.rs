@@ -31,6 +31,8 @@ pub struct HidChannel {
     devices: std::sync::Mutex<Option<Vec<HidDevice>>>,
     /// Whether a backend already claimed the one enumeration ([`Self::claim_enumeration`]).
     enumerated: core::sync::atomic::AtomicBool,
+    /// Whether an app asked for the devices or the reports ([`Self::want`]): the first use of the HID devices.
+    wanted: core::sync::atomic::AtomicBool,
 }
 
 /// Cap on the parked queue.
@@ -50,7 +52,29 @@ impl HidChannel {
             pending_reports: std::sync::Mutex::new(Vec::new()),
             devices: std::sync::Mutex::new(None),
             enumerated: core::sync::atomic::AtomicBool::new(false),
+            wanted: core::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// An app asked for the devices or the reports (`CallbackInfo::get_hid_devices` / `get_hid_reports`): the first use
+    /// of the HID devices, from which the pump enumerates them.
+    pub fn want(&self) {
+        self.wanted.store(true, core::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// An app asked for the devices or the reports at some time.
+    #[must_use]
+    pub fn wanted(&self) -> bool {
+        self.wanted.load(core::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// The enumeration, when something uses the HID devices: `listening` (a node listens for `HidReport`, or a pad whose
+    /// IMU rides the HID stream is listened to) or an app that asked ([`Self::want`]). `true` for the first caller that
+    /// is entitled to it and no other. Enumerating opens every HID device of the machine (146 ms on a Mac, on the
+    /// thread that pumps), so an app that uses none of them does not pay it at its first window activation.
+    #[must_use]
+    pub fn claim_enumeration_if_used(&self, listening: bool) -> bool {
+        (listening || self.wanted()) && self.claim_enumeration()
     }
 
     /// Claim the one enumeration of this channel's devices: `true` for the first caller only.
@@ -118,6 +142,36 @@ impl HidChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Nothing enumerates before something uses the devices: a channel nobody asked and nobody listens to never gives the
+    /// claim, a listener (or an app that asked) gets it once and only once, and the claim is the channel's, so a use that
+    /// comes after the first changes nothing.
+    ///
+    /// Mutation: a claim given with no use; a claim given twice; an ask that does not count; a listener that does not count.
+    #[test]
+    fn the_enumeration_is_claimed_only_from_the_first_use_and_once() {
+        let unused = HidChannel::new();
+        assert!(!unused.wanted());
+        assert!(!unused.claim_enumeration_if_used(false), "nothing uses the devices: nothing is enumerated");
+        assert!(!unused.claim_enumeration_if_used(false), "and again");
+
+        let listened = HidChannel::new();
+        assert!(listened.claim_enumeration_if_used(true), "a node that listens is the first use");
+        assert!(!listened.claim_enumeration_if_used(true), "once");
+        assert!(!listened.claim_enumeration_if_used(false), "and not by anyone after");
+
+        let asked = HidChannel::new();
+        assert!(!asked.claim_enumeration_if_used(false));
+        asked.want();
+        assert!(asked.wanted());
+        assert!(asked.claim_enumeration_if_used(false), "an app that asked is the first use, listening or not");
+        assert!(!asked.claim_enumeration_if_used(false), "once");
+
+        // The claim the pump made before this change (unconditional) is still there for a backend that wants it.
+        let direct = HidChannel::new();
+        assert!(direct.claim_enumeration());
+        assert!(!direct.claim_enumeration_if_used(true), "claimed already");
+    }
 
     fn report(id: u8) -> HidReport {
         HidReport {
