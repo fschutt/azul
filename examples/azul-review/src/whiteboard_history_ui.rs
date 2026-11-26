@@ -114,7 +114,7 @@ impl Panel {
         if let (true, Some(files)) = (asks_for_code, files) {
             self.wb.relocate_all(files);
         }
-        let now = self.now_ms();
+        let now = self.unix_ms();
         match action {
             HistoryAction::Toggle => {
                 self.history_ui.list = !self.history_ui.list;
@@ -265,7 +265,12 @@ fn button(text: &str, name: &str, tag: RefAny, on_click: ButtonOnClickCallbackTy
     Button::create(text).with_on_click(tag, on_click).dom().with_id(id).with_accessibility_name(AzString::from(name)).with_css(css)
 }
 
-const SMALL: &str = "font-size: 10px; padding: 1px 6px; margin-left: 3px; flex-shrink: 0;";
+const SMALL: &str = "font-size: 10px; padding: 1px 6px; flex-shrink: 0;";
+
+/// The buttons at the foot of the sheet, the banner and the question: in a row that wraps, so that a bar of the narrowest
+/// width does not push a button out of itself (a button that cannot be reached cannot be pressed).
+const BUTTON_ROW: &str = "display: flex; flex-direction: row; flex-wrap: wrap; justify-content: flex-end; gap: 4px;";
+const BUTTON_ROW_BANNER: &str = "display: flex; flex-direction: row; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin-top: 3px;";
 
 /// The two buttons the header gets: take a snapshot, and the list of them.
 pub(crate) fn header_buttons(panel: &Panel, host: &Host) -> Vec<Dom> {
@@ -408,7 +413,7 @@ pub(crate) fn sheet_dom(panel: &Panel, host: &Host, sheet: &Sheet) -> Dom {
         .with_child(tags)
         .with_child(
             Dom::create_div()
-                .with_css("display: flex; flex-direction: row; justify-content: flex-end;")
+                .with_css(BUTTON_ROW)
                 .with_child(button(
                     &t("azreview-whiteboard-sheet-save"),
                     &t("azreview-whiteboard-sheet-save"),
@@ -493,7 +498,7 @@ pub(crate) fn banner_dom(panel: &Panel, host: &Host) -> Option<Dom> {
             ("date", Arg::from(date_utc(s.taken_ms))),
         ],
     );
-    let white = "margin: 0px 0px 3px 0px; font-family: system:ui; font-size: 11px; color: #ffffff;";
+    let white = "margin: 0px 0px 3px 0px; font-family: system:ui; font-size: 11px; color: #ffffff; overflow-wrap: anywhere;";
     let mut root = Dom::create_div()
         .with_id("__azreview_whiteboard-viewing")
         .with_css(
@@ -505,10 +510,10 @@ pub(crate) fn banner_dom(panel: &Panel, host: &Host) -> Option<Dom> {
         )
         .with_child(Dom::create_p_with_text(head.as_str()).with_css("margin: 0px 0px 3px 0px; font-family: system:ui; font-size: 12px; font-weight: bold; color: #ffffff;"));
     if !s.why.is_empty() {
-        root.add_child(Dom::create_p_with_text(s.why.as_str()).with_id("__azreview_whiteboard-viewing-why").with_css(format!("{white} white-space: pre;").as_str()));
+        root.add_child(Dom::create_p_with_text(s.why.as_str()).with_id("__azreview_whiteboard-viewing-why").with_css(format!("{white} white-space: pre-wrap; overflow-wrap: anywhere;").as_str()));
     }
     if !s.tags.is_empty() {
-        root.add_child(Dom::create_p_with_text(s.tags.join("  ").as_str()).with_css("margin: 0px 0px 3px 0px; font-family: system:ui; font-size: 10px; color: #dbe7ff;"));
+        root.add_child(Dom::create_p_with_text(s.tags.join("  ").as_str()).with_css("margin: 0px 0px 3px 0px; font-family: system:ui; font-size: 10px; color: #dbe7ff; overflow-wrap: anywhere;"));
     }
     if !s.verified {
         root.add_child(Dom::create_p_with_text(t("azreview-whiteboard-snapshot-unverified").as_str()).with_css("margin: 0px 0px 3px 0px; font-family: system:ui; font-size: 11px; font-weight: bold; color: #ffd0cc;"));
@@ -529,10 +534,10 @@ pub(crate) fn banner_dom(panel: &Panel, host: &Host) -> Option<Dom> {
     Some(
         root.with_child(
             Dom::create_div()
-                .with_css("display: flex; flex-direction: row; justify-content: flex-end; margin-top: 3px;")
+                .with_css(BUTTON_ROW_BANNER)
                 .with_child(button(
                     &t(if comparing { "azreview-whiteboard-compare-off" } else { "azreview-whiteboard-compare-on" }),
-                    &t("azreview-whiteboard-compare-on"),
+                    &t("azreview-whiteboard-compare-name"),
                     tap(host, "", !comparing),
                     on_compare,
                     "__azreview_whiteboard-compare",
@@ -548,7 +553,7 @@ pub(crate) fn banner_dom(panel: &Panel, host: &Host) -> Option<Dom> {
                 ))
                 .with_child(button(
                     &t("azreview-whiteboard-back"),
-                    &t("azreview-whiteboard-back"),
+                    &t("azreview-whiteboard-back-name"),
                     tap(host, "", false),
                     on_back,
                     "__azreview_whiteboard-back",
@@ -579,7 +584,7 @@ pub(crate) fn head_dom(panel: &Panel, host: &Host) -> Option<Dom> {
     Some(
         bar.with_child(
             Dom::create_div()
-                .with_css("display: flex; flex-direction: row; justify-content: flex-end;")
+                .with_css(BUTTON_ROW)
                 .with_child(button(
                     &t("azreview-whiteboard-head-take"),
                     &t("azreview-whiteboard-head-take"),

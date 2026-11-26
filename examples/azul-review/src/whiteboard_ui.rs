@@ -122,10 +122,18 @@ impl Panel {
         }
     }
 
-    /// Milliseconds since the panel was made: the clock the lift and the arming time themselves by.
+    /// Milliseconds since the panel was made: the clock the lift and the arming time themselves by. It dates nothing that
+    /// is kept: for a board's times and a snapshot's it is [`Self::unix_ms`].
     #[must_use]
     pub fn now_ms(&self) -> u64 {
         u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// Milliseconds since 1970-01-01 UTC: the clock that dates what is kept (the times of a board, of a save, of an export,
+    /// of a snapshot) - and that a host hands to [`Whiteboard::save_job`], `loaded`, `export_request`, `take_snapshot`.
+    #[must_use]
+    pub fn unix_ms(&self) -> u64 {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
     }
 
     /// The image node's picture for cutout `c`: kept while the cutout's picture is the same.
