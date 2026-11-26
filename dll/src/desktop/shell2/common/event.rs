@@ -5272,6 +5272,10 @@ pub trait PlatformWindow {
                 startup.layout_end(layout_no, passes, "");
                 return Ok(result);
             }
+            // The startup timeline (`AZ_STARTUP=1`) says why this layout runs again.
+            startup.mark_with("layout_extra_pass", || {
+                format!("#{layout_no} lifecycle_refresh={lifecycle_wants_pass} docks_changed={docks_changed}")
+            });
             result = self.regenerate_layout_once()?;
             passes += 1;
         }
