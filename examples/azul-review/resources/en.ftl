@@ -65,6 +65,27 @@ azreview-whiteboard-cutout-name = { $file }, lines { $first } to { $last }
 azreview-whiteboard-label-placeholder = Add a label
 azreview-whiteboard-label-name = Label of { $file }, lines { $first } to { $last }
 azreview-whiteboard-arrow-label-name = Label of the arrow
+azreview-whiteboard-notice-too-many-boards = This folder has { $limit } whiteboards, as many as it has room for: delete one first.
+azreview-whiteboard-notice-board-name-cut = The name of a whiteboard holds { $limit } characters at most: the rest was cut off.
+azreview-whiteboard-notice-board-name-empty = A whiteboard needs a name.
+azreview-whiteboard-notice-no-such-board = There is no such whiteboard in this folder.
+azreview-whiteboard-notice-board-busy = The whiteboard is being kept or opened: one moment.
+azreview-whiteboard-boards-not-an-index = The list of whiteboards of this folder could not be read ({ $why }). It is kept as it is and a new list is started.
+azreview-whiteboard-boards-too-new = The list of whiteboards of this folder was saved by a newer AzReview (its format is { $found }). It is left as it is.
+azreview-whiteboard-boards-too-large = The list of whiteboards of this folder is far larger than a list is ({ $bytes } bytes). It is kept as it is and a new list is started.
+azreview-whiteboard-board-default = Board { $n }
+azreview-whiteboard-board-copy = { $name } copy
+azreview-whiteboard-boards-switcher = Whiteboards, open: { $name }
+azreview-whiteboard-board-new = New whiteboard
+azreview-whiteboard-board-rename = Rename
+azreview-whiteboard-board-duplicate = Duplicate
+azreview-whiteboard-board-delete = Delete
+azreview-whiteboard-board-up = Up
+azreview-whiteboard-board-down = Down
+azreview-whiteboard-board-undo = Undo
+azreview-whiteboard-board-deleted = Whiteboard "{ $name }" deleted
+azreview-whiteboard-board-rename-name = Name of the whiteboard { $name }
+azreview-whiteboard-board-loading = Opening the whiteboard...
 
 ## Dictation and the side column of notes
 
