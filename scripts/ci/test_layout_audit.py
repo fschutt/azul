@@ -137,6 +137,15 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(sorted(e["text"] for e in r["raw_keys"]["top"]), ["azmeet-loading-key", "menu-file-open"])
         self.assertIn("texts are raw keys", la.summary_line(r))
 
+    def test_the_lists_say_which_widget_causes_most_of_them(self):
+        layout = [node(1, "button", 10, 10, 30, 30, classes=["__azul-native-button"]), node(2, "p", 10, 60, 30, 30, classes=["__azul-native-date-picker-day"]),
+                  node(3, "p", 10, 100, 30, 30, classes=["__azul-native-date-picker-day"]), node(4, "div", 10, 140, 30, 30)]
+        tree = [a11y(1, 1, "Button", "OK", 10, 10, 30, 30, clickable=True), a11y(2, 2, "Button", "1", 10, 60, 30, 30, clickable=True),
+                a11y(3, 3, "Button", "2", 10, 100, 30, 30, clickable=True), a11y(4, 4, "Button", "x", 10, 140, 30, 30, clickable=True)]
+        r = self.run_audit(layout, tree)
+        self.assertEqual(r["small_targets"]["by_widget"], {"date-picker-day": 2, "button": 1, "div": 1})
+        self.assertIn("by widget: date-picker-day 2, button 1, div 1", la.report_markdown([r]))
+
     def test_a_scroll_container_with_wider_content_is_the_page_that_scrolls_sideways(self):
         scroll = {"status": "ok", "data": {"type": "scroll_states", "value": {"scroll_states": [
             {"node_id": 27, "scroll_x": 0.0, "scroll_y": 4079.0, "content_width": 606.7, "content_height": 14189.0, "container_width": 411.4,
