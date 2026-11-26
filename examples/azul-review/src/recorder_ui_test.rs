@@ -201,16 +201,16 @@ fn opening_a_file_while_recording_is_an_event_of_the_recording() {
     let mut state = crate::AppState::create(PathBuf::new(), vec![file("a.rs"), file("src/b.rs")], RefAny::new(0u8), PathBuf::new());
     let (app, _tmp) = app_rig(quiet());
     state.recorder = Arc::new(app.host.hook());
-    state.recording = Some(app);
+    state.session_recorder = Some(app);
     // Nothing records: the file opens and nothing is written anywhere.
     state.open_file(0);
-    assert!(state.recording.as_ref().unwrap().host.current().is_none());
+    assert!(state.session_recorder.as_ref().unwrap().host.current().is_none());
     // A recording goes: the next file is in its events.
-    assert!(state.recording.as_mut().unwrap().host.start(ALL, Devices::default(), DISPLAY, &[DISPLAY]));
+    assert!(state.session_recorder.as_mut().unwrap().host.start(ALL, Devices::default(), DISPLAY, &[DISPLAY]));
     state.open_file(1);
-    let name = state.recording.as_ref().unwrap().host.current().expect("a recording is going");
-    let dir = state.recording.as_ref().unwrap().host.path_of(&name);
-    state.recording.as_mut().unwrap().host.stop();
+    let name = state.session_recorder.as_ref().unwrap().host.current().expect("a recording is going");
+    let dir = state.session_recorder.as_ref().unwrap().host.path_of(&name);
+    state.session_recorder.as_mut().unwrap().host.stop();
     let dir = dir.unwrap_or_else(|| panic!("the folder of {name}"));
     let events = fs::read_to_string(dir.join("events.jsonl")).unwrap();
     let line = events.lines().find(|l| l.contains("\"nav.file\"")).unwrap_or_else(|| panic!("a nav.file event in {events}"));

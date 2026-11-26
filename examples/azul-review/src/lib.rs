@@ -281,8 +281,9 @@ pub struct AppState {
     pub saving: bool,
     pub save_pending: bool,
     /// The session recorder (the screen, the camera, the voice) and its window; made at the start. What the review tells it
-    /// goes through [`Self::recorder`], the hook, which reaches the recording that is going.
-    pub recording: Option<recorder_ui::RecorderApp>,
+    /// goes through [`Self::recorder`], the hook, which reaches the recording that is going. (Not `recording`: that is the
+    /// voice clip being made.)
+    pub session_recorder: Option<recorder_ui::RecorderApp>,
 }
 
 impl AppState {
@@ -333,7 +334,7 @@ impl AppState {
             data_root,
             saving: false,
             save_pending: false,
-            recording: None,
+            session_recorder: None,
         }
     }
 
@@ -840,7 +841,7 @@ pub fn run() {
     recorder.refresh();
     // What the review tells a recorder reaches the recording that is going (and nobody when none is).
     state.recorder = std::sync::Arc::new(recorder.hook());
-    state.recording = Some(recorder_ui::RecorderApp::new(recorder));
+    state.session_recorder = Some(recorder_ui::RecorderApp::new(recorder));
     let app = App::create(RefAny::new(state), config);
     let mut window =
         kit::window_options(&kit_ref, ui::layout, WINDOW_DEFAULT, WINDOW_MIN, on_window_created);
@@ -851,9 +852,9 @@ pub fn run() {
 /// Runs `f` on the session recorder in the app's state; whether the app has one.
 fn with_recorder(app: &mut RefAny, f: &mut dyn FnMut(&mut recorder_ui::RecorderApp)) -> bool {
     let Some(mut state) = app.downcast_mut::<AppState>() else { return false };
-    match state.recording.as_mut() {
-        Some(recording) => {
-            f(recording);
+    match state.session_recorder.as_mut() {
+        Some(session_recorder) => {
+            f(session_recorder);
             true
         }
         None => false,
