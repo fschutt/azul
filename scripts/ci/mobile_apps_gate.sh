@@ -6,11 +6,13 @@
 #   MOBILE_APPS_ONLY=<step>,<step> in front of the command runs those steps only (the RED of the layout tests builds no azul-dll:
 #   no --codegen; the checks of the dll, the apps and the two phone shells are the quick first run after a change).
 #
-# A runner job ends after 120 minutes and the whole gate is longer than that on a cold cache: two runs, in this order,
-#   G1 (the crates' tests, the REDs, the lints, the type-checks of dll, apps and both phone shells):
-#     MOBILE_APPS_ONLY=css_lib,core_lib,layout_lib,layout_tests,layout_fluent,phone_tests,red_layout_on_the_previous_files,red_ribbon_without_the_file_row,clippy,dll_check,apps_check,android_check,ios_cross_check
-#   G2 (what builds the C ABI library: the headless-shell tests with the RED of the safe-area guard, the apps over the library, autofix):
-#     MOBILE_APPS_ONLY=red_safe_area_without_the_guard,green_dll_tests,cabi_build,cabi_exports,appkit_tests,azpaint_tests,azmaps_tests,azmeet_tests,azwriter_tests,azwidgets_tests,autofix
+# A runner job ends after 120 minutes and the whole gate is longer than that on a cold cache: three runs, in this order,
+#   G1 (the crates' tests, the REDs, the lints, the type-checks of dll, apps and both phone shells, autofix of api.json):
+#     MOBILE_APPS_ONLY=css_lib,core_lib,layout_lib,layout_tests,layout_fluent,phone_tests,red_layout_on_the_previous_files,red_ribbon_without_the_file_row,clippy,dll_check,apps_check,android_check,ios_cross_check,autofix
+#   G2a (the headless-shell tests of the dll, with the RED of the safe-area guard):
+#     MOBILE_APPS_ONLY=red_safe_area_without_the_guard,green_dll_tests
+#   G2b (the C ABI library and the apps over it):
+#     MOBILE_APPS_ONLY=cabi_build,cabi_exports,appkit_tests,azpaint_tests,azmaps_tests,azmeet_tests,azwriter_tests,azwidgets_tests
 # Needs the bindings (remote.sh --codegen) for every step that builds azul-dll. A step that fails does not stop the ones after
 # it, so one run says everything that is wrong; the last lines are one `STEP <name> <exit>` each and the exit code of the script
 # is 0 only when every step passed. The two RED steps take the fix away again (the guard of the safe-area fix; the files the
