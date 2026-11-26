@@ -8097,6 +8097,16 @@ impl MacOSWindow {
         };
 
         startup.mark("window:struct_built");
+        // The accessibility tree is built ON DEMAND (A10-19: inside the adapter's `update_if_active`, while an
+        // assistive technology is active). The mode is set HERE, before the initial layout: it was set in
+        // `init_accessibility`, after it, so the first layout pass built a tree that nobody asked for (8.6 ms of
+        // the first frame in the startup timeline of 2026-11-26).
+        #[cfg(feature = "a11y")]
+        if !window.a11y_eager() {
+            if let Some(lw) = window.common.layout_window.as_mut() {
+                lw.a11y_manager.on_demand = true;
+            }
+        }
         // The titlebar in the mode the window will show, before it is ever
         // drawn: a window opened under a dark pin on a light desktop must not
         // flash a light titlebar.
@@ -13788,3 +13798,7 @@ mod audit_a10_tests {
 #[cfg(test)]
 #[path = "first_present_exit_test.rs"]
 mod first_present_exit_test;
+
+#[cfg(test)]
+#[path = "a11y_first_layout_test.rs"]
+mod a11y_first_layout_test;
