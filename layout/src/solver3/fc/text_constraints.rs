@@ -878,15 +878,16 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // `white-space` that does not wrap give no line breaks, `balance` and `pretty` break the
     // paragraph as a whole where the text may wrap.
     use azul_css::props::basic::font_variation::StyleTextWrap;
-    let text_wrap = match (style.white_space, style.text_wrap) {
-        (StyleWhiteSpace::Nowrap | StyleWhiteSpace::Pre, _) | (_, StyleTextWrap::Nowrap) => {
-            text3::cache::TextWrap::NoWrap
-        }
+    let white_space = white_space_under_text_wrap(style.white_space, style.text_wrap);
+    let text_wrap = match (white_space, style.text_wrap) {
+        (StyleWhiteSpace::Nowrap | StyleWhiteSpace::Pre, _) => text3::cache::TextWrap::NoWrap,
         (_, StyleTextWrap::Balance) => text3::cache::TextWrap::Balance,
         (_, StyleTextWrap::Pretty) => text3::cache::TextWrap::Pretty,
-        (_, StyleTextWrap::Wrap | StyleTextWrap::Stable) => text3::cache::TextWrap::Wrap,
+        (_, StyleTextWrap::Nowrap | StyleTextWrap::Wrap | StyleTextWrap::Stable) => {
+            text3::cache::TextWrap::Wrap
+        }
     };
-    let white_space_mode = match style.white_space {
+    let white_space_mode = match white_space {
         StyleWhiteSpace::Normal => text3::cache::WhiteSpaceMode::Normal,
         StyleWhiteSpace::Nowrap => text3::cache::WhiteSpaceMode::Nowrap,
         StyleWhiteSpace::Pre => text3::cache::WhiteSpaceMode::Pre,
@@ -1158,4 +1159,23 @@ pub(crate) fn float_shape_outside<T: ParsedFontTrait>(
         .and_then(|v| v.get_property())
         .map_or(0.0, |m| reference.length(m.inner, containing_block_width));
     Some((shape, shape_margin.max(0.0)))
+}
+
+/// The `white-space` a box has under its `text-wrap`: `text-wrap: nowrap` takes the wrapping out of
+/// it (CSS Text 4: `white-space` is a shorthand of `white-space-collapse` and `text-wrap-mode`),
+/// so `normal` is `nowrap` and `pre-wrap` and `break-spaces` are `pre`; `pre-line` still wraps
+/// (no `white-space` collapses spaces, keeps the newlines and does not wrap).
+#[must_use]
+pub fn white_space_under_text_wrap(
+    white_space: StyleWhiteSpace,
+    text_wrap: azul_css::props::basic::font_variation::StyleTextWrap,
+) -> StyleWhiteSpace {
+    use azul_css::props::basic::font_variation::StyleTextWrap;
+    match (white_space, text_wrap) {
+        (StyleWhiteSpace::Normal, StyleTextWrap::Nowrap) => StyleWhiteSpace::Nowrap,
+        (StyleWhiteSpace::PreWrap | StyleWhiteSpace::BreakSpaces, StyleTextWrap::Nowrap) => {
+            StyleWhiteSpace::Pre
+        }
+        (white_space, _) => white_space,
+    }
 }

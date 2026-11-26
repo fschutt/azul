@@ -61802,7 +61802,13 @@
                     },
                     "StyleFontVariantPositionValue": {
                         "external": "azul_css::props::property::StyleFontVariantPositionValue",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleFontVariantPosition"
+                            ]
+                        }
                     },
                     "StyleTextRendering": {
                         "external": "azul_css::props::basic::font_variation::StyleTextRendering",
@@ -61829,7 +61835,13 @@
                     },
                     "StyleTextRenderingValue": {
                         "external": "azul_css::props::property::StyleTextRenderingValue",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextRendering"
+                            ]
+                        }
                     },
                     "StyleTextWrap": {
                         "external": "azul_css::props::basic::font_variation::StyleTextWrap",
@@ -61857,7 +61869,13 @@
                     },
                     "StyleTextWrapValue": {
                         "external": "azul_css::props::property::StyleTextWrapValue",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextWrap"
+                            ]
+                        }
                     }
                 }
             },
