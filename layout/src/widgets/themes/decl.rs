@@ -1131,7 +1131,7 @@ pub(crate) const BUTTON_FADE_MS: u32 = 120;
 
 /// The least a tappable control is, in each direction, on Android (Material's touch target, 48 dp)
 /// and on iOS (Apple's, 44 pt). A desktop button is 29 px tall (6 px of padding round a 14 px line):
-/// the zoom buttons of AzMaps measured 41 x 29 dp on the Android emulator, which a finger misses.
+/// the zoom buttons of `AzMaps` measured 41 x 29 dp on the Android emulator, which a finger misses.
 pub(crate) const ANDROID_TOUCH_TARGET: isize = 48;
 /// See [`ANDROID_TOUCH_TARGET`].
 pub(crate) const IOS_TOUCH_TARGET: isize = 44;
