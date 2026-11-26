@@ -1,7 +1,7 @@
 //! Lower MARKUP — a subtree of the builder's document, a component's
 //! template, a page, pasted HTML — to the language-neutral codegen IR
 //! ([`azul_css::codegen::ir`]), which every binding language's printer
-//! ([`azul_css::codegen::lang`]) turns into source: AzBuilder's
+//! ([`azul_css::codegen::lang`]) turns into source: `AzBuilder`'s
 //! "Subtree → code", "Component → code", "HTML → DOM (code)" and Export > Code.
 //!
 //! This module only DECIDES; it prints nothing. The decisions: the semantic /
@@ -306,7 +306,7 @@ impl ComponentMarkup {
 /// What the lowering knows about components: the component map (a tag
 /// `<library:name>` is an instance of `map.get(library, name)`) and where a
 /// component's TEMPLATE comes from. Core has no XML parser: a caller that
-/// has templates (AzBuilder's) parses them; `template` answers `None` for a
+/// has templates (`AzBuilder`'s) parses them; `template` answers `None` for a
 /// component without one, which is then exported as what it renders.
 pub struct Components<'a> {
     pub map: &'a ComponentMap,

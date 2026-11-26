@@ -10,7 +10,7 @@
 //!   every component it calls, a `main`), one file per component library,
 //!   the app's stylesheet as named styles, a README.
 //! - [`fragment_code`]: markup as one render function or an app project
-//!   (AzBuilder's "Subtree → code").
+//!   (`AzBuilder`'s "Subtree → code").
 //! - [`library_code`]: components as one file with their registration
 //!   ("Component → code").
 //! - [`html_code`]: pasted HTML / XHTML as code ("HTML → DOM (code)").
