@@ -674,3 +674,53 @@ jobs:
             demo-status.json
             demo-status.md
           retention-days: 30
+
+  # ------------------------------------------------------------------------------------------------
+  # Publishing: ONLY when the run was asked to (rust.yml's publish_demos, the user's word). The assets are
+  # the names the release page links (doc/src/dllgen/demo_apps.rs builds the same names from the manifest):
+  # desktop binaries as .tar.gz, the phone files as they are, companion.json for AzReview's installer.
+  # ------------------------------------------------------------------------------------------------
+  publish:
+    name: Publish to the release
+    needs: [plan, report]
+    if: ${{ inputs.publish && !cancelled() && needs.report.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: demoapps-*
+          path: demo-all
+          merge-multiple: true
+      - name: The release assets
+        run: >-
+          python3 scripts/demo_publish.py assemble --in demo-all --out release-assets
+          --version "${{ needs.plan.outputs.version }}" --sha "${{ github.sha }}"
+      - name: Upload them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release view "$VERSION" >/dev/null 2>&1 || gh release create "$VERSION" --title "Azul $VERSION" \
+            --notes "Azul $VERSION release. Binaries attached; docs and small assets at https://azul.rs/ui/release/$VERSION/."
+          cd release-assets
+          files=()
+          for f in *; do
+            [ "$f" = release-assets.json ] || files+=("$f")
+          done
+          gh release upload "$VERSION" "${files[@]}" --clobber
+          echo "uploaded ${#files[@]} assets to $VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: demo-release-assets
+          path: release-assets/release-assets.json
+          retention-days: 30
