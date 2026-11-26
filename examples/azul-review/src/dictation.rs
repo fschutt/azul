@@ -23,6 +23,29 @@ pub enum Status {
     Failed,
 }
 
+/// Who answered a listen call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Recognizer {
+    /// The system's recogniser.
+    Native,
+    /// The built-in one (the engine's own model).
+    Builtin,
+    /// A script (tests).
+    Scripted,
+    /// Nobody could listen.
+    #[default]
+    None,
+}
+
+/// One word of what was heard: when it was said (ms from the start of the call) and how sure the recogniser was.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HeardWord {
+    pub text: String,
+    pub start_ms: u32,
+    pub end_ms: u32,
+    pub probability: f32,
+}
+
 /// What one listen call heard.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Heard {
@@ -30,6 +53,27 @@ pub struct Heard {
     pub text: String,
     /// Why nothing was heard, readable enough to show.
     pub message: String,
+    /// The words with their times (empty where the recogniser gives none).
+    pub words: Vec<HeardWord>,
+    /// The wall-clock moment the call began, Unix ms: the moment of a word is this plus its `start_ms`.
+    pub started_unix_ms: u64,
+    /// Who answered.
+    pub recognizer: Recognizer,
+}
+
+impl Heard {
+    /// What a call that heard `text` (or failed with `message`) comes to, with no words and no time.
+    #[must_use]
+    pub fn new(status: Status, text: &str, message: &str) -> Self {
+        Self {
+            status,
+            text: text.to_string(),
+            message: message.to_string(),
+            words: Vec::new(),
+            started_unix_ms: 0,
+            recognizer: Recognizer::None,
+        }
+    }
 }
 
 /// What listens: the engine's recogniser, or a script.

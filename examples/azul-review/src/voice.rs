@@ -19,8 +19,11 @@ use std::{
 };
 
 use azul::{
+    option::OptionSpeechWord,
     prelude::*,
-    speech::{HeardStatus, Speech},
+    speech::{BuiltinSpeechStatus, HeardStatus, Speech, SpeechHeard, SpeechRecognizer, SpeechSession},
+    str::String as AzString,
+    vec::StringVec,
     task::TerminateTimer,
     time::SystemTimeDiff,
     widgets::{OnTextInputReturn, TextAreaState, TextInputValid},
@@ -31,7 +34,7 @@ use azul_appkit::{
 };
 
 use crate::{
-    dictation::{self, Cause, Clock, End, Heard, Listener, Out, Plan, Status},
+    dictation::{self, Cause, Clock, End, Heard, HeardWord, Listener, Out, Plan, Recognizer, Status},
     dwell::{Allow, Anchor, Config, Dwell, Reaction, Sample},
     model::{Note, NoteState},
     ui, AppState,
@@ -85,6 +88,9 @@ pub struct Voice {
     /// Why speech recognition cannot be had at all here (no recogniser, the app not set up for one):
     /// it cannot change before the app is started again, so a rest says so again and starts nothing.
     pub unavailable: Option<String>,
+    /// The speech session: the chain of recognisers (the system's, the built-in one), its vocabulary and the call
+    /// that ends when a dictation is stopped. One for the window; the worker listens through a clone of it.
+    pub speech: Option<SpeechSession>,
 }
 
 impl Voice {
@@ -100,6 +106,7 @@ impl Voice {
             pending: None,
             notes_open: false,
             unavailable: None,
+            speech: None,
         }
     }
 
@@ -131,6 +138,11 @@ impl Voice {
         }
         r.stopping = Some(cause);
         r.stop.store(true, Ordering::Relaxed);
+        // The call that listens ends now and answers what was said so far: the stop is heard at once, not after the
+        // utterance.
+        if let Some(speech) = &self.speech {
+            speech.cancel();
+        }
         self.dwell.session_ended();
         true
     }
@@ -270,11 +282,36 @@ fn rested(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update 
 
 // ==== The session ====
 
+/// What the built-in recogniser's loading came to, in words (a line for the log and the status).
+pub(crate) fn builtin_word(status: BuiltinSpeechStatus) -> &'static str {
+    match status {
+        BuiltinSpeechStatus::Ready => "ready",
+        BuiltinSpeechStatus::EngineMissing => "its engine library was not found",
+        BuiltinSpeechStatus::EngineIncompatible => "its engine library does not fit this app",
+        BuiltinSpeechStatus::ModelMissing => "its speech model was not found",
+        BuiltinSpeechStatus::ModelRejected => "its speech model was refused",
+    }
+}
+
+/// How many words of the page the recogniser is told (its own cap is 200).
+const VOCABULARY_CAP: usize = 200;
+
+/// A list of words as the engine's string list.
+fn string_vec(words: &[String]) -> StringVec {
+    let items: Vec<AzString> = words.iter().map(|w| AzString::from(w.as_str())).collect();
+    match items.first() {
+        Some(first) => StringVec::copy_from_ptr(first, items.len()),
+        None => StringVec::create(),
+    }
+}
+
 /// What the worker thread starts from.
 struct WorkerInit {
     plan: Plan,
     stop: Arc<AtomicBool>,
     session: u64,
+    /// The window's speech session (a clone: the same session): without one the engine's static recogniser is asked.
+    speech: Option<SpeechSession>,
 }
 
 /// What the worker hands to the window.
@@ -283,22 +320,52 @@ struct Message {
     out: Out,
 }
 
-/// The engine's recogniser as a [`Listener`].
-struct SpeechListener;
+/// What a listen call of the engine answered, as the dictation sees it: the words with their times, the moment the
+/// call began and who answered.
+pub(crate) fn heard_of(heard: &SpeechHeard) -> Heard {
+    let mut words = Vec::new();
+    for i in 0..heard.words.len() {
+        if let OptionSpeechWord::Some(w) = heard.words.c_get(i) {
+            words.push(HeardWord {
+                text: w.text.as_str().to_string(),
+                start_ms: w.start_ms,
+                end_ms: w.end_ms,
+                probability: w.probability,
+            });
+        }
+    }
+    Heard {
+        status: match heard.status {
+            HeardStatus::Heard => Status::Heard,
+            HeardStatus::NothingHeard => Status::Nothing,
+            HeardStatus::Denied => Status::Denied,
+            HeardStatus::Unavailable => Status::Unavailable,
+            HeardStatus::Failed => Status::Failed,
+        },
+        text: heard.text.as_str().to_string(),
+        message: heard.message.as_str().to_string(),
+        words,
+        started_unix_ms: heard.started_unix_ms,
+        recognizer: match heard.recognizer {
+            SpeechRecognizer::Native => Recognizer::Native,
+            SpeechRecognizer::Builtin => Recognizer::Builtin,
+            SpeechRecognizer::Scripted => Recognizer::Scripted,
+            SpeechRecognizer::None => Recognizer::None,
+        },
+    }
+}
+
+/// The engine's recogniser as a [`Listener`]: the window's session (the chain of recognisers, its vocabulary), or the
+/// engine's static call where there is none.
+struct SpeechListener {
+    session: Option<SpeechSession>,
+}
 
 impl Listener for SpeechListener {
     fn listen(&mut self, language: &str, timeout_ms: u32) -> Heard {
-        let heard = Speech::listen_blocking(language.to_string(), timeout_ms);
-        Heard {
-            status: match heard.status {
-                HeardStatus::Heard => Status::Heard,
-                HeardStatus::NothingHeard => Status::Nothing,
-                HeardStatus::Denied => Status::Denied,
-                HeardStatus::Unavailable => Status::Unavailable,
-                HeardStatus::Failed => Status::Failed,
-            },
-            text: heard.text.as_str().to_string(),
-            message: heard.message.as_str().to_string(),
+        match &self.session {
+            Some(session) => heard_of(&session.listen_blocking(language.to_string(), timeout_ms)),
+            None => heard_of(&Speech::listen_blocking(language.to_string(), timeout_ms)),
         }
     }
 }
@@ -318,15 +385,15 @@ impl Clock for WallClock {
 
 /// The worker thread: listens until it is told to stop, then says so.
 extern "C" fn worker(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
-    let Some((plan, stop, session)) = init
+    let Some((plan, stop, session, speech)) = init
         .downcast_ref::<WorkerInit>()
-        .map(|i| (i.plan.clone(), i.stop.clone(), i.session))
+        .map(|i| (i.plan.clone(), i.stop.clone(), i.session, i.speech.clone()))
     else {
         return;
     };
     dictation::run(
         &plan,
-        &mut SpeechListener,
+        &mut SpeechListener { session: speech },
         &mut WallClock(Instant::now()),
         &mut || stop.load(Ordering::Relaxed),
         &mut |out| {
@@ -369,6 +436,16 @@ fn start(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update {
         s.voice.dwell.session_started(anchor);
         s.voice.notes_open = true;
         println!("AZREVIEW_DICTATION started {id}");
+        // The words of the page under the pen, for the recogniser's keyword biasing (what it cut is told once).
+        if let Some(speech) = &s.voice.speech {
+            let words = s.file().map_or_else(Vec::new, |f| {
+                crate::vocabulary::vocabulary(f.page(anchor.page).1, &f.display, VOCABULARY_CAP)
+            });
+            let cut = speech.set_vocabulary(string_vec(&words));
+            if !cut.as_str().is_empty() {
+                eprintln!("[AzReview] speech vocabulary: {}", cut.as_str());
+            }
+        }
         (
             Plan {
                 language,
@@ -378,12 +455,13 @@ fn start(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update {
             },
             stop,
             session,
+            s.voice.speech.clone(),
         )
     };
-    let (plan, stop, session) = plan;
+    let (plan, stop, session, speech) = plan;
     info.add_thread(
         ThreadId::unique(),
-        Thread::create(RefAny::new(WorkerInit { plan, stop, session }), data.clone(), worker),
+        Thread::create(RefAny::new(WorkerInit { plan, stop, session, speech }), data.clone(), worker),
     );
     info.trigger_all_virtual_view_rerender();
     Update::RefreshDom

@@ -25,11 +25,7 @@ impl Clock for FakeClock {
 }
 
 fn heard(status: Status, text: &str, message: &str) -> Heard {
-    Heard {
-        status,
-        text: text.to_string(),
-        message: message.to_string(),
-    }
+    Heard::new(status, text, message)
 }
 
 fn said(text: &str) -> Heard {

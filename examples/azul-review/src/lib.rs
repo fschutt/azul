@@ -104,6 +104,7 @@ pub(crate) mod stroke_fixtures;
 pub mod state_op;
 pub mod switches;
 pub mod ui;
+pub mod vocabulary;
 pub mod voice;
 pub mod whiteboard;
 pub mod whiteboard_app;
@@ -649,6 +650,12 @@ pub fn run() {
     );
     state.switches = own;
     state.perf = perf::Perf::new(std::env::var_os("AZREVIEW_PROFILE").is_some());
+    // The speech session of the window: the chain of recognisers (the system's, then the built-in one where its files
+    // are found next to the binary or in the bundle), its vocabulary, and the call a stop ends.
+    let speech = azul::speech::SpeechSession::create();
+    let builtin = speech.set_builtin_files("", "");
+    eprintln!("[AzReview] speech: the built-in recogniser is {}", voice::builtin_word(builtin));
+    state.voice.speech = Some(speech);
     state.pointer_log = pointer::PointerLog::new(pointer::Echo::parse(
         std::env::var("AZREVIEW_EVENTS").ok().as_deref(),
     ));

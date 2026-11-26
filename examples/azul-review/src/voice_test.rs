@@ -3,8 +3,13 @@
 
 use std::sync::atomic::Ordering;
 
+use azul::{
+    speech::{BuiltinSpeechStatus, HeardStatus, SpeechHeard, SpeechRecognizer, SpeechWord},
+    vec::SpeechWordVec,
+};
+
 use super::*;
-use crate::dwell::Config;
+use crate::{dictation::Status, dwell::Config};
 
 fn voice() -> Voice {
     Voice::new(Config::default(), 10_000)
@@ -66,4 +71,75 @@ fn a_refusal_is_told_in_this_apps_words_with_the_engines_after_them() {
     assert!(unavailable.contains("no Info.plist"), "{unavailable}");
     let failed = refusal(Status::Failed, "the microphone did not start");
     assert!(failed.starts_with("Dictation failed"), "{failed}");
+}
+
+// ---- what the speech session answers, as the dictation sees it ----
+
+fn answer(status: HeardStatus, recognizer: SpeechRecognizer, text: &str, words: &[(&str, u32, u32, f32)]) -> SpeechHeard {
+    let items: Vec<SpeechWord> = words
+        .iter()
+        .map(|(w, s, e, p)| SpeechWord { text: (*w).to_string().into(), start_ms: *s, end_ms: *e, probability: *p })
+        .collect();
+    SpeechHeard {
+        text: text.to_string().into(),
+        message: "".to_string().into(),
+        language: "en-US".to_string().into(),
+        words: if items.is_empty() { SpeechWordVec::create() } else { SpeechWordVec::copy_from_ptr(&items[0], items.len()) },
+        started_unix_ms: 1_764_000_000_000,
+        confidence: 0.9,
+        status,
+        recognizer,
+    }
+}
+
+#[test]
+fn a_session_answer_keeps_its_words_with_their_times_and_says_who_answered() {
+    let heard = heard_of(&answer(
+        HeardStatus::Heard,
+        SpeechRecognizer::Builtin,
+        "enum await",
+        &[("enum", 0, 300, 0.99), ("await", 320, 700, 0.8)],
+    ));
+    assert_eq!(heard.status, Status::Heard);
+    assert_eq!(heard.text, "enum await");
+    assert_eq!(heard.recognizer, crate::dictation::Recognizer::Builtin);
+    assert_eq!(heard.started_unix_ms, 1_764_000_000_000);
+    assert_eq!(heard.words.len(), 2);
+    assert_eq!((heard.words[1].text.as_str(), heard.words[1].start_ms, heard.words[1].end_ms), ("await", 320, 700));
+}
+
+#[test]
+fn every_status_and_every_recogniser_has_its_own_word() {
+    for (from, to) in [
+        (HeardStatus::Heard, Status::Heard),
+        (HeardStatus::NothingHeard, Status::Nothing),
+        (HeardStatus::Denied, Status::Denied),
+        (HeardStatus::Unavailable, Status::Unavailable),
+        (HeardStatus::Failed, Status::Failed),
+    ] {
+        assert_eq!(heard_of(&answer(from, SpeechRecognizer::Native, "", &[])).status, to);
+    }
+    for (from, to) in [
+        (SpeechRecognizer::Native, crate::dictation::Recognizer::Native),
+        (SpeechRecognizer::Builtin, crate::dictation::Recognizer::Builtin),
+        (SpeechRecognizer::Scripted, crate::dictation::Recognizer::Scripted),
+        (SpeechRecognizer::None, crate::dictation::Recognizer::None),
+    ] {
+        assert_eq!(heard_of(&answer(HeardStatus::Heard, from, "x", &[])).recognizer, to);
+    }
+}
+
+#[test]
+fn every_state_of_the_built_in_recogniser_has_its_own_word() {
+    let words: std::collections::BTreeSet<&str> = [
+        BuiltinSpeechStatus::Ready,
+        BuiltinSpeechStatus::EngineMissing,
+        BuiltinSpeechStatus::EngineIncompatible,
+        BuiltinSpeechStatus::ModelMissing,
+        BuiltinSpeechStatus::ModelRejected,
+    ]
+    .into_iter()
+    .map(builtin_word)
+    .collect();
+    assert_eq!(words.len(), 5);
 }
