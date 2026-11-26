@@ -260,6 +260,18 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
     // ask for a rebuild or a repaint, which this pass then makes.
     window.pump_webviews_if_any();
 
+    // Relayout-only, checked FIRST - the order macOS, Wayland and Android use. An incremental
+    // relayout (a restyle, a runtime text edit) has already re-run layout and rebuilt the display
+    // list on the existing StyledDom; `regenerate_layout` on top would discard it and re-invoke
+    // the app's `layout()`, rebuilding the DOM from a model that has not caught up (a committed
+    // IME string was laid out again from the app's unchanged state and vanished). The input
+    // arms raise BOTH flags, so this is tested before the plain regeneration request.
+    if window.common.take_relayout_only() {
+        window.needs_rerender = true;
+        let epoch = window.common.regen_epoch();
+        window.common.clear_regeneration_unless_reraised(epoch);
+    }
+
     if window.common.regeneration_pending() {
         // A relayout re-rasters on its way through, so any pending
         // repaint-only request is satisfied by it.
@@ -401,7 +413,6 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
 ///   3 = cancelled
 fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: u8) {
     use azul_core::{
-        events::ProcessEventResult,
         geom::LogicalPosition,
         window::{CursorPosition, TouchPoint, TouchPointVec},
     };
@@ -763,23 +774,18 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
         }
     }
 
-    let r = window.process_window_events(0);
-    if !matches!(r, ProcessEventResult::DoNothing) {
-        window
-            .common
-            .request_regeneration(RelayoutReason::RefreshDom);
-    }
-    if let Some(lw) = window.common.layout_window.as_mut() {
-        lw.gesture_drag_manager.clear_native_gesture();
-        lw.gesture_drag_manager.note_pinch_dispatched();
-
-        // Pencil events route through the same gesture manager that pen
-        // tablets do on desktop. Apple Pencil has no eraser tip and no
-        // barrel button at the UITouch level (Pencil 2 squeeze fires
-        // `UIPencilInteraction` instead, a P2.3 follow-up), so both flags
-        // stay `false` here; pressure, tilt, and barrel roll (Pencil Pro,
-        // iOS 17.5+) are populated.
-        if let Some(sample) = pencil.as_ref() {
+    // The pen's state is written BEFORE the pass that dispatches this touch's callbacks (macOS
+    // writes it in the tablet handler, ahead of the mouse event): written after it, as it was, a
+    // callback reading pressure or tilt got the PREVIOUS sample's. (Snapshot -> mutate -> pass.)
+    //
+    // Pencil events route through the same gesture manager that pen
+    // tablets do on desktop. Apple Pencil has no eraser tip and no
+    // barrel button at the UITouch level (Pencil 2 squeeze fires
+    // `UIPencilInteraction` instead, a P2.3 follow-up), so both flags
+    // stay `false` here; pressure, tilt, and barrel roll (Pencil Pro,
+    // iOS 17.5+) are populated.
+    if let Some(sample) = pencil.as_ref() {
+        if let Some(lw) = window.common.layout_window.as_mut() {
             let in_contact = matches!(phase, 0 | 1);
             if in_contact {
                 lw.gesture_drag_manager.update_pen_state_full(
@@ -797,10 +803,17 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
             } else {
                 lw.gesture_drag_manager.clear_pen_state();
             }
-            window
-                .common
-                .request_regeneration(RelayoutReason::RefreshDom);
         }
+        // A repaint (the stroke under the pen), not a rebuild of the DOM per sample.
+        window.needs_rerender = true;
+    }
+
+    // The pass's result at the weight it was classified, not a rebuild of the DOM for everything.
+    let r = window.process_window_events(0);
+    settle(window, r);
+    if let Some(lw) = window.common.layout_window.as_mut() {
+        lw.gesture_drag_manager.clear_native_gesture();
+        lw.gesture_drag_manager.note_pinch_dispatched();
     }
 
     // Ask the view to redraw — displayLayer: will pick up the new layout.
@@ -941,13 +954,25 @@ const UI_GESTURE_RECOGNIZER_STATE_RECOGNIZED: i64 = 3;
 const UI_GESTURE_RECOGNIZER_STATE_BEGAN: i64 = 1;
 const UI_GESTURE_RECOGNIZER_STATE_CHANGED: i64 = 2;
 
+/// Latch a recognized native gesture and run the event pass that turns it into callbacks.
+///
+/// The latch only becomes a `SyntheticEvent` INSIDE a pass (`determine_all_events` consults the
+/// gesture manager), and the pass that consumes it clears it; macOS injects, snapshots and runs
+/// that pass at once (`swipe`, `rotate`, `magnify`). This asked for a rebuild of the DOM instead and
+/// waited for "some later pass" - which for a touch device is the next unrelated finger, whose end
+/// clears the latch unread: the double-tap, long-press, swipe, pinch and rotation callbacks of an
+/// iOS app never ran (or ran a touch late). A rebuild of the DOM was never what a gesture needs.
 fn inject(window: &mut IOSWindow, gesture: azul_layout::managers::gesture::NativeGestureEvent) {
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.inject_native_gesture(gesture);
-        window
-            .common
-            .request_regeneration(RelayoutReason::RefreshDom);
+    } else {
+        return;
     }
+    window.snapshot_window_state_baseline("ios.native_gesture");
+    let result = window.process_window_events(0);
+    settle(window, result);
+    // The recognizer's action runs outside every touch method: ask for the display pass itself.
+    let _ = window.present();
 }
 
 extern "C" fn on_double_tap(_this: &Object, _cmd: Sel, sender: *mut Object) {
@@ -1196,10 +1221,14 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
     // place to drive it — it fires every screen refresh — so it now does, and the
     // comment is true.
     if let Some(window) = unsafe { azul_ios_window() } {
+        // The answer is "something needs a REPAINT", not "the DOM changed": the pass has already
+        // asked for a regeneration itself wherever one is owed (a timer or a writeback that
+        // returned `Update::RefreshDom`). Forcing `RefreshDom` here overrode that on every tick -
+        // the scroll physics timer fires at the frame rate, so the app's `layout()` ran 60 times a
+        // second for the whole of a scroll, on stale application data (Android fixed the same
+        // line: `window.needs_rerender = true`).
         if window.process_timers_and_threads() {
-            window
-                .common
-                .request_regeneration(RelayoutReason::RefreshDom);
+            window.needs_rerender = true;
         }
         // Accessibility actions arrive off-loop (VoiceOver invokes
         // `accessibilityActivate` and friends whenever the user gestures) and
@@ -1254,13 +1283,15 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
         // because UITraitCollection is main-thread-only and this tick is the
         // main thread.
         #[cfg(target_os = "ios")]
-        if unsafe { adopt_device_appearance(&mut window.common) } {
+        let view = (&*window.ui_view as *const Object) as *mut Object;
+        #[cfg(target_os = "ios")]
+        if unsafe { adopt_device_appearance(&mut window.common, view) } {
             let _ = window.process_window_events(0);
             window
                 .common
                 .request_regeneration(RelayoutReason::ModeChange);
         }
-        if window.common.regeneration_pending() {
+        if window.common.regeneration_pending() || window.needs_rerender {
             let _ = window.present();
         }
     }
@@ -1268,18 +1299,31 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
 
 /// The device's light/dark setting, as a [`DarkLightMode`].
 ///
-/// `UITraitCollection.currentTraitCollection.userInterfaceStyle`:
+/// `view.traitCollection.userInterfaceStyle`:
 /// 0 = unspecified, 1 = light, 2 = dark (`UIUserInterfaceStyle`). Unspecified
 /// yields `None` — it means UIKit is not expressing a preference, so whatever
 /// the window already carries is the better answer.
+///
+/// The VIEW's trait collection, not `UITraitCollection.currentTraitCollection`: UIKit sets
+/// `current` (a thread-local) only around `drawRect:`, `layoutSubviews`, `tintColorDidChange`,
+/// `traitCollectionDidChange:` and their view-controller twins, and documents that "outside these
+/// methods, you're responsible for ensuring the `current` property has a valid trait collection.
+/// Otherwise, the contents of the collection are undefined." The display tick is none of those,
+/// so the probe read an undefined collection; the view's own `traitCollection` is the documented
+/// answer at any time.
 ///
 /// MAIN THREAD ONLY, like all of UIKit. That is why this is polled from the
 /// display tick rather than from a watcher thread, which is the opposite of the
 /// Linux backends: there the probe is a blocking D-Bus round trip and MUST be
 /// threaded, here it is one message send and must NOT be.
 #[cfg(target_os = "ios")]
-unsafe fn probe_user_interface_style() -> Option<azul_core::window::DarkLightMode> {
-    let traits: *mut Object = msg_send![class!(UITraitCollection), currentTraitCollection];
+unsafe fn probe_user_interface_style(
+    view: *mut Object,
+) -> Option<azul_core::window::DarkLightMode> {
+    if view.is_null() {
+        return None;
+    }
+    let traits: *mut Object = msg_send![view, traitCollection];
     if traits.is_null() {
         return None;
     }
@@ -1302,8 +1346,9 @@ unsafe fn probe_user_interface_style() -> Option<azul_core::window::DarkLightMod
 #[cfg(target_os = "ios")]
 unsafe fn adopt_device_appearance(
     common: &mut crate::desktop::shell2::common::event::CommonWindowState,
+    view: *mut Object,
 ) -> bool {
-    let Some(desktop) = probe_user_interface_style() else {
+    let Some(desktop) = probe_user_interface_style(view) else {
         return false;
     };
     // The DEVICE's appearance: the window takes it only while the app follows
@@ -2163,6 +2208,36 @@ impl IOSWindow {
         let _ = self.present();
     }
 
+    /// Do what a pass of `process_window_events` left owing, at the weight the pass classified
+    /// it (`ios_logic::frame_step`): a repaint repaints, an incremental relayout is PERFORMED on
+    /// the existing `StyledDom` (and declared relayout-only, so the frame skips
+    /// `regenerate_layout`), and only a result that asks for a new DOM re-runs the app's
+    /// `layout()`. The same ladder the other shells follow; this one rebuilt the DOM for every
+    /// result but `DoNothing`.
+    pub(crate) fn apply_event_result(&mut self, result: azul_core::events::ProcessEventResult) {
+        use crate::desktop::shell2::common::ios_logic::{frame_step, FrameStep};
+        match frame_step(result) {
+            FrameStep::Nothing => {}
+            FrameStep::Repaint => self.needs_rerender = true,
+            FrameStep::IncrementalRelayout => {
+                // The pass CLASSIFIED this as incremental; it did not perform it.
+                let mut debug_messages = None;
+                if let Err(e) = self.incremental_relayout_dispatching(
+                    event::IncrementalRelayout::Restyle,
+                    &mut debug_messages,
+                ) {
+                    log_error!(LogCategory::Layout, "[iOS] incremental relayout failed: {}", e);
+                }
+                self.common.request_relayout_only();
+                self.needs_rerender = true;
+            }
+            FrameStep::Regenerate => {
+                self.common
+                    .request_regeneration(RelayoutReason::RefreshDom);
+            }
+        }
+    }
+
     /// One turn of the window's `<webview>`s (`common::webview::pump`): what
     /// WebKit reported (its delegate asked for this display pass) runs the
     /// views' callbacks, and the queued ops reach WebKit. Only while a web
@@ -2395,16 +2470,17 @@ impl PlatformWindow for IOSWindow {
     }
 
     fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows<'_> {
+        // The window's REAL handle, as macOS passes its own: every `CallbackInfo` of an iOS
+        // window carried an all-null one, so what needs the UIWindow (the web-authentication
+        // anchor, the document picker, a share sheet) fell back to the deprecated
+        // `[UIApplication keyWindow]`.
+        let window_handle = self.get_raw_window_handle();
         let borrows = self.common.layout_borrows();
         event::InvokeSingleCallbackBorrows {
             layout_window: borrows
                 .layout_window
                 .expect("Layout window must exist for callback invocation"),
-            window_handle: RawWindowHandle::IOS(IOSHandle {
-                ui_window: std::ptr::null_mut(),
-                ui_view: std::ptr::null_mut(),
-                ui_view_controller: std::ptr::null_mut(),
-            }),
+            window_handle,
             gl_context_ptr: borrows.gl_context_ptr,
             fc_cache_clone: (**borrows.fc_cache).clone(),
             system_style: borrows.system_style.clone(),
@@ -3006,17 +3082,13 @@ fn handle_presses(_this: &Object, presses: *mut Object, is_down: bool) {
     settle(window, result);
 }
 
-/// Ask for a relayout when a pass produced anything.
+/// Do what a pass of `process_window_events` left owing, at the weight the pass classified it
+/// ([`IOSWindow::apply_event_result`]).
 ///
-/// The iOS shell has no `handle_process_event_result`; this is the idiom the
-/// touch path already uses, factored out rather than repeated at each new
-/// call site.
+/// The iOS shell has no `handle_process_event_result`; this is the one tail every input site
+/// shares (touch, keys, IME, edit actions, pen, native gestures).
 fn settle(window: &mut IOSWindow, result: azul_core::events::ProcessEventResult) {
-    if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
-        window
-            .common
-            .request_regeneration(RelayoutReason::RefreshDom);
-    }
+    window.apply_event_result(result);
 }
 
 /// Pass a press set on to `super`, so unhandled keys still reach the system.

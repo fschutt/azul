@@ -176,3 +176,116 @@ fn a_panic_and_a_failed_launch_of_the_ios_app_are_written_to_the_system_log() {
     let finish = body(IOS_MOD_RS, "extern \"C\" fn did_finish_launching(");
     at(finish, "system_log(&message)", "did_finish_launching");
 }
+
+/// The escalation ladder: a pass's result is acted on at the weight it was classified. The iOS
+/// shell rebuilt the DOM (the app's `layout()`) for every result but `DoNothing` - at the touch
+/// rate while a finger scrolled, and over a committed IME string (the app's model had not caught
+/// up) - and again on every timer tick that asked for a repaint.
+#[test]
+fn the_ios_shell_acts_on_a_result_at_the_weight_the_pass_classified_it() {
+    // One tail for every input site.
+    let settle = body(IOS_MOD_RS, "fn settle(window: &mut IOSWindow");
+    at(settle, "apply_event_result(result)", "settle");
+    assert!(!settle.contains("RefreshDom"), "settle must not rebuild the DOM by itself");
+
+    let apply = body(IOS_MOD_RS, "pub(crate) fn apply_event_result(");
+    at(apply, "frame_step(result)", "apply_event_result");
+    at(apply, "incremental_relayout_dispatching(", "apply_event_result");
+    at(apply, "request_relayout_only()", "apply_event_result");
+
+    // The touch path goes through it and writes no DOM rebuild of its own.
+    let touch = body(IOS_MOD_RS, "fn handle_touch(");
+    at(touch, "settle(window, r)", "handle_touch");
+    assert!(
+        !touch.contains("RelayoutReason::RefreshDom"),
+        "handle_touch must not rebuild the DOM per touch event"
+    );
+
+    // A timer tick that asks for a redraw asks for a REPAINT.
+    let tick = body(IOS_MOD_RS, "extern \"C\" fn display_tick(");
+    at(tick, "window.needs_rerender = true", "display_tick");
+    assert!(
+        !tick.contains("RelayoutReason::RefreshDom"),
+        "display_tick must not force a DOM rebuild on every timer tick"
+    );
+    at(
+        tick,
+        "regeneration_pending() || window.needs_rerender",
+        "display_tick presents a pending repaint as well as a pending regeneration",
+    );
+
+    // A relayout that was already performed is not thrown away by a regeneration.
+    let layer = body(IOS_MOD_RS, "extern \"C\" fn display_layer(");
+    let only = layer.find("take_relayout_only()").expect("display_layer reads relayout-only");
+    let regenerate = layer.find("regeneration_pending()").expect("and the regeneration");
+    assert!(only < regenerate, "relayout-only is tested before the regeneration request");
+}
+
+/// A latched native gesture only becomes an event inside a pass, and the pass that consumes it
+/// clears it: macOS injects, snapshots and runs that pass at once. The iOS recognizers asked for a
+/// DOM rebuild and waited for a later pass, so no double-tap, long-press, swipe, pinch or rotation
+/// callback ran in time.
+#[test]
+fn a_recognized_ios_gesture_is_dispatched_by_a_pass_of_its_own() {
+    let inject = body(IOS_MOD_RS, "fn inject(window: &mut IOSWindow");
+    in_order(
+        inject,
+        "inject_native_gesture(gesture)",
+        "snapshot_window_state_baseline(",
+        "inject",
+    );
+    in_order(inject, "snapshot_window_state_baseline(", "process_window_events(0)", "inject");
+    in_order(inject, "process_window_events(0)", "settle(window, result)", "inject");
+}
+
+/// State first, then the pass: the pen's pressure and tilt are written before the pass that
+/// dispatches the touch's callbacks (macOS writes them in the tablet handler, ahead of the mouse
+/// event). After it, a callback read the previous sample's.
+#[test]
+fn the_pen_state_of_an_ios_touch_is_written_before_the_pass_that_reads_it() {
+    let touch = body(IOS_MOD_RS, "fn handle_touch(");
+    in_order(
+        touch,
+        "update_pen_state_full(",
+        "process_window_events(0)",
+        "handle_touch",
+    );
+}
+
+fn in_order(haystack: &str, first: &str, then: &str, what: &str) {
+    let a = haystack
+        .find(first)
+        .unwrap_or_else(|| panic!("{what}: `{first}` is missing"));
+    let b = haystack
+        .find(then)
+        .unwrap_or_else(|| panic!("{what}: `{then}` is missing"));
+    assert!(a < b, "{what}: `{first}` must come before `{then}`");
+}
+
+/// UIKit sets `UITraitCollection.current` (thread-local) only around `drawRect:`,
+/// `layoutSubviews` and the trait-change callbacks, and documents its contents as undefined
+/// anywhere else. The display tick is not one of them: the device's appearance is read from the
+/// view's own `traitCollection`.
+#[test]
+fn the_ios_shell_reads_the_appearance_from_the_view_not_from_the_current_trait_collection() {
+    assert!(
+        !code_of(IOS_MOD_RS).contains("currentTraitCollection"),
+        "UITraitCollection.currentTraitCollection is undefined outside UIKit's own callbacks"
+    );
+    let probe = body(IOS_MOD_RS, "unsafe fn probe_user_interface_style(");
+    at(probe, "msg_send![view, traitCollection]", "probe_user_interface_style");
+}
+
+/// Every `CallbackInfo` of a window carries the window's handle: macOS passes
+/// `self.get_raw_window_handle()`, and the iOS shell passed an all-null one, so what needs the
+/// UIWindow (the web-authentication anchor, the document picker) fell back to the deprecated
+/// `[UIApplication keyWindow]`.
+#[test]
+fn a_callback_of_an_ios_window_carries_the_real_window_handle() {
+    let prepare = body(IOS_MOD_RS, "fn prepare_callback_invocation(");
+    at(prepare, "self.get_raw_window_handle()", "prepare_callback_invocation");
+    assert!(
+        !prepare.contains("null_mut()"),
+        "prepare_callback_invocation must not hand out null handles"
+    );
+}

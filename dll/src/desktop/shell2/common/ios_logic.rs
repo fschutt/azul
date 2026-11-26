@@ -5,6 +5,7 @@
 //! keyboard's frame, the view's bounds. Everything here takes those numbers (never an object) and
 //! answers with the engine's own types.
 
+use azul_core::events::ProcessEventResult;
 use azul_css::{
     props::basic::pixel::{OptionPixelValue, PixelValue},
     system::SafeAreaInsets,
@@ -118,6 +119,42 @@ pub fn log_pieces(text: &str, max_bytes: usize) -> Vec<&str> {
         }
     }
     pieces
+}
+
+/// What the frame path owes after a pass of `process_window_events`, at the weight the pass
+/// classified it (`ProcessEventResult`'s own ladder, lightest first).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameStep {
+    /// Nothing changed.
+    Nothing,
+    /// The pixels changed (a scroll offset, a hover restyle, a new display list), the layout did
+    /// not: re-raster the frame. No app callback, no layout pass.
+    Repaint,
+    /// A restyle or a runtime edit changed what layout sees: re-run layout on the EXISTING
+    /// `StyledDom`, then repaint. NOT a DOM rebuild - the app's `layout()` must not run, or it
+    /// rebuilds the DOM from a model that has not caught up with the edit (a committed IME string
+    /// was laid out again from the app's unchanged state and vanished).
+    IncrementalRelayout,
+    /// A callback asked for a new DOM: run the app's `layout()` again.
+    Regenerate,
+}
+
+/// The step a pass's result calls for. The same ladder the macOS, Windows, X11, Wayland and
+/// Android shells follow: heavy reasons regenerate, light ones only repaint. The iOS shell turned
+/// EVERY result but `DoNothing` into a DOM rebuild, so a scrolling finger re-ran the app's
+/// `layout()` at the touch rate (Android measured 121-443 ms per escalated scroll frame against
+/// ~6 ms honoured), and an IME commit was overwritten by the app's unchanged model.
+#[must_use]
+pub const fn frame_step(result: ProcessEventResult) -> FrameStep {
+    match result {
+        ProcessEventResult::DoNothing => FrameStep::Nothing,
+        ProcessEventResult::ShouldReRenderCurrentWindow
+        | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+        | ProcessEventResult::UpdateHitTesterAndProcessAgain => FrameStep::Repaint,
+        ProcessEventResult::ShouldIncrementalRelayout => FrameStep::IncrementalRelayout,
+        ProcessEventResult::ShouldRegenerateDomCurrentWindow
+        | ProcessEventResult::ShouldRegenerateDomAllWindows => FrameStep::Regenerate,
+    }
 }
 
 #[cfg(test)]

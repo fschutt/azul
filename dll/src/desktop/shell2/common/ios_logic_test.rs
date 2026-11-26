@@ -1,3 +1,4 @@
+use azul_core::events::ProcessEventResult;
 use azul_css::{
     props::basic::pixel::{OptionPixelValue, PixelValue},
     system::SafeAreaInsets,
@@ -165,4 +166,83 @@ fn a_long_message_reaches_the_system_log_in_pieces_that_fit_and_lose_nothing() {
     assert_eq!(pieces.concat(), "\u{1F600}\u{1F600}");
 
     assert!(log_pieces("", 800).is_empty());
+}
+
+/// What `settle` and the end of `handle_touch` did before: any result but `DoNothing` became a
+/// rebuild of the DOM.
+fn the_step_before_the_fix(result: ProcessEventResult) -> FrameStep {
+    if matches!(result, ProcessEventResult::DoNothing) {
+        FrameStep::Nothing
+    } else {
+        FrameStep::Regenerate
+    }
+}
+
+/// A finger dragging a list produces `ShouldReRenderCurrentWindow` at the touch rate; a typed or
+/// dictated string produces `ShouldIncrementalRelayout`. Neither may re-run the app's `layout()`.
+#[test]
+fn a_scroll_or_a_text_edit_is_not_a_rebuild_of_the_dom() {
+    use ProcessEventResult as R;
+
+    assert_eq!(
+        the_step_before_the_fix(R::ShouldReRenderCurrentWindow),
+        FrameStep::Regenerate,
+        "the old shell rebuilt the DOM for a repaint (this is the bug)"
+    );
+    assert_eq!(
+        the_step_before_the_fix(R::ShouldIncrementalRelayout),
+        FrameStep::Regenerate,
+        "and for a text edit, which the app's unchanged model then overwrote"
+    );
+
+    assert_eq!(frame_step(R::DoNothing), FrameStep::Nothing);
+    assert_eq!(frame_step(R::ShouldReRenderCurrentWindow), FrameStep::Repaint);
+    assert_eq!(
+        frame_step(R::ShouldUpdateDisplayListCurrentWindow),
+        FrameStep::Repaint
+    );
+    assert_eq!(frame_step(R::UpdateHitTesterAndProcessAgain), FrameStep::Repaint);
+    assert_eq!(
+        frame_step(R::ShouldIncrementalRelayout),
+        FrameStep::IncrementalRelayout
+    );
+    assert_eq!(
+        frame_step(R::ShouldRegenerateDomCurrentWindow),
+        FrameStep::Regenerate
+    );
+    assert_eq!(
+        frame_step(R::ShouldRegenerateDomAllWindows),
+        FrameStep::Regenerate
+    );
+}
+
+/// The ladder is monotonic: a heavier result never calls for a lighter step than a lighter one.
+#[test]
+fn a_heavier_result_never_asks_for_less_than_a_lighter_one() {
+    use ProcessEventResult as R;
+    let ladder = [
+        R::DoNothing,
+        R::ShouldReRenderCurrentWindow,
+        R::ShouldUpdateDisplayListCurrentWindow,
+        R::UpdateHitTesterAndProcessAgain,
+        R::ShouldIncrementalRelayout,
+        R::ShouldRegenerateDomCurrentWindow,
+        R::ShouldRegenerateDomAllWindows,
+    ];
+    let weight = |step: FrameStep| match step {
+        FrameStep::Nothing => 0,
+        FrameStep::Repaint => 1,
+        FrameStep::IncrementalRelayout => 2,
+        FrameStep::Regenerate => 3,
+    };
+    for pair in ladder.windows(2) {
+        assert!(
+            weight(frame_step(pair[0])) <= weight(frame_step(pair[1])),
+            "{:?} -> {:?} but {:?} -> {:?}",
+            pair[0],
+            frame_step(pair[0]),
+            pair[1],
+            frame_step(pair[1])
+        );
+    }
 }
