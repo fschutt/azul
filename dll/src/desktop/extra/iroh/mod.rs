@@ -11,6 +11,10 @@ mod types;
 mod discovery;
 #[cfg(az_iroh_engine)]
 mod engine;
+#[cfg(az_iroh_engine)]
+mod multicast_lock;
+#[cfg(az_iroh_mdns)]
+mod mdns;
 
 use core::ffi::c_void;
 use std::{
@@ -308,6 +312,10 @@ impl IrohEndpoint {
     /// its paired devices opens its pairing window this way, and closes it again with
     /// `set_allowed_peers`). Returns false when nothing is bound.
     pub fn clear_allowed_peers(&self) -> bool {
+        #[cfg(az_iroh_engine)]
+        if let Some(engine) = self.engine() {
+            return engine.set_allowed_peers(None).is_ok();
+        }
         false
     }
 
@@ -316,6 +324,10 @@ impl IrohEndpoint {
     /// (no multicast, no permission): the endpoint works without it. Empty when nothing is
     /// bound.
     pub fn local_discovery_status(&self) -> AzString {
+        #[cfg(az_iroh_engine)]
+        if let Some(engine) = self.engine() {
+            return AzString::from_string(engine.local_discovery_status());
+        }
         AzString::from_const_str("")
     }
 

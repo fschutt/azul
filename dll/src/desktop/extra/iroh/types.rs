@@ -61,7 +61,8 @@ pub struct IrohConfig {
 }
 
 impl IrohConfig {
-    /// Config for the protocol `alpn`: default relays, a new identity, any free port, 16 MiB frames.
+    /// Config for the protocol `alpn`: default relays, a new identity, any free port, 16 MiB frames,
+    /// local-network discovery on.
     pub fn create(alpn: AzString) -> Self {
         IrohConfig {
             alpn,
@@ -73,7 +74,7 @@ impl IrohConfig {
             allowed_peers: OptionStringVec::None,
             port: 0,
             max_frame_bytes: 16 * 1024 * 1024,
-            local_discovery: false,
+            local_discovery: true,
         }
     }
 
@@ -137,8 +138,8 @@ impl IrohConfig {
     /// that accepts nobody (`with_allowed_peers` with an empty list) only looks and does not
     /// announce, and `relay_only` never uses it. When the network or the OS refuses multicast
     /// the endpoint works without it; `IrohEndpoint::local_discovery_status` says why.
-    pub fn with_local_discovery(self, local_discovery: bool) -> Self {
-        let _ = local_discovery;
+    pub fn with_local_discovery(mut self, local_discovery: bool) -> Self {
+        self.local_discovery = local_discovery;
         self
     }
 }

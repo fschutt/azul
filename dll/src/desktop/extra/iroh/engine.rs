@@ -92,9 +92,15 @@ fn start_local_discovery(
     discovery: &dyn LocalDiscovery,
     ignored: &Arc<AtomicU64>,
 ) -> (LocalDiscoveryState, Option<Held>) {
-    // Not wired yet: the tests of `engine_test.rs` fail until the engine asks discovery.
-    let _ = (config, endpoint, discovery, ignored);
-    (LocalDiscoveryState::Off, None)
+    let announce = match discovery::wanted(config) {
+        Wanted::Off => return (LocalDiscoveryState::Off, None),
+        Wanted::Look => false,
+        Wanted::LookAndAnnounce => true,
+    };
+    match discovery.start(endpoint, announce, ignored) {
+        Ok(held) => (LocalDiscoveryState::On { announcing: announce }, held),
+        Err(reason) => (LocalDiscoveryState::Unavailable(reason), None),
+    }
 }
 
 /// What the endpoint's TLS outside iroh's own connections trusts (its relays, address lookup,
@@ -287,8 +293,7 @@ impl Engine {
 
     /// What local-network discovery does for this endpoint (`IrohEndpoint::local_discovery_status`).
     pub(super) fn local_discovery_status(&self) -> String {
-        let _ = &self.local;
-        String::new()
+        self.local.status(self.ignored.load(Ordering::Relaxed))
     }
 
     /// Accepts incoming connections from `peers` only (`None`: from every peer), from the
