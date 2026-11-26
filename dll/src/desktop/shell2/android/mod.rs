@@ -1354,6 +1354,15 @@ fn apply_insets(window: &mut AndroidWindow, px: [i32; 5]) {
             px[4],
         );
     }
+    // The pass this asks for is a legitimate one (the bars arrive after the first frame, a rotation
+    // moves them): the startup timeline names it, so a second layout before the first picture is
+    // not a mystery.
+    window.common.app.startup().mark_with("android:insets_applied", || {
+        format!(
+            "top={} bottom={} left={} right={} ime={} (physical px)",
+            px[0], px[1], px[2], px[3], px[4]
+        )
+    });
     window
         .common
         .request_regeneration(RelayoutReason::RefreshDom);
