@@ -4990,7 +4990,7 @@ fn build_selector_for_node(
     let mut selector = tag_name;
 
     // Add ID if present (first ID wins)
-    for attr in node_data.attributes().as_ref().iter() {
+    for attr in node_data.attributes().as_ref() {
         if let Some(id) = attr.as_id() {
             selector.push('#');
             selector.push_str(id);
@@ -4999,7 +4999,7 @@ fn build_selector_for_node(
     }
 
     // Add all classes
-    for attr in node_data.attributes().as_ref().iter() {
+    for attr in node_data.attributes().as_ref() {
         if let Some(class) = attr.as_class() {
             selector.push('.');
             selector.push_str(class);
@@ -5637,7 +5637,7 @@ fn remount_builder_if_active(
     component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
 ) -> bool {
     let xml = {
-        let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+        let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         scratch(callback_info).builder.remount_xml(&map_guard)
     };
     match xml {
@@ -5751,7 +5751,7 @@ fn run_project_op(
     op: super::project::ProjectOp<'_>,
 ) -> bool {
     let result = {
-        let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let layout_window = callback_info.get_layout_window();
         let live = layout_window
             .layout_results
@@ -5781,7 +5781,7 @@ fn with_export_document<R>(
     component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
     f: impl FnOnce(&super::builder::BuilderDocument, &azul_core::xml::ComponentMap) -> R,
 ) -> R {
-    let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+    let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let layout_window = callback_info.get_layout_window();
     let live = layout_window
         .layout_results
@@ -5839,7 +5839,7 @@ fn build_project_files(
     library: Option<&str>,
 ) -> Result<(Vec<azul_css::codegen::GeneratedFile>, Vec<String>), String> {
     let (app, title) = build_app_code(callback_info, component_map)?;
-    let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+    let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     super::export::project(language, app, title, &map_guard, library)
 }
 
@@ -7673,7 +7673,7 @@ fn eval_assert_node_count(
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_node_count: missing 'selector' parameter"),
     };
-    let expected = match params.get("expected").and_then(|v| v.as_u64()) {
+    let expected = match params.get("expected").and_then(serde_json::Value::as_u64) {
         Some(n) => n as usize,
         None => {
             return AssertionResult::fail(
@@ -8196,13 +8196,13 @@ fn eval_assert_layout(
         Some(p) => p,
         None => return AssertionResult::fail("assert_layout: missing 'property' parameter"),
     };
-    let expected: f64 = match params.get("expected").and_then(|v| v.as_f64()) {
+    let expected: f64 = match params.get("expected").and_then(serde_json::Value::as_f64) {
         Some(n) => n,
         None => return AssertionResult::fail("assert_layout: missing or non-numeric 'expected'"),
     };
     let tolerance: f64 = params
         .get("tolerance")
-        .and_then(|v| v.as_f64())
+        .and_then(serde_json::Value::as_f64)
         .unwrap_or(0.5);
 
     let node_id = match resolve_node_target(
@@ -8645,7 +8645,7 @@ fn eval_assert_scroll(
     };
     let tolerance: f64 = params
         .get("tolerance")
-        .and_then(|v| v.as_f64())
+        .and_then(serde_json::Value::as_f64)
         .unwrap_or(1.0);
 
     let node_id = match resolve_node_target(
@@ -8685,7 +8685,7 @@ fn eval_assert_scroll(
     };
 
     // Check x if specified
-    if let Some(expected_x) = params.get("x").and_then(|v| v.as_f64()) {
+    if let Some(expected_x) = params.get("x").and_then(serde_json::Value::as_f64) {
         let actual_x = offset.x as f64;
         if (actual_x - expected_x).abs() > tolerance {
             return AssertionResult::fail_with(
@@ -8697,7 +8697,7 @@ fn eval_assert_scroll(
     }
 
     // Check y if specified
-    if let Some(expected_y) = params.get("y").and_then(|v| v.as_f64()) {
+    if let Some(expected_y) = params.get("y").and_then(serde_json::Value::as_f64) {
         let actual_y = offset.y as f64;
         if (actual_y - expected_y).abs() > tolerance {
             return AssertionResult::fail_with(
@@ -8760,11 +8760,11 @@ fn eval_assert_screenshot(
         };
         let threshold = params
             .get("threshold")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(2) as u8;
         let max_diff_ratio = params
             .get("max_diff_ratio")
-            .and_then(|v| v.as_f64())
+            .and_then(serde_json::Value::as_f64)
             .unwrap_or(0.0);
         let save_actual = params.get("save_actual").and_then(|v| v.as_str());
 
@@ -14611,7 +14611,7 @@ fn resume_e2e_continuation_inner(
             // event-loop thread (an inline sleep would block the very relayout
             // the wait is for; see resume_not_before).
             if op == "wait" {
-                let ms = step.params.get("ms").and_then(|v| v.as_u64()).unwrap_or(0);
+                let ms = step.params.get("ms").and_then(serde_json::Value::as_u64).unwrap_or(0);
                 // `"real": true` waits on the WALL CLOCK instead of the
                 // injectable one. The virtual wait below is right for anything
                 // the ENGINE drives — it is exact and it is free — but it buys
@@ -15995,10 +15995,10 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
 
     let mut libraries = Vec::new();
 
-    for lib in map_ref.libraries.iter() {
+    for lib in &map_ref.libraries {
         let mut components = Vec::new();
 
-        for def in lib.components.iter() {
+        for def in &lib.components {
             let tag = def.id.name.as_str();
 
             // --- data model (component-specific attributes) ---
@@ -16232,7 +16232,7 @@ fn styled_dom_to_render_tree(styled_dom: &azul_core::styled_dom::StyledDom) -> s
             .attributes()
             .as_ref()
             .iter()
-            .filter_map(|attr| attr.as_class().map(|s| s.to_string()))
+            .filter_map(|attr| attr.as_class().map(std::string::ToString::to_string))
             .collect();
 
         // Collect children
@@ -16290,7 +16290,7 @@ fn override_data_model_defaults(
 
     let mut fields: Vec<ComponentDataField> = data_model.fields.as_ref().to_vec();
 
-    for field in fields.iter_mut() {
+    for field in &mut fields {
         let name = field.name.as_str();
         if let Some(json_val) = map.get(name) {
             let parsed = parse_json_to_default_value(&field.field_type, json_val)
@@ -17047,7 +17047,7 @@ fn build_dom_response(
 
         let mut id_attr = None;
         let mut classes = Vec::new();
-        for attr in data.attributes().as_ref().iter() {
+        for attr in data.attributes().as_ref() {
             if let Some(id) = attr.as_id() {
                 id_attr = Some(id.to_string());
             } else if let Some(class) = attr.as_class() {
@@ -18559,7 +18559,7 @@ fn serve_debug_event(
 
         DebugEvent::BuilderDuplicate { node } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let layout_window = callback_info.get_layout_window();
                 let live = layout_window
                     .layout_results
@@ -18592,7 +18592,7 @@ fn serve_debug_event(
             let result = match super::builder::BuilderDocument::from_file_json(document) {
                 Err(e) => Err(e),
                 Ok(loaded) => {
-                    let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                    let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     let layout_window = callback_info.get_layout_window();
                     let live = layout_window
                         .layout_results
@@ -19544,7 +19544,7 @@ fn serve_debug_event(
                     let mut id_attr = None;
                     let mut classes = Vec::new();
                     let mut builder_uid = None;
-                    for attr in data.attributes().as_ref().iter() {
+                    for attr in data.attributes().as_ref() {
                         if let Some(id) = attr.as_id() {
                             id_attr = Some(id.to_string());
                         } else if let Some(class) = attr.as_class() {
@@ -20175,7 +20175,7 @@ fn serve_debug_event(
                 .get_scroll_states_for_dom(dom_id);
             let mut states = Vec::new();
 
-            for (node_id, scroll_position) in scroll_states.iter() {
+            for (node_id, scroll_position) in &scroll_states {
                 let scroll_x = scroll_position.children_rect.origin.x;
                 let scroll_y = scroll_position.children_rect.origin.y;
                 let content_width = scroll_position.children_rect.size.width;
@@ -21876,7 +21876,7 @@ fn serve_debug_event(
                         .layout_results
                         .get(&dom_id)
                         .and_then(|lr| lr.styled_dom.node_data.get(node_id.index()))
-                        .map(|nd| nd.is_contenteditable())
+                        .map(azul_core::dom::NodeData::is_contenteditable)
                         .unwrap_or(false);
 
                     // Get text content - extract from NodeType::Text if available
@@ -22326,7 +22326,7 @@ fn serve_debug_event(
                 } else if let Some(existing) = current_id {
                     ids_and_classes.push(IdOrClass::Id(existing));
                 }
-                for class in classes.iter() {
+                for class in classes {
                     ids_and_classes
                         .push(IdOrClass::Class(azul_css::AzString::from(class.as_str())));
                 }
@@ -22534,7 +22534,7 @@ fn serve_debug_event(
         DebugEvent::ResolveFunctionPointers { addresses } => {
             let mut resolved = Vec::new();
 
-            for addr_str in addresses.iter() {
+            for addr_str in addresses {
                 // Support both decimal and hex (0x...) addresses
                 let address = if addr_str.starts_with("0x") || addr_str.starts_with("0X") {
                     usize::from_str_radix(&addr_str[2..], 16).unwrap_or(0)
@@ -22563,7 +22563,7 @@ fn serve_debug_event(
         }
 
         DebugEvent::GetComponentRegistry => {
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let registry = build_component_registry(&map_guard);
             drop(map_guard);
             send_ok(
@@ -22574,7 +22574,7 @@ fn serve_debug_event(
         }
 
         DebugEvent::GetLibraries => {
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let registry = build_component_registry(&map_guard);
             drop(map_guard);
             let libraries = registry
@@ -22597,7 +22597,7 @@ fn serve_debug_event(
         }
 
         DebugEvent::GetLibraryComponents { library } => {
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let registry = build_component_registry(&map_guard);
             drop(map_guard);
             if let Some(lib) = registry.libraries.iter().find(|l| l.name == *library) {
@@ -22766,7 +22766,7 @@ fn serve_debug_event(
                 };
 
                 // Insert or replace in the component map
-                let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
                 let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs)
                     .into_library_owned_vec();
@@ -22797,7 +22797,7 @@ fn serve_debug_event(
         DebugEvent::ExportComponentLibrary {
             library: lib_name_opt,
         } => {
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let registry = build_component_registry(&map_guard);
             drop(map_guard);
 
@@ -22848,7 +22848,7 @@ fn serve_debug_event(
                                     description: f.description.clone(),
                                 })
                                 .collect();
-                            for s in c.callback_slots.iter() {
+                            for s in &c.callback_slots {
                                 fields.push(ExportedDataField {
                                     name: s.name.clone(),
                                     field_type: s.callback_type.clone(),
@@ -22877,7 +22877,7 @@ fn serve_debug_event(
             };
             use azul_css::corety::AzString;
 
-            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             // Check if library already exists
             if map_guard
                 .libraries
@@ -22910,7 +22910,7 @@ fn serve_debug_event(
         DebugEvent::DeleteLibrary { name } => {
             use azul_core::xml::ComponentLibraryVec;
 
-            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
             let mut libs =
                 core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
@@ -22951,7 +22951,7 @@ fn serve_debug_event(
             };
             use azul_css::corety::AzString;
 
-            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
             let mut libs =
                 core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
@@ -23028,7 +23028,7 @@ fn serve_debug_event(
         DebugEvent::DeleteComponent { library, name } => {
             use azul_core::xml::ComponentLibraryVec;
 
-            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
             let mut libs =
                 core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
@@ -23074,7 +23074,7 @@ fn serve_debug_event(
             use azul_core::xml::ComponentLibraryVec;
             use azul_css::corety::AzString;
 
-            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
             let mut libs =
                 core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
@@ -23176,7 +23176,7 @@ fn serve_debug_event(
             override_lang,
         } => {
             // --- 1. Look up the component ---
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let comp_found = map_guard
                 .libraries
                 .iter()
@@ -23216,7 +23216,7 @@ fn serve_debug_event(
             // --- 3. Render the component to a StyledDom ---
             // The palette thumbnail's path: a builtin element shows its
             // configured preview, form controls as widgets.
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let rendered = super::builder::preview_styled_dom(
                 callback_info,
                 library.as_str(),
@@ -23310,7 +23310,7 @@ fn serve_debug_event(
 
         DebugEvent::GetComponentRenderTree { library, name } => {
             // Look up the component
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let comp_found = map_guard
                 .libraries
                 .iter()
@@ -23378,7 +23378,7 @@ fn serve_debug_event(
             language,
         } => {
             // E4: Return the source code of render_fn or compile_fn
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let comp_found = map_guard
                 .libraries
                 .iter()
@@ -23412,7 +23412,7 @@ fn serve_debug_event(
                     // protocol's old name for it.
                     "compile_fn" | "code" => {
                         let lang = language.as_deref().unwrap_or("rust");
-                        let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                        let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                         let result = super::export::component_code(&map_guard, library, name, lang);
                         drop(map_guard);
                         match result {
@@ -23443,7 +23443,7 @@ fn serve_debug_event(
             source,
         } => {
             // E4: Store the render_fn source code (hot-replacement not yet supported)
-            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let empty_libs = azul_core::xml::ComponentLibraryVec::from_const_slice(&[]);
             let mut libs =
                 core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
@@ -23567,7 +23567,7 @@ fn serve_debug_event(
             attrs,
         } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let layout_window = callback_info.get_layout_window();
                 let live = layout_window
                     .layout_results
@@ -23594,7 +23594,7 @@ fn serve_debug_event(
             index,
         } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let layout_window = callback_info.get_layout_window();
                 let live = layout_window
                     .layout_results
@@ -23611,7 +23611,7 @@ fn serve_debug_event(
 
         DebugEvent::BuilderDelete { node } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let layout_window = callback_info.get_layout_window();
                 let live = layout_window
                     .layout_results
@@ -23628,7 +23628,7 @@ fn serve_debug_event(
 
         DebugEvent::BuilderSetAttribute { node, name, value } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let layout_window = callback_info.get_layout_window();
                 let live = layout_window
                     .layout_results
@@ -23669,7 +23669,7 @@ fn serve_debug_event(
 
         DebugEvent::BuilderSetStylesheet { css } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let layout_window = callback_info.get_layout_window();
                 let live = layout_window
                     .layout_results
@@ -23697,7 +23697,7 @@ fn serve_debug_event(
 
         DebugEvent::BuilderUndo => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 scratch(callback_info).builder.undo(&map_guard)
             };
             if finish_builder_op(request, callback_info, result) {
@@ -23707,7 +23707,7 @@ fn serve_debug_event(
 
         DebugEvent::BuilderRedo => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 scratch(callback_info).builder.redo(&map_guard)
             };
             if finish_builder_op(request, callback_info, result) {
@@ -23730,7 +23730,7 @@ fn serve_debug_event(
             keep_subtree,
         } => {
             let result = {
-                let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let layout_window = callback_info.get_layout_window();
                 let live = layout_window
                     .layout_results
@@ -23759,7 +23759,7 @@ fn serve_debug_event(
             dark,
         } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 scratch(callback_info).builder.thumbnail(
                     callback_info,
                     &map_guard,
@@ -23992,7 +23992,7 @@ fn serve_debug_event(
             css,
         } => {
             let result = super::export::CodeMode::parse(mode.as_deref()).and_then(|mode| {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 super::export::html_to_code(
                     html,
                     &map_guard,
@@ -24042,7 +24042,7 @@ fn serve_debug_event(
             language,
         } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 super::export::component_code(&map_guard, library, name, language)
             };
             match result {

@@ -996,7 +996,7 @@ impl Runner {
                         .node_hierarchy
                         .as_container()
                         .get(node)
-                        .and_then(|item| item.parent_id())
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
                 })
                 .and_then(|parent| {
                     lw.get_node_rect_in_viewport(DomNodeId {
@@ -1026,7 +1026,7 @@ impl Runner {
                 .copied()
                 .filter_map(|n| {
                     let Some(NodeType::TransientWindow(cfg)) =
-                        nodes.get(n).map(|nd| nd.get_node_type())
+                        nodes.get(n).map(azul_core::dom::NodeData::get_node_type)
                     else {
                         return None;
                     };
@@ -1225,7 +1225,7 @@ impl Runner {
                         if current == press_node {
                             return true;
                         }
-                        match hierarchy.get(current).and_then(|n| n.parent_id()) {
+                        match hierarchy.get(current).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
                             Some(parent) => current = parent,
                             None => return false,
                         }
@@ -1604,7 +1604,7 @@ impl Runner {
                                 .node_hierarchy
                                 .as_container()
                                 .get(nid)
-                                .and_then(|h| h.parent_id())
+                                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
                         })
                     },
                     // Past a `VirtualView` page's root the walk goes on at
@@ -2769,7 +2769,7 @@ impl Runner {
                         if let Some(id_str) = id.as_ref() {
                             dom = dom.with_id(id_str.clone());
                         }
-                        for class in classes.iter() {
+                        for class in classes {
                             dom = dom.with_class(class.clone());
                         }
                         // The node goes in as the creation of the styled DOM
@@ -4820,7 +4820,7 @@ fn window_listeners(styled_dom: &StyledDom) -> Vec<NodeId> {
         .nodes_with_window_callbacks
         .as_ref()
         .iter()
-        .filter_map(|id| id.into_crate_internal())
+        .filter_map(azul_core::styled_dom::NodeHierarchyItemId::into_crate_internal)
         .collect();
     nodes.sort_unstable();
     nodes.dedup();

@@ -1540,7 +1540,7 @@ fn thumbnail_key(def: &ComponentDef, library: &str, width: f32, dpi: f32, dark: 
     def.css.as_str().hash(&mut h);
     def.render_fn_source
         .as_ref()
-        .map(|s| s.as_str())
+        .map(azul_css::AzString::as_str)
         .hash(&mut h);
     format!("{:?}", def.data_model).hash(&mut h);
     (def.render_fn as usize).hash(&mut h);
@@ -1889,7 +1889,7 @@ fn node_from_styled(
             if let Some(n) = node_from_styled(sd, c, uids, import, depth + 1) {
                 node.children.push(n);
             }
-            next = hierarchy.get(c.index()).and_then(|h| h.next_sibling_id());
+            next = hierarchy.get(c.index()).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
         }
     }
     // `<p>Hello</p>` reads better as one row with text than as two rows.
