@@ -11,7 +11,9 @@ An app BOOTS when all of these hold, and the verdict says which one failed first
   5. no fatal line of the app in the log and no crash report (`--fatal`, empty when none),
   6. the button the manifest names (`--tap`: a JSON file {label, found, alive, fatal}) did not take the app down AND changed the
      screen (`--tap-before`, `--tap-after`: the same 98.5 percent rule; a button that does nothing is not a working app, and the
-     manifest says what must come up), and the text it expects on the first screen (`--expect-found`) is there when it names one.
+     manifest says what must come up), the texts the manifest says must be on the screen afterwards are there and the ones that
+     must be gone are gone (tap.json's after_found and after_present, scripts/ci/ui_find.py), and the text it expects on the first
+     screen (`--expect-found`) is there when it names one.
 Informational only, never part of the verdict: the platform's own launch numbers of an Android app, `launch_ms` (the TotalTime
 `am start -W` printed, --start-log) and `displayed_ms` (the "Displayed <package>/<activity>: +1s234ms" line of the activity manager
 in the log, --logcat); the status table shows them next to the verdict. So are the engine's own startup numbers (AZ_STARTUP=1: the
@@ -112,6 +114,12 @@ def judge(facts):
     if tap and tap.get("changed_screen") is False:
         return False, (f"pressing \"{tap.get('label')}\" changed nothing on the screen ({tap['screen_similarity'] * 100:.1f}% of the "
                        f"pixels are the same as before): the app ignored the tap or its action did nothing")
+    for text, found in ((tap or {}).get("after_found") or {}).items():       # what the manifest says must come up ([app.smoke] after_tap)
+        if not found:
+            return False, f"after pressing \"{tap.get('label')}\" the screen does not show \"{text}\""
+    for text, present in ((tap or {}).get("after_present") or {}).items():   # what must be gone ([app.smoke] after_tap_gone)
+        if present:
+            return False, f"after pressing \"{tap.get('label')}\" the screen still shows \"{text}\""
     expect = facts.get("expect")
     if expect and not expect.get("found"):
         return False, f"the first screen does not show \"{expect.get('text')}\""

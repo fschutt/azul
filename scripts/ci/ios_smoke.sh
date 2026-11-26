@@ -14,7 +14,9 @@
 #                    screen_nonblank, fatal, pass, reason, ...}
 # (and screenshot-after-tap.png, tap.json when the manifest names a button for the app: AZ_SMOKE_TAPS, a JSON map
 # of app name -> the label to press, from scripts/demo_apps.toml's [app.smoke] tap; pressed with idb when it is
-# installed; AZ_SMOKE_EXPECTS the same for the text the first screen must show) and <out-dir>/summary.json lists them.
+# installed; AZ_SMOKE_EXPECTS the same for the text the first screen must show; AZ_SMOKE_AFTER, {app: {found: [...], gone:
+# [...]}}, the texts that must be on the screen once the button was pressed and the ones that must be gone, ui-after-tap.json
+# being idb's description they are looked for in) and <out-dir>/summary.json lists them.
 # An app BOOTS (pass) when it is alive twice, is on the screen (not the home screen, not one flat colour) and left no
 # crash report and no fatal line; the reason of a failure is in result.json. Exit 0 when every app boots; 1 when one does
 # not; 2 when the simulator itself could not be started.
@@ -149,10 +151,16 @@ PY
         xcrun simctl io "$udid" screenshot "$dir/screenshot-after-tap.png" >/dev/null 2>&1 || true
         tap_alive=0; running && tap_alive=1
         tap_fatal="${tapped_err:+idb tap failed: $tapped_err}"
-        python3 - "$dir/tap.json" "$tap_label" "$how" "$xy" "$tap_alive" "$tap_fatal" <<'PY'
+        # What the manifest says must be on the screen now and what must be gone ([app.smoke] after_tap, after_tap_gone, through
+        # AZ_SMOKE_AFTER): looked for in idb's description of this moment (scripts/ci/ui_find.py)
+        idb ui describe-all --udid "$udid" --json >"$dir/ui-after-tap.json" 2>>"$dir/idb.err" || true
+        after_json="$(python3 "$(dirname "$0")/ui_find.py" --after "$dir/ui-after-tap.json" "${name%-ios-sim}")"
+        python3 - "$dir/tap.json" "$tap_label" "$how" "$xy" "$tap_alive" "$tap_fatal" "$after_json" <<'PY'
 import json, sys
-path, label, how, xy, alive, fatal = sys.argv[1:]
-json.dump({"label": label, "found": "by its " + how, "at": xy, "alive": alive == "1", "fatal": fatal or None}, open(path, "w"), indent=2)
+path, label, how, xy, alive, fatal, after = sys.argv[1:]
+facts = {"label": label, "found": "by its " + how, "at": xy, "alive": alive == "1", "fatal": fatal or None}
+facts.update(json.loads(after or "{}"))
+json.dump(facts, open(path, "w"), indent=2)
 PY
         verdict_args+=(--tap "$dir/tap.json" --tap-before "$dir/screenshot.png" --tap-after "$dir/screenshot-after-tap.png")
       else
