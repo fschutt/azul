@@ -41139,6 +41139,12 @@
                                 "FontKerning": {
                                     "type": "StyleFontKerningValue"
                                 },
+                                "TextDecorationColor": {
+                                    "type": "StyleTextDecorationColorValue"
+                                },
+                                "TextDecorationThickness": {
+                                    "type": "StyleTextDecorationThicknessValue"
+                                },
                                 "TextWrap": {
                                     "type": "StyleTextWrapValue"
                                 },
@@ -52670,6 +52676,8 @@
                                 "FontVariationSettings": {},
                                 "FontOpticalSizing": {},
                                 "FontKerning": {},
+                                "TextDecorationColor": {},
+                                "TextDecorationThickness": {},
                                 "TextWrap": {},
                                 "FontVariantPosition": {},
                                 "TextRendering": {},
@@ -62035,6 +62043,73 @@
                             "target": "CssPropertyValue",
                             "generic_args": [
                                 "StyleTextWrap"
+                            ]
+                        }
+                    },
+                    "StyleTextDecorationColor": {
+                        "external": "azul_css::props::style::text::StyleTextDecorationColor",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "CurrentColor": {},
+                                "Color": {
+                                    "type": "ColorU"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextDecorationColorValue": {
+                        "external": "azul_css::props::property::StyleTextDecorationColorValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextDecorationColor"
+                            ]
+                        }
+                    },
+                    "StyleTextDecorationThickness": {
+                        "external": "azul_css::props::style::text::StyleTextDecorationThickness",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "FromFont": {},
+                                "Length": {
+                                    "type": "PixelValue"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextDecorationThicknessValue": {
+                        "external": "azul_css::props::property::StyleTextDecorationThicknessValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextDecorationThickness"
                             ]
                         }
                     }
