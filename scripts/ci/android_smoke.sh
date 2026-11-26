@@ -63,6 +63,10 @@ if [ "$booted" != "1" ]; then
 fi
 adb shell input keyevent 82 >/dev/null 2>&1 || true   # unlock
 adb shell settings put global window_animation_scale 0 >/dev/null 2>&1 || true
+# The engine's startup table: AZ_STARTUP=1 through the engine's own Android mechanism (the system property debug.az.startup), set
+# BEFORE the first launch. At its first present an app then writes `[startup] ...` lines and ONE `[startup-json] {...}` line with
+# first_present_ms to stderr (logcat tag RustStdoutStderr); scripts/ci/smoke_verdict.py reads it as information, never as the verdict.
+adb shell setprop debug.az.startup 1 >/dev/null 2>&1 || true
 echo "emulator booted: $(adb shell getprop ro.product.cpu.abi | tr -d '\r'), API $(adb shell getprop ro.build.version.sdk | tr -d '\r')"
 
 all_ok=0
@@ -137,7 +141,7 @@ import json, sys
 path, label, how, xy, alive, fatal = sys.argv[1:]
 json.dump({"label": label, "found": how, "at": xy, "alive": alive == "1", "fatal": fatal or None}, open(path, "w"), indent=2)
 PY
-        verdict_args+=(--tap "$dir/tap.json")
+        verdict_args+=(--tap "$dir/tap.json" --tap-before "$dir/screenshot.png" --tap-after "$dir/screenshot-after-tap.png")
       fi
       # The second look, a few seconds after the last thing the app was asked to do: still there, still on the screen.
       sleep 3
@@ -158,10 +162,10 @@ PY
   [ -f "$dir/baseline.png" ] && verdict_args+=(--baseline "$dir/baseline.png" --after "$dir/screenshot-2.png")
   # the platform's own launch numbers (informational: `am start -W` and the activity manager's "Displayed" line)
   [ -f "$dir/start.log" ] && verdict_args+=(--start-log "$dir/start.log")
-  [ -f "$dir/logcat.txt" ] && verdict_args+=(--logcat "$dir/logcat.txt")
+  [ -f "$dir/logcat.txt" ] && verdict_args+=(--logcat "$dir/logcat.txt" --startup-log "$dir/logcat.txt")
   # THE pass line: scripts/ci/smoke_verdict.py (alive twice, on the screen, drawn, no fatal line); nothing else decides
   python3 "$(dirname "$0")/smoke_verdict.py" --out "$dir/result.json" --app "$app" --id "${pkg:-}" --alive "$alive" --alive-after "$alive_after" \
-    --fatal "$fatal" --rust-lines "${rust_lines:-0}" --resumed "$resumed" ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1
+    --fatal "$fatal" --rust-lines "${rust_lines:-0}" --resumed "$resumed" --band 0.045,0.94 ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1
 done
 python3 - "$out" <<'PY'
 import json, pathlib, sys

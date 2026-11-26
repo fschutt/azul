@@ -217,6 +217,14 @@ def e2e_session(args):
             s.note(f"{len(walk_nodes(layout))} nodes with a rect logged")
         except Exception as e:  # noqa: BLE001
             s.note(f"get_all_nodes_layout: {e}")
+        try:
+            # the startup timeline (GET /startup, when the engine has one): marks in ms since process start, for the startup work
+            with urllib.request.urlopen(f"http://127.0.0.1:{args.port}/startup", timeout=15) as response:
+                text = response.read().decode("utf-8", "replace")
+            (run.logs_dir / "startup.json").write_text(text, encoding="utf-8")
+            s.note(f"GET /startup: {len(text)} bytes kept in logs/startup.json")
+        except Exception as e:  # noqa: BLE001
+            s.note(f"GET /startup: {str(e)[:100]} (the engine has no startup timeline in this build)")
         state["first"] = device_sig
 
     run.step("e02-engine-frame-and-device-frame", "the engine's full-repaint frame and the device's frame of the same moment, plus every node's layout", s_frames)

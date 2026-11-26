@@ -454,7 +454,7 @@ fn format_color_or_system(c: ColorOrSystem) -> String {
 
 /// The Rust variant name of a `SystemColorRef` - the ONE table the
 /// gradient-stop and the background-layer formatters share.
-const fn system_color_ref_variant(r: crate::props::basic::color::SystemColorRef) -> &'static str {
+const fn system_color_ref_variant(r: SystemColorRef) -> &'static str {
     use crate::props::basic::color::SystemColorRef;
     match r {
         SystemColorRef::Text => "Text",

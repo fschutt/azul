@@ -32,6 +32,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -140,7 +141,7 @@ fn item_fn(item: &Item) -> String {
         ..item.clone()
     };
     for line in &item_comments(&Haskell, &desugared) {
-        out.push_str(&format!("-- {line}\n"));
+        let _ = writeln!(out, "-- {line}");
     }
     let name = item.name.lower_camel();
     match &value {
@@ -151,15 +152,17 @@ fn item_fn(item: &Item) -> String {
                 .collect();
             let broken = !docs.is_empty();
             let list = Doc::list("[", docs, ", ", "]", false, broken, false);
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "{name} :: IO [CssPropertyWithConditions]\n{name} = sequence\n  {}\n",
                 render(&list, "  ", 1)
-            ));
+            );
         }
-        _ => out.push_str(&format!(
-            "-- not expressible with the Haskell bindings: a {} value holds Vecs\n",
+        _ => { let _ = writeln!(
+            out,
+            "-- not expressible with the Haskell bindings: a {} value holds Vecs",
             item.ty
-        )),
+        ); },
     }
     out
 }
@@ -208,7 +211,7 @@ fn hs_str(s: &str) -> String {
             '\t' => out.push_str("\\t"),
             ' '..='~' => out.push(c),
             c => {
-                out.push_str(&format!("\\x{:x}", u32::from(c)));
+                let _ = write!(out, "\\x{:x}", u32::from(c));
                 numeric = true;
             }
         }
@@ -359,7 +362,7 @@ impl HsDom {
 fn dom_item_fn(item: &Item) -> (String, String) {
     let mut out = String::new();
     for line in &item.doc {
-        out.push_str(&format!("-- {line}\n"));
+        let _ = writeln!(out, "-- {line}");
     }
     let name = hs_ident(item.name.lower_camel());
     let mut sig: Vec<String> = item.params.iter().map(|_| "String".to_string()).collect();
@@ -389,25 +392,26 @@ fn dom_item_fn(item: &Item) -> (String, String) {
                 .chain(item.params.iter().map(|_| "_".to_string()))
                 .collect::<Vec<_>>()
                 .join(" ");
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "-- not expressible with the Haskell bindings: {}\n{sig}{lhs} = ioError (userError \
                  {})\n",
                 one_line(&reason),
                 hs_str(&format!("not expressible: {}", one_line(&reason)))
-            ));
+            );
             return (name, out);
         }
     };
     out.push_str(&sig);
     let lhs: String = core::iter::once(name.clone()).chain(params).collect::<Vec<_>>().join(" ");
     if cx.binds.is_empty() {
-        out.push_str(&format!("{lhs} = {}\n", render(&body, "  ", 1)));
+        let _ = writeln!(out, "{lhs} = {}", render(&body, "  ", 1));
     } else {
-        out.push_str(&format!("{lhs} = do\n"));
+        let _ = writeln!(out, "{lhs} = do");
         for (bound, action) in &cx.binds {
-            out.push_str(&format!("  {bound} <- {}\n", render(action, "  ", 1)));
+            let _ = writeln!(out, "  {bound} <- {}", render(action, "  ", 1));
         }
-        out.push_str(&format!("  {}\n", render(&body, "  ", 1)));
+        let _ = writeln!(out, "  {}", render(&body, "  ", 1));
     }
     (name, out)
 }
@@ -531,7 +535,7 @@ impl CodegenBackend for Haskell {
         }
         if m.items.iter().any(is_dom_item) {
             for class in dom_classes(m) {
-                out.push_str(&format!("import qualified Azul.{class} as {class}\n"));
+                let _ = writeln!(out, "import qualified Azul.{class} as {class}");
             }
         }
         for body in &bodies {
@@ -541,7 +545,7 @@ impl CodegenBackend for Haskell {
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, NO_REGISTRATION) {
-                out.push_str(&format!("-- {line}\n"));
+                let _ = writeln!(out, "-- {line}");
             }
         }
         out
@@ -571,10 +575,11 @@ impl CodegenBackend for Haskell {
         let mut main = String::from("module Main (main) where\n\nimport Styles\n\nmain :: IO ()\nmain = do\n");
         for item in m.items.iter().filter(|i| is_droppable_vec(&i.ty)) {
             let name = item.name.lower_camel();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "  {name}Value <- {name}\n  putStrLn (\"{name}: \" ++ show (length {name}Value) ++ \" \
                  properties\")\n"
-            ));
+            );
         }
         main.push_str("  pure ()\n");
         vec![

@@ -832,6 +832,8 @@ class VerdictTest(unittest.TestCase):
                 "--alive-after", kw.get("alive_after", "1"), "--fatal", kw.get("fatal", ""), "--baseline", home, "--after", shot]
         if "resumed" in kw:
             argv += ["--resumed", kw["resumed"]]
+        if "band" in kw:
+            argv += ["--band", kw["band"]]
         code = smoke_verdict.main(argv)
         return code, json.loads((pathlib.Path(d) / "result.json").read_text())
 
@@ -967,6 +969,116 @@ class VerdictTest(unittest.TestCase):
         self.assertEqual(text, "boots, first window 1234 ms (the platform's own number)")
         self.assertEqual(demo_apps.boot_text({"pass": True, "launch_ms": 1311}), "boots, launched in 1311 ms (the platform's own number)")
         self.assertEqual(demo_apps.boot_text({"pass": False, "reason": "x", "displayed_ms": 1}), "BOOT FAILED: x")
+
+    def test_an_app_that_is_a_toolbar_and_a_blank_canvas_has_drawn_on_android(self):
+        # AzPaint on the emulator, 2026-11-26: a dark toolbar under the status bar (3.75 to 11.7 percent of the height) and an empty
+        # canvas. The band of 12 to 88 percent saw a flat canvas and failed an app that had drawn: the band of an Android screenshot
+        # starts under the status bar (4.5 percent) and ends above the navigation bar (94)
+        def toolbar_and_canvas(x, y):
+            if y < 6 or y >= 152:
+                return ((x * 13 + y * 5) % 256,) * 3 + (255,)     # the system bars: many colour values
+            return (40, 40, 44, 255) if y < 19 and (x // 5) % 2 else (45, 45, 48, 255) if y < 19 else (250, 250, 247, 255)
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, toolbar_and_canvas, band="0.045,0.94")
+            self.assertEqual(code, 0, r["reason"])
+            self.assertTrue(r["screen_nonblank"])
+            self.assertEqual(r["band"], [0.045, 0.94])
+            # the same picture under the default band (8 to 94 percent) still sees the toolbar's lower rows
+            code, r = self.verdict(d, toolbar_and_canvas)
+            self.assertEqual(code, 0, r["reason"])
+
+    def test_each_platform_keeps_its_own_system_bars_out_of_the_band(self):
+        def black_under(top, bottom):
+            def pixel(x, y):
+                if y < top or y >= bottom:
+                    return ((x * 13 + y * 5) % 256,) * 3 + (255,)
+                return (0, 0, 0, 255)
+            return pixel
+        with tempfile.TemporaryDirectory() as d:
+            # Android: status bar 3.75 percent, navigation bar from 95 percent of the height
+            code, r = self.verdict(d, black_under(6, 152), band="0.045,0.94")
+            self.assertEqual(code, 1)
+            self.assertIn("flat colour", r["reason"])
+            # iOS: status bar and Dynamic Island 6.9 percent, home indicator from 97 percent
+            code, r = self.verdict(d, black_under(11, 155), band="0.075,0.965")
+            self.assertEqual(code, 1)
+            self.assertIn("flat colour", r["reason"])
+            # the default band is the conservative one and holds for both
+            self.assertEqual(self.verdict(d, black_under(6, 152))[0], 1)
+            self.assertEqual(self.verdict(d, black_under(11, 155))[0], 1)
+
+    def test_a_button_that_changed_nothing_on_the_screen_fails_the_app_that_was_asked_to_press_it(self):
+        # AzCompanion on the emulator, 2026-11-26: "Try it without a Mac" was found by its name and pressed, the app lived, and the
+        # three screenshots before and after were the same picture: the remote did not come up, which the manifest says it must
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "home.png").write_bytes(synthetic_png(96, 160, home_screen))
+            (root / "before.png").write_bytes(synthetic_png(96, 160, app_screen))
+            (root / "same.png").write_bytes(synthetic_png(96, 160, app_screen))
+            (root / "other.png").write_bytes(synthetic_png(96, 160, lambda x, y: (30, 90, 200, 255) if (x + y) % 5 else (250, 250, 250, 255)))
+            (root / "tap.json").write_text(json.dumps({"label": "Try it", "found": "by its name", "alive": True, "fatal": None}))
+            base = ["--out", str(root / "r.json"), "--app", "AzX", "--id", "com.azul.AzX", "--alive", "1", "--alive-after", "1",
+                    "--baseline", str(root / "home.png"), "--after", str(root / "before.png"), "--tap", str(root / "tap.json")]
+            self.assertEqual(smoke_verdict.main(base + ["--tap-before", str(root / "before.png"), "--tap-after", str(root / "same.png")]), 1)
+            r = json.loads((root / "r.json").read_text())
+            self.assertIn('"Try it"', r["reason"])
+            self.assertIn("changed nothing", r["reason"])
+            self.assertFalse(r["tap"]["changed_screen"])
+            self.assertEqual(smoke_verdict.main(base + ["--tap-before", str(root / "before.png"), "--tap-after", str(root / "other.png")]), 0)
+            self.assertTrue(json.loads((root / "r.json").read_text())["tap"]["changed_screen"])
+            # without the two pictures the question is not asked
+            self.assertEqual(smoke_verdict.main(base), 0)
+            self.assertNotIn("changed_screen", json.loads((root / "r.json").read_text())["tap"])
+
+    def test_the_engines_first_present_is_read_from_the_startup_line_and_never_decides(self):
+        # AZ_STARTUP=1: the app writes `[startup] ...` lines and ONE `[startup-json] {...}` line to stderr (Android: logcat tag
+        # RustStdoutStderr, iOS: the console of the process); first_present_ms is counted from the process creation
+        json_line = ('[startup-json] {"first_present_ms": 412.345, "before_library_ms": 118.5, "layout_passes": 3, '
+                     '"marks": [["window", 130.1]], "render_backend": "backend=gpu requested=auto device=SwiftShader"}')
+        logcat = ("11-26 07:42:03.529  2387  2387 I RustStdoutStderr: [startup] window 130.1 ms\\n"
+                  "11-26 07:42:03.530  2387  2387 I RustStdoutStderr: " + json_line + "\\n")
+        got = smoke_verdict.parse_startup(logcat)
+        self.assertEqual((got["first_present_ms"], got["before_library_ms"], got["layout_passes"]), (412.345, 118.5, 3))
+        self.assertEqual(got["render_backend"], "backend=gpu requested=auto device=SwiftShader")
+        self.assertEqual(smoke_verdict.parse_startup(json_line + "\\n")["first_present_ms"], 412.345)       # the iOS console: the line as it is
+        self.assertEqual(smoke_verdict.parse_startup(logcat + "[startup-json] " + json_line[len("[startup-json] "):].replace("412.345", "500.5"))["first_present_ms"], 500.5)   # the last one
+        # a line the log cut off (logcat splits what is longer than 4 KB) still gives the numbers that come first
+        cut = '11-26 07:42:03.530  2387  2387 I RustStdoutStderr: [startup-json] {"first_present_ms": 99.001, "before_library_ms": 20.0, "layout_pa'
+        self.assertEqual(smoke_verdict.parse_startup(cut)["first_present_ms"], 99.001)
+        # a run without the switch prints no such line: nothing is said
+        self.assertIsNone(smoke_verdict.parse_startup("11-26 07:42:03.529 I azul: NativeTextBridge: input view installed\\n"))
+        self.assertIsNone(smoke_verdict.parse_startup(""))
+        self.assertIsNone(smoke_verdict.parse_startup("[startup-json] {not json at all"))
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "home.png").write_bytes(synthetic_png(96, 160, home_screen))
+            (root / "after.png").write_bytes(synthetic_png(96, 160, app_screen))
+            (root / "logcat.txt").write_text(logcat)
+            argv = ["--out", str(root / "r.json"), "--app", "AzX", "--id", "com.azul.AzX", "--alive", "1", "--alive-after", "1",
+                    "--baseline", str(root / "home.png"), "--after", str(root / "after.png")]
+            self.assertEqual(smoke_verdict.main(argv + ["--startup-log", str(root / "logcat.txt"), "--startup-log", str(root / "none.txt")]), 0)
+            r = json.loads((root / "r.json").read_text())
+            self.assertEqual((r["first_present_ms"], r["before_library_ms"], r["layout_passes"]), (412.345, 118.5, 3))
+            self.assertEqual(smoke_verdict.main(argv), 0)
+            self.assertNotIn("first_present_ms", json.loads((root / "r.json").read_text()))
+        both = demo_apps.boot_text({"pass": True, "displayed_ms": 1233, "first_present_ms": 412.345, "render_backend": "backend=gpu requested=auto device=x"})
+        self.assertEqual(both, "boots, first window 1233 ms (the platform's own number), first present 412 ms (the engine's mark), gpu renderer")
+        self.assertEqual(demo_apps.boot_text({"pass": True, "first_present_ms": 99.4}), "boots, first present 99 ms (the engine's mark)")
+        self.assertEqual(demo_apps.boot_text({"pass": False, "reason": "x", "first_present_ms": 5}), "BOOT FAILED: x")
+
+    def test_the_boot_tests_switch_the_startup_table_on_before_they_launch(self):
+        android = (HERE / "ci" / "android_smoke.sh").read_text(encoding="utf-8")
+        self.assertLess(android.index("setprop debug.az.startup 1"), android.index("am start -W"))
+        ios = (HERE / "ci" / "ios_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("SIMCTL_CHILD_AZ_STARTUP=1", ios)
+        self.assertIn("--startup-log", android)
+        self.assertIn("--startup-log", ios)
+
+    def test_a_band_that_is_no_two_fractions_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            for bad in ("0.9,0.1", "0.1", "a,b", "-0.1,0.9", "0.1,1.5"):
+                with self.assertRaises(SystemExit):
+                    self.verdict(d, app_screen, band=bad)
 
     def test_the_status_text_of_a_failed_boot_carries_the_reason(self):
         text = demo_apps.boot_text({"pass": False, "reason": "the home screen is still showing (99.8% of the pixels are the same)"})

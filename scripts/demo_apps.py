@@ -504,6 +504,12 @@ def boot_text(r):
             text += f", first window {r['displayed_ms']} ms (the platform's own number)"
         elif r.get("launch_ms") is not None:
             text += f", launched in {r['launch_ms']} ms (the platform's own number)"
+        # the engine's own mark (AZ_STARTUP=1): the first frame it handed to the OS, counted from the process creation
+        if r.get("first_present_ms") is not None:
+            text += f", first present {r['first_present_ms']:.0f} ms (the engine's mark)"
+        backend = re.search(r"backend=(\w+)", str(r.get("render_backend") or ""))
+        if backend:
+            text += f", {backend.group(1)} renderer"
     elif r.get("alive") and not r.get("fatal"):
         text = "boots" + ("" if r.get("screen_nonblank") else " (blank screen)")
     else:
