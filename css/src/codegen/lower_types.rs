@@ -230,6 +230,7 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::FontVariationSettings(v) => prop_value(v, "FontVariationSettings", "StyleFontVariationSettingsValue", "StyleFontVariationSettings", None),
         P::FontOpticalSizing(v) => prop_value(v, "FontOpticalSizing", "StyleFontOpticalSizingValue", "StyleFontOpticalSizing", None),
         P::FontKerning(v) => prop_value(v, "FontKerning", "StyleFontKerningValue", "StyleFontKerning", None),
+        P::TextDecorationStyle(v) => prop_value(v, "TextDecorationStyle", "StyleTextDecorationStyleValue", "StyleTextDecorationStyle", None),
         P::TextUnderlineOffset(v) => prop_value(v, "TextUnderlineOffset", "StyleTextUnderlineOffsetValue", "StyleTextUnderlineOffset", None),
         P::TextUnderlinePosition(v) => prop_value(v, "TextUnderlinePosition", "StyleTextUnderlinePositionValue", "StyleTextUnderlinePosition", None),
         P::TextDecorationColor(v) => prop_value(v, "TextDecorationColor", "StyleTextDecorationColorValue", "StyleTextDecorationColor", None),
@@ -3177,6 +3178,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("StyleTextDecorationColor", "css"),
     ("StyleTextDecorationColorValue", "css"),
     ("StyleTextDecorationParseErrorOwned", "css"),
+    ("StyleTextDecorationStyle", "css"),
+    ("StyleTextDecorationStyleValue", "css"),
     ("StyleTextDecorationThickness", "css"),
     ("StyleTextDecorationThicknessValue", "css"),
     ("StyleTextDecorationValue", "css"),
@@ -3926,6 +3929,7 @@ pub(crate) static C_LIKE_ENUMS: &[&str] = &[
     "StyleTextAlignLast",
     "StyleTextBoxTrim",
     "StyleTextDecoration",
+    "StyleTextDecorationStyle",
     "StyleTextOrientation",
     "StyleTextOverflow",
     "StyleTextRendering",
@@ -4158,6 +4162,7 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("FontVariationSettings", "StyleFontVariationSettingsValue", ""),
     ("FontOpticalSizing", "StyleFontOpticalSizingValue", ""),
     ("FontKerning", "StyleFontKerningValue", ""),
+    ("TextDecorationStyle", "StyleTextDecorationStyleValue", ""),
     ("TextUnderlineOffset", "StyleTextUnderlineOffsetValue", ""),
     ("TextUnderlinePosition", "StyleTextUnderlinePositionValue", ""),
     ("TextDecorationColor", "StyleTextDecorationColorValue", ""),
@@ -4401,6 +4406,7 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "FontVariationSettings",
     "FontOpticalSizing",
     "FontKerning",
+    "TextDecorationStyle",
     "TextUnderlineOffset",
     "TextUnderlinePosition",
     "TextDecorationColor",
@@ -7998,8 +8004,25 @@ impl Lower for crate::props::style::text::StyleTextDecoration {
             Self::Underline => "Underline",
             Self::Overline => "Overline",
             Self::LineThrough => "LineThrough",
+            Self::UnderlineOverline => "UnderlineOverline",
+            Self::UnderlineLineThrough => "UnderlineLineThrough",
+            Self::OverlineLineThrough => "OverlineLineThrough",
+            Self::UnderlineOverlineLineThrough => "UnderlineOverlineLineThrough",
         };
         Expr::unit("StyleTextDecoration", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::style::text::StyleTextDecorationStyle {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Solid => "Solid",
+            Self::Double => "Double",
+            Self::Dotted => "Dotted",
+            Self::Dashed => "Dashed",
+            Self::Wavy => "Wavy",
+        };
+        Expr::unit("StyleTextDecorationStyle", EnumShape::CLike, variant)
     }
 }
 

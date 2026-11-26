@@ -653,7 +653,8 @@ impl PrintAsCssValue for StyleUserSelect {
 
 // -- StyleTextDecoration --
 
-/// Text decoration (underline, overline, line-through).
+/// `text-decoration-line` (the lines of the shorthand `text-decoration`): which lines are drawn,
+/// none or any of underline, overline and line-through (CSS Text Decoration 3, 2.1).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
@@ -667,6 +668,46 @@ pub enum StyleTextDecoration {
     Overline,
     /// Strike-through line
     LineThrough,
+    /// Underline and overline
+    UnderlineOverline,
+    /// Underline and strike-through line
+    UnderlineLineThrough,
+    /// Overline and strike-through line
+    OverlineLineThrough,
+    /// Underline, overline and strike-through line
+    UnderlineOverlineLineThrough,
+}
+
+impl StyleTextDecoration {
+    /// Which of the three lines this value draws: `(underline, overline, line-through)`.
+    #[must_use]
+    pub const fn lines(self) -> (bool, bool, bool) {
+        match self {
+            Self::None => (false, false, false),
+            Self::Underline => (true, false, false),
+            Self::Overline => (false, true, false),
+            Self::LineThrough => (false, false, true),
+            Self::UnderlineOverline => (true, true, false),
+            Self::UnderlineLineThrough => (true, false, true),
+            Self::OverlineLineThrough => (false, true, true),
+            Self::UnderlineOverlineLineThrough => (true, true, true),
+        }
+    }
+
+    /// The value that draws the lines `(underline, overline, line-through)` say.
+    #[must_use]
+    pub const fn from_lines(underline: bool, overline: bool, line_through: bool) -> Self {
+        match (underline, overline, line_through) {
+            (false, false, false) => Self::None,
+            (true, false, false) => Self::Underline,
+            (false, true, false) => Self::Overline,
+            (false, false, true) => Self::LineThrough,
+            (true, true, false) => Self::UnderlineOverline,
+            (true, false, true) => Self::UnderlineLineThrough,
+            (false, true, true) => Self::OverlineLineThrough,
+            (true, true, true) => Self::UnderlineOverlineLineThrough,
+        }
+    }
 }
 impl_option!(
     StyleTextDecoration,
@@ -680,6 +721,41 @@ impl PrintAsCssValue for StyleTextDecoration {
             Self::Underline => "underline",
             Self::Overline => "overline",
             Self::LineThrough => "line-through",
+            Self::UnderlineOverline => "underline overline",
+            Self::UnderlineLineThrough => "underline line-through",
+            Self::OverlineLineThrough => "overline line-through",
+            Self::UnderlineOverlineLineThrough => "underline overline line-through",
+        })
+    }
+}
+
+// -- StyleTextDecorationStyle --
+
+/// `text-decoration-style` (CSS Text Decoration 3, 2.3): how the lines `text-decoration` draws
+/// are drawn: solid, as two lines, dotted, dashed or as a wave. Not inherited.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum StyleTextDecorationStyle {
+    /// `solid`: one line, the initial value
+    #[default]
+    Solid,
+    /// `double`: two lines
+    Double,
+    /// `dotted`: a row of dots
+    Dotted,
+    /// `dashed`: a row of dashes
+    Dashed,
+    /// `wavy`: a wave
+    Wavy,
+}
+impl PrintAsCssValue for StyleTextDecorationStyle {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            Self::Solid => "solid",
+            Self::Double => "double",
+            Self::Dotted => "dotted",
+            Self::Dashed => "dashed",
+            Self::Wavy => "wavy",
         })
     }
 }
@@ -2714,15 +2790,67 @@ impl StyleTextDecorationParseErrorOwned {
 pub fn parse_style_text_decoration(
     input: &str,
 ) -> Result<StyleTextDecoration, StyleTextDecorationParseError<'_>> {
-    match input.trim() {
-        "none" => Ok(StyleTextDecoration::None),
-        "underline" => Ok(StyleTextDecoration::Underline),
-        "overline" => Ok(StyleTextDecoration::Overline),
-        "line-through" => Ok(StyleTextDecoration::LineThrough),
-        other => Err(StyleTextDecorationParseError::InvalidValue(
-            InvalidValueErr(other),
-        )),
+    let input = input.trim();
+    let invalid = || StyleTextDecorationParseError::InvalidValue(InvalidValueErr(input));
+    // `none`, or any of `underline`, `overline` and `line-through`, each once and in any order
+    // (`blink` is a line a UA may leave undrawn: it is read and draws nothing).
+    let mut lines = (false, false, false);
+    let mut named = false;
+    for word in input.split_ascii_whitespace() {
+        let line = if word.eq_ignore_ascii_case("underline") {
+            Some(&mut lines.0)
+        } else if word.eq_ignore_ascii_case("overline") {
+            Some(&mut lines.1)
+        } else if word.eq_ignore_ascii_case("line-through") {
+            Some(&mut lines.2)
+        } else if word.eq_ignore_ascii_case("blink") {
+            None
+        } else if word.eq_ignore_ascii_case("none") {
+            // `none` stands alone
+            return if input.eq_ignore_ascii_case("none") {
+                Ok(StyleTextDecoration::None)
+            } else {
+                Err(invalid())
+            };
+        } else {
+            return Err(invalid());
+        };
+        if let Some(line) = line {
+            if *line {
+                return Err(invalid());
+            }
+            *line = true;
+        }
+        named = true;
     }
+    if !named {
+        return Err(invalid());
+    }
+    Ok(StyleTextDecoration::from_lines(lines.0, lines.1, lines.2))
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `text-decoration-style` value: `solid`, `double`, `dotted`, `dashed` or `wavy`, in any
+/// case.
+///
+/// # Errors
+///
+/// Returns an error if `input` is none of them.
+pub fn parse_style_text_decoration_style(
+    input: &str,
+) -> Result<StyleTextDecorationStyle, InvalidValueErr<'_>> {
+    let input = input.trim();
+    [
+        ("solid", StyleTextDecorationStyle::Solid),
+        ("double", StyleTextDecorationStyle::Double),
+        ("dotted", StyleTextDecorationStyle::Dotted),
+        ("dashed", StyleTextDecorationStyle::Dashed),
+        ("wavy", StyleTextDecorationStyle::Wavy),
+    ]
+    .into_iter()
+    .find(|(keyword, _)| input.eq_ignore_ascii_case(keyword))
+    .map(|(_, style)| style)
+    .ok_or(InvalidValueErr(input))
 }
 
 #[cfg(feature = "parser")]
@@ -2767,6 +2895,102 @@ pub fn parse_style_text_decoration_thickness(
         return Err(InvalidValueErr(input));
     }
     Ok(StyleTextDecorationThickness::Length(length))
+}
+
+#[cfg(feature = "parser")]
+/// Parses the `text-decoration` shorthand: line, style, colour and thickness, each at most once.
+///
+/// CSS Text Decoration 3, 2.4: `<'text-decoration-line'> || <'text-decoration-style'> ||
+/// <'text-decoration-color'> || <'text-decoration-thickness'>`, in any order. All four properties
+/// are set, the ones the value does not name at their initial value; `none` is the line part. The
+/// colour may be a function (`rgb(0, 0, 0)`), so the value is cut into its parts outside
+/// parentheses.
+///
+/// # Errors
+///
+/// Returns an error for a part that none of the four properties takes, a part given twice, the
+/// line `none` together with another line, and a value with no part.
+pub fn parse_text_decoration_shorthand(
+    input: &str,
+) -> Result<Vec<crate::props::property::CssProperty>, InvalidValueErr<'_>> {
+    use crate::props::property::{CssProperty, CssPropertyType};
+
+    let input = input.trim();
+    let invalid = InvalidValueErr(input);
+    // `(underline, overline, line-through)` once a line keyword has been read
+    let mut lines = (false, false, false);
+    let mut line_named = false;
+    let mut none_named = false;
+    let mut style = None;
+    let mut color = None;
+    let mut thickness = None;
+    for part in crate::props::basic::parse::split_string_respect_whitespace(input) {
+        let keyword = |word: &str| part.eq_ignore_ascii_case(word);
+        if keyword("none") {
+            if line_named {
+                return Err(invalid);
+            }
+            line_named = true;
+            none_named = true;
+        } else if keyword("underline") || keyword("overline") || keyword("line-through") {
+            let line = if keyword("underline") {
+                &mut lines.0
+            } else if keyword("overline") {
+                &mut lines.1
+            } else {
+                &mut lines.2
+            };
+            if none_named || *line {
+                return Err(invalid);
+            }
+            *line = true;
+            line_named = true;
+        } else if keyword("blink") {
+            // a line a UA may leave undrawn
+            if none_named {
+                return Err(invalid);
+            }
+            line_named = true;
+        } else if let Ok(parsed) = parse_style_text_decoration_style(part) {
+            if style.replace(parsed).is_some() {
+                return Err(invalid);
+            }
+        } else if let Ok(parsed) = parse_style_text_decoration_color(part) {
+            if color.replace(parsed).is_some() {
+                return Err(invalid);
+            }
+        } else if let Ok(parsed) = parse_style_text_decoration_thickness(part) {
+            if thickness.replace(parsed).is_some() {
+                return Err(invalid);
+            }
+        } else {
+            return Err(invalid);
+        }
+    }
+    if !line_named && style.is_none() && color.is_none() && thickness.is_none() {
+        return Err(invalid);
+    }
+    Ok(vec![
+        if line_named {
+            CssProperty::text_decoration(StyleTextDecoration::from_lines(
+                lines.0, lines.1, lines.2,
+            ))
+        } else {
+            CssProperty::initial(CssPropertyType::TextDecoration)
+        },
+        style.map_or_else(
+            || CssProperty::initial(CssPropertyType::TextDecorationStyle),
+            CssProperty::text_decoration_style,
+        ),
+        color.map_or_else(
+            || CssProperty::initial(CssPropertyType::TextDecorationColor),
+            CssProperty::text_decoration_color,
+        ),
+        thickness.map_or_else(
+            || CssProperty::initial(CssPropertyType::TextDecorationThickness),
+            CssProperty::text_decoration_thickness,
+        ),
+    ])
 }
 
 #[cfg(feature = "parser")]
@@ -4836,7 +5060,16 @@ mod autotest_generated {
             type TD = StyleTextDecoration;
             assert_keyword_round_trip!(
                 parse_style_text_decoration,
-                [TD::None, TD::Underline, TD::Overline, TD::LineThrough]
+                [
+                    TD::None,
+                    TD::Underline,
+                    TD::Overline,
+                    TD::LineThrough,
+                    TD::UnderlineOverline,
+                    TD::UnderlineLineThrough,
+                    TD::OverlineLineThrough,
+                    TD::UnderlineOverlineLineThrough
+                ]
             );
             type UB = StyleUnicodeBidi;
             assert_keyword_round_trip!(
