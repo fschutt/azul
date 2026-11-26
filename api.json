@@ -135361,6 +135361,22 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "now": {
+                                "doc": [
+                                    "Get the current local time."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::icu::IcuTime::now()"
+                            },
+                            "now_utc": {
+                                "doc": [
+                                    "Get the current UTC time."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::icu::IcuTime::now_utc()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "DurationParseErrorOwned": {
@@ -191791,6 +191807,23 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionIcuDateTime": {
+                        "external": "azul_layout::icu::OptionIcuDateTime",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "IcuDateTime"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -196935,6 +196968,74 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "from_timestamp": {
+                                "doc": [
+                                    "Convert a Unix timestamp (seconds) to IcuDateTime."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "timestamp_secs": "i64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionIcuDateTime"
+                                },
+                                "fn_body": "azul_layout::icu::IcuDateTime::from_timestamp(timestamp_secs).into()"
+                            },
+                            "from_timestamp_millis": {
+                                "doc": [
+                                    "Convert a Unix timestamp (milliseconds) to IcuDateTime."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "timestamp_millis": "i64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionIcuDateTime"
+                                },
+                                "fn_body": "azul_layout::icu::IcuDateTime::from_timestamp_millis(timestamp_millis).into()"
+                            },
+                            "now": {
+                                "doc": [
+                                    "Get the current local date and time."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::icu::IcuDateTime::now()"
+                            },
+                            "now_utc": {
+                                "doc": [
+                                    "Get the current UTC date and time."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::icu::IcuDateTime::now_utc()"
+                            }
+                        },
+                        "functions": {
+                            "timestamp_now": {
+                                "doc": [
+                                    "Get Unix timestamp in milliseconds (like JavaScript Date.now()).",
+                                    "",
+                                    "Returns the number of milliseconds since January 1, 1970 00:00:00 UTC."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "i64"
+                                },
+                                "fn_body": "azul_layout::icu::IcuDateTime::timestamp_now()"
+                            },
+                            "timestamp_now_seconds": {
+                                "doc": [
+                                    "Get Unix timestamp in seconds."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "i64"
+                                },
+                                "fn_body": "azul_layout::icu::IcuDateTime::timestamp_now_seconds()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "PluralCategory": {
@@ -196984,6 +197085,22 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "now": {
+                                "doc": [
+                                    "Get the current local date."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::icu::IcuDate::now()"
+                            },
+                            "now_utc": {
+                                "doc": [
+                                    "Get the current UTC date."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::icu::IcuDate::now_utc()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "FormatLength": {
