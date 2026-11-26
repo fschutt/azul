@@ -72,6 +72,7 @@ pub mod column;
 pub mod companion_io;
 pub mod companion_plug;
 pub mod companion_store;
+pub mod companion_ui;
 pub mod conv_ui;
 pub mod conversation;
 pub mod conversation_request;

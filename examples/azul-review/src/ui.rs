@@ -381,11 +381,12 @@ pub fn grip_of(info: &mut CallbackInfo) -> Option<crate::layout::Panel> {
 
 /// The column beside the tree: the top bar, the middle, the bottom bar.
 fn main_column(s: &AppState, data: &RefAny, solved: &crate::layout::Solved) -> Dom {
-    Dom::create_div()
-        .with_css(COLUMN)
-        .with_child(top_bar(s, data, solved.top_pad_left))
-        .with_child(middle(s, data, solved))
-        .with_child(bottom_bar(s, data))
+    let mut column = Dom::create_div().with_css(COLUMN).with_child(top_bar(s, data, solved.top_pad_left));
+    // a phone that asks to be paired waits for the person: the bar says so whatever page the window is on
+    if let Some(bar) = crate::companion_ui::pairing_bar(s, data) {
+        column.add_child(bar);
+    }
+    column.with_child(middle(s, data, solved)).with_child(bottom_bar(s, data))
 }
 
 /// The middle: the page strip at the left, the pages (what went wrong over them; the conversations are in the margin of

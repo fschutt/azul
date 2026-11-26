@@ -80,3 +80,16 @@ pub const COMPANION_STATUS: AzString = AzString::from_const_str("__azreview_comp
 pub const COMPANION_NOTE: AzString = AzString::from_const_str("__azreview_companion-note");
 /// The key on the first screen (no folder yet) that goes to the settings of the phone companion.
 pub const COMPANION_FIRST_RUN: AzString = AzString::from_const_str("__azreview_companion-first-run");
+/// The phone companion's pairing: the key that makes a code, the box of the code that is open (its picture, its text, the keys that copy
+/// and close it), the list of the paired phones, and the bar that asks whether the six digits are the same (with the digits and its keys).
+pub const COMPANION_PAIR: AzString = AzString::from_const_str("__azreview_companion-pair");
+pub const COMPANION_OFFER: AzString = AzString::from_const_str("__azreview_companion-offer");
+pub const COMPANION_OFFER_TEXT: AzString = AzString::from_const_str("__azreview_companion-offer-text");
+pub const COMPANION_QR: AzString = AzString::from_const_str("__azreview_companion-qr");
+pub const COMPANION_COPY: AzString = AzString::from_const_str("__azreview_companion-copy");
+pub const COMPANION_CLOSE: AzString = AzString::from_const_str("__azreview_companion-close");
+pub const COMPANION_PHONES: AzString = AzString::from_const_str("__azreview_companion-phones");
+pub const COMPANION_ASK: AzString = AzString::from_const_str("__azreview_companion-ask");
+pub const COMPANION_CODE: AzString = AzString::from_const_str("__azreview_companion-code");
+pub const COMPANION_ACCEPT: AzString = AzString::from_const_str("__azreview_companion-accept");
+pub const COMPANION_DECLINE: AzString = AzString::from_const_str("__azreview_companion-decline");

@@ -26,13 +26,14 @@ use azul::{
 };
 use azul_appkit::{
     l10n::{label, labels, t, t_args, Arg},
+    qr::QrCode,
     ui as kit,
 };
 use azul_review_link::{
     frame::{HostSettings, ReplyStatus, Rows},
-    host::{CompanionHost, HostConfig, HostEvent},
+    host::{CompanionHost, ConfirmError, HostConfig, HostEvent, PhoneInfo},
     iroh_link::{IrohLink, IrohOptions},
-    limits::MAX_PAIRED_PHONES,
+    limits::{CONFIRM_TIMEOUT_MS, MAX_PAIRED_PHONES},
     link::{Link, Millis},
     pairing::{Entropy, OsEntropy},
 };
@@ -81,9 +82,46 @@ pub enum Status {
     Failed(String),
 }
 
+/// A pairing code that is open: the text a phone pastes (or scans from the picture) and when it was made. The text holds the one-time
+/// secret: it is shown to the user and put on the clipboard as a secret, and is never logged.
+pub struct Offer {
+    pub text: String,
+    /// The picture of it, when it is short enough for one (a ticket with many addresses is longer than a QR code of the size AzReview makes).
+    pub qr: Option<QrCode>,
+    pub opened_at: Millis,
+    /// The user copied it (the window says so).
+    pub copied: bool,
+}
+
+/// A phone that proved the one-time secret and waits for the person at this computer to say that the six digits are the same on both
+/// screens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Asked {
+    /// The phone's key.
+    pub peer: String,
+    /// What it calls itself (cleaned and cut).
+    pub name: String,
+    /// The six digits both screens show.
+    pub code: u32,
+    pub since: Millis,
+}
+
+/// Why no pairing code was made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PairError {
+    /// The companion is not on, or not bound.
+    NotListening,
+    /// The endpoint does not know its address yet (a moment after it was bound).
+    NoAddress,
+    /// Four phones are paired: one is forgotten first.
+    TooManyPhones,
+}
+
 /// What a look at the host found, for the window to act on.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Polled {
+    /// A phone asks to be paired: the window shows it whatever page it is on.
+    pub attention: bool,
     /// What the settings page shows may have changed (a phone came or went, the address is known).
     pub changed: bool,
     /// What is kept changed: it is to be written.
@@ -105,6 +143,8 @@ pub struct Glue {
     interval_ms: u64,
     clock: Instant,
     ticket_known: bool,
+    offer: Option<Offer>,
+    asked: Option<Asked>,
     saving: bool,
     save_pending: bool,
     log: Vec<String>,
@@ -125,6 +165,8 @@ impl Glue {
             interval_ms: POLL_IDLE_MS,
             clock: Instant::now(),
             ticket_known: false,
+            offer: None,
+            asked: None,
             saving: false,
             save_pending: false,
             log: Vec::new(),
@@ -244,6 +286,8 @@ impl Glue {
         }
         self.state = State::Off;
         self.ticket_known = false;
+        self.offer = None;
+        self.asked = None;
     }
 
     /// The name this computer goes by to the phones.
@@ -299,6 +343,8 @@ impl Glue {
         self.host = Some(host);
         self.state = State::On;
         self.ticket_known = false;
+        self.offer = None;
+        self.asked = None;
         self.interval_ms = POLL_IDLE_MS;
         self.note("listening");
     }
@@ -337,6 +383,15 @@ impl Glue {
         for event in host.poll(now) {
             self.handle(&mut host, now, event, &mut out);
         }
+        // a code is good for as long as the host's window is open, and a phone waits for the person for two minutes
+        if self.offer.is_some() && !host.pairing_open(now) {
+            self.offer = None;
+            out.changed = true;
+        }
+        if self.asked.as_ref().is_some_and(|a| now.saturating_sub(a.since) > CONFIRM_TIMEOUT_MS) {
+            self.asked = None;
+            out.changed = true;
+        }
         self.host = Some(host);
         let wanted = self.wanted_interval_at(now);
         if wanted != self.interval_ms {
@@ -354,17 +409,29 @@ impl Glue {
                 self.ticket_known = true;
                 out.changed = true;
             }
-            HostEvent::PairingRequested { peer, .. } => {
-                // no pairing is offered anywhere yet: a phone that asks is declined, nobody is paired by an event nobody expected
-                host.reject_pairing(now, &peer);
-                self.note("a phone asked to be paired and was declined: no pairing was started here");
+            HostEvent::PairingRequested { peer, name, code } => {
+                // the person at this computer is asked (a bar over the window): the host gives them two minutes
+                self.asked = Some(Asked { peer, name: companion_store::clean_name(&name), code, since: now });
+                self.note("a phone asks to be paired");
+                out.changed = true;
+                out.attention = true;
             }
             HostEvent::Paired { .. } => {
+                let before = self.stored.phones.clone();
                 self.stored.set_phones(host.paired());
-                out.save = true;
+                out.save = self.stored.phones != before;
+                out.changed = true;
+                self.asked = None;
+                self.offer = None;
+            }
+            HostEvent::PeerConnected { .. } => out.changed = true,
+            HostEvent::PeerGone { peer, .. } => {
+                // a phone that went while it was asked has nobody to be answered
+                if self.asked.as_ref().is_some_and(|a| a.peer == peer) {
+                    self.asked = None;
+                }
                 out.changed = true;
             }
-            HostEvent::PeerConnected { .. } | HostEvent::PeerGone { .. } => out.changed = true,
             HostEvent::ListDir { peer, request_id, path, offset } => {
                 host.publish_rows(now, &peer, Rows { request_id, dir: path, offset, entries: Vec::new(), more: false });
             }
@@ -373,6 +440,112 @@ impl Glue {
             }
             HostEvent::Viewport { .. } | HostEvent::ButtonsChanged { .. } | HostEvent::ContinueReviewing { .. } => {}
             HostEvent::Diagnostic(text) => self.note(&text),
+        }
+    }
+
+    // ---- the pairing
+
+    /// Opens a pairing window and makes the code a phone takes (pasted, or scanned from its picture). It holds the one-time secret and is
+    /// good for five minutes; a window that was open is replaced (its code no longer works).
+    ///
+    /// # Errors
+    /// Why there is no code: not listening, no address yet, four phones paired.
+    pub fn begin_pairing(&mut self, now: Millis) -> Result<(), PairError> {
+        let Some(host) = self.host.as_mut() else {
+            return Err(PairError::NotListening);
+        };
+        if host.paired().len() >= MAX_PAIRED_PHONES {
+            return Err(PairError::TooManyPhones);
+        }
+        let Some(offer) = host.begin_pairing(now) else {
+            return Err(PairError::NoAddress);
+        };
+        let text = offer.to_text();
+        let qr = QrCode::encode(text.as_bytes()).ok();
+        self.offer = Some(Offer { text, qr, opened_at: now, copied: false });
+        self.asked = None;
+        self.note("a pairing code was made");
+        Ok(())
+    }
+
+    /// Closes the pairing window: the code no longer works, a phone that waits is told no.
+    pub fn cancel_pairing(&mut self) {
+        if let Some(host) = self.host.as_mut() {
+            host.cancel_pairing();
+        }
+        self.offer = None;
+        self.asked = None;
+    }
+
+    /// The code that is open.
+    #[must_use]
+    pub fn offer(&self) -> Option<&Offer> {
+        self.offer.as_ref()
+    }
+
+    /// The user copied the code: it is marked so (the window says "Copied"), and its text is handed back to be put on the clipboard.
+    pub fn mark_copied(&mut self) -> Option<String> {
+        let offer = self.offer.as_mut()?;
+        offer.copied = true;
+        Some(offer.text.clone())
+    }
+
+    /// The phone that waits for the person to say that the six digits are the same.
+    #[must_use]
+    pub fn asked(&self) -> Option<&Asked> {
+        self.asked.as_ref()
+    }
+
+    /// The person said that the six digits are the same: the phone is paired (kept at once: the caller writes it) and told.
+    ///
+    /// # Errors
+    /// Nobody waits any more, or four phones are paired.
+    pub fn accept(&mut self, now: Millis) -> Result<(), ConfirmError> {
+        let Some(asked) = self.asked.clone() else {
+            return Err(ConfirmError::NobodyWaiting);
+        };
+        let Some(host) = self.host.as_mut() else {
+            return Err(ConfirmError::NobodyWaiting);
+        };
+        let result = host.accept_pairing(now, &asked.peer);
+        if result.is_ok() {
+            self.stored.set_phones(host.paired());
+            self.offer = None;
+            self.note("a phone was paired");
+        }
+        self.asked = None;
+        result
+    }
+
+    /// The person said that the six digits are not the same: the phone is told no and nothing is paired.
+    pub fn decline(&mut self, now: Millis) {
+        if let (Some(asked), Some(host)) = (self.asked.take(), self.host.as_mut()) {
+            host.reject_pairing(now, &asked.peer);
+            self.note("a phone was declined");
+        }
+    }
+
+    /// Forgets a paired phone: it is disconnected and refused from now on (kept at once: the caller writes it). `true` when it was paired.
+    pub fn forget(&mut self, now: Millis, peer: &str) -> bool {
+        let known = self.stored.phones.iter().any(|p| p.peer == peer);
+        if let Some(host) = self.host.as_mut() {
+            host.forget(now, peer);
+            self.stored.set_phones(host.paired());
+        } else {
+            self.stored.phones.retain(|p| p.peer != peer);
+        }
+        if known {
+            self.note("a phone was forgotten");
+        }
+        known
+    }
+
+    /// The paired phones and whether each is here (those that were kept, when nothing is bound).
+    #[must_use]
+    pub fn phones(&self) -> Vec<PhoneInfo> {
+        match &self.host {
+            Some(host) => host.phones(),
+            None => self.stored.phones.iter().map(|p| PhoneInfo { id: p.peer.clone(), name: p.name.clone(), connected: false, rtt_ms: None }).collect(),
         }
     }
 
@@ -418,6 +591,9 @@ impl Glue {
             "paired": paired,
             "connected": here,
             "kept_phones": self.stored.phones.len(),
+            "phones": self.phones().iter().map(|p| serde_json::json!({"name": p.name, "connected": p.connected})).collect::<Vec<_>>(),
+            "pairing_open": self.offer.is_some(),
+            "asked": self.asked.as_ref().map(|a| a.name.clone()),
             "failed": failed,
             "interval_ms": self.interval_ms,
             "log": self.log,
@@ -530,7 +706,7 @@ extern "C" fn on_poll(data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbac
     if polled.save {
         save(&data, &mut info.callback_info);
     }
-    let update = if polled.changed && settings_open { Update::RefreshDom } else { Update::DoNothing };
+    let update = if polled.attention || (polled.changed && settings_open) { Update::RefreshDom } else { Update::DoNothing };
     if let Some(ms) = polled.rate {
         // the same look at the clock at another pace: a new timer takes over from this one
         let id = TimerId::unique();
@@ -609,6 +785,10 @@ pub fn settings_section(s: &AppState, app: &RefAny) -> kit::AppSection {
                 .with_css("padding: 8px 0px 0px 0px; font-size: 11px; color: system:secondary-text;"),
         )
         .with_child(kit::note("azreview-companion-note").with_id(ids::COMPANION_NOTE));
+    let content = match crate::companion_ui::phones_block(s, app) {
+        Some(block) => content.with_child(block),
+        None => content,
+    };
     kit::AppSection { category: 1, title: t("azreview-category-phone"), content }
 }
 
