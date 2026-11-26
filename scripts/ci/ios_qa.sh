@@ -64,7 +64,7 @@ echo "app: $appdir bundle=$bid executable=$exe"
 
 if [ "$session" = qa ] || [ "$session" = both ]; then
   python3 "$here/mobile_qa.py" ios --out "$out" --udid "$udid" --bundle "$bid" --exe "$exe" --app "$appdir" --label "$label" \
-    ${AZ_QA_EXPECT_GPU:+--expect-gpu} 2>&1 | tee "$out/qa.log"
+    ${AZ_QA_EXPECT_GPU:+--expect-gpu} ${AZ_QA_ONLY:+--only "$AZ_QA_ONLY"} 2>&1 | tee "$out/qa.log"
 fi
 if [ "$session" = e2e ] || [ "$session" = both ]; then
   scen=()

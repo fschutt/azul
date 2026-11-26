@@ -36,7 +36,7 @@ SHEETS = {
         ("text field + keyboard", ["keyboard-and-text"], []),
     ],
     "2-rotation-and-leaving": [
-        ("landscape", ["landscape"], ["landscape"]),
+        ("landscape", ["landscape"], ["landscape-only-app", "landscape"]),
         ("landscape after a tap", ["landscape-after-tap"], []),
         ("portrait again", ["portrait-again"], ["portrait-again"]),
         ("home pressed", ["home-pressed"], ["other-app-in-front"]),
