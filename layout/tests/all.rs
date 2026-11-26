@@ -1477,3 +1477,5 @@ mod a_scrollbar_fades_by_the_fade_css_of_its_box;
 mod a_line_before_a_forced_break_is_not_justified;
 #[path = "ignored_tests_are_on_the_ledger.rs"]
 mod ignored_tests_are_on_the_ledger;
+#[path = "a_typed_field_keeps_laying_out_when_the_page_shrinks_before_it.rs"]
+mod a_typed_field_keeps_laying_out_when_the_page_shrinks_before_it;

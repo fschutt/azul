@@ -43,3 +43,151 @@ fn each_step_is_measured_from_the_one_before() {
     assert_eq!(steps.lap_at("four", 1_000), "[app] App::create: four 0 us", "a clock that went back is no time");
     assert_eq!(steps.total_at(2_000), 1_000, "the whole is from the start");
 }
+
+/// The style discovery of Windows starts no process: it ran `reg.exe` seven times and PowerShell once, each a process
+/// started on the window's thread before the first frame (the startup timeline of 2026-11-26 measured the step).
+/// A source gate in the manner of the others of this tree: the file is read as text.
+///
+/// Mutation: the old `run_command_with_timeout("reg", ...)`; PowerShell for the language.
+#[test]
+fn the_windows_style_discovery_starts_no_process() {
+    let source = include_str!("../windows/system_style.rs");
+    for needle in [["Command", "::new"].concat(), "run_command_with_timeout".to_owned(), "powershell".to_owned()] {
+        // The doc comments may name what is gone; the code may not use it.
+        let used = source
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .any(|line| line.contains(&needle));
+        assert!(!used, "dll/src/desktop/shell2/windows/system_style.rs uses `{needle}`: a process started before the first frame");
+    }
+}
+
+/// One listing answers every key: the keys of the schema come out with the values `gsettings get` printed for them
+/// (strings unquoted, numbers and booleans as they are, a list as its text), so the discovery that asked per key reads
+/// the same answers from one process.
+///
+/// Mutation: the quotes kept; the value cut at its first blank; the key and the value mixed up; a line of another
+/// shape that panics.
+#[test]
+fn a_gsettings_listing_gives_the_keys_of_the_schema_with_their_values() {
+    let listing = "org.gnome.desktop.interface font-name 'Cantarell 11'\n\
+                   org.gnome.desktop.interface color-scheme 'prefer-dark'\n\
+                   org.gnome.desktop.interface cursor-size 24\n\
+                   org.gnome.desktop.interface enable-animations true\n\
+                   org.gnome.desktop.interface text-scaling-factor 1.25\n\
+                   org.gnome.desktop.interface toolbar-style 'both-horiz'\n\
+                   org.gnome.desktop.interface some-list ['a', 'b']\n\
+                   \n\
+                   (process:1234): GLib-GIO-WARNING **: something\n\
+                   org.gnome.desktop.interface\n";
+    let keys = parse_gsettings_listing(listing);
+    assert_eq!(keys.get("font-name").map(String::as_str), Some("Cantarell 11"));
+    assert_eq!(keys.get("color-scheme").map(String::as_str), Some("prefer-dark"));
+    assert_eq!(keys.get("cursor-size").map(String::as_str), Some("24"));
+    assert_eq!(keys.get("enable-animations").map(String::as_str), Some("true"));
+    assert_eq!(keys.get("text-scaling-factor").map(String::as_str), Some("1.25"));
+    assert_eq!(keys.get("some-list").map(String::as_str), Some("['a', 'b']"));
+    assert_eq!(keys.get("missing"), None, "a key the schema does not have is no answer");
+    assert_eq!(keys.len(), 7, "the warning and the empty lines are no keys: {keys:?}");
+    assert!(parse_gsettings_listing("").is_empty());
+}
+
+/// An Android app process finds its own cache directory from its name and its user: the package of the process
+/// name, under the user of its uid; a secondary process (`package:service`) shares the package's directory; a binary
+/// run from a shell, a name that is not a package and a path that climbs are no app process.
+///
+/// Mutation: the user not taken from the uid (user 0 always); the `:suffix` kept in the path; a path accepted.
+#[test]
+fn an_android_app_process_finds_its_cache_directory_from_its_name_and_its_uid() {
+    use std::path::PathBuf;
+    assert_eq!(
+        android_app_cache_dir(b"com.azul.AzWidgets\0\0\0", 10141),
+        Some(PathBuf::from("/data/user/0/com.azul.AzWidgets/cache"))
+    );
+    assert_eq!(
+        android_app_cache_dir(b"com.azul.AzWidgets:remote\0", 1_010_141),
+        Some(PathBuf::from("/data/user/10/com.azul.AzWidgets/cache")),
+        "the secondary user's app, the package's directory"
+    );
+    for not_an_app in [
+        &b"/data/local/tmp/azul_widgets\0"[..],
+        b"zygote64\0",
+        b"com..evil\0",
+        b".hidden.pkg\0",
+        b"com.azul/../../etc\0",
+        b"com.azul.App name\0",
+        b"\0",
+        b"",
+        b"\xff\xfe\0",
+    ] {
+        assert_eq!(android_app_cache_dir(not_an_app, 10141), None, "{not_an_app:?}");
+    }
+}
+
+fn utf16le(text: &str) -> Vec<u8> {
+    text.encode_utf16().chain(core::iter::once(0)).flat_map(u16::to_le_bytes).collect()
+}
+
+/// A DWORD, a string and binary data come out as the lines `reg query` prints.
+///
+/// Mutation: a DWORD in decimal; the string kept with its NUL; binary in lowercase; the line ending dropped.
+#[test]
+fn a_registry_value_is_the_line_reg_query_prints() {
+    assert_eq!(
+        reg_value_text("AccentColorMenu", 4, &0xffd4_7800_u32.to_le_bytes()).as_deref(),
+        Some("    AccentColorMenu    REG_DWORD    0xffd47800\r\n")
+    );
+    assert_eq!(reg_value_text("AppsUseLightTheme", 4, &0_u32.to_le_bytes()).as_deref(), Some("    AppsUseLightTheme    REG_DWORD    0x0\r\n"));
+    assert_eq!(
+        reg_value_text("CurrentBuildNumber", 1, &utf16le("22631")).as_deref(),
+        Some("    CurrentBuildNumber    REG_SZ    22631\r\n")
+    );
+    assert_eq!(reg_value_text("Path", 2, &utf16le("%SystemRoot%")).as_deref(), Some("    Path    REG_EXPAND_SZ    %SystemRoot%\r\n"));
+    assert_eq!(reg_value_text("AccentPalette", 3, &[0x99, 0xeb, 0xff, 0x00]).as_deref(), Some("    AccentPalette    REG_BINARY    99EBFF00\r\n"));
+}
+
+/// What the registry holds that the discovery does not read, and data that does not fit its type, are no line.
+///
+/// Mutation: a short DWORD read as 0; a type 11 (QWORD) formatted; an odd string length accepted.
+#[test]
+fn a_registry_value_that_does_not_fit_is_no_line() {
+    assert_eq!(reg_value_text("x", 4, &[1, 2]), None, "a DWORD has four bytes");
+    assert_eq!(reg_value_text("x", 11, &[0; 8]), None, "a QWORD is not read");
+    assert_eq!(reg_value_text("x", 0, &[]), None, "REG_NONE is not read");
+    assert_eq!(reg_value_text("x", 1, &[b'a', 0, b'b']), None, "UTF-16 has an even length");
+}
+
+/// The text the native reader makes is read by the parsers that read `reg query`: the accent from the Explorer
+/// key (the DWORD of the menu accent, and the palette when only that is there), the dark mode, the build number.
+/// This is the contract of the Windows discovery's move from `reg.exe` to the registry API.
+///
+/// Mutation: the accent's bytes in the wrong order; the palette hex in lowercase with a separator.
+#[test]
+fn the_parsers_of_reg_query_read_what_the_native_reader_writes() {
+    use azul_css::{props::basic::color::ColorU, system::windows_accent};
+
+    let menu = reg_value_text("AccentColorMenu", 4, &0xffd4_7800_u32.to_le_bytes()).unwrap();
+    assert_eq!(windows_accent::accent_from_reg_query(&menu), Some(ColorU::new_rgb(0x00, 0x78, 0xd4)));
+    let dwm = reg_value_text("AccentColor", 4, &0xffd4_7800_u32.to_le_bytes()).unwrap();
+    assert_eq!(windows_accent::accent_from_reg_query(&dwm), Some(ColorU::new_rgb(0x00, 0x78, 0xd4)));
+
+    // The palette of Windows 11's blue: seven RGBA entries and the unused eighth; the base accent is the fourth.
+    let palette: Vec<u8> = [
+        [0x99, 0xeb, 0xff, 0x00],
+        [0x60, 0xcd, 0xff, 0x00],
+        [0x00, 0x93, 0xf9, 0x00],
+        [0x00, 0x78, 0xd4, 0x00],
+        [0x00, 0x5f, 0xb8, 0x00],
+        [0x00, 0x42, 0x92, 0x00],
+        [0x00, 0x23, 0x68, 0x00],
+        [0x4c, 0xc2, 0xff, 0x00],
+    ]
+    .concat();
+    let only_palette = reg_value_text("AccentPalette", 3, &palette).unwrap();
+    assert_eq!(windows_accent::accent_from_reg_query(&only_palette), Some(ColorU::new_rgb(0x00, 0x78, 0xd4)));
+
+    let light = reg_value_text("AppsUseLightTheme", 4, &1_u32.to_le_bytes()).unwrap();
+    assert!(light.contains("0x1") && !light.contains("0x0"), "{light}");
+    let build = reg_value_text("CurrentBuildNumber", 1, &utf16le("26100")).unwrap();
+    assert_eq!(build.split_whitespace().rev().find_map(|t| t.parse::<u32>().ok()), Some(26100));
+}

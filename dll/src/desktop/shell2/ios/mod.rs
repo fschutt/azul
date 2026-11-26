@@ -58,12 +58,19 @@ use crate::{
 
 pub mod accessibility;
 pub mod clipboard;
+/// OpenGL ES (`OpenGLES.framework`, opened at run time) under the GPU path.
+mod gl;
+/// The GPU path of a window: the lifecycle machine's executor and the frame.
+mod gpu;
 mod text_input;
 /// `<webview>`: `WKWebView`s, `WebKit.framework` loaded at the first one.
 mod webview;
 
 use crate::{
-    desktop::wr_translate2::{AsyncHitTester, WrRenderApi},
+    desktop::{
+        shell2::common::gpu_lifecycle,
+        wr_translate2::{AsyncHitTester, WrRenderApi},
+    },
     log_debug, log_error, log_info,
 };
 
@@ -266,6 +273,11 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         Some(w) => w,
         None => return,
     };
+    // A GPU window shows what its `CAEAGLLayer` shows; this view's own layer has no content to set, and the
+    // frame is drawn by the display tick (`gpu_tick`), not inside Core Animation's display pass.
+    if window.backend == RenderBackend::Gpu {
+        return;
+    }
 
     // `<webview>`s first: their reports (a delegate asked for this pass) may
     // ask for a rebuild or a repaint, which this pass then makes.
@@ -417,6 +429,15 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
                     frames_now.saturating_add(1),
                     core::sync::atomic::Ordering::Relaxed,
                 );
+                // the frame times of a scroll are measured here and in the GPU path's present alike
+                window.present_log.note(None);
+                // The first frame is handed to the layer: marks `first_present` once and prints the table
+                // when the timeline is on (AZ_STARTUP=1); a test of a bool otherwise.
+                window
+                    .common
+                    .app
+                    .startup()
+                    .mark_first_present(|| String::from("ios"));
             }
             CGDataProviderRelease(provider);
             CGColorSpaceRelease(cs);
@@ -922,6 +943,8 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
                     RelayoutReason::Resize
                 };
                 window.common.request_regeneration(reason);
+                // a GPU window's drawable follows its view (the renderbuffer is allocated again once)
+                window.gpu_resized();
             }
         }
         // Safe-area insets (notch / Dynamic Island / home indicator / rounded
@@ -1347,7 +1370,10 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
                 .common
                 .request_regeneration(RelayoutReason::ModeChange);
         }
-        if window.common.regeneration_pending() || window.needs_rerender {
+        if window.backend == RenderBackend::Gpu {
+            // the GPU window's frame: what is owed is laid out, sent and drawn here, in the tick
+            window.gpu_tick();
+        } else if window.common.regeneration_pending() || window.needs_rerender {
             let _ = window.present();
         }
     }
@@ -1710,6 +1736,8 @@ extern "C" fn did_finish_launching(
             #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
             debug_channel,
         } = launch;
+        // The app's startup timeline (AZ_STARTUP=1; free when off): the first mark of the app's own code on the phone.
+        app_shared.startup().mark("ios:application_did_finish_launching");
 
         // The UNUserNotificationCenter delegate, BEFORE this method returns:
         // a tap on a notification of an app that was not running launches it,
@@ -1740,6 +1768,7 @@ extern "C" fn did_finish_launching(
                 return false;
             }
         };
+        window.common.app.startup().mark("ios:window_created");
         // The debug/E2E channel `run()` stashed: the timer that drains it is driven by the same
         // display tick that drives every other timer. Dropped on the floor before, so the e2e
         // runner of a phone queued its scenarios and waited for a receiver nobody read.
@@ -1781,6 +1810,9 @@ extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object
     // does both; unpausing twice is a harmless idempotent setter).
     unsafe { set_display_link_paused(false) };
     if let Some(window) = unsafe { azul_ios_window() } {
+        // A GPU window: the context is current again, the frames run, one full frame is drawn (a
+        // rotation or a memory request that came while the app was away is applied first).
+        window.gpu_event(gpu_lifecycle::Event::Resumed);
         // Force a redraw so the layer contents are fresh after
         // returning from background.
         window
@@ -1798,8 +1830,13 @@ extern "C" fn app_will_resign_active(_this: &Object, _cmd: Sel, _app: *mut Objec
     // arrow or a Cmd stays "down" in every callback until the same key is pressed again.
     if let Some(window) = unsafe { azul_ios_window() } {
         release_pressed_keys(window);
+        // A GPU window follows Apple's rule for OpenGL ES: "your app should stop its animation timer,
+        // place itself into a known good state, and then call the glFinish function" here, because the
+        // system can take the GPU from an app the moment it is no longer in front, and a command flushed
+        // after that ends the process. (The frame on screen stays; a CPU window is not touched.)
+        window.gpu_event(gpu_lifecycle::Event::Paused);
     }
-    // Deliberately does NOT pause the display link: resign-active also fires
+    // Deliberately does NOT pause the display link of a CPU window: resign-active also fires
     // for transient overlays (control center, incoming-call banner, app
     // switcher) where the app remains visible and animations should keep
     // running. The pause happens in applicationDidEnterBackground:.
@@ -1818,6 +1855,11 @@ extern "C" fn app_did_enter_background(_this: &Object, _cmd: Sel, _app: *mut Obj
     // iOS gives ~5 s of background time. Sprint M-iOS-life will use it
     // to checkpoint app_data / hand off to BGTaskScheduler.
     unsafe { set_display_link_paused(true) };
+    // A GPU window: the last GL command the app may issue is in this handler (what was owed to the system,
+    // then glFinish); after it every GL path of the shell asks the lifecycle machine first.
+    if let Some(window) = unsafe { azul_ios_window() } {
+        window.gpu_event(gpu_lifecycle::Event::Backgrounded);
+    }
 }
 
 extern "C" fn app_will_enter_foreground(_this: &Object, _cmd: Sel, _app: *mut Object) {
@@ -1846,11 +1888,20 @@ extern "C" fn app_did_receive_memory_warning(_this: &Object, _cmd: Sel, _app: *m
     if let Ok(mut pool) = FRAME_COPIES.lock() {
         *pool = azul_layout::window::FrameBufferPool::new();
     }
+    // A GPU window: WebRender's caches go too (answered at once when the app is active, owed until it is
+    // back when it is not: no GL command in the background).
+    if let Some(window) = unsafe { azul_ios_window() } {
+        window.gpu_memory_warning();
+    }
 }
 
 extern "C" fn app_will_terminate(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationWillTerminate:");
     unsafe {
+        // A GPU window comes down in order (surface, renderer, context) before the window is dropped.
+        if let Some(window) = azul_ios_window() {
+            window.gpu_event(gpu_lifecycle::Event::Shutdown);
+        }
         if !AZUL_IOS_WINDOW.is_null() {
             // Drop the window in a controlled scope so its CommonWindowState
             // releases the RefAny + LayoutWindow before the process dies.
@@ -1989,7 +2040,10 @@ pub unsafe fn launch_app() {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderBackend {
+    /// The CPU renderer: a pixmap handed to Core Animation (`displayLayer:`).
     Cpu,
+    /// WebRender on an OpenGL ES 3.0 context (`AZ_BACKEND=gpu|auto`; `gpu.rs`).
+    Gpu,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2020,8 +2074,13 @@ pub struct IOSWindow {
     ui_view: Id<Object>,
     /// UIViewController.
     ui_view_controller: Id<Object>,
-    /// Rendering backend selector (CPU only until Sprint M-iOS-GPU).
+    /// Which renderer draws this window: the CPU's, or WebRender's on OpenGL ES (`gpu`).
     pub backend: RenderBackend,
+    /// The GPU path's context, surface, lifecycle machine and renderer; `None` while the window draws on the CPU
+    /// (and for good once a GPU window has fallen back).
+    gpu: Option<gpu::IosGpu>,
+    /// What this window says about its own presents (the frame times of a scroll), CPU and GPU alike.
+    present_log: gpu::PresentLog,
     /// `false` after `applicationWillTerminate:`.
     pub is_open: bool,
     /// Shared icon provider — needed by `regenerate_layout()`.
@@ -2263,7 +2322,7 @@ impl IOSWindow {
         common.set_layout_window(layout_window);
         common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
 
-        Ok(Self {
+        let mut window = Self {
             common,
             cpu_backend: CpuBackend::for_config(&config),
             needs_rerender: false,
@@ -2271,6 +2330,8 @@ impl IOSWindow {
             ui_view,
             ui_view_controller,
             backend: RenderBackend::Cpu,
+            gpu: None,
+            present_log: gpu::PresentLog::new(),
             is_open: true,
             icon_provider,
             font_registry,
@@ -2282,13 +2343,21 @@ impl IOSWindow {
             text_interaction,
             text_interaction_attached: false,
             create_callback,
-        })
+        };
+        // The renderer of this window: `AZ_BACKEND` / `hw_accel` decide, the CPU one unless the GPU was
+        // asked for and came up (a fallback names its stage in one line). The line the QA harness reads
+        // is written here, once.
+        window.gpu_start();
+        Ok(window)
     }
 
     pub fn is_open(&self) -> bool {
         self.is_open
     }
     pub fn close(&mut self) {
+        // A GPU window comes down in the order the lifecycle machine says (surface, renderer, context; in
+        // the background nothing is released at all).
+        self.gpu_event(gpu_lifecycle::Event::Shutdown);
         // WebRender's Renderer must be deinit()'d, not dropped — texture
         // deletion has to happen inside a frame. Never doing so crashed debug
         // builds on close and leaked GPU resources in release.
@@ -2301,6 +2370,11 @@ impl IOSWindow {
     }
 
     pub fn present(&mut self) -> Result<(), WindowError> {
+        // A GPU window is drawn by the display tick (`gpu_tick`), outside Core Animation's display pass:
+        // the owed work is in `regeneration_pending()` / `needs_rerender`, and the next tick takes it.
+        if self.backend == RenderBackend::Gpu {
+            return Ok(());
+        }
         let view = &*self.ui_view as *const Object as *mut Object;
         unsafe {
             let _: () = msg_send![view, setNeedsDisplay];
@@ -2515,6 +2589,7 @@ impl IOSWindow {
             &mut debug_messages,
             relayout_reason,
             borrows.settings,
+            borrows.startup,
         )?;
 
         if let Some(msgs) = debug_messages {
@@ -2547,10 +2622,15 @@ impl IOSWindow {
         // explanation; both mobile backends were missing the one line.
         self.common.rebuild_cpu_hit_tester();
 
+        // A GPU window sends the display list to WebRender here; the next display tick draws it.
+        if self.backend == RenderBackend::Gpu {
+            self.gpu_send_frame();
+        }
+
         // CPU-render the frame — populates `self.cpu_backend.last_frame`,
         // ready for `displayLayer:` to blit into the layer (Sprint C-iOS).
         #[cfg(feature = "cpurender")]
-        {
+        if self.backend == RenderBackend::Cpu {
             let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
