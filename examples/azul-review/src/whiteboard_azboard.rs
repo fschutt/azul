@@ -18,13 +18,17 @@
 //!   leaves the folder, a picture too large, more items than a board holds, nesting too deep, a number that is none)
 //!   is left out or pulled in, never followed.
 
+use std::{collections::{BTreeMap, HashMap}, sync::Arc};
+
 use crate::{
-    whiteboard::{lines_hash, Anchor, Arrow, BoardData, Cutout, End, ImageSlot, Item, Limits, Source},
+    whiteboard::{lines_hash, Anchor, Arrow, BoardData, Cutout, CutoutImage, End, ImageSlot, Item, ItemId, Limits, Source},
     whiteboard_base64 as b64,
     whiteboard_geom::{Pt, Rect, Side, View},
     whiteboard_git::{self as git, Host, RepoFacts},
     whiteboard_hash,
-    whiteboard_json::{from_f32, from_str, from_u64, object, pretty, Json},
+    whiteboard_history::{self as history, Brief, Changed, Code, Evidence, History, Moved, RefChange, Snapshot, Summary},
+    whiteboard_json::{canonical, from_f32, from_str, from_u64, object, pretty, pretty_at, Json},
+    whiteboard_relocate::RefStatus,
     whiteboard_store::{self as store, Budget, Entry, ImageCodec, Loaded},
 };
 
@@ -161,17 +165,37 @@ fn end_json(end: &End) -> Json {
     }
 }
 
-fn source_json(s: &Source, meta: &Meta) -> Json {
-    let prefix = meta.repo.as_ref().map_or("", |r| r.prefix.as_str());
-    let path = join(prefix, &s.file);
+/// How the links of the code references are made: where the folder lies in the repository, the repository's web address and
+/// its host, the template for a host of no known form.
+struct Links<'a> {
+    prefix: &'a str,
+    web: Option<(&'a str, Host)>,
+    template: Option<&'a str>,
+}
+
+impl<'a> Links<'a> {
+    fn of_meta(meta: &'a Meta) -> Self {
+        let repo = meta.repo.as_ref();
+        Self {
+            prefix: repo.map_or("", |r| r.prefix.as_str()),
+            web: repo.and_then(|r| r.web_url.as_deref().map(|w| (w, r.host))),
+            template: meta.template.as_deref(),
+        }
+    }
+
+    fn of_code(code: &'a Code, template: Option<&'a str>) -> Self {
+        Self { prefix: code.prefix.as_str(), web: code.web_url.as_deref().map(|w| (w, code.host)), template }
+    }
+}
+
+fn source_json(s: &Source, links: &Links<'_>) -> Json {
+    let path = join(links.prefix, &s.file);
     let mut f = vec![("path", from_str(&path)), ("line_start", from_u64(u64::from(s.first_line))), ("line_end", from_u64(u64::from(s.last_line)))];
     opt_str(&mut f, "hash", Some(&s.sha256));
     opt_str(&mut f, "rev", Some(&s.rev));
-    if let Some(repo) = &meta.repo {
-        if let (Some(web), true) = (&repo.web_url, git::is_hash(&s.rev)) {
-            let link = git::permalink(web, repo.host, &s.rev, &path, s.first_line, s.last_line, meta.template.as_deref());
-            opt_str(&mut f, "permalink", link.as_deref());
-        }
+    if let (Some((web, host)), true) = (links.web, git::is_hash(&s.rev)) {
+        let link = git::permalink(web, host, &s.rev, &path, s.first_line, s.last_line, links.template);
+        opt_str(&mut f, "permalink", link.as_deref());
     }
     opt_str(&mut f, "language", language_of(&s.file));
     f.push(("code", Json::Arr(s.lines.iter().map(|l| from_str(l)).collect())));
@@ -187,7 +211,38 @@ fn source_json(s: &Source, meta: &Meta) -> Json {
     object(f)
 }
 
-fn item_json(item: &Item, meta: &Meta, pictures: &Pictures, assets: &mut Vec<(String, Json)>, files: &mut Vec<Entry>) -> Json {
+/// The key a cutout's picture has among the document's assets.
+fn asset_key(id: ItemId) -> String {
+    format!("img-{id}")
+}
+
+/// A picture among the document's assets (once, whatever the number of items and snapshots that name it), and its file when
+/// it is a file of its own.
+fn add_asset(assets: &mut Vec<(String, Json)>, files: &mut Vec<Entry>, key: &str, img: &CutoutImage, pictures: &Pictures) {
+    if assets.iter().any(|(k, _)| k == key) {
+        return;
+    }
+    let file = format!("{key}.png");
+    let src = match pictures {
+        Pictures::Entries => file.clone(),
+        Pictures::Embedded => b64::data_uri_png(&img.png),
+        Pictures::Beside(dir) => format!("{dir}/{file}"),
+    };
+    if !matches!(pictures, Pictures::Embedded) {
+        files.push(Entry { name: file, bytes: img.png.clone() });
+    }
+    assets.push((
+        key.to_string(),
+        object(vec![
+            ("type", from_str("image/png")),
+            ("width", from_u64(u64::from(img.width))),
+            ("height", from_u64(u64::from(img.height))),
+            ("src", from_str(&src)),
+        ]),
+    ));
+}
+
+fn item_json(item: &Item, links: &Links<'_>, pictures: &Pictures, assets: &mut Vec<(String, Json)>, files: &mut Vec<Entry>) -> Json {
     match item {
         Item::Cutout(c) => {
             let mut f = vec![
@@ -201,24 +256,8 @@ fn item_json(item: &Item, meta: &Meta, pictures: &Pictures, assets: &mut Vec<(St
             opt_str(&mut f, "label", Some(&c.label));
             match &c.image {
                 ImageSlot::Ready(img) if !img.png.is_empty() => {
-                    let key = format!("img-{}", c.id);
-                    let src = match pictures {
-                        Pictures::Entries => store::picture_name(c.id),
-                        Pictures::Embedded => b64::data_uri_png(&img.png),
-                        Pictures::Beside(dir) => format!("{dir}/{}", store::picture_name(c.id)),
-                    };
-                    if !matches!(pictures, Pictures::Embedded) {
-                        files.push(Entry { name: store::picture_name(c.id), bytes: img.png.clone() });
-                    }
-                    assets.push((
-                        key.clone(),
-                        object(vec![
-                            ("type", from_str("image/png")),
-                            ("width", from_u64(u64::from(img.width))),
-                            ("height", from_u64(u64::from(img.height))),
-                            ("src", from_str(&src)),
-                        ]),
-                    ));
+                    let key = asset_key(c.id);
+                    add_asset(assets, files, &key, img, pictures);
                     f.push(("image", object(vec![("asset", from_str(&key)), ("scale", from_f32(img.scale))])));
                 }
                 ImageSlot::Ready(_) => {
@@ -231,7 +270,7 @@ fn item_json(item: &Item, meta: &Meta, pictures: &Pictures, assets: &mut Vec<(St
                     f.push(("image_note", from_str(why)));
                 }
             }
-            f.push(("source", source_json(&c.source, meta)));
+            f.push(("source", source_json(&c.source, links)));
             object(f)
         }
         Item::Arrow(a) => {
@@ -287,23 +326,169 @@ fn bounds(data: &BoardData) -> Option<Rect> {
     Some(Rect::new(lo.x, lo.y, hi.x - lo.x, hi.y - lo.y))
 }
 
+fn view_json(view: &View) -> Json {
+    object(vec![("x", from_f32(view.pan.x)), ("y", from_f32(view.pan.y)), ("zoom", from_f32(view.zoom))])
+}
+
 fn canvas_json(data: &BoardData) -> Json {
-    let mut f = vec![
-        ("unit", from_str("px")),
-        ("origin", from_str("top-left")),
-        ("view", object(vec![("x", from_f32(data.view.pan.x)), ("y", from_f32(data.view.pan.y)), ("zoom", from_f32(data.view.zoom))])),
-    ];
+    let mut f = vec![("unit", from_str("px")), ("origin", from_str("top-left")), ("view", view_json(&data.view))];
     if let Some(b) = bounds(data) {
         f.push(("bounds", object(vec![("x", from_f32(b.x)), ("y", from_f32(b.y)), ("width", from_f32(b.w)), ("height", from_f32(b.h))])));
     }
     object(f)
 }
 
-/// The document of the board `data`: `meta` says which board and where it lies, `pictures` where the pictures are.
+// ---- snapshots
+
+fn brief_json(b: &Brief) -> Json {
+    object(vec![("id", from_u64(b.id)), ("kind", from_str(b.kind)), ("name", from_str(&b.name))])
+}
+
+fn summary_json(s: &Summary) -> Json {
+    object(vec![
+        ("added", Json::Arr(s.added.iter().map(brief_json).collect())),
+        ("removed", Json::Arr(s.removed.iter().map(brief_json).collect())),
+        (
+            "moved",
+            Json::Arr(s.moved.iter().map(|m| object(vec![("id", from_u64(m.id)), ("from", point_json(m.from)), ("to", point_json(m.to))])).collect()),
+        ),
+        (
+            "changed",
+            Json::Arr(s.changed.iter().map(|c| object(vec![("id", from_u64(c.id)), ("what", Json::Arr(c.what.iter().map(|w| from_str(w)).collect()))])).collect()),
+        ),
+        ("references", Json::Arr(s.references.iter().map(ref_change_json).collect())),
+    ])
+}
+
+fn lines_json(range: (u32, u32)) -> Json {
+    Json::Arr(vec![from_u64(u64::from(range.0)), from_u64(u64::from(range.1))])
+}
+
+fn ref_change_json(r: &RefChange) -> Json {
+    let mut f = vec![("id", from_u64(r.id)), ("status", from_str(r.status.name())), ("from", lines_json(r.from))];
+    if r.status != RefStatus::Vanished {
+        f.push(("to", lines_json(r.to)));
+    }
+    object(f)
+}
+
+fn code_json(c: &Code) -> Json {
+    let mut repo = Vec::new();
+    opt_str(&mut repo, "remote", c.remote.as_deref());
+    opt_str(&mut repo, "web_url", c.web_url.as_deref());
+    repo.push(("host", from_str(c.host.name())));
+    let mut f = vec![("repo", object(repo))];
+    if !c.prefix.is_empty() {
+        f.push(("path_in_repo", from_str(&c.prefix)));
+    }
+    opt_str(&mut f, "rev", c.rev.as_deref());
+    opt_str(&mut f, "branch", c.branch.as_deref());
+    if let Some(d) = c.dirty {
+        f.push(("dirty", Json::Bool(d)));
+    }
+    if let Some(t) = c.rev_time_ms {
+        f.push(("rev_time_ms", from_u64(t)));
+    }
+    object(f)
+}
+
+/// The snapshot as it is written, without its hash. Its pictures are named, not carried (`image.asset`): the document's
+/// assets hold them, so the text does not depend on where the pictures are.
+fn snapshot_value(s: &Snapshot, template: Option<&str>) -> (Json, BTreeMap<String, Arc<CutoutImage>>) {
+    let links = Links::of_code(&s.code, template);
+    let (mut assets, mut files) = (Vec::new(), Vec::new());
+    let items: Vec<Json> = s.data.items.iter().map(|i| item_json(i, &links, &Pictures::Entries, &mut assets, &mut files)).collect();
+    let pictures: BTreeMap<String, Arc<CutoutImage>> = s
+        .data
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Cutout(c) => match &c.image {
+                ImageSlot::Ready(img) if !img.png.is_empty() => Some((asset_key(c.id), Arc::clone(img))),
+                _ => None,
+            },
+            Item::Arrow(_) => None,
+        })
+        .collect();
+    let mut f = vec![("id", from_str(&s.id))];
+    if let Some(p) = &s.parent {
+        f.push(("parent", from_str(p)));
+    }
+    f.push(("taken_ms", from_u64(s.taken_ms)));
+    opt_str(&mut f, "author", s.author.as_deref());
+    f.push(("code", code_json(&s.code)));
+    f.push(("why", from_str(&s.why)));
+    f.push(("tags", Json::Arr(s.tags.iter().map(|t| from_str(t)).collect())));
+    f.push(("summary", summary_json(&s.summary)));
+    if let Some(e) = &s.evidence {
+        f.push((
+            "evidence",
+            object(vec![
+                ("session", from_str(&e.session)),
+                ("start_ms", from_u64(e.start_ms)),
+                ("end_ms", from_u64(e.end_ms)),
+                ("transcript", from_str(&e.transcript)),
+            ]),
+        ));
+    }
+    f.push(("canvas", object(vec![("view", view_json(&s.data.view))])));
+    f.push(("next_id", from_u64(s.data.next_id)));
+    f.push(("items", Json::Arr(items)));
+    (object(f), pictures)
+}
+
+/// The hash of a snapshot's value: `sha256:` and the SHA-256 of its canonical form (RFC 8785).
+#[must_use]
+pub fn hash_of(value: &Json) -> String {
+    whiteboard_hash::tagged(canonical(value).as_bytes())
+}
+
+/// The snapshot made final: its text written (links made with `template`), hashed, and its pictures named. What `s` holds in
+/// `value`, `hash`, `text`, `verified` and `pictures` is replaced; nothing of it is changed afterwards.
+#[must_use]
+pub fn seal(mut s: Snapshot, template: Option<&str>) -> Snapshot {
+    let (value, pictures) = snapshot_value(&s, template);
+    s.hash = hash_of(&value);
+    s.value = value;
+    s.text = pretty_at(&snapshot_object(&s), 2);
+    s.verified = true;
+    s.pictures = pictures;
+    s
+}
+
+/// The snapshot's object as the document holds it: its value and, last, its hash.
+fn snapshot_object(s: &Snapshot) -> Json {
+    match &s.value {
+        Json::Obj(pairs) => {
+            let mut pairs = pairs.clone();
+            pairs.push(("hash".to_string(), from_str(&s.hash)));
+            Json::Obj(pairs)
+        }
+        other => other.clone(),
+    }
+}
+
+// ---- the document
+
+/// The document of the board `data` with no history: `meta` says which board and where it lies, `pictures` where the
+/// pictures are.
 #[must_use]
 pub fn document(data: &BoardData, meta: &Meta, pictures: &Pictures) -> Written {
+    document_with(data, meta, pictures, &History::default())
+}
+
+/// The document of the board `data` and its history.
+#[must_use]
+pub fn document_with(data: &BoardData, meta: &Meta, pictures: &Pictures, history: &History) -> Written {
     let (mut assets, mut files) = (Vec::new(), Vec::new());
-    let items: Vec<Json> = data.items.iter().map(|i| item_json(i, meta, pictures, &mut assets, &mut files)).collect();
+    let links = Links::of_meta(meta);
+    let items: Vec<Json> = data.items.iter().map(|i| item_json(i, &links, pictures, &mut assets, &mut files)).collect();
+    // The pictures of the snapshots: the ones the live board has are among the assets already.
+    for s in &history.snapshots {
+        for (key, img) in &s.pictures {
+            add_asset(&mut assets, &mut files, key, img, pictures);
+        }
+    }
     let mut workspace = vec![("name", from_str(&meta.workspace_name))];
     if let Some(repo) = &meta.repo {
         if !repo.prefix.is_empty() {
@@ -331,8 +516,23 @@ pub fn document(data: &BoardData, meta: &Meta, pictures: &Pictures) -> Written {
     let n_assets = assets.len();
     root.push(("assets", Json::Obj(assets)));
     root.push(("items", Json::Arr(items)));
-    root.push(("snapshots", Json::Arr(Vec::new())));
-    Written { text: pretty(&object(root)), pictures: files, assets: n_assets }
+    // The snapshots are written already (each as text, once): the document is written with a mark where they go and they are put
+    // in as they are.
+    let mark = "__azboard_snapshots__";
+    root.push(("snapshots", Json::Arr(if history.snapshots.is_empty() { Vec::new() } else { vec![from_str(mark)] })));
+    let mut text = pretty(&object(root));
+    if !history.snapshots.is_empty() {
+        let mut list = String::with_capacity(history.bytes() + 16 * history.snapshots.len() + 8);
+        list.push_str("[\n");
+        for (i, s) in history.snapshots.iter().enumerate() {
+            list.push_str("    ");
+            list.push_str(&s.text);
+            list.push_str(if i + 1 < history.snapshots.len() { ",\n" } else { "\n" });
+        }
+        list.push_str("  ]");
+        text = text.replacen(&format!("[\"{mark}\"]"), &list, 1);
+    }
+    Written { text, pictures: files, assets: n_assets }
 }
 
 // ---- reading
@@ -474,29 +674,271 @@ fn bytes_of(src: &str, picture: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Vec<
     picture(src).ok_or("the picture is missing from the file")
 }
 
-fn picture_slot(
-    j: &Json,
-    assets: Option<&Json>,
-    budget: &mut Budget<'_>,
-    picture: &dyn Fn(&str) -> Option<Vec<u8>>,
-    codec: &dyn ImageCodec,
-) -> ImageSlot {
-    let Some(image) = j.get("image").filter(|i| !matches!(i, Json::Null)) else {
-        return match j.get("image_state").and_then(Json::as_str) {
-            Some("pending") => ImageSlot::Failed("not drawn when the board was saved".to_string()),
-            _ => ImageSlot::Failed(str_of(j, "image_note").unwrap_or_else(|| "no picture was kept".to_string())),
+/// What reading a document shares between its board and its snapshots.
+struct Reader<'a> {
+    assets: Option<&'a Json>,
+    budget: Budget<'a>,
+    /// The pictures read, by asset and scale: one picture is decoded once however many items and snapshots name it.
+    cache: HashMap<String, ImageSlot>,
+    picture: &'a dyn Fn(&str) -> Option<Vec<u8>>,
+    codec: &'a dyn ImageCodec,
+}
+
+/// Items read from a list.
+struct ItemsRead {
+    items: Vec<Item>,
+    left_out: usize,
+    max_id: u64,
+    /// The asset each cutout with a picture names.
+    keys: Vec<(ItemId, String)>,
+}
+
+impl Reader<'_> {
+    /// The picture of the cutout `j`, and the key it names it by.
+    fn slot(&mut self, j: &Json) -> (ImageSlot, Option<String>) {
+        let Some(image) = j.get("image").filter(|i| !matches!(i, Json::Null)) else {
+            return (
+                match j.get("image_state").and_then(Json::as_str) {
+                    Some("pending") => ImageSlot::Failed("not drawn when the board was saved".to_string()),
+                    _ => ImageSlot::Failed(str_of(j, "image_note").unwrap_or_else(|| "no picture was kept".to_string())),
+                },
+                None,
+            );
         };
+        let Some(key) = image.get("asset").and_then(Json::as_str).map(str::to_string) else {
+            return (store::failed(&mut self.budget, "the picture is not among the document's pictures"), None);
+        };
+        let scale = f32_of(image, "scale").filter(|s| *s > 0.0).unwrap_or(1.0);
+        let cached = format!("{key}@{}", scale.to_bits());
+        if let Some(slot) = self.cache.get(&cached) {
+            return (slot.clone(), Some(key));
+        }
+        let src = self.assets.and_then(|a| a.get(&key)).and_then(|a| a.get("src")).and_then(Json::as_str);
+        let slot = match src {
+            None => store::failed(&mut self.budget, "the picture is not among the document's pictures"),
+            Some(src) => match bytes_of(src, self.picture) {
+                Ok(bytes) => store::decode_slot(bytes, scale, &mut self.budget, self.codec),
+                Err(why) => store::failed(&mut self.budget, why),
+            },
+        };
+        self.cache.insert(cached, slot.clone());
+        (slot, Some(key))
+    }
+
+    /// The items of `listed` (a document's, or a snapshot's), at most `cap` of them; paths are the repository's, `prefix` is
+    /// what is taken off to get the folder's.
+    fn items(&mut self, listed: &[Json], prefix: &str, cap: usize) -> ItemsRead {
+        let mut read = ItemsRead { items: Vec::new(), left_out: 0, max_id: 0, keys: Vec::new() };
+        for (n, j) in listed.iter().enumerate() {
+            if n >= cap {
+                read.left_out += listed.len() - n;
+                break;
+            }
+            let Some(id) = j.get("id").and_then(Json::as_u64).filter(|id| *id > 0) else {
+                read.left_out += 1;
+                continue;
+            };
+            let item = match j.get("kind").and_then(Json::as_str) {
+                Some("cutout") => {
+                    let rect = (f32_of(j, "x"), f32_of(j, "y"), f32_of(j, "width"), f32_of(j, "height"));
+                    let (Some(x), Some(y), Some(w), Some(h)) = rect else {
+                        read.left_out += 1;
+                        continue;
+                    };
+                    let Some(source) = j.get("source").and_then(|s| source_of(s, prefix)) else {
+                        read.left_out += 1;
+                        continue;
+                    };
+                    let (image, key) = self.slot(j);
+                    if let Some(key) = key {
+                        read.keys.push((id, key));
+                    }
+                    Item::Cutout(Cutout {
+                        id,
+                        rect: Rect::new(x, y, w, h),
+                        image,
+                        label: clean_label(j.get("label").and_then(Json::as_str).unwrap_or_default(), MAX_TEXT_CHARS),
+                        source,
+                    })
+                }
+                Some("arrow") => {
+                    let ends = (j.get("from").and_then(end_of), j.get("to").and_then(end_of));
+                    let (Some(from), Some(to)) = ends else {
+                        read.left_out += 1;
+                        continue;
+                    };
+                    Item::Arrow(Arrow {
+                        id,
+                        from,
+                        to,
+                        bend: f32_of(j, "bend").unwrap_or(0.0),
+                        label: clean_label(j.get("label").and_then(Json::as_str).unwrap_or_default(), MAX_TEXT_CHARS),
+                    })
+                }
+                _ => {
+                    read.left_out += 1;
+                    continue;
+                }
+            };
+            read.max_id = read.max_id.max(id);
+            read.items.push(item);
+        }
+        read
+    }
+
+    /// The snapshot `j`, if it is one: its items are read like the board's, its text kept as it was and hashed.
+    fn snapshot(&mut self, j: &Json, items_so_far: usize) -> Option<(Snapshot, usize)> {
+        let id = str_of(j, "id").filter(|i| board_id_ok(i))?;
+        let code = code_of(j.get("code"));
+        let room = history::MAX_HISTORY_ITEMS.saturating_sub(items_so_far).min(store::MAX_ITEMS_READ);
+        let listed = j.get("items").and_then(Json::as_arr).unwrap_or(&[]);
+        let read = self.items(listed, &code.prefix, room);
+        let view = view_of(j.get("canvas").and_then(|c| c.get("view")));
+        let next_id = j.get("next_id").and_then(Json::as_u64).unwrap_or(0).max(read.max_id + 1);
+        let pictures: BTreeMap<String, Arc<CutoutImage>> = read
+            .keys
+            .iter()
+            .filter_map(|(item, key)| match read.items.iter().find(|i| i.id() == *item) {
+                Some(Item::Cutout(c)) => match &c.image {
+                    ImageSlot::Ready(img) => Some((key.clone(), Arc::clone(img))),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        let value = match j {
+            Json::Obj(pairs) => Json::Obj(pairs.iter().filter(|(k, _)| k != "hash").cloned().collect()),
+            other => other.clone(),
+        };
+        let stored = j.get("hash").and_then(Json::as_str).filter(|h| whiteboard_hash::is_tagged(h)).unwrap_or_default().to_string();
+        let verified = !stored.is_empty() && stored == hash_of(&value);
+        let held = read.items.len();
+        let mut snapshot = Snapshot {
+            id,
+            parent: str_of(j, "parent").filter(|p| board_id_ok(p)),
+            taken_ms: ms_of(j, "taken_ms"),
+            author: str_of(j, "author").map(|a| clean(&a, 200)).filter(|a| !a.is_empty()),
+            code,
+            why: history::clean_why(j.get("why").and_then(Json::as_str).unwrap_or_default()),
+            tags: history::parse_tags(&j.get("tags").and_then(Json::as_arr).map(|a| a.iter().filter_map(Json::as_str).collect::<Vec<_>>().join(",")).unwrap_or_default()),
+            summary: summary_of(j.get("summary")),
+            evidence: evidence_of(j.get("evidence")),
+            data: BoardData { items: read.items, view, next_id },
+            value,
+            text: String::new(),
+            hash: stored,
+            verified,
+            pictures,
+        };
+        snapshot.text = pretty_at(&snapshot_object(&snapshot), 2);
+        Some((snapshot, held))
+    }
+}
+
+fn view_of(v: Option<&Json>) -> View {
+    v.map_or_else(View::default, |v| View {
+        pan: Pt::new(f32_of(v, "x").unwrap_or(0.0), f32_of(v, "y").unwrap_or(0.0)),
+        zoom: f32_of(v, "zoom").unwrap_or(1.0),
+    })
+}
+
+fn code_of(c: Option<&Json>) -> Code {
+    let Some(c) = c else {
+        return Code::default();
     };
-    let src = image.get("asset").and_then(Json::as_str).and_then(|a| assets?.get(a)).and_then(|a| a.get("src")).and_then(Json::as_str);
-    let Some(src) = src else {
-        return store::failed(budget, "the picture is not among the document's pictures");
+    let repo = c.get("repo");
+    Code {
+        rev: str_of(c, "rev").filter(|v| git::is_hash(v)),
+        branch: str_of(c, "branch"),
+        dirty: c.get("dirty").and_then(Json::as_bool),
+        rev_time_ms: c.get("rev_time_ms").and_then(Json::as_u64),
+        remote: repo.and_then(|r| str_of(r, "remote")).map(|u| git::public_remote(&u)),
+        web_url: repo.and_then(|r| str_of(r, "web_url")).filter(|u| u.starts_with("https://") || u.starts_with("http://")),
+        host: repo.and_then(|r| r.get("host")).and_then(Json::as_str).map_or(Host::Other, Host::from_name),
+        prefix: c.get("path_in_repo").and_then(Json::as_str).filter(|p| safe_path(p)).unwrap_or_default().to_string(),
+    }
+}
+
+fn evidence_of(e: Option<&Json>) -> Option<Evidence> {
+    let e = e?;
+    let transcript = e.get("transcript").and_then(Json::as_str).map(|t| clean_label(t, history::MAX_EVIDENCE_CHARS)).unwrap_or_default();
+    let session = str_of(e, "session").unwrap_or_default();
+    (!session.is_empty() || !transcript.is_empty()).then(|| Evidence { session, start_ms: ms_of(e, "start_ms"), end_ms: ms_of(e, "end_ms"), transcript })
+}
+
+fn briefs_of(list: Option<&Json>) -> Vec<Brief> {
+    list.and_then(Json::as_arr)
+        .map(|a| {
+            a.iter()
+                .take(store::MAX_ITEMS_READ)
+                .filter_map(|b| {
+                    let id = b.get("id").and_then(Json::as_u64)?;
+                    let kind = if b.get("kind").and_then(Json::as_str) == Some("arrow") { "arrow" } else { "cutout" };
+                    Some(Brief { id, kind, name: clean(b.get("name").and_then(Json::as_str).unwrap_or_default(), MAX_TEXT_CHARS) })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn summary_of(s: Option<&Json>) -> Summary {
+    let Some(s) = s else {
+        return Summary::default();
     };
-    let bytes = match bytes_of(src, picture) {
-        Ok(b) => b,
-        Err(why) => return store::failed(budget, why),
-    };
-    let scale = f32_of(image, "scale").filter(|s| *s > 0.0).unwrap_or(1.0);
-    store::decode_slot(bytes, scale, budget, codec)
+    Summary {
+        added: briefs_of(s.get("added")),
+        removed: briefs_of(s.get("removed")),
+        moved: s
+            .get("moved")
+            .and_then(Json::as_arr)
+            .map(|a| {
+                a.iter()
+                    .take(store::MAX_ITEMS_READ)
+                    .filter_map(|m| Some(Moved { id: m.get("id").and_then(Json::as_u64)?, from: m.get("from").and_then(point_of)?, to: m.get("to").and_then(point_of)? }))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        changed: s
+            .get("changed")
+            .and_then(Json::as_arr)
+            .map(|a| {
+                a.iter()
+                    .take(store::MAX_ITEMS_READ)
+                    .filter_map(|c| {
+                        let what: Vec<&'static str> = c
+                            .get("what")
+                            .and_then(Json::as_arr)
+                            .map(|w| {
+                                w.iter()
+                                    .filter_map(Json::as_str)
+                                    .filter_map(|w| ["label", "size", "reference", "ends", "bend"].into_iter().find(|k| *k == w))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        Some(Changed { id: c.get("id").and_then(Json::as_u64)?, what })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        references: s
+            .get("references")
+            .and_then(Json::as_arr)
+            .map(|a| {
+                a.iter()
+                    .take(store::MAX_ITEMS_READ)
+                    .filter_map(|r| {
+                        let status = r.get("status").and_then(Json::as_str).and_then(RefStatus::from_name).filter(|s| s.is_flag())?;
+                        let lines = |key: &str| {
+                            let a = r.get(key)?.as_arr()?;
+                            Some((u32::try_from(a.first()?.as_u64()?).ok()?, u32::try_from(a.get(1)?.as_u64()?).ok()?))
+                        };
+                        let from = lines("from")?;
+                        Some(RefChange { id: r.get("id").and_then(Json::as_u64)?, status, from, to: lines("to").unwrap_or(from) })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
 }
 
 /// The board a document holds (`root` is the document, its `format` already known to be one of `azboard/` whose major
@@ -519,62 +961,38 @@ pub fn read_root(root: &Json, picture: &dyn Fn(&str) -> Option<Vec<u8>>, codec: 
         repo: repo.clone(),
     };
     let assets = root.get("assets").filter(|a| matches!(a, Json::Obj(p) if p.len() <= MAX_ASSETS));
-    let mut budget = Budget::new(limits);
-    let mut items = Vec::new();
-    let mut left_out = 0;
-    let mut max_id = 0;
+    let mut reader = Reader { assets, budget: Budget::new(limits), cache: HashMap::new(), picture, codec };
     let listed = root.get("items").and_then(Json::as_arr).unwrap_or(&[]);
-    for (n, j) in listed.iter().enumerate() {
-        if n >= store::MAX_ITEMS_READ {
-            left_out += listed.len() - n;
+    let read = reader.items(listed, prefix, store::MAX_ITEMS_READ);
+    let view = view_of(root.get("canvas").and_then(|c| c.get("view")));
+    let next_id = root.get("next_id").and_then(Json::as_u64).unwrap_or(0).max(read.max_id + 1);
+    // The history: the snapshots in the order the document has them, as many as a board keeps.
+    let mut history = History::default();
+    let (mut snapshots_left_out, mut held) = (0, 0);
+    let snaps = root.get("snapshots").and_then(Json::as_arr).unwrap_or(&[]);
+    for (n, j) in snaps.iter().enumerate() {
+        // As many as a board keeps; and not every entry of a document that is all entries that cannot be used is looked at.
+        if history.snapshots.len() >= history::MAX_SNAPSHOTS || n >= history::MAX_SNAPSHOTS * 4 || held >= history::MAX_HISTORY_ITEMS {
+            snapshots_left_out += snaps.len() - n;
             break;
         }
-        let Some(id) = j.get("id").and_then(Json::as_u64).filter(|id| *id > 0) else {
-            left_out += 1;
-            continue;
-        };
-        let item = match j.get("kind").and_then(Json::as_str) {
-            Some("cutout") => {
-                let rect = (f32_of(j, "x"), f32_of(j, "y"), f32_of(j, "width"), f32_of(j, "height"));
-                let (Some(x), Some(y), Some(w), Some(h)) = rect else {
-                    left_out += 1;
-                    continue;
-                };
-                let Some(source) = j.get("source").and_then(|s| source_of(s, prefix)) else {
-                    left_out += 1;
-                    continue;
-                };
-                let image = picture_slot(j, assets, &mut budget, picture, codec);
-                Item::Cutout(Cutout { id, rect: Rect::new(x, y, w, h), image, label: clean_label(j.get("label").and_then(Json::as_str).unwrap_or_default(), MAX_TEXT_CHARS), source })
+        match reader.snapshot(j, held) {
+            // (A history that is more text than the board's file can hold is cut here, as it would be when it was made.)
+            Some((snapshot, items)) if history.get(&snapshot.id).is_none() && history.bytes() + snapshot.text.len() <= history::MAX_HISTORY_BYTES => {
+                held += items;
+                history.snapshots.push(snapshot);
             }
-            Some("arrow") => {
-                let ends = (j.get("from").and_then(end_of), j.get("to").and_then(end_of));
-                let (Some(from), Some(to)) = ends else {
-                    left_out += 1;
-                    continue;
-                };
-                Item::Arrow(Arrow {
-                    id,
-                    from,
-                    to,
-                    bend: f32_of(j, "bend").unwrap_or(0.0),
-                    label: clean_label(j.get("label").and_then(Json::as_str).unwrap_or_default(), MAX_TEXT_CHARS),
-                })
-            }
-            _ => {
-                left_out += 1;
-                continue;
-            }
-        };
-        max_id = max_id.max(id);
-        items.push(item);
+            _ => snapshots_left_out += 1,
+        }
     }
-    let view = root.get("canvas").and_then(|c| c.get("view")).map_or_else(View::default, |v| View {
-        pan: Pt::new(f32_of(v, "x").unwrap_or(0.0), f32_of(v, "y").unwrap_or(0.0)),
-        zoom: f32_of(v, "zoom").unwrap_or(1.0),
-    });
-    let next_id = root.get("next_id").and_then(Json::as_u64).unwrap_or(0).max(max_id + 1);
-    Loaded { data: BoardData { items, view, next_id }, meta, left_out, unreadable_pictures: budget.unreadable() }
+    Loaded {
+        data: BoardData { items: read.items, view, next_id },
+        meta,
+        history,
+        snapshots_left_out,
+        left_out: read.left_out,
+        unreadable_pictures: reader.budget.unreadable(),
+    }
 }
 
 #[cfg(test)]

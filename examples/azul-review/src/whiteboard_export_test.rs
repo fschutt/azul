@@ -94,6 +94,8 @@ fn repo(tag: &str) -> PathBuf {
 fn request(folder: &Path, pictures: ExportPictures) -> ExportRequest {
     ExportRequest {
         data: board(),
+        history: History::default(),
+        scope: ExportScope::default(),
         meta: Meta { board_id: "b1".to_string(), board_name: "Parser".to_string(), workspace_name: "azul".to_string(), ..Meta::default() },
         pictures,
         folder: folder.to_path_buf(),
