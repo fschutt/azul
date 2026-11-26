@@ -150,6 +150,11 @@ description = "the drag-and-drop GUI builder - opens its editor in your browser"
 # Desktop only: it drives its window from a browser tab on the same machine.
 platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
 weight = 1
+# QUESTION FOR THE OWNER (ledger): AzBuilder sets AZ_DEBUG and talks to the debug server of its libazul, and the shipped
+# libazul (`dist`) has none (a door shut on purpose). Built against it, the demo opens its window and no editor in the
+# browser. A variant of the library with `debug-server` for this one app ([lib.desktop-debug], four more library builds
+# of ~25 minutes) would make it what the page says; until it is decided the page says what is missing.
+needs = ["a libazul with the debug server (AZ_DEBUG) for its browser editor: the shipped libazul has none, so the editor does not open"]
 
 [[app]]
 package = "AzReview"
