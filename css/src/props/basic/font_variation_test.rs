@@ -1767,8 +1767,8 @@ fn font_variant_position_has_its_keywords_in_grammar_order() {
         StyleFontVariantPosition::ALL,
         [
             (StyleFontVariantPosition::Normal, "normal"),
-            (StyleFontVariantPosition::Sub, "sub"),
-            (StyleFontVariantPosition::Super, "super")
+            (StyleFontVariantPosition::Subscript, "sub"),
+            (StyleFontVariantPosition::Superscript, "super")
         ]
     );
     for (value, keyword) in StyleFontVariantPosition::ALL {

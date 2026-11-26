@@ -5454,8 +5454,8 @@ pub fn get_style_properties_for_state_with(
             .unwrap_or_default()
         {
             StyleFontVariantPosition::Normal => None,
-            StyleFontVariantPosition::Sub => Some("subs=1".to_string()),
-            StyleFontVariantPosition::Super => Some("sups=1".to_string()),
+            StyleFontVariantPosition::Subscript => Some("subs=1".to_string()),
+            StyleFontVariantPosition::Superscript => Some("sups=1".to_string()),
         }
     } else {
         None

@@ -37,8 +37,8 @@ fn every_keyword_of_text_wrap_is_its_value() {
 fn every_keyword_of_font_variant_position_is_its_value() {
     for (keyword, value) in [
         ("normal", StyleFontVariantPosition::Normal),
-        ("sub", StyleFontVariantPosition::Sub),
-        ("super", StyleFontVariantPosition::Super),
+        ("sub", StyleFontVariantPosition::Subscript),
+        ("super", StyleFontVariantPosition::Superscript),
     ] {
         assert_eq!(
             parsed(CssPropertyType::FontVariantPosition, keyword),

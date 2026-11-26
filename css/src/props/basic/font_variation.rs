@@ -493,16 +493,16 @@ pub fn parse_style_font_kerning(input: &str) -> Result<StyleFontKerning, Invalid
 pub enum StyleFontVariantPosition {
     #[default]
     Normal,
-    Sub,
-    Super,
+    Subscript,
+    Superscript,
 }
 
 impl StyleFontVariantPosition {
     /// Every value with its CSS keyword, in the grammar's order.
     pub const ALL: [(Self, &'static str); 3] = [
         (Self::Normal, "normal"),
-        (Self::Sub, "sub"),
-        (Self::Super, "super"),
+        (Self::Subscript, "sub"),
+        (Self::Superscript, "super"),
     ];
 
     /// The CSS keyword of this value.
@@ -510,8 +510,8 @@ impl StyleFontVariantPosition {
     pub const fn keyword(&self) -> &'static str {
         match self {
             Self::Normal => "normal",
-            Self::Sub => "sub",
-            Self::Super => "super",
+            Self::Subscript => "sub",
+            Self::Superscript => "super",
         }
     }
 }

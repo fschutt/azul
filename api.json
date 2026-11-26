@@ -61794,8 +61794,8 @@
                         "enum_fields": [
                             {
                                 "Normal": {},
-                                "Sub": {},
-                                "Super": {}
+                                "Subscript": {},
+                                "Superscript": {}
                             }
                         ],
                         "repr": "C"

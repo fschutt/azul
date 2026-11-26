@@ -7339,8 +7339,8 @@ impl Lower for crate::props::basic::font_variation::StyleFontVariantPosition {
     fn lower(&self) -> Expr {
         let variant = match self {
             Self::Normal => "Normal",
-            Self::Sub => "Sub",
-            Self::Super => "Super",
+            Self::Subscript => "Subscript",
+            Self::Superscript => "Superscript",
         };
         Expr::unit("StyleFontVariantPosition", EnumShape::CLike, variant)
     }
