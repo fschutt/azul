@@ -206,7 +206,10 @@ pub struct HttpRequestConfig {
     pub trust_roots: TrustRoots,
     /// Request timeout in seconds (default: 30)
     pub timeout_secs: u64,
-    /// Maximum response size in bytes (default: 100MB, 0 = unlimited)
+    /// Maximum response size in bytes (default: 100MB, 0 = unlimited). A body that arrives gzip or
+    /// brotli compressed counts by its DECODED size: one that expands past the limit is refused
+    /// (`ResponseTooLarge`) after at most limit + 1 bytes were decoded. With 0 a server decides how
+    /// far a small compressed body expands: leave a limit unless you stream.
     pub max_response_size: u64,
     /// Seconds the request body may take to send (0, the default: only the
     /// overall timeout applies). An upload sets it from its size, so a big
