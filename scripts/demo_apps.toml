@@ -143,11 +143,6 @@ permissions = [
 [app.smoke]
 expect = "Connect to AzReview"
 tap = "Try it without a Mac"
-# The crate is not mobile-ready on master yet (no cdylib for Android, no AzCompanion bin for iOS; the companion
-# agent lands it). The build is still tried, and a pass shows in the table; delete these two lines then.
-[app.known_failing]
-android = "the crate has no cdylib and no ctor entry point yet"
-ios = "the crate has no AzCompanion bin (main.rs) yet"
 [app.ios]
 # build-ios.sh writes NSLocalNetworkUsageDescription and NSBonjourServices = [_irohv1._udp] from this text
 local_network = "AzReview Companion finds AzReview on your Mac over your Wi-Fi to use your phone as its remote control."
