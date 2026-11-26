@@ -521,7 +521,7 @@ fn markup_node(sd: &StyledDom, id: NodeId, depth: usize, budget: &mut usize) -> 
             if let Some(x) = markup_node(sd, c, depth + 1, budget) {
                 children.push(x);
             }
-            next = hierarchy.get(c.index()).and_then(|h| h.next_sibling_id());
+            next = hierarchy.get(c.index()).and_then(super::super::styled_dom::NodeHierarchyItem::next_sibling_id);
         }
     }
     Some(XmlNodeChild::Element(XmlNode {
@@ -1216,7 +1216,7 @@ impl Lower<'_, '_> {
         let style = if is_field("style") {
             None
         } else {
-            node.attributes.get_key("style").map(|s| s.as_str())
+            node.attributes.get_key("style").map(azul_css::AzString::as_str)
         };
         let css = inline_css(&get_css_blocks(self.css, &matcher), None, style);
         if !css.is_empty() {
