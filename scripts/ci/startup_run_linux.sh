@@ -22,7 +22,7 @@ sleep 2
 export DISPLAY=:99
 export LD_LIBRARY_PATH="$PWD/out"
 echo "=== 9 starts under Xvfb, CPU renderer, no desktop session; the first start has no font cache (cold), the others have it (warm)"
-rm -rf ~/.cache/rfc ~/.cache/fontconfig
+export XDG_CACHE_HOME="$(mktemp -d)"
 python3 scripts/ci/startup_measure.py --exe "$PWD/out/AzWidgets" --runs 9 --label "AzWidgets linux release, Xvfb, CPU renderer, no desktop session" --json out/startup-linux-plain.json
 echo "=== 9 starts as on a GNOME desktop (a D-Bus session, XDG_CURRENT_DESKTOP=GNOME: every gsettings query is a real process)"
 dbus-run-session -- python3 scripts/ci/startup_measure.py --exe "$PWD/out/AzWidgets" --runs 9 --label "AzWidgets linux release, Xvfb, CPU renderer, GNOME-like session" --env XDG_CURRENT_DESKTOP=GNOME --env DESKTOP_SESSION=gnome --json out/startup-linux-gnome.json

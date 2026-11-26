@@ -1098,7 +1098,7 @@ pub(crate) fn discover_system_style_timed(
     }
     #[cfg(all(not(miri), target_os = "windows"))]
     {
-        crate::desktop::shell2::windows::system_style::discover(known_languages)
+        crate::desktop::shell2::windows::system_style::discover_timed(known_languages, startup)
     }
     #[cfg(all(not(miri), target_os = "linux"))]
     {
