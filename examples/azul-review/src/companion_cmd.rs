@@ -8,7 +8,10 @@
 //! What the phone is told (`publish`) is the pen state of `companion_pen`.
 
 use azul::{error::CustomE2eOpResult, json::Json, prelude::*, str::String as AzString, task::TerminateTimer, time::SystemTimeDiff};
-use azul_review_link::frame::{Focus, PageSurface, PenState, Phase, Rect, Surface, ViewportOp};
+use azul_review_link::{
+    frame::{Entry, EntryKind, FileState, Focus, PageSurface, PenState, Phase, Rect, ReplyStatus, Rows, Surface, ViewportOp},
+    limits::{cut_bytes, MAX_ENTRY_NAME_BYTES, MAX_ROWS},
+};
 
 use crate::{
     agent_window,
@@ -16,7 +19,8 @@ use crate::{
     companion_plug::with_companion,
     model::{Note, NoteState},
     page_view::{Applied, Context, Geometry, Looking},
-    ui, AppState,
+    symbols_source::DirEntry,
+    tree, ui, AppState,
 };
 
 /// What the window knows of the pages that the zoom model needs: its geometry from the layout, where the window is now, and where the pen is.
@@ -155,6 +159,112 @@ pub fn button(app: &RefAny, info: &mut CallbackInfo, peer: &str, request_id: u32
     with_companion(app, |g, _| if working { g.button_started(id, peer, request_id) } else { g.button_refused(peer, request_id) });
     info.trigger_all_virtual_view_rerender();
     true
+}
+
+// ==== the files ====
+
+/// The rows of a folder as the phone is given them: what the tree would show of `entries` (hidden files and the folders nobody reviews are
+/// left out, folders come first, the order is the tree's), from row `offset` on, at most [`MAX_ROWS`] to a frame (`more` says there are
+/// rows after them), each name cut to what a name may be and each row with the state `state_of(name, is_folder)` says.
+#[must_use]
+pub fn rows_of(request_id: u32, dir: &str, offset: u32, entries: &[DirEntry], state_of: &dyn Fn(&str, bool) -> FileState) -> Rows {
+    // the tree's own rules and order: a listing of the folder in a tree of its own
+    let mut shown = tree::Tree::new();
+    let root = shown.root();
+    let _listed = shown.list(root, entries, &tree::Rules::default());
+    let all: Vec<(String, bool)> = shown
+        .children(root)
+        .iter()
+        .filter_map(|id| shown.node(*id))
+        .map(|node| (node.name.clone(), node.kind == tree::Kind::Dir))
+        .collect();
+    let start = usize::try_from(offset).unwrap_or(usize::MAX).min(all.len());
+    let end = start.saturating_add(MAX_ROWS).min(all.len());
+    let entries = all[start..end]
+        .iter()
+        .map(|(name, is_dir)| Entry {
+            name: cut_bytes(name, MAX_ENTRY_NAME_BYTES, "file name").0,
+            kind: if *is_dir { EntryKind::Dir } else { EntryKind::File },
+            state: state_of(name, *is_dir),
+        })
+        .collect();
+    Rows { request_id, dir: dir.to_string(), offset: u32::try_from(start).unwrap_or(u32::MAX), entries, more: end < all.len() }
+}
+
+/// The phone's colour of a file or folder: what AzReview shows in its own tree (blue an agent at work, yellow a suggestion that waits, green
+/// all done), nothing for what nothing was done to.
+#[must_use]
+pub fn file_state_of(mark: Option<crate::chips::State>) -> FileState {
+    match mark {
+        Some(crate::chips::State::Working) => FileState::Working,
+        Some(crate::chips::State::Suggested) => FileState::Unresolved,
+        Some(crate::chips::State::Done) => FileState::Clean,
+        _ => FileState::None,
+    }
+}
+
+/// The rows of folder `path` for the phone that asked: listed from the workspace's source (the host has checked that the path is inside it),
+/// answered with what the tree would show, or `Failed` when the folder cannot be listed.
+pub fn list_dir(app: &RefAny, peer: &str, request_id: u32, path: &str, offset: u32) -> bool {
+    let mut data = app.clone();
+    let rows = {
+        let Some(s) = data.downcast_ref::<AppState>() else {
+            return false;
+        };
+        let listed = s.source.list(path);
+        listed.ok().map(|entries| {
+            let state_of = |name: &str, _is_dir: bool| {
+                let at = if path.is_empty() { name.to_string() } else { format!("{path}/{name}") };
+                file_state_of(s.tree.find(&at).and_then(|id| s.file_mark(id)))
+            };
+            rows_of(request_id, path, offset, &entries, &state_of)
+        })
+    };
+    with_companion(app, |g, _| g.answer_rows(peer, request_id, rows));
+    false
+}
+
+/// A phone asks for a file: it opens (its folders are listed if the tree has not yet), at the line's page, or at the first page that was
+/// not seen; the phone is told it is done, or that it could not be. `true` when the window changed.
+pub fn open_file(app: &RefAny, info: &mut CallbackInfo, peer: &str, request_id: u32, path: &str, line: Option<u32>) -> bool {
+    let mut data = app.clone();
+    let page = {
+        let Some(mut s) = data.downcast_mut::<AppState>() else {
+            return false;
+        };
+        let open_already = s.file().is_some_and(|f| f.display == path);
+        if open_already || s.open_path_listed(path) {
+            let pages = s.file().map_or(1, crate::code::SourceFile::page_count);
+            let unseen = |s: &mut AppState| s.progress.entry(path).and_then(|e| (0..pages).find(|p| !e.seen.is_seen(*p)));
+            let page = match line {
+                Some(line) => crate::code::SourceFile::page_of_line(line as usize),
+                None => unseen(&mut s).unwrap_or(0),
+            };
+            let page = page.min(pages.saturating_sub(1));
+            s.visible_page = page;
+            s.touch_companion();
+            Some(page)
+        } else {
+            None
+        }
+    };
+    let status = if page.is_some() { ReplyStatus::Done } else { ReplyStatus::Failed };
+    with_companion(app, |g, _| g.answer(peer, request_id, status));
+    let Some(page) = page else {
+        return false;
+    };
+    ui::scroll_to_page(info, page, ui::zoom_of(&data));
+    info.trigger_all_virtual_view_rerender();
+    true
+}
+
+/// "Continue reviewing" on a phone: the window goes back to the place the jump to a conversation began (and the place is forgotten, so the
+/// next pen state has none). `true` when it went.
+pub fn continue_reviewing(app: &RefAny, info: &mut CallbackInfo) -> bool {
+    let mut data = app.clone();
+    let went = matches!(crate::come_back(&mut data, info), Update::RefreshDom);
+    with_companion(app, |g, _| g.touch());
+    went
 }
 
 /// Makes the pen state of the window as it is now and gives it to the host (which sends it at most thirty times a second, only when it

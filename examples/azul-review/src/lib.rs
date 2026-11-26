@@ -880,6 +880,31 @@ impl AppState {
         listed
     }
 
+    /// Opens the file at `path` of the workspace even when the tree has not listed the folders on the way to it yet (the walk behind the
+    /// window lists them in time, and a folder is listed when it is opened): they are listed now, from the source, as the walk would. `false`
+    /// as [`Self::open_path`]: there is no such file, or it is not shown.
+    pub fn open_path_listed(&mut self, path: &str) -> bool {
+        if self.tree.find(path).is_none() {
+            let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+            let folders = parts.len().saturating_sub(1);
+            let mut dir = String::new();
+            for depth in 0..=folders {
+                let listed = self.tree.find(&dir).is_some_and(|id| self.tree.is_listed(id));
+                if !listed {
+                    let entries = self.source.list(&dir);
+                    let workspace = self.workspace;
+                    if !self.take_listing(workspace, &dir, entries) {
+                        break;
+                    }
+                }
+                if let Some(part) = parts.get(depth).filter(|_| depth < folders) {
+                    dir = if dir.is_empty() { (*part).to_string() } else { format!("{dir}/{part}") };
+                }
+            }
+        }
+        self.open_path(path)
+    }
+
     /// The rows of the tree, built again (after a folder was opened, closed or listed).
     pub fn refresh_rows(&mut self) {
         self.rows = self.tree.rows();
@@ -2576,6 +2601,12 @@ pub extern "C" fn on_bar_more(mut data: RefAny, _info: CallbackInfo) -> Update {
 
 /// "Continue reviewing" (the bar's key, Mod+Shift+C): back to the place the reviewer was taken from, which is then none.
 pub extern "C" fn on_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    come_back(&mut data, &mut info)
+}
+
+/// The reviewer comes back to the place the jump to a conversation began (the bottom bar's key, and the phone's "Continue reviewing"): the
+/// file opens when it is not the open one, the pages go to the page, and there is no place to come back to any more.
+pub(crate) fn come_back(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     let place = {
         let Some(mut s) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
@@ -2588,9 +2619,10 @@ pub extern "C" fn on_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
             let _ = s.open_path(&place.file);
         }
         s.visible_page = place.page;
+        s.touch_companion();
         place
     };
-    ui::scroll_to_page(&mut info, place.page, ui::zoom_of(&data));
+    ui::scroll_to_page(info, place.page, ui::zoom_of(data));
     info.trigger_all_virtual_view_rerender();
     Update::RefreshDom
 }

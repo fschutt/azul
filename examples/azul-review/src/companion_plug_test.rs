@@ -663,3 +663,12 @@ fn what_the_user_settled_that_the_phones_obey_is_sent_to_the_phones_here_and_to_
     assert!(phone.view().settings.snap_to_page_top && !phone.view().settings.haptic_done && !phone.view().settings.reverse_pan);
     assert!(g.stored.prefs.snap_to_page_top, "kept to be written");
 }
+
+#[test]
+fn continue_reviewing_from_a_phone_is_a_command_for_the_window() {
+    let net = net();
+    let (mut g, mut phone, now) = with_phone(&net, Stored::default());
+    phone.continue_reviewing(now);
+    let (said, _) = pump(&mut g, &mut phone, now, 80);
+    assert!(said.commands.contains(&Command::Continue), "{:?}", said.commands);
+}

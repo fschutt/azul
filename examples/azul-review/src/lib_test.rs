@@ -915,3 +915,19 @@ fn the_zoom_the_callbacks_read_is_the_apps_and_one_where_there_is_no_app() {
     s.zoom = 1.25;
     assert_eq!(ui::zoom_of(&RefAny::new(s)), 1.25);
 }
+
+#[test]
+fn a_file_in_a_folder_the_tree_has_not_listed_is_opened_all_the_same_by_listing_the_way_to_it() {
+    let mut s = on_disk("listed-way", &[("a.rs", "x\n"), ("deep/er/b.rs", "fn b() {}\n")]);
+    assert!(s.tree.find("deep/er/b.rs").is_none(), "the folders on the way are not listed yet");
+    assert!(s.open_path_listed("deep/er/b.rs"));
+    assert_eq!(s.file().map(|f| f.display.clone()), Some("deep/er/b.rs".to_string()));
+    assert!(s.tree.find("deep/er").is_some_and(|id| s.tree.is_listed(id)), "the folder of the file is listed");
+    // a file that is not there, a folder that is not there, a folder where a file is wanted
+    assert!(!s.open_path_listed("deep/er/missing.rs"));
+    assert!(!s.open_path_listed("nowhere/x.rs"));
+    assert!(!s.open_path_listed("deep"), "a folder is no file");
+    // one in the root, and one that is listed already
+    assert!(s.open_path_listed("a.rs"));
+    assert_eq!(s.file().map(|f| f.display.clone()), Some("a.rs".to_string()));
+}

@@ -164,3 +164,68 @@ fn an_anchor_is_held_to_the_file_and_to_the_page() {
     assert_eq!(anchor_of(None, Some((0, f32::NAN)), 0, 3).1, ui::PAGE_PAD, "a height that is no number");
     assert_eq!(anchor_of(None, None, 0, 0).0, 0, "a file of no pages");
 }
+
+// ---- the files
+
+fn entry(name: &str, dir: bool) -> DirEntry {
+    DirEntry { name: name.to_string(), kind: if dir { crate::symbols_source::EntryKind::Dir } else { crate::symbols_source::EntryKind::File }, size: 10, mtime_ms: 0 }
+}
+
+fn nothing(_: &str, _: bool) -> FileState {
+    FileState::None
+}
+
+#[test]
+fn the_rows_of_a_folder_are_what_the_tree_shows_folders_first_and_no_hidden_file() {
+    let entries = vec![entry("b.rs", false), entry("src", true), entry(".hidden", false), entry("A.md", false), entry("docs", true)];
+    let rows = rows_of(7, "", 0, &entries, &nothing);
+    let names: Vec<&str> = rows.entries.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, vec!["docs", "src", "A.md", "b.rs"], "folders first, then files, and nothing hidden");
+    assert_eq!((rows.request_id, rows.dir.as_str(), rows.offset, rows.more), (7, "", 0, false));
+    assert_eq!(rows.entries[0].kind, EntryKind::Dir);
+    assert_eq!(rows.entries[3].kind, EntryKind::File);
+}
+
+#[test]
+fn a_folder_longer_than_a_frame_comes_in_pages() {
+    let entries: Vec<DirEntry> = (0..MAX_ROWS + 20).map(|i| entry(&format!("f{i:04}.rs"), false)).collect();
+    let first = rows_of(1, "src", 0, &entries, &nothing);
+    assert_eq!(first.entries.len(), MAX_ROWS);
+    assert!(first.more, "there are rows after these");
+    let second = rows_of(2, "src", u32::try_from(MAX_ROWS).unwrap(), &entries, &nothing);
+    assert_eq!(second.entries.len(), 20);
+    assert!(!second.more);
+    assert_eq!(second.offset as usize, MAX_ROWS);
+    assert_eq!(second.entries[0].name, format!("f{MAX_ROWS:04}.rs"));
+    let past = rows_of(3, "src", u32::MAX, &entries, &nothing);
+    assert!(past.entries.is_empty() && !past.more, "an offset past the end is no rows");
+    assert_eq!(past.offset as usize, MAX_ROWS + 20);
+}
+
+#[test]
+fn a_name_is_cut_to_what_a_name_may_be_and_each_row_has_the_state_the_tree_has_for_it() {
+    let long = "x".repeat(400);
+    let entries = vec![entry(&long, false), entry("busy.rs", false), entry("sub", true)];
+    let state = |name: &str, is_dir: bool| match (name, is_dir) {
+        ("busy.rs", false) => FileState::Working,
+        ("sub", true) => FileState::Clean,
+        _ => FileState::None,
+    };
+    let rows = rows_of(1, "", 0, &entries, &state);
+    let by_name = |name: &str| rows.entries.iter().find(|e| e.name == name).map(|e| e.state);
+    assert_eq!(by_name("busy.rs"), Some(FileState::Working));
+    assert_eq!(by_name("sub"), Some(FileState::Clean));
+    assert!(rows.entries.iter().any(|e| e.name.len() <= MAX_ENTRY_NAME_BYTES && e.name.starts_with("xxx")), "the long name is cut");
+    assert!(rows.entries.iter().all(|e| e.name.len() <= MAX_ENTRY_NAME_BYTES));
+}
+
+#[test]
+fn what_the_tree_marks_is_the_phones_colour() {
+    use crate::chips::State;
+    assert_eq!(file_state_of(Some(State::Working)), FileState::Working);
+    assert_eq!(file_state_of(Some(State::Suggested)), FileState::Unresolved);
+    assert_eq!(file_state_of(Some(State::Done)), FileState::Clean);
+    assert_eq!(file_state_of(Some(State::Failed)), FileState::None);
+    assert_eq!(file_state_of(Some(State::Draft)), FileState::None);
+    assert_eq!(file_state_of(None), FileState::None);
+}

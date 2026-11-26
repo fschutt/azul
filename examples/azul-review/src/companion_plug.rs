@@ -130,6 +130,12 @@ pub enum Command {
     Viewport(ViewportOp),
     /// A quick button was pressed: its instruction goes to an agent with the context at the pen (`companion_cmd::button`).
     Button { peer: String, request_id: u32, text: String },
+    /// "Continue reviewing": the window goes back to the place the jump to a conversation began, and there is none any more.
+    Continue,
+    /// The phone asks for the rows of a folder of the workspace, from row `offset` (`companion_cmd::list_dir`).
+    ListDir { peer: String, request_id: u32, path: String, offset: u32 },
+    /// The phone asks for a file to be opened, at a line or at its first page that was not seen (`companion_cmd::open_file`).
+    OpenFile { peer: String, request_id: u32, path: String, line: Option<u32> },
 }
 
 /// A quick button of a phone that is under way: the conversation it started, and who is told how it goes.
@@ -544,12 +550,8 @@ impl Glue {
                 }
                 out.changed = true;
             }
-            HostEvent::ListDir { peer, request_id, path, offset } => {
-                host.publish_rows(now, &peer, Rows { request_id, dir: path, offset, entries: Vec::new(), more: false });
-            }
-            HostEvent::OpenFile { peer, request_id, .. } => {
-                host.reply(now, &peer, request_id, ReplyStatus::Failed);
-            }
+            HostEvent::ListDir { peer, request_id, path, offset } => out.commands.push(Command::ListDir { peer, request_id, path, offset }),
+            HostEvent::OpenFile { peer, request_id, path, line, .. } => out.commands.push(Command::OpenFile { peer, request_id, path, line }),
             HostEvent::Viewport { op, .. } => out.commands.push(Command::Viewport(op)),
             HostEvent::ButtonPressed { peer, request_id, text, .. } => out.commands.push(Command::Button { peer, request_id, text }),
             HostEvent::ButtonsChanged { buttons } => {
@@ -561,7 +563,7 @@ impl Glue {
                     out.changed = true;
                 }
             }
-            HostEvent::ContinueReviewing { .. } => {}
+            HostEvent::ContinueReviewing { .. } => out.commands.push(Command::Continue),
             HostEvent::Diagnostic(text) => self.note(&text),
         }
     }
@@ -603,6 +605,25 @@ impl Glue {
             self.pending.remove(0);
         }
         self.pending.push(PendingButton { note, peer: peer.to_string(), request_id });
+    }
+
+    /// The rows of a folder for the phone that asked (or `Failed` when the folder could not be listed).
+    pub fn answer_rows(&mut self, peer: &str, request_id: u32, rows: Option<Rows>) {
+        let now = self.now();
+        if let Some(host) = self.host.as_mut() {
+            match rows {
+                Some(rows) => host.publish_rows(now, peer, rows),
+                None => host.reply(now, peer, request_id, ReplyStatus::Failed),
+            }
+        }
+    }
+
+    /// How far a request of a phone has got.
+    pub fn answer(&mut self, peer: &str, request_id: u32, status: ReplyStatus) {
+        let now = self.now();
+        if let Some(host) = self.host.as_mut() {
+            host.reply(now, peer, request_id, status);
+        }
     }
 
     /// A quick button could not start anything: the phone is told so.
@@ -927,6 +948,9 @@ extern "C" fn on_poll(data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbac
         moved |= match command {
             Command::Viewport(op) => crate::companion_cmd::viewport(&data, &mut info.callback_info, op),
             Command::Button { peer, request_id, text } => crate::companion_cmd::button(&data, &mut info.callback_info, &peer, request_id, &text),
+            Command::Continue => crate::companion_cmd::continue_reviewing(&data, &mut info.callback_info),
+            Command::ListDir { peer, request_id, path, offset } => crate::companion_cmd::list_dir(&data, &peer, request_id, &path, offset),
+            Command::OpenFile { peer, request_id, path, line } => crate::companion_cmd::open_file(&data, &mut info.callback_info, &peer, request_id, &path, line),
         };
     }
     // what the phones are told: the window as it is now
