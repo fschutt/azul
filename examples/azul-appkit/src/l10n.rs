@@ -3,7 +3,12 @@
 //! - **The resources:** [`register`] gives the engine (`AppConfig::fluent_locales`) one Fluent
 //!   resource per language - appkit's own words ([`APPKIT_EN`], [`APPKIT_DE`]), then the app's
 //!   (its `resources/en.ftl`, `resources/de.ftl`) and anything it adds (azcloud-kit's error
-//!   table) - and keeps them on this thread for the text that is no DOM text node.
+//!   table). The engine's window makes ONE localizer of them and translates the DOM with it; the
+//!   text that is no DOM text node is said with the same localizer, which the layout pass hands
+//!   to [`begin_layout`] (`LayoutCallbackInfo::get_fluent_localizer`), so the words are the
+//!   window's whatever thread the loop runs on (on Android the app's `start()` runs on the thread
+//!   that loads the library and the loop on the activity's thread: resources kept by `start()` on
+//!   its own thread were not there, and every key an app said as plain text came out as the key).
 //! - **DOM text:** [`tr`] marks a key (`AzString::tr`): the layout pass translates it into the
 //!   window's language. [`span`] is a key with arguments (`with_fluent_args`), [`text_dom`] a
 //!   [`Text`].
@@ -19,7 +24,7 @@
 //! - **The language:** the engine's (the system's), or the Language setting / `--language`
 //!   (`ui` applies it with `CallbackInfo::set_locale`).
 
-use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
+use std::{cell::RefCell, collections::BTreeMap};
 
 use azul::{
     fluent::{FluentArg, FluentArgKV, FluentLocalizerHandle},
@@ -39,13 +44,28 @@ pub const APPKIT_EN: &str = include_str!("../resources/en.ftl");
 /// appkit's own words in German.
 pub const APPKIT_DE: &str = include_str!("../resources/de.ftl");
 
-thread_local! {
-    /// The app's resources ([`register`]), for [`t`].
-    static LOCALIZER: RefCell<Option<FluentLocalizerHandle>> = const { RefCell::new(None) };
+/// What [`t`] says its words with on a thread: a localizer and the language of the pass.
+///
+/// [`t`] is a free function, so the thread has to carry what it needs - and this is a COPY of what
+/// the window holds (a counted handle of the window's localizer, a language tag), never the owner:
+/// [`begin_layout`] sets it from the window at every layout pass, so the loop's thread says the
+/// window's words whichever thread the app started on. (It used to be the owner: `register` kept
+/// the app's resources in three `thread_local!`s of the thread that called it, and on Android
+/// that thread is not the loop's.)
+struct Context {
+    /// The window's localizer, or the one [`keep`] made of resources (a test, a thread no pass
+    /// has run on).
+    localizer: Option<FluentLocalizerHandle>,
     /// The language of the layout pass ([`begin_layout`]).
-    static LOCALE: RefCell<String> = RefCell::new(String::from("en-US"));
-    /// The resources the localizer was made of, for a [`Voice`] made on this thread.
-    static KEPT: RefCell<Option<Arc<Vec<(String, String)>>>> = const { RefCell::new(None) };
+    locale: String,
+}
+
+thread_local! {
+    /// The thread's [`Context`], the only per-thread state of this module.
+    static CONTEXT: RefCell<Context> = RefCell::new(Context {
+        localizer: None,
+        locale: String::from("en-US"),
+    });
 }
 
 /// The resources per language: appkit's first, then `resources` in their order, each
@@ -68,8 +88,10 @@ pub fn sources(resources: &[(&str, &str)]) -> Vec<(String, String)> {
 }
 
 /// Gives the engine the app's resources ([`sources`]: appkit's, then `resources`, e.g.
-/// `[("en", include_str!("../resources/en.ftl")), ("de", ...)]`) and keeps them on this
-/// thread for [`t`]. Called once where the app builds its `AppConfig`.
+/// `[("en", include_str!("../resources/en.ftl")), ("de", ...)]`); the engine's window makes its
+/// localizer of them. Also made into a localizer for [`t`] on this thread, for the words said
+/// before a window's first layout pass has handed over its own ([`begin_layout`]). Called once
+/// where the app builds its `AppConfig`.
 pub fn register(config: &mut AppConfig, resources: &[(&str, &str)]) {
     let sources = sources(resources);
     config.fluent_locales = StringPairVec::from_vec(
@@ -81,67 +103,68 @@ pub fn register(config: &mut AppConfig, resources: &[(&str, &str)]) {
     keep(&sources);
 }
 
-/// Keeps `sources` for [`t`] on this thread (without an `AppConfig`: a test).
+/// Makes a localizer of `sources` for [`t`] on this thread (without a window: a test, the thread
+/// that starts an app, until a layout pass hands it the window's).
 pub fn keep(sources: &[(String, String)]) {
-    keep_shared(Arc::new(sources.to_vec()));
-}
-
-fn keep_shared(sources: Arc<Vec<(String, String)>>) {
     let localizer = FluentLocalizerHandle::default();
-    for (tag, source) in sources.iter() {
+    for (tag, source) in sources {
         let _ = localizer.add_resource(tag.as_str(), source.as_str());
     }
-    LOCALIZER.with(|l| *l.borrow_mut() = Some(localizer));
-    KEPT.with(|k| *k.borrow_mut() = Some(sources));
+    CONTEXT.with(|c| c.borrow_mut().localizer = Some(localizer));
 }
 
-/// A thread's language, for a worker thread that writes words itself (a printout laid out off
-/// the UI thread): [`Voice::here`] on the UI thread, [`Voice::adopt`] on the worker, and the
-/// worker's [`t`] says what the UI thread's would. (A worker's answers for the UI stay keys or
-/// [`Text`]s, said by the UI thread.) A voice brings its thread's resources along; two voices
-/// are equal when they speak one language with the same resources: a printout made in another
-/// language is another printout.
+/// Whether two handles are the one localizer (the counted reference is the same).
+fn same_localizer(a: Option<&FluentLocalizerHandle>, b: Option<&FluentLocalizerHandle>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a.ptr == b.ptr,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+/// A thread's language and words, for a worker thread that writes words itself (a printout laid
+/// out off the UI thread): [`Voice::here`] on the UI thread, [`Voice::adopt`] on the worker, and
+/// the worker's [`t`] says what the UI thread's would. (A worker's answers for the UI stay keys
+/// or [`Text`]s, said by the UI thread.) A voice brings the localizer along (a counted handle,
+/// `Send` and `Sync`); two voices are equal when they speak one language with the same localizer:
+/// a printout made in another language is another printout.
 #[derive(Clone)]
 pub struct Voice {
     locale: String,
-    sources: Option<Arc<Vec<(String, String)>>>,
+    localizer: Option<FluentLocalizerHandle>,
 }
 
 impl Voice {
-    /// This thread's language ([`locale`]) and resources.
+    /// This thread's language ([`locale`]) and localizer.
     #[must_use]
     pub fn here() -> Self {
-        Self {
-            locale: locale(),
-            sources: KEPT.with(|k| k.borrow().clone()),
-        }
+        CONTEXT.with(|c| {
+            let c = c.borrow();
+            Self {
+                locale: c.locale.clone(),
+                localizer: c.localizer.clone(),
+            }
+        })
     }
 
-    /// This thread says its words as the voice's thread does: its resources (made into this
-    /// thread's localizer unless they are already) in its language.
+    /// This thread says its words as the voice's thread does: its localizer, in its language.
     pub fn adopt(&self) {
-        if let Some(sources) = &self.sources {
-            let kept_here = KEPT.with(|k| {
-                k.borrow()
-                    .as_ref()
-                    .is_some_and(|here| Arc::ptr_eq(here, sources))
-            });
-            if !kept_here {
-                keep_shared(Arc::clone(sources));
+        CONTEXT.with(|c| {
+            let mut c = c.borrow_mut();
+            if let Some(localizer) = &self.localizer {
+                if !same_localizer(c.localizer.as_ref(), Some(localizer)) {
+                    c.localizer = Some(localizer.clone());
+                }
             }
-        }
-        set_locale(&self.locale);
+            c.locale.clone_from(&self.locale);
+        });
     }
 }
 
 impl PartialEq for Voice {
     fn eq(&self, other: &Self) -> bool {
-        let same_sources = match (&self.sources, &other.sources) {
-            (Some(a), Some(b)) => Arc::ptr_eq(a, b) || a == b,
-            (None, None) => true,
-            _ => false,
-        };
-        self.locale == other.locale && same_sources
+        self.locale == other.locale
+            && same_localizer(self.localizer.as_ref(), other.localizer.as_ref())
     }
 }
 
@@ -156,22 +179,44 @@ impl std::fmt::Debug for Voice {
     }
 }
 
-/// At the start of an app's layout callback: the window's language for [`t`] in this pass
-/// (asking for it makes the layout depend on it: a language switch builds it again).
+/// At the start of an app's layout callback: the window's language and words for [`t`] in this
+/// pass - the window's own localizer ([`enter_layout`]), so they are the window's on whatever
+/// thread the loop runs. Asking for the language makes the layout depend on it: a language
+/// switch builds it again.
 pub fn begin_layout(info: &LayoutCallbackInfo) {
     let locale = info.get_locale();
-    set_locale(locale.as_str());
+    enter_layout(locale.as_str(), info.get_fluent_localizer().into_option());
+}
+
+/// What [`begin_layout`] does with what a layout pass hands over (a test hands it by hand): this
+/// thread says `locale`, and - when the window has one - the window's `localizer`, which is
+/// kept instead of the thread's own unless it is the same.
+pub fn enter_layout(locale: &str, window_localizer: Option<FluentLocalizerHandle>) {
+    CONTEXT.with(|c| {
+        let mut c = c.borrow_mut();
+        c.locale.clear();
+        c.locale.push_str(locale);
+        if let Some(window) = window_localizer {
+            if !same_localizer(c.localizer.as_ref(), Some(&window)) {
+                c.localizer = Some(window);
+            }
+        }
+    });
 }
 
 /// The language [`t`] translates into (what [`begin_layout`] reads; a test sets it).
 pub fn set_locale(locale: &str) {
-    LOCALE.with(|l| *l.borrow_mut() = locale.to_string());
+    CONTEXT.with(|c| {
+        let mut c = c.borrow_mut();
+        c.locale.clear();
+        c.locale.push_str(locale);
+    });
 }
 
 /// The language [`t`] translates into.
 #[must_use]
 pub fn locale() -> String {
-    LOCALE.with(|l| l.borrow().clone())
+    CONTEXT.with(|c| c.borrow().locale.clone())
 }
 
 /// Whether `text` is a key (`kit-general-theme`): lowercase letters, digits and hyphens, at
@@ -274,14 +319,15 @@ pub fn t(key: &str) -> String {
 /// [`t`] with arguments.
 #[must_use]
 pub fn t_args(key: &str, args: &[(&str, Arg)]) -> String {
-    if LOCALIZER.with(|l| l.borrow().is_none()) {
+    if CONTEXT.with(|c| c.borrow().localizer.is_none()) {
         // An app that registered nothing: appkit's own words at least.
         keep(&sources(&[]));
     }
     let locale = locale();
-    // The words of the arguments first: a word argument is a message of its own.
+    // The words of the arguments first: a word argument is a message of its own (and says
+    // itself with the context, which no borrow may be held across).
     let args = fmt_args(args);
-    LOCALIZER.with(|l| match l.borrow().as_ref() {
+    CONTEXT.with(|c| match c.borrow().localizer.as_ref() {
         Some(localizer) => localizer
             .translate(locale.as_str(), key, args)
             .as_str()

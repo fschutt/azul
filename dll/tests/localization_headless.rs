@@ -10,7 +10,7 @@ use std::{
     cell::RefCell,
     sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -28,7 +28,12 @@ use azul_core::{
     window::{AzStringPair, StringPairVec},
 };
 use azul_css::{corety::AzString, system::SystemLanguage};
-use azul_layout::{callbacks::CallbackChange, window_state::WindowCreateOptions};
+use azul_layout::{
+    callbacks::CallbackChange,
+    fluent::{fluent_localizer_of, FluentLocalizerHandle},
+    fmt::FmtArgVec,
+    window_state::WindowCreateOptions,
+};
 use rust_fontconfig::FcFontCache;
 
 const EN: &str = "greeting = Hello
@@ -249,4 +254,79 @@ fn a_layout_that_read_is_rtl_is_rebuilt_when_the_locale_turns_rtl() {
         model.rtl_seen.load(Ordering::SeqCst),
         "the rebuilt layout() must see the new direction"
     );
+}
+
+// ---- the window's localizer, for the words a layout callback says as plain text ----
+
+/// What the layout callback took of its window's localization.
+#[derive(Clone, Default)]
+struct Taken {
+    localizer: Arc<Mutex<Option<FluentLocalizerHandle>>>,
+    calls: Arc<AtomicI32>,
+}
+
+extern "C" fn taking_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    if let Some(taken) = data.downcast_ref::<Taken>() {
+        taken.calls.fetch_add(1, Ordering::SeqCst);
+        *taken.localizer.lock().expect("the lock") = fluent_localizer_of(&info).into_option();
+    }
+    Dom::create_body()
+}
+
+/// Android runs the app's `start()` on the thread that loads the library and the loop on another
+/// one, so whatever the app kept for its plain-text words on the first is not on the second: the
+/// layout pass has to hand the callback the window's own localizer, and that one speaks on any
+/// thread (the apps' `t()` / `label()` said the key until it did).
+#[test]
+fn the_layout_callback_gets_the_windows_localizer_and_it_speaks_on_another_thread() {
+    let taken = Taken::default();
+    let mut window = make_window_with(RefAny::new(taken.clone()), taking_layout);
+    window.regenerate_layout().expect("first layout");
+    assert!(taken.calls.load(Ordering::SeqCst) >= 1);
+
+    let localizer = taken
+        .localizer
+        .lock()
+        .expect("the lock")
+        .take()
+        .expect("the window made a localizer of the app's resources and the callback got it");
+    let (german, english, unknown) = std::thread::spawn(move || {
+        let say = |locale: &str, key: &str| {
+            localizer
+                .translate(locale.into(), key.into(), FmtArgVec::new())
+                .as_str()
+                .to_string()
+        };
+        (say("de-DE", "greeting"), say("en-US", "greeting"), say("de-DE", "no-such-key"))
+    })
+    .join()
+    .expect("another thread ends");
+
+    assert_eq!(german, "Hallo", "the window's German, on a thread that never saw the app start");
+    assert_eq!(english, "Hello");
+    assert_eq!(unknown, "no-such-key", "a key without a message is told as the key");
+}
+
+#[test]
+fn an_app_that_registered_no_translations_has_no_localizer_to_hand_over() {
+    let taken = Taken::default();
+    let mut options = WindowCreateOptions::default();
+    options.window_state.layout_callback = LayoutCallback {
+        cb: taking_layout,
+        ctx: OptionRefAny::None,
+    };
+    let mut window = HeadlessWindow::new(
+        options,
+        Arc::new(RefCell::new(RefAny::new(taken.clone()))),
+        SharedUndoManager::new(),
+        AppConfig::default(),
+        SharedIconProvider::from_handle(IconProviderHandle::default()),
+        Arc::new(FcFontCache::default()),
+        None,
+    )
+    .expect("HeadlessWindow construction must succeed");
+    window.regenerate_layout().expect("first layout");
+
+    assert!(taken.calls.load(Ordering::SeqCst) >= 1);
+    assert!(taken.localizer.lock().expect("the lock").is_none());
 }

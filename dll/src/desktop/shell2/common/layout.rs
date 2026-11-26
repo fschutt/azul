@@ -535,11 +535,24 @@ pub fn regenerate_layout(
     // window draws with, the app's shipped faces among them.
     let registered_fonts: &(dyn core::any::Any + Send + Sync) =
         &layout_window.font_manager.registered_fonts;
+    // The window's own Fluent localizer (a borrow of the FIELD, like the two above: this pass
+    // writes other fields of the window while the callback's info is read): the plain-text words
+    // of the callback (a placeholder, an accessible name, a widget's label) are said with it, on
+    // whatever thread this pass runs - Android runs the app's `start()` on the thread that loads
+    // the library and the loop on another one.
+    #[cfg(feature = "fluent")]
+    let window_localizer: Option<&(dyn core::any::Any + Send + Sync)> = layout_window
+        .fluent_localizer
+        .as_ref()
+        .map(|localizer| localizer as &(dyn core::any::Any + Send + Sync));
+    #[cfg(not(feature = "fluent"))]
+    let window_localizer: Option<&(dyn core::any::Any + Send + Sync)> = None;
     let layout_ref_data = LayoutCallbackInfoRefData {
         image_cache: &image_cache_snapshot,
         gl_context: gl_context_ptr,
         system_fonts: &layout_window.font_manager.fc_cache,
         registered_fonts: Some(registered_fonts),
+        localizer: window_localizer,
         system_style: system_style.clone(),
         active_route: current_window_state.active_route.as_ref(),
         locale: &active_language.id,
