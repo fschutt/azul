@@ -390,6 +390,12 @@ impl RecorderHost {
         self.recorder.event_sink()
     }
 
+    /// One event of the review for the recording, stamped by its clock: nothing is written when nothing records
+    /// (and what the caps refuse is dropped, as the recorder counts it).
+    pub fn event(&self, kind: &str, fields: &str) {
+        let _ = self.recorder.event(kind, fields);
+    }
+
     // ---- the list of recordings ----
 
     /// The name of the recording that is going (or paused), when there is one.

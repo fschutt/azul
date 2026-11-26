@@ -287,6 +287,10 @@ impl AppState {
     /// What starts afresh with another file: no ink, no notes, nothing to undo, no dictation (what
     /// listens writes into the file being left: it ends, and its words are kept there).
     fn begin_file(&mut self, index: Option<usize>) {
+        if let Some(file) = index.and_then(|i| self.files.get(i)) {
+            let lines = i64::try_from(file.lines.len()).unwrap_or(i64::MAX);
+            self.record("nav.file", &recorder_events::Fields::new().string("file", &file.display).int("lines", lines).build());
+        }
         self.voice.request_stop(dictation::Cause::File);
         self.voice.pending = None;
         self.current = index;
@@ -297,6 +301,13 @@ impl AppState {
         self.live = None;
         self.ink.open();
         self.visible_page = 0;
+    }
+
+    /// One event of the review for the session recording, when one goes (nothing is written otherwise).
+    pub fn record(&self, kind: &str, fields: &str) {
+        if let Some(recorder) = self.recorder.as_ref() {
+            recorder.host.event(kind, fields);
+        }
     }
 
     /// Picks the meaning the ink will have. The marker only highlights (scope) and the pen writes the
