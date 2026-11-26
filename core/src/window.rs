@@ -1600,6 +1600,17 @@ pub struct WindowFlags {
     /// keyboard is never part of this: it is a transient occlusion the app
     /// reads from `get_safe_area_insets().keyboard`.
     pub extend_into_safe_area: bool,
+    /// Keep this window out of screen captures and recordings: what another program (a screen recorder, a
+    /// screen share, the system's own screenshot) can read of the window, which is nothing, so that the
+    /// desktop it records shows what lies behind the window instead. A window that records the screen (a
+    /// preview of the camera, a recording indicator) wants it, or the recording would show itself.
+    ///
+    /// Platform-specific: macOS sets the window's sharing type to none (`NSWindowSharingNone`; the system
+    /// documents that such a window also takes no part in some services that read windows), Windows 10
+    /// version 2004 and later sets `WDA_EXCLUDEFROMCAPTURE` (an older Windows may refuse it), X11 and
+    /// Wayland give a program no way to do it and the flag has no effect there.
+    /// Default: `false`, and a window that does not ask is left as the system made it.
+    pub exclude_from_capture: bool,
 }
 
 impl_option!(
@@ -1713,6 +1724,7 @@ impl Default for WindowFlags {
             prevent_system_sleep: false,
             fullscreen_mode: FullScreenMode::FastFullScreen,
             extend_into_safe_area: false,
+            exclude_from_capture: false,
         }
     }
 }

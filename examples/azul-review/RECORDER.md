@@ -340,7 +340,13 @@ picture is still. The manifest's `source` says which it was.
   picture is scaled by the system to at most `recorder-screen-width` pixels wide (1920 by default) at the
   display's own aspect, so a Retina display's 2560 x 1664 is recorded as 1920 x 1248. Apps in
   `recorder-screen-exclude` (bundle ids; the Notification Center by default, so other people's messages are
-  not in the video) and the recorder's own preview window are left out of the capture.
+  not in the video) and the recorder's own preview window are left out of the capture, by two different
+  mechanisms. *Other apps* are left out by the capture itself: every window of those apps, the ones they
+  open later too (`ScreenCaptureWidget::add_excluded_app`, at most eight; on macOS one ScreenCaptureKit
+  filter). *The recorder's own camera preview* is left out by a flag of the preview's window,
+  `WindowFlags::exclude_from_capture` (macOS: the window's sharing type is none; Windows:
+  `WDA_EXCLUDEFROMCAPTURE`; X11 and Wayland give no way, so there the preview is in the recording and the
+  panel says so). The two do not mix: a ScreenCaptureKit filter drops apps or drops single windows, not both.
 * **`window`**: one window, AzReview's own, from the same capture; nothing else on the desktop is in it.
 * **`own`**: AzReview's own presented frames, what the window painted and not what the OS shows: no
   permission of the system, nothing else on the desktop, pixel-perfect at device scale. The engine's frame
@@ -377,9 +383,15 @@ the display wants them in, a screen share does not), and `DesktopState::query()`
 front, the pointer, the lock, the display's sleep; in a headless or E2E run it reads the script
 `AZ_DESKTOP_STATE_FILE` names, so a test needs no desktop). The lock and the machine's sleep also arrive as
 `SessionChange` events (`Locked`, `Unlocked`, `WillSleep`, `Woke`); `DesktopState.locked` says the state at
-the start. NOT built yet: the exclusion list of apps and windows in the capture (the setting is read and
-kept in `RecorderSettings.screen_exclude`, but nothing applies it to the capture until azul has it) and a
-native window id for the preview panel.
+the start. The exclusion list of apps is built (`ScreenCaptureWidget::add_excluded_app`,
+`CaptureRequest.exclude`); the app's glue that hands it `recorder-screen-exclude` (kept in
+`RecorderSettings.screen_exclude`) is not. The preview panel's exclusion is the window flag
+`WindowFlags::exclude_from_capture` (built; a property of azul's window options like `is_always_on_top`, applied
+when the window is made and when the flag changes). It is NOT verified against a real capture, which needs a
+display capture of its own (section 11): `NSWindowSharingNone` is the system's documented way to keep a window's
+content from other processes, but reports say ScreenCaptureKit on macOS 15 may show such a window anyway. If
+the check shows the preview, the fallback is the preview's window id listed with the excluded apps' windows in
+one `excludingWindows` filter (windows by id: not built).
 
 **What the desktop is doing** is polled by the app a few times a second (`Recorder::desktop_sample`) and
 needs no permission of the system: the app in front (`app.front`, once for each change, so the export can cut
@@ -394,8 +406,8 @@ and the unlock goes on, but only after a pause the lock made), and whether the d
   window, whatever is on it. The recorder panel says so in those words; the indicator is always visible; a
   hotkey pauses the recording while another app is in front; a locked screen pauses it by itself
   (`recorder-pause-on-lock`); apps in `recorder-screen-exclude` and the recorder's own camera preview are not
-  in the picture (the preview is a window of its own that the capture leaves out, so the camera is not in
-  the picture twice). The `own` source records only the review.
+  in the picture (the preview is a window of its own with `exclude_from_capture`, a mechanism apart from the
+  apps' list, so the camera is not in the picture twice). The `own` source records only the review.
 * **Screen Recording** (TCC) is attributed to Terminal for a bare binary and to the app for an `.app`; the
   panel's status words name which. A refused or pending permission does not stop anything else: the track is
   `denied` (or `failed` when it was withdrawn later) with the words that say what to do, in the manifest, the
@@ -528,3 +540,11 @@ the export writes AAC.
 * The voice inside the camera file as recorded: a joint two-track fragmented MP4 (H.264 and Opus in one file,
   the audio's fragments interleaved with the picture's at the chunk boundaries), with its crash recovery.
 * A readback of the GL window's framebuffer for the `own` source on a window that is on the GPU.
+* **The check that the camera preview is not in a display capture** (not run: it needs a real capture of the
+  display, which the person has to allow). One test, about 10 seconds, nothing saved: the preview window is
+  opened with a patch of a colour that is nowhere else on the desktop (a magenta square drawn by the window),
+  a display capture of the display it is on runs for 10 seconds with `include_own_windows` on (the app's own
+  windows are in the picture, so what is tested is the flag and not the capture's own-window filter), and
+  every frame is checked in memory for that colour at the place of the window. It prints `preview visible in
+  the capture: yes/no` and the number of frames looked at, and writes no file. It runs twice: with the flag on
+  (expected: no) and with it off (expected: yes, the control that shows the check could see the patch).

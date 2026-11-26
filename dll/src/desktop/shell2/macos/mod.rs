@@ -8670,6 +8670,14 @@ impl MacOSWindow {
             let _ = self.set_prevent_system_sleep(true);
         }
 
+        // exclude_from_capture: a window that does not ask is left as the system made it.
+        if let Some(excluded) = crate::desktop::shell2::common::capture_exclusion::exclusion_to_apply(
+            None,
+            &self.common.current_window_state().flags,
+        ) {
+            self.set_exclude_from_capture(excluded);
+        }
+
         // CRITICAL: seed BOTH baselines — the event-diff one (previous_window_state,
         // so the first pass has something to diff against) and the OS-sync one
         // (os_synced_state, which sync_window_state() diffs against). Until
@@ -8904,6 +8912,14 @@ impl MacOSWindow {
                     e
                 );
             }
+        }
+
+        // exclude_from_capture flag changed?
+        if let Some(excluded) = crate::desktop::shell2::common::capture_exclusion::exclusion_to_apply(
+            Some(&previous.flags),
+            &current.flags,
+        ) {
+            self.set_exclude_from_capture(excluded);
         }
 
         // Mouse cursor synchronization - compute from current hit test
@@ -10204,6 +10220,15 @@ impl MacOSWindow {
             }
         }
         Ok(())
+    }
+
+    /// Keep the window out of screen captures (or show it to them again): the window's sharing type is
+    /// `NSWindowSharingNone` (another process cannot read its content: a screen recorder or a screen share
+    /// does not get it) or `NSWindowSharingReadOnly`, the system's default.
+    pub fn set_exclude_from_capture(&mut self, excluded: bool) {
+        self.window.setSharingType(objc2_app_kit::NSWindowSharingType(
+            crate::desktop::shell2::common::capture_exclusion::macos_sharing_type(excluded),
+        ));
     }
 
     /// Prevent the system from sleeping (or allow it to sleep)

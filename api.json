@@ -7617,6 +7617,12 @@
                                 },
                                 "extend_into_safe_area": {
                                     "type": "bool"
+                                },
+                                "exclude_from_capture": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Keep this window out of screen captures and recordings (a preview of the camera, a recording indicator: a window that records the screen would otherwise show itself). macOS: the window's sharing type is none; Windows 10 version 2004 and later: WDA_EXCLUDEFROMCAPTURE; X11 and Wayland give no way and the flag has no effect there. Default: false."
+                                    ]
                                 }
                             }
                         ],
