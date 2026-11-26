@@ -222,13 +222,27 @@ pub struct Root {
     /// The demo is on: a pretend Mac answers (the real connection waits in `stashed`).
     pub demo: bool,
     stashed: Option<Box<dyn PhoneApi>>,
+    /// The phone's own app makes its real connection when the window exists (`glue::on_window_created`), not when the library loads: an
+    /// Android app has no activity yet then, and the engine's local-network discovery needs the activity's Wi-Fi multicast lock. Until
+    /// then the screens talk to the stand-in they were made with.
+    pub connect_later: bool,
 }
 
 impl Root {
     /// An app with this connection.
     #[must_use]
     pub fn new(api: Box<dyn PhoneApi>, env: EnvSource) -> Root {
-        Root { api, ui: Ui::new(), strings: Strings::builtin(), env, started: Instant::now(), sim: None, demo: false, stashed: None }
+        Root { api, ui: Ui::new(), strings: Strings::builtin(), env, started: Instant::now(), sim: None, demo: false, stashed: None, connect_later: false }
+    }
+
+    /// The real connection, made once the window exists: it takes the place of the stand-in (behind the pretend Mac when the demo is on).
+    pub fn connect_now(&mut self, api: Box<dyn PhoneApi>) {
+        self.connect_later = false;
+        if self.demo {
+            self.stashed = Some(api);
+        } else {
+            self.api = api;
+        }
     }
 
     /// Milliseconds since the app started.

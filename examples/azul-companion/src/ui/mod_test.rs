@@ -640,3 +640,30 @@ fn a_second_tap_on_the_demo_key_changes_nothing_and_leaving_brings_the_real_conn
     assert!(!root.demo);
     assert_eq!(root.view().session, Session::Unpaired, "the real connection, as it was");
 }
+
+// ---- the real connection comes when the window exists
+
+#[test]
+fn the_real_connection_replaces_the_stand_in_when_it_comes_and_the_screens_follow_it() {
+    let (mut root, _calls) = root_with(PhoneView::new());
+    root.connect_later = true;
+    let mut searching = PhoneView::new();
+    searching.session = Session::Searching { attempt: 1 };
+    searching.mac_name = "Studio Mac".into();
+    root.connect_now(Box::new(TestApi { view: searching, calls: Arc::new(Mutex::new(Vec::new())) }));
+    assert!(!root.connect_later, "it is made once");
+    assert_eq!(root.view().session, Session::Searching { attempt: 1 });
+    assert_eq!(root.view().mac_name, "Studio Mac");
+}
+
+#[test]
+fn a_real_connection_that_comes_while_the_demo_is_on_waits_behind_the_pretend_mac() {
+    let (mut root, _calls) = root_with(PhoneView::new());
+    root.perform(0, Action::Demo);
+    let mut real = PhoneView::new();
+    real.session = Session::Searching { attempt: 1 };
+    root.connect_now(Box::new(TestApi { view: real, calls: Arc::new(Mutex::new(Vec::new())) }));
+    assert_eq!(root.view().session, Session::Connected { mac_name: "Demo Mac".into() }, "the pretend Mac is still what the screens talk to");
+    root.perform(10, Action::LeaveDemo);
+    assert_eq!(root.view().session, Session::Searching { attempt: 1 }, "and leaving the demo brings the real connection that came meanwhile");
+}

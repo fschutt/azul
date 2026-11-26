@@ -261,11 +261,23 @@ pub extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCa
 pub const TICK_MS: u64 = 33;
 
 /// The window is created: the timer starts.
-pub extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
         .with_interval(Duration::System(SystemTimeDiff::from_millis(TICK_MS)));
     info.add_timer(TimerId::unique(), timer);
-    Update::DoNothing
+    // the phone's own app connects now, not when the library loaded: the window (on Android: the activity) exists
+    let Some(mut root) = data.downcast_mut::<Root>() else {
+        return Update::DoNothing;
+    };
+    if !root.connect_later {
+        return Update::DoNothing;
+    }
+    let net = crate::net::connect();
+    for note in &net.notes {
+        info.log(AppLogLevel::Info, AzString::from(format!("AzCompanion: {note}").as_str()));
+    }
+    root.connect_now(net.api);
+    Update::RefreshDom
 }
 
 /// The window of the phone's own app: the title and the timer on creation; the size is the screen's.
