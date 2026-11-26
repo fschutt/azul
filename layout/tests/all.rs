@@ -166,6 +166,8 @@ mod app_caret_moves;
 mod app_target;
 #[path = "azul_widgets_demo_follows_the_theme.rs"]
 mod azul_widgets_demo_follows_the_theme;
+#[path = "azul_widgets_toolbar_wraps_on_a_narrow_screen.rs"]
+mod azul_widgets_toolbar_wraps_on_a_narrow_screen;
 #[path = "block_edge_keys.rs"]
 mod block_edge_keys;
 #[path = "block_merge_filter.rs"]

@@ -1,7 +1,7 @@
 {
     "0.2.0": {
         "apiversion": 1,
-        "git": "d5b046d24",
+        "git": "6e2cb9598",
         "date": "2026-11-26",
         "installation": {
             "tabOrder": [
@@ -7935,7 +7935,11 @@
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C",
+                        "custom_impls": [
+                            "Send",
+                            "Sync"
+                        ]
                     },
                     "WindowIcon": {
                         "external": "azul_core::window::WindowIcon",
@@ -8292,7 +8296,10 @@
                                 "Unsupported": {}
                             }
                         ],
-                        "repr": "C, u8"
+                        "repr": "C, u8",
+                        "custom_impls": [
+                            "Send"
+                        ]
                     },
                     "MacOSHandle": {
                         "external": "azul_core::window::MacOSHandle",
@@ -22468,7 +22475,9 @@
                             "Hash",
                             "Ord",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Send",
+                            "Sync"
                         ],
                         "derive": [
                             "Debug"
@@ -29961,7 +29970,8 @@
                             "Hash",
                             "Ord",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Send"
                         ],
                         "derive": [
                             "Debug"
@@ -58633,7 +58643,9 @@
                             "Hash",
                             "Ord",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Send",
+                            "Sync"
                         ],
                         "enum_fields": [
                             {
@@ -61466,7 +61478,9 @@
                             "Hash",
                             "Ord",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Send",
+                            "Sync"
                         ],
                         "struct_fields": [
                             {
@@ -129837,7 +129851,9 @@
                             "Hash",
                             "Ord",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Send",
+                            "Sync"
                         ],
                         "derive": [
                             "Debug"
@@ -130960,7 +130976,8 @@
                         "external": "azul_layout::resource_handles::ImageCacheSnapshot",
                         "custom_impls": [
                             "Clone",
-                            "Drop"
+                            "Drop",
+                            "Send"
                         ],
                         "derive": [
                             "Debug"
@@ -131895,7 +131912,9 @@
                             "Hash",
                             "Ord",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Send",
+                            "Sync"
                         ],
                         "struct_fields": [
                             {
@@ -132229,7 +132248,8 @@
                         "external": "azul_layout::resource_handles::FontCacheSnapshot",
                         "custom_impls": [
                             "Clone",
-                            "Drop"
+                            "Drop",
+                            "Send"
                         ],
                         "derive": [
                             "Debug"
@@ -196994,10 +197014,12 @@
                     "IcuLocalizerHandle": {
                         "external": "azul_layout::icu::IcuLocalizerHandle",
                         "custom_impls": [
+                            "Clone",
                             "Debug",
                             "Default",
-                            "Clone",
-                            "Drop"
+                            "Drop",
+                            "Send",
+                            "Sync"
                         ],
                         "struct_fields": [
                             {
@@ -197443,10 +197465,12 @@
                     "FluentLocalizerHandle": {
                         "external": "azul_layout::fluent::FluentLocalizerHandle",
                         "custom_impls": [
+                            "Clone",
                             "Debug",
                             "Default",
-                            "Clone",
-                            "Drop"
+                            "Drop",
+                            "Send",
+                            "Sync"
                         ],
                         "struct_fields": [
                             {
@@ -199039,7 +199063,8 @@
                         "external": "azul_layout::resource_handles::PaginationSnapshot",
                         "custom_impls": [
                             "Clone",
-                            "Drop"
+                            "Drop",
+                            "Send"
                         ],
                         "derive": [
                             "Debug"
@@ -202257,7 +202282,9 @@
                         "custom_impls": [
                             "Clone",
                             "Default",
-                            "Drop"
+                            "Drop",
+                            "Send",
+                            "Sync"
                         ],
                         "derive": [
                             "Debug"
@@ -203345,7 +203372,9 @@
                         "custom_impls": [
                             "Clone",
                             "Default",
-                            "Drop"
+                            "Drop",
+                            "Send",
+                            "Sync"
                         ],
                         "derive": [
                             "Debug"
@@ -219763,7 +219792,9 @@
                             "Clone",
                             "Debug",
                             "Default",
-                            "Drop"
+                            "Drop",
+                            "Send",
+                            "Sync"
                         ],
                         "struct_fields": [
                             {
@@ -220110,7 +220141,9 @@
                             "Clone",
                             "Debug",
                             "Default",
-                            "Drop"
+                            "Drop",
+                            "Send",
+                            "Sync"
                         ],
                         "struct_fields": [
                             {

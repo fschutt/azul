@@ -87,6 +87,16 @@ pub const PAIRING_MAX_WRONG_PROOFS: u32 = 3;
 pub const RECONNECT_FIRST_MS: u64 = 500;
 /// The longest wait between two reconnect attempts.
 pub const RECONNECT_MAX_MS: u64 = 8_000;
+/// How long a dial may take before the phone gives up on it and tries the next address.
+pub const DIAL_TIMEOUT_MS: u64 = 10_000;
+/// Failed dials of a paired Mac after which the phone says the Mac's address probably changed (it keeps trying, slowly).
+pub const ADDRESS_CHANGED_AFTER: u32 = 6;
+/// The wait between two dials once the address is thought to have changed.
+pub const RECONNECT_SLOW_MS: u64 = 30_000;
+/// A pen state names a picture that has not arrived: how long the phone waits before it asks for it.
+pub const THUMB_WAIT_MS: u64 = 1_500;
+/// How long before it asks for the same picture again.
+pub const THUMB_RETRY_MS: u64 = 5_000;
 
 /// The magnitude of a pan or a zoom factor a gesture frame may carry (fractions of a page, cumulative).
 pub const MAX_GESTURE_PAN: f32 = 16.0;

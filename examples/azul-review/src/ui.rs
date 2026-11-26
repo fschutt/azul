@@ -248,6 +248,11 @@ pub(crate) fn with_window_listeners(body: Dom, data: &RefAny) -> Dom {
         crate::on_key,
     )
     .with_callback(
+        EventFilter::Window(WindowEventFilter::LeftMouseDown),
+        data.clone(),
+        crate::whiteboard_plug::on_window_down,
+    )
+    .with_callback(
         EventFilter::Window(WindowEventFilter::LeftMouseUp),
         data.clone(),
         crate::on_window_up,
@@ -789,6 +794,11 @@ fn menu_bar(data: &RefAny) -> Menu {
     view = view.with_child(MenuItem::String(
         StringMenuItem::create(label("azreview-right-bar")).with_callback(data.clone(), crate::on_toggle_right),
     ));
+    view = view.with_child(MenuItem::Separator);
+    view = view.with_child(MenuItem::String(
+        StringMenuItem::create(label("azreview-menu-whiteboard-help"))
+            .with_callback(data.clone(), crate::whiteboard_plug::on_menu_help),
+    ));
     items.push(MenuItem::String(view));
 
     Menu::create(MenuItemVec::copy_from_ptr(&items[0], items.len()))
@@ -1070,11 +1080,9 @@ fn right_panel(s: &AppState, width: f32, data: &RefAny) -> Dom {
 //   recorder's devices, the speech recogniser's chain);
 // * the bottom bar's conversations come from `AppState::chips` (the agent pool's messages set their states).
 
-/// What fills the right panel: a word about what it will be, until the whiteboard is mounted in it.
-fn right_panel_content(_s: &AppState, _data: &RefAny) -> Dom {
-    Dom::create_div()
-        .with_css("padding: 16px; font-size: 12px; color: system:secondary-text;")
-        .with_child(Dom::create_span_with_text(label("azreview-whiteboard-placeholder")))
+/// What fills the right panel: the whiteboard of the workspace (`whiteboard_plug`).
+fn right_panel_content(s: &AppState, data: &RefAny) -> Dom {
+    crate::whiteboard_plug::panel_content(s, data)
 }
 
 /// The presenter's key in the top bar (`None` until the recorder is mounted).
@@ -1091,7 +1099,7 @@ fn overlay_slot(_s: &AppState, _data: &RefAny) -> Option<Dom> {
 
 /// The sections of the settings page, in order: the dictation's, then what the other modules add.
 fn settings_sections(s: &AppState, data: &RefAny) -> Vec<kit::AppSection> {
-    vec![column::settings_section(s, data)]
+    vec![column::settings_section(s, data), crate::whiteboard_plug::settings_section(s, data)]
 }
 
 /// The bottom bar: the conversations of the open file, one chip each (a blue spinner while its agent works, yellow
@@ -1565,6 +1573,22 @@ fn page_sheet(
         ),
     );
 
+    // The lines a jump from the whiteboard went to are lit for a moment (under the code, which is drawn over them).
+    if let Some((top, rows)) = lit_rows(s, file, first_line, lines.len(), &map) {
+        sheet.add_child(
+            Dom::create_div()
+                .with_id(AzString::from(format!("__azreview_wb-flash-{page}")))
+                .with_accessibility_info(decorative())
+                .with_css(
+                    format!(
+                        "position: absolute; left: 0px; top: {top:.0}px; width: {}px; height: {rows:.0}px; background: #ffd64059; \
+                         border-top: 1px solid #e0b800; border-bottom: 1px solid #e0b800; box-sizing: border-box;",
+                        PAGE_W as isize
+                    )
+                    .as_str(),
+                ),
+        );
+    }
     // What the agents' suggestions do to the page's lines (none where nobody suggested anything).
     if s.notes.iter().any(|n| !n.talk.proposals.is_empty()) {
         let marks = crate::page_marks::marks_of(&s.notes, first_line, &lines);
@@ -1576,7 +1600,16 @@ fn page_sheet(
     for marker in column::markers(notes, page, listening, &map) {
         sheet.add_child(marker);
     }
+    // The loops that wait to be taken to the whiteboard: their outlines and grips, over the code and under the pen's layer
+    // (which they take no stroke from).
+    if crate::whiteboard_page::page_has_regions(s, page) {
+        sheet.add_child(crate::whiteboard_page::overlay(data, page, height));
+    }
     sheet.add_child(ink_layer(data, page, Layer::Pen, height));
+    // The words and the key beside each of them, over the pen's layer.
+    for words in crate::whiteboard_page::chips(s, data, page, &map, height) {
+        sheet.add_child(words);
+    }
     // The conversations of the page: a chip for each in the margin, and the open one over it (above the pen's layer, which
     // they take no stroke and no rest from).
     if let Some(margin) = crate::conv_ui::margin(s, data, page, visible_bottom) {
@@ -1586,6 +1619,20 @@ fn page_sheet(
         sheet.add_child(open);
     }
     sheet
+}
+
+/// The top and the height (px of the page as it is shown) of the lines of this page that a jump from the whiteboard lights
+/// now, when there are any.
+fn lit_rows(
+    s: &AppState,
+    file: &code::SourceFile,
+    first_line: usize,
+    count: usize,
+    map: &crate::line_map::LineMap,
+) -> Option<(f32, f32)> {
+    let glue = s.wb.try_borrow().ok()?;
+    let (first, last) = glue.flash.as_ref()?.rows_on(&file.display, first_line, count)?;
+    Some(crate::whiteboard_glue::rows_box(map, first, last))
 }
 
 /// The code of a page as the page shows it: a row per line, its number in the gutter and then the line, a column
