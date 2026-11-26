@@ -1649,18 +1649,28 @@ extern "C" fn did_finish_launching(
     _opts: *mut Object,
 ) -> bool {
     unsafe {
-        let (app_data, undo_manager, app_shared, config, fc_cache, font_registry, root_window) =
-            match super::run::INITIAL_OPTIONS.take() {
-                Some(opts) => opts,
-                None => {
-                    log_error!(
-                        LogCategory::EventLoop,
-                        "[iOS] did_finish_launching: INITIAL_OPTIONS unset — azul_run() must run \
-                         before UIApplicationMain"
-                    );
-                    return false;
-                }
-            };
+        let launch = match super::run::INITIAL_OPTIONS.take() {
+            Some(launch) => launch,
+            None => {
+                log_error!(
+                    LogCategory::EventLoop,
+                    "[iOS] did_finish_launching: INITIAL_OPTIONS unset — azul_run() must run \
+                     before UIApplicationMain"
+                );
+                return false;
+            }
+        };
+        let super::run::IosLaunch {
+            app_data,
+            undo_manager,
+            app_shared,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+            #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+            debug_channel,
+        } = launch;
 
         // The UNUserNotificationCenter delegate, BEFORE this method returns:
         // a tap on a notification of an app that was not running launches it,
@@ -1695,7 +1705,7 @@ extern "C" fn did_finish_launching(
         // display tick that drives every other timer. Dropped on the floor before, so the e2e
         // runner of a phone queued its scenarios and waited for a receiver nobody read.
         #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
-        if let Some((rx, cm)) = super::run::IOS_DEBUG_CHANNEL.take() {
+        if let Some((rx, cm)) = debug_channel {
             crate::desktop::shell2::common::debug_server::register_debug_timer(&mut window, rx, cm);
         }
         AZUL_IOS_WINDOW = Box::into_raw(Box::new(window));

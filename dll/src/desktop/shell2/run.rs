@@ -1421,36 +1421,37 @@ fn run_before_main_loop_waits(work: Box<dyn FnMut()>) {
     }
 }
 
+/// What `run()` hands to `application:didFinishLaunching:`.
+///
+/// `UIApplicationMain` takes no argument that could carry it, so the one stash below is the
+/// hand-over; everything the delegate needs travels in this ONE value (the debug/E2E channel
+/// included - it used to be dropped, see [`IosLaunch::debug_channel`]), not in a second global.
+#[cfg(target_os = "ios")]
+pub(super) struct IosLaunch {
+    pub(super) app_data: RefAny,
+    pub(super) undo_manager: SharedUndoManager,
+    pub(super) app_shared: Arc<AppShared>,
+    pub(super) config: AppConfig,
+    pub(super) fc_cache: Arc<FcFontCache>,
+    pub(super) font_registry: Option<Arc<FcFontRegistry>>,
+    pub(super) root_window: WindowCreateOptions,
+    /// The debug/E2E request channel `setup_debug_and_e2e` made. `run()` used to drop it:
+    /// `AZ_E2E` queued the scenarios and spawned the result printer, `AZ_DEBUG=<port>` started
+    /// the server, and nothing ever read the receiver, so no op was dispatched on a phone (the
+    /// printer waited for its timeout; Android fixed the same with `ANDROID_DEBUG_CHANNEL`). The
+    /// delegate takes it and registers the debug timer that the display tick already drives
+    /// (`process_timers_and_threads`).
+    #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+    pub(super) debug_channel: Option<(
+        spmc::Receiver<debug_server::DebugRequest>,
+        Arc<Mutex<azul_core::xml::ComponentMap>>,
+    )>,
+}
+
 // Store initial options globally for the AppDelegate to retrieve.
 // Unsafe, but simple for this minimal example.
 #[cfg(target_os = "ios")]
-pub(super) static mut INITIAL_OPTIONS: Option<(
-    RefAny,
-    SharedUndoManager,
-    Arc<AppShared>,
-    AppConfig,
-    Arc<FcFontCache>,
-    Option<Arc<FcFontRegistry>>,
-    WindowCreateOptions,
-)> = None;
-
-/// The debug/E2E request channel of an iOS run, stashed for `application:didFinishLaunching:`
-/// the way `ANDROID_DEBUG_CHANNEL` is for `android_main`.
-///
-/// `run()` called `setup_debug_and_e2e` and dropped what it returned: `AZ_E2E` queued the
-/// scenarios and spawned the result printer, `AZ_DEBUG=<port>` started the server, and nothing ever
-/// read the receiver, so no op was dispatched on a phone (the printer waited for its timeout). The
-/// UIKit run loop is entered by `UIApplicationMain`, which takes no argument to carry it, so it
-/// travels beside [`INITIAL_OPTIONS`]; the delegate takes it and registers the debug timer that the
-/// display tick already drives (`process_timers_and_threads`).
-#[cfg(all(
-    target_os = "ios",
-    any(feature = "debug-server", feature = "e2e-scripting")
-))]
-pub(super) static mut IOS_DEBUG_CHANNEL: Option<(
-    spmc::Receiver<debug_server::DebugRequest>,
-    Arc<Mutex<azul_core::xml::ComponentMap>>,
-)> = None;
+pub(super) static mut INITIAL_OPTIONS: Option<IosLaunch> = None;
 
 // On iOS, the `run` function doesn't manage an event loop.
 // Instead, it calls a bootstrap function that sets up the native
@@ -1511,12 +1512,7 @@ pub fn run(
         );
     }
     unsafe {
-        // The debug channel goes to the delegate, not to the floor.
-        #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
-        if let (Some(rx), Some(cm)) = (_debug_request_rx, _component_map) {
-            IOS_DEBUG_CHANNEL = Some((rx, cm));
-        }
-        INITIAL_OPTIONS = Some((
+        INITIAL_OPTIONS = Some(IosLaunch {
             app_data,
             undo_manager,
             app_shared,
@@ -1524,7 +1520,10 @@ pub fn run(
             fc_cache,
             font_registry,
             root_window,
-        ));
+            // The debug channel goes to the delegate, not to the floor.
+            #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+            debug_channel: _debug_request_rx.zip(_component_map),
+        });
         crate::desktop::shell2::ios::launch_app();
         Ok(()) // Unreachable
     }

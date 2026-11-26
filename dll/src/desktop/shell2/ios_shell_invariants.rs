@@ -146,15 +146,15 @@ fn the_display_tick_calls_uikit_for_the_keyboard_outside_its_borrow_of_the_layou
 }
 
 /// `run()` called `setup_debug_and_e2e` and dropped the receiver: `AZ_E2E` queued its scenarios
-/// and nothing ever read them, so no e2e run could work on a phone. The channel goes to the
-/// delegate (as `ANDROID_DEBUG_CHANNEL` goes to `android_main`) and the delegate registers the
-/// timer that the display tick drives.
+/// and nothing ever read them, so no e2e run could work on a phone. The channel travels to the
+/// delegate in the one launch value (`IosLaunch::debug_channel`, no second global) and the
+/// delegate registers the timer that the display tick drives.
 #[test]
 fn the_debug_channel_of_an_ios_run_reaches_the_window_instead_of_being_dropped() {
     let run = body(RUN_RS, "#[cfg(target_os = \"ios\")]\npub fn run(");
-    at(run, "IOS_DEBUG_CHANNEL = Some((rx, cm))", "iOS run()");
+    at(run, "debug_channel: _debug_request_rx.zip(_component_map)", "iOS run()");
     let launch = body(IOS_MOD_RS, "extern \"C\" fn did_finish_launching(");
-    at(launch, "IOS_DEBUG_CHANNEL.take()", "did_finish_launching");
+    at(launch, "debug_channel,", "did_finish_launching destructures the launch value");
     at(launch, "register_debug_timer(&mut window", "did_finish_launching");
     // The timer is registered before the window is published to UIKit's callbacks.
     let register = launch.find("register_debug_timer").expect("registered");
