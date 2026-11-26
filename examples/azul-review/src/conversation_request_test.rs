@@ -121,6 +121,35 @@ fn the_context_is_the_page_the_anchor_is_on_and_the_line_under_it() {
 }
 
 #[test]
+fn what_a_loop_goes_round_is_the_focus_and_not_only_the_line_of_the_anchor() {
+    use crate::model::{InkPoint, Semantic, Stroke};
+    let mut lines: Vec<String> = (1..=120).map(|i| format!("line {i}")).collect();
+    for line in &mut lines[17..23] {
+        *line = format!("{}abcdefghijklmnopqrstuvwxyz0123456789", " ".repeat(33));
+    }
+    let f = SourceFile::new("src/f.rs".into(), "src/f.rs".to_string(), lines);
+    let mut n = note("what does this do");
+    n.page = 0;
+    n.x = 400.0;
+    n.y = 297.5;
+    let fixture = crate::stroke_fixtures::loop_around_a_block();
+    let stroke = Stroke {
+        page: 0,
+        semantic: Semantic::Scope,
+        points: fixture.samples.iter().map(|s| InkPoint { x: s.x, y: s.y, pressure: s.pressure, tilt_x: 0.0, tilt_y: 0.0, t_ms: s.t_ms }).collect(),
+        id: 1,
+        epoch: 0,
+        started_unix_ms: 0,
+    };
+    let told = crate::request_strokes::pick(&n, &[stroke]);
+    assert_eq!(told.len(), 1, "the loop is near the anchor");
+    let r = review_request(&n, &f, "en", told, None, Task::Exploration, 5, String::new());
+    let (first, last) = r.context.focus.expect("a focus");
+    // the anchor is on line 18: the loop goes round the block of lines 18 to 23, and the code the agent reads marks all of them
+    assert!(first >= 17 && last >= 20 && last <= 24 && first < last, "lines {first} to {last}");
+}
+
+#[test]
 fn an_anchor_under_the_last_line_of_a_short_page_focuses_the_last_line() {
     let mut n = note("x");
     n.page = 2; // lines 93 to 120: 28 lines

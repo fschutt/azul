@@ -291,6 +291,15 @@ impl PhoneApi for SimPhone {
         self.start_search(now, attempt);
     }
 
+    fn log(&self) -> Vec<String> {
+        // sample lines, so that the settings screen of the simulator shows what the connection log looks like
+        vec![
+            "the pairing is kept in the simulator's memory".to_string(),
+            "the local network: on".to_string(),
+            "dialing the Mac: answered in 12 ms".to_string(),
+        ]
+    }
+
     fn cancel(&mut self, now: Millis) {
         // the simulator keeps no pairing between runs: stopping is going back to the start, as forgetting is
         self.forget_mac(now);
