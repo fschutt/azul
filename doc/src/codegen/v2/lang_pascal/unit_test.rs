@@ -160,3 +160,22 @@ fn the_linux_install_steps_compile_with_aas() {
         without
     );
 }
+
+#[test]
+fn the_programs_of_the_css_compiler_say_aas_too() {
+    if !past_the_limit() {
+        return;
+    }
+    for rel in [
+        "css/src/codegen/lang/pascal.rs",
+        "css/tests/codegen_goldens/pascal/dom_app/main.pas",
+        "css/tests/codegen_goldens/pascal/project/main.pas",
+    ] {
+        assert!(
+            repo_file(rel).contains("-Aas"),
+            "the unit has more sections than an ELF header numbers, so the build line of the programs azul-css writes \
+             for it must say -Aas on Linux: {} does not",
+            rel
+        );
+    }
+}

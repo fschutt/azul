@@ -1,5 +1,6 @@
 { Copy target/codegen/azul.pas and libazul here, then:
-    fpc -Mdelphi -Fl. -k-L. -k-lazul main.pas && ./main }
+    fpc -Mdelphi -Fl. -k-L. -k-lazul main.pas && ./main
+  Linux: add -Aas (azul.pas has more object sections than fpc 3.2's ELF writer can number). }
 program Main;
 
 {$mode delphi}
