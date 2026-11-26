@@ -46,9 +46,11 @@ Run ONE app at a time, through the capped runner:
 The debug-server client is the shared one (scripts/azlin_e2e.py).
 """
 
+import glob
 import json
 import os
 import re
+import subprocess
 import time
 import zipfile
 
@@ -114,6 +116,15 @@ def read_session(path):
             return json.loads(z.read("session.json").decode("utf-8"))
     except (OSError, zipfile.BadZipFile, KeyError, ValueError):
         return {}
+
+
+def read_text(path):
+    """A text file as it is now ('' where it is not there yet)."""
+    try:
+        with open(path, encoding="utf-8", newline="") as f:
+            return f.read()
+    except OSError:
+        return ""
 
 
 def saves(app):
@@ -806,6 +817,49 @@ def conversations(args, logs, out, binary):
         app.until("the tree marks the file yellow", lambda: app.has_id("__azreview_file-mark-suggested", every_dom=True))
         app.screenshot(os.path.join(out, "23-conversation-suggested.png"))
 
+        # the suggestion: a card in the conversation and a yellow rule on the page where the line would go; taken (green),
+        # taken back, refused, taken again
+        card = "__azreview_sugg-%d-0" % first
+        rule = "__azreview_insert-%d-4" % first
+        app.until("the suggestion's card", lambda: app.has_id(card, every_dom=True))
+        app.until("the rule on the page", lambda: app.has_id(rule, every_dom=True))
+        if not app.shows("Insert one line after line 4", every_dom=True):
+            raise Failure("the card does not say what it would do")
+        app.click(selector="#__azreview_sugg-accept-%d-0" % first, every_dom=True)
+        app.until("taken", lambda: talk_of(app, first)["phase"] == "done" and talk_of(app, first)["accepted"] == 1)
+        app.until("it says taken", lambda: app.has_id("__azreview_sugg-decided-%d-0" % first, every_dom=True))
+        app.until("the file is no longer yellow", lambda: not app.has_id("__azreview_file-mark-suggested", every_dom=True))
+        app.screenshot(os.path.join(out, "23b-suggestion-taken.png"))
+        app.click(selector="#__azreview_sugg-undo-%d-0" % first, every_dom=True)
+        app.until("it waits again", lambda: talk_of(app, first)["phase"] == "suggested" and talk_of(app, first)["pending"] == 1)
+        app.click(selector="#__azreview_sugg-reject-%d-0" % first, every_dom=True)
+        app.until("refused", lambda: talk_of(app, first)["phase"] == "done" and talk_of(app, first)["accepted"] == 0)
+        app.until("no rule where nothing goes", lambda: not app.has_id(rule, every_dom=True))
+        app.click(selector="#__azreview_sugg-undo-%d-0" % first, every_dom=True)
+        app.click(selector="#__azreview_sugg-accept-%d-0" % first, every_dom=True)
+        app.until("taken at last", lambda: talk_of(app, first)["accepted"] == 1 and talk_of(app, first)["phase"] == "done")
+        app.until("the rule is back", lambda: app.has_id(rule, every_dom=True))
+
+        # the resolved conversation is ONE patch file in the data root (the one it wrote before was replaced each time): the
+        # header says which conversation it is and how it ended, the diff is what was taken, and it applies to the file as it
+        # is on the disk
+        patches = lambda c: sorted(glob.glob(os.path.join(data_dir, "review", "patches-*", "*-c%d.patch" % c)))
+        app.until("its patch file", lambda: len(patches(first)) == 1 and "Outcome: accepted" in read_text(patches(first)[0]))
+        found = patches(first)
+        if len(found) != 1:
+            raise Failure("a conversation resolved three times has one patch file: %s" % found)
+        text = read_text(found[0])
+        for want in ("AzReview-Patch: 1", "Conversation: %d" % first, "Outcome: accepted", "Base: none", "Said: rename step_3 to first_step",
+                     "Rationale: Mock agent: rename step_3 to first_step", "Files: src/lib.rs",
+                     "diff --git a/src/lib.rs b/src/lib.rs", "@@ -2,6 +2,7 @@", "+// mock: rename step_3 to first_step"):
+            if want not in text:
+                raise Failure("the patch does not say %r:\n%s" % (want, text))
+        if app.count("AZREVIEW_PATCH", r"made c%d outcome=accepted changed=true left_out=0 name=.*" % first) < 1:
+            raise Failure("no line for the patch made: %s" % app.printed("AZREVIEW_PATCH", r".*"))
+        applied = subprocess.run(["patch", "-p1", "--dry-run", "-d", folder, "-i", found[0]], capture_output=True, text=True, check=False)
+        if applied.returncode != 0:
+            raise Failure("the patch does not apply to the file: %s%s" % (applied.stdout, applied.stderr))
+
         # nonsense: the agent does nothing, and nothing is shown of it (the reason is in the log line only)
         nonsense = add_note(app, "testing one two", CONV_ANCHOR_Y + 15.0 * 12, ask=True)
         app.until("asked", lambda: talk_of(app, nonsense)["asked"] == 1)
@@ -835,17 +889,29 @@ def conversations(args, logs, out, binary):
         if state(app)["conversations"]["agents"]["late"] != 0:
             raise Failure("an answer is still waiting: %s" % state(app)["conversations"]["agents"])
 
-        # closing a conversation: what waits is no longer waited for, and the file is not yellow any more
+        # a conversation whose suggestions were all decided is done and offers to be opened again
         app.click(selector="#__azreview_conv-%d" % first, every_dom=True)
         app.until("the first one open", lambda: state(app)["conversations"]["open"] == first)
-        app.click(selector="#__azreview_conv-resolve-%d" % first, every_dom=True)
-        app.until("resolved", lambda: talk_of(app, first)["phase"] == "done")
         app.until("the reopen key", lambda: app.has_id("__azreview_conv-reopen-%d" % first, every_dom=True))
+        # closing a conversation that waits: what waits is no longer waited for, and the file is not yellow any more
         app.until("the one that waits is a suggestion still", lambda: talk_of(app, late)["phase"] == "suggested")
+        # an open conversation covers the margin below its chip, as it does for a reviewer: it is closed before the next chip
+        app.click(selector="#__azreview_conv-close-%d" % first, every_dom=True)
+        app.until("the first one closed", lambda: state(app)["conversations"]["open"] is None)
         app.click(selector="#__azreview_conv-%d" % late, every_dom=True)
         app.until("the other one open", lambda: state(app)["conversations"]["open"] == late)
         app.click(selector="#__azreview_conv-resolve-%d" % late, every_dom=True)
         app.until("it is resolved too", lambda: talk_of(app, late)["phase"] == "done")
+        # closed with a suggestion waiting: a header alone, that says nothing was taken (and a conversation nobody resolved has none)
+        app.until("the patch of the one that was closed", lambda: len(patches(late)) == 1)
+        closed = read_text(patches(late)[0])
+        for want in ("Conversation: %d" % late, "Outcome: rejected", "Files: none", "Said: what does step_5 add to x"):
+            if want not in closed:
+                raise Failure("the patch of the conversation that was closed does not say %r:\n%s" % (want, closed))
+        if "diff --git" in closed:
+            raise Failure("a diff where nothing was taken:\n%s" % closed)
+        if patches(nonsense):
+            raise Failure("a patch for a conversation nobody resolved: %s" % patches(nonsense))
         app.until("the file is no longer yellow", lambda: not app.has_id("__azreview_file-mark-suggested", every_dom=True))
 
         # the archive keeps the conversation: the phase and the turn are in it
@@ -980,6 +1046,69 @@ def conversations_dictation(args, logs, out, binary):
     app.log("PASS: a dictation without a microphone: its conversation opens in the margin, the last three lines show, the silence ends it, the agent answers and the archive has it all")
 
 
+def conversations_return(args, logs, out, binary):
+    """Continue reviewing: a jump to a conversation (a chip of the bottom bar) remembers where the reviewer was, the first
+    jump only; the key (or Mod+Shift+C) comes back and clears it; a restart still has it. No microphone, the mock agent."""
+    data_dir = os.path.join(logs, "data-conv-return")
+    folder = os.path.join(logs, "folder-conv-return")
+    os.makedirs(data_dir, exist_ok=True)
+    fixture(folder)
+    argv = [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en", "--dwell-input", "off",
+            "--standby", "off", "--agent", "mock"]
+    app = e2e.App("review-conv-return", binary, argv, args.debug_port + 9, logs, args.timeout)
+    place = {"file": os.path.join("src", "lib.rs"), "page": 0, "line": 1}
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        show_files(app)
+        pick(app, "src", "lib.rs")
+        app.until("lib.rs open", lambda: state(app)["tree"]["open"] == place["file"])
+        near = add_note(app, "near the top", CONV_ANCHOR_Y, page=0)
+        far = add_note(app, "far down the file", CONV_ANCHOR_Y, page=2)
+        app.until("the bar has them", lambda: app.shows("far down the file") and app.shows("near the top"))
+        if state(app)["progress"]["back"] is not None or app.has_id("__azreview_back"):
+            raise Failure("a place to come back to before any jump: %s" % state(app)["progress"]["back"])
+
+        # the first jump: to the far conversation, remembering where the reviewer was (page 1, line 1)
+        app.click(text="far down the file", frames=2)
+        app.until("it opened", lambda: state(app)["conversations"]["open"] == far)
+        app.until("the place is kept", lambda: state(app)["progress"]["back"] == place)
+        app.until("the key to continue", lambda: app.has_id("__azreview_back"))
+        if state(app)["visible_page"] != 2:
+            raise Failure("the jump did not take the pages to the conversation: page %s" % state(app)["visible_page"])
+        if not app.shows("Back to src/lib.rs p1 l1"):
+            raise Failure("the key does not say where it goes back to")
+        app.screenshot(os.path.join(out, "28-continue-reviewing.png"))
+
+        # a jump from one conversation to another does not overwrite it (the reviewer is on page 3 now)
+        app.click(text="near the top", frames=2)
+        app.until("the other opened", lambda: state(app)["conversations"]["open"] == near)
+        if state(app)["progress"]["back"] != place:
+            raise Failure("the second jump changed the place: %s" % state(app)["progress"]["back"])
+
+        # what the place is, is kept in the data root: leave the file (that writes it), stop, and start again
+        app.click(text="README.md", every_dom=True, frames=1)
+        app.until("the progress written", lambda: app.count("AZREVIEW_SAVED", r"review/progress-[0-9a-f]{16}\.json") > 0)
+        app.stop()
+        again = e2e.App("review-conv-return-again", binary, argv, args.debug_port + 10, logs, args.timeout)
+        try:
+            again.until("AzReview's window", lambda: again.has_id(STRIP))
+            again.until("the place came back with the window", lambda: state(again)["progress"]["back"] == place)
+            again.until("and its key", lambda: again.has_id("__azreview_back"))
+            # the shortcut comes back: the place opens, and is none
+            again.key("c", primary=True, shift=True)
+            again.until("back at the place", lambda: state(again)["tree"]["open"] == place["file"] and state(again)["visible_page"] == 0)
+            again.until("no place any more", lambda: state(again)["progress"]["back"] is None and not again.has_id("__azreview_back"))
+            no_lint(again, "the continue-reviewing run")
+        finally:
+            again.stop()
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: a jump to a conversation remembers where the reviewer was (the first one only), the key and Mod+Shift+C come back, and a restart still has it")
+
+
 def notes_in(path):
     with zipfile.ZipFile(path) as z:
         return json.loads(z.read("session.json").decode("utf-8")).get("notes", [])
@@ -999,6 +1128,7 @@ def run_all(args, logs, out):
         conversations(args, logs, out, binary)
         conversations_failing(args, logs, out, binary)
         conversations_dictation(args, logs, out, binary)
+        conversations_return(args, logs, out, binary)
         return True
     body(args, logs, out)
     # The dictation steps need the fake speech backend (a libazul with the test hooks). Without it the real recogniser
@@ -1014,6 +1144,7 @@ def run_all(args, logs, out):
     conversations(args, logs, out, binary)
     conversations_failing(args, logs, out, binary)
     conversations_dictation(args, logs, out, binary)
+    conversations_return(args, logs, out, binary)
     restore(args, logs, out, binary)
     return True
 
