@@ -51,6 +51,10 @@ pub mod run;
 // backends a test binary on one host cannot run.
 #[cfg(test)]
 mod window_teardown_invariants;
+// The same for the iOS shell, which a test binary on one host cannot compile: what a phone app dies
+// of or silently loses its input to, pinned in the source.
+#[cfg(test)]
+mod ios_shell_invariants;
 
 // Re-export common types
 pub use common::{
