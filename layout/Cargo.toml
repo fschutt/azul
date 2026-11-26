@@ -207,13 +207,14 @@ tikv-jemalloc-sys = { version = "0.6", default-features = false, optional = true
 [features]
 # WIP gate for the dormant-test port (see [[test]] text3_suite).
 text3-suite-wip = []
-# Default: Full layout engine with text, fonts, SVG, images, accessibility
+# Default: Full layout engine with text, fonts, SVG, images (the ten formats the dll's `all_img_formats`
+# turns on: without them `image_decoding` decodes nothing), accessibility
 # Uses multithreaded font loading for faster startup on desktop
 # `probe` is DEFAULT-ON (USER ruling 2026-08-29): spans are one relaxed
 # atomic when not recording, and every real build (build-dll, telemetry)
 # wants them anyway - the only observability piece that stays opt-in is the
 # HTTP debug server (`e2e-server-http`), which opens a listening socket.
-default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "font_async_registry", "svg", "image_decoding", "cpurender", "a11y", "widgets", "extra", "icons", "probe", "materials"]
+default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "font_async_registry", "svg", "image_decoding", "png", "jpeg", "gif", "tiff", "bmp", "ico", "tga", "hdr", "webp", "pnm", "cpurender", "a11y", "widgets", "extra", "icons", "probe", "materials"]
 
 # Fine-grained timing + RSS instrumentation. Enables `probe::Probe::span`
 # guards across the layout pipeline. Off by default — consumer crates
