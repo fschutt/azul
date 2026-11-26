@@ -73,6 +73,17 @@ fn first_takes_the_keyboard(index: usize, page: &Dom) -> Dom {
 /// The canvas's room beside a sheet, both sides together, px.
 const CANVAS_SIDES: f32 = 48.0;
 
+/// The narrowest sheet of the web layout: a phone is 320 dp wide at the least, and the sheet leaves the canvas its
+/// [`CANVAS_SIDES`] (the sheet was never narrower than 320, and ran out of a 320 dp window).
+const MIN_WEB_SHEET: f32 = 240.0;
+
+/// The width of the web layout's sheet in a window `window_width` wide at `zoom`: the window less the canvas's
+/// room beside it, at most 1200 px at 100 %.
+#[must_use]
+pub fn web_sheet_width(window_width: f32, zoom: f32) -> f32 {
+    (window_width - CANVAS_SIDES).clamp(MIN_WEB_SHEET, 1200.0 * zoom)
+}
+
 /// Whether the document is shown as the web layout's one sheet: the web layout was asked for, or
 /// the window is narrower than the A4 sheet the print layout would put in it (a phone: a sheet of
 /// 794 px ran out of a 411 dp screen and its text with it). The sheet that fits the screen reflows.
@@ -120,7 +131,7 @@ pub fn document_area(app: &RefAny, st: &AppState, window_width: f32) -> Dom {
         }
         View::Web => {
             let pages = editor.page_doms(vec![0u32], 0, 1);
-            let width = (window_width - CANVAS_SIDES).clamp(320.0, 1200.0 * zoom);
+            let width = web_sheet_width(window_width, zoom);
             for (i, page) in pages.as_slice().iter().enumerate() {
                 canvas.add_child(sheet(
                     first_takes_the_keyboard(i, page),

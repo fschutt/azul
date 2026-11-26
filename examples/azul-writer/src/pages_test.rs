@@ -23,3 +23,14 @@ fn zooming_in_makes_the_sheet_wider_and_a_window_that_held_it_may_not() {
     assert!(!shows_as_web(View::Print, 1280.0, 1.0));
     assert!(shows_as_web(View::Print, 1280.0, 1.6), "1270 px of sheet and 48 of canvas");
 }
+
+#[test]
+fn the_web_sheet_is_the_window_less_the_canvas_sides_and_fits_the_narrowest_phone() {
+    use super::web_sheet_width;
+    assert!((web_sheet_width(411.0, 1.0) - 363.0).abs() < 0.01, "a 411 dp phone leaves the sheet 363");
+    assert!((web_sheet_width(360.0, 1.0) - 312.0).abs() < 0.01);
+    assert!((web_sheet_width(320.0, 1.0) - 272.0).abs() < 0.01, "a 320 dp phone: the sheet was 320 wide and ran out of it");
+    assert!((web_sheet_width(100.0, 1.0) - 240.0).abs() < 0.01, "never narrower than the least");
+    assert!((web_sheet_width(1920.0, 1.0) - 1200.0).abs() < 0.01, "at most 1200 px at 100 %");
+    assert!((web_sheet_width(1920.0, 0.5) - 600.0).abs() < 0.01, "and the zoom's share of it");
+}
