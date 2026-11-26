@@ -28,7 +28,7 @@ use azul_css::{
         style::{
             BorderStyle, StyleDirection, StyleHyphens, StyleLineBreak, StyleListStylePosition,
             StyleListStyleType, StyleOverflowWrap, StyleTextAlign, StyleTextAlignLast,
-            StyleTextBoxTrim, StyleTextCombineUpright, StyleTextOrientation, StyleUnicodeBidi,
+            StyleTextBoxTrim, StyleTextOrientation, StyleUnicodeBidi,
             StyleVerticalAlign, StyleVisibility, StyleWhiteSpace, StyleWordBreak,
         },
     },
@@ -213,8 +213,6 @@ pub struct LineStyle {
     pub line_clamp: Option<std::num::NonZeroUsize>,
     /// `hanging-punctuation`: whether punctuation hangs outside the line.
     pub hanging_punctuation: bool,
-    /// `text-combine-upright` (vertical writing).
-    pub text_combine_upright: Option<text3::cache::TextCombineUpright>,
     /// `shape-inside`: the shape the lines flow within.
     pub shape_inside: Option<ShapeInside>,
     /// The root's `height` in an absolute unit, read only when it has a
@@ -277,8 +275,8 @@ impl LineStyle {
             DOM_HAS_HANGING_PUNCTUATION, DOM_HAS_HYPHENATION_LANGUAGE, DOM_HAS_HYPHENS,
             DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN, DOM_HAS_LINE_BREAK,
             DOM_HAS_LINE_CLAMP, DOM_HAS_OVERFLOW_WRAP, DOM_HAS_SHAPE_INSIDE,
-            DOM_HAS_TEXT_ALIGN_LAST, DOM_HAS_TEXT_COMBINE_UPRIGHT, DOM_HAS_TEXT_JUSTIFY,
-            DOM_HAS_UNICODE_BIDI, DOM_HAS_WORD_BREAK,
+            DOM_HAS_TEXT_ALIGN_LAST, DOM_HAS_TEXT_JUSTIFY, DOM_HAS_UNICODE_BIDI,
+            DOM_HAS_WORD_BREAK,
         };
         // DOM-level declared flags: if a bit is clear, no node in this DOM
         // declared the corresponding property → cascade walks always return
@@ -441,29 +439,6 @@ impl LineStyle {
             false
         };
 
-        // +spec:line-breaking:9f150a - text-combine-upright:all composes glyphs horizontally,
-        // ignoring letter-spacing and forced line breaks +spec:line-breaking:1b88cd -
-        // text-combine-upright:all layout: inline-block with 1em square, ignoring forced line
-        // breaks +spec:inline-formatting-context:c8d8d9 - text-combine-upright compression
-        // passed to text shaping engine +spec:inline-formatting-context:f4ef7d -
-        // text-combine-upright layout rules (1em square composition)
-        let text_combine_upright = if dom_declared & DOM_HAS_TEXT_COMBINE_UPRIGHT != 0 {
-            cache
-                .get_text_combine_upright(node_data, &id, node_state)
-                .and_then(|s| s.get_property())
-                // +spec:display-property:6f174d - text-combine-upright horizontal-in-vertical
-                // composition
-                .map(|tcu| match tcu {
-                    StyleTextCombineUpright::None => text3::cache::TextCombineUpright::None,
-                    StyleTextCombineUpright::All => text3::cache::TextCombineUpright::All,
-                    StyleTextCombineUpright::Digits(n) => {
-                        text3::cache::TextCombineUpright::Digits(*n)
-                    }
-                })
-        } else {
-            None
-        };
-
         // The hyphenation language (CSS Text 3 5.4): azul's own
         // `-azul-hyphenation-language` where it is set - an override - else
         // the CONTENT LANGUAGE, the nearest `lang` attribute. Read only under
@@ -567,7 +542,6 @@ impl LineStyle {
             initial_letter,
             line_clamp,
             hanging_punctuation,
-            text_combine_upright,
             shape_inside,
             shape_box_height,
         }
@@ -984,7 +958,6 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         hanging_punctuation: style.hanging_punctuation,
         text_wrap,
         white_space_mode,
-        text_combine_upright: style.text_combine_upright,
         segment_alignment: SegmentAlignment::Total,
         overflow: match style.overflow_x {
             LayoutOverflow::Visible => text3::cache::OverflowBehavior::Visible,

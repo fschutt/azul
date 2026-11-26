@@ -41,8 +41,10 @@ pub struct SimpleGlyphRun {
     pub font_hash: u64,
     /// The font size in pixels.
     pub font_size_px: f32,
-    /// The run's style asks for a bold weight (600 or more). The display
-    /// list draws the run thickened when its face is lighter than that
+    /// The run's style asks for a bold weight (600 or more) and lets it be
+    /// faked (`font-synthesis-weight` is not `none`:
+    /// [`crate::text3::cache::StyleProperties::asks_for_synthetic_bold`]). The
+    /// display list draws the run thickened when its face is lighter than that
     /// ([`crate::text3::cache::needs_synthetic_bold`]). A face can serve a
     /// regular and a bold run alike, so runs break where this changes.
     pub asks_for_bold: bool,
@@ -304,7 +306,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                     let glyph_border = style.border;
                     let font_hash = glyph.font_hash;
                     let font_size_px = style.font_size_px;
-                    let asks_for_bold = style.asks_for_bold();
+                    let asks_for_bold = style.asks_for_synthetic_bold();
                     let text_decoration = style.text_decoration;
 
                     let absolute_position = LogicalPosition {
@@ -568,12 +570,20 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
     let mut current_run: Option<PdfGlyphRun<T>> = None;
 
     for positioned_item in &layout.items {
-        // Only process text clusters
-        let ShapedItem::Cluster(cluster) = &positioned_item.item else {
-            continue; // Skip non-text items
+        // Only the items that draw text: a cluster, and a combined block (tate-chu-yoko), whose
+        // glyphs are set side by side in the vertical line and read from left to right, the text
+        // of the block standing for them. Skipped, its digits would be missing from the PDF.
+        let (glyphs, style, cluster_text, direction) = match &positioned_item.item {
+            ShapedItem::Cluster(cluster) => {
+                (&cluster.glyphs, &cluster.style, cluster.text(), cluster.direction)
+            }
+            ShapedItem::CombinedBlock {
+                glyphs, style, text, ..
+            } => (glyphs, style, &**text, BidiDirection::Ltr),
+            _ => continue, // Skip non-text items
         };
 
-        if cluster.glyphs.is_empty() {
+        if glyphs.is_empty() {
             continue;
         }
 
@@ -584,18 +594,16 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
         // Process each glyph in the cluster
         let mut pen_x = positioned_item.position.x;
 
-        let cluster_text = cluster.text();
-        let cluster_glyphs_count = cluster.glyphs.len();
+        let cluster_glyphs_count = glyphs.len();
 
-        for (glyph_idx, glyph) in cluster.glyphs.iter().enumerate() {
-            let glyph_color = cluster.style.color;
-            let glyph_background = cluster.style.background_color;
+        for (glyph_idx, glyph) in glyphs.iter().enumerate() {
+            let glyph_color = style.color;
+            let glyph_background = style.background_color;
             let font_hash = glyph.font_hash;
-            let font_size_px = cluster.style.font_size_px;
-            let text_decoration = cluster.style.text_decoration;
+            let font_size_px = style.font_size_px;
+            let text_decoration = style.text_decoration;
             let line_index = positioned_item.line_index;
-            let direction = cluster.direction;
-            let writing_mode = cluster.style.writing_mode;
+            let writing_mode = style.writing_mode;
 
             // Look up the font from the fonts container; borrowed, and cloned only
             // into a run that starts here (it was cloned per glyph, A8-30).
@@ -603,7 +611,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                 continue; // Skip glyphs with unknown fonts
             };
             let synthetic_bold = crate::text3::cache::needs_synthetic_bold(
-                cluster.style.asks_for_bold(),
+                style.asks_for_synthetic_bold(),
                 font.weight_class(),
             );
 
@@ -648,7 +656,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
             if let Some(run) = current_run.as_mut() {
                 // Add to existing run
                 run.glyphs.push(pdf_glyph);
-                run.cluster_texts.push(cluster.text().to_string());
+                run.cluster_texts.push(cluster_text.to_string());
             } else {
                 // Start a new run
                 current_run = Some(PdfGlyphRun {
@@ -667,7 +675,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                         x: pen_x,
                         y: baseline_y,
                     },
-                    cluster_texts: vec![cluster.text().to_string()],
+                    cluster_texts: vec![cluster_text.to_string()],
                 });
             }
 
@@ -883,6 +891,7 @@ mod autotest_generated {
                 run_index: 0,
                 item_index: 0,
             },
+            text: Arc::from("12"),
             glyphs: glyphs.into_iter().collect(),
             // height 0 keeps the fallback ascent (`0.8 * height`) at exactly 0.
             bounds: Rect {
@@ -1710,22 +1719,32 @@ mod autotest_generated {
         );
     }
 
+    /// Tate-chu-yoko blocks are drawn in a PDF too: their glyphs side by side, read from left to
+    /// right, the first of them standing for the text the block combines. They were dropped
+    /// (`text-combine-upright` had no effect from CSS, so no block reached a PDF).
     #[test]
-    fn pdf_ignores_combined_blocks_unlike_get_glyph_positions() {
-        // Tate-chu-yoko blocks are silently dropped by the PDF path.
+    fn pdf_draws_combined_blocks_and_maps_them_to_the_text_they_combine() {
         let st = style();
         let l = layout(vec![at(
             combined(vec![glyph(1, 10.0, &st), glyph(2, 10.0, &st)]),
-            0.0,
+            5.0,
             0.0,
             0,
         )]);
 
         assert_eq!(get_glyph_positions(&l).len(), 2);
-        assert!(
-            get_glyph_runs_pdf(&l, &fonts_with(&[FONT_A])).is_empty(),
-            "CombinedBlock never reaches the PDF run builder"
+        let runs = get_glyph_runs_pdf(&l, &fonts_with(&[FONT_A]));
+        assert_eq!(runs.len(), 1, "one run for the block");
+        assert_eq!(runs[0].glyphs.len(), 2);
+        assert_eq!(runs[0].direction, BidiDirection::Ltr);
+        assert_eq!(
+            [runs[0].glyphs[0].position.x, runs[0].glyphs[1].position.x],
+            [5.0, 15.0],
+            "side by side, from the block's own origin"
         );
+        assert_eq!(runs[0].glyphs[0].unicode_codepoint, "12", "the text of the block");
+        assert_eq!(runs[0].glyphs[1].unicode_codepoint, "", "said once");
+        assert_eq!(runs[0].cluster_texts, ["12", "12"]);
     }
 
     #[test]

@@ -4,10 +4,11 @@
 //! page setup of the layout, not in CSS, yet).
 //!
 //! And what it caps and says so: a `font-variation-settings` value keeps at most
-//! `MAX_VARIATION_AXES` axes, the style sheet's author is told when it had more.
+//! `MAX_VARIATION_AXES` axes and a `font-feature-settings` value at most `MAX_FONT_FEATURES`
+//! features, the style sheet's author is told when it had more.
 
 use super::*;
-use crate::props::basic::font_variation::MAX_VARIATION_AXES;
+use crate::props::basic::{font::MAX_FONT_FEATURES, font_variation::MAX_VARIATION_AXES};
 
 /// The `MalformedStructure` messages among `warnings`.
 fn structure_messages<'a>(warnings: &[CssParseWarnMsg<'a>]) -> Vec<&'a str> {
@@ -219,4 +220,95 @@ fn a_style_sheet_with_fifty_thousand_axes_in_one_value_is_read_in_bounded_time()
     );
     assert_eq!(variation_axes_counts(&warnings), [50_000], "{} warnings", warnings.len());
     assert_eq!(kept_axes(&css), [MAX_VARIATION_AXES]);
+}
+
+// ---------------------------------------------------------------------------
+// a font-feature-settings value keeps at most MAX_FONT_FEATURES features,
+// and the style sheet's author is told when it had more
+// ---------------------------------------------------------------------------
+
+/// `count` distinct features, `"a000", "a001" 0, "a002" 2, ...` (at most a thousand).
+fn features_text(count: usize) -> String {
+    (0..count)
+        .map(|index| format!("\"a{index:03}\" {}", index % 3))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The feature counts of the `TooManyFontFeatures` warnings among `warnings`.
+fn font_features_counts(warnings: &[CssParseWarnMsg<'_>]) -> Vec<usize> {
+    warnings
+        .iter()
+        .filter_map(|w| match &w.warning {
+            CssParseWarnMsgInner::TooManyFontFeatures { count, .. } => Some(*count),
+            _ => None,
+        })
+        .collect()
+}
+
+/// How many features each `font-feature-settings` declaration of `css` holds.
+fn kept_features(css: &Css) -> Vec<usize> {
+    css.rules
+        .as_ref()
+        .iter()
+        .flat_map(|rule| rule.declarations.as_ref().iter())
+        .filter_map(|declaration| match declaration {
+            CssDeclaration::Static(CssProperty::FontFeatureSettings(value)) => {
+                value.get_property().map(|settings| settings.features().len())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The warning the cap earns: the declaration stands with its first features, and the author is
+/// told, once, how many it had and how many a node keeps.
+#[test]
+fn a_font_feature_list_over_the_cap_is_capped_and_warned_about_once() {
+    let written = MAX_FONT_FEATURES + 6;
+    let source = format!("p {{ font-feature-settings: {}; }}", features_text(written));
+    let (css, warnings) = new_from_str(&source);
+
+    assert_eq!(font_features_counts(&warnings), [written], "{warnings:?}");
+    assert_eq!(kept_features(&css), [MAX_FONT_FEATURES]);
+    let message = warnings
+        .iter()
+        .find(|w| matches!(w.warning, CssParseWarnMsgInner::TooManyFontFeatures { .. }))
+        .map(|w| w.warning.to_string())
+        .unwrap();
+    assert!(
+        message.contains("font-feature-settings")
+            && message.contains(&written.to_string())
+            && message.contains(&MAX_FONT_FEATURES.to_string()),
+        "{message}"
+    );
+    // the warning is no copy of the value
+    assert!(message.len() < 200, "{} bytes", message.len());
+}
+
+/// A list at the cap, `normal` and a value that is no list say nothing about features.
+#[test]
+fn a_font_feature_list_within_the_cap_and_the_values_that_are_no_list_earn_no_warning() {
+    for value in [
+        features_text(MAX_FONT_FEATURES),
+        features_text(1),
+        "normal".to_string(),
+        "inherit".to_string(),
+        "\"liga\" 0, \"tnum\"".to_string(),
+    ] {
+        let source = format!("p {{ font-feature-settings: {value}; }}");
+        let (_css, warnings) = new_from_str(&source);
+        assert!(font_features_counts(&warnings).is_empty(), "{value}: {warnings:?}");
+    }
+}
+
+/// Only `font-feature-settings` has this cap.
+#[test]
+fn another_property_with_a_long_value_earns_no_features_warning() {
+    let source = format!(
+        "p {{ font-variation-settings: {}; }}",
+        axes_text(MAX_VARIATION_AXES + 6)
+    );
+    let (_css, warnings) = new_from_str(&source);
+    assert!(font_features_counts(&warnings).is_empty(), "{warnings:?}");
 }

@@ -872,7 +872,9 @@ mod autotest_generated {
     /// px length it was the sentinel, which the reader takes for the default
     /// 8. And a `border-spacing` in another unit than px left its slot at
     /// 0, which the reader takes for 0 px. The slot holds the tab size's
-    /// number, and the sentinel ("read the cascade") for such a spacing.
+    /// number, and the sentinel ("read the cascade") for such a spacing. A
+    /// LENGTH (`tab-size: 20px`) is the distance between the stops, not a count of
+    /// spaces: the slot cannot hold it, it is the `auto` code and the reader asks the cascade.
     #[test]
     fn a_declared_tab_size_and_a_relative_border_spacing_are_not_the_default() {
         use azul_css::props::{layout::table::LayoutBorderSpacing, style::text::StyleTabSize};
@@ -884,7 +886,7 @@ mod autotest_generated {
         };
         assert_eq!(tab(PixelValue::em(4.0)), 40, "tab-size: 4");
         assert_eq!(tab(PixelValue::em(2.5)), 25, "tab-size: 2.5");
-        assert_eq!(tab(PixelValue::px(20.0)), 200, "tab-size: 20px");
+        assert_eq!(tab(PixelValue::px(20.0)), I16_AUTO, "tab-size: 20px is a length: the cascade");
         assert_eq!(tab(PixelValue::em(0.0)), 0, "tab-size: 0");
         let mut unset = Sink::new();
         unset.apply(&CssProperty::TabSize(CssPropertyValue::Initial));

@@ -601,13 +601,34 @@ impl StyleFontFeatureSettings {
     }
 }
 
-/// The `(tag, value)` list of a `font-feature-settings` value that is not
-/// `normal`: comma-separated, each a quoted four-character printable-ASCII
-/// tag, then nothing (1), `on` (1), `off` (0) or a non-negative integer. A
-/// tag given twice keeps its last value, where it last stands. `None` for
-/// anything the grammar does not allow.
-fn parse_feature_tag_values(input: &str) -> Option<Vec<([u8; 4], u32)>> {
-    let mut out: Vec<([u8; 4], u32)> = Vec::new();
+/// The most distinct features one `font-feature-settings` value keeps.
+///
+/// A font has a few dozen OpenType features at most and a feature it lacks is ignored, so a
+/// value that writes more distinct tags than this is a hostile or a mistaken one: its first
+/// `MAX_FONT_FEATURES` tags are kept (a later value of a kept tag still wins) and the rest is
+/// dropped, as the value is read, and the stylesheet parser says so in a warning. Reading a
+/// value of any length is linear in it.
+pub const MAX_FONT_FEATURES: usize = 64;
+
+/// Puts one feature into `kept`: a tag that is kept already takes the new value, at the end of
+/// the list (where it last stands); a new tag is appended while `kept` holds fewer than
+/// [`MAX_FONT_FEATURES`] features and dropped after that. The scan is over at most
+/// [`MAX_FONT_FEATURES`] entries, so a list of any length is read in linear time.
+fn keep_feature(kept: &mut Vec<([u8; 4], u32)>, tag: [u8; 4], value: u32) {
+    if let Some(at) = kept.iter().position(|(other, _)| *other == tag) {
+        kept.remove(at);
+    } else if kept.len() >= MAX_FONT_FEATURES {
+        return;
+    }
+    kept.push((tag, value));
+}
+
+/// Reads the entries of a `font-feature-settings` value that is not `normal`, in order, and
+/// hands each tag and value to `entry`: comma-separated, each a quoted four-character
+/// printable-ASCII tag, then nothing (1), `on` (1), `off` (0) or a non-negative integer. `None`
+/// for anything the grammar does not allow (`entry` has run for the entries before the one that
+/// broke it).
+fn read_feature_entries(input: &str, mut entry: impl FnMut([u8; 4], u32)) -> Option<()> {
     for item in input.split(',') {
         let item = item.trim();
         let quote = item.chars().next().filter(|c| *c == '"' || *c == '\'')?;
@@ -625,10 +646,34 @@ fn parse_feature_tag_values(input: &str) -> Option<Vec<([u8; 4], u32)>> {
             v if v.bytes().all(|b| b.is_ascii_digit()) => v.parse::<u32>().ok()?,
             _ => return None,
         };
-        out.retain(|(t, _)| *t != tag);
-        out.push((tag, value));
+        entry(tag, value);
     }
-    Some(out)
+    Some(())
+}
+
+/// The `(tag, value)` list of a `font-feature-settings` value that is not
+/// `normal`: see [`read_feature_entries`]. A tag given twice keeps its last
+/// value, where it last stands; the list keeps its first [`MAX_FONT_FEATURES`]
+/// distinct tags. `None` for anything the grammar does not allow.
+fn parse_feature_tag_values(input: &str) -> Option<Vec<([u8; 4], u32)>> {
+    let mut kept: Vec<([u8; 4], u32)> = Vec::new();
+    read_feature_entries(input, |tag, value| keep_feature(&mut kept, tag, value))?;
+    Some(kept)
+}
+
+/// How many distinct feature tags the `font-feature-settings` value `input` writes - what
+/// [`MAX_FONT_FEATURES`] caps: 0 for `normal`, `None` for a value that is not valid.
+#[must_use]
+pub fn count_font_features(input: &str) -> Option<usize> {
+    let trimmed = input.trim();
+    if trimmed.eq_ignore_ascii_case("normal") {
+        return Some(0);
+    }
+    let mut tags = alloc::collections::BTreeSet::new();
+    read_feature_entries(trimmed, |tag, _| {
+        tags.insert(tag);
+    })?;
+    Some(tags.len())
 }
 
 impl PrintAsCssValue for StyleFontFeatureSettings {

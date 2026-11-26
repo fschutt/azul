@@ -48,6 +48,8 @@ pub mod agent_api;
 pub mod agent_azul;
 pub mod agent_backend;
 pub mod agent_claude;
+#[cfg(test)]
+pub mod agent_eval;
 pub mod agent_export;
 pub mod agent_factory;
 pub mod agent_gemini;

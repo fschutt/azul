@@ -194,18 +194,27 @@ text-decoration: underline;
 - `font-variant` (shorthand) sets `font-variant-caps`, `-numeric`, `-ligatures`, and `-east-asian`; `none` is `font-variant-ligatures: none`.
 - `font` (shorthand) accepts `[<font-style> || small-caps || <font-weight> || <font-stretch keyword>]? <font-size> [/ <line-height>]? <font-family>`, or a system font keyword. It sets every font property above; the ones the value does not name are reset to their initial value.
 - `line-height` accepts a unitless number, length, or percentage. Type `StyleLineHeight`.
-- `letter-spacing` accepts a length. Type `StyleLetterSpacing`.
-- `word-spacing` accepts a length. Type `StyleWordSpacing`.
-- `tab-size` accepts an integer or length. Type `StyleTabSize`.
+- `letter-spacing` accepts a length or `normal` (`0`, which ends the spacing of a parent). Type `StyleLetterSpacing`.
+- `word-spacing` accepts a length or `normal` (`0`, which ends the spacing of a parent). Type `StyleWordSpacing`.
+- `tab-size` accepts a number (the distance between tab stops in widths of a space, default `8`) or a length (that distance in px). Type `StyleTabSize`.
+- `text-indent` accepts a length or percentage, with `hanging` and `each-line`. Type `StyleTextIndent`.
 - `text-align` accepts `left`, `right`, `center`, `justify`, `start`, or `end`. Type `StyleTextAlign`.
+- `text-align-last` accepts `auto`, `start`, `end`, `left`, `right`, `center`, or `justify`. Type `StyleTextAlignLast`.
+- `text-justify` accepts `auto`, `none`, `inter-word`, `inter-character`, or `distribute`. Type `LayoutTextJustify`.
 - `text-decoration` accepts `none`, `underline`, `overline`, `line-through`, or combinations. Type `StyleTextDecoration`.
-- `text-transform` accepts `none`, `uppercase`, `lowercase`, or `capitalize`. Parses, type not exposed.
-- `text-orientation` accepts `mixed`, `upright`, or `sideways`. Type `StyleTextOrientation`.
+- `text-transform` accepts `none`, `uppercase`, `lowercase`, `capitalize`, or `full-width`. Type `StyleTextTransform`.
+- `text-orientation` accepts `mixed`, `upright`, or `sideways`. Type `StyleTextOrientation`. Parsed; no value turns a glyph yet (see [Styling Text](text-and-fonts.md#what-is-not-drawn-yet)).
 - `direction` accepts `ltr` or `rtl`. Type `StyleDirection`.
-- `white-space` accepts `normal`, `nowrap`, `pre`, `pre-wrap`, or `pre-line`. Type `StyleWhiteSpace`.
+- `unicode-bidi` accepts `normal`, `embed`, `isolate`, `bidi-override`, `isolate-override`, or `plaintext`. Type `StyleUnicodeBidi`. `bidi-override` and `isolate-override` on a block make its letters run in the direction of the block; `plaintext` takes the direction from the first strong letter.
+- `writing-mode` accepts `horizontal-tb`, `vertical-rl`, or `vertical-lr`. Type `LayoutWritingMode`. Read for the text of every node; the glyph runs of a PDF say the writing mode of their text.
+- `text-combine-upright` accepts `none`, `all`, or `digits <2-4>`. Type `StyleTextCombineUpright`. In a vertical block the characters set side by side in one em of the line (tate-chu-yoko); in horizontal text it has no effect.
+- `white-space` accepts `normal`, `nowrap`, `pre`, `pre-wrap`, `pre-line`, or `break-spaces`. Type `StyleWhiteSpace`.
 - `word-break` accepts `normal`, `break-all`, or `keep-all`. Type `StyleWordBreak`.
-- `overflow-wrap` accepts `normal`, `break-word`, or `anywhere`. Type `StyleOverflowWrap`.
+- `overflow-wrap` (also spelled `word-wrap`) accepts `normal`, `break-word`, or `anywhere`. Type `StyleOverflowWrap`.
+- `line-break` accepts `auto`, `loose`, `normal`, `strict`, or `anywhere`. Type `StyleLineBreak`. `anywhere` allows a break between any two characters; the others break Latin text alike.
 - `hyphens` accepts `none`, `manual`, or `auto`. Type `StyleHyphens`.
+- `initial-letter` accepts a number of lines (`3`, with an optional sink). Type `StyleInitialLetter`. Makes room for the first letter; the letter is not drawn bigger yet.
+- `hanging-punctuation` is parsed and not applied yet. Type `StyleHangingPunctuation`.
 - `hyphenation-language` (Azul) accepts a BCP 47 tag. Type `StyleHyphenationLanguage`.
 
 System font keywords resolve to platform defaults (`SF Pro`, `Segoe UI`,

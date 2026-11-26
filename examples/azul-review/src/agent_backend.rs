@@ -505,7 +505,9 @@ impl Response {
         let text = match &self.body {
             Body::Export(list) => format!("{} segments: {}", list.segments.len(), list.title),
             Body::Review(reply) => {
-                if reply.answer.trim().is_empty() {
+                if let Some(reason) = &reply.no_action {
+                    format!("no action: {reason}")
+                } else if reply.answer.trim().is_empty() {
                     format!("{} suggestion(s)", reply.suggestions.len())
                 } else {
                     reply.answer.trim().to_string()

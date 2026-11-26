@@ -3093,17 +3093,24 @@ fn encode_border_spacing_i16(spacing: azul_css::props::basic::pixel::PixelValue)
     }
 }
 
-/// `tab-size` for its slot: the declared NUMBER in tenths, whatever its unit - what the
-/// cascade's reader takes (`inner.number`: the count of spaces of `tab-size: 4`, which the
-/// parser keeps as `4em`, or the px of a length). The keywords as before.
+/// `tab-size` for its slot: the declared count of spaces in tenths (`tab-size: 4`, which the
+/// parser keeps as `4em`); a LENGTH (`tab-size: 30px`, the distance between the tab stops) is
+/// the `auto` code - the slot cannot hold it, and the reader asks the cascade. The keywords as
+/// before.
 ///
 /// Encoded as a px length it was the sentinel for every `tab-size: <number>` (an `em` is no
 /// px), and the sentinel reads as the default: a declared tab size was 8 at rest and the
-/// declared one only in another state.
+/// declared one only in another state. Encoded as the declared number whatever its unit, a
+/// length was read as that many spaces (`30px` was 30 spaces).
 fn encode_tab_size_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> i16 {
     match val {
         CssPropertyValue::Exact(inner) => {
-            encode_resolved_px_i16(inner.get_inner_pixel().number.get())
+            let declared = inner.get_inner_pixel();
+            if declared.metric == SizeMetric::Em {
+                encode_resolved_px_i16(declared.number.get())
+            } else {
+                I16_AUTO
+            }
         }
         _ => encode_css_pixel_as_i16(val),
     }

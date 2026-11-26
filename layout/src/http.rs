@@ -1237,7 +1237,7 @@ fn make_agent_trusting(
         agent_config_trusting(disable_tls_cert_verification, roots)
             .timeout_global(Some(Duration::from_secs(timeout_secs)))
             .build(),
-        ureq::unversioned::transport::DefaultConnector::default(),
+        crate::http_retry::connector(),
         FallbackResolver {
             inner: ureq::unversioned::resolver::DefaultResolver::default(),
             fallback: FallbackAddresses::default(),
@@ -1392,7 +1392,7 @@ fn client_agent(
         .max_idle_connections(config.max_idle_connections as usize)
         .max_idle_connections_per_host(config.max_idle_connections_per_host as usize)
         .build();
-    let connector = ureq::unversioned::transport::DefaultConnector::default();
+    let connector = crate::http_retry::connector();
     if config.dns_cache_secs == 0 {
         ureq::Agent::with_parts(
             agent_config,
