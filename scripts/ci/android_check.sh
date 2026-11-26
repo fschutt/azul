@@ -22,4 +22,7 @@ export "CC_${lower}=$ndkbin/${target}24-clang" "CXX_${lower}=$ndkbin/${target}24
 export "CARGO_TARGET_${upper}_LINKER=$ndkbin/${target}24-clang" "CARGO_TARGET_${upper}_AR=$ndkbin/llvm-ar"
 FEATURES="std,logging,link-static,a11y,android-activity,ndk,jni,cpurender,map-tiles,pdf"
 cargo check -p azul-dll --lib --target "$target" --no-default-features --features "$FEATURES" --message-format short
+# the QA APK's lib carries the debug server and the e2e op dispatcher: android_main has blocks behind
+# `any(feature = "debug-server", feature = "e2e-scripting")` that the list above does not compile
+cargo check -p azul-dll --lib --target "$target" --no-default-features --features "$FEATURES,debug-server,e2e-scripting" --message-format short
 echo "android shell: cargo check ok ($target)"
