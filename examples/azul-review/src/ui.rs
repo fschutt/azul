@@ -880,7 +880,7 @@ fn bottom_bar(s: &AppState, data: &RefAny) -> Dom {
 /// The colour of a conversation's state: blue while it works, yellow when a suggestion waits, green when done.
 const fn state_colour(state: crate::chips::State) -> &'static str {
     match state {
-        crate::chips::State::Working => "#0a84ff",
+        crate::chips::State::Working => "#5aafff",
         crate::chips::State::Suggested => "#e5a800",
         crate::chips::State::Done => "#2fa84f",
     }
@@ -899,7 +899,7 @@ fn state_word(state: crate::chips::State) -> AzString {
 fn state_mark(state: crate::chips::State, size: isize) -> Dom {
     match state {
         crate::chips::State::Working => Spinner::with_size(size)
-            .with_color(ColorU { r: 10, g: 132, b: 255, a: 255 })
+            .with_color(ColorU { r: 90, g: 175, b: 255, a: 255 })
             .with_indicator(SpinnerStyle::Spokes)
             .dom(),
         _ => Dom::create_div().with_css(
