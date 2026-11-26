@@ -85,6 +85,52 @@ weeks keeps pointing at the right lines in each of its references, and a documen
 however far the code has moved. When the code changes, a newer snapshot records the new revisions and says why; the older
 snapshots keep linking to the old ones.
 
+## The history: how the architecture changed, and why
+
+A board is not one picture but a chain of them tied to the code's revisions. `snapshots` holds the save points, oldest first;
+the document's own `items` are the board as it is now (the last snapshot, or more when it was edited since). The reason is the
+first-class content: a snapshot says why the architecture is shaped as it is, or why it changed since the one before.
+
+| field | what |
+| --- | --- |
+| `id`, `parent` | `s1`, `s2`, ...; the snapshot this one follows (a chain, like commits) |
+| `taken_ms`, `author` | when, and by whom (the git name as configured, nothing else personal) |
+| `code` | the repository's web address and host, the full `rev` of HEAD, the `branch`, whether the tree had uncommitted changes (`dirty`), when the revision was committed (`rev_time_ms`) |
+| `why` | the reason, free text with line feeds: THE field |
+| `tags` | decision numbers, links to issues and pull requests, as typed |
+| `summary` | what changed since the parent, worked out from the two states and never typed: `added` and `removed` items (id, kind, name), `moved` cutouts (from, to), `changed` items (`label`, `size`, `reference`, `ends`, `bend`), and `references` (below) |
+| `evidence` | optional: a recording's id, the span of it (`start_ms`, `end_ms`) and the words said then |
+| `canvas`, `next_id`, `items` | the board as it was: the same kinds of item as the document's, naming their pictures among the document's `assets` (a picture that several snapshots show is in the document once) |
+| `hash` | `sha256:` and the SHA-256 of the snapshot without `hash`, in the canonical form of RFC 8785 (JCS) |
+
+**A snapshot is immutable.** Its text is written once and written again as it was, never made again from the board: a link or a
+language that was worked out when it was taken stays what it was. History is only added to: restoring an old state is a new
+snapshot (and a board that has changes no snapshot holds is made a snapshot first, so that restoring loses nothing).
+
+**Checking a published history.** Take the snapshot object, remove its `hash` member, write it in JCS (members sorted by name,
+no white space, numbers and strings as ECMAScript writes them: `JSON.stringify` on the sorted object, or
+`json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)` for the numbers of a board) and hash the UTF-8
+bytes with SHA-256: it is the snapshot's `hash`, or the snapshot was changed after it was written. AzReview says so in the list
+of snapshots ("does not match its hash") and still shows what it reads.
+
+**The references across revisions.** Every reference keeps the `rev` it was circled at; the links of a snapshot name that
+revision, so an old snapshot keeps working online. When a snapshot is taken at a newer revision, each reference is looked for
+again in the files as they are, and `summary.references` lists the ones that are not as they were:
+
+| status | what was found |
+| --- | --- |
+| `moved` | the same lines (by their hash), somewhere else in the file: the reference points at the new place |
+| `changed` | the first and last lines that say something were found and what is between them is not as it was: the reference points at where they begin and end now, with the code that is there now (the cutout's picture still shows what was circled) |
+| `vanished` | nothing of them is there, or the file is gone: the reference is left as it was, and flagged |
+
+A reference that is the same lines at the same place is `unchanged` and is not listed; it only names the new revision. Where a
+reference moved, changed or vanished is where the reason of the snapshot is usually needed. A summary that says a cutout's
+`reference` changed means its path, its lines or what they say differ from the parent's.
+
+**When the code moves on.** AzReview asks, once for each revision, whether to take a new snapshot when the repository's HEAD is not
+the revision the newest snapshot was taken at; what was done since (resolved conversations, applied patches) is offered as the
+start of the reason.
+
 ## What is personal
 
 The document holds the folder's own name and never its path; the remote's address as git says it, without a password or token;
@@ -97,4 +143,6 @@ A reader ignores a field it does not know and leaves out (and counts) an item of
 `format` names a newer major version is refused with a message and left as it is, never rewritten. What is hostile is capped,
 not followed: a path that leaves the folder (`..`, absolute, a backslash, a drive), a picture that is not a `data:` address
 or a plain file beside the document, a document or a picture larger than a board is, more than 5000 items, nesting deeper
-than 16 levels, numbers that are none or are out of range. AzReview keeps 500 items on a board.
+than 16 levels, numbers that are none or are out of range. AzReview keeps 500 items on a board, and a history of at most 200
+snapshots, 20,000 items and 12 MiB of text in all of them (a snapshot that would go beyond one of these is refused with a
+message; one that is read beyond them is left out and counted).

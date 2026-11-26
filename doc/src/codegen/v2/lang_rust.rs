@@ -4123,6 +4123,9 @@ impl RustGenerator {
             builder.blank();
         }
 
+        let real = struct_def.external_path.as_deref().unwrap_or(&struct_def.name);
+        self.generate_thread_safety_impls(builder, &struct_def.traits, real, &name);
+
         // Drop impl calling C-ABI function — TRUE LEAVES ONLY (see
         // `struct_needs_own_drop`). Plain aggregates get NO mirror `Drop`: their
         // Rust field-glue already frees each field exactly once via that field's own
@@ -4142,6 +4145,30 @@ impl RustGenerator {
             builder.line("}");
             builder.blank();
         }
+    }
+
+    /// `unsafe impl Send` and `Sync` for a mirror whose real type the engine declares them for by hand
+    /// (`custom_impls` of api.json: autofix reads them from the engine's source). A handle that holds a
+    /// raw pointer is neither by itself, so without these an app that moves a handle to a thread of its
+    /// own has to wrap it in an `unsafe impl Send` newtype of its own. The reason is the engine's: it
+    /// stands beside its `unsafe impl`; the mirror has the same layout and owns the same one reference.
+    /// `real` is the engine's type (its path), `name` the mirror's (with the config's prefix).
+    fn generate_thread_safety_impls(&self, builder: &mut CodeBuilder, traits: &TypeTraits, real: &str, name: &str) {
+        if !traits.is_send && !traits.is_sync {
+            return;
+        }
+        builder.line(&format!(
+            "// SAFETY: the engine declares `{real}` thread-safe by hand and states why beside its `unsafe impl`: the"
+        ));
+        builder.line("// state a handle points at is shared between threads on purpose. This mirror has the same layout and");
+        builder.line("// owns the same single reference, so it is as thread-safe as the type it mirrors.");
+        if traits.is_send {
+            builder.line(&format!("unsafe impl Send for {name} {{}}"));
+        }
+        if traits.is_sync {
+            builder.line(&format!("unsafe impl Sync for {name} {{}}"));
+        }
+        builder.blank();
     }
 
     /// Whether an enum mirror must keep its own `impl Drop`. Enums delegate to their
@@ -4210,6 +4237,9 @@ impl RustGenerator {
             builder.line("}");
             builder.blank();
         }
+
+        let real = enum_def.external_path.as_deref().unwrap_or(&enum_def.name);
+        self.generate_thread_safety_impls(builder, &enum_def.traits, real, &name);
 
         // Drop impl — enums delegate to their single named-struct payload's own
         // `Drop` via Rust field-glue, so no mirror `Drop` is emitted unless the enum

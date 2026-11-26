@@ -1,5 +1,5 @@
 //! How steadily the window's timer runs after a recording starts: the first tick's distance from the start, the
-//! longest gap between two ticks and how many there were. Pure: the times are given.
+//! longest gap between two ticks, how many there were and the longest work of one tick. Pure: the times are given.
 
 use super::*;
 
@@ -21,7 +21,27 @@ fn the_first_tick_the_longest_gap_and_the_count_are_what_the_times_say() {
     s.tick(2_450_000);
     s.tick(3_900_000);
     assert_eq!(s.max_gap_us, 1_450_000, "a later gap is longer");
-    assert_eq!(s.line(), "count=6 first_ms=830 max_gap_ms=1450");
+    assert_eq!(s.line(), "count=6 first_ms=830 max_gap_ms=1450 max_work_ms=0");
+}
+
+/// The longest work of one tick is the longest of those told after the start, and none before one: a tick that made a
+/// system call that took 1.4 s says so, so that a gap can be told from a loop that did not run the tick.
+///
+/// Mutation: the last work taken as the longest; the work before a start counted; a work that is not kept; the work in
+/// milliseconds read as microseconds.
+#[test]
+fn the_longest_work_of_a_tick_is_kept_and_only_after_a_start() {
+    let mut s = TickStats::default();
+    s.worked(9_000_000);
+    assert_eq!(s.max_work_us, 0, "no start yet");
+    s.begin(1_000);
+    s.worked(3_000);
+    s.worked(1_400_000);
+    s.worked(2_000);
+    assert_eq!(s.max_work_us, 1_400_000, "the longest, not the last");
+    assert_eq!(s.line(), "count=0 first_ms=0 max_gap_ms=0 max_work_ms=1400");
+    s.begin(5_000_000);
+    assert_eq!(s.max_work_us, 0, "afresh");
 }
 
 /// A tick before any start counts for nothing; a start begins afresh (the numbers of the run before are gone); a
@@ -33,7 +53,7 @@ fn a_tick_before_the_start_counts_for_nothing_and_a_start_begins_afresh() {
     let mut s = TickStats::default();
     s.tick(500);
     assert_eq!((s.count, s.first_us, s.max_gap_us), (0, 0, 0));
-    assert_eq!(s.line(), "count=0 first_ms=0 max_gap_ms=0");
+    assert_eq!(s.line(), "count=0 first_ms=0 max_gap_ms=0 max_work_ms=0");
     s.begin(1_000);
     s.tick(51_000);
     s.tick(2_051_000);

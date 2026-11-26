@@ -52,6 +52,18 @@ act="$(echo "$badging" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p
 echo "apk: $apk package=$pkg activity=${act:-?}"
 printf '%s\n' "$badging" >"$out/badging.txt"
 
+# AZ_QA_SERIES=10: ten cold starts of the app measured with `am start -W`; AZ_FLOOR=1 also builds the floor APK (an empty Java
+# Activity, scripts/floor-apk/build.sh) and measures it the same way on the same emulator
+floor_apk=""
+if [ "${AZ_FLOOR:-}" = 1 ]; then
+  yes | sdkmanager --install "platforms;android-34" >>"$out/sdkmanager.log" 2>&1 || true
+  if JAVA_HOME="${JAVA_HOME_17_X64:-${JAVA_HOME:-}}" bash "$here/../floor-apk/build.sh" "$out/AzFloor-android.apk" >"$out/floor-build.log" 2>&1; then
+    floor_apk="$out/AzFloor-android.apk"
+  else
+    echo "the floor APK did not build:"; tail -n 8 "$out/floor-build.log"
+  fi
+fi
+
 IFS=',' read -r -a mode_list <<<"$modes"
 for mode in "${mode_list[@]}"; do
   d="$out/$mode"; mkdir -p "$d"
@@ -86,13 +98,31 @@ for mode in "${mode_list[@]}"; do
   sleep 20   # the launcher and system UI settle (a first screenshot of a booting system shows an ANR dialog)
   if [ "$session" = qa ] || [ "$session" = both ]; then
     python3 "$here/mobile_qa.py" android --out "$d" --apk "$apk" --package "$pkg" --activity "${act:-}" \
-      --label "$label" --gpu "$mode" ${AZ_QA_POINTS:+--points "$AZ_QA_POINTS"} 2>&1 | tee "$d/qa.log"
+      --label "$label" --gpu "$mode" ${AZ_QA_POINTS:+--points "$AZ_QA_POINTS"} \
+      $( [ "$mode" = "${mode_list[0]}" ] && echo ${AZ_QA_SERIES:+--series "$AZ_QA_SERIES"} ${floor_apk:+--floor-apk "$floor_apk"} ) \
+      ${AZ_QA_EXPECT_GPU:+--expect-gpu} ${AZ_QA_ONLY:+--only "$AZ_QA_ONLY"} 2>&1 | tee "$d/qa.log"
   fi
-  if [ "$session" = e2e ] || [ "$session" = both ]; then
+  # the e2e session runs on the FIRST mode only (it does not depend on how the emulator composes the window)
+  if { [ "$session" = e2e ] || [ "$session" = both ]; } && [ "$mode" = "${mode_list[0]}" ]; then
     scen=()
     for f in ${AZ_QA_SCENARIOS:-}; do scen+=(--scenario "$f"); done
     python3 "$here/mobile_e2e.py" android --out "$d/e2e" --apk "$apk" --package "$pkg" --activity "${act:-}" \
       --label "$label e2e" ${scen[@]+"${scen[@]}"} 2>&1 | tee "$d/e2e.log"
+  fi
+  # AZ_QA_EXTRA_APKS="a.apk b.apk": a FIRST LOOK at other apps on the same boot (first mode only): the steps of AZ_QA_ONLY_EXTRA
+  # (default 03 cold start, 08 rotate, 09 home and resume, 12 dark mode, 13 font scale), an out folder per app
+  if [ "$mode" = "${mode_list[0]}" ]; then
+    for xapk in ${AZ_QA_EXTRA_APKS:-}; do
+      xb="$("$aapt2" dump badging "$xapk" 2>/dev/null || true)"
+      xpkg="$(echo "$xb" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+      xact="$(echo "$xb" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" | head -n 1)"
+      xn="$(basename "$xapk" .apk)"
+      [ -n "$xpkg" ] || { echo "no package in the badging of $xapk"; continue; }
+      echo "---- first look at $xn ($xpkg)"
+      mkdir -p "$d/apps"
+      python3 "$here/mobile_qa.py" android --out "$d/apps/$xn" --apk "$xapk" --package "$xpkg" --activity "${xact:-}" \
+        --label "$xn" --gpu "$mode" --only "${AZ_QA_ONLY_EXTRA:-03,08,09,12,13}" 2>&1 | tee "$d/apps/$xn.log"
+    done
   fi
   adb emu kill >/dev/null 2>&1 || true
   sleep 3
@@ -104,7 +134,7 @@ python3 - "$out" <<'PY'
 import json, pathlib, sys
 out = pathlib.Path(sys.argv[1])
 rows = []
-for q in sorted(list(out.glob("*/qa.json")) + list(out.glob("*/e2e/qa.json"))):
+for q in sorted(list(out.glob("*/qa.json")) + list(out.glob("*/e2e/qa.json")) + list(out.glob("*/apps/*/qa.json"))):
     d = json.loads(q.read_text())
     failed = [s["name"] for s in d["steps"] if not s["ok"]]
     rows.append({"mode": str(q.parent.relative_to(out)), "ok": d["ok"], "steps": len(d["steps"]), "failed": failed})

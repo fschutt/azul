@@ -118,6 +118,8 @@ function style_text()
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textDecoration($L->AzStyleTextDecoration_Underline)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textDecorationColor(azul_union('AzStyleTextDecorationColorValue', 'Exact', 6, $L->AzStyleTextDecorationColor_color(azul_struct('AzColorU', ['r' => 204, 'g' => 51, 'b' => 0, 'a' => 255]))))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textDecorationThickness(azul_union('AzStyleTextDecorationThicknessValue', 'Exact', 6, $L->AzStyleTextDecorationThickness_length($L->AzPixelValue_px(2.0))))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textUnderlineOffset(azul_union('AzStyleTextUnderlineOffsetValue', 'Exact', 6, $L->AzStyleTextUnderlineOffset_length($L->AzPixelValue_px(3.0))))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textUnderlinePosition(azul_union('AzStyleTextUnderlinePositionValue', 'Exact', 6, $L->AzStyleTextUnderlinePosition_UnderLeft))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_hyphenationLanguage(azul_union('AzStyleHyphenationLanguageValue', 'Exact', 6, azul_struct('AzStyleHyphenationLanguage', ['inner' => azul_str('en-US')])))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_exclusionMargin(azul_union('AzStyleExclusionMarginValue', 'Exact', 6, azul_struct('AzStyleExclusionMargin', ['inner' => $L->AzFloatValue_create(10.5)])))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_caretColor(azul_struct('AzCaretColor', ['inner' => azul_struct('AzColorU', ['r' => 255, 'g' => 0, 'b' => 0, 'a' => 255])]))),

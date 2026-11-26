@@ -67,6 +67,8 @@ styleText = sequence
     (CssPropertyWithConditions.simple (T.CssProperty_TextDecoration (T.StyleTextDecorationValue_Exact T.StyleTextDecoration_Underline))),
     (CssPropertyWithConditions.simple (T.CssProperty_TextDecorationColor (T.StyleTextDecorationColorValue_Exact (T.StyleTextDecorationColor_Color (T.ColorU 204 51 0 255))))),
     (CssPropertyWithConditions.simple (T.CssProperty_TextDecorationThickness (T.StyleTextDecorationThicknessValue_Exact (T.StyleTextDecorationThickness_Length (T.PixelValue T.SizeMetric_Px (T.FloatValue 2000)))))),
+    (CssPropertyWithConditions.simple (T.CssProperty_TextUnderlineOffset (T.StyleTextUnderlineOffsetValue_Exact (T.StyleTextUnderlineOffset_Length (T.PixelValue T.SizeMetric_Px (T.FloatValue 3000)))))),
+    (CssPropertyWithConditions.simple (T.CssProperty_TextUnderlinePosition (T.StyleTextUnderlinePositionValue_Exact T.StyleTextUnderlinePosition_UnderLeft))),
     (CssPropertyWithConditions.simple (T.CssProperty_ExclusionMargin (T.StyleExclusionMarginValue_Exact (T.StyleExclusionMargin (T.FloatValue 10500))))),
     (CssPropertyWithConditions.simple (T.CssProperty_CaretColor (T.CaretColorValue_Exact (T.CaretColor (T.ColorU 255 0 0 255))))),
     (CssPropertyWithConditions.simple (T.CssProperty_CaretAnimationDuration (T.CaretAnimationDurationValue_Exact (T.CaretAnimationDuration (T.CssDuration 500 T.CssDurationUnit_Milliseconds))))),

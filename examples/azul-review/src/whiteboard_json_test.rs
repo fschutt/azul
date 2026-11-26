@@ -148,3 +148,75 @@ fn a_longer_text_is_read_when_the_caller_allows_it_and_not_otherwise() {
     assert!(parse_with(&text, 100).is_err());
 }
 
+/// (the bits of a double, what ECMAScript prints for it): the numbers of RFC 8785's appendix B and some of the board's,
+/// printed by V8.
+const ES_NUMBERS: &[(u64, &str)] = &[
+    (0x0000_0000_0000_0000, "0"),
+    (0x8000_0000_0000_0000, "0"),
+    (0x0000_0000_0000_0001, "5e-324"),
+    (0x8000_0000_0000_0001, "-5e-324"),
+    (0x7fef_ffff_ffff_ffff, "1.7976931348623157e+308"),
+    (0xffef_ffff_ffff_ffff, "-1.7976931348623157e+308"),
+    (0x4340_0000_0000_0000, "9007199254740992"),
+    (0xc340_0000_0000_0000, "-9007199254740992"),
+    (0x4430_0000_0000_0000, "295147905179352830000"),
+    (0x44b5_2d02_c7e1_4af5, "9.999999999999997e+22"),
+    (0x44b5_2d02_c7e1_4af6, "1e+23"),
+    (0x44b5_2d02_c7e1_4af7, "1.0000000000000001e+23"),
+    (0x444b_1ae4_d6e2_ef4e, "999999999999999700000"),
+    (0x444b_1ae4_d6e2_ef4f, "999999999999999900000"),
+    (0x444b_1ae4_d6e2_ef50, "1e+21"),
+    (0x3eb0_c6f7_a0b5_ed8c, "9.999999999999997e-7"),
+    (0x3eb0_c6f7_a0b5_ed8d, "0.000001"),
+    (0x41b3_de43_5555_5553, "333333333.3333332"),
+    (0x41b3_de43_5555_5554, "333333333.33333325"),
+    (0x41b3_de43_5555_5555, "333333333.3333333"),
+    (0x41b3_de43_5555_5556, "333333333.3333334"),
+    (0x41b3_de43_5555_5557, "333333333.33333343"),
+    (0xbecb_f647_612f_3696, "-0.0000033333333333333333"),
+    (0x4314_3ff3_c1cb_0959, "1424953923781206.2"),
+    (0x3fb9_9999_9999_999a, "0.1"),
+    (0x4059_0000_0000_0000, "100"),
+    (0x40c3_8800_0000_0000, "10000"),
+    (0x3ee4_f8b5_88e3_68f1, "0.00001"),
+    (0x3ff8_0000_0000_0000, "1.5"),
+    (0xc008_0000_0000_0000, "-3"),
+    (0x42c0_0000_0000_0000, "35184372088832"),
+];
+
+#[test]
+fn numbers_are_written_as_ecmascript_writes_them() {
+    for (bits, want) in ES_NUMBERS {
+        let n = f64::from_bits(*bits);
+        assert_eq!(es_number(n), *want, "{bits:#018x}");
+        assert_eq!(canonical(&Json::Num(n)), *want);
+    }
+    assert_eq!(es_number(f64::NAN), "0");
+    assert_eq!(es_number(f64::INFINITY), "0");
+}
+
+#[test]
+fn a_document_has_one_canonical_text_the_same_as_any_jcs_library_makes() {
+    // The text and what V8's JSON.stringify makes of it with the members sorted (RFC 8785's recipe).
+    let text = r#"{"b": [3, 1.0, 2.50, 1e2, -0.0, 1E-7, 123456789012345680000], "a": {"z": null, "y": true, "x": false},
+        "\ue000": 1, "\ud83d\ude00": 2, "é": 3, "A": 4, "\u20ac": 5,
+        "s": "tab\there \"q\" back\\slash \u0001 \u0008 \u000c \n \r \/ \u00e9 \ud83d\ude00 \u007f", "empty": {}, "list": []}"#;
+    let want = "{\"A\":4,\"a\":{\"x\":false,\"y\":true,\"z\":null},\"b\":[3,1,2.5,100,0,1e-7,123456789012345680000],\"empty\":{},\"list\":[],\"s\":\"tab\\there \\\"q\\\" back\\\\slash \\u0001 \\b \\f \\n \\r / \u{e9} \u{1f600} \u{7f}\",\"\u{e9}\":3,\"\u{20ac}\":5,\"\u{1f600}\":2,\"\u{e000}\":1}";
+    let v = ok(text);
+    assert_eq!(canonical(&v), want);
+    // Spaces, the order of the members and how a number was spelled make no difference.
+    let other = r#"{"list":[],"empty":{},"\ue000":1,"\ud83d\ude00":2,"\u20ac":5,"é":3,"A":4,"a":{"x":false,"z":null,"y":true},
+        "s":"tab\there \"q\" back\\slash \u0001 \b \f \n \r / é \ud83d\ude00 \u007f","b":[3,1,2.5,1E2,0,0.0000001,123456789012345680000]}"#;
+    assert_eq!(canonical(&ok(other)), want);
+    // And it is JSON: what is read from it is the same value.
+    assert_eq!(ok(&canonical(&v)), ok(&canonical(&ok(other))));
+}
+
+#[test]
+fn the_text_a_board_is_written_as_hashes_the_same_when_it_is_read_back_and_written_again() {
+    let v = object(vec![("b", from_f32(0.1)), ("a", Json::Arr(vec![from_f32(-120.5), from_u64(7), from_f32(1.0 / 3.0)])), ("t", from_str("x\ny"))]);
+    let once = canonical(&v);
+    assert_eq!(once, "{\"a\":[-120.5,7,0.33333334],\"b\":0.1,\"t\":\"x\\ny\"}");
+    assert_eq!(canonical(&ok(&pretty(&v))), once, "through the readable text and back");
+}
+

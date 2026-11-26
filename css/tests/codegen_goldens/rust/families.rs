@@ -81,6 +81,8 @@ pub fn style_text() -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::text_decoration(StyleTextDecoration::Underline)),
         CssPropertyWithConditions::simple(CssProperty::TextDecorationColor(StyleTextDecorationColorValue::Exact(StyleTextDecorationColor::Color(ColorU { r: 204, g: 51, b: 0, a: 255 })))),
         CssPropertyWithConditions::simple(CssProperty::TextDecorationThickness(StyleTextDecorationThicknessValue::Exact(StyleTextDecorationThickness::Length(PixelValue::px(2.0))))),
+        CssPropertyWithConditions::simple(CssProperty::TextUnderlineOffset(StyleTextUnderlineOffsetValue::Exact(StyleTextUnderlineOffset::Length(PixelValue::px(3.0))))),
+        CssPropertyWithConditions::simple(CssProperty::TextUnderlinePosition(StyleTextUnderlinePositionValue::Exact(StyleTextUnderlinePosition::UnderLeft))),
         CssPropertyWithConditions::simple(CssProperty::HyphenationLanguage(StyleHyphenationLanguageValue::Exact(StyleHyphenationLanguage { inner: azul::str::String::from("en-US") }))),
         CssPropertyWithConditions::simple(CssProperty::ExclusionMargin(StyleExclusionMarginValue::Exact(StyleExclusionMargin { inner: FloatValue::create(10.5) }))),
         CssPropertyWithConditions::simple(CssProperty::caret_color(CaretColor { inner: ColorU { r: 255, g: 0, b: 0, a: 255 } })),
