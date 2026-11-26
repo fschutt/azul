@@ -714,19 +714,24 @@ impl GlesGpu {
     fn destroy_renderer(&mut self, ctx: &mut GpuCtx<'_>) {
         if let Some(session) = self.session.as_mut() {
             if let Err(e) = session.bind() {
+                // A context that cannot be made current (a config with no pbuffer and no surfaceless support, after the
+                // window's surface went) cannot run the renderer's deletions: they are not attempted, what the renderer holds
+                // goes with the context.
                 log_warn!(
                     LogCategory::Rendering,
-                    "[render] the renderer is released with no current context: {}",
+                    "[render] the renderer cannot be released in a current context ({}): left to the context's destruction",
                     e
                 );
+                self.abandon_renderer(ctx);
+                return;
             }
         }
         gpu_renderer::release(ctx.common);
         self.device = None;
     }
 
-    /// The context is lost, or GL is not allowed: nothing is deleted with a GL command; what cannot be released is leaked.
-    fn abandon(&mut self, ctx: &mut GpuCtx<'_>) {
+    /// The renderer and what talks to it are dropped without any GL command (`mem::forget` for what would run one).
+    fn abandon_renderer(&mut self, ctx: &mut GpuCtx<'_>) {
         if let Some(renderer) = ctx.common.renderer.take() {
             std::mem::forget(renderer);
         }
@@ -739,6 +744,11 @@ impl GlesGpu {
         ctx.common.document_id = None;
         ctx.common.id_namespace = None;
         self.device = None;
+    }
+
+    /// The context is lost, or GL is not allowed: nothing is deleted with a GL command; what cannot be released is leaked.
+    fn abandon(&mut self, ctx: &mut GpuCtx<'_>) {
+        self.abandon_renderer(ctx);
         // The EGL objects of a lost context are destroyed with EGL calls, which a lost context allows; the table of
         // functions pointed into it.
         self.functions = None;
