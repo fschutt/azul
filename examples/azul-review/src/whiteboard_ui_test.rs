@@ -8,7 +8,7 @@ use azul::image::RawImageData;
 use super::*;
 use crate::{
     whiteboard::{CutoutDraft, CutoutImage, End, Source},
-    whiteboard_geom::Rect,
+    whiteboard_geom::{Rect, View},
 };
 
 fn with(app: &mut RefAny, f: &mut dyn FnMut(&mut Panel)) -> bool {
@@ -127,6 +127,28 @@ fn a_cutout_is_a_node_under_the_surface_with_its_label() {
 }
 
 #[test]
+fn a_frame_shows_while_a_region_is_carried_over_the_bar_and_the_surface_stays_on_top_of_it() {
+    crate::l10n::in_english();
+    let host = host();
+    let made = |over: bool| {
+        host.run(|p| {
+            p.drag_over = over;
+            panel_dom(p, &host)
+        })
+        .expect("a panel")
+    };
+    let (still, over) = (made(false), made(true));
+    assert_eq!(over.children.as_slice().len(), still.children.as_slice().len() + 1, "the frame is one node more");
+    let last = over.children.as_slice().last().expect("children");
+    assert!(last.root.has_id(AzString::from(SURFACE_ID)), "the surface, not the frame, is over everything");
+    for n in nodes(&over) {
+        if !n.root.has_id(AzString::from(SURFACE_ID)) {
+            assert!(n.root.callbacks.as_slice().is_empty(), "the frame answers nothing: the surface keeps the pointer");
+        }
+    }
+}
+
+#[test]
 fn a_cutout_without_its_picture_shows_the_lines_it_was_made_from() {
     crate::l10n::in_english();
     let host = host();
@@ -217,6 +239,37 @@ fn what_is_drawn_over_the_cutouts_is_drawn_at_the_scale_of_the_window() {
 }
 
 #[test]
+fn an_arrow_wholly_off_the_surface_paints_nothing_and_one_that_runs_off_it_paints_what_is_on_it() {
+    let mut panel = Panel::new("/w");
+    let (a, _) = with_cutouts(&mut panel);
+    let far = |x: f32| CutoutDraft::ready(Pt::new(x, 10.0), picture(200, 100), source());
+    let c = panel.wb.board.add_cutout(far(3_000.0)).expect("room");
+    let d = panel.wb.board.add_cutout(far(3_300.0)).expect("room");
+    panel.wb.board.add_arrow(End::item(c), End::item(d), 0.0, "").expect("an arrow");
+    let painted = |panel: &Panel| alpha_of(&paint_surface(panel, 300, 100, 1.0)).iter().filter(|v| **v > 0).count();
+    assert_eq!(painted(&panel), 0, "an arrow far off the surface paints nothing");
+    // A straight arrow along a row (its box has no height) is on the surface all the same.
+    let near = panel.wb.board.add_arrow(End::item(a), End::item(c), 0.0, "").expect("an arrow");
+    assert!(painted(&panel) > 100, "an arrow that runs off the surface paints what is on it: {}", painted(&panel));
+    // The same arrow, the board panned so that it is wholly out of view: nothing.
+    panel.wb.board.set_view(View { pan: Pt::new(-5_000.0, 0.0), zoom: 1.0 });
+    assert_eq!(painted(&panel), 0, "{near:?} is out of view");
+}
+
+#[test]
+fn a_carried_region_is_drawn_as_its_outline_moved_by_the_carry() {
+    let square = [Pt::new(10.0, 10.0), Pt::new(50.0, 10.0), Pt::new(50.0, 40.0), Pt::new(10.0, 40.0)];
+    let mut image = RawImage::create_rgba8(300, 100, vec![0_u8; 300 * 100 * 4], true);
+    paint_ghost(&mut image, 1.0, &square, Pt::new(100.0, 20.0));
+    let alpha = alpha_of(&image);
+    let at = |x: usize, y: usize| alpha[y * 300 + x];
+    // Now at x 110..150, y 30..60: the top edge, the left edge, the closing edge...
+    assert!(at(130, 30) > 0 && at(110, 45) > 0 && at(130, 60) > 0 && at(150, 45) > 0, "the moved outline");
+    // ... and not where the region lies, nor inside the outline.
+    assert_eq!((at(30, 10), at(10, 25), at(130, 45)), (0, 0, 0));
+}
+
+#[test]
 fn the_selected_cutout_gets_an_outline_and_a_handle_and_an_arrow_being_drawn_shows() {
     let mut panel = Panel::new("/w");
     let (a, _) = with_cutouts(&mut panel);
@@ -249,6 +302,55 @@ fn the_keys_of_the_panel_take_the_selection_off_and_let_go_and_take_a_step_back(
 }
 
 #[test]
+fn the_text_area_of_a_label_is_over_the_surface_so_that_a_click_lands_in_it() {
+    crate::l10n::in_english();
+    let host = host();
+    let (dom, a) = host
+        .run(|p| {
+            let (a, _) = with_cutouts(p);
+            p.editing = Some(a);
+            (panel_dom(p, &host), a)
+        })
+        .expect("a panel");
+    let place = |id: &str| dom.children.as_slice().iter().position(|n| n.root.has_id(AzString::from(id)));
+    let (surface, area) = (place(SURFACE_ID), place(&format!("__azreview_whiteboard-label-{a}")));
+    assert!(surface.is_some() && area.is_some(), "{surface:?} {area:?}");
+    assert!(area > surface, "the text area comes after the surface: it is drawn over it and gets the pointer");
+}
+
+#[test]
+fn a_jump_to_a_file_that_is_not_as_it_was_tells_so_and_one_to_a_file_that_is_takes_it_back() {
+    use crate::whiteboard_jump::Freshness;
+    crate::l10n::in_english();
+    let target = |freshness| JumpTarget { id: 1, file: "src/lib.rs".to_string(), first_line: 20, last_line: 24, freshness };
+    assert_eq!(jump_words(&target(Freshness::Fresh)), None, "nothing to say about a file that is as it was");
+    assert!(jump_words(&target(Freshness::FileChanged)).expect("told").contains("file has changed"));
+    let moved = jump_words(&target(Freshness::LinesMoved)).expect("told");
+    assert!(moved.contains("20") && moved.contains("24"), "where the lines went: {moved}");
+    assert!(jump_words(&target(Freshness::LinesChanged)).expect("told").contains("have changed"));
+    assert!(jump_words(&target(Freshness::FileMissing)).expect("told").contains("no longer there"));
+    let mut panel = Panel::new("/w");
+    panel.tell_jump(&target(Freshness::LinesChanged));
+    assert!(panel.hint.is_some());
+    panel.tell_jump(&target(Freshness::Fresh));
+    assert!(panel.hint.is_none(), "the word is taken back");
+}
+
+#[test]
+fn the_panels_keys_are_delete_escape_and_the_two_steps_and_nothing_else() {
+    use VirtualKeyCode as K;
+    assert_eq!(key_of(K::Delete, false, false), Some(Key::Delete));
+    assert_eq!(key_of(K::Back, false, false), Some(Key::Delete));
+    assert_eq!(key_of(K::Back, true, false), None, "Mod+Backspace is not Delete");
+    assert_eq!(key_of(K::Escape, false, false), Some(Key::Escape));
+    assert_eq!(key_of(K::Z, true, false), Some(Key::Undo));
+    assert_eq!(key_of(K::Z, true, true), Some(Key::Redo));
+    assert_eq!(key_of(K::Y, true, false), Some(Key::Redo));
+    assert_eq!(key_of(K::Z, false, false), None, "a plain Z is a letter, not a step");
+    assert_eq!(key_of(K::A, true, false), None);
+}
+
+#[test]
 fn a_label_is_typed_in_a_text_area_under_its_cutout_while_it_is_being_edited() {
     crate::l10n::in_english();
     let host = host();
@@ -265,6 +367,40 @@ fn a_label_is_typed_in_a_text_area_under_its_cutout_while_it_is_being_edited() {
         panel_dom(p, &host)
     });
     assert!(with_id(&plain.expect("a panel"), &format!("__azreview_whiteboard-label-{id}")).is_none());
+}
+
+#[test]
+fn an_arrows_label_is_shown_on_its_line_and_typed_in_a_text_area_that_takes_the_keyboard() {
+    crate::l10n::in_english();
+    let host = host();
+    let arrow = host
+        .run(|p| {
+            let (a, b) = with_cutouts(p);
+            p.wb.board.add_arrow(End::item(a), End::item(b), 0.0, "calls").expect("an arrow")
+        })
+        .expect("a panel");
+    let area = format!("__azreview_whiteboard-label-{arrow}");
+    let shown = host.run(|p| panel_dom(p, &host)).expect("a panel");
+    assert!(texts(&shown).iter().any(|t| t == "calls"), "{:?}", texts(&shown));
+    assert!(with_id(&shown, &area).is_none(), "it is not being typed");
+    let typing = host
+        .run(|p| {
+            p.editing = Some(arrow);
+            panel_dom(p, &host)
+        })
+        .expect("a panel");
+    let editor = with_id(&typing, &area).expect("the text area");
+    let asks = editor.root.get_attributes().as_slice().iter().any(|a| matches!(a, AttributeType::Autofocus));
+    assert!(asks, "the person double-clicked to type: the area takes the keyboard when it mounts");
+    // An arrow with no label shows nothing of the kind.
+    let bare = host
+        .run(|p| {
+            p.editing = None;
+            p.wb.board.set_label(arrow, "").expect("a label");
+            panel_dom(p, &host)
+        })
+        .expect("a panel");
+    assert!(!texts(&bare).iter().any(|t| t == "calls"), "{:?}", texts(&bare));
 }
 
 #[test]
