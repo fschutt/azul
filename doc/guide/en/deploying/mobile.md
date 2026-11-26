@@ -318,7 +318,7 @@ The APKs are debug-signed, so they sideload directly.
 
 ```sh
 # Over USB (enable Settings → Developer options → USB debugging first):
-adb install azul-maps-android.apk
+adb install AzMaps-android-arm64.apk
 # Replace an existing install: adb install -r …; uninstall: adb uninstall com.azul.azul_maps
 ```
 
@@ -338,13 +338,13 @@ faulting library; pull `/data/tombstones/` for the full dump.
 
 ### iOS Simulator (`.app`, no signing)
 
-The Simulator slice (`<demo>-ios-sim.app.zip`) runs **unsigned** — easiest to try
+The Simulator slice (`<App>-ios-sim.app.zip`, for example `AzMaps-ios-sim.app.zip`) runs **unsigned** — easiest to try
 on a Mac:
 
 ```sh
-unzip azul-maps-ios-sim.app.zip
+unzip AzMaps-ios-sim.app.zip
 open -a Simulator                              # boot a simulator
-xcrun simctl install booted azul-maps.app
+xcrun simctl install booted AzMaps.app
 xcrun simctl launch --console booted <bundle-id>   # --console streams stdout/stderr
 ```
 
@@ -355,8 +355,8 @@ team works for a 7-day sideload). On a Mac:
 
 ```sh
 codesign --force --sign "Apple Development: you@example.com (TEAMID)" \
-  --entitlements entitlements.plist azul-maps.app
-xcrun devicectl device install app --device <udid> azul-maps.app
+  --entitlements entitlements.plist AzMaps.app
+xcrun devicectl device install app --device <udid> AzMaps.app
 ```
 
 No Mac? `rcodesign` signs an `.app`/`.ipa` from Linux/Windows with a Developer ID

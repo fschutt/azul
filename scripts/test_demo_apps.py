@@ -4,6 +4,8 @@
 
     python3 scripts/test_demo_apps.py            (Python 3.11+, standard library only)
 """
+import contextlib
+import io
 import json
 import pathlib
 import sys
@@ -28,6 +30,27 @@ def cargo_json(*artifacts):
     lines.append(json.dumps({"reason": "build-finished", "success": True}))
     return "\n".join(lines) + "\n"
 
+
+# What `python3 scripts/demo_apps.py assets <package>` prints: app, column, staged name, release name, one line
+# per built file. doc/src/dllgen/demo_apps_test.rs holds the SAME lines against the names the release page
+# generator gives the files (GOLDEN_AZWIDGETS and GOLDEN_AZCOMPANION there), and a test of that file reads this
+# one for them: the script and the page agree to the byte as long as both match these, so change them together.
+GOLDEN_AZWIDGETS = (
+    "AzWidgets\tlinux\tAzWidgets-linux\tAzWidgets-linux.tar.gz\n"
+    "AzWidgets\tmacos-arm64\tAzWidgets-macos\tAzWidgets-macos.tar.gz\n"
+    "AzWidgets\tmacos-intel\tAzWidgets-macos-intel\tAzWidgets-macos-intel.tar.gz\n"
+    "AzWidgets\twindows\tAzWidgets-windows.exe\tAzWidgets-windows.exe.tar.gz\n"
+    "AzWidgets\tandroid-arm64\tAzWidgets-android-arm64.apk\tAzWidgets-android-arm64.apk\n"
+    "AzWidgets\tandroid-x86_64\tAzWidgets-android-x86_64.apk\tAzWidgets-android-x86_64.apk\n"
+    "AzWidgets\tios-device\tAzWidgets-ios-device.app.zip\tAzWidgets-ios-device.app.zip\n"
+    "AzWidgets\tios-sim\tAzWidgets-ios-sim.app.zip\tAzWidgets-ios-sim.app.zip\n"
+)
+GOLDEN_AZCOMPANION = (
+    "AzCompanion\tandroid-arm64\tAzCompanion-android-arm64.apk\tAzCompanion-android-arm64.apk\n"
+    "AzCompanion\tandroid-x86_64\tAzCompanion-android-x86_64.apk\tAzCompanion-android-x86_64.apk\n"
+    "AzCompanion\tios-device\tAzCompanion-ios-device.app.zip\tAzCompanion-ios-device.app.zip\n"
+    "AzCompanion\tios-sim\tAzCompanion-ios-sim.app.zip\tAzCompanion-ios-sim.app.zip\n"
+)
 
 FACADE = "path+file:///w/dll#azul-dll@0.2.0"
 CORE = "path+file:///w/core#azul-core@0.0.21"
@@ -96,6 +119,13 @@ class NamesTest(unittest.TestCase):
         self.assertEqual(demo_apps.staged_name(a, "ios-device"), "AzCompanion-ios-device.app.zip")
         self.assertEqual(demo_apps.staged_name(a, "ios-sim"), "AzCompanion-ios-sim.app.zip")
         self.assertEqual(demo_apps.release_name(a, "ios-device"), "AzCompanion-ios-device.app.zip")
+
+    def test_the_assets_command_prints_the_names_the_release_page_generator_pins(self):
+        for package, golden in (("AzWidgets", GOLDEN_AZWIDGETS), ("AzCompanion", GOLDEN_AZCOMPANION)):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(demo_apps.main(["assets", package]), 0)
+            self.assertEqual(out.getvalue(), golden, package)
 
     def test_no_two_assets_share_a_name(self):
         seen = {}

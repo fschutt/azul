@@ -51,6 +51,9 @@ pub mod seats;
 /// The operating system asks the app to quit (a logout, a shutdown): every window's close
 /// protocol runs.
 pub mod session_end;
+/// What the start of an app asks of the system and of subprocesses, as pure decisions (a command-line fallback only where
+/// the native query did not answer; the per-step log of `App::create`).
+pub mod style_discovery;
 /// A closing window hands the app's background threads to a window that stays open.
 pub mod thread_handover;
 pub mod transient;

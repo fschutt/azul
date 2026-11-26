@@ -373,7 +373,7 @@ fn a_recording_that_did_not_start_says_why() {
 // ---- the list of recordings ----
 
 fn info(name: &str, state: Option<SessionState>, recorded_us: u64, bytes: u64, tracks: &[&'static str], problem: Option<&str>) -> RecordingInfo {
-    RecordingInfo { name: name.to_string(), state, started_unix_ms: Some(1), recorded_us, bytes, tracks: tracks.to_vec(), problem: problem.map(str::to_string), video_bytes: None }
+    RecordingInfo { name: name.to_string(), state, started_unix_ms: None, utc_offset_minutes: 0, recorded_us, bytes, tracks: tracks.to_vec(), problem: problem.map(str::to_string), video_bytes: None }
 }
 
 fn no_exports() -> BTreeMap<String, JobState> {
@@ -545,5 +545,35 @@ fn what_did_not_work_as_asked_is_said_under_the_video() {
     let plain = row_with(Some(SessionState::Complete), &["screen"], Some(JobState::Done(made(1_000_000))), None);
     assert!(export_notes(&plain.export).is_empty());
     assert!(export_notes(&ExportLine::Failed(String::from("x"))).is_empty());
+}
+
+/// The list says when a recording began on the clock of the person who made it: the folder's name is the UTC time (two
+/// sessions of a machine never collide across a change of time zone), the manifest says the moment and the offset, and
+/// the row says the time on the wall, the date included (a recording made just after midnight is of the next day
+/// where the offset is positive, of the day before where it is negative). A second session of the same second keeps
+/// its number; a recording whose notes cannot be read says its folder's name.
+///
+/// Mutation: the offset not added; the offset taken the wrong way; the date not following the time; the number lost.
+#[test]
+fn the_list_says_the_time_on_the_wall_of_the_person_who_recorded() {
+    let at = |name: &str, unix_ms: Option<u64>, offset: i32| {
+        let mut one = info(name, Some(SessionState::Complete), 0, 0, &[], None);
+        one.started_unix_ms = unix_ms;
+        one.utc_offset_minutes = offset;
+        rows(&[one], '.', &no_exports()).remove(0).when
+    };
+    // 1_764_108_000_000 ms is 2025-11-25T22:00:00Z.
+    let utc = "2025-11-25_22-00-00";
+    assert_eq!(at(utc, Some(1_764_108_000_000), 0), "2025-11-25 22:00:00");
+    assert_eq!(at(utc, Some(1_764_108_000_000), 60), "2025-11-25 23:00:00", "an hour east of Greenwich");
+    assert_eq!(at(utc, Some(1_764_108_000_000), 180), "2025-11-26 01:00:00", "the next day where the offset carries over midnight");
+    assert_eq!(at(utc, Some(1_764_108_000_000), -480), "2025-11-25 14:00:00", "west of Greenwich");
+    assert_eq!(at(utc, Some(1_764_108_000_000), -23 * 60), "2025-11-24 23:00:00", "the day before");
+    assert_eq!(at(utc, Some(1_764_108_000_000), 330), "2025-11-26 03:30:00", "an offset that is not whole hours");
+    assert_eq!(at("2025-11-25_22-00-00-2", Some(1_764_108_000_000), 60), "2025-11-25 23:00:00 (2)", "the number of a second session of the second");
+    // What cannot be said by the clock is said by the name.
+    assert_eq!(at(utc, None, 60), "2025-11-25 22:00:00", "notes that could not be read");
+    assert_eq!(at("old-copy", Some(1_764_108_000_000), 60), "old-copy", "a folder that is not named by a time");
+    assert_eq!(at("a-copy-of-it-from-the-backup", Some(1_764_108_000_000), 60), "a-copy-of-it-from-the-backup", "not even a short one");
 }
 
