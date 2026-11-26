@@ -242,10 +242,15 @@ impl<L: AddressLookup> AddressLookup for LocalLookup<L> {
 
     fn resolve(&self, endpoint_id: EndpointId) -> Option<BoxStream<Result<Item, LookupError>>> {
         let ignored = self.ignored.clone();
+        let nearby = self.nearby.clone();
         let found = self.inner.resolve(endpoint_id)?;
-        Some(Box::pin(
-            found.map(move |found| found.map(|item| sanitised(item, &ignored))),
-        ))
+        Some(Box::pin(found.map(move |found| {
+            found.map(|item| {
+                // an endpoint that a dial finds is on the network: the list hears it too
+                nearby.seen(item.endpoint_info());
+                sanitised(item, &ignored)
+            })
+        })))
     }
 }
 

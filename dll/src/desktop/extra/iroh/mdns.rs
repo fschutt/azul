@@ -13,7 +13,8 @@ use std::{
 };
 
 use iroh::Endpoint;
-use iroh_mdns_address_lookup::MdnsAddressLookup;
+use iroh_mdns_address_lookup::{DiscoveryEvent, MdnsAddressLookup};
+use n0_future::StreamExt;
 
 use super::{
     discovery::{announce_filter, Held, LocalDiscovery, LocalLookup},
@@ -47,6 +48,23 @@ impl LocalDiscovery for MdnsDiscovery {
             .build(endpoint.id())
             .map_err(|e| format!("{e:#}"))?;
         let services = endpoint.address_lookup().map_err(|e| format!("{e:#}"))?;
+        // The endpoints of the network as they announce themselves, whether a dial asks for them
+        // or not: the lookup tells a subscriber of each new or changed announcement and of each
+        // that expired. The task waits on the stream only (the lookup it was made from is not
+        // kept), so it ends when the endpoint, and with it the lookup, is gone.
+        let feed = mdns.clone();
+        let list = nearby.clone();
+        tokio::spawn(async move {
+            let mut events = feed.subscribe().await;
+            drop(feed);
+            while let Some(event) = events.next().await {
+                match event {
+                    DiscoveryEvent::Discovered { endpoint_info, .. } => list.seen(&endpoint_info),
+                    DiscoveryEvent::Expired { endpoint_id } => list.gone(&endpoint_id),
+                    _ => {}
+                }
+            }
+        });
         services.add(LocalLookup::new(mdns, ignored.clone(), nearby.clone()));
         Ok(held)
     }

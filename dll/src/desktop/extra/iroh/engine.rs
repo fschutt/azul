@@ -20,6 +20,7 @@ use std::{
 };
 
 use iroh::{
+    address_lookup::UserData,
     endpoint::{presets, Connection, ReadToEndError, RecvStream, SendStream, VarInt},
     Endpoint, EndpointAddr, EndpointId, RelayMode, RelayUrl, SecretKey, Watcher,
 };
@@ -33,7 +34,7 @@ use azul_core::tls::TrustRoots;
 
 use super::{
     discovery::{self, Held, LocalDiscovery, LocalDiscoveryState, Wanted},
-    nearby::{Nearby, NearbyPeer},
+    nearby::{advertised_text, Nearby, NearbyPeer, MAX_ADVERTISED_BYTES, MAX_NEARBY_PEERS},
     types::{IrohConfig, IrohEvent, IrohEventKind, IrohPeerStats, IrohRelayMode},
 };
 
@@ -83,6 +84,16 @@ fn endpoint_ids(
                 .map_err(|e| format!("{peer:?} is not an endpoint id: {e}"))
         })
         .collect()
+}
+
+/// An advertised text (already cleaned and cut by [`advertised_text`]) as iroh's user data;
+/// `None` for no text.
+fn user_data_of(text: &str) -> Option<UserData> {
+    if text.is_empty() {
+        None
+    } else {
+        text.parse::<UserData>().ok()
+    }
 }
 
 /// Starts local-network discovery as `config` asks (`discovery::wanted`): what it came to, and what
@@ -269,6 +280,12 @@ impl Engine {
                 .bind_addr(SocketAddr::from((Ipv4Addr::UNSPECIFIED, config.port)))
                 .map_err(|e| format!("invalid port {}: {e}", config.port))?;
         }
+        // What the endpoint says about itself on the local network: published to the local
+        // lookups only (the endpoint has no others), and only while discovery announces it.
+        let advertised = advertised_text(config.advertised.as_str());
+        if let Some(user_data) = user_data_of(&advertised.text) {
+            builder = builder.user_data_for_address_lookup(user_data);
+        }
         let ignored = Arc::new(AtomicU64::new(0));
         // Local discovery starts inside the runtime (its lookups spawn tasks on it); a network
         // that refuses it leaves the endpoint as it was, bound without it.
@@ -297,7 +314,7 @@ impl Engine {
             local,
             ignored,
             nearby,
-            advertised_cut: AtomicU64::new(0),
+            advertised_cut: AtomicU64::new(advertised.cut_from.map_or(0, |n| n as u64)),
             _held: held,
         })
     }
@@ -305,7 +322,15 @@ impl Engine {
     /// Changes what this endpoint advertises about itself on the local network (see
     /// `IrohConfig::advertised`); an empty text advertises nothing.
     pub(super) fn set_advertised(&self, text: &str) {
-        let _ = text;
+        let advertised = advertised_text(text);
+        self.advertised_cut
+            .store(advertised.cut_from.map_or(0, |n| n as u64), Ordering::Relaxed);
+        if let Ok(runtime) = runtime() {
+            // inside the runtime's context, as the lookups that are told expect to be
+            let _inside = runtime.enter();
+            self.endpoint
+                .set_user_data_for_address_lookup(user_data_of(&advertised.text));
+        }
     }
 
     /// The endpoints on the local network now, by endpoint id.
@@ -321,7 +346,21 @@ impl Engine {
 
     /// What local-network discovery does for this endpoint (`IrohEndpoint::local_discovery_status`).
     pub(super) fn local_discovery_status(&self) -> String {
-        self.local.status(self.ignored.load(Ordering::Relaxed))
+        let mut text = self.local.status(self.ignored.load(Ordering::Relaxed));
+        let cut = self.advertised_cut.load(Ordering::Relaxed);
+        if cut > 0 {
+            text.push_str(&format!(
+                "; the advertised text was cut from {cut} to {MAX_ADVERTISED_BYTES} bytes"
+            ));
+        }
+        let refused = self.nearby.refused();
+        if refused > 0 {
+            text.push_str(&format!(
+                "; {refused} announcements of other endpoints were not listed (the list holds \
+                 {MAX_NEARBY_PEERS})"
+            ));
+        }
+        text
     }
 
     /// Accepts incoming connections from `peers` only (`None`: from every peer), from the
@@ -543,6 +582,10 @@ impl Engine {
 
     pub(super) fn recv(&self) -> Option<IrohEvent> {
         if let Some(event) = lock(&self.state.events).pop_front() {
+            return Some(event);
+        }
+        // what changed on the local network since the app last asked
+        if let Some(event) = self.nearby.take_event() {
             return Some(event);
         }
         let mut frames = lock(&self.state.frames);
