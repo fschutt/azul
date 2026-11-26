@@ -1030,6 +1030,50 @@ class VerdictTest(unittest.TestCase):
             self.assertEqual(smoke_verdict.main(base), 0)
             self.assertNotIn("changed_screen", json.loads((root / "r.json").read_text())["tap"])
 
+    def test_the_engines_first_present_is_read_from_the_startup_line_and_never_decides(self):
+        # AZ_STARTUP=1: the app writes `[startup] ...` lines and ONE `[startup-json] {...}` line to stderr (Android: logcat tag
+        # RustStdoutStderr, iOS: the console of the process); first_present_ms is counted from the process creation
+        json_line = ('[startup-json] {"first_present_ms": 412.345, "before_library_ms": 118.5, "layout_passes": 3, '
+                     '"marks": [["window", 130.1]], "render_backend": "backend=gpu requested=auto device=SwiftShader"}')
+        logcat = ("11-26 07:42:03.529  2387  2387 I RustStdoutStderr: [startup] window 130.1 ms\\n"
+                  "11-26 07:42:03.530  2387  2387 I RustStdoutStderr: " + json_line + "\\n")
+        got = smoke_verdict.parse_startup(logcat)
+        self.assertEqual((got["first_present_ms"], got["before_library_ms"], got["layout_passes"]), (412.345, 118.5, 3))
+        self.assertEqual(got["render_backend"], "backend=gpu requested=auto device=SwiftShader")
+        self.assertEqual(smoke_verdict.parse_startup(json_line + "\\n")["first_present_ms"], 412.345)       # the iOS console: the line as it is
+        self.assertEqual(smoke_verdict.parse_startup(logcat + "[startup-json] " + json_line[len("[startup-json] "):].replace("412.345", "500.5"))["first_present_ms"], 500.5)   # the last one
+        # a line the log cut off (logcat splits what is longer than 4 KB) still gives the numbers that come first
+        cut = '11-26 07:42:03.530  2387  2387 I RustStdoutStderr: [startup-json] {"first_present_ms": 99.001, "before_library_ms": 20.0, "layout_pa'
+        self.assertEqual(smoke_verdict.parse_startup(cut)["first_present_ms"], 99.001)
+        # a run without the switch prints no such line: nothing is said
+        self.assertIsNone(smoke_verdict.parse_startup("11-26 07:42:03.529 I azul: NativeTextBridge: input view installed\\n"))
+        self.assertIsNone(smoke_verdict.parse_startup(""))
+        self.assertIsNone(smoke_verdict.parse_startup("[startup-json] {not json at all"))
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "home.png").write_bytes(synthetic_png(96, 160, home_screen))
+            (root / "after.png").write_bytes(synthetic_png(96, 160, app_screen))
+            (root / "logcat.txt").write_text(logcat)
+            argv = ["--out", str(root / "r.json"), "--app", "AzX", "--id", "com.azul.AzX", "--alive", "1", "--alive-after", "1",
+                    "--baseline", str(root / "home.png"), "--after", str(root / "after.png")]
+            self.assertEqual(smoke_verdict.main(argv + ["--startup-log", str(root / "logcat.txt"), "--startup-log", str(root / "none.txt")]), 0)
+            r = json.loads((root / "r.json").read_text())
+            self.assertEqual((r["first_present_ms"], r["before_library_ms"], r["layout_passes"]), (412.345, 118.5, 3))
+            self.assertEqual(smoke_verdict.main(argv), 0)
+            self.assertNotIn("first_present_ms", json.loads((root / "r.json").read_text()))
+        both = demo_apps.boot_text({"pass": True, "displayed_ms": 1233, "first_present_ms": 412.345, "render_backend": "backend=gpu requested=auto device=x"})
+        self.assertEqual(both, "boots, first window 1233 ms (the platform's own number), first present 412 ms (the engine's mark), gpu renderer")
+        self.assertEqual(demo_apps.boot_text({"pass": True, "first_present_ms": 99.4}), "boots, first present 99 ms (the engine's mark)")
+        self.assertEqual(demo_apps.boot_text({"pass": False, "reason": "x", "first_present_ms": 5}), "BOOT FAILED: x")
+
+    def test_the_boot_tests_switch_the_startup_table_on_before_they_launch(self):
+        android = (HERE / "ci" / "android_smoke.sh").read_text(encoding="utf-8")
+        self.assertLess(android.index("setprop debug.az.startup 1"), android.index("am start -W"))
+        ios = (HERE / "ci" / "ios_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("SIMCTL_CHILD_AZ_STARTUP=1", ios)
+        self.assertIn("--startup-log", android)
+        self.assertIn("--startup-log", ios)
+
     def test_a_band_that_is_no_two_fractions_is_refused(self):
         with tempfile.TemporaryDirectory() as d:
             for bad in ("0.9,0.1", "0.1", "a,b", "-0.1,0.9", "0.1,1.5"):
