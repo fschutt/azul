@@ -425,10 +425,14 @@ fn view_tab(app: &RefAny, st: &AppState) -> RibbonTab {
     RibbonTab::create(s(TABS[2])).with_group(views).with_group(zoom).with_group(help)
 }
 
-/// The window width under which the screen is a phone's: the format bar ([`phone_bar`]) takes the
-/// ribbon's place. The ribbon's keys are 22 px tall and its band (the groups of a tab side by side)
-/// is wider than such a screen: the tab strip and the groups ran out of a 411 dp window on its right.
+/// The window width under which the screen is a phone's (portrait), and the height under which it is a
+/// phone's too (landscape: 393 dp on an iPhone 15 Pro, a desktop window is at least 480): the format bar
+/// ([`phone_bar`]) takes the ribbon's place. The ribbon's keys are 22 px tall and its band (the groups of
+/// a tab side by side) is wider than such a screen: the tab strip and the groups ran out of a 411 dp
+/// window on its right.
 pub const PHONE_WIDTH: f32 = 600.0;
+/// See [`PHONE_WIDTH`].
+pub const PHONE_HEIGHT: f32 = 440.0;
 
 /// The phone's format bar: one row of keys that scrolls sideways when the screen is too narrow
 /// for them.

@@ -5285,7 +5285,12 @@ fn item_dom(
             if drop.theme.is_none() {
                 drop.set_theme(theme);
             }
-            drop.dom()
+            // The ribbon's rows are as tall as its keys: the finger's floor of a page's drop-down (48 dp on
+            // Android) would push a row out of its 68 px band, so the band sizes it, like its buttons.
+            let mut dom = drop.dom();
+            dom.root.upsert_inline_css_property(P::const_min_height(LayoutMinHeight::const_px(0)));
+            dom.root.upsert_inline_css_property(P::const_min_width(LayoutMinWidth::const_px(0)));
+            dom
         }
         RibbonItem::Check(mut check) => {
             if check.theme.is_none() {

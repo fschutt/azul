@@ -10,7 +10,7 @@
 //! Not compiled by the author (house rule).
 
 use azul_core::dom::{Dom, IdOrClass::Class, NodeType};
-use azul_css::AzString;
+use azul_css::{AzString, StringVec};
 
 use super::*;
 use crate::widgets::button::ButtonOnClickCallbackType;
@@ -135,5 +135,34 @@ fn the_rows_of_the_picker_and_of_the_group_list_are_48_px_tall() {
                 .any(|c| c.property == P::const_height(LayoutHeight::const_px(48))),
             "{what} is 48 px tall"
         );
+    }
+}
+
+/// The first node under `node` (itself included) with the class `class`, depth first.
+fn find_class<'a>(node: &'a Dom, class: &str) -> Option<&'a Dom> {
+    if has_class(node, class) {
+        return Some(node);
+    }
+    node.children.as_ref().iter().find_map(|child| find_class(child, class))
+}
+
+#[test]
+fn a_drop_down_in_the_ribbon_is_sized_by_the_band_not_by_the_finger_floor_of_a_page() {
+    use azul_css::props::property::CssPropertyType;
+
+    let choices = StringVec::from_vec(vec![AzString::from("Apple"), AzString::from("Pear")]);
+    let group = RibbonGroup::new(AzString::from("Font")).with_item(RibbonItem::Drop(DropDown::new(choices)));
+    let tab = RibbonTab::new(AzString::from("HOME")).with_group(group);
+    let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom_desktop();
+    let drop_down = find_class(&dom, "__azul-native-dropdown").expect("the drop-down is in the band");
+    for ty in [CssPropertyType::MinHeight, CssPropertyType::MinWidth] {
+        let last = drop_down
+            .root
+            .style
+            .iter_inline_properties()
+            .filter(|(p, conds)| conds.as_ref().is_empty() && p.get_type() == ty)
+            .last()
+            .map(|(p, _)| p.clone());
+        assert!(last.is_some(), "{ty:?}: the ribbon says its own size, last");
     }
 }
