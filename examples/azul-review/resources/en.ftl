@@ -64,6 +64,7 @@ azreview-whiteboard-picture-missing = The picture is not available. These are th
 azreview-whiteboard-cutout-name = { $file }, lines { $first } to { $last }
 azreview-whiteboard-label-placeholder = Add a label
 azreview-whiteboard-label-name = Label of { $file }, lines { $first } to { $last }
+azreview-whiteboard-arrow-label-name = Label of the arrow
 
 ## Dictation and the side column of notes
 
@@ -189,6 +190,17 @@ azreview-resize-tree = Change the width of the file tree
 azreview-resize-panel = Change the width of the whiteboard
 azreview-menu-view = View
 azreview-speech-chain = Speech recognisers, in the order they are asked
+azreview-speech-making = The speech session is being made.
+azreview-speech-failed = The speech session could not be made ({ $why }): a dictation listens through the engine's own recogniser, without the words of the page as its vocabulary.
+azreview-page-skip = Skip to page { $n }
+azreview-reviewed-line = { $reviewed } of { $total } lines reviewed ({ $percent }%), { $seen } seen
+azreview-reviewed-counting = Still counting the workspace...
+azreview-shortcut-not-reviewed = Say the file is not reviewed, or is again (also a right click on it in the tree)
+azreview-not-shown = { $file } is not shown: { $why }
+azreview-not-shown-binary = it is no text.
+azreview-not-shown-large = it is { $size }, over the { $limit } a page strip holds.
+azreview-not-shown-unreadable = it could not be read ({ $why }).
+azreview-tree-loading = Reading the folder...
 azreview-dictation-opening = Opening the microphone
 azreview-mic-line = Microphone: { $state }
 azreview-mic-cold = closed

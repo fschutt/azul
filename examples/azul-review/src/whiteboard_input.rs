@@ -489,7 +489,8 @@ impl BoardInput {
         self.gesture = Gesture::Idle;
     }
 
-    /// A double click at `at`: go to the cutout's lines, or type its label.
+    /// A double click at `at`: go to the cutout's lines, or type the label of a cutout (under it) or of an arrow
+    /// (on its line, where its label sits).
     pub fn double_click(&mut self, board: &mut Board, at: Pt) -> Out {
         let view = board.view();
         let p = view.to_board(at);
@@ -497,7 +498,7 @@ impl BoardInput {
         match hit_test(board, self.selection, p, view.zoom) {
             Hit::Body(id) | Hit::Handle(id) => Out::Jump(id),
             Hit::Rim(id, _) if on(id) => Out::Jump(id),
-            Hit::Label(id) => Out::EditLabel(id),
+            Hit::Label(id) | Hit::Arrow(id) | Hit::ArrowBend(id) => Out::EditLabel(id),
             _ => Out::Nothing,
         }
     }

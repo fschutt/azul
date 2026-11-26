@@ -23,6 +23,7 @@ fn stroke(id: u64, semantic: Semantic, points: &[(f32, f32)]) -> Stroke {
         points: points.iter().map(|&(x, y)| point(x, y)).collect(),
         id,
         epoch: 0,
+        started_unix_ms: 0,
     }
 }
 

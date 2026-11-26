@@ -64,6 +64,7 @@ azreview-whiteboard-picture-missing = Das Bild ist nicht verfügbar. Das sind di
 azreview-whiteboard-cutout-name = { $file }, Zeilen { $first } bis { $last }
 azreview-whiteboard-label-placeholder = Beschriftung hinzufügen
 azreview-whiteboard-label-name = Beschriftung von { $file }, Zeilen { $first } bis { $last }
+azreview-whiteboard-arrow-label-name = Beschriftung des Pfeils
 
 ## Diktieren und die Seitenspalte der Notizen
 
@@ -189,6 +190,17 @@ azreview-resize-tree = Breite des Dateibaums ändern
 azreview-resize-panel = Breite des Whiteboards ändern
 azreview-menu-view = Ansicht
 azreview-speech-chain = Spracherkenner in der Reihenfolge, in der sie gefragt werden
+azreview-speech-making = Die Sprachsitzung wird vorbereitet.
+azreview-speech-failed = Die Sprachsitzung konnte nicht erstellt werden ({ $why }): Ein Diktat nutzt den eigenen Erkenner der Engine, ohne die Wörter der Seite als Wortschatz.
+azreview-page-skip = Weiter zu Seite { $n }
+azreview-reviewed-line = { $reviewed } von { $total } Zeilen geprüft ({ $percent } %), { $seen } gesehen
+azreview-reviewed-counting = Der Ordner wird noch gezählt ...
+azreview-shortcut-not-reviewed = Die Datei als nicht geprüft markieren oder wieder als geprüft (auch ein Rechtsklick im Baum)
+azreview-not-shown = { $file } wird nicht angezeigt: { $why }
+azreview-not-shown-binary = Es ist kein Text.
+azreview-not-shown-large = Es hat { $size }, mehr als die { $limit }, die ein Seitenstreifen aufnimmt.
+azreview-not-shown-unreadable = Es konnte nicht gelesen werden ({ $why }).
+azreview-tree-loading = Der Ordner wird gelesen ...
 azreview-dictation-opening = Mikrofon wird geöffnet
 azreview-mic-line = Mikrofon: { $state }
 azreview-mic-cold = geschlossen

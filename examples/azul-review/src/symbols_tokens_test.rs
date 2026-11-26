@@ -147,3 +147,64 @@ fn a_very_long_input_is_cut_before_it_costs_anything() {
     assert_eq!(edit_distance_bounded(&long, "x", 2), None);
     assert!(phonetic(&long).len() <= MAX_PHONETIC);
 }
+
+/// A small deterministic generator for the property-style tests (no crate, no clock).
+struct Lcg(u64);
+
+impl Lcg {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        self.0 >> 33
+    }
+}
+
+#[test]
+fn the_same_words_in_every_spelling_have_one_key() {
+    let vocabulary = ["css", "error", "data", "table", "cell", "scroll", "manager", "speech", "session", "x", "a", "http", "request", "node", "dom", "io", "ui"];
+    let mut rng = Lcg(7);
+    for round in 0..600 {
+        let count = 1 + (rng.next() % 5) as usize;
+        let mut words: Vec<&str> = Vec::new();
+        for _ in 0..count {
+            let w = vocabulary[(rng.next() % vocabulary.len() as u64) as usize];
+            // Two one-letter words side by side are one acronym in the capitalised spellings: not the same words.
+            if w.len() == 1 && words.last().is_some_and(|l| l.len() == 1) {
+                continue;
+            }
+            words.push(w);
+        }
+        if words.is_empty() {
+            continue;
+        }
+        let capitalised: Vec<String> = words.iter().map(|w| format!("{}{}", w[..1].to_uppercase(), &w[1..])).collect();
+        let styles = [
+            words.join("_"),
+            words.join("-"),
+            words.iter().map(|w| w.to_uppercase()).collect::<Vec<_>>().join("_"),
+            capitalised.concat(),
+            format!("{}{}", words[0], capitalised[1..].concat()),
+            capitalised.join("_"),
+        ];
+        let want = words.join(" ");
+        for style in &styles {
+            // A leading single letter before a capitalised word is read as that letter (`xAxis`, `aB`).
+            assert_eq!(name_key(style), want, "round {round}: {style} should have the words {want}");
+        }
+    }
+}
+
+#[test]
+fn nothing_the_functions_here_are_given_panics_or_takes_long_whatever_it_is() {
+    let mut rng = Lcg(99);
+    let started = std::time::Instant::now();
+    for _ in 0..2_000 {
+        let len = (rng.next() % 300) as usize;
+        let s: String = (0..len).map(|_| char::from_u32((rng.next() % 0x3000) as u32).unwrap_or('x')).collect();
+        let _ = split_identifier(&s);
+        let _ = name_key(&s);
+        let _ = phonetic(&s);
+        let _ = edit_distance_bounded(&s, "scrollmanager", 3);
+        let _ = edit_distance_bounded(&s, &s, 3);
+    }
+    assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+}

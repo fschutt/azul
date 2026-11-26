@@ -40,6 +40,7 @@ use crate::{
     dictation::{self, Cause, Clock, End, Heard, HeardWord, Listener, Mic, Out, Plan, Recognizer, Status},
     dwell::{Allow, Anchor, Config, Dwell, Reaction, Sample},
     model::{Note, NoteState},
+    speech_gate::{Asked, Gate},
     standby::{self, Action, Arming, Standby},
     ui, AppState,
 };
@@ -102,6 +103,10 @@ pub struct Voice {
     /// The speech session: the chain of recognisers (the system's, the built-in one), its vocabulary and the call
     /// that ends when a dictation is stopped. One for the window; the worker listens through a clone of it.
     pub speech: Option<SpeechSession>,
+    /// Where the speech session stands while a thread makes it, and the rest that waits for it (`speech_gate.rs`).
+    pub gate: Gate<Anchor>,
+    /// The timer that gives up on a session that is not made in time is armed.
+    pub gate_ticking: bool,
     /// What is known of the microphone: told by the listener, and "listening" while a dictation takes words.
     pub mic: Mic,
     /// When the microphone is kept ready for a dictation (`standby.rs`): what was asked of the session last and what
@@ -132,6 +137,8 @@ impl Voice {
             notes_open: false,
             unavailable: None,
             speech: None,
+            gate: Gate::new(),
+            gate_ticking: false,
             mic: Mic::Cold,
             arming: Arming::new(standby::Config::default()),
             can_arm: false,
@@ -521,6 +528,130 @@ fn rested(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update 
 
 // ==== The session ====
 
+/// What the thread that makes the speech session answers.
+struct SpeechReady {
+    /// The session and what became of the built-in recogniser, or why there is none.
+    made: Result<(SpeechSession, BuiltinSpeechStatus), String>,
+}
+
+extern "C" fn make_speech(_init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    // The chain of recognisers (the system's, then the built-in one where its files are found next to the binary or in
+    // the bundle), its vocabulary, and the call a stop ends. A panic in it is an answer too: the window is told, and the
+    // dictation that waits does not wait for the limit.
+    let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let session = SpeechSession::create();
+        let builtin = session.set_builtin_files("", "");
+        (session, builtin)
+    }))
+    .map_err(|_| "the thread that makes the speech session panicked".to_string());
+    let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
+        on_speech_ready,
+        RefAny::new(SpeechReady { made }),
+    )));
+}
+
+/// The session is made (or could not be): the window has it from now on, and the dictation that waited for it starts.
+extern "C" fn on_speech_ready(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(made) = msg.downcast_ref::<SpeechReady>().map(|r| r.made.clone()) else {
+        return Update::DoNothing;
+    };
+    let (report, start_at) = {
+        let Some(mut s) = app.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        let outcome = match made {
+            Ok((session, builtin)) => {
+                eprintln!("[AzReview] speech: the built-in recogniser is {}", builtin_word(builtin));
+                println!("AZREVIEW_SPEECH ready");
+                s.voice.speech = Some(session);
+                Ok(())
+            }
+            Err(why) => Err(why),
+        };
+        let made = s.voice.gate.made(outcome);
+        // The pen may have moved on while the session was made: a rest it has left starts nothing.
+        let start_at = made.start.filter(|a| s.voice.dwell.still_at(a));
+        (made.report, start_at)
+    };
+    crate::startup::phase("speech");
+    tell_failure(report);
+    if let Some(anchor) = start_at {
+        return start(&mut app, &mut info, anchor);
+    }
+    // The settings page lists the recognisers of the session that is there now.
+    Update::RefreshDom
+}
+
+/// A session that could not be made, told once (the gate lets one word through): the log, and the line scripts read.
+fn tell_failure(report: Option<String>) {
+    if let Some(why) = report {
+        eprintln!(
+            "[AzReview] speech: the session could not be made ({why}); a dictation listens through the engine's own call, \
+             without the page's words as its vocabulary"
+        );
+        println!("AZREVIEW_SPEECH failed {why}");
+    }
+}
+
+/// Makes the speech session on a thread of its own (the window does not wait for it; a dictation asked before it is
+/// ready waits for it).
+pub fn spawn_speech_session(info: &mut CallbackInfo, app: &RefAny) {
+    let mut state = app.clone();
+    if let Some(mut s) = state.downcast_mut::<AppState>() {
+        let now = s.voice.now_ms();
+        s.voice.gate.begin(now);
+    }
+    info.add_thread(ThreadId::unique(), Thread::create(RefAny::new(()), app.clone(), make_speech));
+}
+
+/// How often a dictation that waits for the session looks at the clock, ms.
+const GATE_TICK_MS: u64 = 250;
+
+/// Arms the timer that gives up on a session that is not made in time, when a dictation waits for it and none looks yet.
+fn ensure_gate_timer(data: &mut RefAny, info: &mut CallbackInfo) {
+    let wanted = data.downcast_mut::<AppState>().is_some_and(|mut s| {
+        let wanted = s.voice.gate.is_waiting() && !s.voice.gate_ticking;
+        if wanted {
+            s.voice.gate_ticking = true;
+        }
+        wanted
+    });
+    if wanted {
+        let timer = Timer::create(data.clone(), on_gate_tick, info.get_system_time_fn())
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(GATE_TICK_MS)));
+        info.add_timer(TimerId::unique(), timer);
+    }
+}
+
+/// The gate's tick: past the limit the session is given up on, the failure is told, and the dictation that waited
+/// listens through the engine's own call.
+extern "C" fn on_gate_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let made = {
+        let Some(mut s) = data.downcast_mut::<AppState>() else {
+            return TimerCallbackReturn::terminate_unchanged();
+        };
+        let now = s.voice.now_ms();
+        let made = s.voice.gate.expire(now);
+        if made.is_none() && s.voice.gate.is_waiting() {
+            return TimerCallbackReturn::continue_unchanged();
+        }
+        s.voice.gate_ticking = false;
+        made.map(|m| {
+            let start_at = m.start.filter(|a| s.voice.dwell.still_at(a));
+            (m.report, start_at)
+        })
+    };
+    let Some((report, start_at)) = made else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    tell_failure(report);
+    let update = match start_at {
+        Some(anchor) => start(&mut data, &mut info.callback_info, anchor),
+        None => Update::RefreshDom,
+    };
+    TimerCallbackReturn::create(update, TerminateTimer::Terminate)
+}
+
 /// What the built-in recogniser's loading came to, in words (a line for the log and the status).
 pub(crate) fn builtin_word(status: BuiltinSpeechStatus) -> &'static str {
     match status {
@@ -644,8 +775,29 @@ extern "C" fn worker(mut init: RefAny, mut sender: ThreadSender, _receiver: Thre
     );
 }
 
-/// Starts a dictation at `anchor`: its note and marker, the worker, the column open.
+/// Starts a dictation at `anchor`: its note and marker, the worker, the column open. While the speech session is being
+/// made the rest is kept and starts when it is ready (or when it is given up on).
 fn start(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update {
+    let waits = {
+        let Some(mut s) = data.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        if s.file().is_none() {
+            return Update::DoNothing;
+        }
+        let now = s.voice.now_ms();
+        match s.voice.gate.ask(anchor, now) {
+            Asked::Wait => true,
+            Asked::Start { report, .. } => {
+                tell_failure(report);
+                false
+            }
+        }
+    };
+    if waits {
+        ensure_gate_timer(data, info);
+        return Update::DoNothing;
+    }
     let plan = {
         let Some(mut s) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
@@ -681,7 +833,7 @@ fn start(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update {
         // The words of the page under the pen, for the recogniser's keyword biasing (what it cut is told once).
         if let Some(speech) = &s.voice.speech {
             let words = s.file().map_or_else(Vec::new, |f| {
-                crate::vocabulary::vocabulary(f.page(anchor.page).1, &f.display, VOCABULARY_CAP)
+                crate::vocabulary::vocabulary(&f.page(anchor.page).1, &f.display, VOCABULARY_CAP)
             });
             let cut = speech.set_vocabulary(string_vec(&words));
             if !cut.as_str().is_empty() {

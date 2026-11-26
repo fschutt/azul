@@ -31,6 +31,9 @@ pub const FORMAT_MAJOR: u32 = 1;
 pub const MANIFEST: &str = "board.json";
 /// The largest picture file that is read, bytes.
 pub const MAX_PICTURE_BYTES: usize = 64 * 1024 * 1024;
+/// What an archive may declare for all of its entries unpacked, over the pixels a board may hold (its PNGs are not
+/// larger than their pixels) and its manifest: room for the names and the PNGs' own overhead.
+const UNPACKED_SLACK: u64 = 16 * 1024 * 1024;
 /// The most items read from a file, whatever the board's own cap: a file cannot make the reader hold more.
 pub const MAX_ITEMS_READ: usize = 5_000;
 
@@ -229,7 +232,8 @@ pub enum StoreError {
     NotABoard(String),
     /// It was written by a newer major version.
     TooNew { found: u32 },
-    /// Its manifest is longer than any manifest may be.
+    /// Its manifest is longer than any manifest may be, or the file says it unpacks to more than a board may be
+    /// ([`check_unpacked`]).
     TooLarge { bytes: usize },
 }
 
@@ -242,7 +246,7 @@ impl StoreError {
             Self::TooNew { found } => format!(
                 "This whiteboard was saved by a newer AzReview (its format is {found}); it is left as it is."
             ),
-            Self::TooLarge { bytes } => format!("This whiteboard's manifest has {bytes} bytes, more than a whiteboard has."),
+            Self::TooLarge { bytes } => format!("This whiteboard's file is far larger than a whiteboard is ({bytes} bytes)."),
         }
     }
 
@@ -371,6 +375,66 @@ fn picture_of(
     };
     budget.pixels += px;
     ImageSlot::Ready(raster.into_shared_image(scale, bytes))
+}
+
+/// The central directory of a zip archive, as far as sizes go: each entry's name and the size it declares for itself
+/// unpacked. `None` for bytes that are no zip, a directory that cannot be read to its end, or a ZIP64 archive
+/// (a board never needs one). Only the directory is read: nothing is unpacked.
+#[must_use]
+pub fn declared_sizes(zip: &[u8]) -> Option<Vec<(String, u64)>> {
+    const END: u32 = 0x0605_4b50;
+    const ENTRY: u32 = 0x0201_4b50;
+    // `off` bytes after `at`: nothing for what lies outside the file (a directory may point anywhere).
+    let u16_at = |at: usize, off: usize| -> Option<u16> {
+        let from = at.checked_add(off)?;
+        zip.get(from..from.checked_add(2)?).map(|b| u16::from_le_bytes([b[0], b[1]]))
+    };
+    let u32_at = |at: usize, off: usize| -> Option<u32> {
+        let from = at.checked_add(off)?;
+        zip.get(from..from.checked_add(4)?).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    // The end record is in the last 22 bytes and the comment that may follow it (at most 65535).
+    let last = zip.len().checked_sub(22)?;
+    let first = last.saturating_sub(65_535);
+    let end = (first..=last).rev().find(|at| u32_at(*at, 0) == Some(END))?;
+    let count = usize::from(u16_at(end, 10)?);
+    let mut at = usize::try_from(u32_at(end, 16)?).ok()?;
+    let mut sizes = Vec::with_capacity(count.min(MAX_ITEMS_READ));
+    for _ in 0..count {
+        if u32_at(at, 0)? != ENTRY {
+            return None;
+        }
+        let size = u32_at(at, 24)?;
+        if size == u32::MAX {
+            return None;
+        }
+        let (name, extra, comment) = (usize::from(u16_at(at, 28)?), usize::from(u16_at(at, 30)?), usize::from(u16_at(at, 32)?));
+        let name_from = at.checked_add(46)?;
+        let name_bytes = zip.get(name_from..name_from.checked_add(name)?)?;
+        sizes.push((String::from_utf8_lossy(name_bytes).into_owned(), u64::from(size)));
+        at = name_from.checked_add(name)?.checked_add(extra)?.checked_add(comment)?;
+    }
+    Some(sizes)
+}
+
+/// Whether the archive declares more than a board may unpack to: an entry larger than the largest picture file
+/// ([`MAX_PICTURE_BYTES`]), or all of them together larger than the pixels a board may hold (4 bytes each) and its
+/// manifest. The reader unpacks every entry at once, so a file that lied about nothing but its sizes could take all
+/// the memory: this looks at the directory first. `Err` holds the declared total. An archive whose directory cannot
+/// be read passes: the reader says what is wrong with it.
+///
+/// # Errors
+/// The declared sizes are beyond what a board may be.
+pub fn check_unpacked(zip: &[u8], limits: &Limits) -> Result<(), u64> {
+    let Some(sizes) = declared_sizes(zip) else {
+        return Ok(());
+    };
+    let total: u64 = sizes.iter().map(|(_, size)| *size).sum();
+    let room = limits.max_total_px.saturating_mul(4).saturating_add(json::MAX_TEXT as u64).saturating_add(UNPACKED_SLACK);
+    if total > room || sizes.iter().any(|(_, size)| *size > MAX_PICTURE_BYTES as u64) {
+        return Err(total);
+    }
+    Ok(())
 }
 
 /// The board a manifest holds, with the pictures `picture` gives by name, decoded by `codec`, kept inside

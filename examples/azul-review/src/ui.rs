@@ -2,7 +2,7 @@ use azul::{
     audio::AudioConfig,
     callbacks::{ButtonOnClickCallbackType, CallbackType},
     dom::{
-        AccessibilityInfo, AccessibilityRole, DomNodeId, NodeId, RenderImageCallback, VirtualKeyCode,
+        AccessibilityInfo, AccessibilityRole, DomId, DomNodeId, NodeId, RenderImageCallback, VirtualKeyCode,
         VirtualKeyCodeCombo,
     },
     option::OptionVirtualKeyCodeCombo,
@@ -38,6 +38,13 @@ pub(crate) const GUTTER_W: f32 = 52.0;
 
 pub(crate) const MARGIN_GUTTER_W: f32 = 260.0;
 pub const PAGE_PAD: f32 = 32.0;
+/// The colour of a page: what a deleted word is drawn in, so that it is not there and its place is.
+pub(crate) const PAGE_BG: &str = "#ffffff";
+/// Where the code of a page starts in the ink layer's px: under the page's padding and the gutter of the line numbers.
+pub(crate) const CODE_X: f32 = PAGE_PAD + GUTTER_W;
+/// How wide a column of the page's code is, px: the advance of the monospace 11 px of the page. A word is found by it
+/// (`AppState::slash_of`), so it is checked against the window (the e2e measures the rect of a line).
+pub(crate) const CHAR_W: f32 = 6.6;
 /// How wide the code column of a page is (the page, less the notes' margin and the padding).
 pub(crate) const CODE_W: f32 = PAGE_W - MARGIN_GUTTER_W - PAGE_PAD;
 const PAGE_GAP: f32 = 24.0;
@@ -56,7 +63,7 @@ fn page_h() -> f32 {
     code::LINES_PER_PAGE as f32 * LINE_H + 40.0
 }
 
-fn page_stride() -> f32 {
+pub(crate) fn page_stride() -> f32 {
     PAGE_W + PAGE_GAP
 }
 
@@ -189,6 +196,7 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let Some(s) = d.downcast_ref::<AppState>() else {
         return Dom::create_body();
     };
+    s.told.first_layout();
     let content = if kit::settings_open(&s.kit) {
         // azul-appkit's settings page: Appearance, Data, Shortcuts, About.
         Dom::create_div()
@@ -236,6 +244,11 @@ pub(crate) fn with_window_listeners(body: Dom, data: &RefAny) -> Dom {
         data.clone(),
         crate::on_focus_lost,
     )
+    .with_callback(
+        EventFilter::Window(WindowEventFilter::WindowFocusReceived),
+        data.clone(),
+        crate::on_focus_received,
+    )
 }
 
 /// The width of the tree's switch, which sits next to the traffic lights.
@@ -248,7 +261,7 @@ pub fn main_view(s: &AppState, data: &RefAny, window_w: f32) -> Dom {
     let chrome = kit::tabs_in_titlebar();
     let reserved = chrome.left.max(0.0) + SWITCH_W + 12.0;
     let solved = crate::layout::solve(window_w, &s.panels, &s.slide, reserved);
-    let has_files = !s.files.is_empty();
+    let has_files = s.has_entries();
     let mut root = Dom::create_div().with_css(
         "position: relative; display: flex; flex-direction: row; flex-grow: 1; min-height: 0px; min-width: 0px;",
     );
@@ -287,6 +300,10 @@ fn tree_column(s: &AppState, data: &RefAny, solved: &crate::layout::Solved) -> D
                 .with_css(format!("height: {}px; flex-shrink: 0; -azul-app-region: drag;", crate::layout::TOP_H).as_str()),
         )
         .with_child(file_list(s, data));
+    let inner = match reviewed_line(s) {
+        Some(line) => inner.with_child(line),
+        None => inner,
+    };
     Dom::create_div()
         .with_id(ids::TREE)
         .with_css(
@@ -542,41 +559,135 @@ fn pen_key(i: usize, sem: Semantic, selected: bool, nib: Option<crate::model::To
 
 /// The files, as the rows of the tree: the folders as headings, the files as buttons, the open one lit. A pick opens
 /// the file and leaves the tree as it is.
-fn file_list(s: &AppState, data: &RefAny) -> Dom {
-    let mut list = Dom::create_div()
-        .with_css(
-            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: \
-             auto; overflow-x: hidden; padding: 4px 0px;",
-        )
+/// The tree of the files: a VirtualView whose rows are the open folders flattened; only the rows that are on the screen
+/// (and a few over) are built, whatever the size of the workspace.
+fn file_list(_s: &AppState, data: &RefAny) -> Dom {
+    Dom::create_virtual_view(RefAny::new(TreeView { app: data.clone() }), tree_virtual_view)
         .with_id(ids::FILES)
-        .with_accessibility_name(label("azreview-files"));
+        .with_accessibility_info(AccessibilityInfo::named(label("azreview-files"), AccessibilityRole::List))
+        .with_css("flex-grow: 1; min-height: 0px; width: 100%; padding: 4px 0px;")
+}
 
-    let mut prev: Vec<String> = Vec::new();
-    for (i, f) in s.files.iter().enumerate() {
-        let parts: Vec<&str> = f.display.split(['/', '\\']).collect();
-        let (dirs, name) = parts.split_at(parts.len().saturating_sub(1));
-        for (depth, comp) in dirs.iter().enumerate() {
-            if prev.get(depth).map(String::as_str) == Some(*comp) {
-                continue;
-            }
-            list.add_child(finder_row(
-                comp, depth, "folder", "system:accent", false, None, None, data,
-            ));
-        }
-        prev = dirs.iter().map(|c| (*c).to_string()).collect();
-        let leaf = name.first().copied().unwrap_or(f.display.as_str());
-        list.add_child(finder_row(
-            leaf,
-            dirs.len(),
-            file_icon(leaf),
-            "system:secondary-text",
-            s.current == Some(i),
-            Some(i),
-            s.chips.file_state(&f.display),
-            data,
-        ));
+/// What the tree's VirtualView needs: the app's state.
+struct TreeView {
+    app: RefAny,
+}
+
+extern "C" fn tree_virtual_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let app = {
+        let Some(view) = data.downcast_ref::<TreeView>() else {
+            return VirtualViewReturn::default();
+        };
+        view.app.clone()
+    };
+    let mut state = app.clone();
+    let Some(s) = state.downcast_ref::<AppState>() else {
+        return VirtualViewReturn::default();
+    };
+    let size = info.bounds.get_logical_size();
+    let total = s.rows.len();
+    if total > 0 {
+        s.told.tree_rows();
     }
-    list
+    let window = crate::tree::row_window(total, info.scroll_offset.y, size.height, crate::tree::ROW_H, crate::tree::OVERSCAN);
+    let mut col = Dom::create_div().with_css("display: flex; flex-direction: column;");
+    for row in &s.rows[window.clone()] {
+        col.add_child(tree_row(&s, &app, row));
+    }
+    VirtualViewReturn::with_dom(
+        col,
+        LogicalRect::create(
+            LogicalPosition::create(0.0, window.start as f32 * crate::tree::ROW_H),
+            LogicalSize::create(size.width, window.len() as f32 * crate::tree::ROW_H),
+        ),
+        LogicalRect::create(
+            LogicalPosition::create(0.0, 0.0),
+            LogicalSize::create(size.width, total as f32 * crate::tree::ROW_H),
+        ),
+    )
+}
+
+/// A row of the tree: a folder (opened and closed by a click) or a file (opened by one).
+fn tree_row(s: &AppState, data: &RefAny, row: &crate::tree::Row) -> Dom {
+    match row.kind {
+        crate::tree::Kind::Dir => finder_row(
+            &row.name,
+            row.depth,
+            if row.expanded { "folder_open" } else { "folder" },
+            "system:accent",
+            false,
+            RowAction::Dir(row.id),
+            row.expanded,
+            row.loading,
+            None,
+            folder_trail(s, row.id),
+            data,
+        ),
+        crate::tree::Kind::File => finder_row(
+            &row.name,
+            row.depth,
+            file_icon(&row.name),
+            "system:secondary-text",
+            s.open_node == Some(row.id),
+            RowAction::File(row.id),
+            false,
+            false,
+            s.file_mark(row.id),
+            None,
+            data,
+        ),
+    }
+}
+
+/// What a folder's row says of its review: the part of its lines that is reviewed, in whole percent; nothing for a
+/// folder whose files are not counted yet.
+fn folder_trail(s: &AppState, id: usize) -> Option<String> {
+    let totals = s.totals_of(id);
+    (totals.lines > 0).then(|| format!("{}%", totals.percent_reviewed()))
+}
+
+/// How many, with a comma between the thousands.
+#[must_use]
+pub fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// The sentence at the foot of the tree: how much of the workspace is reviewed, in lines, and how much of it has only been
+/// seen; and that the count is not done while some files are not counted.
+fn reviewed_line(s: &AppState) -> Option<Dom> {
+    let totals = s.totals_of(s.tree.root());
+    if totals.files == 0 {
+        return None;
+    }
+    let mut said = t_args(
+        "azreview-reviewed-line",
+        &[
+            ("reviewed", Arg::from(grouped(totals.lines_reviewed))),
+            ("total", Arg::from(grouped(totals.lines))),
+            ("percent", Arg::from(totals.percent_reviewed())),
+            ("seen", Arg::from(grouped(totals.lines_seen))),
+        ],
+    );
+    if s.counting {
+        said.push(' ');
+        said.push_str(&t("azreview-reviewed-counting"));
+    }
+    Some(
+        Dom::create_p_with_text(said.as_str())
+            .with_id(ids::REVIEWED)
+            .with_css(
+                "margin: 0px; padding: 6px 10px; font-size: 10px; line-height: 1.35; flex-shrink: 0; \
+                 color: system:secondary-text; border-top: 1px solid system:separator;",
+            ),
+    )
 }
 
 /// The primary modifier of a menu item's key: Command on a Mac, Control elsewhere.
@@ -668,28 +779,38 @@ const fn file_icon(name: &str) -> &'static str {
     "insert_drive_file"
 }
 
+/// What a click on a row of the tree does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RowAction {
+    /// A folder (the node): it opens or closes.
+    Dir(usize),
+    /// A file (the node): it is opened.
+    File(usize),
+}
+
+#[allow(clippy::too_many_arguments)]
 fn finder_row(
     label: &str,
     depth: usize,
     icon: &str,
     icon_color: &str,
     selected: bool,
-    index: Option<usize>,
+    action: RowAction,
+    expanded: bool,
+    loading: bool,
     mark: Option<crate::chips::State>,
+    trail: Option<String>,
     data: &RefAny,
 ) -> Dom {
     // A selected file: flat's accent row; under flora flora's selection (the soft wash and
-    // the deep ink by day, the stone at night), as every list of the engine shows it. A file
-    // is a button (a folder only a heading), without the UA's border and font.
-    let mut row = match index {
-        Some(_) => Dom::create_node(NodeType::Button),
-        None => Dom::create_div(),
-    }
-    .with_css(
+    // the deep ink by day, the stone at night), as every list of the engine shows it. A row
+    // is a button, without the UA's border and font.
+    let mut row = Dom::create_node(NodeType::Button).with_css(
         format!(
-            "display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 3px 10px \
-             3px {}px; font-size: 11px; flex-shrink: 0; border: 0px solid transparent; \
-             background: {}; color: {};{}",
+            "display: flex; flex-direction: row; align-items: center; gap: 6px; height: {}px; \
+             box-sizing: border-box; padding: 0px 10px 0px {}px; font-size: 11px; flex-shrink: 0; \
+             border: 0px solid transparent; background: {}; color: {};{}",
+            crate::tree::ROW_H as isize,
             10 + depth * 16,
             if selected { "system:accent" } else { "transparent" },
             if selected { "system:accent-text" } else { "system:text" },
@@ -702,6 +823,12 @@ fn finder_row(
         )
         .as_str(),
     );
+    if matches!(action, RowAction::Dir(_)) {
+        row.add_child(
+            Dom::create_icon(if expanded { "expand_more" } else { "chevron_right" })
+                .with_css("font-size: 14px; margin-left: -4px; color: system:secondary-text;"),
+        );
+    }
     row.add_child(
         Dom::create_icon(icon).with_css(
             format!(
@@ -719,6 +846,19 @@ fn finder_row(
         ),
     );
     row.add_child(Dom::create_span_with_text(label).with_css("flex-grow: 1; min-width: 0px; overflow: hidden;"));
+    if let Some(trail) = trail {
+        // What a folder has of reviewed lines: a few characters, lighter than its name.
+        row.add_child(
+            Dom::create_span_with_text(trail.as_str()).with_css("font-size: 10px; color: system:secondary-text; flex-shrink: 0;"),
+        );
+    }
+    if loading {
+        row.add_child(
+            Dom::create_span_with_text("\u{2026}")
+                .with_css("font-size: 11px; color: system:secondary-text;")
+                .with_accessibility_name(azul_appkit::l10n::label("azreview-tree-loading")),
+        );
+    }
     // What the file's conversations come to: the spinner for an agent at work, yellow for a suggestion that waits, green
     // when all are done; a file nobody talked about has no mark.
     if let Some(state) = mark {
@@ -729,15 +869,22 @@ fn finder_row(
         };
         row.add_child(state_mark(state, 13).with_id(id).with_accessibility_name(state_word(state)));
     }
-    match index {
-        Some(i) => row
-            .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::Click),
-                data.clone(),
-                crate::on_pick_file,
-            ),
-        None => row,
+    let (id, on_click) = match action {
+        RowAction::Dir(id) => (id, crate::on_toggle_dir as CallbackType),
+        RowAction::File(id) => (id, crate::on_pick_file as CallbackType),
+    };
+    let row = row
+        .with_id(format!("__azreview_tree-row-{id}").as_str())
+        .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: id })))
+        .with_callback(EventFilter::Hover(HoverEventFilter::Click), data.clone(), on_click);
+    match action {
+        // A right click on a file: it is not reviewed (or is again), whatever its pages say.
+        RowAction::File(_) => row.with_callback(
+            EventFilter::Hover(HoverEventFilter::RightMouseUp),
+            data.clone(),
+            crate::on_tree_hold_file,
+        ),
+        RowAction::Dir(_) => row,
     }
 }
 
@@ -788,11 +935,29 @@ fn page_strip(s: &AppState, data: &RefAny) -> Dom {
         .as_str(),
     );
     if let Some(file) = s.file() {
-        for page in 0..file.page_count() {
-            strip.add_child(page_pill(page, page == s.visible_page, data));
+        // A file of thousands of pages has a strip of a couple of dozen keys (`layout::strip_items`), not a key a page.
+        for item in crate::layout::strip_items(file.page_count(), s.visible_page) {
+            strip.add_child(match item {
+                crate::layout::StripItem::Page(page) => page_pill(page, page == s.visible_page, data),
+                crate::layout::StripItem::Skip { to } => skip_pill(to, data),
+            });
         }
     }
     strip
+}
+
+/// The key of a gap of pages that are not shown: a click goes to the page in the middle of it.
+fn skip_pill(to: usize, data: &RefAny) -> Dom {
+    let name = AzString::from(t_args("azreview-page-skip", &[("n", Arg::from(to + 1))]));
+    key(
+        "padding: 0px 7px; font-family: monospace; background: transparent; color: system:secondary-text; \
+         border: 1px solid transparent;",
+        name,
+        data.clone(),
+        crate::on_jump_to_page,
+    )
+    .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: to })))
+    .with_child(Dom::create_span_with_text("\u{2026}"))
 }
 
 /// The tools at the top bar's right end: the voice meter while recording, record, save and the settings, all one
@@ -992,6 +1157,7 @@ fn page_pill(page: usize, here: bool, data: &RefAny) -> Dom {
         data.clone(),
         crate::on_jump_to_page,
     )
+    .with_id(format!("__azreview_page-pill-{}", page + 1).as_str())
     .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: page })))
     .with_child(Dom::create_span_with_text(format!("{}", page + 1).as_str()))
 }
@@ -1024,6 +1190,19 @@ pub fn strip_scroll_x(info: &CallbackInfo) -> Option<f32> {
     info.get_scroll_offset_for_node(dom, NodeId::create(index))
         .into_option()
         .map(|offset| offset.x)
+}
+
+/// How far the strip of pages is scrolled sideways and how wide it is, as a timer sees the window (`None`: no strip).
+pub fn strip_view(info: &CallbackInfo) -> Option<(f32, f32)> {
+    let dom = DomId { inner: 0 };
+    let node = info.get_node_id_by_id_attribute(dom, STRIP_ID);
+    let index = node.into_raw().checked_sub(1)?;
+    let x = info
+        .get_scroll_offset_for_node(dom, NodeId::create(index))
+        .into_option()
+        .map_or(0.0, |offset| offset.x);
+    let width = info.get_node_rect(DomNodeId { dom, node }).into_option()?.size.width;
+    Some((x, width))
 }
 
 /// Scrolls the page numbers' column so page `page`'s number is in view. Its place in the column is the heights of the
@@ -1089,7 +1268,7 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
                 AzString::from(t("azreview-no-folder")),
                 Some(AzString::from(t("azreview-no-folder-hint"))),
             )
-        } else if s.files.is_empty() {
+        } else if !s.has_entries() {
             (
                 AzString::from(t_args(
                     "azreview-no-files",
@@ -1200,7 +1379,7 @@ extern "C" fn sheets_virtual_view(
             .with_css("display: flex; flex-direction: row; align-items: flex-start;");
         let listening = s.voice.ready_note();
         for page in first..first + count {
-            row.add_child(page_sheet(&cb_app, file, page, &s.notes, listening));
+            row.add_child(page_sheet(&cb_app, file, page, &s.notes, listening, &s.hidden_ranges(page)));
         }
         (row, first, count, total, leftmost)
     };
@@ -1228,11 +1407,12 @@ fn page_sheet(
     page: usize,
     notes: &[Note],
     listening: Option<u64>,
+    hidden: &[Vec<(usize, usize)>],
 ) -> Dom {
     let (first_line, lines) = file.page(page);
     let mut sheet = Dom::create_div().with_css(
         format!(
-            "position: relative; width: {}px; height: {}px; background: #ffffff; border: 1px \
+            "position: relative; width: {}px; height: {}px; background: {PAGE_BG}; border: 1px \
              solid #b9b4ab; box-shadow: 0px 1px 4px #00000030; margin-right: {}px; flex-shrink: \
              0; box-sizing: border-box; padding: {}px; overflow: hidden;",
             PAGE_W as isize,
@@ -1259,7 +1439,7 @@ fn page_sheet(
         ),
     );
 
-    sheet.add_child(page_code_column(first_line, lines));
+    sheet.add_child(page_code_column_hidden(first_line, &lines, hidden));
     // The markers of the dictated notes: over the code, under the pen layer (they take no stroke).
     for marker in column::markers(notes, page, listening) {
         sheet.add_child(marker);
@@ -1273,6 +1453,14 @@ fn page_sheet(
 /// so that it looks like the page it was taken from.
 #[must_use]
 pub fn page_code_column(first_line: usize, lines: &[String]) -> Dom {
+    page_code_column_hidden(first_line, lines, &[])
+}
+
+/// [`page_code_column`] with words hidden: `hidden[i]` are the byte ranges of line `i` a slash took, drawn in the colour of
+/// the page. The rows, their heights and the places of the other words are what they were (the pieces of a line keep each
+/// its own width), so nothing reflows and no page break moves.
+#[must_use]
+pub fn page_code_column_hidden(first_line: usize, lines: &[String], hidden: &[Vec<(usize, usize)>]) -> Dom {
     let mut col = Dom::create_div().with_css(
         format!(
             "position: relative; display: flex; flex-direction: column; width: {}px; overflow: \
@@ -1282,14 +1470,27 @@ pub fn page_code_column(first_line: usize, lines: &[String]) -> Dom {
         .as_str(),
     );
     for (i, line) in lines.iter().enumerate() {
-        col.add_child(code_row(first_line + i, line.as_str()));
+        let ranges = hidden.get(i).map_or(&[][..], Vec::as_slice);
+        col.add_child(code_row(first_line + i, line.as_str(), ranges));
     }
     col
 }
 
-/// One line of code: its number in the gutter, then the line.
-fn code_row(number: usize, line: &str) -> Dom {
+/// How a piece of a line is drawn: the ink of the code, or the colour of the page where a slash took it.
+fn piece_css(hidden: bool) -> String {
+    let color = if hidden { PAGE_BG } else { "#1f1f1f" };
+    format!("font-family: monospace; font-size: 11px; color: {color}; white-space: pre;")
+}
+
+/// One line of code: its number in the gutter, then the line (cut where words are hidden). The row and the line's
+/// text have ids for the scripts that measure them (`__azreview_line-<n>`, `__azreview_line-<n>-text`), a hidden piece
+/// one of its own (`__azreview_hidden-<n>-<byte>`).
+fn code_row(number: usize, line: &str, hidden: &[(usize, usize)]) -> Dom {
+    // What is past the right edge of the page is not seen: it is not shaped (a line of a minified bundle is a million
+    // characters, and shaping it for a page that shows a hundred and ten takes seconds).
+    let line = clip_line(line);
     let mut row = Dom::create_div()
+        .with_id(format!("__azreview_line-{number}").as_str())
         .with_css(format!("display: flex; flex-direction: row; height: {LINE_H}px;").as_str());
     row.add_child(
         Dom::create_span_with_text(format!("{number}").as_str()).with_css(
@@ -1301,10 +1502,52 @@ fn code_row(number: usize, line: &str) -> Dom {
             .as_str(),
         ),
     );
-    row.add_child(Dom::create_span_with_text(line).with_css(
-        "font-family: monospace; font-size: 11px; color: #1f1f1f; white-space: pre;",
-    ));
+    let text_id = format!("__azreview_line-{number}-text");
+    if hidden.is_empty() {
+        row.add_child(
+            Dom::create_span_with_text(line)
+                .with_id(text_id.as_str())
+                .with_css(piece_css(false).as_str()),
+        );
+    } else {
+        let mut pieces = Dom::create_div()
+            .with_id(text_id.as_str())
+            .with_css("display: flex; flex-direction: row; flex-shrink: 0;");
+        for piece in crate::deletion::segments(line, hidden) {
+            let mut span = Dom::create_span_with_text(&line[piece.start..piece.end])
+                .with_css(piece_css(piece.hidden).as_str());
+            if piece.hidden {
+                span = span.with_id(format!("__azreview_hidden-{number}-{}", piece.start).as_str());
+            }
+            pieces.add_child(span);
+        }
+        row.add_child(pieces);
+    }
     row
+}
+
+/// How many characters of a line a page can show: the code column's width in columns, and a few over.
+pub(crate) const CODE_COLUMNS: usize = ((CODE_W - GUTTER_W) / CHAR_W) as usize + 8;
+
+/// `line` as far as the page shows it: at most [`CODE_COLUMNS`] characters.
+fn clip_line(line: &str) -> &str {
+    match line.char_indices().nth(CODE_COLUMNS) {
+        Some((end, _)) => &line[..end],
+        None => line,
+    }
+}
+
+/// The geometry of a page's code for the agent and for finding a word: line `first_line` starts under the page's padding,
+/// the code after its gutter, a line is [`LINE_H`] high and a column [`CHAR_W`] wide.
+#[must_use]
+pub fn page_grid(first_line: usize) -> crate::agent_review::PageGrid {
+    crate::agent_review::PageGrid {
+        first_line,
+        origin_x: CODE_X,
+        origin_y: PAGE_PAD,
+        line_height: LINE_H,
+        char_width: CHAR_W,
+    }
 }
 
 /// What the screen reader is told of a picture that only decorates: nothing.
@@ -1400,7 +1643,7 @@ mod tests {
     /// quiet).
     #[test]
     fn a_code_line_and_its_number_are_text_spans() {
-        let row = code_row(7, "fn main() {}");
+        let row = code_row(7, "fn main() {}", &[]);
         let kinds: Vec<bool> = row
             .children
             .as_slice()
@@ -1440,6 +1683,7 @@ mod tests {
                 path: std::path::PathBuf::from(format!("f{i}.rs")),
                 display: format!("f{i}.rs"),
                 lines: lines.clone(),
+                big: None,
             })
             .collect();
         AppState::create(
@@ -1547,8 +1791,11 @@ mod tests {
         let tree = with_id(&view, &ids::TREE).expect("the file tree");
         assert!(!declares(tree, "Position(Exact(Absolute))"), "beside the pages, not over them");
         let shown = texts(tree);
-        assert!(shown.iter().any(|t| t == "f1.rs"), "it lists the files: {shown:?}");
         assert!(!shown.iter().any(|t| t == "Files"), "no heading, it takes room: {shown:?}");
+        // the rows are built by the tree's VirtualView, only the ones on the screen: the row of a file says its name
+        let row = s.rows.iter().find(|r| r.name == "f1.rs").expect("a row for the file");
+        let built = tree_row(&s, &RefAny::new(0u8), row);
+        assert!(texts(&built).iter().any(|t| t == "f1.rs"), "it lists the files: {:?}", texts(&built));
         // the tree is the first of the window's columns, the pages' column after it
         let root_children: Vec<_> = view.children.as_slice().iter().map(|c| c.root.has_id(ids::TREE.clone())).collect();
         assert_eq!(root_children.first(), Some(&true), "the tree comes first (the pages are pushed to its right)");
@@ -1576,8 +1823,8 @@ mod tests {
     fn picking_a_file_opens_it_and_leaves_the_tree_as_it_is() {
         let mut s = app(2);
         assert!(s.panels.tree_open, "premise: the tree is out");
-        s.open_file(1);
-        assert_eq!(s.current, Some(1));
+        assert!(s.open_path("f1.rs"));
+        assert_eq!(s.file().map(|f| f.display.as_str()), Some("f1.rs"));
         assert!(s.panels.tree_open, "a pick does not fold the tree");
     }
 

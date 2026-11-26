@@ -54,6 +54,8 @@ pub const RIGHT_PANEL: AzString = AzString::from_const_str("__azreview_right-pan
 pub const RIGHT_GRIP: AzString = AzString::from_const_str("__azreview_right-grip");
 /// The settings page's list of the recognisers and their state.
 pub const SPEECH_STATUS: AzString = AzString::from_const_str("__azreview_speech-status");
+/// The sentence at the foot of the tree about how much of the workspace is reviewed.
+pub const REVIEWED: AzString = AzString::from_const_str("__azreview_reviewed");
 /// The settings page's line about the microphone's state.
 pub const MIC_STATUS: AzString = AzString::from_const_str("__azreview_mic-status");
 /// The bottom bar of the agents at work.

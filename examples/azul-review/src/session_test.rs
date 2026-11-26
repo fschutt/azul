@@ -15,6 +15,7 @@ fn state() -> AppState {
         path: "src/f.rs".into(),
         display: "src/f.rs".to_string(),
         lines: (0..100).map(|i| format!("fn f{i}() {{}}")).collect(),
+        big: None,
     };
     AppState::create(
         std::path::PathBuf::from("/work"),
@@ -29,11 +30,12 @@ fn stroke(id: u64, page: usize, epoch: u64, semantic: Semantic) -> Stroke {
         page,
         semantic,
         points: vec![
-            InkPoint { x: 10.0, y: 20.5, pressure: 0.25, tilt_x: 1.0, tilt_y: -2.0 },
-            InkPoint { x: 30.0, y: 40.0, pressure: 0.75, tilt_x: 0.0, tilt_y: 0.0 },
+            InkPoint { x: 10.0, y: 20.5, pressure: 0.25, tilt_x: 1.0, tilt_y: -2.0, t_ms: 0 },
+            InkPoint { x: 30.0, y: 40.0, pressure: 0.75, tilt_x: 0.0, tilt_y: 0.0, t_ms: 0 },
         ],
         id,
         epoch,
+        started_unix_ms: 0,
     }
 }
 
@@ -125,6 +127,83 @@ fn an_archive_from_before_notes_existed_still_loads() {
 }
 
 #[test]
+fn the_time_of_each_sample_and_the_moment_a_stroke_began_are_kept_and_come_back() {
+    let mut s = state();
+    let mut st = stroke(1, 0, 0, Semantic::Issue);
+    st.started_unix_ms = 1_764_000_123_456;
+    st.points[1].t_ms = 87;
+    s.strokes.push(st);
+    let back = load(&archive(&s).1).expect("reads back");
+    assert_eq!(back.strokes, s.strokes);
+    assert_eq!(back.strokes[0].started_unix_ms, 1_764_000_123_456);
+    assert_eq!(back.strokes[0].points.iter().map(|p| p.t_ms).collect::<Vec<_>>(), vec![0, 87]);
+}
+
+#[test]
+fn an_archive_from_before_the_times_reads_with_none() {
+    let old = r#"{"format":"azreview/1","file":"a.rs","strokes":[{"id":1,"page":0,"semantic":"issue","points":[{"x":1.0,"y":2.0,"pressure":0.5,"tilt_x":0.0,"tilt_y":0.0}]}]}"#;
+    let back = load(&zip_of(old)).expect("an old archive loads");
+    assert_eq!(back.strokes[0].started_unix_ms, 0);
+    assert_eq!(back.strokes[0].points[0].t_ms, 0);
+    assert!(back.slashes.is_empty(), "no deletions in the old files");
+}
+
+fn deletion(id: u64) -> crate::deletion::Deletion {
+    crate::deletion::Deletion {
+        id,
+        page: 1,
+        started_unix_ms: 1_764_000_000_123,
+        points: vec![
+            InkPoint { x: 296.0, y: 206.5, pressure: 0.35, tilt_x: 0.0, tilt_y: 0.0, t_ms: 0 },
+            InkPoint { x: 334.0, y: 204.5, pressure: 0.75, tilt_x: 0.0, tilt_y: 0.0, t_ms: 55 },
+            InkPoint { x: 372.0, y: 202.5, pressure: 0.35, tilt_x: 0.0, tilt_y: 0.0, t_ms: 110 },
+        ],
+        words: vec![
+            crate::deletion::Deleted { line: 58, start: 33, end: 43, text: "abcdefghij".to_string() },
+            crate::deletion::Deleted { line: 58, start: 44, end: 47, text: "k\"m\n".to_string() },
+        ],
+    }
+}
+
+#[test]
+fn the_words_a_slash_took_are_kept_in_the_archive_and_come_back_with_the_stroke_that_took_them() {
+    let mut s = state();
+    s.slashes.push(deletion(4));
+    s.slashes.push(deletion(9));
+    let (_, bytes) = archive(&s);
+    let back = load(&bytes).expect("reads back");
+    assert_eq!(back.slashes, s.slashes, "the words with their bytes and the samples with their times");
+    let json = session_json(&bytes);
+    assert!(json.get_key("slashes").into_option().is_some_and(|n| n.is_array()), "a list, empty or not");
+}
+
+#[test]
+fn the_next_stroke_id_comes_after_the_deletions_of_the_archive_too() {
+    let mut s = state();
+    s.strokes.push(stroke(2, 0, 0, Semantic::Issue));
+    s.slashes.push(deletion(11));
+    let back = load(&archive(&s).1).expect("reads back");
+    assert_eq!(back.next_stroke_id(), 12);
+}
+
+#[test]
+fn a_deletion_that_cannot_be_read_is_skipped_and_the_rest_kept() {
+    let bad = r#"{"format":"azreview/1","file":"a.rs","slashes":[{"page":0,"words":[]},{"id":2,"page":0,"started":5,"points":[],"words":[{"line":3,"start":1,"end":4,"text":"abc"},{"line":"x"}]},7]}"#;
+    let back = load(&zip_of(bad)).expect("loads");
+    assert_eq!(back.slashes.len(), 1, "the one with an id");
+    assert_eq!(back.slashes[0].words.len(), 1, "and the word that can be read");
+    assert_eq!(back.slashes[0].started_unix_ms, 5);
+}
+
+#[test]
+fn the_deletions_an_archive_holds_are_bounded() {
+    let mut s = state();
+    s.slashes = (1..=(crate::deletion::MAX_DELETIONS as u64 + 50)).map(deletion).collect();
+    let back = load(&archive(&s).1).expect("reads back");
+    assert_eq!(back.slashes.len(), crate::deletion::MAX_DELETIONS, "the cap, not a crash");
+}
+
+#[test]
 fn fields_a_later_version_adds_are_ignored_not_refused() {
     let later = r#"{"format":"azreview/1","file":"a.rs","future":{"a":1},"strokes":[],"notes":[{"id":2,"page":0,"x":1.5,"y":2.5,"text":"ok","language":"","line":3,"colour":"teal","tags":["a"]}]}"#;
     let back = load(&zip_of(later)).expect("extra fields are fine");
@@ -189,8 +268,8 @@ fn the_numbers_of_a_stroke_are_written_short_and_read_back_the_same() {
     let mut s = state();
     s.strokes.push(Stroke {
         points: vec![
-            InkPoint { x: 0.55, y: -3.0, pressure: 1.0, tilt_x: 0.01, tilt_y: 123_456.78 },
-            InkPoint { x: f32::NAN, y: f32::INFINITY, pressure: 0.0, tilt_x: 0.0, tilt_y: 0.0 },
+            InkPoint { x: 0.55, y: -3.0, pressure: 1.0, tilt_x: 0.01, tilt_y: 123_456.78, t_ms: 0 },
+            InkPoint { x: f32::NAN, y: f32::INFINITY, pressure: 0.0, tilt_x: 0.0, tilt_y: 0.0, t_ms: 0 },
         ],
         ..stroke(1, 0, 0, Semantic::Issue)
     });
@@ -225,6 +304,7 @@ fn archive_timing() {
                     pressure: 0.55,
                     tilt_x: 0.0,
                     tilt_y: 0.0,
+                    t_ms: 0,
                 })
                 .collect();
             s.strokes.push(st);

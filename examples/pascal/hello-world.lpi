@@ -57,6 +57,9 @@
         </Win32>
       </Options>
     </Linking>
+    <Other>
+      <CustomOptions Value="-Aas"/>
+    </Other>
   </CompilerOptions>
   <Debugging>
     <Exceptions Count="3">
