@@ -1,4 +1,4 @@
-//! AzBuilder projects: a folder on disk that the builder UI browses, edits
+//! `AzBuilder` projects: a folder on disk that the builder UI browses, edits
 //! and saves into (the `project_*` ops).
 //!
 //! The builder UI (`dll/src/desktop/shell2/common/debugger/debugger-project.js`)
@@ -28,7 +28,10 @@
 //! `document.json` loads the document. A file that does not apply is still
 //! SAVED — it is the user's text — and the answer says why it did not apply.
 
-use std::path::{Path, PathBuf};
+use std::{
+    fmt::Write as _,
+    path::{Path, PathBuf},
+};
 
 use azul_core::{
     styled_dom::StyledDom,
@@ -44,9 +47,9 @@ use super::builder::{self, BuilderDocument, BuilderReply, BuilderSession, Remoun
 use crate::settings::PlatformEnv;
 
 /// The manifest file at the project root.
-pub const MANIFEST: &str = "azul-project.json";
+pub(super) const MANIFEST: &str = "azul-project.json";
 /// The builder document.
-pub const DOCUMENT: &str = "document.json";
+pub(super) const DOCUMENT: &str = "document.json";
 const COMPONENTS: &str = "components";
 const STYLES: &str = "styles";
 /// The folders a new project starts with.
@@ -72,7 +75,7 @@ const MAX_TREE_DEPTH: usize = 16;
 
 /// One `project_*` op, as `full.rs` hands it over.
 #[derive(Debug, Clone, Copy)]
-pub enum ProjectOp<'a> {
+pub(super) enum ProjectOp<'a> {
     Info,
     Open {
         path: &'a str,
@@ -115,7 +118,7 @@ pub enum ProjectOp<'a> {
 /// # Errors
 /// No project open (except `project_info` / `project_open`), a refused path,
 /// an I/O error, a malformed file or archive.
-pub fn handle(
+pub(super) fn handle(
     op: ProjectOp<'_>,
     project: &mut ProjectSession,
     builder: &mut BuilderSession,
@@ -213,7 +216,7 @@ pub fn handle(
 
 /// This window's open project (one per window, like the builder document).
 #[derive(Debug, Default)]
-pub struct ProjectSession {
+pub(super) struct ProjectSession {
     /// The CANONICAL root folder; every resolved path must stay under it.
     root: Option<PathBuf>,
 }
@@ -467,7 +470,7 @@ impl ProjectSession {
         let mut names = Vec::new();
         for (rel, path) in files {
             if let Ok(text) = std::fs::read_to_string(&path) {
-                css.push_str(&format!("/* {rel} */\n"));
+                let _ = writeln!(css, "/* {rel} */");
                 css.push_str(&text);
                 css.push('\n');
                 names.push(rel);
@@ -483,6 +486,9 @@ impl ProjectSession {
         builder.set_project_stylesheet(map, css)
     }
 
+    // `lower` is `norm` with its case folded on the first line: the suffix tests are case-blind already,
+    // and `Path::extension` would answer differently for a file named `.css`.
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
     fn apply_written(
         &self,
         norm: &str,
@@ -830,9 +836,7 @@ fn expand_home(p: &str, platform: &PlatformEnv) -> PathBuf {
 }
 
 fn folder_name(p: &Path) -> String {
-    p.file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "project".to_string())
+    p.file_name().map_or_else(|| "project".to_string(), |n| n.to_string_lossy().into_owned())
 }
 
 fn write_bytes(path: &Path, norm: &str, bytes: &[u8]) -> Result<(), String> {
@@ -878,11 +882,7 @@ fn list_dir(dir: &Path, rel: &str, depth: usize, count: &mut usize) -> Vec<Value
         };
         let order = if meta.file_type().is_symlink() {
             1
-        } else if meta.is_dir() {
-            0
-        } else {
-            1
-        };
+        } else { u8::from(!meta.is_dir()) };
         entries.push((order, name, e.path(), meta));
     }
     entries.sort_by(|a, b| {
@@ -1065,13 +1065,11 @@ fn apply_component(
     let library = obj
         .get("library")
         .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or(path_lib);
+        .map_or(path_lib, str::to_string);
     let name = obj
         .get("name")
         .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or(path_name);
+        .map_or(path_name, str::to_string);
     if library.is_empty() || library == "builtin" || !is_safe_segment(&library) {
         return Err(format!(
             "{library:?} is not a user library (name one in \"library\")"

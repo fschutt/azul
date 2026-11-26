@@ -17,7 +17,6 @@ use azul_css::AzString;
 
 /// Parse a JSON string
 #[cfg(feature = "json")]
-#[must_use]
 pub fn json_parse(s: &str) -> Result<Json, JsonParseError> {
     Json::parse(s)
 }
@@ -106,7 +105,6 @@ pub fn serialize_refany_to_json(refany: &RefAny) -> Option<Json> {
 
 /// Deserialize JSON into a `RefAny` using the provided deserialize function.
 #[cfg(feature = "json")]
-#[must_use]
 pub fn deserialize_refany_from_json(json: Json, deserialize_fn: usize) -> Result<RefAny, String> {
     if deserialize_fn == 0 {
         return Err("Type does not support JSON deserialization".to_string());
