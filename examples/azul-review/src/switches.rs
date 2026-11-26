@@ -27,6 +27,8 @@ pub const KEY_STANDBY_IDLE: &str = "dictation-standby-idle-ms";
 
 /// The settings file's value: a dictation that is over asks the agent by itself (`on` or `off`).
 pub const KEY_ASK_AGENT: &str = "dictation-ask-agent";
+/// The settings file's value: the symbol index of the workspace is built behind the window (`on` or `off`).
+pub const KEY_SYMBOLS: &str = "symbols-index";
 /// How long the mock agent takes to answer when nothing says otherwise, ms.
 pub const DEFAULT_AGENT_DELAY_MS: u64 = 800;
 
@@ -41,7 +43,8 @@ pub const HELP: &str = "    --dwell-ms <MS>          How long the pen rests befo
                         --standby-idle-ms <MS>   How long the pen is away before the microphone is closed (this run only)\n    \
                         --agent <NAME>           claude-print | anthropic-api | gemini-cli | gemini-api | mock: one backend for every task (this run only)\n    \
                         --agent-delay-ms <MS>    How long the mock agent takes to answer (this run only)\n    \
-                        --agent-auto <on|off>    Whether a dictation that is over asks the agent by itself (this run only)\n";
+                        --agent-auto <on|off>    Whether a dictation that is over asks the agent by itself (this run only)\n    \
+                        --symbols <on|off>       Whether the symbol index of the folder is built behind the window (this run only)\n";
 
 /// The switches of AzReview itself.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -62,6 +65,8 @@ pub struct Switches {
     pub agent_delay_ms: Option<u64>,
     /// `--agent-auto`.
     pub agent_auto: Option<bool>,
+    /// `--symbols`.
+    pub symbols: Option<bool>,
 }
 
 impl Switches {
@@ -89,6 +94,7 @@ impl Switches {
                     | "--agent"
                     | "--agent-delay-ms"
                     | "--agent-auto"
+                    | "--symbols"
             ) {
                 rest.push(arg);
                 continue;
@@ -110,6 +116,11 @@ impl Switches {
                 }
                 "--agent-auto" => {
                     sw.agent_auto = Some(
+                        on_off(&value).ok_or_else(|| format!("{name}: expected on|off, got {value:?}"))?,
+                    );
+                }
+                "--symbols" => {
+                    sw.symbols = Some(
                         on_off(&value).ok_or_else(|| format!("{name}: expected on|off, got {value:?}"))?,
                     );
                 }
@@ -163,6 +174,8 @@ pub struct Resolved {
     pub agent_delay_ms: u64,
     /// A dictation that is over asks the agent by itself.
     pub agent_auto: bool,
+    /// The symbol index of the folder is built behind the window.
+    pub symbols: bool,
     /// What was changed on the way (a value capped, a word nobody knows), for the log.
     pub notes: Vec<String>,
 }
@@ -228,6 +241,14 @@ pub fn resolve(values: &BTreeMap<String, String>, sw: &Switches) -> Resolved {
         }),
         (None, None) => true,
     };
+    let symbols = match (sw.symbols, values.get(KEY_SYMBOLS)) {
+        (Some(on), _) => on,
+        (None, Some(raw)) => on_off(raw).unwrap_or_else(|| {
+            notes.push(format!("the setting {KEY_SYMBOLS} is {raw:?}, not on or off: using on"));
+            true
+        }),
+        (None, None) => true,
+    };
     Resolved {
         allow,
         rest_ms,
@@ -237,6 +258,7 @@ pub fn resolve(values: &BTreeMap<String, String>, sw: &Switches) -> Resolved {
         agent: sw.agent,
         agent_delay_ms: sw.agent_delay_ms.unwrap_or(DEFAULT_AGENT_DELAY_MS),
         agent_auto,
+        symbols,
         notes,
     }
 }

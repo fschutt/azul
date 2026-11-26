@@ -103,6 +103,7 @@ azreview-conv-resolve = Das Gespräch als erledigt markieren
 azreview-conv-send = An den Agenten senden
 azreview-conv-ask-again = Den Agenten noch einmal fragen
 azreview-conv-heard-as = Verstanden als: { $words }
+azreview-conv-understood = Verstanden (nach den Namen des Ordners) als: { $words }
 azreview-conv-earlier =
     { $n ->
         [one] Ein früherer Beitrag wird nicht gezeigt

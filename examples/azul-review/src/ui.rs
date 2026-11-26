@@ -304,6 +304,10 @@ fn tree_column(s: &AppState, data: &RefAny, solved: &crate::layout::Solved) -> D
         Some(line) => inner.with_child(line),
         None => inner,
     };
+    let inner = match symbols_line(s) {
+        Some(line) => inner.with_child(line),
+        None => inner,
+    };
     Dom::create_div()
         .with_id(ids::TREE)
         .with_css(
@@ -684,6 +688,18 @@ fn reviewed_line(s: &AppState) -> Option<Dom> {
                 "margin: 0px; padding: 6px 10px; font-size: 10px; line-height: 1.35; flex-shrink: 0; \
                  color: system:secondary-text; border-top: 1px solid system:separator;",
             ),
+    )
+}
+
+/// How far the symbol index of the workspace is, at the foot of the tree, while it is being built; nothing once it is.
+fn symbols_line(s: &AppState) -> Option<Dom> {
+    let progress = s.symbols_shown?;
+    let (key, args) = crate::symbols_window::status_of(&progress)?;
+    let args: Vec<(&str, Arg)> = args.into_iter().map(|(k, v)| (k, Arg::from(v))).collect();
+    Some(
+        Dom::create_p_with_text(t_args(key, &args).as_str())
+            .with_id(ids::SYMBOLS_STATUS)
+            .with_css("margin: 0px; padding: 0px 10px 6px 10px; font-size: 10px; line-height: 1.35; flex-shrink: 0; color: system:secondary-text;"),
     )
 }
 

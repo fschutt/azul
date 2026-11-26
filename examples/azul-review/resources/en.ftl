@@ -103,6 +103,7 @@ azreview-conv-resolve = Mark the conversation as done
 azreview-conv-send = Send to the agent
 azreview-conv-ask-again = Ask the agent again
 azreview-conv-heard-as = Heard as: { $words }
+azreview-conv-understood = Understood as: { $words }
 azreview-conv-earlier =
     { $n ->
         [one] One earlier turn is not shown

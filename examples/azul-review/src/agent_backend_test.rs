@@ -423,7 +423,7 @@ fn ordinary_messages_and_other_scripts_pass_through_untouched() {
 // ==== run_task ====
 
 fn request(task: Task) -> Request {
-    Request::Review(ReviewRequest {
+    Request::Review(ReviewRequest { symbols: String::new(),
         task,
         conversation: 9,
         language: "en".to_string(),

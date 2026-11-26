@@ -59,9 +59,11 @@ pub(crate) fn app_with_file() -> AppState {
     AppState::create(PathBuf::new(), vec![file()], RefAny::new(0u8), PathBuf::new())
 }
 
-/// A folder of the disk with these files (under the system's temporary folder, one per test name and process).
+/// A folder of the disk with these files (under the system's temporary folder, one per test name, process and thread: tests
+/// that name the same folder and run at once do not remove each other's files).
 pub(crate) fn scratch_folder(name: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("azreview-test-{}-{name}", std::process::id()));
+    let thread = format!("{:?}", std::thread::current().id()).replace(|c: char| !c.is_ascii_alphanumeric(), "");
+    let dir = std::env::temp_dir().join(format!("azreview-test-{}-{thread}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("a folder under the temporary one");
     for (rel, text) in files {

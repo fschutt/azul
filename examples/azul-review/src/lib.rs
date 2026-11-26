@@ -114,6 +114,7 @@ pub mod slash;
 pub mod speech_gate;
 pub mod standby;
 pub mod stroke_features;
+pub mod symbols_window;
 /// The pen strokes every gesture is tested on (a loop, a slash, an underline, a scribble): shared by the
 /// whiteboard's lasso and the quick slash that deletes a word.
 #[cfg(test)]
@@ -287,6 +288,17 @@ pub struct AppState {
     pub bar_all: bool,
     /// The agents: the settings, the pool of jobs, the answers that wait for a file that is not open.
     pub hub: agent_window::Hub,
+    /// The symbol index of the workspace, built behind the window: what the dictation listens for and what the names the
+    /// reviewer says are.
+    pub symbols: symbols_window::Hub,
+    /// The index is to be built (`--symbols`, the setting `symbols-index`); a window of a test has none.
+    pub symbols_enabled: bool,
+    /// The status sentence of the scan the tree's foot shows now (so that it is built again only when it changes).
+    pub symbols_shown: Option<symbols_sched::Progress>,
+    /// When the tree's foot last said it.
+    pub symbols_shown_at: Option<std::time::Instant>,
+    /// The scan was said to be done (`AZREVIEW_SYMBOLS ready`) for this workspace.
+    pub symbols_told: bool,
     /// What Mod+Z takes back, newest last, and what Mod+Shift+Z brings back.
     pub history: Vec<Edit>,
     pub redo_stack: Vec<Edit>,
@@ -408,6 +420,11 @@ impl AppState {
             next_note_id: 1,
             open_conv: None,
             bar_all: false,
+            symbols: symbols_window::Hub::none(),
+            symbols_enabled: false,
+            symbols_shown: None,
+            symbols_shown_at: None,
+            symbols_told: false,
             hub: agent_window::Hub::new(&std::collections::BTreeMap::new(), Vec::new(), Path::new(""), None, switches::DEFAULT_AGENT_DELAY_MS, false),
             history: Vec::new(),
             redo_stack: Vec::new(),
@@ -478,6 +495,8 @@ impl AppState {
         self.begin_file(Some(id));
         self.tree.set_lines(id, u32::try_from(line_count).unwrap_or(u32::MAX));
         self.open = Some(file);
+        // the files near the one shown are indexed next
+        self.symbols.set_focus(path);
         self.rederive();
         self.say(
             "nav.file",
@@ -551,6 +570,40 @@ impl AppState {
         }
         self.rederive();
         self.refresh_rollup();
+        if self.symbols_enabled {
+            self.start_symbols();
+        }
+    }
+
+    /// The scan of the symbol index moved on since the tree's foot last said how far it is (at most once a second, and
+    /// when it is done): the foot says it again.
+    pub fn symbols_line_changed(&mut self) -> bool {
+        let progress = self.symbols.progress();
+        // the scan is done: a script reads when (once for each workspace)
+        if let Some(p) = progress.filter(|p| p.idle) {
+            if !self.symbols_told {
+                self.symbols_told = true;
+                println!("AZREVIEW_SYMBOLS ready found={} done={} dirs={}", p.files_found, p.files_done, p.dirs_done);
+            }
+        }
+        let now = progress.filter(|p| symbols_window::status_of(p).is_some());
+        if now == self.symbols_shown {
+            return false;
+        }
+        let due = now.is_none() || self.symbols_shown_at.is_none_or(|t| t.elapsed().as_millis() >= 1_000);
+        if due {
+            self.symbols_shown = now;
+            self.symbols_shown_at = Some(std::time::Instant::now());
+        }
+        due
+    }
+
+    /// Builds the symbol index of the workspace behind the window, outwards from the file that is open.
+    pub fn start_symbols(&mut self) {
+        let open = self.file().map(|f| f.display.clone());
+        self.symbols.start(self.source.clone(), open.as_deref());
+        self.symbols_shown = None;
+        self.symbols_told = false;
     }
 
     // ---- what has been looked at ----
@@ -1275,6 +1328,10 @@ pub fn run() {
     state.voice.can_arm = std::env::var_os("AZ_E2E").is_some();
     state.voice.start_standby();
     // The agents of this run: the settings file's rows, the environment as the process has it, the backend a switch names.
+    state.symbols_enabled = resolved.symbols;
+    if resolved.symbols {
+        state.start_symbols();
+    }
     let agent_data = state.data_root.clone();
     state.hub = agent_window::Hub::new(
         &values,
@@ -2228,6 +2285,8 @@ pub extern "C" fn on_strip_scroll(mut data: RefAny, mut info: CallbackInfo) -> U
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
+    // The pages are scrolled: the symbol index keeps to the neighbourhood of the file until it is quiet again.
+    s.symbols.touch();
     let Some(pages) = s.file().map(code::SourceFile::page_count) else {
         return Update::DoNothing;
     };

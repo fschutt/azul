@@ -31,6 +31,10 @@ use crate::{
 
 // ==== The request ====
 
+/// The most bytes of the names' section a prompt takes (the index's own budget is smaller: this is the bound that holds
+/// whatever builds it).
+pub const MAX_SYMBOLS_BYTES: usize = 12 * 1024;
+
 /// A word of what the reviewer said, as the recogniser heard it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SaidWord {
@@ -125,6 +129,9 @@ pub struct ReviewRequest {
     pub turns: Vec<Turn>,
     /// The workspace's folder, where an agent with tools reads from.
     pub workspace: Option<PathBuf>,
+    /// Where the names the reviewer said are defined, from the workspace's symbol index (its own section of the prompt;
+    /// empty: the words named nothing).
+    pub symbols: String,
 }
 
 // ==== The answer ====
@@ -434,6 +441,8 @@ struct Parts<'a> {
     said_words_cap: usize,
     turns: &'a [Turn],
     workspace: bool,
+    /// Where the names said are defined (the index's section).
+    symbols: &'a str,
 }
 
 fn seconds(ms: u64) -> String {
@@ -575,6 +584,11 @@ fn assemble(parts: &Parts<'_>) -> String {
             })
             .collect();
         out.push_str(&names.join(", "));
+        out.push('\n');
+    }
+    if !parts.symbols.trim().is_empty() {
+        out.push_str("\nWhat the words name in the code (from the workspace's index of definitions; the reviewer said these names):\n");
+        out.push_str(parts.symbols.trim_end());
         out.push('\n');
     }
     if !parts.strokes.is_empty() {
@@ -810,6 +824,12 @@ pub fn build_call<'a>(
         ctx.first_line + ctx.lines.len().saturating_sub(1)
     };
 
+    // where the names said are defined: cut to what a prompt can spare
+    let (symbols, symbols_cut) = cap_bytes(&review.symbols, MAX_SYMBOLS_BYTES);
+    if symbols_cut {
+        notes.push(format!("the names' section was cut to {MAX_SYMBOLS_BYTES} bytes"));
+    }
+
     // trimmed until it fits: the oldest turns first, then the code window, then the words
     let mut trimmed = Vec::new();
     let mut turn_from = 0;
@@ -831,6 +851,7 @@ pub fn build_call<'a>(
             said_words_cap: limits.max_said_words,
             turns: &turns_kept[turn_from..],
             workspace: workdir.is_some(),
+            symbols,
         };
         let prompt = assemble(&parts);
         let bytes = system.len() + prompt.len();

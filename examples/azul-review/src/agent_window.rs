@@ -315,6 +315,10 @@ pub fn ask(data: &mut RefAny, info: &mut CallbackInfo, note_id: u64) -> Update {
         let language = crate::voice::language_of(&s.kit);
         let unix_ms = unix_now_ms();
         let strokes = s.strokes_for_request(note_id);
+        // where the names the reviewer said are defined: the words of the request against the workspace's index
+        let spoken = conversation_request::spoken_of(&s.notes[at]);
+        let resolution = s.symbols.resolve(&spoken, Some(&file.display));
+        let symbols = s.symbols.section(&resolution, &*s.source);
         let request = conversation_request::review_request(
             &s.notes[at],
             &file,
@@ -323,6 +327,7 @@ pub fn ask(data: &mut RefAny, info: &mut CallbackInfo, note_id: u64) -> Update {
             Some(s.root.clone()).filter(|r| !r.as_os_str().is_empty()),
             task,
             unix_ms,
+            symbols,
         );
         s.notes[at].talk.asking();
         s.hub.inflight.insert(started.ticket.id, InFlight { file: file.display.clone(), note: note_id, task });

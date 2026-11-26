@@ -926,6 +926,11 @@ def conversations_dictation(args, logs, out, binary):
         show_files(app)
         pick(app, "src", "lib.rs")
         app.until("lib.rs open", lambda: state(app)["tree"]["open"] == os.path.join("src", "lib.rs"))
+        # the symbol index of the folder is built behind the window and says when it is done
+        app.until("the symbol index is ready", lambda: app.count("AZREVIEW_SYMBOLS", r"ready found=\d+ done=\d+ dirs=\d+") > 0)
+        sym = state(app)["symbols"]
+        if not sym["running"] or not sym["progress"]["idle"] or sym["progress"]["found"] < 1:
+            raise Failure("the symbol index: %s" % sym)
         said = ["rename step_3", "to first_step", "please", "right now"]
         answer = app.must("azreview_dictate", words=said, page=0, y=CONV_ANCHOR_Y, gap_ms=700)["data"]["value"]["result"]
         if not answer.get("success"):
@@ -953,6 +958,9 @@ def conversations_dictation(args, logs, out, binary):
         t = talk_of(app, note)
         if t["said"] != 4 or t["turns"] != 1:
             raise Failure("the conversation after the dictation: %s" % t)
+        # the name the reviewer said is a definition of the folder, and it was found and kept for the next utterance
+        if state(app)["symbols"]["recent"] < 1:
+            raise Failure("the name step_3 was not found in the index: %s" % state(app)["symbols"])
         if not app.shows("rename step_3 to first_step please right now", every_dom=True):
             raise Failure("the words the dictation heard are not the note's")
         app.screenshot(os.path.join(out, "27-dictation-answered.png"))

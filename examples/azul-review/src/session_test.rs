@@ -445,3 +445,28 @@ fn a_turn_or_a_phase_that_cannot_be_read_is_left_out_and_the_rest_kept() {
     assert_eq!(talk.turns.len(), 1);
     assert_eq!(talk.turns[0].text, "b");
 }
+
+#[test]
+fn what_the_words_were_understood_as_travels_beside_each_utterance() {
+    use crate::dictation::Said;
+    let mut s = state();
+    let mut n = note(3, 0, "compute stale flag and then rename it");
+    n.talk.hear_understood(Said { text: "compute stale flag".to_string(), started_unix_ms: 10, words: Vec::new() }, Some("compute_stale_flag".to_string()));
+    n.talk.hear_understood(Said { text: "and then rename it".to_string(), started_unix_ms: 20, words: Vec::new() }, None);
+    s.notes.push(n);
+    let (_, bytes) = archive(&s);
+    let back = load(&bytes).expect("it loads");
+    let talk = &back.notes[0].talk;
+    assert_eq!(talk.said.len(), 2);
+    assert_eq!(talk.understood, vec![Some("compute_stale_flag".to_string()), None]);
+    assert_eq!(talk.said[0].text, "compute stale flag", "the words as heard are what is kept as they were");
+}
+
+#[test]
+fn an_archive_from_before_the_index_has_nothing_understood_and_keeps_its_utterances() {
+    let old = r#"{"format":"azreview/1","root":"/w","file":"a.rs","strokes":[],"notes":[{"id":1,"page":0,"x":1.0,"y":2.0,"language":"en","text":"x","said":[{"text":"hello there","started":5}]}],"findings":[],"clips":[]}"#;
+    let back = load(&zip_of(old)).expect("it loads");
+    let talk = &back.notes[0].talk;
+    assert_eq!(talk.said.len(), 1);
+    assert_eq!(talk.understood, vec![None]);
+}

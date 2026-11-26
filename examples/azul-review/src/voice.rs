@@ -365,6 +365,8 @@ pub fn pointer(data: &mut RefAny, info: &mut CallbackInfo, down: Option<bool>) -
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
+    // The pen is at work: the symbol index keeps to the neighbourhood of the file until it is quiet again.
+    s.symbols.touch();
     if s.voice.dwell.config().allow == Allow::Off && s.voice.running.is_none() {
         return Update::DoNothing;
     }
@@ -661,7 +663,6 @@ pub(crate) fn builtin_word(status: BuiltinSpeechStatus) -> &'static str {
 }
 
 /// How many words of the page the recogniser is told (its own cap is 200).
-const VOCABULARY_CAP: usize = 200;
 
 /// A list of words as the engine's string list.
 /// The most utterances a scripted dictation says, and the most letters of each.
@@ -908,9 +909,9 @@ fn begin(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor, script: Opt
         println!("AZREVIEW_DICTATION started {id}");
         // The words of the page under the pen, for the recogniser's keyword biasing (what it cut is told once).
         if let Some(speech) = &s.voice.speech {
-            let words = s.file().map_or_else(Vec::new, |f| {
-                crate::vocabulary::vocabulary(&f.page(anchor.page).1, &f.display, VOCABULARY_CAP)
-            });
+            // what the recogniser listens for: the names of the page, the file, the folder and the project (the words of
+            // the page where there is no index)
+            let words = s.file().map_or_else(Vec::new, |f| s.symbols.vocabulary(&f.page(anchor.page).1, Some(&f.display)));
             let cut = speech.set_vocabulary(string_vec(&words));
             if !cut.as_str().is_empty() {
                 eprintln!("[AzReview] speech vocabulary: {}", cut.as_str());
@@ -983,15 +984,20 @@ extern "C" fn on_message(mut app: RefAny, mut msg: RefAny, mut info: CallbackInf
             }
             Out::Text(said) => {
                 println!("AZREVIEW_DICTATION text {note_id} {}", said.text);
+                let mut said = said;
+                if said.started_unix_ms == 0 {
+                    said.started_unix_ms = crate::agent_window::unix_now_ms();
+                }
+                // What the names of the workspace make of the words: written as the name BESIDE the words as heard (the
+                // heard words are never touched), and what was found is remembered for the next utterance.
+                let file = s.file().map(|f| f.display.clone());
+                let resolution = s.symbols.resolve(&said, file.as_deref());
+                let understood = (resolution.corrected != resolution.raw).then_some(resolution.corrected);
                 if let Some(note) = s.notes.iter_mut().find(|n| n.id == note_id) {
                     note.text = dictation::join_text(&note.text, &said.text);
                     // What the dictation heard, utterance by utterance, with the words and their moments (the last three
                     // lines are shown; the agent is sent the words and their times).
-                    let mut said = said;
-                    if said.started_unix_ms == 0 {
-                        said.started_unix_ms = crate::agent_window::unix_now_ms();
-                    }
-                    note.talk.hear(said);
+                    note.talk.hear_understood(said, understood);
                     // What was said is kept at once: a window closed mid-dictation loses nothing.
                     save = true;
                 }

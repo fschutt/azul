@@ -347,6 +347,9 @@ pub fn popover_height(note: &Note, running: bool, partial_chars: usize) -> f32 {
     if note.talk.heard_as.as_deref().is_some_and(|x| !x.trim().is_empty() && x.trim() != note.text.trim()) {
         h += GAP + 15.0 * lines_of(note.talk.heard_as.as_deref().map_or(0, |x| x.chars().count() + 10)) as f32;
     }
+    if let Some(understood) = note.talk.understood_text() {
+        h += GAP + 15.0 * lines_of(understood.chars().count() + 14) as f32;
+    }
     let from = note.talk.turns.len().saturating_sub(SHOW_TURNS);
     if from > 0 {
         h += GAP + 14.0;
@@ -426,6 +429,14 @@ pub fn popover(s: &AppState, data: &RefAny, page: usize, visible_right: f32) -> 
         body.add_child(
             Dom::create_p_with_text(t_args("azreview-conv-heard-as", &[("words", Arg::from(heard.to_string()))]).as_str())
                 .with_id(format!("__azreview_conv-heard-{id}").as_str())
+                .with_css("margin: 0px; font-size: 11px; line-height: 1.35; color: system:secondary-text; overflow-wrap: anywhere;"),
+        );
+    }
+    // What the names of the workspace make of the words: beside them, never in their place.
+    if let Some(understood) = note.talk.understood_text() {
+        body.add_child(
+            Dom::create_p_with_text(t_args("azreview-conv-understood", &[("words", Arg::from(understood))]).as_str())
+                .with_id(format!("__azreview_conv-understood-{id}").as_str())
                 .with_css("margin: 0px; font-size: 11px; line-height: 1.35; color: system:secondary-text; overflow-wrap: anywhere;"),
         );
     }

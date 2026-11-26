@@ -356,3 +356,22 @@ fn a_very_long_turn_is_cut_at_a_letter_with_an_ellipsis() {
     assert_eq!(cut.chars().count(), SHOW_TURN_CHARS + 1, "the letters kept and the ellipsis");
     assert!(cut.ends_with('…'));
 }
+
+#[test]
+fn what_the_words_were_understood_as_is_shown_beside_them_and_only_where_it_differs() {
+    let mut s = app();
+    let mut n = note(1, 0, 40.0, "compute stale flag is read twice");
+    n.talk.hear_understood(
+        crate::dictation::Said { text: "compute stale flag is read twice".to_string(), started_unix_ms: 1, words: Vec::new() },
+        Some("compute_stale_flag is read twice".to_string()),
+    );
+    s.notes.push(n);
+    let pop = open(&mut s, 1);
+    let line = texts(with_id(&pop, "__azreview_conv-understood-1").expect("what the names say"));
+    assert_eq!(line, vec!["Understood as: compute_stale_flag is read twice"]);
+    // the words as heard are still the first message
+    assert!(with_id(&pop, "__azreview_note-text-1").is_some());
+    // words taken as heard have no such line
+    s.notes[0].talk.understood = vec![None];
+    assert!(with_id(&popover(&s, &data(), 0, ui::PAGE_W).expect("open"), "__azreview_conv-understood-1").is_none());
+}

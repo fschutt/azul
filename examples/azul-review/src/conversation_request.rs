@@ -51,8 +51,31 @@ fn speaker(who: Who) -> Speaker {
     }
 }
 
-/// What the agent is asked for the conversation of `note`, in the file `file`, at `now_unix_ms`.
+/// The words a request for `note` is about, as the index reads them: a follow-up alone; else what was dictated, with the
+/// probability the recogniser gave each word, or the note's words as they are where they were edited or typed (no words are
+/// then rated).
 #[must_use]
+pub fn spoken_of(note: &Note) -> Said {
+    let talk = &note.talk;
+    if talk.has_unanswered_follow_up() {
+        let text = talk.turns.last().map_or_else(String::new, |t| t.text.clone());
+        return Said { text, started_unix_ms: 0, words: Vec::new() };
+    }
+    let heard_text = talk.said.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join(" ");
+    if !talk.said.is_empty() && folded(&heard_text) == folded(&note.text) {
+        return Said {
+            text: note.text.clone(),
+            started_unix_ms: talk.said.first().map_or(0, |s| s.started_unix_ms),
+            words: talk.said.iter().flat_map(|s| s.words.iter().cloned()).collect(),
+        };
+    }
+    Said { text: note.text.clone(), started_unix_ms: 0, words: Vec::new() }
+}
+
+/// What the agent is asked for the conversation of `note`, in the file `file`, at `now_unix_ms`; `symbols` is where the
+/// names the words say are defined (the index's section of the prompt: empty where they named nothing).
+#[must_use]
+#[allow(clippy::too_many_arguments)]
 pub fn review_request(
     note: &Note,
     file: &SourceFile,
@@ -61,6 +84,7 @@ pub fn review_request(
     workspace: Option<PathBuf>,
     task: Task,
     now_unix_ms: u64,
+    symbols: String,
 ) -> ReviewRequest {
     let talk = &note.talk;
     let follow_up = talk.has_unanswered_follow_up();
@@ -108,6 +132,7 @@ pub fn review_request(
         },
         turns,
         workspace,
+        symbols,
     }
 }
 

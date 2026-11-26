@@ -25,6 +25,7 @@ pub const SAVE: AzString = AzString::from_const_str("__azreview_save");
 pub const SETTINGS: AzString = AzString::from_const_str("__azreview_settings");
 /// The side column of notes, its title row's switch, its hint when empty, its "listening" pill, its
 /// stop button.
+pub const SYMBOLS_STATUS: AzString = AzString::from_const_str("__azreview_symbols-status");
 pub const BAR_MORE_DONE: AzString = AzString::from_const_str("__azreview_bar-more-done");
 pub const BAR_FEWER_DONE: AzString = AzString::from_const_str("__azreview_bar-fewer-done");
 pub const LISTENING: AzString = AzString::from_const_str("__azreview_listening");

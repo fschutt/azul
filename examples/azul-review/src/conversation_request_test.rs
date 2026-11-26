@@ -33,13 +33,13 @@ fn word(text: &str, from: u32, to: u32, p: f32) -> HeardWord {
 }
 
 fn request(n: &Note) -> ReviewRequest {
-    review_request(n, &file(), "en", Vec::new(), None, Task::Editing, 99_000)
+    review_request(n, &file(), "en", Vec::new(), None, Task::Editing, 99_000, String::new())
 }
 
 #[test]
 fn the_request_names_the_conversation_the_language_and_the_task() {
     let n = note("rename this");
-    let r = review_request(&n, &file(), "de", Vec::new(), Some("/work".into()), Task::Exploration, 5);
+    let r = review_request(&n, &file(), "de", Vec::new(), Some("/work".into()), Task::Exploration, 5, String::new());
     assert_eq!(r.conversation, 7);
     assert_eq!(r.language, "de");
     assert_eq!(r.task, Task::Exploration);
@@ -161,4 +161,44 @@ fn asking_again_without_a_new_word_sends_the_same_words_and_what_was_said_before
     let again = request(&n);
     assert_eq!(again.utterances.len(), 1, "the note's words are asked once more");
     assert_eq!(again.turns.len(), 2, "with what the agent said before");
+}
+
+#[test]
+fn the_names_the_words_say_are_a_section_of_the_request_of_their_own() {
+    let n = note("rename compute stale flag");
+    let r = review_request(&n, &file(), "en", Vec::new(), None, Task::Editing, 1, "compute_stale_flag: src/stale.rs line 3".to_string());
+    assert_eq!(r.symbols, "compute_stale_flag: src/stale.rs line 3");
+    assert!(request(&n).symbols.is_empty(), "words that name nothing add nothing");
+}
+
+// ==== The words a request is about, for the index ====
+
+#[test]
+fn the_words_the_names_are_read_from_are_what_was_dictated_with_their_probabilities() {
+    let mut n = note("this loop is off by one");
+    n.talk.hear(Said { text: "this loop".to_string(), started_unix_ms: 10, words: vec![word("this", 0, 100, 0.9), word("loop", 110, 200, 0.4)] });
+    n.talk.hear(Said { text: "is off by one".to_string(), started_unix_ms: 20, words: vec![word("is", 0, 50, 0.8)] });
+    let said = spoken_of(&n);
+    assert_eq!(said.text, "this loop is off by one");
+    assert_eq!(said.words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(), vec!["this", "loop", "is"]);
+    assert_eq!(said.words[1].probability, 0.4);
+}
+
+#[test]
+fn words_that_were_edited_or_typed_are_read_as_words_the_recogniser_did_not_rate() {
+    let mut edited = note("this loop is off by two");
+    edited.talk.hear(Said { text: "this loop is off by one".to_string(), started_unix_ms: 10, words: vec![word("this", 0, 100, 0.9)] });
+    let said = spoken_of(&edited);
+    assert_eq!(said.text, "this loop is off by two");
+    assert!(said.words.is_empty());
+    assert_eq!(spoken_of(&note("typed")).words.len(), 0);
+}
+
+#[test]
+fn a_follow_up_is_read_alone() {
+    let mut n = note("why does this loop stop");
+    n.talk.asking();
+    n.talk.receive(&crate::agent_review::Reply { answer: "At n.".to_string(), ..Default::default() }, 1);
+    assert!(n.talk.say("and compute stale flag?", 5));
+    assert_eq!(spoken_of(&n).text, "and compute stale flag?");
 }

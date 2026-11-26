@@ -115,6 +115,9 @@ pub struct Conversation {
     pub turns: Vec<Turn>,
     /// What the dictation heard, utterance by utterance.
     pub said: Vec<Said>,
+    /// What each utterance was understood as where the index of the workspace read its words as names (none where they
+    /// were taken as heard): one for each utterance of `said`, never in place of it.
+    pub understood: Vec<Option<String>>,
     /// What the agent understood the first message to say, where it had to correct the transcript (the raw words are
     /// never touched).
     pub heard_as: Option<String>,
@@ -256,13 +259,39 @@ impl Conversation {
 
     /// The dictation heard an utterance (blank words are none); the newest `MAX_SAID` are kept.
     pub fn hear(&mut self, said: Said) {
+        self.hear_understood(said, None);
+    }
+
+    /// The dictation heard an utterance and `understood` is what its words came to against the workspace's names (none: as
+    /// heard).
+    pub fn hear_understood(&mut self, said: Said, understood: Option<String>) {
         if said.text.trim().is_empty() {
             return;
         }
         if self.said.len() >= MAX_SAID {
             self.said.remove(0);
+            self.understood.remove(0);
         }
         self.said.push(said);
+        self.understood.push(understood);
+    }
+
+    /// What the whole of what was heard was understood as, when any of it was read as names: each utterance as it was
+    /// understood, or as heard where it was not.
+    #[must_use]
+    pub fn understood_text(&self) -> Option<String> {
+        let changed = self.said.iter().zip(&self.understood).any(|(s, u)| u.as_deref().is_some_and(|u| u.trim() != s.text.trim()));
+        if !changed {
+            return None;
+        }
+        let parts: Vec<&str> = self
+            .said
+            .iter()
+            .zip(&self.understood)
+            .map(|(s, u)| u.as_deref().unwrap_or(&s.text).trim())
+            .filter(|t| !t.is_empty())
+            .collect();
+        Some(parts.join(" "))
     }
 
     /// What a conversation read from an archive comes to: an agent that was working when the window closed is not

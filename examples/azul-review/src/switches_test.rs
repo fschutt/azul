@@ -224,3 +224,23 @@ fn the_agent_asks_by_itself_unless_a_setting_or_a_switch_says_not_and_the_switch
     assert!(r.agent_auto, "a setting that is neither on nor off is the default");
     assert!(r.notes.iter().any(|n| n.contains(KEY_ASK_AGENT)), "and the log is told: {:?}", r.notes);
 }
+
+#[test]
+fn the_symbol_index_is_built_unless_a_setting_or_a_switch_says_not_and_the_switch_wins() {
+    let (sw, rest) = Switches::extract(argv(&["f", "--symbols", "off"])).expect("valid");
+    assert_eq!(sw.symbols, Some(false));
+    assert_eq!(rest, argv(&["f"]));
+    assert_eq!(Switches::extract(argv(&["--symbols=on"])).expect("valid").0.symbols, Some(true));
+    let why = Switches::extract(argv(&["--symbols", "maybe"])).expect_err("on or off");
+    assert!(why.contains("--symbols") && why.contains("on") && why.contains("off"), "{why}");
+
+    let none = BTreeMap::new();
+    assert!(resolve(&none, &Switches::default()).symbols, "built by default");
+    let mut values = BTreeMap::new();
+    values.insert(KEY_SYMBOLS.to_string(), "off".to_string());
+    assert!(!resolve(&values, &Switches::default()).symbols);
+    assert!(resolve(&values, &Switches { symbols: Some(true), ..Switches::default() }).symbols, "the switch over the setting");
+    values.insert(KEY_SYMBOLS.to_string(), "later".to_string());
+    let r = resolve(&values, &Switches::default());
+    assert!(r.symbols && r.notes.iter().any(|n| n.contains(KEY_SYMBOLS)), "{:?}", r.notes);
+}

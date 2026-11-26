@@ -200,3 +200,42 @@ fn the_phases_have_names_for_the_archive_and_the_scripts() {
     assert_eq!(names, vec!["draft", "working", "suggested", "done", "failed"]);
     assert_eq!(Phase::parse("sleeping"), None);
 }
+
+// ==== What the words were understood as ====
+
+#[test]
+fn what_the_words_were_understood_as_is_kept_beside_each_utterance_and_never_replaces_it() {
+    let mut c = Conversation::default();
+    c.hear_understood(said("compute stale flag", 1), Some("compute_stale_flag".to_string()));
+    c.hear_understood(said("and then rename it", 2), None);
+    assert_eq!(c.said[0].text, "compute stale flag", "the words as heard are untouched");
+    assert_eq!(c.understood, vec![Some("compute_stale_flag".to_string()), None]);
+    assert_eq!(
+        c.understood_text().as_deref(),
+        Some("compute_stale_flag and then rename it"),
+        "the whole, with what was not changed as it was said"
+    );
+}
+
+#[test]
+fn nothing_understood_differently_says_nothing() {
+    let mut c = Conversation::default();
+    c.hear_understood(said("rename this", 1), None);
+    c.hear_understood(said("same words", 2), Some("same words".to_string()));
+    assert_eq!(c.understood_text(), None);
+    assert_eq!(Conversation::default().understood_text(), None);
+}
+
+#[test]
+fn what_was_understood_goes_with_the_utterance_when_the_oldest_go() {
+    let mut c = Conversation::default();
+    for i in 0..MAX_SAID + 2 {
+        c.hear_understood(said(&format!("u{i}"), i as u64), Some(format!("U{i}")));
+    }
+    assert_eq!(c.said.len(), MAX_SAID);
+    assert_eq!(c.understood.len(), MAX_SAID, "one for each utterance kept");
+    assert_eq!(c.understood[0].as_deref(), Some("U2"));
+    c.hear(said("plain", 9));
+    assert_eq!(c.understood.len(), c.said.len());
+    assert_eq!(c.understood.last(), Some(&None));
+}

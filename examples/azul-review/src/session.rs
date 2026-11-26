@@ -180,6 +180,10 @@ fn push_talk(out: &mut String, talk: &Conversation) {
             out.push_str("{\"text\":");
             push_string(out, &said.text);
             let _ = write!(out, ",\"started\":{}", said.started_unix_ms);
+            if let Some(Some(understood)) = talk.understood.get(i) {
+                out.push_str(",\"u\":");
+                push_string(out, understood);
+            }
             if !said.words.is_empty() {
                 out.push_str(",\"words\":[");
                 for (j, w) in said.words.iter().enumerate() {
@@ -479,7 +483,7 @@ fn talk_from(json: &Json) -> Conversation {
                 })
             })
             .collect();
-        talk.hear(Said { text, started_unix_ms: count(&said, "started").unwrap_or(0), words });
+        talk.hear_understood(Said { text, started_unix_ms: count(&said, "started").unwrap_or(0), words }, text_of(&said, "u"));
     }
     // an agent that was working when the window closed is not working now
     talk.restored();
