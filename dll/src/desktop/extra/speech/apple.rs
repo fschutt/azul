@@ -30,7 +30,9 @@ use objc2::{
 use super::{
     authorization::{self, Access, Decision, Gate, Gates, Refusal},
     builtin::{Microphone, MicrophoneSource},
-    recognizer::{Answer, Outcome, Readiness, Word},
+    keeper::{Lease, MicKeeper, PREROLL_MS},
+    recognizer::{Answer, EventKind, Outcome, Readiness, StreamOptions, Word, STREAM_ENDPOINT_MS},
+    vocabulary::Vocabulary,
     SpeechStatus,
 };
 
@@ -40,6 +42,9 @@ static SYNTHESIZER: AtomicUsize = AtomicUsize::new(0);
 
 /// `AVSpeechBoundaryImmediate`: stop mid-word.
 const BOUNDARY_IMMEDIATE: isize = 0;
+
+/// `AVAudioPCMFormatFloat32` (`AVAudioCommonFormat`).
+const AV_AUDIO_PCM_FORMAT_FLOAT32: usize = 1;
 
 /// `SFSpeechRecognizerAuthorizationStatus`.
 const AUTH_NOT_DETERMINED: isize = 0;
@@ -227,7 +232,7 @@ unsafe fn authorization(recognizer_cls: &AnyClass) -> isize {
 
 /// The words of a transcription (`SFTranscription`): each segment's text, when it began and how
 /// long it lasted in seconds from the start of the audio, and how sure the recognizer is.
-unsafe fn read_segments(transcription: *mut AnyObject) -> Vec<(String, f64, f64, f32)> {
+unsafe fn read_segments(transcription: *mut AnyObject) -> Vec<Segment> {
     let segments: *mut AnyObject = unsafe { msg_send![transcription, segments] };
     if segments.is_null() {
         return Vec::new();
@@ -252,7 +257,7 @@ unsafe fn read_segments(transcription: *mut AnyObject) -> Vec<(String, f64, f64,
 
 /// The words of the segments: a segment that holds several words (the recognizer joins "is a")
 /// is cut into them, each with an equal share of its time.
-fn words_of_segments(segments: &[(String, f64, f64, f32)]) -> Vec<Word> {
+fn words_of_segments(segments: &[Segment]) -> Vec<Word> {
     let ms = |seconds: f64| -> u32 {
         if seconds.is_finite() && seconds > 0.0 {
             (seconds * 1000.0).round().min(f64::from(u32::MAX)) as u32
@@ -272,6 +277,10 @@ fn words_of_segments(segments: &[(String, f64, f64, f32)]) -> Vec<Word> {
     words
 }
 
+/// The words of a transcription as the recognizer gives them: text, seconds from the start of the
+/// audio, seconds long, how sure.
+type Segment = (String, f64, f64, f32);
+
 /// What the recognition task reported so far.
 #[derive(Debug, Default, Clone)]
 struct Hearing {
@@ -282,9 +291,31 @@ struct Hearing {
     /// The task gave its final answer (or failed).
     done: bool,
     error: Option<String>,
-    /// The words of the best transcription: text, seconds from the start of the audio, seconds
-    /// long, how sure.
-    segments: Vec<(String, f64, f64, f32)>,
+    /// The words of the best transcription.
+    segments: Vec<Segment>,
+}
+
+impl Hearing {
+    /// What one report of the task changes: a changed text (with its words, and the moment it
+    /// changed), the words of the FINAL report even when its text is the one already known (the
+    /// times and the confidences come only with it: before, they are zero), the end of the task,
+    /// a failure.
+    fn update(&mut self, text: Option<String>, is_final: bool, segments: Vec<Segment>, failure: Option<String>, now: Instant) {
+        let changed = text.as_ref().is_some_and(|text| *text != self.text);
+        if let Some(text) = text.filter(|_| changed) {
+            self.text = text;
+            self.changed_at = Some(now);
+            self.segments = segments;
+        } else if is_final && !segments.is_empty() {
+            self.segments = segments;
+        }
+        if is_final || failure.is_some() {
+            self.done = true;
+        }
+        if failure.is_some() {
+            self.error = failure;
+        }
+    }
 }
 
 /// `AVMediaTypeAudio`: an `NSString` holding the four-character code of the media type.
@@ -409,8 +440,71 @@ fn refused(why: Refusal, message: &str) -> Answer {
     )
 }
 
-/// Listens for up to `timeout_ms` in `language` (a BCP 47 tag; empty for the system's).
-pub fn listen(language: &str, timeout_ms: u32, cancel: &dyn Fn() -> bool) -> Answer {
+/// Listens for up to `timeout_ms` in `language` (a BCP 47 tag; empty for the system's), favouring
+/// the words of `vocabulary` (`contextualStrings`: measured with TTS voices, a compound such as
+/// `CssError` is then written as spelt, which the recognizer does not do unasked): one utterance,
+/// the first final of a stream of one. A cancel answers what was said until then.
+pub fn listen(
+    language: &str,
+    timeout_ms: u32,
+    cancel: &dyn Fn() -> bool,
+    vocabulary: &Vocabulary,
+    flowing: &dyn Fn(),
+    keeper: &MicKeeper,
+) -> Answer {
+    let first: std::cell::RefCell<Option<Answer>> = std::cell::RefCell::new(None);
+    let never = || false;
+    let ended = stream(
+        language,
+        timeout_ms,
+        &never,
+        &|| cancel(),
+        &StreamOptions {
+            partials: false,
+            // A call keeps the end-point it was verified with (a stream's default is shorter).
+            endpoint_ms: u32::try_from(SILENCE.as_millis()).unwrap_or(1_500),
+            max_ms: 0,
+            max_utterances: 1,
+            // A call hears all the microphone kept: speech that began before the call is not cut.
+            pre_roll_ms: PREROLL_MS,
+        },
+        &|kind, answer| {
+            if kind == EventKind::Final {
+                *first.borrow_mut() = Some(answer);
+            }
+        },
+        vocabulary,
+        flowing,
+        keeper,
+        false,
+    );
+    match first.into_inner() {
+        Some(answer) => answer,
+        None if matches!(ended.outcome, Outcome::Heard | Outcome::NothingHeard) => {
+            Answer::none(Outcome::NothingHeard, "nothing was said")
+        }
+        None => ended,
+    }
+}
+
+/// Listens as a stream for up to `timeout_ms`: a recognition request per utterance, every one fed
+/// from the same microphone with no gap between them (what is heard while a request waits for its
+/// final goes to the next one first), a partial whenever the recognizer reports a new text, a final
+/// when it does. `stop` ends the request that goes on (its final is what was said so far) and the
+/// stream, `cancel` drops it. `keep_on_stop` is whether the microphone may be kept after a stop.
+#[allow(clippy::too_many_arguments)]
+pub fn stream(
+    language: &str,
+    timeout_ms: u32,
+    cancel: &dyn Fn() -> bool,
+    stop: &dyn Fn() -> bool,
+    options: &StreamOptions,
+    emit: &dyn Fn(EventKind, Answer),
+    vocabulary: &Vocabulary,
+    flowing: &dyn Fn(),
+    keeper: &MicKeeper,
+    keep_on_stop: bool,
+) -> Answer {
     if avfoundation().is_none() || speech_framework().is_none() {
         return Answer::none(Outcome::Unavailable, "the Speech framework is not on this system");
     }
@@ -452,9 +546,20 @@ pub fn listen(language: &str, timeout_ms: u32, cancel: &dyn Fn() -> bool) -> Ans
             }
         }
     }
-    objc2::rc::autoreleasepool(|_| unsafe {
-        listen_with_recognizer(language, Duration::from_millis(u64::from(timeout_ms)), cancel)
-    })
+    unsafe {
+        stream_with_recognizer(
+            language,
+            Duration::from_millis(u64::from(timeout_ms)),
+            cancel,
+            stop,
+            options,
+            emit,
+            vocabulary,
+            flowing,
+            keeper,
+            keep_on_stop,
+        )
+    }
 }
 
 /// Whether listening can begin, asked without listening and without asking the user.
@@ -487,97 +592,107 @@ pub fn readiness() -> Readiness {
     }
 }
 
-unsafe fn listen_with_recognizer(language: &str, timeout: Duration, cancel: &dyn Fn() -> bool) -> Answer {
-    let (Some(recognizer_cls), Some(request_cls), Some(engine_cls), Some(queue_cls)) = (
-        class("SFSpeechRecognizer"),
-        class("SFSpeechAudioBufferRecognitionRequest"),
-        class("AVAudioEngine"),
-        class("NSOperationQueue"),
-    ) else {
-        return Answer::none(Outcome::Unavailable, "the speech recognizer's classes are missing");
+/// Hands the vocabulary to a request as `contextualStrings`: phrases the recognizer should
+/// favour, even when they are not in the system's vocabulary.
+unsafe fn set_contextual_strings(request: *mut AnyObject, vocabulary: &Vocabulary) {
+    if vocabulary.is_empty() {
+        return;
+    }
+    let Some(array_cls) = class("NSMutableArray") else {
+        return;
     };
-    // `listen` decided and asked already: this only keeps a permission that was taken away in
-    // the meantime from starting a recognizer that would fail.
-    let status: isize = unsafe { msg_send![recognizer_cls, authorizationStatus] };
-    if status != AUTH_AUTHORIZED {
-        return Answer::none(Outcome::Denied, "speech recognition is not allowed any more");
+    let array: *mut AnyObject = unsafe { msg_send![array_cls, array] };
+    if array.is_null() {
+        return;
     }
-
-    // The recognizer of the language; its answers on a queue of their own, so a caller on the
-    // main thread does not wait for itself.
-    let recognizer: *mut AnyObject = if language.is_empty() {
-        unsafe { msg_send![recognizer_cls, new] }
-    } else {
-        let locale: *mut AnyObject = match class("NSLocale") {
-            Some(locale_cls) => unsafe { msg_send![locale_cls, localeWithLocaleIdentifier: nsstring(language)] },
-            None => core::ptr::null_mut(),
-        };
-        let alloc: *mut AnyObject = unsafe { msg_send![recognizer_cls, alloc] };
-        unsafe { msg_send![alloc, initWithLocale: locale] }
-    };
-    if recognizer.is_null() {
-        return Answer::none(Outcome::Unavailable, &format!("no speech recognizer for {language}"));
-    }
-    let available: bool = unsafe { msg_send![recognizer, isAvailable] };
-    if !available {
-        unsafe { release(recognizer) };
-        return Answer::none(Outcome::Unavailable, "the speech recognizer is not available now");
-    }
-    let queue: *mut AnyObject = unsafe { msg_send![queue_cls, new] };
-    let _: () = unsafe { msg_send![recognizer, setQueue: queue] };
-    let request: *mut AnyObject = unsafe { msg_send![request_cls, new] };
-    let _: () = unsafe { msg_send![request, setShouldReportPartialResults: true] };
-
-    // The microphone: every buffer of the input goes to the request.
-    let engine: *mut AnyObject = unsafe { msg_send![engine_cls, new] };
-    let input: *mut AnyObject = unsafe { msg_send![engine, inputNode] };
-    let format: *mut AnyObject = unsafe { msg_send![input, outputFormatForBus: 0usize] };
-    // A Mac without a microphone reports a format of zero Hz: a tap on it raises an exception.
-    let rate: f64 = if format.is_null() { 0.0 } else { unsafe { msg_send![format, sampleRate] } };
-    if !(rate > 0.0) {
-        unsafe {
-            release(engine);
-            release(request);
-            release(queue);
-            release(recognizer);
+    for entry in vocabulary.entries() {
+        let text = unsafe { nsstring(entry) };
+        if !text.is_null() {
+            let _: () = unsafe { msg_send![array, addObject: text] };
         }
-        return Answer::none(Outcome::Unavailable, "there is no microphone to listen with");
     }
-    let request_ptr = request as usize;
-    let tap = RcBlock::new(move |buffer: *mut AnyObject, _when: *mut AnyObject| {
-        if !buffer.is_null() {
-            let request = request_ptr as *mut AnyObject;
+    let _: () = unsafe { msg_send![request, setContextualStrings: array] };
+}
+
+/// Hands `samples` (mono, in `format`) to the request as one buffer.
+unsafe fn append_samples(request: *mut AnyObject, format: *mut AnyObject, samples: &[f32]) {
+    let Some(buffer_cls) = class("AVAudioPCMBuffer") else {
+        return;
+    };
+    let Ok(frames) = u32::try_from(samples.len()) else {
+        return;
+    };
+    if frames == 0 {
+        return;
+    }
+    let alloc: *mut AnyObject = unsafe { msg_send![buffer_cls, alloc] };
+    let buffer: *mut AnyObject = unsafe { msg_send![alloc, initWithPCMFormat: format, frameCapacity: frames] };
+    if buffer.is_null() {
+        return;
+    }
+    let _: () = unsafe { msg_send![buffer, setFrameLength: frames] };
+    let planes: *const *mut f32 = unsafe { msg_send![buffer, floatChannelData] };
+    if !planes.is_null() {
+        let plane = unsafe { *planes };
+        if !plane.is_null() {
+            unsafe { core::ptr::copy_nonoverlapping(samples.as_ptr(), plane, samples.len()) };
             let _: () = unsafe { msg_send![request, appendAudioPCMBuffer: buffer] };
         }
-    });
-    let _: () = unsafe {
-        msg_send![input, installTapOnBus: 0usize, bufferSize: 1024u32, format: format, block: &*tap]
-    };
-    let _: () = unsafe { msg_send![engine, prepare] };
-    let mut error: *mut AnyObject = core::ptr::null_mut();
-    let started_unix_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
-    let started: bool = unsafe { msg_send![engine, startAndReturnError: &mut error as *mut *mut AnyObject] };
-    let finish = |task: *mut AnyObject, audio_ended: bool| unsafe {
-        let _: () = msg_send![engine, stop];
-        let _: () = msg_send![input, removeTapOnBus: 0usize];
-        if !audio_ended {
-            let _: () = msg_send![request, endAudio];
-        }
-        if !task.is_null() {
-            let _: () = msg_send![task, cancel];
-        }
-        release(engine);
-        release(request);
-        release(queue);
-        release(recognizer);
-    };
-    if !started {
-        let why = unsafe { describe(error) };
-        finish(core::ptr::null_mut(), false);
-        return Answer::none(Outcome::Failed, &format!("the microphone did not start: {why}"));
     }
+    unsafe { release(buffer) };
+}
+
+/// How long one read of the microphone waits for sound while the request is fed, ms.
+const FEED_WAIT_MS: u32 = 40;
+
+/// The longest one recognition request is fed: the system takes about a minute of audio per request.
+const MAX_REQUEST_MS: u64 = 55_000;
+
+/// How much audio read while a request waits for its final is kept for the next one, ms.
+const BACKLOG_MS: u64 = 3_000;
+
+/// What one recognition request came to.
+struct RequestHeard {
+    hearing: Hearing,
+    /// When the audio of the request began (its first sample), ms since the Unix epoch.
+    started_unix_ms: u64,
+    microphone_failed: Option<String>,
+    cancelled: bool,
+    /// How long the request took, a request that ends at once and says nothing is not looped on.
+    took: Duration,
+}
+
+fn unix_ms_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// One recognition request, fed from the microphone until the end-point, the stop, the time or
+/// the length of a request. The audio read while it waits for its final goes to `pending`.
+#[allow(clippy::too_many_arguments)]
+unsafe fn run_request(
+    recognizer: *mut AnyObject,
+    request_cls: &AnyClass,
+    language: &str,
+    partials: bool,
+    vocabulary: &Vocabulary,
+    lease: &mut Lease,
+    format: *mut AnyObject,
+    pending: &mut Vec<f32>,
+    deadline: Instant,
+    endpoint: Duration,
+    cancel: &dyn Fn() -> bool,
+    stop: &dyn Fn() -> bool,
+    signalled: &mut bool,
+    flowing: &dyn Fn(),
+    emit: &dyn Fn(EventKind, Answer),
+) -> RequestHeard {
+    let began = Instant::now();
+    let rate = lease.rate().max(1);
+    let request: *mut AnyObject = unsafe { msg_send![request_cls, new] };
+    let _: () = unsafe { msg_send![request, setShouldReportPartialResults: true] };
+    unsafe { set_contextual_strings(request, vocabulary) };
 
     // The task reports partial transcriptions, then a final one (or an error).
     let shared: Arc<(Mutex<Hearing>, Condvar)> = Arc::new((Mutex::new(Hearing::default()), Condvar::new()));
@@ -598,41 +713,68 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration, cancel: &dyn
         };
         let failure = (!error.is_null()).then(|| unsafe { describe(error) });
         let mut hearing = reply.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(text) = text.filter(|t| *t != hearing.text) {
-            hearing.text = text;
-            hearing.segments = segments;
-            hearing.changed_at = Some(Instant::now());
-        }
-        if is_final || failure.is_some() {
-            hearing.done = true;
-        }
-        if failure.is_some() {
-            hearing.error = failure;
-        }
+        hearing.update(text, is_final, segments, failure, Instant::now());
         reply.1.notify_all();
     });
     let task: *mut AnyObject =
         unsafe { msg_send![recognizer, recognitionTaskWithRequest: request, resultHandler: &*handler] };
 
-    // Wait for the final answer: the time is up, or the user paused, ends the audio; then the
-    // recognizer has a moment for its final transcription.
-    let deadline = Instant::now() + timeout;
+    // What was read before this request began is the first of its audio.
+    let backlog_ms = pending.len() as u64 * 1000 / u64::from(rate);
+    let started_unix_ms = unix_ms_now().saturating_sub(backlog_ms);
+    let mut audio_samples = pending.len() as u64;
+    if !pending.is_empty() {
+        unsafe { append_samples(request, format, pending) };
+        pending.clear();
+    }
     let mut audio_ended_at: Option<Instant> = None;
+    let mut microphone_failed: Option<String> = None;
+    let mut cancelled = false;
+    let mut emitted = String::new();
+    let mut raw: Vec<f32> = Vec::new();
     let heard = loop {
-        let now = {
-            let (lock, changed) = &*shared;
-            let guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
-            let (guard, _) = changed
-                .wait_timeout(guard, Duration::from_millis(100))
-                .unwrap_or_else(PoisonError::into_inner);
-            guard.clone()
-        };
+        raw.clear();
+        if let Err(why) = lease.microphone().read(&mut raw, FEED_WAIT_MS) {
+            microphone_failed.get_or_insert(why);
+        }
+        if !raw.is_empty() {
+            if !*signalled {
+                // The first sound of this call: a UI may say "speak now".
+                *signalled = true;
+                flowing();
+            }
+            if audio_ended_at.is_none() {
+                unsafe { append_samples(request, format, &raw) };
+                audio_samples += raw.len() as u64;
+            } else {
+                // The request waits for its final: what is heard meanwhile is the next request's.
+                pending.extend_from_slice(&raw);
+                let keep = (u64::from(rate) * BACKLOG_MS / 1000) as usize;
+                if pending.len() > keep {
+                    let surplus = pending.len() - keep;
+                    pending.drain(..surplus);
+                }
+            }
+        }
+        let now = shared.0.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if partials && !now.done && !now.text.is_empty() && now.text != emitted {
+            emitted.clone_from(&now.text);
+            let mut partial = Answer::heard_words(words_of_segments(&now.segments), language, started_unix_ms);
+            partial.text = now.text.trim().to_string();
+            vocabulary.mark(&mut partial.words);
+            emit(EventKind::Partial, partial);
+        }
+        if cancel() {
+            cancelled = true;
+            break now;
+        }
         if now.done {
             break now;
         }
-        let paused = !now.text.is_empty() && now.changed_at.is_some_and(|at| at.elapsed() >= SILENCE);
+        let paused = !now.text.is_empty() && now.changed_at.is_some_and(|at| at.elapsed() >= endpoint);
+        let too_long = audio_samples * 1000 / u64::from(rate) >= MAX_REQUEST_MS;
         match audio_ended_at {
-            None if paused || Instant::now() >= deadline || cancel() => {
+            None if paused || Instant::now() >= deadline || stop() || microphone_failed.is_some() || too_long => {
                 let _: () = unsafe { msg_send![request, endAudio] };
                 audio_ended_at = Some(Instant::now());
             }
@@ -640,29 +782,200 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration, cancel: &dyn
             _ => {}
         }
     };
-    finish(if heard.done { core::ptr::null_mut() } else { task }, audio_ended_at.is_some());
-    // The blocks stay alive until here: the framework holds copies of its own.
-    drop(tap);
+    if audio_ended_at.is_none() {
+        let _: () = unsafe { msg_send![request, endAudio] };
+    }
+    if !heard.done || cancelled {
+        let _: () = unsafe { msg_send![task, cancel] };
+    }
+    unsafe { release(request) };
+    // The block stays alive until here: the framework holds a copy of its own.
     drop(handler);
+    RequestHeard {
+        hearing: heard,
+        started_unix_ms,
+        microphone_failed,
+        cancelled,
+        took: began.elapsed(),
+    }
+}
 
-    if !heard.text.trim().is_empty() {
-        let words = words_of_segments(&heard.segments);
-        let mut answer = Answer::heard_words(words, language, started_unix_ms);
-        answer.text = heard.text.trim().to_string();
-        // The recognizer's confidence per word is 0 until its final answer: the old rule stands
-        // where it gives none.
-        if answer.confidence <= 0.0 {
-            answer.confidence = if heard.done { 1.0 } else { 0.5 };
-        }
-        return answer;
+#[allow(clippy::too_many_arguments)]
+unsafe fn stream_with_recognizer(
+    language: &str,
+    timeout: Duration,
+    cancel: &dyn Fn() -> bool,
+    stop: &dyn Fn() -> bool,
+    options: &StreamOptions,
+    emit: &dyn Fn(EventKind, Answer),
+    vocabulary: &Vocabulary,
+    flowing: &dyn Fn(),
+    keeper: &MicKeeper,
+    keep_on_stop: bool,
+) -> Answer {
+    let (Some(recognizer_cls), Some(request_cls), Some(queue_cls), Some(format_cls)) = (
+        class("SFSpeechRecognizer"),
+        class("SFSpeechAudioBufferRecognitionRequest"),
+        class("NSOperationQueue"),
+        class("AVAudioFormat"),
+    ) else {
+        return Answer::none(Outcome::Unavailable, "the speech recognizer's classes are missing");
+    };
+    // `stream` decided and asked already: this only keeps a permission that was taken away in
+    // the meantime from starting a recognizer that would fail.
+    let status: isize = unsafe { msg_send![recognizer_cls, authorizationStatus] };
+    if status != AUTH_AUTHORIZED {
+        return Answer::none(Outcome::Denied, "speech recognition is not allowed any more");
     }
-    match heard.error {
-        // "No speech detected" is the recognizer's way of saying nothing was said.
-        Some(why) if !why.to_ascii_lowercase().contains("no speech") => {
-            Answer::none(Outcome::Failed, &why)
+
+    // The recognizer of the language, made once for the stream; its answers on a queue of their own,
+    // so a caller on the main thread does not wait for itself.
+    let recognizer: *mut AnyObject = objc2::rc::autoreleasepool(|_| unsafe {
+        if language.is_empty() {
+            msg_send![recognizer_cls, new]
+        } else {
+            let locale: *mut AnyObject = match class("NSLocale") {
+                Some(locale_cls) => msg_send![locale_cls, localeWithLocaleIdentifier: nsstring(language)],
+                None => core::ptr::null_mut(),
+            };
+            let alloc: *mut AnyObject = msg_send![recognizer_cls, alloc];
+            msg_send![alloc, initWithLocale: locale]
         }
-        _ => Answer::none(Outcome::NothingHeard, "nothing was said"),
+    });
+    if recognizer.is_null() {
+        return Answer::none(Outcome::Unavailable, &format!("no speech recognizer for {language}"));
     }
+    let available: bool = unsafe { msg_send![recognizer, isAvailable] };
+    if !available {
+        unsafe { release(recognizer) };
+        return Answer::none(Outcome::Unavailable, "the speech recognizer is not available now");
+    }
+    let queue: *mut AnyObject = unsafe { msg_send![queue_cls, new] };
+    let _: () = unsafe { msg_send![recognizer, setQueue: queue] };
+
+    // The microphone is the session's: open already when the last call kept it, else opened now
+    // (the permission rules of the microphone apply there).
+    let mut lease = match keeper.acquire() {
+        Ok(lease) => lease,
+        Err((outcome, message)) => {
+            unsafe {
+                release(queue);
+                release(recognizer);
+            }
+            return Answer::none(outcome, &message);
+        }
+    };
+    lease.trim_preroll(options.pre_roll_ms);
+    let rate = lease.rate();
+    // What is handed to the requests: mono floats at the microphone's rate.
+    let format: *mut AnyObject = unsafe {
+        let alloc: *mut AnyObject = msg_send![format_cls, alloc];
+        msg_send![alloc, initWithCommonFormat: AV_AUDIO_PCM_FORMAT_FLOAT32, sampleRate: f64::from(rate), channels: 1u32, interleaved: Bool::NO]
+    };
+    if format.is_null() {
+        unsafe {
+            release(queue);
+            release(recognizer);
+        }
+        return Answer::none(Outcome::Failed, "the audio format of the microphone could not be made");
+    }
+    // What came in while nobody listened is the first of the first request's audio.
+    let mut pending = std::mem::take(&mut lease.preroll);
+    let mut signalled = false;
+    if lease.warm {
+        // Open before the call: its sound is flowing already.
+        signalled = true;
+        flowing();
+    }
+    let endpoint = Duration::from_millis(u64::from(
+        if options.endpoint_ms > 0 { options.endpoint_ms } else { STREAM_ENDPOINT_MS }.clamp(200, 3_000),
+    ));
+    let deadline = Instant::now() + timeout;
+    let mut finals = 0u32;
+    let mut quick_misses = 0u32;
+    let mut cancelled = false;
+    let mut failure: Option<Answer> = None;
+    loop {
+        let heard = objc2::rc::autoreleasepool(|_| unsafe {
+            run_request(
+                recognizer,
+                request_cls,
+                language,
+                options.partials,
+                vocabulary,
+                &mut lease,
+                format,
+                &mut pending,
+                deadline,
+                endpoint,
+                cancel,
+                stop,
+                &mut signalled,
+                flowing,
+                emit,
+            )
+        });
+        if heard.cancelled {
+            cancelled = true;
+            break;
+        }
+        let text = heard.hearing.text.trim().to_string();
+        if !text.is_empty() {
+            quick_misses = 0;
+            let mut words = words_of_segments(&heard.hearing.segments);
+            vocabulary.mark(&mut words);
+            let mut answer = Answer::heard_words(words, language, heard.started_unix_ms);
+            answer.text = text;
+            // The recognizer's confidence per word is 0 until its final answer: the old rule stands
+            // where it gives none.
+            if answer.confidence <= 0.0 {
+                answer.confidence = if heard.hearing.done { 1.0 } else { 0.5 };
+            }
+            finals += 1;
+            emit(EventKind::Final, answer);
+        } else {
+            match heard.hearing.error {
+                // "No speech detected" is the recognizer's way of saying nothing was said.
+                Some(why) if !why.to_ascii_lowercase().contains("no speech") => {
+                    failure = Some(Answer::none(Outcome::Failed, &why));
+                    break;
+                }
+                _ => emit(EventKind::Quiet, Answer::none(Outcome::NothingHeard, "nothing was said")),
+            }
+            // A request that ends at once and says nothing is not asked again and again.
+            if heard.took < Duration::from_millis(300) {
+                quick_misses += 1;
+                if quick_misses >= 5 {
+                    failure = Some(Answer::none(Outcome::Failed, "the speech recognizer keeps ending without a result"));
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            } else {
+                quick_misses = 0;
+            }
+        }
+        if let Some(why) = heard.microphone_failed {
+            failure = Some(Answer::none(Outcome::Failed, &format!("the microphone failed: {why}")));
+            break;
+        }
+        if stop() || Instant::now() >= deadline || (options.max_utterances > 0 && finals >= options.max_utterances) {
+            break;
+        }
+    }
+    // The microphone goes back to be kept for the next call, unless this one was cancelled, the
+    // microphone failed (the user is done, or the device is gone), or the one utterance of a call
+    // was stopped.
+    if failure.is_some() {
+        drop(lease);
+    } else {
+        lease.finish(!cancelled && (keep_on_stop || !stop()));
+    }
+    unsafe {
+        release(format);
+        release(queue);
+        release(recognizer);
+    }
+    failure.unwrap_or_else(|| Answer::none(if finals > 0 { Outcome::Heard } else { Outcome::NothingHeard }, ""))
 }
 
 // ---- The microphone of the built-in recognizer ----
@@ -709,7 +1022,7 @@ impl MicrophoneSource for AppleMicrophoneSource {
             }
         }
         objc2::rc::autoreleasepool(|_| unsafe { AppleMicrophone::start() })
-            .map(|microphone| Box::new(microphone) as Box<dyn Microphone>)
+            .map(|microphone| -> Box<dyn Microphone> { Box::new(microphone) })
     }
 }
 
@@ -784,7 +1097,7 @@ impl AppleMicrophone {
         };
         let _: () = unsafe { msg_send![engine, prepare] };
         let mut error: *mut AnyObject = core::ptr::null_mut();
-        let started: bool = unsafe { msg_send![engine, startAndReturnError: &mut error as *mut *mut AnyObject] };
+        let started: bool = unsafe { msg_send![engine, startAndReturnError: core::ptr::addr_of_mut!(error)] };
         if !started {
             let why = unsafe { describe(error) };
             unsafe {
@@ -831,3 +1144,7 @@ impl Drop for AppleMicrophone {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "apple_test.rs"]
+mod apple_test;

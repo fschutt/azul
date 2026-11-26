@@ -38,7 +38,7 @@ pub(super) fn say(text: &str, language: &str, interrupt: bool) {
     if let Some(path) = hooks.speech_log.as_deref().filter(|p| !p.is_empty()) {
         // A log that cannot be written only loses the record: the run goes on.
         if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            let _ = writeln!(file, "{line}");
+            drop(writeln!(file, "{line}"));
         }
     }
     SPOKEN

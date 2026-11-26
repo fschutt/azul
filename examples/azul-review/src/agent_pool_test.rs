@@ -143,7 +143,7 @@ fn a_job_past_its_deadline_and_the_grace_time_is_given_up_on_and_its_late_messag
 // ==== the worker ====
 
 fn review_request() -> Request {
-    Request::Review(ReviewRequest {
+    Request::Review(ReviewRequest { symbols: String::new(),
         task: Task::Editing,
         conversation: 4,
         language: "en".to_string(),

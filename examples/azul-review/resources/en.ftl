@@ -82,6 +82,33 @@ azreview-note-waiting = Waiting for words...
 azreview-note-placeholder = Type or dictate a note
 azreview-note-name = Note { $n }
 azreview-note-delete = Delete note { $n }
+azreview-conv-chip-name = Conversation { $n }: { $words }: { $state }
+azreview-conv-empty = (no words yet)
+azreview-conv-more = { $n } more: the bar below has them
+azreview-conv-you = You
+azreview-conv-agent = Agent
+azreview-conv-working = The agent is working...
+azreview-conv-suggestions =
+    { $n ->
+        [one] One suggestion waits
+       *[other] { $n } suggestions wait
+    }
+azreview-conv-done = Done
+azreview-conv-title = Conversation { $n } - { $where }
+azreview-conv-close = Close the conversation
+azreview-conv-reply-placeholder = Reply to the agent
+azreview-conv-reply-name = Reply to the agent
+azreview-conv-reopen = Open the conversation again
+azreview-conv-resolve = Mark the conversation as done
+azreview-conv-send = Send to the agent
+azreview-conv-ask-again = Ask the agent again
+azreview-conv-heard-as = Heard as: { $words }
+azreview-conv-understood = Understood as: { $words }
+azreview-conv-earlier =
+    { $n ->
+        [one] One earlier turn is not shown
+       *[other] { $n } earlier turns are not shown
+    }
 azreview-dictation-denied = Dictation needs speech recognition, which is not allowed for AzReview ({ $why }). Allow it in System Settings > Privacy & Security.
 azreview-dictation-unavailable = Dictation is not available here: { $why }
 azreview-dictation-failed = Dictation failed: { $why }
@@ -140,6 +167,8 @@ azreview-agent-error-exit = { $program } stopped with exit code { $code }: { $de
 azreview-agent-error-http = The service answered { $status } { $kind }: { $detail }
 azreview-agent-error-rate-limited = The service is busy or over its limit: { $detail }
 azreview-agent-error-network = The service could not be reached: { $why }
+azreview-agent-no-reply = The agent answered with something that is no reply to a review.
+azreview-agent-no-answer = No answer came from the agent in time.
 azreview-agent-error-budget = The call would cost more than the limit of { $limit }: raise it in the settings
 azreview-agent-error-max-turns = The agent used all { $turns } turns without an answer: raise the limit in the settings or ask a narrower question
 azreview-agent-error-refused = The agent declined: { $detail }
@@ -220,6 +249,10 @@ azreview-standby-note = Opening the microphone takes a third of a second. Kept r
 azreview-chip-working = an agent is working
 azreview-chip-suggested = a suggestion waits
 azreview-chip-done = done
+azreview-chip-failed = the agent could not answer
+azreview-chip-draft = not asked yet
+azreview-chip-more-done = { $n } more finished: show them
+azreview-chip-fewer-done = Fold the finished ones
 azreview-shortcut-files = Show or hide the files
 azreview-shortcut-whiteboard = Show or hide the whiteboard
 azreview-agent-field-effort = Effort

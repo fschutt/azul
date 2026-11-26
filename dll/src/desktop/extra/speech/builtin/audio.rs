@@ -377,6 +377,47 @@ impl Endpointer {
         self.cut()
     }
 
+    /// The utterance so far, without ending it (the partial of a stream): `None` before speech has
+    /// begun and once it is over (then [`Self::take`] has it).
+    #[must_use]
+    pub fn peek(&self) -> Option<Segment> {
+        if self.done {
+            return None;
+        }
+        self.cut()
+    }
+
+    /// How much speech the utterance that goes on holds, ms.
+    #[must_use]
+    pub fn speech_ms(&self) -> u64 {
+        if !self.speaking {
+            return 0;
+        }
+        self.last_voiced_end.saturating_sub(self.speech_from) * 1000 / u64::from(MODEL_RATE)
+    }
+
+    /// Begins the next utterance of the same stream after [`Self::take`] or [`Self::finish`]: what
+    /// was pushed since the end is not lost (what has not been looked at yet is looked at by the
+    /// next push, and the last of what has is the pre-roll of the next utterance), the noise floor
+    /// and the position in the stream go on.
+    pub fn next_utterance(&mut self) {
+        let keep = (self.vad.preroll_ms as usize * MODEL_RATE as usize / 1000)
+            + (Self::ms_to_frames(self.vad.onset_ms) as usize + 1) * FRAME;
+        if self.kept.len() > keep {
+            let drop = self.kept.len() - keep;
+            self.kept.drain(..drop);
+            self.kept_from += drop as u64;
+        }
+        self.voiced_run = 0;
+        self.quiet_run = 0;
+        self.speaking = false;
+        self.done = false;
+        self.last_voiced_end = 0;
+        self.speech_sum = 0.0;
+        self.speech_frames = 0;
+        self.speech_from = 0;
+    }
+
     /// Ends the utterance now (the time is up, the caller cancelled): the speech so far, when
     /// there is some.
     pub fn finish(&mut self) -> Option<Segment> {
@@ -387,7 +428,7 @@ impl Endpointer {
         self.cut()
     }
 
-    fn cut(&mut self) -> Option<Segment> {
+    fn cut(&self) -> Option<Segment> {
         if !self.speaking {
             return None;
         }

@@ -11,8 +11,8 @@ pub const OP_NAME: &str = "azreview_state";
 
 /// The state as JSON: `pen` (the place of the pen in hand), `meaning`, `nib`, `tree_open`, `tree_w`, `right_open`,
 /// `right_w`, `chips` (the open file's conversations), `mic` (the microphone's state), `dictating` (a dictation runs),
-/// `ready` (its microphone takes words), `partial` (the words so far), `progress` (the pages seen of the open file, whether it is reviewed, the workspace's totals), `tree` (the rows, the files and folders known so far, the file open), `slashes` and `deleted_words` (what quick slashes took), `standby` (the policy: `mode`, `enabled`, `armed`, `arms`,
-/// `disarms`), `speech` (the session's state while a thread makes it: `session` unasked, making, ready or failed; `waiting`: a dictation waits for it; `failure`).
+/// `ready` (its microphone takes words), `partial` (the words so far), `progress` (the pages seen of the open file, whether it is reviewed, the workspace's totals), `tree` (the rows, the files and folders known so far, the file open), `strokes` (how many the pen has drawn), `slashes` and `deleted_words` (what quick slashes took), `standby` (the policy: `mode`, `enabled`, `armed`, `arms`,
+/// `disarms`), `symbols` (the index of the workspace: `enabled`, `running`, how many names were `recent`ly found, the scan's `progress`), `speech` (the session's state while a thread makes it: `session` unasked, making, ready or failed; `waiting`: a dictation waits for it; `failure`), `conversations` (`open`, `bar_all`, `notes`: each note's id, page, phase, turns and what the agent made of it; `agents`: how many run, how many answers wait, the backend).
 #[must_use]
 pub fn state_json(s: &AppState) -> String {
     serde_json::json!({
@@ -36,6 +36,7 @@ pub fn state_json(s: &AppState) -> String {
             "visible": s.rows.iter().take(200).map(|r| serde_json::json!({"id": r.id, "name": r.name})).collect::<Vec<_>>(),
         },
         "progress": progress_json(s),
+        "strokes": s.strokes.len(),
         "slashes": s.slashes.len(),
         "deleted_words": s.slashes.iter().map(|d| d.words.len()).sum::<usize>(),
         "standby": {
@@ -44,6 +45,39 @@ pub fn state_json(s: &AppState) -> String {
             "armed": s.voice.arming.is_armed(),
             "arms": s.voice.arms,
             "disarms": s.voice.disarms,
+        },
+        "conversations": {
+            "open": s.open_conv,
+            "bar_all": s.bar_all,
+            "notes": s.notes.iter().map(|n| serde_json::json!({
+                "id": n.id,
+                "page": n.page,
+                "phase": n.talk.phase.name(),
+                "asked": n.talk.asked,
+                "pending": n.talk.pending,
+                "turns": n.talk.turns.len(),
+                "said": n.talk.said.len(),
+                "heard_as": n.talk.heard_as,
+                "problem": n.talk.problem,
+            })).collect::<Vec<_>>(),
+            "agents": {
+                "running": s.hub.running(),
+                "late": s.hub.late.len(),
+                "auto_ask": s.hub.auto_ask,
+                "backend": s.hub.settings.task(crate::agent_backend::Task::Editing).backend.key(),
+            },
+        },
+        "symbols": {
+            "enabled": s.symbols_enabled,
+            "running": s.symbols.is_running(),
+            "recent": s.symbols.recent_len(),
+            "progress": s.symbols.progress().map(|p| serde_json::json!({
+                "found": p.files_found,
+                "done": p.files_done,
+                "dirs": p.dirs_done,
+                "walking": p.walking,
+                "idle": p.idle,
+            })),
         },
         "speech": {
             "session": s.voice.gate.state().name(),
@@ -101,7 +135,7 @@ pub fn register_ops(config: &mut AppConfig) {
     config.add_e2e_command(AzString::from(OP_EXPAND_ALL), json, on_expand_all);
     let def = format!(
         "{{\"name\":\"{OP_NAME}\",\"summary\":\"what AzReview's state is\",\
-         \"description\":\"pen, meaning, nib, tree_open, tree_w, right_open, right_w, chips, mic, dictating, ready, partial, progress, tree, slashes, deleted_words, standby, speech.\",\"args\":[],\"examples\":[]}}"
+         \"description\":\"pen, meaning, nib, tree_open, tree_w, right_open, right_w, chips, mic, dictating, ready, partial, progress, tree, strokes, slashes, deleted_words, standby, symbols, speech, conversations.\",\"args\":[],\"examples\":[]}}"
     );
     let json = Json::parse(AzString::from(def.as_str()))
         .into_result()
