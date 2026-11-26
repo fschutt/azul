@@ -645,6 +645,7 @@ impl PlatformWindow for AndroidWindow {
 #[no_mangle]
 pub fn android_main(app: AndroidApp) {
     log_info!(LogCategory::EventLoop, "[Android] android_main entered");
+    log_app_dirs();
 
     // The AZ_* knobs are reachable on this platform through the process reader
     // (`crate::env::ProcessEnv`): an activity cannot be handed environment variables (`am start`
@@ -968,6 +969,44 @@ fn trim_memory(window: &mut AndroidWindow, level: i32) {
     // `release_caches` may have turned the next frame into a whole one.
     if plan.release_caches && window.present.has_frame() && has_surface(window) {
         window.needs_rerender = true;
+    }
+}
+
+/// One log line with the app's private folders as the environment names them and whether each can be written
+/// (`AzulActivity.prepareAppDirs` sets them before the library loads): `FilePath::get_data_dir()` and the cache
+/// and temp folders of an app resolve through them. An error line (visible at the default log level) when one
+/// is not writable: an app that keeps a pairing or a cache through it keeps nothing.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn log_app_dirs() {
+    let mut all_ok = true;
+    let mut probe = |name: &str| -> String {
+        let Some(value) = std::env::var_os(name) else {
+            all_ok = false;
+            return format!("{name}=<unset>");
+        };
+        let dir = std::path::PathBuf::from(&value);
+        let file = dir.join(".azul-write-probe");
+        let writable = std::fs::create_dir_all(&dir).is_ok()
+            && std::fs::write(&file, b"x").is_ok()
+            && std::fs::remove_file(&file).is_ok();
+        all_ok &= writable;
+        format!(
+            "{name}={} ({})",
+            dir.display(),
+            if writable { "writable" } else { "NOT writable" }
+        )
+    };
+    let line = format!(
+        "[Android] app dirs: {} {} {} {}",
+        probe("HOME"),
+        probe("XDG_DATA_HOME"),
+        probe("XDG_CACHE_HOME"),
+        probe("TMPDIR"),
+    );
+    if all_ok {
+        log_info!(LogCategory::EventLoop, "{}", line);
+    } else {
+        log_error!(LogCategory::EventLoop, "{}", line);
     }
 }
 
