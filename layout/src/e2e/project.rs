@@ -1,4 +1,4 @@
-//! AzBuilder projects: a folder on disk that the builder UI browses, edits
+//! `AzBuilder` projects: a folder on disk that the builder UI browses, edits
 //! and saves into (the `project_*` ops).
 //!
 //! The builder UI (`dll/src/desktop/shell2/common/debugger/debugger-project.js`)

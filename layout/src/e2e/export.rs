@@ -1,4 +1,4 @@
-//! AzBuilder's quick exports — text in, text out, no zip:
+//! `AzBuilder`'s quick exports — text in, text out, no zip:
 //!
 //! * **Compile CSS to…** — list the rules of a stylesheet (pasted text, the
 //!   document's stylesheet, the selected node's style, a component's CSS) and
@@ -385,7 +385,7 @@ fn parse_xml(xml: &str) -> Result<Vec<XmlNodeChild>, String> {
 }
 
 /// A component's TEMPLATE as markup for the component-aware lowering
-/// (AzBuilder's templates: `{placeholders}`, nested instances as
+/// (`AzBuilder`'s templates: `{placeholders}`, nested instances as
 /// `<library:name ..>` tags), with the component's CSS; `None` for a
 /// component without one (the lowering then exports what it renders).
 #[must_use]

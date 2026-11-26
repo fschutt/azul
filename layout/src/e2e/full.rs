@@ -7,7 +7,7 @@
 //!
 //! The debug server is started in `App::create()` and runs on a background thread.
 //! It accepts JSON commands on "/" and forwards them to the timer callback for
-//! cross-platform processing via CallbackInfo.
+//! cross-platform processing via `CallbackInfo`.
 //!
 //! ## Usage
 //!
@@ -38,7 +38,7 @@ const ROOT_DOM_ID: azul_core::dom::DomId = azul_core::dom::DomId { inner: 0 };
 /// said nothing.
 ///
 /// Every node-addressing op runs through this instead of hardcoding
-/// [`ROOT_DOM_ID`], so one envelope field reaches all of them. A VirtualView's
+/// [`ROOT_DOM_ID`], so one envelope field reaches all of them. A `VirtualView`'s
 /// document and a `<transient-window>`'s popup content are separate DOMs whose
 /// nodes DOM 0 cannot see; before this, scripting them meant guessing pixel
 /// coordinates. Discover the live ids with the `list_doms` op.
@@ -156,7 +156,7 @@ pub struct DebugRequest {
     pub window_id: Option<String>,
     pub wait_for_render: bool,
     /// Which DOM the op addresses. `None` = the root DOM (0), which is what
-    /// every op used to hardcode. A VirtualView's document and a
+    /// every op used to hardcode. A `VirtualView`'s document and a
     /// `<transient-window>`'s popup content are DOMs of their own, and their
     /// nodes are unreachable from DOM 0: without this, scripting them meant
     /// hand-rolling coordinates and hoping. Set once on the request envelope
@@ -324,7 +324,7 @@ impl DebugHub {
     ///
     /// Why: the requests arrive on the server thread and the debug timer drains them on the UI
     /// thread. Without a wake, the UI loop had to LOOK - a poll timer that stayed at 250 ms in an
-    /// idle app (IDLE_CPU, 2026-09-30). Now the server wakes the loop, the loop re-arms the poll at
+    /// idle app (`IDLE_CPU`, 2026-09-30). Now the server wakes the loop, the loop re-arms the poll at
     /// the busy rate (`PlatformWindow::serve_debug_request_wake` in the dll), and the idle poll
     /// ([`DEBUG_POLL_IDLE_MS`]) is only a safety net.
     pub fn add_waker(&self, waker: Arc<dyn Fn() + Send + Sync>) {
@@ -658,9 +658,9 @@ pub enum ResponseData {
     ClickNode(ClickNodeResponse),
     /// Scrollbar info result
     ScrollbarInfo(ScrollbarInfoResponse),
-    /// VirtualView states (all tracked VirtualViews and their internal state)
+    /// `VirtualView` states (all tracked `VirtualViews` and their internal state)
     VirtualViewStates(VirtualViewStatesResponse),
-    /// VirtualView layout (nodes inside a specific VirtualView DOM)
+    /// `VirtualView` layout (nodes inside a specific `VirtualView` DOM)
     VirtualViewLayout(VirtualViewLayoutResponse),
     /// Selection state result
     SelectionState(SelectionStateResponse),
@@ -684,7 +684,7 @@ pub enum ResponseData {
     E2eResults(E2eResultsResponse),
     /// Per-frame damage + frame-work counters (`get_frame_report`)
     FrameReport(FrameReportResponse),
-    /// Node inserted result (returns new node_id)
+    /// Node inserted result (returns new `node_id`)
     NodeInserted(NodeInsertedResponse),
     /// Node deleted result
     NodeDeleted(NodeDeletedResponse),
@@ -710,7 +710,7 @@ pub enum ResponseData {
     ExportedLibrary(ExportedLibraryResponse),
     /// Component preview image (CPU-rendered)
     ComponentPreview(ComponentPreviewResponse),
-    /// Node dataset (RefAny serialized to JSON)
+    /// Node dataset (`RefAny` serialized to JSON)
     NodeDataset(NodeDatasetResponse),
     /// Generic JSON data (for endpoints that return arbitrary JSON)
     Json(serde_json::Value),
@@ -762,7 +762,7 @@ fn mode_response(
     }
 }
 
-/// Response for GetComponentPreview — CPU-rendered component image.
+/// Response for `GetComponentPreview` — CPU-rendered component image.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ComponentPreviewResponse {
@@ -774,13 +774,13 @@ pub struct ComponentPreviewResponse {
     pub height: f32,
 }
 
-/// Response for GetNodeDataset — serialized RefAny dataset of a DOM node.
+/// Response for `GetNodeDataset` — serialized `RefAny` dataset of a DOM node.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NodeDatasetResponse {
     /// The node ID queried
     pub node_id: u64,
-    /// Metadata about the RefAny type
+    /// Metadata about the `RefAny` type
     pub metadata: RefAnyMetadata,
     /// The serialized dataset JSON (null if not serializable)
     pub dataset: serde_json::Value,
@@ -796,7 +796,7 @@ pub struct E2eResultsResponse {
     pub results: Vec<E2eTestResult>,
 }
 
-/// Response for InsertNode: returns the new node's ID
+/// Response for `InsertNode`: returns the new node's ID
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NodeInsertedResponse {
@@ -805,7 +805,7 @@ pub struct NodeInsertedResponse {
     pub node_type: String,
 }
 
-/// Response for DeleteNode
+/// Response for `DeleteNode`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct NodeDeletedResponse {
@@ -813,7 +813,7 @@ pub struct NodeDeletedResponse {
     pub success: bool,
 }
 
-/// Response for SetNodeText
+/// Response for `SetNodeText`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NodeTextSetResponse {
@@ -830,7 +830,7 @@ pub struct FocusNodeResponse {
     pub selector: Option<String>,
 }
 
-/// Response for SetNodeClasses
+/// Response for `SetNodeClasses`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NodeClassesSetResponse {
@@ -886,7 +886,7 @@ pub struct FrameReportResponse {
     /// folded into a box already laid out); `0` in any steady state.
     pub virtual_view_size_passes: u32,
     pub hit_depth_cap: bool,
-    /// Terminal `ProcessEventResult` discriminant (0 = DoNothing … 6 = RegenerateDomAllWindows).
+    /// Terminal `ProcessEventResult` discriminant (0 = `DoNothing` … 6 = `RegenerateDomAllWindows`).
     pub terminal_result: u8,
     /// Injectable test-clock offset in ms (advanced by `tick_ms`).
     pub test_clock_offset_ms: u64,
@@ -1012,7 +1012,7 @@ impl From<&azul_layout::cpu_counters::CpuFrameCounters> for CpuCountersJson {
     }
 }
 
-/// Response for SetNodeCssOverride
+/// Response for `SetNodeCssOverride`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NodeCssOverrideSetResponse {
@@ -1021,7 +1021,7 @@ pub struct NodeCssOverrideSetResponse {
     pub value: String,
 }
 
-/// Response for ResolveFunctionPointers
+/// Response for `ResolveFunctionPointers`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FunctionPointersResponse {
@@ -1050,7 +1050,7 @@ pub struct ResolvedFunctionPointer {
     pub approximate: bool,
 }
 
-/// Response for ExportCode: compiled project as a base64-encoded ZIP
+/// Response for `ExportCode`: compiled project as a base64-encoded ZIP
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ExportedCodeResponse {
@@ -1062,7 +1062,7 @@ pub struct ExportedCodeResponse {
     pub warnings: Vec<String>,
 }
 
-/// Response for GetComponentRegistry
+/// Response for `GetComponentRegistry`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ComponentRegistryResponse {
@@ -1104,7 +1104,7 @@ pub struct ComponentInfo {
     pub display_name: String,
     /// Description / documentation
     pub description: String,
-    /// Source: "builtin", "compiled", "user_defined"
+    /// Source: "builtin", "compiled", "`user_defined`"
     pub source: String,
     /// Component-specific data model fields (the component's own attributes,
     /// e.g., href/target/rel for <a>). These ARE the component's main data model.
@@ -1116,7 +1116,7 @@ pub struct ComponentInfo {
     pub callback_slots: Vec<ComponentCallbackSlotInfo>,
     /// CSS
     pub css: String,
-    /// A component made in AzBuilder ("Convert to component"): its template,
+    /// A component made in `AzBuilder` ("Convert to component"): its template,
     /// `{placeholders}` and all (`builder::template_of`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template: Option<String>,
@@ -1140,9 +1140,9 @@ pub struct ComponentAttributeInfo {
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ComponentCallbackSlotInfo {
-    /// Slot name (e.g., "on_click", "on_value_change")
+    /// Slot name (e.g., "`on_click`", "`on_value_change`")
     pub name: String,
-    /// Callback type name (e.g., "ButtonOnClickCallbackType")
+    /// Callback type name (e.g., "`ButtonOnClickCallbackType`")
     pub callback_type: String,
     /// Description
     pub description: String,
@@ -1200,7 +1200,7 @@ pub struct CallbackArgInfo {
     pub arg_type: String,
 }
 
-/// Response for GetLibraries — list of registered component libraries (without component details)
+/// Response for `GetLibraries` — list of registered component libraries (without component details)
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LibraryListResponse {
@@ -1223,7 +1223,7 @@ pub struct LibrarySummary {
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DataModelInfo {
-    /// Type name, e.g. "UserProfile"
+    /// Type name, e.g. "`UserProfile`"
     pub name: String,
     /// Human-readable description
     pub description: String,
@@ -1235,7 +1235,7 @@ pub struct DataModelInfo {
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct EnumModelInfo {
-    /// Enum name, e.g. "UserRole"
+    /// Enum name, e.g. "`UserRole`"
     pub name: String,
     /// Human-readable description
     pub description: String,
@@ -1255,7 +1255,7 @@ pub struct EnumVariantInfo {
     pub fields: Vec<ComponentDataFieldInfo>,
 }
 
-/// Response for GetLibraryComponents — components within a specific library
+/// Response for `GetLibraryComponents` — components within a specific library
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LibraryComponentsResponse {
@@ -1263,7 +1263,7 @@ pub struct LibraryComponentsResponse {
     pub components: Vec<ComponentInfo>,
 }
 
-/// Response for ImportComponentLibrary
+/// Response for `ImportComponentLibrary`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportedLibraryResponse {
@@ -1275,7 +1275,7 @@ pub struct ImportedLibraryResponse {
     pub was_update: bool,
 }
 
-/// Response for ExportComponentLibrary — JSON-serializable library definition
+/// Response for `ExportComponentLibrary` — JSON-serializable library definition
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ExportedLibraryResponse {
@@ -1327,7 +1327,7 @@ pub struct ExportedEnumVariantDef {
 }
 
 /// A component definition in JSON-serializable form (for import/export).
-/// Uses a unified `fields` list instead of separate parameters/data_fields/callback_slots.
+/// Uses a unified `fields` list instead of separate `parameters/data_fields/callback_slots`.
 /// Callbacks are fields with type "Callback(...)", struct refs use "struct:Name", etc.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1346,7 +1346,7 @@ pub struct ExportedComponentDef {
     /// CSS for the component
     #[serde(default)]
     pub css: String,
-    /// A component made in AzBuilder: its template (`{placeholders}` and
+    /// A component made in `AzBuilder`: its template (`{placeholders}` and
     /// all). Importing it makes the component a template component again
     /// (it renders and compiles its markup, not its default texts).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1377,23 +1377,23 @@ pub struct ExportedDataField {
     pub description: String,
 }
 
-/// Metadata about a RefAny's type
+/// Metadata about a `RefAny`'s type
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RefAnyMetadata {
     /// The compiler-generated type ID
     pub type_id: u64,
-    /// Human-readable type name (e.g., "app::MyStruct")
+    /// Human-readable type name (e.g., "`app::MyStruct`")
     pub type_name: String,
-    /// Whether this RefAny supports JSON serialization
+    /// Whether this `RefAny` supports JSON serialization
     pub can_serialize: bool,
-    /// Whether this RefAny type supports JSON deserialization
+    /// Whether this `RefAny` type supports JSON deserialization
     pub can_deserialize: bool,
     /// Number of active references to this data
     pub ref_count: usize,
 }
 
-/// Error information for RefAny operations
+/// Error information for `RefAny` operations
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "error_type", content = "message", rename_all = "snake_case")]
@@ -1404,7 +1404,7 @@ pub enum RefAnyError {
     NotDeserializable,
     /// Serde serialization/deserialization failed
     SerdeError(String),
-    /// Valid JSON but cannot construct RefAny (type mismatch, missing fields, etc.)
+    /// Valid JSON but cannot construct `RefAny` (type mismatch, missing fields, etc.)
     TypeConstructionError(String),
 }
 
@@ -1412,7 +1412,7 @@ pub enum RefAnyError {
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AppStateResponse {
-    /// Metadata about the RefAny type
+    /// Metadata about the `RefAny` type
     pub metadata: RefAnyMetadata,
     /// The serialized JSON data (null if serialization failed or not supported)
     pub state: serde_json::Value,
@@ -1630,7 +1630,7 @@ impl serde::Serialize for WindowStateSnapshot {
 
 // ==================== Response Data Structures ====================
 
-/// Response for GetNodeCssProperties
+/// Response for `GetNodeCssProperties`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NodeCssPropertiesResponse {
@@ -1689,7 +1689,7 @@ pub struct TickAnimationsResponse {
     pub active: usize,
 }
 
-/// Response for GetNodeLayout
+/// Response for `GetNodeLayout`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct NodeLayoutResponse {
@@ -1705,7 +1705,7 @@ pub struct NodeLayoutResponse {
     pub screen_rect: Option<LogicalRectJson>,
 }
 
-/// Response for GetAllNodesLayout
+/// Response for `GetAllNodesLayout`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AllNodesLayoutResponse {
@@ -1725,7 +1725,7 @@ pub struct NodeLayoutInfo {
     pub rect: Option<LogicalRectJson>,
 }
 
-/// Response for GetDomTree
+/// Response for `GetDomTree`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct DomTreeResponse {
@@ -1750,7 +1750,7 @@ pub struct DomListEntry {
     pub root_tag: String,
     /// The id/classes of the root node, when it carries any.
     pub root_selector: Option<String>,
-    /// Set when this DOM is a VirtualView's document: the DOM + node that hosts it.
+    /// Set when this DOM is a `VirtualView`'s document: the DOM + node that hosts it.
     pub virtual_view_parent: Option<DomNodeIdJson>,
     /// Laid-out size of the DOM's root, when it has one.
     pub size: Option<LogicalSizeJson>,
@@ -1813,7 +1813,7 @@ pub struct DomNodeIdJson {
     pub node_id: u64,
 }
 
-/// Response for GetNodeHierarchy
+/// Response for `GetNodeHierarchy`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NodeHierarchyResponse {
@@ -1883,12 +1883,12 @@ pub struct HierarchyNodeInfo {
     /// Enables the debugger to show a Component Tree alongside the DOM tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component: Option<ComponentOriginJson>,
-    /// Whether this node has a dataset (opaque RefAny data).
+    /// Whether this node has a dataset (opaque `RefAny` data).
     /// True if `NodeData.dataset` is `Some(...)`. The actual data is opaque
     /// but knowing it exists helps visualize component state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_dataset: Option<bool>,
-    /// The AzBuilder document node this live node shows, if it is a mounted
+    /// The `AzBuilder` document node this live node shows, if it is a mounted
     /// document element. Its marker class `azb-<uid>` stays on the node
     /// (the builder finds its nodes by it) but is answered here, not in
     /// `classes`: it is the builder's plumbing, not the user's markup.
@@ -1914,7 +1914,7 @@ pub struct NodeEventInfo {
     pub callback_ptr: String,
 }
 
-/// Response for GetLayoutTree
+/// Response for `GetLayoutTree`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LayoutTreeResponse {
@@ -1938,7 +1938,7 @@ pub struct LayoutNodeInfo {
     pub children: Vec<usize>, // populated from layout_tree.children(idx)
 }
 
-/// Response for GetDisplayList
+/// Response for `GetDisplayList`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DisplayListResponse {
@@ -2130,7 +2130,7 @@ fn concrete_stop_colors<'a>(
         .collect()
 }
 
-/// Response for GetScrollStates
+/// Response for `GetScrollStates`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ScrollStatesResponse {
@@ -2153,7 +2153,7 @@ pub struct ScrollStateInfo {
     pub max_scroll_y: f32,
 }
 
-/// Response for GetScrollableNodes
+/// Response for `GetScrollableNodes`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ScrollableNodesResponse {
@@ -2173,7 +2173,7 @@ pub struct ScrollableNodeInfo {
     pub can_scroll_y: bool,
 }
 
-/// Response for ScrollNodeBy
+/// Response for `ScrollNodeBy`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct ScrollNodeByResponse {
@@ -2183,7 +2183,7 @@ pub struct ScrollNodeByResponse {
     pub delta_y: f32,
 }
 
-/// Response for ScrollNodeTo
+/// Response for `ScrollNodeTo`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct ScrollNodeToResponse {
@@ -2193,7 +2193,7 @@ pub struct ScrollNodeToResponse {
     pub y: f32,
 }
 
-/// Response for ScrollIntoView
+/// Response for `ScrollIntoView`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct ScrollIntoViewResponse {
@@ -2202,7 +2202,7 @@ pub struct ScrollIntoViewResponse {
     pub adjustments_count: usize,
 }
 
-/// Response for GetScrollbarInfo - detailed scrollbar geometry and state
+/// Response for `GetScrollbarInfo` - detailed scrollbar geometry and state
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ScrollbarInfoResponse {
@@ -2259,7 +2259,7 @@ pub struct ScrollbarGeometryJson {
     pub thumb_size_ratio: f32,
 }
 
-/// Response for GetVirtualViewStates - lists all tracked VirtualViews and their internal state
+/// Response for `GetVirtualViewStates` - lists all tracked `VirtualViews` and their internal state
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct VirtualViewStatesResponse {
@@ -2267,7 +2267,7 @@ pub struct VirtualViewStatesResponse {
     pub virtual_views: Vec<VirtualViewStateInfo>,
 }
 
-/// State info for a single VirtualView
+/// State info for a single `VirtualView`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct VirtualViewStateInfo {
@@ -2286,23 +2286,23 @@ pub struct VirtualViewStateInfo {
     pub last_bounds: LogicalRectJson,
 }
 
-/// Response for GetVirtualViewLayout - layout of nodes inside a VirtualView's DOM
+/// Response for `GetVirtualViewLayout` - layout of nodes inside a `VirtualView`'s DOM
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct VirtualViewLayoutResponse {
     pub dom_id: usize,
     pub node_count: usize,
     pub nodes: Vec<NodeLayoutInfo>,
-    /// Scroll state for the VirtualView container (from the parent DOM)
+    /// Scroll state for the `VirtualView` container (from the parent DOM)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scroll_state: Option<VirtualViewScrollStateInfo>,
-    /// All DOM IDs currently in layout_results (diagnostic)
+    /// All DOM IDs currently in `layout_results` (diagnostic)
     pub available_dom_ids: Vec<usize>,
-    /// Whether layout_results contains this VirtualView's DOM
+    /// Whether `layout_results` contains this `VirtualView`'s DOM
     pub layout_result_found: bool,
 }
 
-/// Scroll state info specific to a VirtualView
+/// Scroll state info specific to a `VirtualView`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct VirtualViewScrollStateInfo {
@@ -2320,7 +2320,7 @@ pub struct VirtualViewScrollStateInfo {
     pub max_scroll_y: f32,
 }
 
-/// Response for GetSelectionState - text selection state
+/// Response for `GetSelectionState` - text selection state
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SelectionStateResponse {
@@ -2496,7 +2496,7 @@ fn selection_state(
     }
 }
 
-/// JSON-serializable LogicalSize
+/// JSON-serializable `LogicalSize`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct LogicalSizeJson {
@@ -2504,7 +2504,7 @@ pub struct LogicalSizeJson {
     pub height: f32,
 }
 
-/// JSON-serializable LogicalPosition
+/// JSON-serializable `LogicalPosition`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct LogicalPositionJson {
@@ -2512,7 +2512,7 @@ pub struct LogicalPositionJson {
     pub y: f32,
 }
 
-/// JSON-serializable LogicalRect
+/// JSON-serializable `LogicalRect`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct LogicalRectJson {
@@ -2522,7 +2522,7 @@ pub struct LogicalRectJson {
     pub height: f32,
 }
 
-/// Full dump of the SelectionManager for debugging
+/// Full dump of the `SelectionManager` for debugging
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SelectionManagerDump {
@@ -2570,7 +2570,7 @@ pub struct ClickStateDump {
     pub click_count: u8,
 }
 
-/// Response for GetDragState - current drag state from unified drag system
+/// Response for `GetDragState` - current drag state from unified drag system
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DragStateResponse {
@@ -2583,7 +2583,7 @@ pub struct DragStateResponse {
     pub description: String,
 }
 
-/// Response for GetDragContext - detailed drag context information
+/// Response for `GetDragContext` - detailed drag context information
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DragContextResponse {
@@ -2623,7 +2623,7 @@ pub struct DragContextResponse {
     pub debug: String,
 }
 
-/// Response for GetFocusState - which node has keyboard focus
+/// Response for `GetFocusState` - which node has keyboard focus
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FocusStateResponse {
@@ -2652,7 +2652,7 @@ pub struct FocusedNodeInfo {
     pub text_content: Option<String>,
 }
 
-/// Response for GetCursorState - cursor position and blink state
+/// Response for `GetCursorState` - cursor position and blink state
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CursorStateResponse {
@@ -2806,10 +2806,10 @@ pub enum DebugEvent {
         seat: u64,
     },
     Click {
-        /// X position (used if no selector/node_id provided)
+        /// X position (used if no `selector/node_id` provided)
         #[serde(default)]
         x: Option<f32>,
-        /// Y position (used if no selector/node_id provided)
+        /// Y position (used if no `selector/node_id` provided)
         #[serde(default)]
         y: Option<f32>,
         /// CSS selector (e.g. ".button", "#my-id", "div")
@@ -2864,7 +2864,7 @@ pub enum DebugEvent {
     /// + scroll-physics-timer path, target chosen by the hit test (innermost
     /// scrollable node, boundary handoff). `scroll` above is the PROGRAMMATIC
     /// `scroll_to` on a node found by rect containment; it never exercises
-    /// the wheel path, which is where a VirtualView's edge-scroll
+    /// the wheel path, which is where a `VirtualView`'s edge-scroll
     /// re-materialization actually happens. The physics glides to an ABSOLUTE
     /// target of `delta * wheel_multiplier` (a mouse-wheel click, default
     /// multiplier 1.0: raw `delta_y: -100` ends 100px further down with the
@@ -2888,14 +2888,14 @@ pub enum DebugEvent {
         /// A native shell records the text of a keystroke (`XLookupString`,
         /// `wl_keyboard` / xkb, `WM_CHAR`, `NSTextInputClient`) into the text
         /// changeset BEFORE it runs the state-diff pass, so ONE pass carries
-        /// both the KeyDown and the Input event and the pass's post-callback
+        /// both the `KeyDown` and the Input event and the pass's post-callback
         /// filter decides whether the recorded edit lands. That is what makes a
-        /// KeyDown handler's `prevent_default()` able to veto an insertion.
+        /// `KeyDown` handler's `prevent_default()` able to veto an insertion.
         ///
         /// `text_input` is the OTHER ingress (`CallbackChange::CreateTextInput`
         /// — the debug server / C API / IME commit), which records, dispatches
         /// `Input` and applies inside a single change. A veto raised by a
-        /// KeyDown handler cannot be observed through it, because no KeyDown is
+        /// `KeyDown` handler cannot be observed through it, because no `KeyDown` is
         /// dispatched in that window at all.
         #[serde(default)]
         text: Option<String>,
@@ -3169,7 +3169,7 @@ pub enum DebugEvent {
     // DOM Inspection
     /// Get the HTML representation of the DOM
     GetHtmlString,
-    /// Get all computed CSS properties for a node (supports selector, node_id, or text)
+    /// Get all computed CSS properties for a node (supports selector, `node_id`, or text)
     GetNodeCssProperties {
         #[serde(default)]
         node_id: Option<u64>,
@@ -3178,7 +3178,7 @@ pub enum DebugEvent {
         #[serde(default)]
         text: Option<String>,
     },
-    /// Get node layout information (position, size) - supports selector, node_id, or text
+    /// Get node layout information (position, size) - supports selector, `node_id`, or text
     GetNodeLayout {
         #[serde(default)]
         node_id: Option<u64>,
@@ -3215,7 +3215,7 @@ pub enum DebugEvent {
     ///
     /// `{ "op": "list_doms" }`
     ///
-    /// The window's own document is DOM 0; a VirtualView's document and a
+    /// The window's own document is DOM 0; a `VirtualView`'s document and a
     /// `<transient-window>`'s popup content are DOMs of their own. Every
     /// node-addressing op defaults to DOM 0 and takes the envelope's
     /// `dom_id` to reach the others — this op is how you learn the ids
@@ -3232,7 +3232,7 @@ pub enum DebugEvent {
     /// envelope's `window_id`. This op is how a script learns those ids.
     ListWindows,
     /// Get the raw node hierarchy (for debugging DOM structure issues).
-    /// Address a child DOM (a VirtualView / transient-window document) with
+    /// Address a child DOM (a `VirtualView` / transient-window document) with
     /// the envelope's `dom_id`, like every other node-addressing op.
     GetNodeHierarchy,
     /// Get the layout tree structure (for debugging layout tree building)
@@ -3243,7 +3243,7 @@ pub enum DebugEvent {
     GetScrollStates,
     /// Get all scrollable nodes (nodes with overflow that can be scrolled)
     GetScrollableNodes,
-    /// Scroll a specific node by a delta amount (supports selector, node_id, or text)
+    /// Scroll a specific node by a delta amount (supports selector, `node_id`, or text)
     ScrollNodeBy {
         #[serde(default)]
         node_id: Option<u64>,
@@ -3254,7 +3254,7 @@ pub enum DebugEvent {
         delta_x: f32,
         delta_y: f32,
     },
-    /// Scroll a specific node to an absolute position (supports selector, node_id, or text)
+    /// Scroll a specific node to an absolute position (supports selector, `node_id`, or text)
     ScrollNodeTo {
         #[serde(default)]
         node_id: Option<u64>,
@@ -3286,7 +3286,7 @@ pub enum DebugEvent {
     },
 
     // Node Finding
-    /// Find a node by text content (returns node_id and bounds)
+    /// Find a node by text content (returns `node_id` and bounds)
     FindNodeByText {
         text: String,
     },
@@ -3297,7 +3297,7 @@ pub enum DebugEvent {
         button: MouseButton,
     },
 
-    /// Get detailed scrollbar information for a node (supports selector, node_id, or text)
+    /// Get detailed scrollbar information for a node (supports selector, `node_id`, or text)
     /// Returns geometry for both horizontal and vertical scrollbars if present
     GetScrollbarInfo {
         #[serde(default)]
@@ -3312,15 +3312,15 @@ pub enum DebugEvent {
     },
 
     // VirtualView inspection
-    /// Get all tracked VirtualView states (scroll sizes, virtual sizes, invocation status)
+    /// Get all tracked `VirtualView` states (scroll sizes, virtual sizes, invocation status)
     GetVirtualViewStates,
-    /// Get layout of nodes inside a specific VirtualView's DOM (by nested dom_id or parent
-    /// node_id)
+    /// Get layout of nodes inside a specific `VirtualView`'s DOM (by nested `dom_id` or parent
+    /// `node_id`)
     GetVirtualViewLayout {
-        /// The nested DOM ID of the VirtualView (from get_virtual_view_states result)
+        /// The nested DOM ID of the `VirtualView` (from `get_virtual_view_states` result)
         #[serde(default)]
         dom_id: Option<usize>,
-        /// The parent node_id of the VirtualView node (in the root DOM)
+        /// The parent `node_id` of the `VirtualView` node (in the root DOM)
         #[serde(default)]
         node_id: Option<usize>,
     },
@@ -3545,21 +3545,21 @@ pub enum DebugEvent {
     /// `wait_settled` before it: right after a rebuild, moved nodes are still
     /// sliding and a still of them shows "two layouts at once".
     TakeScreenshot,
-    /// `render_shadow` omitted follows AZ_SCREENSHOT_SHADOW.
+    /// `render_shadow` omitted follows `AZ_SCREENSHOT_SHADOW`.
     TakeNativeScreenshot {
         #[serde(default)]
         render_shadow: Option<bool>,
     },
 
     // App State (JSON Serialization)
-    /// Get the global app state as JSON (requires RefAny with serialize_fn)
+    /// Get the global app state as JSON (requires `RefAny` with `serialize_fn`)
     GetAppState,
-    /// Set the global app state from JSON (requires RefAny with deserialize_fn)
+    /// Set the global app state from JSON (requires `RefAny` with `deserialize_fn`)
     SetAppState {
         /// The JSON value to set as the new app state
         state: serde_json::Value,
     },
-    /// Get the dataset (RefAny) of a specific DOM node as JSON
+    /// Get the dataset (`RefAny`) of a specific DOM node as JSON
     GetNodeDataset {
         /// Node ID whose dataset to retrieve
         node_id: u64,
@@ -3747,7 +3747,7 @@ pub enum DebugEvent {
     /// programmatically via `queue_e2e_tests()`.
     RunE2eTests {
         tests: Vec<E2eTest>,
-        /// Named snapshots map (alias → saved app_state JSON).
+        /// Named snapshots map (alias → saved `app_state` JSON).
         /// Used by `restore_snapshot` steps to look up pre-saved states.
         #[serde(default)]
         snapshots: Option<std::collections::HashMap<String, serde_json::Value>>,
@@ -4010,15 +4010,15 @@ pub enum DebugEvent {
         #[serde(default)]
         css_override: Option<String>,
         /// Component arguments as typed JSON values, e.g. {"label": "Click", "disabled": true,
-        /// "count": 42}. Keys must match the component's data_model field names.
-        /// Values are validated against the field's ComponentFieldType.
-        /// Missing fields use their default_value from the data model.
+        /// "count": 42}. Keys must match the component's `data_model` field names.
+        /// Values are validated against the field's `ComponentFieldType`.
+        /// Missing fields use their `default_value` from the data model.
         #[serde(default)]
         args: Option<std::collections::HashMap<String, serde_json::Value>>,
-        /// Override OS for @os() CSS at-rules: "windows", "mac", "linux"
+        /// Override OS for @`os()` CSS at-rules: "windows", "mac", "linux"
         #[serde(default)]
         override_os: Option<String>,
-        /// Override theme for @theme() CSS: "light", "dark"
+        /// Override theme for @`theme()` CSS: "light", "dark"
         #[serde(default)]
         override_theme: Option<String>,
         /// Override language/locale: e.g. "en", "de", "fr"
@@ -4032,7 +4032,7 @@ pub enum DebugEvent {
         /// Component tag name
         name: String,
     },
-    /// Get the source code of a component's render_fn, or the component as
+    /// Get the source code of a component's `render_fn`, or the component as
     /// code (`compile_fn` / `code`: printed by the code generator for
     /// `language`, the same as `export_component_code`).
     GetComponentSource {
@@ -4040,20 +4040,20 @@ pub enum DebugEvent {
         library: String,
         /// Component tag name
         name: String,
-        /// "render_fn", or "compile_fn" / "code"
+        /// "`render_fn`", or "`compile_fn`" / "code"
         source_type: String,
         /// Any code generator's language (see `get_codegen_languages`; ignored
-        /// for render_fn). Default: rust.
+        /// for `render_fn`). Default: rust.
         #[serde(default)]
         language: Option<String>,
     },
-    /// Update a component's render_fn source code.
+    /// Update a component's `render_fn` source code.
     UpdateComponentRenderFn {
         /// Library name
         library: String,
         /// Component tag name
         name: String,
-        /// New source code for the render_fn
+        /// New source code for the `render_fn`
         source: String,
     },
     /// Open a source file in the user's editor (best-effort)
@@ -4492,7 +4492,7 @@ fn parse_accessibility_action(
 
 // ==================== Node Resolution Helper ====================
 
-/// Resolves a node target (selector, node_id, or text) to a NodeId.
+/// Resolves a node target (selector, `node_id`, or text) to a `NodeId`.
 /// Returns the first matching node or None if no match found.
 #[cfg(feature = "std")]
 fn resolve_node_target(
@@ -4553,7 +4553,7 @@ fn resolve_node_target(
     None
 }
 
-/// Resolve a CSS selector to **all** matching NodeIds (not just the first).
+/// Resolve a CSS selector to **all** matching `NodeIds` (not just the first).
 ///
 /// Used by `assert_node_count` and also internally by the assertion engine
 /// to verify existence / non-existence of nodes.
@@ -5114,7 +5114,7 @@ static SERVER_START_TIME: OnceLock<std::time::Instant> = OnceLock::new();
 #[cfg(feature = "std")]
 static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
-/// File handle for AZ_RECORD file-based logging.
+/// File handle for `AZ_RECORD` file-based logging.
 /// When `AZ_RECORD=<filepath>` is set, all log messages are written to this file.
 // Process configuration read once from the environment (`AZ_RECORD`).
 #[cfg(feature = "std")]
@@ -5288,11 +5288,11 @@ pub struct E2eScratch {
     /// step has begun yet, which is why X8 hard-fails rather than passing when
     /// it finds none — an invariant with no subject must not report success.
     composition_trace: Option<CompositionTrace>,
-    /// The AzBuilder document this window shows once the builder took it
+    /// The `AzBuilder` document this window shows once the builder took it
     /// over, and the palette thumbnail cache (the `builder_*` ops and
     /// `get_component_thumbnail`). Per window, like everything here.
     builder: super::builder::BuilderSession,
-    /// The AzBuilder project folder open in this window (the `project_*`
+    /// The `AzBuilder` project folder open in this window (the `project_*`
     /// ops, layout/src/e2e/project.rs).
     project: super::project::ProjectSession,
     /// The last debug-request announcement this window re-armed its poll for
@@ -6986,7 +6986,7 @@ pub fn send_ok(
 /// Send an error response to a debug request
 #[cfg(feature = "std")]
 /// Synthesize a solid-color RGBA raster image for the image ops
-/// (`set_node_image` / `add_image_to_cache`) — JSON cannot carry an ImageRef,
+/// (`set_node_image` / `add_image_to_cache`) — JSON cannot carry an `ImageRef`,
 /// so the op smuggles `{width, height, color}` in, same discipline as
 /// `add_timer` supplying the fn pointer JSON cannot express.
 fn synthesize_solid_image(
@@ -7023,7 +7023,7 @@ pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
     let _ = request.response_tx.send(response);
 }
 
-/// Helper function for serializing DebugHttpResponse
+/// Helper function for serializing `DebugHttpResponse`
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server")]
 pub fn serialize_http_response(response: &DebugHttpResponse) -> String {
@@ -7204,7 +7204,7 @@ pub struct E2eTest {
     /// step and reports SKIP with the reason, so an empty test is never a pass.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub not_applicable: Option<String>,
-    /// Optional runtime configuration (continue_on_failure, delay, …).
+    /// Optional runtime configuration (`continue_on_failure`, delay, …).
     #[serde(default)]
     pub config: E2eConfig,
     /// Optional setup (window size, DPI, initial app state).
@@ -7256,13 +7256,13 @@ fn default_dpi() -> u32 {
 
 /// A single step inside an E2E test.
 ///
-/// Steps are either regular debug commands (click, text_input, …) or
-/// assertions (assert_text, assert_exists, …).  The JSON format is the
+/// Steps are either regular debug commands (click, `text_input`, …) or
+/// assertions (`assert_text`, `assert_exists`, …).  The JSON format is the
 /// same as the debug API: `{"op": "click", "selector": ".btn"}`.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct E2eStep {
-    /// Operation name (same as DebugEvent discriminant, plus assert_* ops).
+    /// Operation name (same as `DebugEvent` discriminant, plus assert_* ops).
     pub op: String,
     /// Whether to capture a screenshot after this step.
     #[serde(default)]
@@ -7955,20 +7955,20 @@ fn eval_assert_dom(
 /// changes).
 /// Lift a rect from `dom_id`'s own coordinate space into WINDOW space.
 ///
-/// A VirtualView's document is laid out in its own space, starting at (0,0) —
+/// A `VirtualView`'s document is laid out in its own space, starting at (0,0) —
 /// `get_node_rect` for a node inside it answers in THAT space. Synthesising a
 /// device event needs window coordinates, so every op that turns a node into a
-/// click position has to cross the VirtualView boundary explicitly:
+/// click position has to cross the `VirtualView` boundary explicitly:
 ///
-///   window = child_local + host_origin + content_offset
+///   window = `child_local` + `host_origin` + `content_offset`
 ///
 /// where `content_offset` (`materialized_origin - scroll_offset`) is exactly
 /// the shift the rasteriser applies when compositing the child list. Without
 /// this, `{"op":"click","selector":"#mw-blk-0","dom_id":1}` reported success
-/// while clicking at AzWriter's TOOLBAR: the paragraph's y=113 is 113px down
+/// while clicking at `AzWriter`'s TOOLBAR: the paragraph's y=113 is 113px down
 /// the page, not 113px down the window.
 ///
-/// Walks up nested VirtualViews, so a document inside a document also lands.
+/// Walks up nested `VirtualViews`, so a document inside a document also lands.
 #[cfg(feature = "std")]
 fn lift_rect_to_window_space(
     callback_info: &azul_layout::callbacks::CallbackInfo,
@@ -8014,10 +8014,10 @@ fn lift_rect_to_window_space(
 ///
 /// Hit-test bounds first (that is what a real pointer would land on), then the
 /// laid-out rect. The fallback is what makes a CHILD DOM clickable: a
-/// VirtualView's document and a `<transient-window>`'s content are laid out,
+/// `VirtualView`'s document and a `<transient-window>`'s content are laid out,
 /// but their nodes are not in the parent window's hit-test structure, so
 /// `get_node_hit_test_bounds` answers `None` for every one of them and a
-/// selector click into AzWriter's document could only ever fail.
+/// selector click into `AzWriter`'s document could only ever fail.
 #[cfg(feature = "std")]
 fn node_centre_for_click(
     callback_info: &azul_layout::callbacks::CallbackInfo,
@@ -8035,11 +8035,11 @@ fn node_centre_for_click(
         })
 }
 
-/// WebDriver's element click: a target outside its scroll containers'
+/// `WebDriver`'s element click: a target outside its scroll containers'
 /// visible areas is scrolled into view first (instantly, the nearest edge),
 /// and clicked where it is then. `at` is its centre now; returns the centre
 /// after the queued scroll. The click op used to press wherever the node's
-/// centre was - below a settings page's fold, AzMail's "Sign my mail with
+/// centre was - below a settings page's fold, `AzMail`'s "Sign my mail with
 /// DKIM" clicked the Save bar instead (E2E sweep, 2026-10-06).
 #[cfg(feature = "std")]
 fn reveal_click_target(
@@ -11253,7 +11253,7 @@ fn collect_state_machine_leaks(
     leaks
 }
 
-/// `assert_state_machines_idle` — E2E_PLAN §(g3), "it ended, but the manager
+/// `assert_state_machines_idle` — `E2E_PLAN` §(g3), "it ended, but the manager
 /// didn't notice".
 ///
 /// The interaction is over; assert that every state machine noticed. Checks, in
@@ -11321,7 +11321,7 @@ fn eval_assert_state_machines_idle(
     )
 }
 
-/// `assert_manager_invariants` — E2E_PLAN §(g2), the cross-manager consistency
+/// `assert_manager_invariants` — `E2E_PLAN` §(g2), the cross-manager consistency
 /// table.
 ///
 /// Parameters:
@@ -12680,7 +12680,7 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
 /// * `ScrollManager::scrollbar_states`: private, and recomputed from geometry every frame — it is a
 ///   derived cache, not state anybody can leak into.
 /// * `GpuValueCache`'s animated VALUES: they change every frame of a running animation, so they
-///   would report "gpu_state moved" for every tick of a fade the scenario asked for. The KEYS are
+///   would report "`gpu_state` moved" for every tick of a fade the scenario asked for. The KEYS are
 ///   recorded (a key is what leaks) and `scrollbar_fade_active` says whether a fade is live.
 /// * `VirtualViewState`'s per-view internals and geolocation's private pending queues: no accessor
 ///   exists. The view KEYS and the refcount are recorded.
@@ -13724,7 +13724,7 @@ fn e2e_record_composition_sample(
     trace.samples += 1;
 }
 
-/// `assert_composition` — E2E_PLAN §(g1), "the managers fire together, in order,
+/// `assert_composition` — `E2E_PLAN` §(g1), "the managers fire together, in order,
 /// and reach a fixpoint".
 ///
 /// Asserts that each named stage was ENTERED over the steps since the last
@@ -14021,7 +14021,7 @@ pub fn e2e_presented_frame(
         .clone()
 }
 
-/// `assert_damage_sound` — E2E_PLAN §(c), damage soundness in BOTH directions.
+/// `assert_damage_sound` — `E2E_PLAN` §(c), damage soundness in BOTH directions.
 ///
 /// The global, stronger form of `assert_damage_covers_changes`. It differs in
 /// four ways:
@@ -15721,7 +15721,7 @@ fn build_clip_analysis(
     }
 }
 
-/// Parse a key string to a VirtualKeyCode
+/// Parse a key string to a `VirtualKeyCode`
 #[cfg(feature = "std")]
 pub(crate) fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::VirtualKeyCode> {
     use azul_core::window::VirtualKeyCode;
@@ -16195,7 +16195,7 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
     ComponentRegistryResponse { libraries }
 }
 
-/// Convert a StyledDom into a JSON-serializable render tree for the mini HTML tree widget.
+/// Convert a `StyledDom` into a JSON-serializable render tree for the mini HTML tree widget.
 /// The result is a JSON object with a "nodes" array of root-level nodes,
 /// each with "tag", "text", "classes", "children" fields.
 #[cfg(feature = "std")]
@@ -16889,7 +16889,7 @@ pub(super) fn validate_exported_fields(
 ///
 /// For primitive types (null, bool, number, string) we convert directly.
 /// For arrays/objects the internal representation is already a JSON string,
-/// so we parse it with serde_json.
+/// so we parse it with `serde_json`.
 #[cfg(feature = "std")]
 fn json_to_serde_value(json: &azul_core::json::Json) -> serde_json::Value {
     use azul_core::json::JsonType;
@@ -17186,7 +17186,7 @@ extern "C" fn e2e_tick_timer_callback(
 /// This is the same defect `tick_ms` had (fixed in b44cb702b): the harness was
 /// the work it was measuring. `Scroll` / `KeyDown` / `KeyUp` / `TextInput` /
 /// `Focus` / `Blur` / `Move` were already written this way and carry an
-/// explicit "do NOT set needs_update" note each; every pointer, touch, pen,
+/// explicit "do NOT set `needs_update`" note each; every pointer, touch, pen,
 /// gesture, resize and DPI arm now follows the same model.
 ///
 /// The engine still decides — and still regenerates where it should:
@@ -24129,7 +24129,7 @@ pub struct ScreenshotKey {
 ///
 /// A native screenshot is an OS capture plus a PNG encode (miniz deflate)
 /// on the UI thread. The builder page asks for one whenever it refreshes,
-/// and an idle AzBuilder spent its CPU re-capturing and re-encoding a
+/// and an idle `AzBuilder` spent its CPU re-capturing and re-encoding a
 /// window that had not presented a single frame since the last request.
 /// While the generation is unchanged the screen is too (bar the OS-drawn
 /// title bar), so the cached bytes are the answer.
@@ -24256,7 +24256,7 @@ pub const DEBUG_POLL_SETTLE_MS: u64 = 1000;
 /// the UI thread, so something has to look. It looks at
 /// [`DEBUG_POLL_BUSY_MS`] while requests keep coming or a scenario is
 /// suspended between ticks, and drops to [`DEBUG_POLL_IDLE_MS`] after
-/// [`DEBUG_POLL_SETTLE_MS`] of quiet: an AzBuilder nobody drives no longer
+/// [`DEBUG_POLL_SETTLE_MS`] of quiet: an `AzBuilder` nobody drives no longer
 /// wakes 60 times a second. The first request after a quiet spell waits at
 /// most one idle period.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24351,7 +24351,7 @@ pub fn take_debug_request_wake() -> bool {
 /// tweens (the CSS transitions), a scrolled box eases and its bar fades. The
 /// frame is not stale - the display list is current - it is in motion, and
 /// read as a still it shows "two layouts at once" (SMALL6, 2026-10-03:
-/// AzShells' S4 after a picker click carried 26 sliding nodes for ~300 ms).
+/// `AzShells`' S4 after a picker click carried 26 sliding nodes for ~300 ms).
 #[cfg(feature = "std")]
 #[must_use]
 pub fn window_still_moving(layout_window: &azul_layout::window::LayoutWindow) -> Option<String> {

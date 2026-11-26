@@ -23,7 +23,7 @@
 //!   exactly that difference.
 //!
 //! The window/callback scaffolding mirrors the pattern in
-//! `tests/contenteditable_e2e.rs` (LayoutWindow + `RendererResources::default()`
+//! `tests/contenteditable_e2e.rs` (`LayoutWindow` + `RendererResources::default()`
 //! + `ExternalSystemCallbacks::rust_internal()` + `FullWindowState`).
 
 use std::{
@@ -70,7 +70,7 @@ struct Runner {
     window_state: FullWindowState,
     /// The sync baseline the state-diff pass reads, i.e.
     /// `CommonWindowState::previous_window_state`. `determine_all_events`
-    /// derives EVERY synthetic event (MouseDown/Up, KeyDown/Up, WindowFocusIn/
+    /// derives EVERY synthetic event (MouseDown/Up, KeyDown/Up, `WindowFocusIn`/
     /// Out, WindowMove/Resize) from `current` vs `previous`, so without this
     /// field the diff is always empty and no pointer or key event exists at
     /// all. Advanced by `ModifyWindowState` / `QueueWindowStateSequence`
@@ -78,7 +78,7 @@ struct Runner {
     previous_window_state: Option<FullWindowState>,
     /// Pointer→node resolution, i.e. `CommonWindowState::cpu_hit_tester`.
     ///
-    /// The runner has no WebRender, so this is the same `CpuHitTester` the
+    /// The runner has no `WebRender`, so this is the same `CpuHitTester` the
     /// headless / CPU-mode desktop backends use, rebuilt from the layout
     /// results (see [`Runner::rebuild_hit_tester`]).
     cpu_hit_tester: azul_layout::headless::CpuHitTester,
@@ -938,7 +938,7 @@ impl Runner {
     /// and the next Tab restarted from the first stop. Now a fresh Escape
     /// dismisses every forced-open popup whose policy allows it (the manager
     /// records the focus it owes back), the Escape is SPENT like the DLL's
-    /// `consume_keyboard_delta` (no ClearFocus), and the owed focus - with
+    /// `consume_keyboard_delta` (no `ClearFocus`), and the owed focus - with
     /// its ring - is handed back at once, unless the user has moved it
     /// (the runner has no "next pass" hook to defer it to).
     ///
@@ -4188,7 +4188,7 @@ impl Runner {
     }
 
     /// Port of the DLL event loop's keyboard-default-action pass: Tab →
-    /// FocusNext/Previous, Escape → ClearFocus. Runs once per pass that saw a
+    /// FocusNext/Previous, Escape → `ClearFocus`. Runs once per pass that saw a
     /// `KeyDown`, which is the DLL's `has_key_event` gate.
     ///
     /// Returns `(result, focus_changed)`; the caller uses `focus_changed` to
@@ -4492,7 +4492,7 @@ impl Runner {
         }
     }
 
-    /// Publish layout's scroll containers into the ScrollManager.
+    /// Publish layout's scroll containers into the `ScrollManager`.
     ///
     /// This used to be a hand-maintained PORT of the dll's copy, so a scroll
     /// bug could be fixed in one host and left standing in the other. Both
@@ -4693,7 +4693,7 @@ fn arm_caret_for_focus(
 }
 
 /// Port of the DLL's `apply_hover_restyle` (`.../common/event.rs`): apply this
-/// pass's MouseEnter / MouseLeave targets to the styled DOM so pure-CSS
+/// pass's `MouseEnter` / `MouseLeave` targets to the styled DOM so pure-CSS
 /// `:hover` rules take effect without a DOM regeneration.
 fn apply_hover_restyle(
     layout_window: &mut LayoutWindow,

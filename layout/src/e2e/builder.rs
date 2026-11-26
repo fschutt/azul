@@ -1,4 +1,4 @@
-//! AzBuilder's document model: the tree the visual builder edits.
+//! `AzBuilder`'s document model: the tree the visual builder edits.
 //!
 //! The builder UI (`dll/src/desktop/shell2/common/debugger/debugger-dnd.js`)
 //! used to edit the window's LIVE `StyledDom` in place (`insert_node` /

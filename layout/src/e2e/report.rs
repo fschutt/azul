@@ -70,7 +70,7 @@ impl E2eVerdict {
 
     /// The tally back out of the `test result:` line [`render_report`]
     /// wrote (ANSI colour included), for a process that reads another's run
-    /// - the AZ_E2E directory dispatcher reading a child's, `azul-doc mobile`
+    /// - the `AZ_E2E` directory dispatcher reading a child's, `azul-doc mobile`
     /// reading a device log. `None` when `line` is not a summary line.
     #[must_use]
     pub fn parse_summary(line: &str) -> Option<Self> {
