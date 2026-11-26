@@ -649,7 +649,7 @@ impl Json {
     }
 
     /// Get all keys of an object, in the order of the document (a key given twice keeps its first
-    /// place). Before 0.0.22 they came back sorted alphabetically.
+    /// place). Earlier versions returned them sorted alphabetically.
     #[must_use]
     pub fn keys(&self) -> Vec<AzString> {
         if self.value_type != JsonType::Object {
