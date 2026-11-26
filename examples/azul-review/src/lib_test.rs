@@ -48,7 +48,7 @@ fn ink_in_the_pages_padding_above_the_code_is_on_the_first_line() {
 
 // ---- undo and redo ----
 
-fn app_with_file() -> AppState {
+pub(crate) fn app_with_file() -> AppState {
     AppState::create(PathBuf::new(), vec![file()], RefAny::new(0u8), PathBuf::new())
 }
 
@@ -175,7 +175,7 @@ fn opening_a_folder_replaces_the_files_and_starts_afresh() {
     let mut s = app_with_file();
     s.keep(kept(1, 0));
     s.notes.push(crate::model::Note::listening(1, 0, 10.0, 10.0, "en-US"));
-    s.sidebar_open = false;
+    s.panels.tree_open = false;
     let other = code::SourceFile {
         path: PathBuf::from("/other/a.rs"),
         display: "a.rs".to_string(),
@@ -189,7 +189,7 @@ fn opening_a_folder_replaces_the_files_and_starts_afresh() {
     assert_eq!(s.current, Some(0), "its first file is open");
     assert!(s.strokes.is_empty() && s.notes.is_empty(), "nothing of the folder left behind");
     assert!(!s.undo(), "nothing to take back from what was left");
-    assert!(s.sidebar_open, "the files are out: they are what one picks from first");
+    assert!(!s.panels.tree_open, "a new folder leaves the tree as the person had it");
     assert!(s.findings.is_empty());
 }
 
@@ -199,7 +199,8 @@ fn a_folder_without_files_leaves_no_file_open() {
     s.open_folder(PathBuf::from("/empty"), Vec::new());
     assert_eq!(s.current, None);
     assert!(s.file().is_none());
-    assert!(s.sidebar_open, "the way out (Open folder) is in the files");
+    assert!(s.panels.tree_open == AppState::create(PathBuf::new(), Vec::new(), RefAny::new(0u8), PathBuf::new()).panels.tree_open,
+        "the way out (Open folder) is in the empty page itself; the tree is as it was");
 }
 
 #[test]
@@ -216,33 +217,44 @@ fn opening_a_folder_ends_the_dictation_that_listens() {
 // ---- the meanings and the nib ----
 
 #[test]
-fn picking_a_meaning_the_marker_cannot_write_takes_the_pen() {
+fn picking_a_pen_takes_its_meaning_and_the_nib_it_starts_with() {
     let mut s = app_with_file();
-    assert_eq!(s.tool, Tool::Marker);
+    assert_eq!(s.tool(), Tool::Marker, "the scope pen with the marker is in hand at the start");
     s.pick(Semantic::Question);
-    assert_eq!(s.active, Semantic::Question);
-    assert_eq!(s.tool, Tool::Pen, "the marker only highlights: the meaning is written with the pen");
     assert_eq!(s.ink_meaning(), Semantic::Question);
+    assert_eq!(s.tool(), Tool::Pen, "the marker only highlights: the question pen writes with the pen");
 }
 
 #[test]
-fn picking_scope_takes_the_marker_and_the_audio_pen_stays_when_it_can_write_the_meaning() {
+fn each_pen_keeps_its_nib_while_another_is_in_hand() {
     let mut s = app_with_file();
-    s.tool = Tool::AudioPen;
     s.pick(Semantic::Issue);
-    assert_eq!(s.tool, Tool::AudioPen, "the audio pen writes any meaning");
+    s.pens.cycle(false);
+    assert_eq!(s.tool(), Tool::AudioPen);
     s.pick(Semantic::Scope);
-    assert_eq!(s.tool, Tool::Marker, "scope is the highlighter's");
+    assert_eq!(s.tool(), Tool::Marker, "scope is the highlighter's");
+    s.pick(Semantic::Issue);
+    assert_eq!(s.tool(), Tool::AudioPen, "the issue pen still has its audio nib");
 }
 
 #[test]
-fn the_meaning_lit_in_the_title_row_is_the_one_the_ink_will_have() {
+fn the_pen_lit_in_the_top_bar_is_the_one_the_ink_will_have() {
     let mut s = app_with_file();
     s.pick(Semantic::Praise);
-    s.tool = Tool::Marker;
-    assert_eq!(s.ink_meaning(), Semantic::Scope, "the marker writes scope whatever was picked before");
-    s.tool = Tool::Pen;
-    assert_eq!(s.ink_meaning(), Semantic::Praise, "and the pen takes the meaning back up");
+    assert_eq!(s.ink_meaning(), Semantic::Praise);
+    s.pick(Semantic::Scope);
+    assert_eq!(s.ink_meaning(), Semantic::Scope);
+}
+
+#[test]
+fn leaving_the_audio_nib_ends_the_clip_that_records() {
+    let mut s = app_with_file();
+    s.pick(Semantic::Issue);
+    s.pens.cycle(false);
+    s.recording = Some(crate::model::VoiceClip::default());
+    s.pick(Semantic::Scope);
+    assert!(s.recording.is_none(), "the scope pen's marker does not record");
+    assert_eq!(s.clips.len(), 1, "what was recorded is kept");
 }
 
 // ---- a saved session comes back ----
@@ -316,4 +328,38 @@ fn the_pages_of_the_ink_that_came_back_are_drawn_anew() {
     let before = s.ink.key(1, (10, 10));
     assert!(s.adopt(archive_of("f.rs", vec![kept(1, 1)], Vec::new())));
     assert_ne!(s.ink.key(1, (10, 10)), before);
+}
+
+// ---- the first screen ----
+
+#[test]
+fn a_new_window_has_the_tree_beside_the_page_not_over_it() {
+    let s = app_with_file();
+    assert!(s.panels.tree_open, "the files are there to pick from");
+    assert!(!s.panels.right_open, "the whiteboard's panel is a click away");
+    assert_eq!(s.slide, crate::layout::Slide::settled(&s.panels), "nothing slides at the start");
+    assert!(!s.sliding && s.grip.is_none());
+}
+
+#[test]
+fn the_folder_dialog_opens_once_at_a_time() {
+    // The menu's Mod+O and the key handler both hear the key: one dialog.
+    let mut s = app_with_file();
+    assert!(s.ask_for_folder(), "the first request opens it");
+    assert!(!s.ask_for_folder(), "a second one while it is open does not");
+    s.folder_dialog_closed();
+    assert!(s.ask_for_folder(), "after it was answered it can be opened again");
+}
+
+#[test]
+fn the_window_asks_for_the_gpu_like_the_map_editor_does() {
+    // The engine falls back to the CPU renderer by itself where there is no usable GPU.
+    assert!(matches!(window_renderer().hw_accel, azul::window::HwAcceleration::Enabled));
+}
+
+#[test]
+fn the_about_box_names_the_build_the_binary_is_made_from() {
+    // `build.rs` puts the commit there (`unknown` without git): a report names its binary.
+    assert!(ABOUT.version.starts_with(env!("CARGO_PKG_VERSION")), "{}", ABOUT.version);
+    assert!(ABOUT.version.contains("(build ") && ABOUT.version.ends_with(')'), "{}", ABOUT.version);
 }

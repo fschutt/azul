@@ -5,7 +5,7 @@
 azreview-about-summary = Code-Review mit Tinte zuerst: die Dateien eines Ordners als Seiten, mit einem Stift markiert, mit Sprachclips. Sitzungen werden in deinem Datenordner aufbewahrt.
 azreview-shortcuts-review = Review
 azreview-shortcut-save = Die Sitzung jetzt speichern
-azreview-shortcut-meaning = Die Bedeutung der Tinte wählen
+azreview-shortcut-meaning = Einen Stift nehmen (dieselbe Taste noch einmal: seine nächste Feder)
 azreview-shortcut-previous-nib = Die vorherige Feder
 azreview-voice-note = { $count ->
     [one] { $count } Sample gesprochener Begründung
@@ -114,6 +114,8 @@ azreview-shortcut-undo = Den letzten Strich oder das letzte Radieren zurücknehm
 azreview-ink-surface = Zeichenfläche der Seite { $n }
 azreview-recording-level = Aufnahmepegel
 azreview-no-folder = Wähle einen Ordner zum Prüfen.
+azreview-save-pointer-log = Zeigerprotokoll speichern
+azreview-no-folder-hint = AzReview zeigt die Dateien eines Ordners als Seiten, die du mit Stift oder Maus markieren kannst.
 
 ## Agenten (die Backends, die antworten: claude -p, Gemini, die APIs; die Fehler in Worten)
 
@@ -177,6 +179,52 @@ azreview-agent-problem-arg-forbidden = { $field }: { $arg } ist hier nicht erlau
 azreview-agent-problem-model-required = { $field }: nenne ein Modell
 azreview-agent-problem-url-invalid = { $field }: { $text } ist keine http://- oder https://-Adresse
 azreview-agent-problem-unknown-field = { $field }: keine solche Einstellung ({ $word })
+
+## Das Layout: der Dateibaum, die rechte Leiste, die untere Leiste
+
+azreview-right-bar = Whiteboard ein- oder ausblenden
+azreview-whiteboard-placeholder = Das Whiteboard: Code mit dem Stift einkreisen, hierher ziehen und Pfeile zwischen den Ausschnitten zeichnen.
+azreview-agents-none = Kein Agent arbeitet.
+azreview-resize-tree = Breite des Dateibaums ändern
+azreview-resize-panel = Breite des Whiteboards ändern
+azreview-menu-view = Ansicht
+azreview-speech-chain = Spracherkenner in der Reihenfolge, in der sie gefragt werden
+azreview-dictation-opening = Mikrofon wird geöffnet
+azreview-mic-line = Mikrofon: { $state }
+azreview-mic-cold = geschlossen
+azreview-mic-warm = geschlossen, der Spracherkenner ist geladen
+azreview-mic-armed = offen und wartet (die Mikrofonanzeige des Systems ist an)
+azreview-mic-listening = offen, hört zu
+azreview-standby-when = Mikrofon bereithalten
+azreview-standby-off = Aus
+azreview-standby-near = Wenn der Stift nah ist
+azreview-standby-always = Immer
+azreview-standby-idle = Schließen, wenn der Stift weg ist
+azreview-idle-15 = 15 s
+azreview-idle-30 = 30 s
+azreview-idle-120 = 2 Min.
+azreview-idle-600 = 10 Min.
+azreview-standby-note = Das Öffnen des Mikrofons dauert eine Drittelsekunde. Bereitgehalten, beginnt ein Diktat in dem Moment, in dem der Stift geruht hat, und behält die Worte, die kurz davor gesprochen wurden. "Wenn der Stift nah ist" öffnet das Mikrofon, sobald der Stift einer Seite nahekommt, und schließt es, wenn der Stift die Zeit oben weg war oder das Fenster nach hinten geht. Die Mikrofonanzeige des Systems ist an, solange das Mikrofon offen ist; bei "Immer" bleibt sie an, solange AzReview läuft.
+azreview-chip-working = ein Agent arbeitet
+azreview-chip-suggested = ein Vorschlag wartet
+azreview-chip-done = erledigt
+azreview-shortcut-files = Dateien ein- oder ausblenden
+azreview-shortcut-whiteboard = Whiteboard ein- oder ausblenden
 azreview-agent-field-effort = Aufwand
 azreview-agent-hint-effort = Wie gründlich das Modell nachdenkt: low ist schnell und billig, max gründlich. Leer: der Standard des Modells. Ein Modell, das Aufwand nicht kennt, lehnt ihn ab: leere dann die Zeile.
 azreview-agent-problem-not-a-choice = { $field }: „{ $word }“ gehört nicht zu den Möglichkeiten ({ $choices })
+
+## Der Symbolindex: was der Prüfer sagt, dem Code zugeordnet (symbols*.rs)
+azreview-symbols-status-walking = Suche Code-Dateien: { $found } gefunden, { $done } gelesen
+azreview-symbols-status-indexing = Indiziere Code: { $done } von { $found } Dateien
+azreview-symbols-status-ready = { $found } Code-Dateien indiziert
+azreview-symbols-note-file-capped = { $file } hat mehr Definitionen, als der Index behält ({ $cap }): die ersten wurden indiziert.
+azreview-symbols-note-index-full = Der Index enthält so viele Definitionen, wie er darf ({ $cap }): der Rest des Arbeitsbereichs ist nicht indiziert.
+azreview-symbols-note-memory-full = Der Index hat den Speicher erreicht, den er belegen darf ({ $mb } MB): der Rest des Arbeitsbereichs ist nicht indiziert.
+azreview-symbols-note-too-many-files = Der Arbeitsbereich hat mehr Dateien, als der Index behält ({ $cap }): der Rest ist nicht indiziert.
+azreview-symbols-skip-unknown-type = keine Dateiart, die der Index liest
+azreview-symbols-skip-too-large = größer, als der Index liest
+azreview-symbols-skip-binary = kein Text
+azreview-symbols-skip-generated = von einem Werkzeug erzeugt
+azreview-symbols-skip-minified = Zeilen, die niemand von Hand geschrieben hat
+azreview-symbols-skip-unreadable = konnte nicht gelesen werden

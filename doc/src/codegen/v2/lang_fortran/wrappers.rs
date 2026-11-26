@@ -24,9 +24,10 @@
 //! - Factories (constructors, `default`, static methods) are public module procedures named
 //!   `<snake>_<method>`: `dom_create_p_with_text('5')`, `button_create('Increase counter')`.
 //! - A class's own constructors are ALSO gathered into a generic interface named after the wrapper
-//!   type, so `button_t('Increase counter')` works. Purely additive - the flat names are unchanged
-//!   - and only when the generic can carry EVERY constructor of that type, so an overload is never
-//!   a name the call site cannot show you: see [`generic_constructors`].
+//!   type, so `app_t(model, config)` works. Purely additive - the flat names are unchanged - and
+//!   only when the generic can carry EVERY constructor of that type, so an overload is never a
+//!   name the call site cannot show you: see [`generic_constructors`]. `Button` has none (its
+//!   `create`, `create_reset` and `create_submit` all take one string): `button_create(...)`.
 //! - Instance methods are type-bound procedures. A method that consumes `self` and returns `Self`
 //!   (`with_css`, `with_child`, ...) becomes an in-place SUBROUTINE (`call
 //!   label%with_css('font-size: 32px;')`); any other consumer marks `self%owned = .false.` after
@@ -1094,12 +1095,12 @@ fn generic_constructors<'a>(ctx: &Ctx, c: &'a ClassPlan<'a>) -> Option<Vec<&'a P
     every_pair_resolves.then_some(all)
 }
 
-/// `interface <wrapper type>` blocks: `btn = button_t('Increase counter')`
-/// next to the `button_create('Increase counter')` that always worked.
+/// `interface <wrapper type>` blocks: `app = app_t(model, config)` next to
+/// the `app_create(model, config)` that always worked.
 fn emit_constructor_interfaces(builder: &mut CodeBuilder, ctx: &Ctx, split: &super::Split) {
     builder.line("! ----------------------------------------------------------------------");
     builder.line("! Constructor overloads. A generic interface named after a wrapper type");
-    builder.line("! makes its constructors reachable as `button_t(...)` / `app_t(...)`,");
+    builder.line("! makes its constructors reachable as `app_t(...)` / `window_create_options_t(...)`,");
     builder.line("! the way a Fortran programmer expects to build a value. Purely");
     builder.line("! additive: every constructor keeps the flat name it already had.");
     builder.line("!");

@@ -4726,9 +4726,11 @@ fn planning_and_matching_agree_for_every_event_and_filter() {
         EventType::TextChanged,
     ];
 
+    // The window itself: the root node. A window-level MouseEnter / MouseLeave is heard only for an event
+    // aimed there (see `window_leave_tests`), and planning does not know a target.
     let target = DomNodeId {
         dom: DomId::ROOT_ID,
-        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
     };
 
     let mut desyncs: Vec<String> = Vec::new();
@@ -5443,5 +5445,81 @@ mod webview_event_tests {
                 "{ty:?} must not wake a web view listener; planned {planned:?}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod window_leave_tests {
+    //! The window's own enter and leave: a window-level handler hears the pointer entering or leaving the OS
+    //! window, not an element losing the hover.
+
+    use super::*;
+    use crate::{
+        dom::{DomId, DomNodeId},
+        id::NodeId,
+        styled_dom::NodeHierarchyItemId,
+        task::{Instant, SystemTick},
+    };
+
+    fn at(dom: usize, node: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId { inner: dom },
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node))),
+        }
+    }
+
+    fn event(kind: EventType, dom: usize, node: usize) -> SyntheticEvent {
+        SyntheticEvent::new(
+            kind,
+            EventSource::User,
+            at(dom, node),
+            Instant::Tick(SystemTick::new(0)),
+            EventData::None,
+        )
+    }
+
+    #[test]
+    fn a_window_mouse_leave_is_heard_only_when_the_pointer_left_the_window_not_when_it_left_an_element() {
+        // The pointer crossing a page loses the hover of one element after another: each has its MouseLeave. A
+        // window-level handler heard every one (a stroke's handler, a tooltip: one every few hundred
+        // milliseconds of movement) instead of the one when the pointer left the OS window, which is aimed at
+        // the root node.
+        let leave = |dom, node| event(EventType::MouseLeave, dom, node);
+        let enter = |dom, node| event(EventType::MouseEnter, dom, node);
+        assert!(
+            matches_window_filter(WindowEventFilter::MouseLeave, &leave(0, 0), EventPhase::Target),
+            "the pointer left the window: the root node"
+        );
+        assert!(
+            !matches_window_filter(WindowEventFilter::MouseLeave, &leave(0, 7), EventPhase::Target),
+            "an element of the page lost the hover"
+        );
+        assert!(
+            !matches_window_filter(WindowEventFilter::MouseLeave, &leave(1, 0), EventPhase::Target),
+            "the root of a virtual view's DOM is an element of the window, not the window"
+        );
+        assert!(matches_window_filter(WindowEventFilter::MouseEnter, &enter(0, 0), EventPhase::Target));
+        assert!(!matches_window_filter(WindowEventFilter::MouseEnter, &enter(0, 7), EventPhase::Target));
+        assert!(!matches_window_filter(WindowEventFilter::MouseEnter, &enter(1, 0), EventPhase::Target));
+    }
+
+    #[test]
+    fn an_element_still_hears_its_own_mouse_leave() {
+        // The per-node filter is untouched: the element that lost the hover hears it.
+        let leave = event(EventType::MouseLeave, 0, 7);
+        assert!(matches_hover_filter(HoverEventFilter::MouseLeave, &leave, EventPhase::Target));
+    }
+
+    #[test]
+    fn the_question_the_dispatchers_ask_is_about_the_event_itself() {
+        // Planning probes with an event aimed at the root, so it names the MouseLeave filter for every
+        // MouseLeave; the dispatchers then ask this of each window listener they collected.
+        assert!(window_listener_hears(WindowEventFilter::MouseLeave, &event(EventType::MouseLeave, 0, 0)));
+        assert!(!window_listener_hears(WindowEventFilter::MouseLeave, &event(EventType::MouseLeave, 0, 7)));
+        assert!(window_listener_hears(WindowEventFilter::MouseEnter, &event(EventType::MouseEnter, 0, 0)));
+        assert!(!window_listener_hears(WindowEventFilter::MouseEnter, &event(EventType::MouseEnter, 0, 7)));
+        // The window filters that do not depend on the target hear what they always heard.
+        assert!(window_listener_hears(WindowEventFilter::MouseOver, &event(EventType::MouseOver, 0, 7)));
+        assert!(!window_listener_hears(WindowEventFilter::MouseOver, &event(EventType::MouseLeave, 0, 0)));
     }
 }
