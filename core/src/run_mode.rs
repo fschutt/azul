@@ -71,6 +71,9 @@ const SPEECH_HEARD_VAR: &str = "AZ_SPEECH_HEARD";
 /// JSON script: see the speech module's `script`).
 const SPEECH_SCRIPT_VAR: &str = "AZ_SPEECH_SCRIPT";
 
+/// The stages of a phone's GPU bring-up that fail on purpose (`context`, `surface:1`, `renderer:2,lost:1`).
+const GPU_FAIL_VAR: &str = "AZ_GPU_FAIL";
+
 /// Whether this build can have hooks at all: the cargo feature `test-hooks`. A shipped build
 /// (`dist`) is built without it.
 pub const AVAILABLE: bool = cfg!(feature = "test-hooks");
@@ -116,6 +119,13 @@ pub struct TestHooks {
     /// answers from (what the system's and the built-in recognizer hear, refuse or fail at, with
     /// their delays); it replaces `speech_heard` when both are set (a blank name is none).
     pub speech_script: Option<OsString>,
+    /// `AZ_GPU_FAIL` as text (a value that is not UTF-8 is none): the stages of a phone's GPU bring-up
+    /// that fail on purpose, so that the fall back to the CPU renderer and the rebuild after a loss can
+    /// be tested on a device that has a working GPU: `<stage>` fails every time, `<stage>:<n>` n
+    /// times, `lost` is a simulated loss of the context, a comma separated list does several (the
+    /// words and the grammar are `shell2/common/gpu_select.rs`'s `FailPlan`). A value, not a stand-in:
+    /// nothing else is turned on by it.
+    pub gpu_fail: Option<String>,
     /// `Url::open` starts nothing and answers "opened".
     pub open_nothing: bool,
     /// The biometric prompt answers "unavailable" and shows no sheet. `presence::decide` of
@@ -154,6 +164,7 @@ impl TestHooks {
         speech_log: None,
         speech_heard: None,
         speech_script: None,
+        gpu_fail: None,
         open_nothing: false,
         no_biometric: false,
         no_sensors: false,
@@ -176,6 +187,7 @@ impl TestHooks {
         speech_log: None,
         speech_heard: None,
         speech_script: None,
+        gpu_fail: None,
         open_nothing: true,
         no_biometric: true,
         no_sensors: true,
@@ -217,6 +229,7 @@ impl TestHooks {
             speech_log: var(SPEECH_LOG_VAR),
             speech_heard: var(SPEECH_HEARD_VAR).and_then(|value| value.into_string().ok()),
             speech_script: var(SPEECH_SCRIPT_VAR),
+            gpu_fail: var(GPU_FAIL_VAR).and_then(|value| value.into_string().ok()),
             open_nothing: stand_in,
             no_biometric: stand_in,
             no_sensors: stand_in,
@@ -418,6 +431,7 @@ mod tests {
             "AZ_E2E_TESTS",
             "AZ_KEYRING_FILES",
             "AZ_AUTH_SESSION_REDIRECTS",
+            "AZ_GPU_FAILS",
         ] {
             let var = move |asked: &str| (asked == name).then(|| OsString::from("headless"));
             assert_eq!(TestHooks::from_env(&var), TestHooks::NONE, "{name}");
@@ -477,6 +491,28 @@ mod tests {
             use std::os::unix::ffi::OsStringExt;
             let raw = |name: &str| (name == "AZ_SPEECH_HEARD").then(|| OsString::from_vec(vec![0xff, b'x']));
             assert_eq!(TestHooks::from_env(&raw).speech_heard, None);
+        }
+    }
+
+    /// The failure plan of a phone's GPU bring-up is carried as typed text and turns no stand-in on;
+    /// a plain environment has none and a value that is not text is none.
+    #[test]
+    fn the_gpu_failure_plan_is_carried_as_typed_and_turns_nothing_on() {
+        assert_eq!(hooks(&[]).gpu_fail, None);
+        let asked = hooks(&[("AZ_GPU_FAIL", "renderer:2,lost:1")]);
+        assert_eq!(asked.gpu_fail.as_deref(), Some("renderer:2,lost:1"));
+        assert!(!asked.no_sensors && !asked.no_speech && !asked.mocks && !asked.scripted);
+        assert!(!asked.keyring_headless && !asked.fake_sign_in && !asked.open_nothing);
+        assert_eq!(hooks(&[("AZ_GPU_FAIL", "")]).gpu_fail.as_deref(), Some(""));
+        // the headless stand-ins and the plan are independent switches
+        let both = hooks(&[("AZ_BACKEND", "headless"), ("AZ_GPU_FAIL", "context")]);
+        assert!(both.fake_sign_in);
+        assert_eq!(both.gpu_fail.as_deref(), Some("context"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            let raw = |name: &str| (name == "AZ_GPU_FAIL").then(|| OsString::from_vec(vec![0xff, b'x']));
+            assert_eq!(TestHooks::from_env(&raw).gpu_fail, None);
         }
     }
 
