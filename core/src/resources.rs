@@ -3544,7 +3544,7 @@ impl Stamp {
         let radius_wide = f64::from(radius);
         // The next `f32` above the radius (NaN for an infinite one: then nothing is outside).
         let above = f64::from(f32::from_bits(radius.to_bits().wrapping_add(1)));
-        let outer = (radius_wide + above) / 2.0;
+        let outer = f64::midpoint(radius_wide, above);
         let core = f64::from(profile.edge0) * radius_wide;
         Some(Self {
             radius,

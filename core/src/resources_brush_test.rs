@@ -47,6 +47,7 @@ impl BrushMeter for Counts {
 
 /// `RawImage::paint_dot` as it was before the squared distances: the whole box of the dab is walked and every
 /// pixel of it takes a `hypotf`. Verbatim (the meter calls are the only addition), the reference of the tests.
+#[allow(clippy::neg_cmp_op_on_partial_ord)] // `!(r > 0.0)` also rejects NaN
 fn reference_dot<M: BrushMeter>(img: &mut RawImage, cx: f32, cy: f32, brush: Brush, meter: &mut M) {
     let r = brush.radius;
     if !(r > 0.0) || img.width == 0 || img.height == 0 {
