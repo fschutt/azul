@@ -36,6 +36,7 @@ import android.os.Build;
 import android.text.Editable;
 import android.text.SpannableStringBuilder;
 import android.view.InputDevice;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.graphics.Rect;
@@ -674,4 +675,20 @@ public final class NativeTextBridge {
     private static native void nativeOnPointerCaptureChanged(long nativePtr, int hasCapture);
 
     private static native void nativeOnRawMotion(long nativePtr, int deviceId, float dx, float dy);
+
+    /**
+     * A key the IME and the native input queue passed by: its character and meta state go to Rust,
+     * which decides whether it types (a key-down without Ctrl/Alt/Meta, not a control character).
+     * Called from AzulActivity.dispatchKeyEvent for a hardware keyboard's letters and for the keys
+     * {@code adb shell input text} injects: the native queue cannot read a character off a key.
+     */
+    public static void keyText(long nativePtr, KeyEvent event) {
+        if (nativePtr == 0L || event == null) {
+            return;
+        }
+        nativeOnKeyText(nativePtr, event.getUnicodeChar(), event.getMetaState(),
+                event.getAction() == KeyEvent.ACTION_DOWN ? 1 : 0);
+    }
+
+    private static native void nativeOnKeyText(long nativePtr, int unicode, int metaState, int down);
 }

@@ -1071,7 +1071,19 @@ def android_scenarios(args):
         pid0 = dev.pid()
         before = dev.look(s, "before-background")
         dev.home()
-        time.sleep(10)
+        time.sleep(6)
+        # an app in the background draws nothing and costs nothing: CPU over 3 s at 6 s in (a battery question, a finding when high)
+        pid_bg = dev.pid()
+        if pid_bg:
+            top = dev.sh(f"top -b -n 2 -d 3 -p {pid_bg}", timeout=60)
+            rows = [l for l in top.splitlines() if l.strip().startswith(pid_bg)]
+            if rows:
+                cols = rows[-1].split()
+                cpu = next((c for c in cols if re.fullmatch(r"\d+(\.\d+)?", c) and "." in c), None)
+                if cpu is not None:
+                    s.check("the app is quiet in the background (CPU under 5 %)", float(cpu) < 5.0, f"{cpu} % of one core over 3 s", required=False)
+                s.note("background top: " + " ".join(cols))
+        time.sleep(1)
         s.check("alive after 10 s in the background", dev.alive(), f"pid {dev.pid() or '-'}")
         dev.resume()
         t = dev.wait_for_front(timeout=30)
@@ -1213,6 +1225,33 @@ def android_scenarios(args):
         dev.no_crash_since(s, mark)
 
     run.step("18-monkey", "300 random touches and drags (fixed seed)", s_monkey, needs_app=True)
+
+    def pss_kb(pid):
+        text = dev.sh(f"dumpsys meminfo {pid} | grep -E 'TOTAL PSS|TOTAL:' | head -n 2")
+        m = re.search(r"TOTAL PSS:\s+(\d+)", text) or re.search(r"TOTAL:?\s+(\d+)", text)
+        return int(m.group(1)) if m else None
+
+    def s_soak(s):
+        """Rotate eight times (portrait, landscape, portrait ...) and look at what the process holds: a leak per rotation (a
+        pixmap, a layout, a window never dropped) shows as growth. Required: alive, in front, growth under 100 MB; the number is
+        in the notes."""
+        mark = dev.now_mark()
+        pid = dev.pid()
+        before = pss_kb(pid) if pid else None
+        for _ in range(8):
+            dev.rotate(1)
+            dev.settle(1.5)
+            dev.rotate(0)
+            dev.settle(1.5)
+        dev.look(s, "after-rotation-soak")
+        after = pss_kb(dev.pid() or pid)
+        if before and after:
+            s.note(f"PSS {before // 1024} MB before, {after // 1024} MB after eight rotation pairs ({(after - before) // 1024:+d} MB)")
+            s.check("eight rotation pairs leave the process's memory within 100 MB", after - before < 100 * 1024, f"{(after - before) // 1024:+d} MB")
+        dev.alive_and_front(s)
+        dev.no_crash_since(s, mark)
+
+    run.step("18b-rotation-soak", "eight rotations there and back: alive, in front, memory growth", s_soak, needs_app=True)
 
     # ---- the logs
     def s_logs(s):
@@ -1637,7 +1676,7 @@ def ios_scenarios(args):
         dev.settle(2.0)
         after = dev.look(s, "after-background")
         s.check("same process as before", dev.pid() == pid0, f"{pid0} -> {dev.pid()}", required=False)
-        s.check("the picture is the one from before", sig_diff(after, before) < 0.05, f"differs {sig_diff(after, before):.3f}", required=False)
+        s.check("the window shows the picture it had before (it was repainted after the return)", sig_diff(after, before) < 0.08, f"differs {sig_diff(after, before):.3f}")
         crashes = dev.crash_reports()
         s.check("the host wrote no crash report for the app", not crashes, ", ".join(crashes))
 

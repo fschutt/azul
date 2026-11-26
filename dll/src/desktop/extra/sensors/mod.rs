@@ -116,6 +116,8 @@ pub(crate) fn with_activity<T>(
     // activity published.
     let vm = unsafe { jni::JavaVM::from_raw(vm_ptr.cast()) }.ok()?;
     let mut env = vm.attach_current_thread().ok()?;
+    // Released when this helper returns: this thread never returns to Java (see `LocalFrame`).
+    let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
     // SAFETY: as above.
     let activity = unsafe { jni::objects::JObject::from_raw(activity_ptr.cast()) };
     let answer = read(&mut env, &activity);
