@@ -160,4 +160,8 @@ fetch_checked "https://huggingface.co/Cactus-Compute/whistle/resolve/${MODEL_REV
 [ "$(wc -c < "$dest/whistle.cact" | tr -d ' ')" = "$MODEL_BYTES" ] || { echo "whistle.cact has the wrong size" >&2; exit 1; }
 fetch_checked "https://huggingface.co/Cactus-Compute/cactus/resolve/${ENGINE_REVISION}/releases/${ENGINE_VERSION}/LICENSE" \
   "$dest/LICENSE-cactus.txt" "$LICENSE_SHA256"
-echo "done: $dest holds $lib, whistle.cact and LICENSE-cactus.txt (ship the three together)"
+if [ "$static_engine" = 1 ]; then
+  echo "done: $dest holds $lib, whistle.cact and LICENSE-cactus.txt: for a build of one's own with the static engine (AZUL_CACTUS_LIB_DIR=$dest/static); no shipped build carries the engine, see dll/Cargo.toml"
+else
+  echo "done: $dest holds $lib, whistle.cact and LICENSE-cactus.txt (ship the three together)"
+fi
