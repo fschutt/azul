@@ -573,3 +573,13 @@ fn the_touch_handler_asks_the_pure_rule_for_the_primary_finger() {
         "no landing finger is promoted without asking the rule"
     );
 }
+
+/// "It is strongly recommended that you implement this method. If your app does not release enough
+/// memory during low-memory conditions, the system may terminate it outright": the delegate
+/// implements it and gives the frame pool back.
+#[test]
+fn the_ios_delegate_answers_a_memory_warning_by_releasing_what_it_can() {
+    at(IOS_MOD_RS, "sel!(applicationDidReceiveMemoryWarning:)", "the app delegate class");
+    let warning = body(IOS_MOD_RS, "extern \"C\" fn app_did_receive_memory_warning(");
+    at(warning, "FrameBufferPool::new()", "app_did_receive_memory_warning");
+}

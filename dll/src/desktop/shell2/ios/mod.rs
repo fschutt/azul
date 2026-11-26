@@ -1823,6 +1823,26 @@ extern "C" fn app_will_enter_foreground(_this: &Object, _cmd: Sel, _app: *mut Ob
     unsafe { set_display_link_paused(false) };
 }
 
+/// `applicationDidReceiveMemoryWarning:` - the system is short of memory. Apple: "It is strongly
+/// recommended that you implement this method. If your app does not release enough memory during
+/// low-memory conditions, the system may terminate it outright."
+///
+/// What the shell owns that can go at once: the pool of frame copies it keeps for Core Graphics
+/// (up to three full frames, about 38 MB on a 3x phone) is replaced by an empty one; a copy still
+/// in the compositor's hands comes back to the new pool when Core Graphics is done with it. The
+/// engine's own caches (fonts, images, renderer resources) need a trim entry point in the layout
+/// crate: OPEN in the ledger.
+extern "C" fn app_did_receive_memory_warning(_this: &Object, _cmd: Sel, _app: *mut Object) {
+    log_info!(
+        LogCategory::EventLoop,
+        "[iOS] applicationDidReceiveMemoryWarning: releasing the frame pool"
+    );
+    #[cfg(feature = "cpurender")]
+    if let Ok(mut pool) = FRAME_COPIES.lock() {
+        *pool = azul_layout::window::FrameBufferPool::new();
+    }
+}
+
 extern "C" fn app_will_terminate(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationWillTerminate:");
     unsafe {
@@ -1873,6 +1893,10 @@ fn get_or_create_app_delegate_class() -> Option<&'static Class> {
         decl.add_method(
             sel!(applicationWillEnterForeground:),
             app_will_enter_foreground as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(applicationDidReceiveMemoryWarning:),
+            app_did_receive_memory_warning as extern "C" fn(&Object, Sel, *mut Object),
         );
         decl.add_method(
             sel!(applicationWillTerminate:),
