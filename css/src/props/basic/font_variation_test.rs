@@ -1760,3 +1760,133 @@ fn the_rust_code_of_the_structs_names_every_field() {
     );
     assert!(settings.contains("wght"), "{settings}");
 }
+
+#[test]
+fn font_variant_position_has_its_keywords_in_grammar_order() {
+    assert_eq!(
+        StyleFontVariantPosition::ALL,
+        [
+            (StyleFontVariantPosition::Normal, "normal"),
+            (StyleFontVariantPosition::Subscript, "sub"),
+            (StyleFontVariantPosition::Superscript, "super")
+        ]
+    );
+    for (value, keyword) in StyleFontVariantPosition::ALL {
+        assert_eq!(value.keyword(), keyword);
+        assert_eq!(value.print_as_css_value(), keyword);
+    }
+    assert_eq!(StyleFontVariantPosition::default(), StyleFontVariantPosition::Normal);
+    assert_eq!(core::mem::size_of::<StyleFontVariantPosition>(), core::mem::size_of::<core::ffi::c_int>());
+}
+
+#[cfg(feature = "parser")]
+#[test]
+fn font_variant_position_is_one_of_its_keywords() {
+    assert_keyword_property(
+        parse_style_font_variant_position,
+        &StyleFontVariantPosition::ALL,
+        &[
+            "",
+            " ",
+            "\t\n",
+            "super sub",
+            "normal sub",
+            "subs",
+            "sups",
+            "superscript",
+            "on",
+            "0",
+            "-sub",
+            "sub;",
+            "  bogus  ",
+        ],
+    );
+}
+
+#[test]
+fn text_rendering_has_its_keywords_in_grammar_order() {
+    assert_eq!(
+        StyleTextRendering::ALL,
+        [
+            (StyleTextRendering::Auto, "auto"),
+            (StyleTextRendering::OptimizeSpeed, "optimizeSpeed"),
+            (StyleTextRendering::OptimizeLegibility, "optimizeLegibility"),
+            (StyleTextRendering::GeometricPrecision, "geometricPrecision")
+        ]
+    );
+    for (value, keyword) in StyleTextRendering::ALL {
+        assert_eq!(value.keyword(), keyword);
+        assert_eq!(value.print_as_css_value(), keyword);
+    }
+    assert_eq!(StyleTextRendering::default(), StyleTextRendering::Auto);
+    assert_eq!(core::mem::size_of::<StyleTextRendering>(), core::mem::size_of::<core::ffi::c_int>());
+}
+
+#[cfg(feature = "parser")]
+#[test]
+fn text_rendering_is_one_of_its_keywords() {
+    assert_keyword_property(
+        parse_style_text_rendering,
+        &StyleTextRendering::ALL,
+        &[
+            "",
+            " ",
+            "\t\n",
+            "optimize-speed",
+            "optimize_speed",
+            "speed",
+            "legibility",
+            "optimizeSpeed optimizeLegibility",
+            "on",
+            "0",
+            "-auto",
+            "auto;",
+            "  bogus  ",
+        ],
+    );
+}
+
+#[test]
+fn text_wrap_has_its_keywords_in_grammar_order() {
+    assert_eq!(
+        StyleTextWrap::ALL,
+        [
+            (StyleTextWrap::Wrap, "wrap"),
+            (StyleTextWrap::Nowrap, "nowrap"),
+            (StyleTextWrap::Balance, "balance"),
+            (StyleTextWrap::Stable, "stable"),
+            (StyleTextWrap::Pretty, "pretty")
+        ]
+    );
+    for (value, keyword) in StyleTextWrap::ALL {
+        assert_eq!(value.keyword(), keyword);
+        assert_eq!(value.print_as_css_value(), keyword);
+    }
+    assert_eq!(StyleTextWrap::default(), StyleTextWrap::Wrap);
+    assert_eq!(core::mem::size_of::<StyleTextWrap>(), core::mem::size_of::<core::ffi::c_int>());
+}
+
+#[cfg(feature = "parser")]
+#[test]
+fn text_wrap_is_one_of_its_keywords() {
+    assert_keyword_property(
+        parse_style_text_wrap,
+        &StyleTextWrap::ALL,
+        &[
+            "",
+            " ",
+            "\t\n",
+            "wrap nowrap",
+            "nowrap wrap",
+            "balance pretty",
+            "no-wrap",
+            "auto",
+            "none",
+            "on",
+            "0",
+            "-wrap",
+            "wrap;",
+            "  bogus  ",
+        ],
+    );
+}

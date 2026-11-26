@@ -29,6 +29,9 @@ style_text :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariationSettings(azul.AzStyleFontVariationSettingsValue{Exact = {tag = 6, payload = azul.AzStyleFontVariationSettings{inner = css_str("\"wght\" 650, \"wdth\" 87.5")}}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontOpticalSizing(azul.AzStyleFontOpticalSizingValue{Exact = {tag = 6, payload = azul.AzStyleFontOpticalSizing.None}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontKerning(azul.AzStyleFontKerningValue{Exact = {tag = 6, payload = azul.AzStyleFontKerning.None}})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariantPosition(azul.AzStyleFontVariantPositionValue{Exact = {tag = 6, payload = azul.AzStyleFontVariantPosition.Superscript}})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textRendering(azul.AzStyleTextRenderingValue{Exact = {tag = 6, payload = azul.AzStyleTextRendering.OptimizeLegibility}})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textWrap(azul.AzStyleTextWrapValue{Exact = {tag = 6, payload = azul.AzStyleTextWrap.Balance}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariantLigatures(azul.AzStyleFontVariantLigaturesValue{Exact = {tag = 6, payload = azul.AzStyleFontVariantLigatures{common = azul.AzStyleFontLigatureChoice.Off, discretionary = azul.AzStyleFontLigatureChoice.On, historical = azul.AzStyleFontLigatureChoice.Unset, contextual = azul.AzStyleFontLigatureChoice.Unset}}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariantEastAsian(azul.AzStyleFontVariantEastAsianValue{Exact = {tag = 6, payload = azul.AzStyleFontVariantEastAsian{jis78 = true, jis83 = false, jis90 = false, jis04 = false, simplified = false, traditional = false, full_width = true, proportional_width = false, ruby = true}}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontSynthesisWeight(azul.AzStyleFontSynthesisValue{Exact = {tag = 6, payload = azul.AzStyleFontSynthesis.None}})),
@@ -77,7 +80,7 @@ style_text :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_selectionColor(azul.AzSelectionColor{inner = azul.AzColorU{r = 255, g = 255, b = 255, a = 255}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_selectionRadius(azul.AzSelectionRadiusValue{Exact = {tag = 6, payload = azul.AzSelectionRadius{inner = azul.AzPixelValue_px(3.0)}}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_font(azul.AzStyleFontFamilyVec_copyFromPtr(&[]azul.AzStyleFontFamily{azul.AzStyleFontFamily_system(css_str("caption"))}[0], 1))),
-	}[0], 60)
+	}[0], 63)
 }
 
 // CSS: .shorthands

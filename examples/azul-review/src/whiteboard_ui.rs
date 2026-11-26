@@ -282,7 +282,7 @@ fn label_editor(host: &Host, id: ItemId, text: &str, name: String, at: Pt, w: f3
 const ARROW_LABEL_W: f32 = 160.0;
 
 /// The text area the label of item `id` is being typed in, to be put over the surface (which takes every click on
-/// the panel: a text area under it could not be clicked into): under a cutout, on the line of an arrow. `None` for
+/// the panel: a text area under it could not be clicked into): under a cutout, over the line of an arrow. `None` for
 /// an item that is not on the board.
 fn editor_dom(panel: &Panel, host: &Host, id: ItemId) -> Option<Dom> {
     let board = &panel.wb.board;
@@ -303,10 +303,10 @@ fn editor_dom(panel: &Panel, host: &Host, id: ItemId) -> Option<Dom> {
     let a = board.arrow(id)?;
     let mid = view.to_screen(board.place_arrow(id)?.curve.at(0.5));
     let name = t("azreview-whiteboard-arrow-label-name");
-    Some(label_editor(host, id, a.label.as_str(), name, Pt::new(mid.x - ARROW_LABEL_W * 0.5, mid.y - 12.0), ARROW_LABEL_W))
+    Some(label_editor(host, id, a.label.as_str(), name, Pt::new(mid.x - ARROW_LABEL_W * 0.5, mid.y - 36.0), ARROW_LABEL_W))
 }
 
-/// The label of an arrow, on its line at the middle: `None` for an arrow with no label, or one whose label is being
+/// The label of an arrow, over its line at the middle: `None` for an arrow with no label, or one whose label is being
 /// typed ([`editor_dom`]).
 fn arrow_label_dom(panel: &Panel, a: &Arrow) -> Option<Dom> {
     if a.label.is_empty() || panel.editing == Some(a.id) {
@@ -314,14 +314,15 @@ fn arrow_label_dom(panel: &Panel, a: &Arrow) -> Option<Dom> {
     }
     let board = &panel.wb.board;
     let mid = board.view().to_screen(board.place_arrow(a.id)?.curve.at(0.5));
-    // The text sits in a pill that is as wide as the text, centred on the line's middle: a row that centres its one item.
+    // The text sits in a pill that is as wide as the text, centred over the line's middle (the grip that bends a selected
+    // arrow is on the middle: the pill clears it): a row that centres its one item.
     Some(
         Dom::create_div()
             .with_css(
                 format!(
                     "position: absolute; left: {}; top: {}; width: {}; display: flex; flex-direction: row; justify-content: center;",
                     css_px(mid.x - ARROW_LABEL_W * 0.5),
-                    css_px(mid.y - 9.0),
+                    css_px(mid.y - 24.0),
                     css_px(ARROW_LABEL_W)
                 )
                 .as_str(),
@@ -454,7 +455,11 @@ fn brush(rgba: [u8; 4], radius: f32) -> Brush {
     let mut b = Brush::create(ColorU { r: rgba[0], g: rgba[1], b: rgba[2], a: rgba[3] }, radius);
     b.hardness = 0.85;
     b.flow = 1.0;
-    b.spacing = 0.2;
+    // The engine stamps a dab every `radius * spacing` px along a piece, each dab a disc of its radius. A quarter of
+    // the nib's width between dabs (0.5 of the radius) is continuous to the eye; the tenth it was (0.2) stamped two and
+    // a half times as often, and on a full board the stamping is what a frame of the surface costs (measured with
+    // `sample` on the demo: 138 of the 172 samples of the surface callback were its strokes, 6 the placing of the arrows).
+    b.spacing = 0.5;
     b
 }
 
@@ -463,10 +468,27 @@ struct Painter<'a> {
     image: &'a mut RawImage,
     /// Device pixels per logical px.
     k: f32,
+    /// What the image shows, in logical px: a piece of line that lies wholly off it (with the width of its nib) paints
+    /// nothing, so it is not stamped - the brush walks a piece along its whole length, and an arrow that runs far off
+    /// the surface would be stamped along all of it for the sake of the part in view.
+    shown: crate::whiteboard_geom::Rect,
+}
+
+impl<'a> Painter<'a> {
+    fn new(image: &'a mut RawImage, k: f32) -> Self {
+        let per = k.max(0.01);
+        let shown = crate::whiteboard_geom::Rect::new(0.0, 0.0, image.width as f32 / per, image.height as f32 / per);
+        Self { image, k, shown }
+    }
 }
 
 impl Painter<'_> {
     fn line(&mut self, a: Pt, b: Pt, radius: f32, rgba: [u8; 4]) {
+        // (The box of a piece along a row or a column has no height or width: the nib's reach gives it some.)
+        let reach = crate::whiteboard_geom::Rect::from_points(&[a, b]).map(|r| r.inflate(radius + 1.0));
+        if !reach.is_some_and(|r| r.intersects(&self.shown)) {
+            return;
+        }
         self.image.paint_stroke(a.x * self.k, a.y * self.k, b.x * self.k, b.y * self.k, brush(rgba, radius * self.k));
     }
 
@@ -500,7 +522,7 @@ impl Painter<'_> {
 /// Paints the armed regions of `page` into `image` (`k` device pixels to a page px): each one's outline and,
 /// on the outline at the top right, its grip - the badge a press lifts the region by.
 pub fn paint_armed(image: &mut RawImage, k: f32, regions: &ArmedRegions, page: usize, now_ms: u64) {
-    let mut paint = Painter { image, k };
+    let mut paint = Painter::new(image, k);
     for r in regions.all().iter().filter(|r| r.page == page && now_ms < r.expires_at_ms()) {
         let mut outline = r.polygon.clone();
         if let Some(first) = outline.first().copied() {
@@ -521,7 +543,7 @@ pub fn paint_armed(image: &mut RawImage, k: f32, regions: &ArmedRegions, page: u
 /// pointer holds, while a lifted region is on its way to the bar (`Ghost::offset`). The window draws it on the
 /// layer under the pointer; the armed outline stays where the region lies.
 pub fn paint_ghost(image: &mut RawImage, k: f32, polygon: &[Pt], offset: Pt) {
-    let mut paint = Painter { image, k };
+    let mut paint = Painter::new(image, k);
     let carried: Vec<Pt> = polygon.iter().chain(polygon.first()).map(|p| Pt::new(p.x + offset.x, p.y + offset.y)).collect();
     paint.polyline(&carried, 2.0, [32, 92, 214, 235]);
 }
@@ -535,7 +557,7 @@ fn paint_surface(panel: &Panel, w: u32, h: u32, k: f32) -> RawImage {
     let preview = input.preview(board);
     let screen = |p: Pt| view.to_screen(p);
     let screen_curve = |c: &Curve| Curve { a: screen(c.a), c: screen(c.c), b: screen(c.b) };
-    let mut paint = Painter { image: &mut image, k };
+    let mut paint = Painter::new(&mut image, k);
     // What the surface shows, in logical px: an arrow wholly off it paints nothing (its control points hold the
     // curve), so a board of hundreds only pays for the arrows in view.
     let on_surface = crate::whiteboard_geom::Rect::new(0.0, 0.0, w as f32 / k.max(0.01), h as f32 / k.max(0.01));

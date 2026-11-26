@@ -11,6 +11,9 @@ PROC css str = (STRING s) AZSTRING:
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontVariationSettingsValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontOpticalSizingValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontKerningValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontVariantPositionValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleTextRenderingValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleTextWrapValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontVariantLigaturesValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontVariantEastAsianValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontSynthesisValue` (CssPropertyValue<T>) #
