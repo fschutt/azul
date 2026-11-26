@@ -735,6 +735,12 @@ jobs:
           AZ_SMOKE_TAPS: ${{ needs.plan.outputs.smoke_taps }}
           AZ_SMOKE_EXPECTS: ${{ needs.plan.outputs.smoke_expects }}
         run: bash scripts/ci/ios_smoke.sh demosmoke-ios 12 apps/*-ios-sim.app.zip
+      # What OpenGL ES and Metal really are on this runner's Simulator (the evidence behind the iOS GPU path); information only,
+      # it is on no gate and travels with the boot-test artifact
+      - name: The Simulator's OpenGL ES (information)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: bash scripts/ci/ios_gl_probe.sh demosmoke-ios/gl-probe
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
