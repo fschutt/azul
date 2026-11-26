@@ -15,7 +15,11 @@
 //! (what an event does, when the poll is slow and when it is fast, what is written) are methods of the glue over a link that is
 //! handed in, so that a test drives them over the link crate's in-process network and no socket is opened.
 
-use std::{path::PathBuf, time::Instant};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use azul::{
     callbacks::{SegmentedOnChangeCallbackType, WriteBackCallbackType},
@@ -30,7 +34,7 @@ use azul_appkit::{
     ui as kit,
 };
 use azul_review_link::{
-    frame::{HostSettings, ReplyStatus, Rows, ViewportOp},
+    frame::{AgentFinished, ButtonSet, FinishKind, HostSettings, ReplyStatus, Rows, ViewportOp},
     host::{CompanionHost, ConfirmError, HostConfig, HostEvent, PhoneInfo},
     iroh_link::{IrohLink, IrohOptions},
     limits::{CONFIRM_TIMEOUT_MS, MAX_PAIRED_PHONES},
@@ -39,6 +43,7 @@ use azul_review_link::{
 };
 
 use crate::{
+    agent_window::{Events, Finish, Finished},
     companion_io::{self, Loaded},
     companion_store::{self, Stored},
     ids,
@@ -119,10 +124,59 @@ pub enum PairError {
 }
 
 /// What a phone asks of the window that the glue cannot answer by itself, because it needs the window's state.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     /// A step of a drag or a pinch, a fit, a page key or a reset: the window's view of the pages moves (`companion_cmd::viewport`).
     Viewport(ViewportOp),
+    /// A quick button was pressed: its instruction goes to an agent with the context at the pen (`companion_cmd::button`).
+    Button { peer: String, request_id: u32, text: String },
+}
+
+/// A quick button of a phone that is under way: the conversation it started, and who is told how it goes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingButton {
+    note: u64,
+    peer: String,
+    request_id: u32,
+}
+
+/// How many finished conversations wait to be told to the phones (the oldest give way).
+const MAX_FINISHED: usize = 64;
+
+/// What the agents' window tells when a conversation finishes, put in a queue the glue takes from at its next look at the host (the call
+/// is on the window's thread and must not block; the glue is not for another thread).
+struct FinishedQueue(Arc<Mutex<Vec<Finished>>>);
+
+impl Events for FinishedQueue {
+    fn finished(&self, event: &Finished) {
+        if let Ok(mut queue) = self.0.lock() {
+            if queue.len() >= MAX_FINISHED {
+                queue.remove(0);
+            }
+            queue.push(event.clone());
+        }
+    }
+}
+
+/// The phone's word for how a conversation ended.
+#[must_use]
+pub fn kind_of(finish: Finish) -> FinishKind {
+    match finish {
+        Finish::Done => FinishKind::Done,
+        Finish::Suggested(_) => FinishKind::Suggestion,
+        Finish::Quiet => FinishKind::NoAction,
+        Finish::Failed => FinishKind::Failed,
+    }
+}
+
+/// How a quick button's request stands when its conversation ended as `finish`.
+#[must_use]
+pub fn status_of(finish: Finish) -> ReplyStatus {
+    match finish {
+        Finish::Done | Finish::Quiet => ReplyStatus::Done,
+        Finish::Suggested(_) => ReplyStatus::Suggested,
+        Finish::Failed => ReplyStatus::Failed,
+    }
 }
 
 /// What a look at the host found, for the window to act on.
@@ -162,6 +216,11 @@ pub struct Glue {
     pub(crate) settling: bool,
     /// Something the phone is told of moved: its state is made and sent again at the next look at the host.
     pen_dirty: bool,
+    /// The buttons as the fields of the settings hold them (what was typed, not cut yet): what is kept and sent is this cut to its caps.
+    draft: ButtonSet,
+    /// The quick buttons that are being answered, and the conversations that finished (told by the agents' window, taken at a look).
+    pending: Vec<PendingButton>,
+    finished: Arc<Mutex<Vec<Finished>>>,
     saving: bool,
     save_pending: bool,
     log: Vec<String>,
@@ -188,6 +247,9 @@ impl Glue {
             pending_scroll: None,
             settling: false,
             pen_dirty: false,
+            draft: ButtonSet::defaults(),
+            pending: Vec::new(),
+            finished: Arc::new(Mutex::new(Vec::new())),
             saving: false,
             save_pending: false,
             log: Vec::new(),
@@ -246,7 +308,7 @@ impl Glue {
     /// What the user settled on this computer that the phones obey (the defaults while nothing is bound).
     #[must_use]
     pub fn host_settings(&self) -> HostSettings {
-        self.host.as_ref().map_or_else(HostSettings::default, |h| h.settings())
+        self.host.as_ref().map_or(self.stored.prefs, |h| h.settings())
     }
 
     /// Whether the endpoint's address is known (a code for a phone can be made from it).
@@ -278,6 +340,7 @@ impl Glue {
         for problem in &problems {
             self.note(problem);
         }
+        self.draft = stored.buttons.clone();
         self.stored = stored;
         self.loaded = true;
         let on = self.stored.enabled;
@@ -378,7 +441,12 @@ impl Glue {
         let config = HostConfig { mac_name: self.name(), app_version: env!("CARGO_PKG_VERSION").to_string(), max_phones: MAX_PAIRED_PHONES };
         let mut host = CompanionHost::new(link, config, entropy);
         host.load_paired(self.stored.phones.clone());
-        host.set_settings(now, HostSettings::default());
+        host.set_settings(now, self.stored.prefs);
+        let _cut = host.set_buttons(now, &self.stored.buttons);
+        if let Ok(mut queue) = self.finished.lock() {
+            queue.clear();
+        }
+        self.pending.clear();
         self.host = Some(host);
         self.state = State::On;
         self.ticket_known = false;
@@ -422,6 +490,7 @@ impl Glue {
         for event in host.poll(now) {
             self.handle(&mut host, now, event, &mut out);
         }
+        self.tell_finished(&mut host, now);
         // a code is good for as long as the host's window is open, and a phone waits for the person for two minutes
         if self.offer.is_some() && !host.pairing_open(now) {
             self.offer = None;
@@ -478,13 +547,107 @@ impl Glue {
             HostEvent::ListDir { peer, request_id, path, offset } => {
                 host.publish_rows(now, &peer, Rows { request_id, dir: path, offset, entries: Vec::new(), more: false });
             }
-            HostEvent::OpenFile { peer, request_id, .. } | HostEvent::ButtonPressed { peer, request_id, .. } => {
+            HostEvent::OpenFile { peer, request_id, .. } => {
                 host.reply(now, &peer, request_id, ReplyStatus::Failed);
             }
             HostEvent::Viewport { op, .. } => out.commands.push(Command::Viewport(op)),
-            HostEvent::ButtonsChanged { .. } | HostEvent::ContinueReviewing { .. } => {}
+            HostEvent::ButtonPressed { peer, request_id, text, .. } => out.commands.push(Command::Button { peer, request_id, text }),
+            HostEvent::ButtonsChanged { buttons } => {
+                // a phone saved the buttons (the host cut them to their caps and sent them on to the others): they are kept
+                if self.stored.buttons != buttons {
+                    self.draft = buttons.clone();
+                    self.stored.buttons = buttons;
+                    out.save = true;
+                    out.changed = true;
+                }
+            }
+            HostEvent::ContinueReviewing { .. } => {}
             HostEvent::Diagnostic(text) => self.note(&text),
         }
+    }
+
+    // ---- the agents and the quick buttons
+
+    /// The listener the agents' window is given: it queues the conversations that finish, and this glue tells the phones at its next look.
+    #[must_use]
+    pub fn events(&self) -> Arc<dyn Events> {
+        Arc::new(FinishedQueue(self.finished.clone()))
+    }
+
+    /// The conversations that finished since the last look are told to the phones (a buzz, where and how), and the quick button that
+    /// started one is told how it ended.
+    fn tell_finished(&mut self, host: &mut Station, now: Millis) {
+        let finished: Vec<Finished> = match self.finished.lock() {
+            Ok(mut queue) => std::mem::take(&mut *queue),
+            Err(_) => Vec::new(),
+        };
+        for event in finished {
+            host.agent_finished(
+                now,
+                AgentFinished { conversation_id: u32::try_from(event.conversation).unwrap_or(u32::MAX), file: event.file.clone(), line: event.line, kind: kind_of(event.finish) },
+            );
+            if let Some(at) = self.pending.iter().position(|p| p.note == event.conversation) {
+                let button = self.pending.remove(at);
+                host.reply(now, &button.peer, button.request_id, status_of(event.finish));
+            }
+        }
+    }
+
+    /// A quick button started conversation `note`: the phone is told an agent is at work, and how it ends when it does.
+    pub fn button_started(&mut self, note: u64, peer: &str, request_id: u32) {
+        let now = self.now();
+        if let Some(host) = self.host.as_mut() {
+            host.reply(now, peer, request_id, ReplyStatus::Working);
+        }
+        if self.pending.len() >= MAX_FINISHED {
+            self.pending.remove(0);
+        }
+        self.pending.push(PendingButton { note, peer: peer.to_string(), request_id });
+    }
+
+    /// A quick button could not start anything: the phone is told so.
+    pub fn button_refused(&mut self, peer: &str, request_id: u32) {
+        let now = self.now();
+        if let Some(host) = self.host.as_mut() {
+            host.reply(now, peer, request_id, ReplyStatus::Failed);
+        }
+    }
+
+    /// The settings the phones obey were changed on this computer: they are kept (the caller writes them) and sent to the phones that are here.
+    pub fn set_prefs(&mut self, prefs: HostSettings) {
+        let now = self.now();
+        self.stored.prefs = prefs;
+        if let Some(host) = self.host.as_mut() {
+            host.set_settings(now, prefs);
+        }
+    }
+
+    /// The buttons were changed on this computer: cut to their caps (what was cut is said), kept (the caller writes them) and sent to the phones.
+    pub fn set_buttons(&mut self, buttons: &ButtonSet) {
+        let now = self.now();
+        let (clean, caps) = buttons.sanitized();
+        for cap in &caps {
+            self.note(&cap.to_string());
+        }
+        self.stored.buttons = clean;
+        if let Some(host) = self.host.as_mut() {
+            let _cut = host.set_buttons(now, &self.stored.buttons);
+        }
+    }
+
+    /// The buttons as the fields of the settings hold them.
+    #[must_use]
+    pub fn draft_buttons(&self) -> &ButtonSet {
+        &self.draft
+    }
+
+    /// The fields of the settings were typed in: `fields` are what they hold (kept as typed, for the fields), and the buttons are that cut to
+    /// their caps, kept and sent to the phones (the caller writes them). `true` when the buttons changed.
+    pub fn edit_buttons(&mut self, fields: &ButtonSet) -> bool {
+        self.draft = fields.clone();
+        let before = self.stored.buttons.clone();
+        self.set_buttons(fields);
+        self.stored.buttons != before
     }
 
     // ---- the pairing
@@ -763,6 +926,7 @@ extern "C" fn on_poll(data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbac
     for command in std::mem::take(&mut polled.commands) {
         moved |= match command {
             Command::Viewport(op) => crate::companion_cmd::viewport(&data, &mut info.callback_info, op),
+            Command::Button { peer, request_id, text } => crate::companion_cmd::button(&data, &mut info.callback_info, &peer, request_id, &text),
         };
     }
     // what the phones are told: the window as it is now
@@ -848,10 +1012,10 @@ pub fn settings_section(s: &AppState, app: &RefAny) -> kit::AppSection {
                 .with_css("padding: 8px 0px 0px 0px; font-size: 11px; color: system:secondary-text;"),
         )
         .with_child(kit::note("azreview-companion-note").with_id(ids::COMPANION_NOTE));
-    let content = match crate::companion_ui::phones_block(s, app) {
-        Some(block) => content.with_child(block),
-        None => content,
-    };
+    let mut content = content;
+    for block in [crate::companion_ui::phones_block(s, app), crate::companion_ui::prefs_block(s, app), crate::companion_ui::buttons_block(s, app)].into_iter().flatten() {
+        content.add_child(block);
+    }
     kit::AppSection { category: 1, title: t("azreview-category-phone"), content }
 }
 

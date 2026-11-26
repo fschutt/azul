@@ -5,13 +5,23 @@
 //! The state is `companion_plug::Glue`'s; this builds the DOM from it and answers its keys. The code holds a one-time secret: it goes to
 //! the clipboard as a secret (flagged, taken off again after a minute) and is never logged.
 
-use azul::{prelude::*, str::String as AzString};
+use azul::{
+    callbacks::{SegmentedOnChangeCallbackType, TextInputOnFocusLostCallbackType, TextInputOnTextInputCallbackType},
+    prelude::*,
+    str::String as AzString,
+    widgets::{OnTextInputReturn, Segmented, SegmentedState, TextInput, TextInputState, TextInputValid},
+};
 use azul_appkit::{
-    l10n::{label, t_args, Arg},
+    l10n::{label, labels, t_args, Arg},
     secret_clipboard,
     ui as kit,
 };
-use azul_review_link::{host::PhoneInfo, limits::MAX_PAIRED_PHONES, pairing::format_code};
+use azul_review_link::{
+    frame::{ButtonSet, HostSettings},
+    host::PhoneInfo,
+    limits::MAX_PAIRED_PHONES,
+    pairing::format_code,
+};
 
 use crate::{
     companion_plug::{save, with_companion, Status},
@@ -173,6 +183,198 @@ pub fn pairing_bar(s: &AppState, app: &RefAny) -> Option<Dom> {
 
 fn decorative() -> AccessibilityInfo {
     AccessibilityInfo { role: AccessibilityRole::Nothing, ..AccessibilityInfo::create_default() }
+}
+
+// ==== what the phones obey, and the four buttons ====
+
+/// Which of the settings a row is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pref {
+    ReversePan,
+    SnapToPageTop,
+    HapticDone,
+    HapticSuggestion,
+    HapticFailed,
+}
+
+/// The settings the page offers, in the order they are shown, with the words of each.
+pub static PREFS: [(Pref, &str); 5] = [
+    (Pref::ReversePan, "azreview-companion-pref-reverse"),
+    (Pref::SnapToPageTop, "azreview-companion-pref-snap"),
+    (Pref::HapticDone, "azreview-companion-pref-buzz-done"),
+    (Pref::HapticSuggestion, "azreview-companion-pref-buzz-suggestion"),
+    (Pref::HapticFailed, "azreview-companion-pref-buzz-failed"),
+];
+
+/// The labels of an Off / On choice.
+static ON_OFF: [&str; 2] = ["azreview-companion-off", "azreview-companion-on"];
+
+/// Whether `pref` is on in `settings`.
+#[must_use]
+pub fn is_on(settings: &HostSettings, pref: Pref) -> bool {
+    match pref {
+        Pref::ReversePan => settings.reverse_pan,
+        Pref::SnapToPageTop => settings.snap_to_page_top,
+        Pref::HapticDone => settings.haptic_done,
+        Pref::HapticSuggestion => settings.haptic_suggestion,
+        Pref::HapticFailed => settings.haptic_failed,
+    }
+}
+
+/// `settings` with `pref` turned on or off.
+#[must_use]
+pub fn with_pref(mut settings: HostSettings, pref: Pref, on: bool) -> HostSettings {
+    match pref {
+        Pref::ReversePan => settings.reverse_pan = on,
+        Pref::SnapToPageTop => settings.snap_to_page_top = on,
+        Pref::HapticDone => settings.haptic_done = on,
+        Pref::HapticSuggestion => settings.haptic_suggestion = on,
+        Pref::HapticFailed => settings.haptic_failed = on,
+    }
+    settings
+}
+
+/// What a row of the settings answers to.
+struct PrefTag {
+    app: RefAny,
+    pref: Pref,
+}
+
+/// The rows of what the phones obey: the direction of a drag, the snap to a page top, which agents' ends buzz.
+#[must_use]
+pub fn prefs_block(s: &AppState, app: &RefAny) -> Option<Dom> {
+    let g = s.companion.try_borrow().ok()?;
+    if !g.stored.enabled && g.stored.phones.is_empty() {
+        return None;
+    }
+    let settings = g.stored.prefs;
+    let mut block = Dom::create_div().with_css("display: flex; flex-direction: column; padding: 10px 0px 0px 0px;");
+    for (index, (pref, words)) in PREFS.iter().enumerate() {
+        let tag = RefAny::new(PrefTag { app: app.clone(), pref: *pref });
+        block.add_child(kit::row(
+            words,
+            Segmented::create(labels(&ON_OFF))
+                .with_selected_index(usize::from(is_on(&settings, *pref)))
+                .with_on_change(tag, on_pref as SegmentedOnChangeCallbackType)
+                .dom()
+                .with_id(AzString::from(format!("__azreview_companion-pref-{index}"))),
+        ));
+    }
+    Some(block)
+}
+
+/// A setting was chosen: it is kept, written and sent to the phones that are here.
+extern "C" fn on_pref(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let Some((app, pref)) = data.downcast_ref::<PrefTag>().map(|t| (t.app.clone(), t.pref)) else {
+        return Update::DoNothing;
+    };
+    let on = state.selected_index == 1;
+    let changed = with_companion(&app, |g, _| {
+        let now = g.stored.prefs;
+        let next = with_pref(now, pref, on);
+        g.set_prefs(next);
+        next != now
+    })
+    .unwrap_or(false);
+    if changed {
+        save(&app, &mut info);
+    }
+    Update::DoNothing
+}
+
+/// Which field of a button a text field is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Field {
+    Label,
+    Text,
+}
+
+/// What a text field of a button answers to.
+struct ButtonTag {
+    app: RefAny,
+    index: usize,
+    field: Field,
+}
+
+/// `set` with the field of button `index` made `value` (a button past the four changes nothing).
+#[must_use]
+pub fn with_button(mut set: ButtonSet, index: usize, field: Field, value: &str) -> ButtonSet {
+    if let Some(button) = set.buttons.get_mut(index) {
+        match field {
+            Field::Label => button.label = value.to_string(),
+            Field::Text => button.text = value.to_string(),
+        }
+    }
+    set
+}
+
+/// The four quick buttons as fields: a label (at most as long as a key on the phone has room for) and the instruction it stands for, each
+/// with a name for a screen reader. What is typed is the buttons now, at every keystroke: they are cut to their caps, kept, written and sent
+/// to the phones; the fields keep what was typed (the cut ones are what the phones get).
+#[must_use]
+pub fn buttons_block(s: &AppState, app: &RefAny) -> Option<Dom> {
+    let g = s.companion.try_borrow().ok()?;
+    if !g.stored.enabled && g.stored.phones.is_empty() {
+        return None;
+    }
+    let mut block = Dom::create_div()
+        .with_id(ids::COMPANION_BUTTONS)
+        .with_css("display: flex; flex-direction: column; gap: 6px; padding: 12px 0px 0px 0px;")
+        .with_child(Dom::create_span_with_text(label("azreview-companion-buttons-title")).with_css("font-size: 13px; font-weight: 600;"))
+        .with_child(kit::note("azreview-companion-buttons-note"));
+    for (index, button) in g.draft_buttons().buttons.iter().enumerate() {
+        let tag = |field: Field| RefAny::new(ButtonTag { app: app.clone(), index, field });
+        let n = index + 1;
+        let label_input = TextInput::create()
+            .with_text(button.label.as_str())
+            .with_accessibility_name(AzString::from(t_args("azreview-companion-button-label-name", &[("n", Arg::from(n))])))
+            .with_on_text_input(tag(Field::Label), on_button_text as TextInputOnTextInputCallbackType)
+            .with_on_focus_lost(tag(Field::Label), on_button_blur as TextInputOnFocusLostCallbackType)
+            .dom()
+            .with_id(AzString::from(format!("__azreview_companion-button-label-{index}")))
+            .with_css("width: 110px; flex-shrink: 0;");
+        let text_input = TextInput::create()
+            .with_text(button.text.as_str())
+            .with_accessibility_name(AzString::from(t_args("azreview-companion-button-text-name", &[("n", Arg::from(n))])))
+            .with_on_text_input(tag(Field::Text), on_button_text as TextInputOnTextInputCallbackType)
+            .with_on_focus_lost(tag(Field::Text), on_button_blur as TextInputOnFocusLostCallbackType)
+            .dom()
+            .with_id(AzString::from(format!("__azreview_companion-button-text-{index}")))
+            .with_css("flex-grow: 1; min-width: 160px;");
+        block.add_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; gap: 8px; align-items: center;")
+                .with_child(label_input)
+                .with_child(text_input),
+        );
+    }
+    Some(block)
+}
+
+/// A button's field was typed in: the buttons are what is in the fields (cut to their caps), at once.
+extern "C" fn on_button_text(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
+    edit_button(&mut data, &mut info, state.get_text().as_str());
+    OnTextInputReturn { update: Update::DoNothing, valid: TextInputValid::Yes }
+}
+
+/// A button's field lost the keyboard: the same, so that what was typed last is kept even if no key came after it.
+extern "C" fn on_button_blur(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> Update {
+    edit_button(&mut data, &mut info, state.get_text().as_str());
+    Update::DoNothing
+}
+
+fn edit_button(data: &mut RefAny, info: &mut CallbackInfo, value: &str) {
+    let Some((app, index, field)) = data.downcast_ref::<ButtonTag>().map(|t| (t.app.clone(), t.index, t.field)) else {
+        return;
+    };
+    let changed = with_companion(&app, |g, _| {
+        let next = with_button(g.draft_buttons().clone(), index, field, value);
+        g.edit_buttons(&next)
+    })
+    .unwrap_or(false);
+    if changed {
+        save(&app, info);
+    }
 }
 
 // ==== the keys ====

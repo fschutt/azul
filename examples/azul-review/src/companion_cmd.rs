@@ -11,8 +11,10 @@ use azul::{error::CustomE2eOpResult, json::Json, prelude::*, str::String as AzSt
 use azul_review_link::frame::{Focus, PageSurface, PenState, Phase, Rect, Surface, ViewportOp};
 
 use crate::{
+    agent_window,
     companion_pen::{self, PenAt},
     companion_plug::with_companion,
+    model::{Note, NoteState},
     page_view::{Applied, Context, Geometry, Looking},
     ui, AppState,
 };
@@ -104,6 +106,55 @@ fn settle(app: &RefAny, geometry: &Geometry, now: Looking, applied: &Applied) ->
 /// Whether two scroll offsets differ by more than a tenth of a px.
 fn scroll_differs(a: (f32, f32), b: (f32, f32)) -> bool {
     (a.0 - b.0).abs() > 0.1 || (a.1 - b.1).abs() > 0.1
+}
+
+/// Where the conversation of a quick button is anchored: at the marked region if a loop waits (the page it is on, the middle of its
+/// height), else at the line under the pen (where it was last seen on a page), else at the head of the page in view. Held to the page's
+/// own px as a dictated note's anchor is.
+#[must_use]
+pub fn anchor_of(region: Option<(usize, f32)>, pen: Option<(usize, f32)>, visible_page: usize, pages: usize) -> (usize, f32) {
+    let (page, y) = region.or(pen).unwrap_or((visible_page, ui::PAGE_PAD));
+    let y = if y.is_finite() { y } else { ui::PAGE_PAD };
+    (page.min(pages.saturating_sub(1)), y.clamp(ui::PAGE_PAD, ui::page_h() - ui::PAGE_PAD))
+}
+
+/// A quick button of a phone: its instruction is a note of a conversation at the context of the pen, as a dictated one is, and the agent
+/// is asked about it; the phone is told an agent is at work (and how it ends, when the agents' window tells that the conversation finished:
+/// `Glue::tell_finished`). `true` when the window changed.
+pub fn button(app: &RefAny, info: &mut CallbackInfo, peer: &str, request_id: u32, text: &str) -> bool {
+    let mut data = app.clone();
+    let made = {
+        let Some(mut s) = data.downcast_mut::<AppState>() else {
+            return false;
+        };
+        let Some((file, pages)) = s.file().map(|f| (f.display.clone(), f.page_count())) else {
+            drop(s);
+            with_companion(app, |g, _| g.button_refused(peer, request_id));
+            return false;
+        };
+        let region = s.wb.try_borrow().ok().and_then(|g| g.panel.wb.armed.all().first().map(|r| (r.page, r.bounds.y + r.bounds.h / 2.0)));
+        let pen = s
+            .pen_seen
+            .filter(|(_, at)| at.elapsed().as_millis() <= u128::from(companion_pen::PEN_AWAY_MS))
+            .map(|(at, _): (PenAt, _)| (at.page, at.y));
+        let (page, y) = anchor_of(region, pen, s.visible_page, pages);
+        let id = s.next_note_id;
+        s.next_note_id += 1;
+        let language = crate::voice::language_of(&s.kit);
+        let mut note = Note::listening(id, page, 120.0, y, &language);
+        note.text = text.to_string();
+        note.state = NoteState::Done;
+        s.start_conversation(note);
+        s.sync_chip(id);
+        (id, file)
+    };
+    let (id, file) = made;
+    let _ = agent_window::ask(&mut data, info, id);
+    // did the agent start? (a pool that is full, or no agent, is the conversation's own failure, which it shows)
+    let working = data.downcast_ref::<AppState>().is_some_and(|s| s.hub.is_working_on(&file, id));
+    with_companion(app, |g, _| if working { g.button_started(id, peer, request_id) } else { g.button_refused(peer, request_id) });
+    info.trigger_all_virtual_view_rerender();
+    true
 }
 
 /// Makes the pen state of the window as it is now and gives it to the host (which sends it at most thirty times a second, only when it

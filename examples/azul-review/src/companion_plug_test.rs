@@ -5,7 +5,7 @@
 use azul_review_link::{
     access::TrustRecord,
     client::{ClientConfig, PhoneClient},
-    frame::{Focus, Phase},
+    frame::{ButtonSet, FinishKind, Focus, Phase},
     limits::{CONFIRM_TIMEOUT_MS, PAIRING_WINDOW_MS},
     mock::{Knobs, MockLink, MockNet},
     pairing::{PairingOffer, SeededEntropy},
@@ -14,7 +14,7 @@ use azul_review_link::{
 };
 
 use super::*;
-use crate::lib_test::app_with_file;
+use crate::{agent_window::{Events, Finish, Finished}, lib_test::app_with_file};
 
 fn loaded(stored: &Stored) -> Loaded {
     Loaded { text: Some(stored.to_json()), problem: None }
@@ -528,4 +528,138 @@ fn what_the_user_settled_that_the_phones_obey_is_the_default_until_a_setting_cha
     let (g, _) = listening(&net, &on());
     assert_eq!(g.host_settings(), HostSettings::default());
     assert_eq!(glue(&Stored::default()).host_settings(), HostSettings::default(), "nothing is bound");
+}
+
+// ---- the quick buttons, the agents that finish, and what the phones obey
+
+/// A companion with a paired phone that is here, and the phone, and the clock after that.
+fn with_phone(net: &MockNet, stored: Stored) -> (Glue, PhoneClient<MockLink>, Millis) {
+    let mut stored = stored;
+    stored.enabled = true;
+    stored.phones = vec![TrustRecord::phone(&MockNet::key("phone"), "Test phone")];
+    let (mut g, now) = listening(net, &stored);
+    let mut phone = phone_of(net, "phone");
+    let (_, now) = pump(&mut g, &mut phone, now, 400);
+    assert_eq!(g.status(), Status::Listening { paired: 1, here: 1 }, "log: {:?}", g.log());
+    (g, phone, now)
+}
+
+#[test]
+fn a_button_press_is_a_command_with_its_instruction_and_the_phone_is_told_working_then_how_it_ended() {
+    let net = net();
+    let (mut g, mut phone, now) = with_phone(&net, Stored::default());
+    phone.press_button(now, 0);
+    let (said, now) = pump(&mut g, &mut phone, now, 80);
+    let command = said.commands.iter().find(|c| matches!(c, Command::Button { .. })).expect("the press came");
+    let Command::Button { peer, request_id, text } = command.clone() else { unreachable!() };
+    assert_eq!(peer, MockNet::key("phone"));
+    assert_eq!(text, ButtonSet::defaults().buttons[0].text, "the instruction as the host holds it");
+    // the window starts a conversation for it
+    g.button_started(5, &peer, request_id);
+    pump(&mut g, &mut phone, now, 80);
+    assert_eq!(phone.view().button_status[0], Some(azul_review_link::frame::ReplyStatus::Working));
+    // the agent finishes with a suggestion
+    g.events().finished(&Finished { file: "src/lib.rs".to_string(), conversation: 5, line: 12, finish: Finish::Suggested(2) });
+    pump(&mut g, &mut phone, now + 80, 120);
+    assert_eq!(phone.view().button_status[0], Some(azul_review_link::frame::ReplyStatus::Suggested));
+    let told = phone.view().finished.clone().expect("the phone was told an agent finished");
+    assert_eq!((told.file.as_str(), told.line, told.kind, told.conversation_id), ("src/lib.rs", 12, FinishKind::Suggestion, 5));
+    assert_eq!(phone.view().finished_count, 1);
+}
+
+#[test]
+fn every_way_a_conversation_can_end_is_told_to_the_phone_as_what_it_is() {
+    for (finish, kind, status) in [
+        (Finish::Done, FinishKind::Done, azul_review_link::frame::ReplyStatus::Done),
+        (Finish::Quiet, FinishKind::NoAction, azul_review_link::frame::ReplyStatus::Done),
+        (Finish::Failed, FinishKind::Failed, azul_review_link::frame::ReplyStatus::Failed),
+        (Finish::Suggested(1), FinishKind::Suggestion, azul_review_link::frame::ReplyStatus::Suggested),
+    ] {
+        assert_eq!(kind_of(finish), kind);
+        assert_eq!(status_of(finish), status);
+    }
+}
+
+#[test]
+fn a_conversation_that_no_button_started_is_told_too_and_a_button_that_could_not_start_anything_is_told_failed() {
+    let net = net();
+    let (mut g, mut phone, now) = with_phone(&net, Stored::default());
+    g.events().finished(&Finished { file: "a.rs".to_string(), conversation: 9, line: 1, finish: Finish::Done });
+    let (_, now) = pump(&mut g, &mut phone, now, 120);
+    assert_eq!(phone.view().finished_count, 1, "a dictated note's agent finished: the phone buzzes all the same");
+    phone.press_button(now, 1);
+    let (said, now) = pump(&mut g, &mut phone, now, 80);
+    let request = said.commands.iter().find_map(|c| if let Command::Button { request_id, .. } = c { Some(*request_id) } else { None }).expect("the press came");
+    g.button_refused(&MockNet::key("phone"), request);
+    pump(&mut g, &mut phone, now, 120);
+    assert_eq!(phone.view().button_status[1], Some(azul_review_link::frame::ReplyStatus::Failed));
+}
+
+#[test]
+fn the_conversations_that_finished_while_nothing_listened_are_not_told_to_a_phone_that_comes_later() {
+    let net = net();
+    let mut stored = on();
+    stored.phones = vec![TrustRecord::phone(&MockNet::key("phone"), "Test phone")];
+    let mut g = glue(&stored);
+    g.events().finished(&Finished { file: "a.rs".to_string(), conversation: 1, line: 1, finish: Finish::Done });
+    g.bind_link(Box::new(net.endpoint("mac")), Box::new(SeededEntropy(7)));
+    let mut phone = phone_of(&net, "phone");
+    pump(&mut g, &mut phone, 0, 500);
+    assert_eq!(phone.view().finished_count, 0);
+}
+
+#[test]
+fn the_queue_of_finished_conversations_keeps_the_newest_and_never_grows_without_end() {
+    let g = glue(&Stored::default());
+    let events = g.events();
+    for conversation in 0..(MAX_FINISHED as u64 + 20) {
+        events.finished(&Finished { file: "a.rs".to_string(), conversation, line: 1, finish: Finish::Done });
+    }
+    let queue = g.finished.lock().expect("the queue");
+    assert_eq!(queue.len(), MAX_FINISHED);
+    assert_eq!(queue.last().map(|f| f.conversation), Some(MAX_FINISHED as u64 + 19));
+    assert_eq!(queue.first().map(|f| f.conversation), Some(20));
+}
+
+#[test]
+fn buttons_a_phone_saves_are_kept_and_written_and_the_other_phones_get_them() {
+    let net = net();
+    let (mut g, mut phone, now) = with_phone(&net, Stored::default());
+    let mut set = ButtonSet::defaults();
+    set.buttons[2].label = "Plain".to_string();
+    set.buttons[2].text = "Say it plainly.".to_string();
+    let _ = phone.set_buttons(now, &set);
+    let (said, _) = pump(&mut g, &mut phone, now, 200);
+    assert_eq!(g.stored.buttons, set, "kept");
+    assert!(said.save, "and to be written");
+    assert_eq!(g.host_mut().map(|h| h.buttons().clone()), Some(set));
+}
+
+#[test]
+fn buttons_changed_on_this_computer_are_cut_kept_and_sent_to_the_phones() {
+    let net = net();
+    let (mut g, mut phone, now) = with_phone(&net, Stored::default());
+    let mut set = ButtonSet::defaults();
+    set.buttons[0].label = "A very long label that is cut".to_string();
+    set.buttons[0].text = "x".repeat(900);
+    g.set_buttons(&set);
+    assert_eq!(g.stored.buttons.buttons[0].label.chars().count(), azul_review_link::limits::MAX_LABEL_CHARS);
+    assert_eq!(g.stored.buttons.buttons[0].text.chars().count(), azul_review_link::limits::MAX_BUTTON_TEXT_CHARS);
+    assert!(g.log().iter().any(|l| l.contains("over the limit")), "what was cut is said: {:?}", g.log());
+    pump(&mut g, &mut phone, now, 200);
+    assert_eq!(phone.view().buttons, g.stored.buttons);
+}
+
+#[test]
+fn what_the_user_settled_that_the_phones_obey_is_sent_to_the_phones_here_and_to_those_that_come() {
+    let net = net();
+    let mut stored = Stored::default();
+    stored.prefs = HostSettings { reverse_pan: true, ..HostSettings::default() };
+    let (mut g, mut phone, now) = with_phone(&net, stored);
+    assert!(phone.view().settings.reverse_pan, "a phone that comes is told the settings kept");
+    assert_eq!(g.host_settings(), HostSettings { reverse_pan: true, ..HostSettings::default() });
+    g.set_prefs(HostSettings { snap_to_page_top: true, haptic_done: false, ..HostSettings::default() });
+    pump(&mut g, &mut phone, now, 200);
+    assert!(phone.view().settings.snap_to_page_top && !phone.view().settings.haptic_done && !phone.view().settings.reverse_pan);
+    assert!(g.stored.prefs.snap_to_page_top, "kept to be written");
 }

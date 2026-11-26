@@ -1479,6 +1479,9 @@ pub fn run() {
     for problem in &state.hub.problems {
         eprintln!("[AzReview] agent settings: {}", problem.message());
     }
+    // The conversations that finish are told to the phone companion (a buzz on the phone, and the answer to a quick button): it
+    // queues them and tells the phones at its next look at the host (nothing is told while it is off).
+    state.hub.events = state.companion.borrow().events();
     state.switches = own;
     state.perf = perf::Perf::new(std::env::var_os("AZREVIEW_PROFILE").is_some());
     // The speech session of the window (the chain of recognisers, its vocabulary, the call a stop ends) is made on a thread

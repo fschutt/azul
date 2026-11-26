@@ -93,3 +93,5 @@ pub const COMPANION_ASK: AzString = AzString::from_const_str("__azreview_compani
 pub const COMPANION_CODE: AzString = AzString::from_const_str("__azreview_companion-code");
 pub const COMPANION_ACCEPT: AzString = AzString::from_const_str("__azreview_companion-accept");
 pub const COMPANION_DECLINE: AzString = AzString::from_const_str("__azreview_companion-decline");
+/// The block of the four quick buttons' fields in the settings.
+pub const COMPANION_BUTTONS: AzString = AzString::from_const_str("__azreview_companion-buttons");

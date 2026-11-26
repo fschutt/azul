@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use azul_review_link::{
     access::TrustRecord,
     advert::{self, Advert},
-    frame::Role,
+    frame::{ButtonSet, HostSettings, Role},
     limits::{cut_bytes, MAX_NAME_BYTES, MAX_PAIRED_PHONES},
 };
 use serde::{Deserialize, Serialize};
@@ -31,16 +31,26 @@ pub const MAX_PEER_ID_BYTES: usize = 128;
 pub const DEFAULT_NAME: &str = "AzReview";
 /// What the project of the announcement is made from: the announcement says that this is an AzReview host and its name, and no
 /// folder, no project, no user and no key. (The phones find a computer by the key they were paired with.)
-const ADVERT_PROJECT_WORD: &str = "azreview-companion-host";
+const ADVERT_PROJECT_WORD: &str = "AzReview companion host";
 
 /// What is kept.
-#[derive(Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Stored {
     /// The user turned the companion on: it listens (after the first frame) at every start until it is turned off.
     pub enabled: bool,
     key: Option<[u8; KEY_BYTES]>,
     /// The paired phones, at most [`MAX_PAIRED_PHONES`].
     pub phones: Vec<TrustRecord>,
+    /// What the user settled that the phones obey (the pan's direction, the snap to a page top, which buzzes).
+    pub prefs: HostSettings,
+    /// The four quick buttons: a label on the key and the instruction it stands for.
+    pub buttons: ButtonSet,
+}
+
+impl Default for Stored {
+    fn default() -> Self {
+        Stored { enabled: false, key: None, phones: Vec::new(), prefs: HostSettings::default(), buttons: ButtonSet::defaults() }
+    }
 }
 
 // The key is a secret: a log line, a failed assert or a panic message never says it.
@@ -50,7 +60,8 @@ impl std::fmt::Debug for Stored {
             .field("enabled", &self.enabled)
             .field("key", &if self.key.is_some() { "<kept>" } else { "<none>" })
             .field("phones", &self.phones.len())
-            .finish()
+            .field("prefs", &self.prefs)
+            .finish_non_exhaustive()
     }
 }
 
@@ -66,6 +77,33 @@ struct FileText {
     key: String,
     #[serde(default)]
     phones: Vec<PhoneText>,
+    #[serde(default)]
+    prefs: PrefsText,
+    #[serde(default)]
+    buttons: Vec<ButtonText>,
+}
+
+/// The settings the phones obey; a value that is not there is the default.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct PrefsText {
+    #[serde(default)]
+    reverse_pan: Option<bool>,
+    #[serde(default)]
+    snap_to_page_top: Option<bool>,
+    #[serde(default)]
+    haptic_done: Option<bool>,
+    #[serde(default)]
+    haptic_suggestion: Option<bool>,
+    #[serde(default)]
+    haptic_failed: Option<bool>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct ButtonText {
+    #[serde(default)]
+    label: String,
+    #[serde(default)]
+    text: String,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -126,6 +164,26 @@ impl Stored {
             }
             stored.phones.push(TrustRecord::phone(&phone.id, &clean_name(&phone.name)));
         }
+        let defaults = HostSettings::default();
+        stored.prefs = HostSettings {
+            reverse_pan: file.prefs.reverse_pan.unwrap_or(defaults.reverse_pan),
+            snap_to_page_top: file.prefs.snap_to_page_top.unwrap_or(defaults.snap_to_page_top),
+            haptic_done: file.prefs.haptic_done.unwrap_or(defaults.haptic_done),
+            haptic_suggestion: file.prefs.haptic_suggestion.unwrap_or(defaults.haptic_suggestion),
+            haptic_failed: file.prefs.haptic_failed.unwrap_or(defaults.haptic_failed),
+        };
+        // the buttons the file names replace the placeholders one by one; the rest are cut to their caps
+        let mut buttons = ButtonSet::defaults();
+        if file.buttons.len() > buttons.buttons.len() {
+            problems.push(format!("the companion's file names {} buttons: the first {} are kept", file.buttons.len(), buttons.buttons.len()));
+        }
+        for (slot, button) in buttons.buttons.iter_mut().zip(file.buttons) {
+            slot.label = button.label;
+            slot.text = button.text;
+        }
+        let (clean, caps) = buttons.sanitized();
+        problems.extend(caps.iter().map(|cap| format!("a button of the companion's file was cut: {cap}")));
+        stored.buttons = clean;
         (stored, problems)
     }
 
@@ -137,6 +195,14 @@ impl Stored {
             enabled: self.enabled,
             key: self.key.map(|k| to_hex(&k)).unwrap_or_default(),
             phones: self.phones.iter().map(|p| PhoneText { id: p.peer.clone(), name: p.name.clone() }).collect(),
+            prefs: PrefsText {
+                reverse_pan: Some(self.prefs.reverse_pan),
+                snap_to_page_top: Some(self.prefs.snap_to_page_top),
+                haptic_done: Some(self.prefs.haptic_done),
+                haptic_suggestion: Some(self.prefs.haptic_suggestion),
+                haptic_failed: Some(self.prefs.haptic_failed),
+            },
+            buttons: self.buttons.buttons.iter().map(|b| ButtonText { label: b.label.clone(), text: b.text.clone() }).collect(),
         };
         let mut text = serde_json::to_string_pretty(&file).unwrap_or_else(|_| "{}".to_string());
         text.push('\n');

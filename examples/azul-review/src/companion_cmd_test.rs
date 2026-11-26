@@ -145,3 +145,22 @@ fn an_op_that_is_none_of_the_four_or_no_json_is_a_sentence_for_the_script() {
     assert!(parse_op(r#"{"op": "teleport"}"#).unwrap_err().contains("one of gesture, fit, page_step, reset"));
     assert!(parse_op("{}").is_err());
 }
+
+// ---- the quick buttons
+
+#[test]
+fn a_buttons_conversation_is_anchored_at_the_region_else_the_pen_else_the_head_of_the_page_in_view() {
+    let y_of_pen = ui::PAGE_PAD + 200.0;
+    assert_eq!(anchor_of(Some((2, 300.0)), Some((1, y_of_pen)), 0, 3), (2, 300.0), "a loop that waits is what a button acts on first");
+    assert_eq!(anchor_of(None, Some((1, y_of_pen)), 0, 3), (1, y_of_pen), "then the line under the pen");
+    assert_eq!(anchor_of(None, None, 2, 3), (2, ui::PAGE_PAD), "then the page");
+}
+
+#[test]
+fn an_anchor_is_held_to_the_file_and_to_the_page() {
+    assert_eq!(anchor_of(None, None, 99, 3).0, 2, "a page past the last is the last");
+    assert_eq!(anchor_of(None, Some((0, -50.0)), 0, 3).1, ui::PAGE_PAD, "above the page's padding: at it");
+    assert_eq!(anchor_of(None, Some((0, 1.0e9)), 0, 3).1, ui::page_h() - ui::PAGE_PAD, "below the page: at its foot");
+    assert_eq!(anchor_of(None, Some((0, f32::NAN)), 0, 3).1, ui::PAGE_PAD, "a height that is no number");
+    assert_eq!(anchor_of(None, None, 0, 0).0, 0, "a file of no pages");
+}

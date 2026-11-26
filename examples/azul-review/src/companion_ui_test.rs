@@ -5,6 +5,7 @@ use azul::{prelude::*, str::String as AzString};
 use azul_review_link::{
     access::TrustRecord,
     client::{ClientConfig, PhoneClient},
+    frame::{ButtonSet, HostSettings},
     mock::{Knobs, MockNet},
     pairing::SeededEntropy,
     phone::PhoneApi,
@@ -160,4 +161,66 @@ fn a_phone_that_asks_is_a_bar_with_its_name_the_six_digits_and_the_keys_that_say
     // answered: the bar is gone
     s.companion.borrow_mut().decline(400);
     assert!(pairing_bar(&s, &any()).is_none());
+}
+
+// ---- what the phones obey and the four buttons
+
+#[test]
+fn nothing_of_what_the_phones_obey_or_the_buttons_is_shown_while_it_is_off_and_no_phone_is_kept() {
+    let s = app(&Stored::default());
+    assert!(prefs_block(&s, &any()).is_none());
+    assert!(buttons_block(&s, &any()).is_none());
+}
+
+#[test]
+fn once_it_is_on_there_is_a_row_for_each_setting_and_a_pair_of_fields_for_each_button() {
+    let s = app(&on());
+    let prefs = prefs_block(&s, &any()).expect("on");
+    for index in 0..PREFS.len() {
+        assert!(has_id(&prefs, &AzString::from(format!("__azreview_companion-pref-{index}"))), "setting {index}");
+    }
+    let buttons = buttons_block(&s, &any()).expect("on");
+    assert!(has_id(&buttons, &ids::COMPANION_BUTTONS));
+    for index in 0..4 {
+        assert!(has_id(&buttons, &AzString::from(format!("__azreview_companion-button-label-{index}"))), "label {index}");
+        assert!(has_id(&buttons, &AzString::from(format!("__azreview_companion-button-text-{index}"))), "text {index}");
+    }
+    let said = texts(&buttons);
+    assert!(said.iter().any(|t| t == "Quick buttons"), "{said:?}");
+}
+
+#[test]
+fn the_phones_that_are_kept_are_enough_to_show_them_while_it_is_off() {
+    let mut stored = Stored::default();
+    stored.phones = vec![TrustRecord::phone("a", "Phone")];
+    let s = app(&stored);
+    assert!(prefs_block(&s, &any()).is_some() && buttons_block(&s, &any()).is_some());
+}
+
+#[test]
+fn every_setting_is_read_and_changed_by_itself_and_leaves_the_others() {
+    let base = HostSettings::default();
+    for (pref, _) in PREFS {
+        for on in [false, true] {
+            let changed = with_pref(base, pref, on);
+            assert_eq!(is_on(&changed, pref), on, "{pref:?}");
+            for (other, _) in PREFS {
+                if other != pref {
+                    assert_eq!(is_on(&changed, other), is_on(&base, other), "{pref:?} changed {other:?}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn a_field_of_one_button_is_changed_and_nothing_else_and_a_button_past_the_four_is_no_button() {
+    let set = ButtonSet::defaults();
+    let label = with_button(set.clone(), 2, Field::Label, "Plain");
+    assert_eq!(label.buttons[2].label, "Plain");
+    assert_eq!(label.buttons[2].text, set.buttons[2].text);
+    assert_eq!((label.buttons[0].clone(), label.buttons[3].clone()), (set.buttons[0].clone(), set.buttons[3].clone()));
+    let text = with_button(set.clone(), 0, Field::Text, "Be brief.");
+    assert_eq!((text.buttons[0].label.as_str(), text.buttons[0].text.as_str()), (set.buttons[0].label.as_str(), "Be brief."));
+    assert_eq!(with_button(set.clone(), 9, Field::Label, "x"), set);
 }

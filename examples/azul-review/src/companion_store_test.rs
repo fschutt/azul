@@ -186,3 +186,47 @@ fn the_file_is_in_the_bookkeeping_folder_of_the_data_root_where_a_drive_does_not
     // another app's folder is another file
     assert_ne!(store_path(root, "other"), path);
 }
+
+// ---- what the phones obey and the four buttons
+
+#[test]
+fn the_settings_the_phones_obey_and_the_four_buttons_are_kept_and_read_back() {
+    let mut stored = Stored { enabled: true, ..Stored::default() };
+    stored.prefs = HostSettings { reverse_pan: true, snap_to_page_top: true, haptic_done: false, haptic_suggestion: true, haptic_failed: false };
+    stored.buttons.buttons[1].label = "Mine".to_string();
+    stored.buttons.buttons[1].text = "Say it in a plain tone.\nShort.".to_string();
+    let (read, problems) = Stored::parse(&stored.to_json());
+    assert_eq!(read, stored);
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+#[test]
+fn a_file_with_no_settings_and_no_buttons_has_the_defaults_and_it_is_no_problem() {
+    let (read, problems) = Stored::parse(r#"{"version": 1, "enabled": true}"#);
+    assert_eq!(read.prefs, HostSettings::default());
+    assert_eq!(read.buttons, ButtonSet::defaults());
+    assert!(problems.is_empty(), "{problems:?}");
+    let (some, _) = Stored::parse(r#"{"prefs": {"haptic_done": false}}"#);
+    assert_eq!(some.prefs, HostSettings { haptic_done: false, ..HostSettings::default() }, "what is not said is the default");
+}
+
+#[test]
+fn the_buttons_a_file_names_replace_the_placeholders_one_by_one() {
+    let (read, problems) = Stored::parse(r#"{"buttons": [{"label": "Mine", "text": "do this"}]}"#);
+    assert_eq!((read.buttons.buttons[0].label.as_str(), read.buttons.buttons[0].text.as_str()), ("Mine", "do this"));
+    assert_eq!(read.buttons.buttons[1], ButtonSet::defaults().buttons[1], "the others stay what they were");
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+#[test]
+fn more_than_four_buttons_keep_the_first_four_and_a_button_over_its_caps_is_cut_and_said() {
+    let six: Vec<String> = (0..6).map(|i| format!("{{\"label\": \"B{i}\", \"text\": \"t{i}\"}}")).collect();
+    let (read, problems) = Stored::parse(&format!("{{\"buttons\": [{}]}}", six.join(",")));
+    assert_eq!(read.buttons.buttons.iter().map(|b| b.label.as_str()).collect::<Vec<_>>(), vec!["B0", "B1", "B2", "B3"]);
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    let long = format!("{{\"buttons\": [{{\"label\": \"{}\", \"text\": \"{}\"}}]}}", "L".repeat(40), "x".repeat(900));
+    let (cut, problems) = Stored::parse(&long);
+    assert_eq!(cut.buttons.buttons[0].label.chars().count(), azul_review_link::limits::MAX_LABEL_CHARS);
+    assert_eq!(cut.buttons.buttons[0].text.chars().count(), azul_review_link::limits::MAX_BUTTON_TEXT_CHARS);
+    assert_eq!(problems.len(), 2, "the label and the text, each said: {problems:?}");
+}
