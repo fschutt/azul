@@ -17,13 +17,19 @@
 //!
 //! One factor now: [`frame_factor`], from the window's `dpi`, for the size, the input and the insets.
 
-/// The engine's `dpi` for a density Android reported: `density * 96 / 160`, rounded, at least 1. A
-/// density of 0 or less (a device that reports none) is mdpi.
+/// The densest display the shell takes at its word: 1280 dpi is 8x mdpi, twice the densest phone class
+/// (xxxhdpi, 640). A larger report is a broken driver or emulator, and would make a window of a few
+/// logical pixels; it is capped (the shell logs that it did) instead of computed with.
+pub const MAX_DENSITY: u32 = 1280;
+
+/// The engine's `dpi` for a density Android reported (`Configuration::density()`, an unsigned dpi):
+/// `density * 96 / 160`, rounded, at least 1. A density of 0 (a device that reports none) is mdpi; one above
+/// [`MAX_DENSITY`] is capped, so the arithmetic cannot overflow whatever the system says.
 #[must_use]
-pub fn dpi_of_density(density: i32) -> u32 {
-    let density = if density > 0 { density } else { 160 };
+pub fn dpi_of_density(density: u32) -> u32 {
+    let density = if density == 0 { 160 } else { density.min(MAX_DENSITY) };
     // 96 / 160 = 3 / 5, in integers: no float, no ulp
-    let dpi = (density as u32 * 3 + 2) / 5;
+    let dpi = (density * 3 + 2) / 5;
     dpi.max(1)
 }
 

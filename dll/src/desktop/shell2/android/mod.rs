@@ -50,7 +50,7 @@ use crate::{
         },
         wr_translate2::{AsyncHitTester, WrRenderApi},
     },
-    impl_platform_window_getters, log_debug, log_error, log_info,
+    impl_platform_window_getters, log_debug, log_error, log_info, log_warn,
 };
 
 pub mod accessibility;
@@ -1467,6 +1467,22 @@ fn resize_reason(window: &AndroidWindow) -> RelayoutReason {
     }
 }
 
+/// The window's engine `dpi` from the configuration the system reported: a density beyond what a phone has
+/// (`MAX_DENSITY`) is capped and the log says so.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn config_dpi(app: &AndroidApp) -> u32 {
+    let density = app.config().density().unwrap_or(0);
+    if density > metrics::MAX_DENSITY {
+        log_warn!(
+            LogCategory::Window,
+            "[Android] the system reports a density of {} dpi; taken as {} dpi",
+            density,
+            metrics::MAX_DENSITY
+        );
+    }
+    dpi_of_density(density)
+}
+
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEvent<'_>) {
     match event {
@@ -1486,10 +1502,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // The drain_input physical-to-logical scale below
                 // separately uses density / 160 directly (which is the
                 // Android-native scale factor, not the framework's).
-                let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
                 // ONE factor for the size, the frame, the touches and the insets: the engine's own,
                 // `dpi / 96` (`android_core::metrics`).
-                let dpi = dpi_of_density(density);
+                let dpi = config_dpi(app);
                 if window.common.current_window_state().size.dpi != dpi.max(1) {
                     // A CPU frame at another scale is repainted in full
                     // (A10-08): the list's diff is in logical px.
@@ -1576,8 +1591,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // surface size, different scale), which left every
                 // physical<->logical conversion — layout dpi, input scaling,
                 // a11y bounds — on the stale factor.
-                let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
-                let dpi = dpi_of_density(density);
+                let dpi = config_dpi(app);
                 if window.common.current_window_state().size.dpi != dpi {
                     // Contract shape (snapshot → mutate → pass) — the dpi
                     // diff is what dispatches WindowDpiChanged.

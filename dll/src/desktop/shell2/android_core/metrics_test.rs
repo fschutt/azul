@@ -4,7 +4,7 @@ use super::*;
 
 /// The densities Android devices report (the standard buckets and what manufacturers and the "display
 /// size" setting make of them) and the widths and heights of their screens.
-const DENSITIES: [i32; 22] = [
+const DENSITIES: [u32; 22] = [
     120, 140, 160, 213, 240, 280, 320, 360, 392, 400, 411, 420, 440, 450, 480, 510, 540, 560, 600, 640, 720, 0,
 ];
 const LENGTHS: [i32; 24] = [
@@ -60,12 +60,23 @@ fn the_dpi_of_a_density_is_the_engines_96_per_160() {
     assert_eq!(dpi_of_density(213), 128, "127.8 rounds up");
     assert_eq!(dpi_of_density(411), 247, "246.6");
     assert_eq!(dpi_of_density(0), 96, "a device that reports no density is mdpi");
-    assert_eq!(dpi_of_density(-5), 96);
     assert_eq!(dpi_of_density(1), 1, "never zero");
-    for density in 1..2000 {
+    for density in 1..=MAX_DENSITY {
         let float = ((density as f32) * 96.0 / 160.0).round() as u32;
         assert_eq!(dpi_of_density(density), float.max(1), "density {density}");
     }
+}
+
+/// Whatever the system reports, the arithmetic neither overflows nor makes a window of a few logical pixels.
+///
+/// Mutation: no cap (u32::MAX * 3 overflows: a panic in a debug build, a nonsense dpi in a release one).
+#[test]
+fn an_absurd_density_is_capped_not_computed_with() {
+    assert_eq!(dpi_of_density(MAX_DENSITY), 768);
+    assert_eq!(dpi_of_density(MAX_DENSITY + 1), 768);
+    assert_eq!(dpi_of_density(100_000), 768);
+    assert_eq!(dpi_of_density(u32::MAX), 768);
+    assert!(MAX_DENSITY >= 2 * 640, "the densest phone class must pass uncapped");
 }
 
 /// For the standard densities the one factor IS `density / 160`, so nothing a phone with a standard
