@@ -21,16 +21,29 @@ import time
 
 
 def parse_timeline(text):
-    """The JSON object of the `[startup-json]` line, or None."""
+    """The headline object of the `[startup-json]` line with the array of the `[startup-marks]` line as its
+    `marks`, or None."""
+    headline = None
+    marks = None
     for line in text.splitlines():
-        marker = "[startup-json] "
-        at = line.find(marker)
-        if at >= 0:
+        for marker in ("[startup-json] ", "[startup-marks] "):
+            at = line.find(marker)
+            if at < 0:
+                continue
             try:
-                return json.loads(line[at + len(marker):])
+                value = json.loads(line[at + len(marker):])
             except json.JSONDecodeError:
-                return None
-    return None
+                continue
+            if marker.startswith("[startup-json"):
+                headline = value
+            else:
+                marks = value
+    if headline is None:
+        return None
+    if marks is not None:
+        headline["marks"] = marks
+    headline.setdefault("marks", [])
+    return headline
 
 
 def with_steps(marks):

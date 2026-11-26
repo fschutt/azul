@@ -299,9 +299,9 @@ fn the_table_prints_once_and_later_marks_print_as_single_lines() {
     let table = taken();
     assert!(table.len() >= 4, "{table:?}");
     assert!(
-        table
-            .iter()
-            .all(|l| l.starts_with("[startup] ") || l.starts_with("[startup-json] ")),
+        table.iter().all(|l| l.starts_with("[startup] ")
+            || l.starts_with("[startup-json] ")
+            || l.starts_with("[startup-marks] ")),
         "{table:?}"
     );
     assert_eq!(
@@ -310,7 +310,15 @@ fn the_table_prints_once_and_later_marks_print_as_single_lines() {
             .filter(|l| l.starts_with("[startup-json] {"))
             .count(),
         1,
-        "the data comes once more as one line of JSON: {table:?}"
+        "the headline numbers come once more as one short line of JSON: {table:?}"
+    );
+    assert_eq!(
+        table
+            .iter()
+            .filter(|l| l.starts_with("[startup-marks] ["))
+            .count(),
+        1,
+        "and the marks as one line apart: {table:?}"
     );
     assert!(table.iter().any(|l| l.contains("early")));
     assert!(table.iter().any(|l| l.contains("first_present")));
@@ -503,6 +511,57 @@ fn the_json_escapes_what_it_holds_and_names_the_headline_numbers() {
     let off = StartupTimeline::disabled().to_json();
     assert!(off.starts_with("{\"enabled\":false"), "{off}");
     assert!(off.contains("\"marks\":[]"), "{off}");
+}
+
+/// The headline line is short (logcat cuts an entry at 4 KB: a harness must still find the first present, the
+/// process start and the renderer) and has no marks; the marks are a line of their own; the whole object is both.
+///
+/// Mutation: the numbers after the marks; the marks inside the headline; the renderer left out of the headline.
+#[test]
+fn the_headline_json_is_short_and_comes_before_the_marks() {
+    let age = ProcessAge {
+        micros: 10_000,
+        source: "sysctl kern.proc.pid",
+        resolution_us: 1,
+    };
+    let mut marks: Vec<Mark> = (0..200)
+        .map(|i| Mark {
+            name: "app_create:something_long_enough_to_fill_a_line",
+            detail: format!("detail number {i} with some words in it"),
+            at_us: 1_000 + i,
+            thread: "main".into(),
+        })
+        .collect();
+    marks.push(Mark {
+        name: "render_backend",
+        detail: "backend=gpu requested=auto device=Apple M1".into(),
+        at_us: 50_000,
+        thread: "main".into(),
+    });
+    marks.push(Mark {
+        name: "first_present",
+        detail: String::new(),
+        at_us: 90_000,
+        thread: "main".into(),
+    });
+    let headline = render_headline_json(true, &marks, Some(age), 2);
+    assert!(headline.len() < 600, "{} bytes: {headline}", headline.len());
+    assert!(!headline.contains("\"marks\""), "{headline}");
+    assert!(headline.contains("\"first_present_ms\":100.000"), "{headline}");
+    assert!(headline.contains("\"before_library_ms\":10.000"), "{headline}");
+    assert!(headline.contains("\"layout_passes\":2"), "{headline}");
+    assert!(
+        headline.contains("\"render_backend\":\"backend=gpu requested=auto device=Apple M1\""),
+        "{headline}"
+    );
+    let marks_json = render_marks_json(&marks, Some(age));
+    assert!(marks_json.starts_with("[{\"i\":1,"), "{}", &marks_json[..40]);
+    assert!(marks_json.len() > 4096, "the marks are the long part");
+    let full = render_json(true, &marks, Some(age), 2);
+    assert!(
+        full.find("\"first_present_ms\"").unwrap() < full.find("\"marks\"").unwrap(),
+        "the numbers come before the marks, so a cut line keeps them"
+    );
 }
 
 /// A start that marks in a loop cannot grow the timeline without end.

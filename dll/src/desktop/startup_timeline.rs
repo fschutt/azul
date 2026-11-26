@@ -339,9 +339,18 @@ impl StartupTimeline {
             for line in self.report_lines() {
                 sink(&line);
             }
-            // The same table as ONE line of JSON, for a harness that wants numbers and not a
-            // layout.
-            sink(&format!("[startup-json] {}", self.to_json()));
+            // The same table as two lines of JSON, for a harness that wants numbers and not a
+            // layout: the headline numbers (short: logcat cuts an entry at 4 KB, and the first
+            // present must survive it) and, apart, the marks.
+            let marks = self.marks();
+            sink(&format!(
+                "[startup-json] {}",
+                render_headline_json(self.enabled, &marks, self.before_origin, self.layout_count())
+            ));
+            sink(&format!(
+                "[startup-marks] {}",
+                render_marks_json(&marks, self.before_origin)
+            ));
         }
         true
     }
@@ -496,18 +505,19 @@ pub fn json_escape(text: &str) -> String {
     out
 }
 
-/// The JSON of a timeline ([`StartupTimeline::to_json`]).
-#[must_use]
-pub fn render_json(
+/// The headline numbers of a timeline as the inside of a JSON object (no braces): short enough for one
+/// log line (logcat cuts an entry at 4 KB), the numbers a script wants first. [`render_json`] adds the
+/// marks to it; [`render_headline_json`] is it alone.
+fn headline_fields(
     enabled: bool,
     marks: &[Mark],
     before: Option<ProcessAge>,
     layouts: u32,
 ) -> String {
     let before_us = before.map_or(0, |a| a.micros);
-    let mut out = String::with_capacity(256 + marks.len() * 96);
+    let mut out = String::with_capacity(512);
     out.push_str(&format!(
-        "{{\"enabled\":{enabled},\"process_start_known\":{}",
+        "\"enabled\":{enabled},\"process_start_known\":{}",
         before.is_some()
     ));
     if let Some(age) = before {
@@ -519,7 +529,50 @@ pub fn render_json(
             ms(age.micros)
         ));
     }
-    out.push_str(&format!(",\"layout_passes\":{layouts},\"marks\":["));
+    out.push_str(&format!(",\"layout_passes\":{layouts}"));
+    // The numbers a script wants without walking the marks.
+    for (key, name) in [
+        ("first_present_ms", "first_present"),
+        ("first_event_ms", "first_event"),
+        ("font_scan_complete_ms", "font_scan_complete"),
+        ("a11y_tree_first_built_ms", "a11y_tree_first_built"),
+    ] {
+        if let Some(at) = first_of(marks, name) {
+            out.push_str(&format!(
+                ",\"{key}\":{:.3}",
+                ms(before_us.saturating_add(at))
+            ));
+        }
+    }
+    // The renderer the window ended up with (the detail of its `render_backend` mark), as the GPU
+    // and phone harnesses read it: `backend=<cpu|gpu> requested=<cpu|gpu|auto> device=<text>`.
+    if let Some(m) = marks.iter().find(|m| m.name == "render_backend") {
+        out.push_str(&format!(
+            ",\"render_backend\":\"{}\"",
+            json_escape(&m.detail)
+        ));
+    }
+    out
+}
+
+/// The headline numbers alone, as one JSON object (the `[startup-json]` line).
+#[must_use]
+pub fn render_headline_json(
+    enabled: bool,
+    marks: &[Mark],
+    before: Option<ProcessAge>,
+    layouts: u32,
+) -> String {
+    format!("{{{}}}", headline_fields(enabled, marks, before, layouts))
+}
+
+/// The marks alone, as a JSON array (the `[startup-marks]` line): each with its number, name,
+/// time from the process start, time from the library entry, thread and detail.
+#[must_use]
+pub fn render_marks_json(marks: &[Mark], before: Option<ProcessAge>) -> String {
+    let before_us = before.map_or(0, |a| a.micros);
+    let mut out = String::with_capacity(2 + marks.len() * 96);
+    out.push('[');
     for (i, m) in marks.iter().enumerate() {
         if i > 0 {
             out.push(',');
@@ -536,30 +589,22 @@ pub fn render_json(
         ));
     }
     out.push(']');
-    // The renderer the window ended up with (the detail of its `render_backend` mark), as the GPU
-    // and phone harnesses read it: `backend=<cpu|gpu> requested=<cpu|gpu|auto> device=<text>`.
-    if let Some(m) = marks.iter().find(|m| m.name == "render_backend") {
-        out.push_str(&format!(
-            ",\"render_backend\":\"{}\"",
-            json_escape(&m.detail)
-        ));
-    }
-    // The numbers a script wants without walking the marks.
-    for (key, name) in [
-        ("first_present_ms", "first_present"),
-        ("first_event_ms", "first_event"),
-        ("font_scan_complete_ms", "font_scan_complete"),
-        ("a11y_tree_first_built_ms", "a11y_tree_first_built"),
-    ] {
-        if let Some(at) = first_of(marks, name) {
-            out.push_str(&format!(
-                ",\"{key}\":{:.3}",
-                ms(before_us.saturating_add(at))
-            ));
-        }
-    }
-    out.push('}');
     out
+}
+
+/// The JSON of a timeline ([`StartupTimeline::to_json`]): the headline numbers first, then the marks.
+#[must_use]
+pub fn render_json(
+    enabled: bool,
+    marks: &[Mark],
+    before: Option<ProcessAge>,
+    layouts: u32,
+) -> String {
+    format!(
+        "{{{},\"marks\":{}}}",
+        headline_fields(enabled, marks, before, layouts),
+        render_marks_json(marks, before)
+    )
 }
 
 // -- what the OS says of the process start (pure parts first) ------------------------------------
