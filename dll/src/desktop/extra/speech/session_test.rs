@@ -692,3 +692,31 @@ fn the_model_api_drives_the_store_and_reports_its_state() {
     assert_eq!(session.clone().model_state().phase, SpeechModelPhase::Present);
     drop(std::fs::remove_dir_all(&dir));
 }
+
+/// A download that nobody waits for any more is not carried on: the end of the last handle stops it.
+#[test]
+fn the_end_of_the_session_stops_the_download_it_started() {
+    use super::{
+        builtin::model::model_test::{body, scratch, wait_for, Fake, TEST_MODEL},
+        builtin::{ModelPhase, ModelStore},
+        order::Preference,
+    };
+
+    let dir = scratch("session-drop");
+    let fake = Fake::new(body());
+    fake.hold_at(1000);
+    let model = ModelStore::new(&TEST_MODEL, fake.clone(), Some(dir.clone()));
+    let chain = Chain::new(ManualClock::shared(ORIGIN)).with(Box::new(MockSpeech::new(Kind::Native, vec![say(0, "hello")])));
+    let session = SpeechSession::from_chain(chain, None, true, Preference::Automatic, true, MicKeeper::without_microphone(), model.clone());
+    session.allow_model_download();
+    wait_for(&model, "the first window", |state| state.bytes_done == 1000);
+    drop(session);
+    fake.release();
+    let began = std::time::Instant::now();
+    while fake.cancelled() == 0 {
+        assert!(began.elapsed() < std::time::Duration::from_secs(10), "the download went on after its session ended");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_ne!(model.state().phase, ModelPhase::Present);
+    drop(std::fs::remove_dir_all(&dir));
+}

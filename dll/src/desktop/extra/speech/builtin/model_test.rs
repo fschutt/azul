@@ -69,6 +69,11 @@ impl Fake {
     pub(crate) fn calls(&self) -> usize {
         self.calls.load(Ordering::SeqCst)
     }
+
+    /// How many downloads ended because they were told to stop.
+    pub(crate) fn cancelled(&self) -> usize {
+        self.cancelled.load(Ordering::SeqCst)
+    }
 }
 
 impl ModelFetch for Fake {

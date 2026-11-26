@@ -1648,6 +1648,14 @@ impl Drop for ActiveGuard<'_> {
     }
 }
 
+impl Drop for SessionInner {
+    /// The last handle of the session is gone: a download that nobody waits for any more stops at its
+    /// next window (it would go on fetching 17 MB for a session that is over).
+    fn drop(&mut self) {
+        self.model.cancel();
+    }
+}
+
 impl SessionInner {
     /// The model has finished downloading: the built-in recognizer looks for its files again, as it did
     /// when the session began (the chain had marked it refused while the model was missing). It waits for
