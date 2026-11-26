@@ -53,6 +53,9 @@ pub fn phone(cx: &Cx) -> Dom {
         th::TEXT
     ))
     .with_id(PHONE_ID)
+    // the first mount of the screens says the window is ready (the timer, the connection): the phones' shells never call the window's
+    // creation callback, and every shell reports a mount
+    .with_callback(EventFilter::Component(ComponentEventFilter::AfterMount), cx.data.clone(), super::glue::on_window_ready)
     .with_child(screen);
     if let Some((key, _)) = &ui.toast {
         shell.add_child(toast(cx, &cx.t(key)));
@@ -117,3 +120,7 @@ fn toast(cx: &Cx, words: &str) -> Dom {
         ),
     ))
 }
+
+#[cfg(test)]
+#[path = "chrome_test.rs"]
+mod chrome_test;

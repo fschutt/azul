@@ -4,10 +4,10 @@ use super::*;
 
 /// The densities Android devices report (the standard buckets and what manufacturers and the "display
 /// size" setting make of them) and the widths and heights of their screens.
-const DENSITIES: [u32; 22] = [
+static DENSITIES: [u32; 22] = [
     120, 140, 160, 213, 240, 280, 320, 360, 392, 400, 411, 420, 440, 450, 480, 510, 540, 560, 600, 640, 720, 0,
 ];
-const LENGTHS: [i32; 24] = [
+static LENGTHS: [i32; 24] = [
     320, 360, 411, 480, 540, 600, 720, 768, 800, 828, 854, 1080, 1170, 1200, 1280, 1440, 1600, 1920, 2160, 2340, 2400,
     2560, 3120, 3200,
 ];

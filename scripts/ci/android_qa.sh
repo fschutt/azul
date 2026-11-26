@@ -6,7 +6,11 @@
 #   session  qa (default): scripts/ci/mobile_qa.py, the lifecycle of the plain APK;
 #            e2e: scripts/ci/mobile_e2e.py, the debug server of a `mobile-e2e` APK driven from the runner (the scenario
 #                 files named in AZ_QA_SCENARIOS, space separated);
-#            both: qa, then e2e on the same boot.
+#            both: qa, then e2e on the same boot;
+#            audit: the phone-fit audit of QA-variant APKs (scripts/ci/mobile_e2e.py --audit-only) on the first mode only: the
+#                 APK, then every APK of AZ_QA_AUDIT_APKS (space separated), each in its own folder <out>/<mode>/audit/<apk name>/
+#                 (layout-audit.md and .json, the dumps, both pictures per orientation, the dark-mode verdict, and the app's own
+#                 script: AzPaint paint, AzWriter writer, AzMaps maps).
 #
 # For an Ubuntu runner with KVM (without it the emulator is unusable) and the runner's Android SDK. Per GPU
 # mode <out-dir>/<mode>/ holds what scripts/ci/mobile_qa.py writes (qa.json, qa.md, shots/, logs/) and the
@@ -126,6 +130,21 @@ for mode in "${mode_list[@]}"; do
         --label "$xn" --gpu "$mode" --only "${AZ_QA_ONLY_EXTRA:-03,08,09,12,13}" ${xtap:+--tap-label "$xtap"} 2>&1 | tee "$d/apps/$xn.log"
     done
   fi
+  if [ "$session" = audit ] && [ "$mode" = "${mode_list[0]}" ]; then
+    for aapk in "$apk" ${AZ_QA_AUDIT_APKS:-}; do
+      ab="$("$aapt2" dump badging "$aapk" 2>/dev/null || true)"
+      apkg="$(echo "$ab" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+      aact="$(echo "$ab" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" | head -n 1)"
+      an="$(basename "$aapk" .apk)"
+      [ -n "$apkg" ] || { echo "no package in the badging of $aapk"; continue; }
+      ascript=""
+      case "$an" in AzPaint-*) ascript=paint ;; AzWriter-*) ascript=writer ;; AzMaps-*) ascript=maps ;; esac
+      echo "---- phone-fit audit of $an ($apkg)${ascript:+, script $ascript}"
+      mkdir -p "$d/audit"
+      python3 "$here/mobile_e2e.py" android --out "$d/audit/$an" --apk "$aapk" --package "$apkg" --activity "${aact:-}" \
+        --label "$an" --audit-only ${ascript:+--script "$ascript"} 2>&1 | tee "$d/audit/$an.log"
+    done
+  fi
   adb emu kill >/dev/null 2>&1 || true
   sleep 3
   kill "$emu" 2>/dev/null || true
@@ -136,7 +155,7 @@ python3 - "$out" <<'PY'
 import json, pathlib, sys
 out = pathlib.Path(sys.argv[1])
 rows = []
-for q in sorted(list(out.glob("*/qa.json")) + list(out.glob("*/e2e/qa.json")) + list(out.glob("*/apps/*/qa.json"))):
+for q in sorted(list(out.glob("*/qa.json")) + list(out.glob("*/e2e/qa.json")) + list(out.glob("*/apps/*/qa.json")) + list(out.glob("*/audit/*/qa.json"))):
     d = json.loads(q.read_text())
     failed = [s["name"] for s in d["steps"] if not s["ok"]]
     rows.append({"mode": str(q.parent.relative_to(out)), "ok": d["ok"], "steps": len(d["steps"]), "failed": failed})

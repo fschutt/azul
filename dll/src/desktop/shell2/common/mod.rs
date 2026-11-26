@@ -17,6 +17,9 @@ pub mod cpu_compositor;
 pub mod dlopen;
 pub mod error;
 pub mod gl_loader;
+/// How often a window presents while it is drawn continuously and how long the draw takes, measured inside the
+/// engine: the lines the phone QA reads for the frame times of a scroll.
+pub mod frame_stats;
 /// What happens to a phone's GL context, surface and renderer when the surface goes, the context is lost, the
 /// app goes to the background or the system wants memory back: a pure reducer both phone shells follow (the
 /// platform's executor performs its actions), tested against a fake platform that enforces the platforms' rules.
@@ -63,6 +66,8 @@ pub mod session_end;
 pub mod style_discovery;
 /// A closing window hands the app's background threads to a window that stays open.
 pub mod thread_handover;
+/// Which presses may start a text selection by dragging (a finger scrolls).
+pub mod touch_selection;
 pub mod transient;
 /// `<webview>`: the backend trait every platform's native web view
 /// implements, the headless one, and the pump that runs them.

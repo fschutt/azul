@@ -340,6 +340,7 @@ impl Builtin {
     /// The engine when the app names no library: the one the program linked (a build of one's own
     /// with the vendor's static library, the only way on iOS).
     #[cfg(feature = "speech-engine-static")]
+    // One signature for both versions of this function: the one that looks for a library can fail.
     #[allow(clippy::unnecessary_wraps)]
     fn default_engine(_exe_dir: Option<&Path>) -> Result<Box<dyn Engine>, Failure> {
         Ok(Box::new(LinkedEngine::new()))
