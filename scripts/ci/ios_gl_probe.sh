@@ -89,7 +89,7 @@ PY
   echo "simulator: $runtime / $devtype"
   udid="$(xcrun simctl create azul-glprobe "$devtype" "$runtime")" || exit 2
   own=1
-  trap 'xcrun simctl shutdown "$udid" >/dev/null 2>&1; xcrun simctl delete "$udid" >/dev/null 2>&1' EXIT
+  trap 'xcrun simctl shutdown "$udid" >/dev/null 2>&1; echo "left the simulator $udid in place (the runner is thrown away)"' EXIT
   t0=$(date +%s)
   xcrun simctl boot "$udid" || exit 2
   xcrun simctl bootstatus "$udid" -b >"$out/boot.log" 2>&1 || { tail -n 20 "$out/boot.log"; exit 2; }
