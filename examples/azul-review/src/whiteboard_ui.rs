@@ -196,7 +196,7 @@ fn css_px(v: f32) -> String {
 }
 
 /// One cutout as a node: its picture (or the lines it was made from while there is none), its label under it.
-fn cutout_dom(panel: &mut Panel, host: &Host, c: &Cutout, selected: bool) -> Dom {
+fn cutout_dom(panel: &mut Panel, c: &Cutout, selected: bool) -> Dom {
     let view = panel.wb.board.view();
     let o = view.to_screen(c.rect.origin());
     let (w, h) = (c.rect.w * view.zoom, c.rect.h * view.zoom);
@@ -237,17 +237,8 @@ fn cutout_dom(panel: &mut Panel, host: &Host, c: &Cutout, selected: bool) -> Dom
         }
     }
     let mut group = Dom::create_div().with_child(node);
-    if panel.editing == Some(c.id) {
-        let name = t_args(
-            "azreview-whiteboard-label-name",
-            &[
-                ("file", Arg::from(c.source.file.clone())),
-                ("first", Arg::from(c.source.first_line as usize)),
-                ("last", Arg::from(c.source.last_line as usize)),
-            ],
-        );
-        group.add_child(label_editor(host, c.id, c.label.as_str(), name, Pt::new(o.x, o.y + h + 3.0), w));
-    } else if !c.label.is_empty() {
+    // The label is shown under the cutout; while it is typed, its text area ([`editor_dom`]) is, over the surface.
+    if panel.editing != Some(c.id) && !c.label.is_empty() {
         group.add_child(
             Dom::create_span_with_text(c.label.as_str()).with_css(
                 format!(
@@ -289,19 +280,39 @@ fn label_editor(host: &Host, id: ItemId, text: &str, name: String, at: Pt, w: f3
 /// some (labels are short).
 const ARROW_LABEL_W: f32 = 160.0;
 
-/// The label of an arrow, on its line at the middle (or the text area it is being typed in): `None` for an arrow
-/// with no label that is not being edited.
-fn arrow_label_dom(panel: &Panel, host: &Host, a: &Arrow) -> Option<Dom> {
-    let editing = panel.editing == Some(a.id);
-    if a.label.is_empty() && !editing {
+/// The text area the label of item `id` is being typed in, to be put over the surface (which takes every click on
+/// the panel: a text area under it could not be clicked into): under a cutout, on the line of an arrow. `None` for
+/// an item that is not on the board.
+fn editor_dom(panel: &Panel, host: &Host, id: ItemId) -> Option<Dom> {
+    let board = &panel.wb.board;
+    let view = board.view();
+    if let Some(c) = board.cutout(id) {
+        let o = view.to_screen(c.rect.origin());
+        let (w, h) = (c.rect.w * view.zoom, c.rect.h * view.zoom);
+        let name = t_args(
+            "azreview-whiteboard-label-name",
+            &[
+                ("file", Arg::from(c.source.file.clone())),
+                ("first", Arg::from(c.source.first_line as usize)),
+                ("last", Arg::from(c.source.last_line as usize)),
+            ],
+        );
+        return Some(label_editor(host, id, c.label.as_str(), name, Pt::new(o.x, o.y + h + 3.0), w));
+    }
+    let a = board.arrow(id)?;
+    let mid = view.to_screen(board.place_arrow(id)?.curve.at(0.5));
+    let name = t("azreview-whiteboard-arrow-label-name");
+    Some(label_editor(host, id, a.label.as_str(), name, Pt::new(mid.x - ARROW_LABEL_W * 0.5, mid.y - 12.0), ARROW_LABEL_W))
+}
+
+/// The label of an arrow, on its line at the middle: `None` for an arrow with no label, or one whose label is being
+/// typed ([`editor_dom`]).
+fn arrow_label_dom(panel: &Panel, a: &Arrow) -> Option<Dom> {
+    if a.label.is_empty() || panel.editing == Some(a.id) {
         return None;
     }
     let board = &panel.wb.board;
     let mid = board.view().to_screen(board.place_arrow(a.id)?.curve.at(0.5));
-    if editing {
-        let name = t("azreview-whiteboard-arrow-label-name");
-        return Some(label_editor(host, a.id, a.label.as_str(), name, Pt::new(mid.x - ARROW_LABEL_W * 0.5, mid.y - 12.0), ARROW_LABEL_W));
-    }
     // The text sits in a pill that is as wide as the text, centred on the line's middle: a row that centres its one item.
     Some(
         Dom::create_div()
@@ -374,11 +385,11 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
     let mut root = Dom::create_div()
         .with_css("position: relative; flex-grow: 1; min-height: 0px; min-width: 0px; overflow: hidden; background: #f4f1ea;");
     for c in &cutouts {
-        root.add_child(cutout_dom(panel, host, c, selected == Some(c.id)));
+        root.add_child(cutout_dom(panel, c, selected == Some(c.id)));
     }
     let arrows: Vec<Arrow> = panel.wb.board.arrows().cloned().collect();
     for a in &arrows {
-        if let Some(on_its_line) = arrow_label_dom(panel, host, a) {
+        if let Some(on_its_line) = arrow_label_dom(panel, a) {
             root.add_child(on_its_line);
         }
     }
@@ -403,6 +414,10 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
         ));
     }
     root.add_child(surface(host));
+    // The label that is being typed: its text area is over the surface, so that a click lands in it.
+    if let Some(typing) = panel.editing.and_then(|id| editor_dom(panel, host, id)) {
+        root.add_child(typing);
+    }
     if panel.perf_on {
         panel.perf.layout(u32::try_from(began.elapsed().as_micros()).unwrap_or(u32::MAX));
     }

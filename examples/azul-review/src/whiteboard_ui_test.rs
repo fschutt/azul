@@ -302,6 +302,23 @@ fn the_keys_of_the_panel_take_the_selection_off_and_let_go_and_take_a_step_back(
 }
 
 #[test]
+fn the_text_area_of_a_label_is_over_the_surface_so_that_a_click_lands_in_it() {
+    crate::l10n::in_english();
+    let host = host();
+    let (dom, a) = host
+        .run(|p| {
+            let (a, _) = with_cutouts(p);
+            p.editing = Some(a);
+            (panel_dom(p, &host), a)
+        })
+        .expect("a panel");
+    let place = |id: &str| dom.children.as_slice().iter().position(|n| n.root.has_id(AzString::from(id)));
+    let (surface, area) = (place(SURFACE_ID), place(&format!("__azreview_whiteboard-label-{a}")));
+    assert!(surface.is_some() && area.is_some(), "{surface:?} {area:?}");
+    assert!(area > surface, "the text area comes after the surface: it is drawn over it and gets the pointer");
+}
+
+#[test]
 fn a_jump_to_a_file_that_is_not_as_it_was_tells_so_and_one_to_a_file_that_is_takes_it_back() {
     use crate::whiteboard_jump::Freshness;
     crate::l10n::in_english();
