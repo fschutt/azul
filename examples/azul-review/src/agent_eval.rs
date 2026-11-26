@@ -42,9 +42,9 @@ pub enum Scene {
     Stale,
     /// The same function with the stroke under `compute_stale_flag`.
     Compute,
-    /// An enum with the stroke under `enum`.
+    /// An enum with the stroke under its name, `Kind`.
     Enum,
-    /// Code that has no `enum` and nothing under the stroke (the stroke is off any word).
+    /// Code that has no `Kind` and nothing under the stroke (the stroke is off any word).
     Plain,
     /// A greeting in a string, with the stroke under `hello`.
     Hello,
@@ -129,7 +129,7 @@ const fn sure(w: &'static str) -> (&'static str, Option<f32>, bool) {
 }
 
 /// The table.
-pub static CASES: [Case; 24] = [
+pub static CASES: [Case; 25] = [
     // ---- nothing to do ----
     case(
         "test-phrase-hello-world",
@@ -231,16 +231,16 @@ pub static CASES: [Case; 24] = [
         case(
             "unlisted-low-probability-word",
             Scene::Plain,
-            "rename enum to kind",
+            "rename Kind to Size",
             Expect::NoAction,
             true,
             true,
         ),
         &[
             sure("rename"),
-            ("enum", Some(0.32), false),
+            ("Kind", Some(0.32), false),
             sure("to"),
-            sure("kind"),
+            sure("Size"),
         ],
     ),
     exploring(case(
@@ -253,7 +253,18 @@ pub static CASES: [Case; 24] = [
     )),
     // ---- a clear instruction is done ----
     case(
-        "clear-remove",
+        "clear-remove-this-line",
+        Scene::Stale,
+        "remove this line",
+        Expect::Suggests {
+            kind: Kind::Remove,
+            touching: "stale",
+        },
+        true,
+        true,
+    ),
+    case(
+        "clear-remove-this",
         Scene::Stale,
         "remove this",
         Expect::Suggests {
@@ -352,19 +363,19 @@ pub static CASES: [Case; 24] = [
         case(
             "biased-low-probability-identifier",
             Scene::Enum,
-            "rename enum to kind",
+            "rename Kind to Size",
             Expect::Suggests {
                 kind: Kind::Replace,
-                touching: "enum",
+                touching: "Kind",
             },
             true,
             true,
         ),
         &[
             sure("rename"),
-            ("enum", Some(0.32), true),
+            ("Kind", Some(0.32), true),
             sure("to"),
-            sure("kind"),
+            sure("Size"),
         ],
     ),
     case(
@@ -416,7 +427,7 @@ fn scene_code(
                 "    match kind { Kind::Small => 1, Kind::Large => 2 }",
                 "}",
             ],
-            Some((3, 0, "enum")),
+            Some((3, 5, "Kind")),
         ),
         Scene::Plain => (
             "src/lib.rs",

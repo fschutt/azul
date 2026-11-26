@@ -10,6 +10,11 @@
 //! tolerant of what models do (a code fence, a sentence before the object, a column that is a few
 //! bytes off).
 //!
+//! The words are speech-to-text: a request carries them with the probability the recogniser gave
+//! each ([`SaidWord`]) and a [`vocabulary`] of the names near the strokes to read them against, and
+//! a reply may say what it understood ([`Reply::heard_as`]) or that there is nothing to do
+//! ([`Reply::no_action`]: a test phrase, nonsense, words too uncertain or ambiguous to edit on).
+//!
 //! Nothing here runs a process or opens a socket: it is text in and text out, and every cut it
 //! makes (a long line, too many strokes, a suggestion that points at text that is not there) is a
 //! note in the answer's diagnostics.
@@ -203,7 +208,10 @@ macro_rules! no_action_rules {
 When to do nothing: reply with exactly {\"action\": \"none\", \"reason\": \"one short sentence for the log\"} and nothing else (no answer, no suggestions, no code fence) when:
 - the words are nonsense, unrelated to the code at hand, or a test phrase (\"hello world, this is a test\", \"testing one two\", \"can you hear me\");
 - they are empty, too short, or made of words the recogniser was unsure of, so that nothing can be acted on;
-- they are ambiguous between several different edits, or you cannot resolve them with confidence.
+- they only wish for something vague (\"make it better\", \"clean this up\", \"fix this\") without saying what to change: guessing the likeliest edit is still guessing;
+- they allow several different edits that do different things and nothing (not the strokes, not the code) says which is meant, or you cannot resolve them with confidence.
+A stroke settles what \"this\", \"that\" and \"it\" mean: they are what the strokes mark (the words under them, the lines they cover), so with a stroke on code they are clear; take the smallest whole piece of code that makes the edit sound (removing only the name of a variable would break its line: remove the line).
+The reviewer is told nothing when you do nothing, so do not explain, apologise or ask a question: the reason is for the log.
 When in doubt, do nothing: never change code on a doubtful input (a wrong edit costs the reviewer more than none, and an answer to nonsense is noise). A clear instruction is not doubtful: do it."
     };
 }
@@ -212,7 +220,7 @@ When in doubt, do nothing: never change code on a doubtful input (a wrong edit c
 macro_rules! speech_rules {
     () => {
         "\
-The words are the output of speech-to-text, which mishears: names of identifiers, short words, numbers, words of another language. Each word may come with the probability the recogniser gave it (0 to 1; a low one is a guess), and the request lists a vocabulary of names near the strokes (how a name is spoken is in brackets). Read the words as speech with likely mishearings: resolve a misheard word against that vocabulary and the code shown (a word that sounds like one of those names is that name), and say what you understood, with the mishearings corrected, in \"heard_as\" (one sentence; in a plain-text answer, a first line \"Heard as: ...\"); the raw transcript stays untouched in the note. Leave heard_as out when the words were clear. A word marked biased is one the recogniser was told to listen for (it is in the vocabulary): its probability is often low although the word is right, so a low probability on a biased word is no reason to do nothing. If you cannot resolve the words with confidence, do nothing."
+The words are the output of speech-to-text, which mishears: names of identifiers, short words, numbers, words of another language. Each word may come with the probability the recogniser gave it (0 to 1; a low one is a guess), and the request lists a vocabulary of names near the strokes (how a name is spoken is in brackets). Read the words as speech with likely mishearings: resolve a misheard word against that vocabulary and the code shown (a word that sounds like one of those names is that name), and say what you understood, with the mishearings corrected, in \"heard_as\" (one sentence, no label in it; in a plain-text answer, not in JSON, a first line \"Heard as: ...\"); the raw transcript stays untouched in the note. Do this whenever you read a word as another one: a misheard word put right, and a name that was spoken as separate words read as that name (\"compute stale flag\" is compute_stale_flag). Leave heard_as out when the words were clear. A word marked biased is one the recogniser was told to listen for (it is in the vocabulary): its probability is often low although the word is right, so a low probability on a biased word is no reason to do nothing. If you cannot resolve the words with confidence, do nothing."
     };
 }
 
@@ -1293,10 +1301,26 @@ fn action_is_none(value: &Json) -> bool {
         .is_some_and(|a| NO_ACTION_WORDS.contains(&a.trim().to_ascii_lowercase().as_str()))
 }
 
+/// The label a model puts in front of what it heard, even in a JSON value (`"Heard as: rename foo"`).
+const HEARD_AS_LABEL: &str = "heard as:";
+
+/// `text` without a leading `Heard as:` (the label is not part of what was heard).
+fn without_label(text: &str) -> &str {
+    let text = text.trim();
+    if text.len() >= HEARD_AS_LABEL.len()
+        && text.is_char_boundary(HEARD_AS_LABEL.len())
+        && text[..HEARD_AS_LABEL.len()].eq_ignore_ascii_case(HEARD_AS_LABEL)
+    {
+        text[HEARD_AS_LABEL.len()..].trim()
+    } else {
+        text
+    }
+}
+
 /// A first line `Heard as: ...` of a plain-text answer: what the agent understood, and the answer
 /// without that line.
 fn take_heard_as(answer: &str) -> (String, Option<String>) {
-    const LABEL: &str = "heard as:";
+    const LABEL: &str = HEARD_AS_LABEL;
     let text = answer.trim_start();
     let (first, rest) = text.split_once('\n').unwrap_or((text, ""));
     let first = first.trim_start();
@@ -1395,7 +1419,7 @@ fn reply_from_json(
     }
     let intent = agent_json::get(value, "intent").and_then(|i| intent_of(i, limits, notes));
     let heard_as = first_str(value, &["heard_as", "heard", "understood_as"])
-        .map(|t| cap_chars(&one_line(t.trim()), MAX_HEARD_AS).0)
+        .map(|t| cap_chars(&one_line(without_label(t)), MAX_HEARD_AS).0)
         .filter(|t| !t.is_empty());
     Reply {
         answer,

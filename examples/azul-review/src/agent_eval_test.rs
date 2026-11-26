@@ -39,7 +39,8 @@ fn the_table_has_the_cases_that_were_asked_for_and_each_once() {
         "empty",
         "low-probability-guesses",
         "ambiguous-make-it-better",
-        "clear-remove",
+        "clear-remove-this-line",
+        "clear-remove-this",
         "clear-rename",
         "misheard-identifier",
         "biased-low-probability-identifier",
@@ -145,7 +146,7 @@ fn a_reply_is_judged_against_what_its_case_wants() {
     );
     assert!(!judge(nothing, &Err(AgentError::Cancelled)).pass);
     // a clear instruction
-    let remove = named("clear-remove");
+    let remove = named("clear-remove-this-line");
     let pos = crate::agent_review::Pos { line: 12, col: 8 };
     let removed = reply_with(|r| {
         r.suggestions = vec![Suggestion::RemoveRange {
@@ -325,6 +326,122 @@ fn an_export_is_judged_by_the_recorders_own_check() {
     assert_eq!(judge_export(&empty, &manifest, 200).why, "no segment");
 }
 
+// ==== what the real claude answered, recorded ====
+
+fn recorded_config() -> ClaudeConfig {
+    ClaudeConfig {
+        program: PathBuf::from("claude"),
+        model: "haiku".to_string(),
+        timeout_secs: 60,
+        budget_cents: 30,
+        max_turns: 0,
+        effort: String::new(),
+        extra_args: Vec::new(),
+        key: None,
+        limits: Limits::default(),
+    }
+}
+
+/// The text of the answer a recorded envelope holds, as the backend reads it.
+fn text_of_envelope(envelope: &str) -> String {
+    let out = agent_process::Output {
+        code: Some(0),
+        stdout: envelope.as_bytes().to_vec(),
+        ..agent_process::Output::default()
+    };
+    read_envelope(&out, &recorded_config(), &[])
+        .expect("the envelope is read")
+        .text
+}
+
+fn read_as(case: &Case, text: &str) -> (Result<Reply, AgentError>, Vec<String>) {
+    let request = Request::Review(request_of(case));
+    let Request::Review(review) = &request else {
+        panic!("a review request")
+    };
+    let mut notes = Notes::new();
+    let reply = parse_body(review, text, &Limits::default(), &mut notes);
+    (reply, notes.finish())
+}
+
+#[test]
+fn the_envelopes_of_the_real_claude_are_read_and_their_answers_pass_the_cases_they_answered() {
+    for (name, envelope, case) in [
+        (
+            "claude_eval_no_action.json",
+            include_str!("agent_fixtures/claude_eval_no_action.json"),
+            "test-phrase-hello-world",
+        ),
+        (
+            "claude_eval_suggestion.json",
+            include_str!("agent_fixtures/claude_eval_suggestion.json"),
+            "clear-rename",
+        ),
+        (
+            "claude_eval_heard_as.json",
+            include_str!("agent_fixtures/claude_eval_heard_as.json"),
+            "misheard-identifier",
+        ),
+    ] {
+        let case = named(case);
+        let (reply, _) = read_as(case, &text_of_envelope(envelope));
+        let verdict = judge(case, &reply);
+        assert!(verdict.pass, "{name}: {}", verdict.why);
+    }
+}
+
+#[test]
+fn a_real_no_action_is_a_reply_with_a_reason_and_nothing_to_show() {
+    let text = text_of_envelope(include_str!("agent_fixtures/claude_eval_no_action.json"));
+    let reply = read_as(named("test-phrase-hello-world"), &text)
+        .0
+        .expect("reads");
+    assert!(
+        reply
+            .no_action
+            .as_deref()
+            .is_some_and(|r| r.contains("test phrase")),
+        "{reply:?}"
+    );
+    assert!(reply.answer.is_empty() && reply.suggestions.is_empty() && reply.intent.is_none());
+}
+
+#[test]
+fn replies_of_the_real_claude_in_the_shapes_it_gave_besides_a_bare_object_are_read_too() {
+    // a sentence, a blank line, then the object (sonnet does this now and then)
+    let text = include_str!("agent_fixtures/reply_prose_then_json.txt");
+    let case = named("clear-remove-this-line");
+    let (reply, _) = read_as(case, text);
+    assert!(judge(case, &reply).pass, "{reply:?}");
+    assert_eq!(reply.as_ref().expect("reads").suggestions.len(), 1);
+    // the label a model puts in front of what it heard inside the value is not kept
+    let text = include_str!("agent_fixtures/reply_heard_as_with_label.txt");
+    let case = named("misheard-spoken-compound");
+    let (reply, _) = read_as(case, text);
+    assert!(judge(case, &reply).pass, "{reply:?}");
+    assert_eq!(
+        reply.expect("reads").heard_as.as_deref(),
+        Some("rename compute_stale_flag to check_freshness")
+    );
+    // an exploration answers in prose, and prose is the answer
+    let text = include_str!("agent_fixtures/reply_exploration_prose.txt");
+    let case = named("exploration-question");
+    let (reply, _) = read_as(case, text);
+    assert!(judge(case, &reply).pass, "{reply:?}");
+}
+
+#[test]
+fn the_real_cut_list_is_read_and_sound_for_the_session_it_was_made_for() {
+    let (request, manifest) = export_fixture();
+    let text = text_of_envelope(include_str!("agent_fixtures/claude_eval_export.json"));
+    let mut notes = Notes::new();
+    let list = agent_export::parse_body(&request, &text, &Limits::default(), &mut notes);
+    let verdict = judge_export(&list, &manifest, Limits::default().max_cut_segments);
+    assert!(verdict.pass, "{}", verdict.why);
+    let list = list.expect("reads");
+    assert!(list.segments.len() >= 3 && !list.title.is_empty());
+}
+
 // ==== the real claude, run by hand ====
 
 fn env_or(name: &str, default: &str) -> String {
@@ -391,13 +508,15 @@ fn save(dir: &PathBuf, name: &str, text: &str) {
 }
 
 #[test]
-#[ignore = "X-EDGE-C-2: real claude -p evaluation of the table, run by hand: AZREVIEW_EVAL_MODEL=haiku AZREVIEW_EVAL_K=5 AZREVIEW_EVAL_ONLY=important AZREVIEW_EVAL_OUT=dir cargo test --lib real_claude_table -- --ignored --nocapture"]
+#[ignore = "X-EDGE-C-2: real claude -p evaluation of the table, run by hand: AZREVIEW_EVAL_MODEL=haiku AZREVIEW_EVAL_K=5 AZREVIEW_EVAL_ONLY=important AZREVIEW_EVAL_LOOSE=1 AZREVIEW_EVAL_OUT=dir cargo test --lib real_claude_table -- --ignored --nocapture"]
 fn real_claude_table() {
     let model = env_or("AZREVIEW_EVAL_MODEL", "haiku");
     let k: usize = env_or("AZREVIEW_EVAL_K", "5").parse().unwrap_or(5);
     let out = PathBuf::from(env_or(
         "AZREVIEW_EVAL_OUT",
-        &std::env::temp_dir().join("azreview-eval").to_string_lossy(),
+        &std::env::temp_dir()
+            .join("agent-eval-out")
+            .to_string_lossy(),
     ))
     .join(&model);
     let config = real_config(&model);
@@ -408,7 +527,22 @@ fn real_claude_table() {
             let Request::Review(review) = &request else {
                 panic!("a review request")
             };
-            let call = build_call(&request, review, &config.limits).expect("builds");
+            let mut call = build_call(&request, review, &config.limits).expect("builds");
+            if env_or("AZREVIEW_EVAL_LOOSE", "") == "1" {
+                // the instructions without their strictest sentences: what a model writes when it is
+                // only asked for a JSON object (fences, a sentence before it), to see what the reader
+                // has to read
+                call.system = call
+                    .system
+                    .replace(
+                        "Reply with exactly one JSON object and nothing else (no prose, no code fence):",
+                        "Reply with a JSON object like this:",
+                    )
+                    .replace(
+                        "reply with exactly {\"action\": \"none\", \"reason\": \"one short sentence for the log\"} and nothing else (no answer, no suggestions, no code fence)",
+                        "reply with {\"action\": \"none\", \"reason\": \"one short sentence for the log\"}",
+                    );
+            }
             let began = std::time::Instant::now();
             let (text, envelope) = real_text(&config, &call);
             let result = text.and_then(|text| {
@@ -451,7 +585,9 @@ fn real_claude_export() {
     let k: usize = env_or("AZREVIEW_EVAL_K", "3").parse().unwrap_or(3);
     let out = PathBuf::from(env_or(
         "AZREVIEW_EVAL_OUT",
-        &std::env::temp_dir().join("azreview-eval").to_string_lossy(),
+        &std::env::temp_dir()
+            .join("agent-eval-out")
+            .to_string_lossy(),
     ))
     .join(format!("{model}-export"));
     let config = real_config(&model);

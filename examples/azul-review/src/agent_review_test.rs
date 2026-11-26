@@ -732,7 +732,12 @@ fn both_system_prompts_say_when_to_do_nothing_and_how_to_read_the_words_once() {
         "a test phrase (\"hello world, this is a test\", \"testing one two\", \"can you hear me\")",
         "nonsense, unrelated to the code at hand",
         "empty, too short, or made of words the recogniser was unsure of",
-        "ambiguous between several different edits",
+        "only wish for something vague",
+        "guessing the likeliest edit is still guessing",
+        "several different edits that do different things",
+        "A stroke settles what \"this\", \"that\" and \"it\" mean",
+        "remove the line",
+        "do not explain, apologise or ask a question",
         "When in doubt, do nothing",
         "never change code on a doubtful input",
         "A clear instruction is not doubtful: do it.",
@@ -747,7 +752,9 @@ fn both_system_prompts_say_when_to_do_nothing_and_how_to_read_the_words_once() {
         "probability",
         "vocabulary",
         "\"heard_as\"",
+        "no label in it",
         "Heard as: ...",
+        "\"compute stale flag\" is compute_stale_flag",
         "the raw transcript stays untouched",
         "A word marked biased",
         "a low probability on a biased word is no reason to do nothing",
@@ -892,6 +899,15 @@ fn what_the_agent_heard_is_read_and_cut_and_the_answer_stays_the_answer() {
         .0
         .expect("reads");
     assert_eq!(none.heard_as, None, "nothing but blanks is nothing heard");
+    // the label models write inside the value is not part of what was heard (seen in the real answers)
+    let labelled = parse(r#"{"answer": "fine", "heard_as": "Heard as: rename foo to count"}"#)
+        .0
+        .expect("reads");
+    assert_eq!(labelled.heard_as.as_deref(), Some("rename foo to count"));
+    let only_label = parse(r#"{"answer": "fine", "heard_as": "heard as:"}"#)
+        .0
+        .expect("reads");
+    assert_eq!(only_label.heard_as, None);
     let other = parse(r#"{"answer": "fine", "understood_as": "remove foo"}"#)
         .0
         .expect("reads");

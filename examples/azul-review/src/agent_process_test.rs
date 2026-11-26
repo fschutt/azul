@@ -118,6 +118,69 @@ fn the_names_a_program_has_on_windows_are_tried_too() {
     );
 }
 
+// ==== a signal in the middle of a read ====
+
+/// A pipe that a signal interrupts now and then: what it holds comes in pieces, and a read that was
+/// interrupted says `Interrupted` and is to be made again.
+struct Flaky {
+    script: std::collections::VecDeque<std::io::Result<Vec<u8>>>,
+}
+
+impl std::io::Read for Flaky {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        match self.script.pop_front() {
+            None => Ok(0),
+            Some(Ok(bytes)) => {
+                buffer[..bytes.len()].copy_from_slice(&bytes);
+                Ok(bytes.len())
+            }
+            Some(Err(e)) => Err(e),
+        }
+    }
+}
+
+fn interrupted() -> std::io::Result<Vec<u8>> {
+    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+}
+
+fn everything(pipe: Flaky) -> Vec<u8> {
+    let receive = reader(pipe);
+    let mut got = Vec::new();
+    while let Ok(chunk) = receive.recv_timeout(std::time::Duration::from_secs(5)) {
+        got.extend(chunk);
+    }
+    got
+}
+
+#[test]
+fn a_read_a_signal_interrupted_is_made_again_and_the_program_loses_none_of_its_words() {
+    let pipe = Flaky {
+        script: vec![
+            interrupted(),
+            interrupted(),
+            Ok(b"abc".to_vec()),
+            interrupted(),
+            Ok(b"def".to_vec()),
+            interrupted(),
+        ]
+        .into(),
+    };
+    assert_eq!(everything(pipe), b"abcdef");
+}
+
+#[test]
+fn a_pipe_that_fails_for_real_ends_the_read_at_once_with_what_it_gave() {
+    let pipe = Flaky {
+        script: vec![
+            Ok(b"abc".to_vec()),
+            Err(std::io::Error::from(std::io::ErrorKind::ConnectionReset)),
+            Ok(b"never".to_vec()),
+        ]
+        .into(),
+    };
+    assert_eq!(everything(pipe), b"abc");
+}
+
 // ==== running a program ====
 
 #[cfg(unix)]
