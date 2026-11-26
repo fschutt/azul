@@ -149,7 +149,8 @@ Lines are 1-based, pages and indices 0-based.
 | `wb.close` | 5 | `width` |
 | `wb.resize` | 10 | `width` |
 | `wb.cutout` | 20 | `id`, `file`, `first`, `last` |
-| `wb.arrow` | 20 | `id`, `from`, `to` |
+| `wb.arrow` | 20 | `id`, `from`, `to` (absent when the arrow hangs on nothing) |
+| `wb.edit` | 20 | `op` (`arrow`, `moved`, `resized`, `labelled`, `removed`, `undone`, `redone`), `id`, `ids` (for `removed`) |
 | `wb.jump` | 10 | `id`, `file`, `first`, `last` |
 | `marker` | 5 | `label`: a chapter the user marked with the hotkey |
 | `recorder.track` | 5 | `track`, `status`, `note` |
@@ -227,16 +228,32 @@ conversations and their outcomes, the markers) and returns an EDL.
 * A version-3 field is never required: a generator writes what it knows, the renderer takes
   defaults for the rest, and a field it does not know is an error naming the field.
 
-### v1: the deterministic export (built first)
+### v1: the deterministic export (built: `recorder_edl.rs`, `recorder_export.rs`)
 
-`identity_edl(manifest, events)` makes the cut list that needs no judgement: the screen as the base,
-the camera as a picture-in-picture in the corner, the microphone, chapters from `nav.file`, no cuts
-(one segment per run). The renderer (`recorder_export.rs`) turns an EDL and the manifest into
-ffmpeg command lines (a pure function, unit-tested as text), runs them, and reports progress: inputs
-are the segment files that overlap each cut; the graph is `trim` / `setpts` / `fps` / `scale` /
-`overlay` / `concat` for the picture and `atrim` / `aresample` / `acrossfade` / `concat` for the sound;
-encoder `h264_videotoolbox` (hardware), `libx264` where it is missing. `ffmpeg` is
-`/opt/homebrew/bin/ffmpeg` by default and a setting. The e2e renders a mock cut list.
+`identity_edl(manifest, file_changes)` makes the cut list that needs no judgement: one segment for each
+run (so a pause is not in the video), the screen as the base, the camera as a picture-in-picture in the
+corner where it was recorded, the microphone, a chapter for each file the review opened (`nav.file`), the
+picture the screen's shape up to 1920 x 1080. `Edl::parse` reads a cut list strictly (an unknown field is
+an error that names it) and checks it against the session: segments inside one run, a zoom inside the
+screen track, a crossfade no longer than half a segment, chapters in order.
+
+The renderer plans the export as TEXT first (`build_plan`, a pure function, tested as strings) and then runs
+it (`run`). Each segment becomes one ffmpeg command that makes a piece `seg_<id>.mp4`: a background colour
+of the cut's length, the screen's slices (one file, or several joined by `concat`) cropped to the zoom,
+scaled into the frame and held on their last picture (`tpad`) because a screen that did not change is a
+last picture, the camera's slices the same, scaled to the camera's width and overlaid in its corner, the
+voice's slices with `aresample`, the delay of a track that began late, the gain, and `atempo` for the speed;
+a track that was not recording at all gives silence (`anullsrc`). The picture is composed at the recording's
+speed and the speed applied last. All pieces have the same encoding (`h264_videotoolbox`, the Mac's video
+hardware, when this ffmpeg has it, else `libx264`; AAC), so one last command joins them with `-c copy` and
+gives the file its chapters and its title (`ffmetadata`). Pieces, not one big graph: a session is hours long
+and a graph over every file would hold them all open; a piece that fails is named; the pieces are the unit
+the later versions' crossfades will work on. A cut that spans a resize of the window is refused in words
+(ffmpeg cannot join pictures of two sizes: cut the list at the resize). `ffmpeg` is
+`/opt/homebrew/bin/ffmpeg` unless the settings say another. A failed or cancelled export leaves no half-made
+video; progress comes from ffmpeg's own `time=` lines. The end-to-end test records a session on stand-in
+encoders that replay real H.264 and Opus, makes the cut list, exports it with a real ffmpeg and checks
+streams, length, chapters and a clean decode with ffprobe.
 
 ### v2: enhancement (designed, not built)
 
@@ -267,22 +284,29 @@ An editing task in the agent settings (next to exploration and editing; the back
 choice) reads manifest + transcript + event summary and returns an EDL: highlights, structure,
 titles, zooms to where the pen worked. The same schema, the same renderer.
 
-## 7. Getting AzReview's own frames: the frame tap
+## 7. Getting the screen: the frame tap and the system's capture
 
-The screen track is what the window presented, not what the OS shows: no screen-recording permission,
-nothing else on the desktop, pixel-perfect at device scale. An additive azul API,
-`CallbackInfo::set_frame_tap`, registers a callback that the CPU renderer (`CpuBackend::render_frame`,
-one implementation for macOS, X11, Wayland, Windows and headless) calls when a frame changed, with
-the size in device pixels, the stride, the format (RGBA8), the scale, the damaged rectangles (or
-"everything") and the pixels, borrowed for the call. It is not called when nothing changed.
+Two sources feed the same screen track (`recorder_screen.rs`), with the same pacing: a change is sent at
+most 10 times a second, the same picture three more times after it for sharpness, a keyframe every two
+seconds, nothing while the window is still.
 
-The recorder copies only the damaged rows into a shadow frame and snapshots it to the encoder from
-its 100 ms timer. Measured on this Mac (Apple M2, loaded): a 400 x 300 damage rectangle 0.013 ms, a
-whole 2880 x 1800 window 0.5 ms (into a reused buffer; 1.2 ms into a fresh allocation). On the UI
-thread a frame costs about 0 when idle, 0.01 ms while inking, at most 1 ms when the whole window
-changes. A window on the GPU path is recorded from a ScreenCaptureKit window capture of AzReview's own
-window (the existing `ScreenCaptureWidget`; Screen Recording permission), later from a pixel-buffer
-readback before the buffers swap.
+* **The engine's frame tap** (designed, NOT built yet): what the window presented, not what the OS shows:
+  no screen-recording permission, nothing else on the desktop, pixel-perfect at device scale. An additive
+  azul API, `CallbackInfo::set_frame_tap`, registers a callback that the CPU renderer
+  (`CpuBackend::render_frame`, one implementation for macOS, X11, Wayland, Windows and headless) calls when
+  a frame changed, with the size in device pixels, the stride, the format (RGBA8), the scale, the damaged
+  rectangles (or "everything") and the pixels, borrowed for the call. It is not called when nothing changed.
+  The recorder copies only the damaged rows into a shadow frame (`Recorder::tap`) and snapshots it to the
+  encoder from its 100 ms timer. Measured on this Mac (Apple M2, loaded): a 400 x 300 damage rectangle
+  0.013 ms, a whole 2880 x 1800 window 0.5 ms (into a reused buffer; 1.2 ms into a fresh allocation). On the
+  UI thread a frame costs about 0 when idle, 0.01 ms while inking, at most 1 ms when the whole window
+  changes. A window on the GPU renderer has no CPU frame to tap; a pixel-buffer readback before the buffers
+  swap is the engine work that would cover it.
+* **The system's capture of the window** (built: `Recorder::screen_frame`): azul's `ScreenCaptureWidget`
+  (ScreenCaptureKit) delivers whole frames of AzReview's own window, NV12 or BGRA, only when the window
+  changed; the recorder keeps the newest as the picture. It works for a window on the GPU path and needs the
+  Screen Recording permission (Terminal holds it on the user's Mac). The manifest says which source made the
+  track (`frame-tap` or `screencapturekit`).
 
 ## 8. Permissions, quota, privacy
 
@@ -308,3 +332,24 @@ a second, the worst case): hardware H.264 adds 0.3 s of CPU per 8 s of video (ab
 PSNR 41 dB at 3M at once and 46-47 dB after twenty repeats, which is why a burst is followed by three
 repeats. Per hour: screen 0.1-0.4 GB typical (1.2 GB when scrolling the whole time), camera 720p15 at
 800 kbit/s 0.36 GB, microphone 0.014 GB.
+
+The recorder's own code, measured by the ignored test
+`a_simulated_session_of_ten_minutes_is_priced_in_cpu_seconds_per_hour_and_memory` in `recorder_test.rs`
+(`cargo test --release -p AzReview --lib -- --ignored --nocapture a_simulated_session`, macOS): a simulated
+600-second session run as fast as it goes at a mock clock with stand-in encoders that keep no picture (so
+the encoders' own cost is not in it), a 2880 x 1800 window, a 1280 x 720 camera at 15 pictures a second and
+the voice in 20 ms chunks. Two runs on this Mac (Apple M2, 8 GB, other builds running), release build:
+
+| the window | CPU per hour of recording | of one core | peak memory |
+| --- | --- | --- | --- |
+| the whole of it changes every tick (the worst case) | 82-98 s | 2.3-2.7% | 77-78 MB |
+| a pen stroke: 400 x 300 changes in two ticks of ten | 26-32 s | 0.7-0.9% | 77-78 MB |
+| nothing changes (camera and voice running) | 1.1-1.2 s | 0.03% | 75-81 MB |
+
+Nearly all of the first two is the copy of the shadow frame that is handed to the encoder (20.7 MB for
+each picture sent, at most 10 a second and the three repeats of a change): ten copies a second at about
+10 GB/s is the 2%. Lending the encoder a borrowed slice instead of a `RawFrame` would remove it; it is the
+first thing to do if these numbers have to go down. With the hardware encoder's measured 3% of a core in
+the worst case on top, a recording costs about 6% of a core when the whole window changes all the time
+and 1-2% when it is used as a review is used. The peak memory is the test's own window (21 MB), the
+recorder's shadow frame (21 MB) and one picture in flight.

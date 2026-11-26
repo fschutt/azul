@@ -30,6 +30,9 @@ pub const SPEECH_LOG_VAR: &str = "AZ_SPEECH_LOG";
 /// The variable holding what a headless run hears.
 pub const SPEECH_HEARD_VAR: &str = "AZ_SPEECH_HEARD";
 
+/// The variable naming the file that scripts what a headless run's recognizers hear and refuse.
+pub const SPEECH_SCRIPT_VAR: &str = "AZ_SPEECH_SCRIPT";
+
 /// How long the portal's share dialog may stay open before a screen capture gives up: five
 /// minutes.
 pub const SCREENCAP_START_TIMEOUT_SECS: u64 = 300;

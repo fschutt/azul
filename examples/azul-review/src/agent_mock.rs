@@ -20,8 +20,11 @@ use crate::{
     agent_backend::{
         AgentError, Backend, BackendKind, Call, Completion, Control, Identity, Request, Task, Usage,
     },
-    agent_review::{reply_text, Intent, Pos, Reply, Suggestion},
+    agent_export::{cut_list_text, Chapter, CutList, CutSegment, ExportRequest},
+    agent_limits::Limits,
+    agent_review::{reply_text, Intent, Pos, Reply, ReviewRequest, Suggestion},
     agent_stroke::Meaning,
+    stroke_features::offline_intent_for,
 };
 
 /// How often a wait looks at the cancel check, ms.
@@ -171,9 +174,8 @@ fn first_words(text: &str, max: usize) -> String {
     crate::agent_limits::cap_chars(&text.split_whitespace().collect::<Vec<_>>().join(" "), max).0
 }
 
-/// What the auto mock answers to `request`.
-fn auto_reply(request: &Request) -> Reply {
-    let Request::Review(review) = request;
+/// What the auto mock answers to a review request.
+fn auto_reply(review: &ReviewRequest) -> Reply {
     let mut said: Vec<&str> = review.utterances.iter().map(|u| u.text.as_str()).collect();
     if said.is_empty() {
         said.extend(review.turns.iter().rev().take(1).map(|t| t.text.as_str()));
@@ -181,25 +183,30 @@ fn auto_reply(request: &Request) -> Reply {
     let said = said.join(" ");
     let lower = said.to_lowercase();
     let any = |words: &[&str]| words.iter().any(|w| lower.contains(w));
+    // what the words say, when they say it plainly; else what the shapes of the strokes the reviewer
+    // did not choose a meaning for say (the rule table of the features); else the plain default
+    let by_words = if lower.contains('?') || any(&["why", "what", "warum", "was "]) {
+        Some(Meaning::Question)
+    } else if any(&[
+        "remove", "delete", "rename", "replace", "entfern", "lösch", "umbenenn", "ersetz",
+    ]) {
+        Some(Meaning::Issue)
+    } else {
+        None
+    };
+    let rule_of_thumb = |meaning: Meaning| Intent {
+        meaning: Some(meaning),
+        confidence: 0.3,
+        rationale: "the mock's rule of thumb".to_string(),
+    };
     let intent = review
         .strokes
         .iter()
         .any(|s| !s.pinned || s.meaning.is_none())
-        .then(|| {
-            let meaning = if lower.contains('?') || any(&["why", "what", "warum", "was "]) {
-                Meaning::Question
-            } else if any(&[
-                "remove", "delete", "rename", "replace", "entfern", "lösch", "umbenenn", "ersetz",
-            ]) {
-                Meaning::Issue
-            } else {
-                Meaning::Scope
-            };
-            Intent {
-                meaning: Some(meaning),
-                confidence: 0.3,
-                rationale: "the mock's rule of thumb".to_string(),
-            }
+        .then(|| match by_words {
+            Some(meaning) => rule_of_thumb(meaning),
+            None => offline_intent_for(&review.strokes, &review.context, &Limits::default())
+                .unwrap_or_else(|| rule_of_thumb(Meaning::Scope)),
         });
     if review.task == Task::Exploration {
         return Reply {
@@ -260,6 +267,46 @@ fn auto_reply(request: &Request) -> Reply {
     }
 }
 
+/// What the auto mock answers to an export: a fixed cut list of one piece (the first seconds of the
+/// first run, the camera as the session has it); no judgement, no cutter.
+fn fixed_cut_list(export: &ExportRequest) -> CutList {
+    let (start, run_end) = export
+        .session
+        .runs
+        .first()
+        .copied()
+        .unwrap_or((0, export.session.duration_us));
+    let out = (start + 5_000_000).min(if run_end > start {
+        run_end
+    } else {
+        start + 5_000_000
+    });
+    CutList {
+        title: "Mock cut".to_string(),
+        segments: vec![CutSegment {
+            in_us: start,
+            out_us: out,
+            camera: export.session.camera,
+            speed: 1.0,
+            zoom: None,
+            caption: None,
+            title: Some("Mock chapter".to_string()),
+        }],
+        chapters: vec![Chapter {
+            t_us: start,
+            title: "Mock chapter".to_string(),
+        }],
+    }
+}
+
+/// The text the auto mock answers to `request`.
+fn auto_text(request: &Request) -> String {
+    match request {
+        Request::Review(review) => reply_text(&auto_reply(review)),
+        Request::Export(export) => cut_list_text(&fixed_cut_list(export)),
+    }
+}
+
 impl Backend for MockBackend {
     fn identity(&self) -> Identity {
         Identity {
@@ -290,7 +337,7 @@ impl Backend for MockBackend {
         let step = match &mut self.mode {
             Mode::Auto { delay_ms } => Step::Reply {
                 delay_ms: *delay_ms,
-                text: reply_text(&auto_reply(call.request)),
+                text: auto_text(call.request),
             },
             Mode::Script(steps) => steps.pop_front().ok_or_else(|| AgentError::Settings {
                 why: "the mock's script is used up".to_string(),
@@ -310,6 +357,7 @@ impl Backend for MockBackend {
                         ..Usage::default()
                     },
                     model: "mock".to_string(),
+                    notes: Vec::new(),
                 })
             }
             Step::Fail { delay_ms, error } => {

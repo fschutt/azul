@@ -4220,15 +4220,19 @@ jobs:
 
       # The generated conformance programs (azul-doc codegen renders ONE plan -
       # every constant, derive round-trip, variant constructor, Vec and
-      # callback kind - into every binding): each shipped binding in this
-      # family must pass its whole plan.
+      # callback kind - but into C only so far): a language that has a program
+      # must pass its whole plan. A shipped binding without one is listed in
+      # scripts/conformance_pending.txt (reported PENDING, not failed); the
+      # step fails when a shipped binding is neither there nor has a program,
+      # and when a line there names a binding that has one now.
       - name: Conformance programs (generated, gates the shipped tier)
         shell: bash
         run: bash scripts/conformance.sh ${{ matrix.family.langs }}
 
       # The same programs as memtests: a debugger run (crashes, double frees)
-      # and a small-N / large-N peak-RSS comparison (leaks). Needs gdb/lldb,
-      # which the Windows runner lacks.
+      # and every case run again with libazul's alloc-stats byte count, which
+      # must come back to where it was (leaks). Needs gdb/lldb, which the
+      # Windows runner lacks.
       - name: Conformance memtest (crash + leak)
         if: matrix.os != 'windows-2022'
         shell: bash
@@ -4605,15 +4609,19 @@ jobs:
 
       # The generated conformance programs (azul-doc codegen renders ONE plan -
       # every constant, derive round-trip, variant constructor, Vec and
-      # callback kind - into every binding): each shipped binding in this
-      # family must pass its whole plan.
+      # callback kind - but into C only so far): a language that has a program
+      # must pass its whole plan. A shipped binding without one is listed in
+      # scripts/conformance_pending.txt (reported PENDING, not failed); the
+      # step fails when a shipped binding is neither there nor has a program,
+      # and when a line there names a binding that has one now.
       - name: Conformance programs (generated, gates the shipped tier)
         shell: bash
         run: bash scripts/conformance.sh ${{ matrix.family.langs }}
 
       # The same programs as memtests: a debugger run (crashes, double frees)
-      # and a small-N / large-N peak-RSS comparison (leaks). Needs gdb/lldb,
-      # which the Windows runner lacks.
+      # and every case run again with libazul's alloc-stats byte count, which
+      # must come back to where it was (leaks). Needs gdb/lldb, which the
+      # Windows runner lacks.
       - name: Conformance memtest (crash + leak)
         if: matrix.os != 'windows-2022'
         shell: bash
@@ -6941,8 +6949,8 @@ jobs:
           retention-days: 30
 
   fuzz_build:
-    # The fuzz targets of the crates that read bytes other people wrote (azul-storage, azcloud-kit)
-    # are BUILT, so a target that stopped compiling is a red job and not a corpus nobody runs
+    # The fuzz targets of the crates that read bytes other people wrote (azul-storage, azcloud-kit, azlin-cbor,
+    # azlin-content, azlin-keys) are BUILT, so a target that stopped compiling is a red job and not a corpus nobody runs
     # (X-DELTA-AZDRIVE-KEYS-42). A run is for a machine with hours to spend
     # (`cargo +nightly fuzz run <target>`, from the crate's fuzz folder); a CI job can afford a build.
     needs: [supply_chain_preflight]
@@ -6972,7 +6980,7 @@ jobs:
       - name: Build the fuzz targets
         run: |
           set -euo pipefail
-          for crate in examples/azul-storage examples/azcloud-kit; do
+          for crate in examples/azul-storage examples/azcloud-kit examples/azlin-cbor examples/azlin-content examples/azlin-keys; do
             echo "=== cargo fuzz build in $crate ==="
             # A fuzz project is no member of the workspace and its Cargo.lock is not committed: start
             # from the workspace's, so the targets build against the versions the tests run on.

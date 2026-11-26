@@ -122,6 +122,21 @@ fn variant_case(o: &mut String, v: &VariantCase, n: usize) {
     let _ = writeln!(o, "static void check_variant_{n}(void) {{ /* {}::{} */", v.ty, v.variant);
     let args: Vec<String> = match (&v.payload_check, v.args.as_slice()) {
         (Some(PayloadCheck::Primitive { ty }), [_]) => vec![distinct(ty)],
+        // The payload is made first and a copy of it kept: the constructor takes the one,
+        // the read-back is compared with the other. A second value made the same way is
+        // not the value that went in - two separately made values of a type with an
+        // identity (a `RefAny` handle: every `Timer`) are never equal.
+        (Some(PayloadCheck::PartialEq { clone, copy, .. }), [r]) => {
+            let pt = c_type(r.ty());
+            let _ = writeln!(o, "    {pt} arg = {};", make(r));
+            let expected = match (clone, *copy) {
+                (_, true) => "arg".to_string(),
+                (Some(clone), false) => format!("{clone}(&arg)"),
+                (None, false) => make(r),
+            };
+            let _ = writeln!(o, "    {pt} expected = {expected};");
+            vec!["arg".to_string()]
+        }
         _ => v.args.iter().map(make).collect(),
     };
     let _ = writeln!(o, "    {t} v = {}({});", v.c_fn, args.join(", "));
@@ -136,14 +151,11 @@ fn variant_case(o: &mut String, v: &VariantCase, n: usize) {
         (Some(PayloadCheck::Primitive { ty }), [_]) => {
             let _ = writeln!(o, "    CHECK(v.{}.payload == {}, {read_back});", v.variant, distinct(ty));
         }
-        (Some(PayloadCheck::PartialEq { eq, delete }), [r]) => {
-            let _ = writeln!(o, "    {{");
-            let _ = writeln!(o, "        {} expected = {};", c_type(r.ty()), make(r));
-            let _ = writeln!(o, "        CHECK({eq}(&v.{}.payload, &expected), {read_back});", v.variant);
+        (Some(PayloadCheck::PartialEq { eq, delete, .. }), [_]) => {
+            let _ = writeln!(o, "    CHECK({eq}(&v.{}.payload, &expected), {read_back});", v.variant);
             if let Some(del) = delete {
-                let _ = writeln!(o, "        {del}(&expected);");
+                let _ = writeln!(o, "    {del}(&expected);");
             }
-            let _ = writeln!(o, "    }}");
         }
         _ => {}
     }
@@ -216,11 +228,16 @@ pub fn render(plan: &ConformancePlan) -> String {
          #define az_sleep_ms(ms) usleep((ms) * 1000)\n\
          #endif\n\n\
          // libazul's process-wide bytes once its background threads (a font\n\
-         // scan, a logger) have gone quiet: unchanged for 50 ms, at most 5 s.\n\
+         // scan, a logger) have gone quiet: unchanged for 500 ms, at most 20 s.\n\
+         // An App starts a font scan that goes on after the App is gone (a\n\
+         // pause of 95 ms was measured on a runner), and the thread that saves\n\
+         // its result looks every 50 ms whether it is done: a quiet of 50 ms took\n\
+         // a pause of the scan for its end, and the scan's memory, finished a\n\
+         // moment later, was counted as a leak of the case.\n\
          static int64_t settled_live_bytes(void) {{\n\
              int64_t last = AzDebug_liveBytes();\n\
              int stable = 0;\n\
-             for (int i = 0; i < 1000 && stable < 10; i++) {{\n\
+             for (int i = 0; i < 4000 && stable < 100; i++) {{\n\
                  az_sleep_ms(5);\n\
                  int64_t now = AzDebug_liveBytes();\n\
                  if (now == last) stable++; else {{ stable = 0; last = now; }}\n\
@@ -313,3 +330,7 @@ pub fn render(plan: &ConformancePlan) -> String {
     );
     o
 }
+
+#[cfg(test)]
+#[path = "c_test.rs"]
+mod tests;

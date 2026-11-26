@@ -3,8 +3,8 @@
 //! allowed it), what a "no" says, and when asking is not safe.
 
 use super::{
-    app_name_from_path, declined, decide, Access, Decision, Gate, Gates, Refusal, MICROPHONE_KEY,
-    SPEECH_KEY,
+    app_name_from_path, decide, decide_microphone, declined, Access, Decision, Gate, Gates, Refusal,
+    MICROPHONE_KEY, SPEECH_KEY,
 };
 
 /// A bare binary: no Info.plist, so neither usage text.
@@ -197,4 +197,28 @@ fn the_app_a_process_runs_from_is_named_by_its_bundle() {
     assert_eq!(app_name_from_path("/opt/homebrew/bin/zsh"), None);
     assert_eq!(app_name_from_path("/weird/.app/Contents"), None, "an empty name is none");
     assert_eq!(app_name_from_path(""), None);
+}
+
+/// The built-in recognizer needs the microphone and nothing of the system's speech recognition:
+/// a Mac whose speech recognition is off still lets it listen.
+#[test]
+fn the_microphone_alone_is_what_the_built_in_recognizer_needs() {
+    // Speech recognition is denied, undecided or restricted: not its business.
+    for speech in [Access::Denied, Access::NotDetermined, Access::Restricted, Access::Authorized] {
+        assert_eq!(decide_microphone(&bare(speech, Access::Authorized)), Decision::Listen, "{speech:?}");
+    }
+    // The microphone is.
+    let (why, message) = refusal(decide_microphone(&bare(Access::Authorized, Access::Denied)));
+    assert_eq!(why, Refusal::Denied);
+    assert!(message.contains("Privacy & Security > Microphone") && message.contains("Terminal"), "{message}");
+    // Undecided: asked only with the microphone's own text, whatever speech's is.
+    let with_text = Gates {
+        microphone_key: true,
+        ..bare(Access::NotDetermined, Access::NotDetermined)
+    };
+    assert_eq!(decide_microphone(&with_text), Decision::Ask { speech: false, microphone: true });
+    let (why, message) = refusal(decide_microphone(&bare(Access::NotDetermined, Access::NotDetermined)));
+    assert_eq!(why, Refusal::Unavailable);
+    assert!(message.contains(MICROPHONE_KEY) && !message.contains(SPEECH_KEY), "{message}");
+    assert!(message.contains("the microphone") && !message.contains("speech recognition"), "{message}");
 }

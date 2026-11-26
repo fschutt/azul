@@ -58,4 +58,5 @@ fn the_names_of_the_headless_stand_in_switches_are_kept() {
     assert_eq!(NETWORK_STATE_FILE_VAR, "AZ_NETWORK_STATE_FILE");
     assert_eq!(SPEECH_LOG_VAR, "AZ_SPEECH_LOG");
     assert_eq!(SPEECH_HEARD_VAR, "AZ_SPEECH_HEARD");
+    assert_eq!(SPEECH_SCRIPT_VAR, "AZ_SPEECH_SCRIPT");
 }

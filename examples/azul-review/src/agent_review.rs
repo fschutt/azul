@@ -21,6 +21,7 @@ use crate::{
     agent_json::{self, json, Json},
     agent_limits::{cap_bytes, cap_chars, Limits, Notes},
     agent_stroke::{fmt_num, shape, svg_document, Meaning, Shape, StrokeInput},
+    stroke_features::{analyze, describe},
 };
 
 // ==== The request ====
@@ -172,11 +173,12 @@ Rules:
 - old is the exact text now in the range: always give it for replace and remove, so the app can check the range.
 - Propose only what the reviewer asked for or clearly meant with their words and strokes, and keep each edit small. A comment you write follows the comment syntax of the file.
 - If the reviewer asks a question, or you are not sure what they mean, put your reply in answer and send no suggestions.
+- \"Shape features\" are hints computed on the reviewer's machine from the strokes (an underline, a circle, a scribble, the words a stroke covers): read them with the SVG; they can be wrong.
 - Write answer in the reviewer's language.";
 
 /// The standing instructions of the exploration agent.
 pub const EXPLORATION_SYSTEM: &str = "\
-You are the exploration agent of AzReview, an ink-first code review app. A reviewer reads source code on pages, marks it with a pen and talks while drawing. You get the strokes, the words said while they were drawn and the code around them, and you answer their questions about the code. You may read the files of the workspace with the read-only tools you have; you cannot change anything and you never say that something was changed.
+You are the exploration agent of AzReview, an ink-first code review app. A reviewer reads source code on pages, marks it with a pen and talks while drawing. You get the strokes, the words said while they were drawn and the code around them, and you answer their questions about the code. The request also lists \"Shape features\" of the strokes: hints computed on the reviewer's machine (an underline, a circle, the words a stroke covers); they can be wrong. You may read the files of the workspace with the read-only tools you have; you cannot change anything and you never say that something was changed.
 
 Answer in plain text (Markdown is fine): short, concrete, in the reviewer's language; name files and line numbers.
 Only if the reviewer asks for a change, end your answer with one fenced json block {\"suggestions\": [...]} whose entries are {\"kind\": \"insert_lines\", \"after_line\": N, \"lines\": [...]}, {\"kind\": \"replace\", \"start\": {\"line\": L, \"col\": C}, \"end\": {\"line\": L, \"col\": C}, \"old\": \"...\", \"text\": \"...\"} or {\"kind\": \"remove\", \"start\": {...}, \"end\": {...}, \"old\": \"...\"}: lines are 1-based as shown, col is a 0-based byte offset, end is exclusive, old is the exact text now in the range.";
@@ -208,6 +210,8 @@ struct Parts<'a> {
     code: Vec<(usize, String)>,
     words: &'a [WordRef],
     svg: String,
+    /// What each stroke looks like, as a line each.
+    features: Vec<String>,
     stroke_ids: Vec<(u64, u64, u64)>,
     strokes: &'a [StrokeInput],
     utterances: &'a [Utterance],
@@ -277,6 +281,15 @@ fn assemble(parts: &Parts<'_>) -> String {
         out.push_str("\nStrokes (SVG; page coordinates in px; data-t is ms since the stroke began, data-w the width the pen made in px at that point):\n");
         out.push_str(&parts.svg);
         out.push('\n');
+    }
+    if !parts.features.is_empty() {
+        out.push_str(
+            "\nShape features of the strokes (computed on this machine from the strokes: hints, not facts):\n",
+        );
+        for line in &parts.features {
+            out.push_str(line);
+            out.push('\n');
+        }
     }
     if !parts.utterances.is_empty() {
         out.push_str("\nWhat the reviewer said (seconds on the session's clock):\n");
@@ -430,6 +443,25 @@ pub fn build_call<'a>(
         ));
     }
 
+    // what the strokes look like, on the lines that are sent (not on a whole file of them)
+    let features: Vec<String> = {
+        let view = Context {
+            file: String::new(),
+            page: ctx.page,
+            first_line: code.first().map_or(ctx.first_line, |(n, _)| *n),
+            lines: code.iter().map(|(_, text)| text.clone()).collect(),
+            total_lines: ctx.total_lines,
+            focus: ctx.focus,
+            words_under: Vec::new(),
+            grid: ctx.grid,
+        };
+        pairs
+            .iter()
+            .filter(|(_, sh)| !sh.points.is_empty())
+            .map(|(s, sh)| describe(&analyze(s, sh, &view)))
+            .collect()
+    };
+
     // the words under the strokes
     let words: &[WordRef] = if ctx.words_under.len() > limits.max_words_under {
         notes.push(format!(
@@ -522,6 +554,7 @@ pub fn build_call<'a>(
             code: code.clone(),
             words,
             svg: svg.clone(),
+            features: features.clone(),
             stroke_ids: stroke_ids.clone(),
             strokes,
             utterances: &utterances[utter_from..],
