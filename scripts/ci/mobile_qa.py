@@ -596,8 +596,11 @@ class Android:
     def wait_for_front(self, timeout=40):
         """Seconds until the app is alive, has the focus and its screen is neither flat nor the launcher; None on timeout."""
         t0 = time.time()
+        seen_alive = False
         while time.time() - t0 < timeout:
-            if self.alive() and self.foreground():
+            alive = self.alive()
+            if alive and self.foreground():
+                seen_alive = True
                 try:
                     sig, _w, _h, _rgba = signature_android_raw(self.adb("exec-out", "screencap", binary=True, timeout=60))
                 except ValueError:
@@ -605,6 +608,10 @@ class Android:
                 if sig and not is_flat(sig) and (self.home_sig is None or sig_diff(sig, self.home_sig) > LAUNCHER_BELOW):
                     self.last_sig = sig
                     return time.time() - t0
+            elif alive:
+                seen_alive = True
+            elif seen_alive:
+                return None           # it was running and is gone: it died, waiting longer shows nothing
             time.sleep(1.0)
         return None
 
@@ -1243,8 +1250,10 @@ class IOS:
 
     def wait_for_front(self, timeout=45):
         t0 = time.time()
+        seen_alive = False
         while time.time() - t0 < timeout:
             if self.alive():
+                seen_alive = True
                 try:
                     sig, _w, _h, _f = self.capture("poll", keep=False)
                 except RuntimeError:
@@ -1252,6 +1261,10 @@ class IOS:
                 if sig and not is_flat(sig) and (self.home_sig is None or sig_diff(sig, self.home_sig) > LAUNCHER_BELOW):
                     self.last_sig = sig
                     return time.time() - t0
+            elif seen_alive:
+                return None           # it was running and is gone: it died, waiting longer shows nothing
+            elif time.time() - t0 > 15:
+                return None           # it never started
             time.sleep(1.0)
         return None
 
