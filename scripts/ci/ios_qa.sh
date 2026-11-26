@@ -13,6 +13,11 @@
 # verdicts are in qa.json: a failing app is a RESULT of this job, not a failure of it); 2 when the simulator itself
 # could not be started.
 #
+# Environment: AZ_QA_EXPECT_GPU=1 (a gpu request that ran the CPU renderer FAILS), AZ_QA_ONLY=03,05 (only those steps),
+# AZ_QA_BACKEND=cpu|gpu|auto (every step of the lifecycle starts the app with that renderer; gpu also requires that no GL command
+# goes out in the background), AZ_QA_DEBUG_PORT (the debug server of the e2e app, default 8795), AZ_QA_SCENARIOS (the e2e files),
+# AZ_QA_E2E_ARGS (more options for mobile_e2e.py). SIMCTL_CHILD_AZ_BACKEND=gpu in the environment runs the e2e session on the GPU.
+#
 # What it can and cannot press on a runner: simctl launches, terminates, installs, switches the appearance and the
 # text size and takes pictures; it has no touch. Rotation and the memory warning go through the Simulator app's
 # menu with osascript (the runner may refuse the accessibility permission: the step says so). Touches need the
