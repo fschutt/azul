@@ -5,7 +5,7 @@ use azul_review_link::view::Session;
 
 use azul_review_link::frame::{AgentFinished, FinishKind};
 
-use super::kit::{column, div, px, text, Cx};
+use super::kit::{column, px, text, Cx};
 use super::{editor, files, pair, remote, settings, Screen};
 use crate::theme as th;
 
