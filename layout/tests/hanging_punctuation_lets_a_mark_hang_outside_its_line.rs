@@ -16,10 +16,6 @@
 use crate::text_rig::{lines, laid_out, line_texts, Painted, MONO};
 use azul_layout::solver3::display_list::DisplayList;
 
-fn id(c: char) -> u32 {
-    u32::from(c) - 0x1F
-}
-
 /// The pens of the glyphs of line `n` (from the top), in reading order, with the characters they
 /// draw; the spaces are left out (a line may or may not paint the space it ends in).
 fn line(dl: &DisplayList, n: usize) -> Vec<(char, f32)> {
