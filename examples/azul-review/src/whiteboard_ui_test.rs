@@ -258,9 +258,10 @@ fn an_arrow_wholly_off_the_surface_paints_nothing_and_one_that_runs_off_it_paint
 
 #[test]
 fn what_runs_far_off_the_surface_is_not_stamped_and_what_is_in_view_is_painted_as_it_was() {
-    // A long arrow across a small surface, bent, its ends thousands of px away: the part in view must be the same
-    // pixels as when every piece is stamped.
-    let curve = Curve::bent(Pt::new(-2_000.0, 10.0), Pt::new(2_300.0, 90.0), 0.2);
+    // A long arrow across a small surface, a little bent (a bend is in chord lengths: 0.01 of 4,300 px is a belly of
+    // 21 px, which keeps the curve over the surface), its ends thousands of px away: the part in view must be the
+    // same pixels as when every piece is stamped.
+    let curve = Curve::bent(Pt::new(-2_000.0, 10.0), Pt::new(2_300.0, 90.0), 0.01);
     let mut clipped = RawImage::create_rgba8(300, 100, vec![0_u8; 300 * 100 * 4], true);
     Painter::new(&mut clipped, 1.0).arrow(&curve, 1.5, [59, 66, 82, 255]);
     let mut whole = RawImage::create_rgba8(300, 100, vec![0_u8; 300 * 100 * 4], true);
