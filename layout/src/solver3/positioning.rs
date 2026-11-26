@@ -1748,12 +1748,7 @@ pub(crate) fn inline_relative_offset(
             block = Some(id);
             break;
         }
-        // A node the DOM does not have (a run of a text edit that outlived the DOM it was typed in
-        // names one) shifts nothing: a checked lookup, never an index that can panic in the layout pass.
-        let Some(data) = node_data.get(id) else {
-            return LogicalPosition::zero();
-        };
-        if !matches!(data.get_node_type(), NodeType::Text(_)) {
+        if !matches!(node_data[id].get_node_type(), NodeType::Text(_)) {
             let display =
                 get_display_property(styled_dom, Some(id)).unwrap_or(LayoutDisplay::Inline);
             if !super::getters::is_inline_box_display(display) {
@@ -1771,8 +1766,7 @@ pub(crate) fn inline_relative_offset(
     }
     let direction = block
         .and_then(|b| {
-            let nodes = styled_dom.styled_nodes.as_container();
-            let state = &nodes.get(b)?.styled_node_state;
+            let state = &styled_dom.styled_nodes.as_container()[b].styled_node_state;
             match get_direction_property(styled_dom, b, state) {
                 MultiValue::Exact(d) => Some(d),
                 _ => None,

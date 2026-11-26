@@ -5306,27 +5306,6 @@ impl LayoutWindow {
         // TextInput callback hides the placeholder after the first keystroke,
         // that CSS change relayouts, and the value just typed was gone.)
         if result.is_ok() {
-            // An entry's ids are those of the DOM it was typed in, and follow a rebuilt DOM through the
-            // remap of the reconciliation. One that did not - a node past the end of a page that
-            // shrank, in the entry's key or in a run it holds - is dropped before it is applied: the
-            // display list indexes the DOM by those ids (E22: a label editor closing left a run
-            // naming node 260 of a DOM of 260; the layout pass panicked in the main thread).
-            let node_counts: Vec<(DomId, usize)> = self
-                .layout_results
-                .iter()
-                .map(|(dom_id, lr)| (*dom_id, lr.styled_dom.node_data.as_ref().len()))
-                .collect();
-            for (dom_id, node_count) in node_counts {
-                let dropped = self.content_overlay.drop_text_outside(dom_id, node_count);
-                if !dropped.is_empty() {
-                    if let Some(msgs) = debug_messages.as_mut() {
-                        msgs.push(LayoutDebugMessage::warning(format!(
-                            "[layout_and_generate_display_list] dropped the edited text of {} node(s) the new DOM {dom_id:?} does not have ({node_count} nodes): {dropped:?}",
-                            dropped.len()
-                        )));
-                    }
-                }
-            }
             let dirty_entries: Vec<(DomId, NodeId)> =
                 self.content_overlay.iter_text().map(|(k, _)| *k).collect();
             if let Some(dom_id) = restored_dom {
@@ -30893,25 +30872,10 @@ impl LayoutWindow {
     /// The layout just ran on the stale DOM text, so we re-shape the edited text
     /// from `dirty_text_nodes` and update the inline layout result + display list.
     pub fn reapply_dirty_text_node(&mut self, dom_id: DomId, node_id: NodeId) {
-        let mut content = match self.content_overlay.text_for_node(dom_id, node_id) {
+        let content = match self.content_overlay.text_for_node(dom_id, node_id) {
             Some(dirty) => dirty.content.clone(),
             None => return,
         };
-        // The entry is of an earlier generation of the DOM, whose ids reach here through the remap of
-        // the reconciliation. A node the DOM does not have is no field to re-shape, and a run that
-        // names one names none: the display list indexes the DOM by the node a run came from.
-        let Some(node_count) = self
-            .layout_results
-            .get(&dom_id)
-            .map(|lr| lr.styled_dom.node_data.as_ref().len())
-        else {
-            return;
-        };
-        if node_id.index() >= node_count {
-            self.content_overlay.remove_text(dom_id, node_id);
-            return;
-        }
-        crate::overlay::forget_sources_outside(&mut content, node_count);
         // Re-LAND, never re-COMMIT: this used to go through
         // `update_text_cache_after_edit`, which is the commit writer - it
         // bumped the document text revision and re-stamped the entry on every

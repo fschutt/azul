@@ -805,16 +805,6 @@ impl NodeIdRemap for ContentOverlay {
         crate::managers::remap_dom_keys(&mut self.image_dirty, dom, map);
         crate::managers::remap_background_slots(&mut self.backgrounds, dom, map);
         crate::managers::remap_dom_keys(&mut self.text, dom, map);
-        // The runs of an edit name the text nodes they came from, in the ids of the DOM the edit was
-        // typed in: they follow their nodes as the key does, and a run whose node is gone names none
-        // (its text still shows, as the text of a run no node owns does).
-        for ((entry_dom, _), entry) in &mut self.text {
-            if *entry_dom == dom {
-                for_each_run_mut(&mut entry.content, &mut |run| {
-                    run.source_node_id = run.source_node_id.and_then(|old| map.resolve(old));
-                });
-            }
-        }
         // A preview follows its nodes to their new ids, as the edit it shows
         // stays pending: a remap is any reconcile, a relayout of a DOM built
         // again from the same model included. The preview ends where the edit

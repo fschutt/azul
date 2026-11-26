@@ -317,9 +317,6 @@ impl ShellSettings {
     #[must_use]
     pub fn unattended(&self) -> bool {
         self.e2e_run
-            || crate::desktop::shell2::common::compositor::AzBackend::headless_selected_by(
-                self.backend.as_deref(),
-            )
     }
 
     /// The knobs that are set in the environment but that this build cannot honour (their cargo
