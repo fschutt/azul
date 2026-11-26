@@ -659,3 +659,38 @@ fn what_the_hard_voice_wrote_is_still_found_when_the_recogniser_doubted_the_word
     assert_eq!(names(&r), ["CssError"], "{:?}", fred.words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>());
     assert!(r.certain[0].repaired);
 }
+
+#[test]
+fn a_name_said_among_everyday_words_is_found_wherever_it_stands_and_the_words_around_it_stay() {
+    let idx = index();
+    let filler = [
+        "the", "we", "had", "here", "yeah", "okay", "so", "this", "is", "odd", "slow", "wrong", "because", "maybe", "again", "now", "please", "look", "at", "that",
+        "and", "then", "also", "really", "about", "when", "it", "was", "not", "very",
+    ];
+    // (the words said, the name they are)
+    let said: [(&str, &str); 7] = [
+        ("scroll manager", "ScrollManager"),
+        ("speech session", "SpeechSession"),
+        ("data table cell", "DataTableCell"),
+        ("see esses error", "CssError"),
+        ("hdp request", "HttpRequest"),
+        ("jason parser", "JsonParser"),
+        ("utf eight string", "Utf8String"),
+    ];
+    let mut seed = 12_345u64;
+    let mut next = || {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        (seed >> 33) as usize
+    };
+    for (words, name) in said {
+        for _ in 0..40 {
+            let before: Vec<&str> = (0..next() % 5).map(|_| filler[next() % filler.len()]).collect();
+            let after: Vec<&str> = (0..next() % 5).map(|_| filler[next() % filler.len()]).collect();
+            let sentence = format!("{} {words} {}", before.join(" "), after.join(" "));
+            let r = resolve(&idx, &sentence);
+            assert_eq!(names(&r), [name], "{sentence:?}: {r:?}");
+            let want = format!("{} {name} {}", before.join(" "), after.join(" "));
+            assert_eq!(r.corrected.split_whitespace().collect::<Vec<_>>(), want.split_whitespace().collect::<Vec<_>>(), "{sentence:?}");
+        }
+    }
+}
