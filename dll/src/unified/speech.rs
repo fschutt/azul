@@ -10,9 +10,11 @@ use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_p
 
 #[cfg(az_desktop)]
 pub use crate::desktop::extra::speech::{
-    BuiltinSpeechStatus, HeardStatus, OptionSpeechWord, Speech, SpeechHeard, SpeechLimits, SpeechPreference,
-    SpeechRecognizer, SpeechSession, SpeechStandby, SpeechState, SpeechStatus, SpeechWord, SpeechWordVec,
-    SpeechWordVecDestructor, SpeechWordVecDestructorType, SpeechWordVecSlice,
+    BuiltinSpeechStatus, HeardStatus, OptionSpeechEvent, OptionSpeechWord, Speech, SpeechEvent, SpeechEventKind,
+    SpeechEventVec, SpeechEventVecDestructor, SpeechEventVecDestructorType, SpeechEventVecSlice, SpeechHeard,
+    SpeechLimits, SpeechPreference, SpeechRecognizer, SpeechSession, SpeechStandby, SpeechState, SpeechStatus,
+    SpeechStream, SpeechStreamOptions, SpeechWord, SpeechWordVec, SpeechWordVecDestructor,
+    SpeechWordVecDestructorType, SpeechWordVecSlice,
 };
 
 /// wasm stub of the desktop `SpeechStatus`; `#[repr(C)]` layout MUST match.
@@ -232,6 +234,114 @@ impl Speech {
     }
 }
 
+/// wasm stub of the desktop `SpeechEventKind`; `#[repr(C)]` layout MUST match.
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechEventKind {
+    Ready,
+    Partial,
+    Final,
+    Quiet,
+    Ended,
+}
+
+/// wasm stub of the desktop `SpeechEvent`; `#[repr(C)]` layout MUST match.
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpeechEvent {
+    pub kind: SpeechEventKind,
+    pub at_ms: u32,
+    pub heard: SpeechHeard,
+}
+
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl_option!(SpeechEvent, OptionSpeechEvent, copy = false, [Debug, Clone, PartialEq]);
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl_vec!(
+    SpeechEvent,
+    SpeechEventVec,
+    SpeechEventVecDestructor,
+    SpeechEventVecDestructorType,
+    SpeechEventVecSlice,
+    OptionSpeechEvent
+);
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl_vec_debug!(SpeechEvent, SpeechEventVec);
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl_vec_clone!(SpeechEvent, SpeechEventVec, SpeechEventVecDestructor);
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl_vec_partialeq!(SpeechEvent, SpeechEventVec);
+
+/// wasm stub of the desktop `SpeechStreamOptions`; `#[repr(C)]` layout MUST match.
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct SpeechStreamOptions {
+    pub partials: bool,
+    pub endpoint_ms: u32,
+    pub max_ms: u32,
+    pub max_utterances: u32,
+}
+
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl Default for SpeechStreamOptions {
+    fn default() -> Self {
+        Self {
+            partials: true,
+            endpoint_ms: 0,
+            max_ms: 0,
+            max_utterances: 0,
+        }
+    }
+}
+
+/// wasm stub of the desktop `SpeechStream`; `#[repr(C)]` layout MUST match.
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+#[repr(C)]
+pub struct SpeechStream {
+    pub ptr: *mut core::ffi::c_void,
+    pub run_destructor: bool,
+}
+
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl Default for SpeechStream {
+    fn default() -> Self {
+        Self {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl Clone for SpeechStream {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl SpeechStream {
+    /// No events on wasm.
+    pub fn poll_events(&self) -> SpeechEventVec {
+        SpeechEventVec::from_vec(Vec::new())
+    }
+    /// No events on wasm.
+    pub fn wait_events(&self, _timeout_ms: u32) -> SpeechEventVec {
+        SpeechEventVec::from_vec(Vec::new())
+    }
+    /// Nothing listens on wasm.
+    pub fn stop(&self) {}
+    /// Nothing listens on wasm.
+    pub fn cancel(&self) {}
+    /// Nothing listens on wasm.
+    pub fn is_running(&self) -> bool {
+        false
+    }
+}
+
 /// wasm stub of the desktop `SpeechSession`; `#[repr(C)]` layout MUST match.
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
@@ -279,6 +389,10 @@ impl SpeechSession {
     pub fn set_limits(&self, _limits: SpeechLimits) {}
     /// Nothing is asked on wasm.
     pub fn set_preference(&self, _preference: SpeechPreference) {}
+    /// No speech on wasm: a stream that is over at once.
+    pub fn start_stream(&self, _language: AzString, _options: SpeechStreamOptions) -> SpeechStream {
+        SpeechStream::default()
+    }
     /// A session on wasm has nothing: it is cold.
     pub fn state(&self) -> SpeechState {
         SpeechState::Cold
