@@ -1873,12 +1873,14 @@ dependencies = [
  "azul-css",
  "azul-fonts-calmet",
  "base64 0.22.1",
+ "brotli",
  "brotli-decompressor",
  "chrono",
  "core-foundation 0.9.4",
  "core-graphics 0.23.2",
  "core-text",
  "dirs",
+ "flate2",
  "fluent",
  "fluent-syntax",
  "gl-context-loader",
@@ -14444,6 +14446,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "972d7902c8735f2695410b8aed7df6ed12a47394aa1c8d7af49f0497b731a94d"
 dependencies = [
  "base64 0.23.1",
+ "brotli-decompressor",
  "cookie_store",
  "der 0.8.1",
  "flate2",
