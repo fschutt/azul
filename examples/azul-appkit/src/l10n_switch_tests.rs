@@ -2,9 +2,11 @@
 //! appkit's resources in English, in German, and English for a language without words of its
 //! own.
 
+use azul::fluent::FluentLocalizerHandle;
+
 use crate::l10n::{
-    app_word, date_text, decimal, grouped, is_key, keep, money, named, named_key, set_locale,
-    sources, t, t_args, t_phrase, Arg, DateStyle, Phrase, Voice,
+    app_word, date_text, decimal, enter_layout, grouped, is_key, keep, money, named, named_key,
+    set_locale, sources, t, t_args, t_phrase, Arg, DateStyle, Phrase, Voice,
 };
 
 #[test]
@@ -399,4 +401,96 @@ fn a_tasks_repeat_and_its_words_are_said_in_english_and_german() {
     assert_eq!(t(Priority::High.message_id()), "Hoch");
     assert_eq!(t(SortMode::Due.message_id()), "Fälligkeitsdatum");
     set_locale("en-US");
+}
+
+/// What the engine's window makes of the app's resources (`AppConfig::fluent_locales`): the
+/// localizer its layout pass translates with and hands to the callback.
+fn the_windows_localizer(resources: &[(String, String)]) -> FluentLocalizerHandle {
+    let window = FluentLocalizerHandle::default();
+    for (tag, source) in resources {
+        let _ = window.add_resource(tag.as_str(), source.as_str());
+    }
+    window
+}
+
+/// The loop's thread is not the thread the app started on. Android runs `start()` from a
+/// constructor on the thread that loads the library and the loop on the activity's thread: the
+/// resources `register` made a localizer of live on the first, and every key an app said as plain
+/// text (a placeholder, a button's label, an accessible name - AzMaps' `azmaps-from`, AzPaint's
+/// `azpaint-header`) came out as the key on the second. A layout pass hands the thread the
+/// window's own localizer, and the words are the window's.
+#[test]
+fn the_loops_thread_says_the_apps_words_though_another_thread_started_the_app() {
+    let resources = sources(&[
+        ("en", "aztest-from = From\n"),
+        ("de", "aztest-from = Von\n"),
+    ]);
+    keep(&resources);
+    let window = the_windows_localizer(&resources);
+
+    let (in_german, in_english) = std::thread::spawn(move || {
+        // The loop's thread: it never ran `register` or `keep`.
+        enter_layout("de-DE", Some(window.clone()));
+        let in_german = t("aztest-from");
+        enter_layout("en-US", Some(window));
+        (in_german, t("aztest-from"))
+    })
+    .join()
+    .expect("the loop's thread ends");
+
+    assert_eq!(in_german, "Von");
+    assert_eq!(in_english, "From");
+    assert_eq!(t("aztest-from"), "From", "the thread that started the app says its words as before");
+}
+
+/// An app that registered nothing has no window localizer to hand over: the thread keeps what it
+/// has (appkit's own words), and a pass that hands none changes nothing but the language.
+#[test]
+fn a_pass_without_a_window_localizer_changes_the_language_and_nothing_else() {
+    keep(&sources(&[("en", "aztest-kept = Kept\n"), ("de", "aztest-kept = Behalten\n")]));
+    enter_layout("de-DE", None);
+    assert_eq!(crate::l10n::locale(), "de-DE");
+    assert_eq!(t("aztest-kept"), "Behalten");
+    enter_layout("en-US", None);
+}
+
+/// A worker's voice made on the loop's thread brings the window's words: nothing was ever
+/// registered on that thread, so there are no resources of its own to carry.
+#[test]
+fn a_voice_made_on_the_loops_thread_brings_the_windows_words_to_a_worker() {
+    let window = the_windows_localizer(&sources(&[
+        ("en", "aztest-voice = Voice\n"),
+        ("de", "aztest-voice = Stimme\n"),
+    ]));
+    let said = std::thread::spawn(move || {
+        enter_layout("de-DE", Some(window));
+        let voice = Voice::here();
+        std::thread::spawn(move || {
+            voice.adopt();
+            t("aztest-voice")
+        })
+        .join()
+        .expect("the worker ends")
+    })
+    .join()
+    .expect("the loop's thread ends");
+    assert_eq!(said, "Stimme");
+}
+
+/// Two voices of one window are the same voice, and one of another language is not.
+#[test]
+fn voices_of_one_window_are_equal_and_a_voice_in_another_language_is_not() {
+    let window = the_windows_localizer(&sources(&[]));
+    let (a, b, other) = std::thread::spawn(move || {
+        enter_layout("de-DE", Some(window.clone()));
+        let a = Voice::here();
+        enter_layout("de-DE", Some(window.clone()));
+        let b = Voice::here();
+        enter_layout("en-US", Some(window));
+        (a, b, Voice::here())
+    })
+    .join()
+    .expect("the thread ends");
+    assert_eq!(a, b);
+    assert_ne!(a, other);
 }
