@@ -38,6 +38,10 @@ system's is bounded by one segment (100 ppm over 5 minutes is 30 ms).
     audio/0001.mp4  ...  Opus, the microphone
 ```
 
+The folder is named by the UTC time (so two sessions of a machine never collide across a change of time zone); the
+manifest says the moment and the local offset, and the list of recordings says the time that was on the person's wall
+(`2026-11-26 10:00:00`, the date following the offset; a second session of the same second is numbered `(2)`).
+
 The recordings folder is a setting (an external disk is fine). Nothing is written to the source files
 of the review. The default screen track is the whole display and records everything on it (section 8 says
 what is left out and how to pause); the `own` source records nothing but the review.
