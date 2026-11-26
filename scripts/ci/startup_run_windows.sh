@@ -24,5 +24,18 @@ AZ_STARTUP=1 AZ_PROFILE=cpu AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1 ./out/AzWidgets
 echo "=== the same under Measure-Command (what a user's stopwatch sees: spawn to exit)"
 export AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1
 powershell -NoProfile -Command "1..5 | ForEach-Object { (Measure-Command { & '$HERE/out/AzWidgets.exe' | Out-Null }).TotalMilliseconds }"
+echo "=== what the style discovery cost BEFORE it read the registry itself: the five reg queries and the PowerShell call it ran, one after the other, 5 rounds (the app now reads the same values with RegGetValueW)"
+powershell -NoProfile -Command '
+foreach ($i in 1..5) {
+  $r = Measure-Command {
+    reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v AppsUseLightTheme | Out-Null
+    reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent" | Out-Null
+    reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v CurrentBuildNumber | Out-Null
+    reg query "HKCU\Control Panel\Desktop\WindowMetrics" /v MinAnimate | Out-Null
+    reg query "HKCU\Control Panel\Accessibility\HighContrast" /v Flags | Out-Null
+  }
+  $p = Measure-Command { powershell -NoProfile -Command "(Get-Culture).Name" | Out-Null }
+  "round $i : 5 x reg query {0:N1} ms, powershell Get-Culture {1:N1} ms, together {2:N1} ms" -f $r.TotalMilliseconds, $p.TotalMilliseconds, ($r.TotalMilliseconds + $p.TotalMilliseconds)
+}'
 echo "=== the tests of the timeline, the settings and the app's shared state"
-cargo test --release -p azul-dll --lib --features build-dll -- startup_timeline shell_settings app_shared first_frame 2>&1 | grep -E "^test |^test result|FAILED|panicked|^error|could not compile" | head -80
+cargo test --release -p azul-dll --lib --features build-dll -- startup_timeline shell_settings app_shared first_frame style_discovery the_windows_style 2>&1 | grep -E "^test |^test result|FAILED|panicked|^error|could not compile" | head -80
