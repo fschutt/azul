@@ -3586,6 +3586,9 @@ impl X11Window {
         // Extract create_callback before consuming options
         let create_callback = options.create_callback.clone();
 
+        // The marks of the app's start (`AZ_STARTUP=1`): a handle of its own, the window moves out of here.
+        let startup = resources.app_shared.startup_handle();
+        startup.mark("x11:new_begin");
         let xlib = Xlib::new()
             .map_err(|e| WindowError::PlatformError(format!("Failed to load libX11: {:?}", e)))?;
         #[cfg(target_os = "linux")]
@@ -3624,6 +3627,7 @@ impl X11Window {
         unsafe {
             (xlib.XSetErrorHandler)(Some(x11_error_handler));
         }
+        startup.mark("x11:libs_loaded");
 
         // Try to load GTK3 IM context for IME support (optional, fail silently)
         let (gtk_im, gtk_im_context) = match Gtk3Im::new() {
@@ -3652,6 +3656,10 @@ impl X11Window {
                 (None, None)
             }
         };
+
+        // libgtk-3 and everything it loads (GDK, Pango, Cairo, GIO ...) come in with the IM context: the
+        // startup timeline says what that costs on this machine.
+        startup.mark_with("x11:gtk_im_loaded", || format!("loaded={}", gtk_im.is_some()));
 
         // Establish the C library's LC_CTYPE locale from the environment
         // BEFORE XOpenDisplay / XOpenIM. Without this the process stays in the
@@ -3692,6 +3700,7 @@ impl X11Window {
             Some(d) => (d, false),
             None => (unsafe { (xlib.XOpenDisplay)(std::ptr::null()) }, true),
         };
+        startup.mark("x11:display_opened");
         if display.is_null() {
             return Err(WindowError::PlatformError(
                 "Failed to open X display".into(),
@@ -3842,6 +3851,7 @@ impl X11Window {
         });
 
         unsafe { (xlib.XSelectInput)(display, window_handle, event_mask) };
+        startup.mark("x11:window_created");
 
         // XInput2: select touch + pen/tablet events (best-effort; core events otherwise).
         let (
@@ -4321,6 +4331,13 @@ impl X11Window {
         };
 
         let is_cpu_mode = matches!(render_mode, RenderMode::Cpu(_));
+        startup.mark_with("render_backend", || {
+            format!(
+                "backend={} requested={} device=x11",
+                if is_cpu_mode { "cpu" } else { "gpu" },
+                if force_cpu { "cpu" } else { "auto" }
+            )
+        });
         let xkb_for_compose = xkb.clone();
         let mut common = event::CommonWindowState::new(
             FullWindowState {
@@ -4499,6 +4516,7 @@ impl X11Window {
         if !options.size_to_content {
             unsafe { (window.xlib.XMapWindow)(display, window.window) };
             unsafe { (window.xlib.XFlush)(display) };
+            startup.mark("x11:window_mapped");
         }
 
         // Try to subscribe to XRandR screen change notifications (optional)
@@ -4635,6 +4653,7 @@ impl X11Window {
         // Apply initial window state for fields not set during window creation
         window.apply_initial_window_state();
 
+        startup.mark("x11:new_done");
         Ok(window)
     }
 
