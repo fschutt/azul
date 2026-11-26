@@ -90,13 +90,39 @@ public class AzulActivity extends NativeActivity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (!hasFocus || gestureBridge != null) {
+        if (hasFocus) {
+            attachBridges(0);
+        }
+    }
+
+    /** How often, and how far apart, the bridges ask whether android_main has published its window. */
+    private static final int ATTACH_RETRIES = 200;
+    private static final long ATTACH_RETRY_MS = 50L;
+
+    /**
+     * Attach the gesture, accessibility, text and gamepad bridges once the native side has
+     * published the object the Java side hands back to it on every call.
+     *
+     * android_main runs on its own thread and publishes that object only after it has built its
+     * window, while the first focus event of a launch arrives as soon as the activity is resumed.
+     * Waiting for "the next focus event" left an app that lost the race without a soft keyboard,
+     * insets, gestures and TalkBack until the user happened to pull the notification shade: so it
+     * asks again every 50 ms, for ten seconds.
+     */
+    private void attachBridges(final int attempt) {
+        if (gestureBridge != null || isFinishing() || isDestroyed()) {
             return;
         }
         long nativePtr = nativeGetWindowPointer();
         if (nativePtr == 0L) {
-            // android_main hasn't published the window yet — try again
-            // on the next focus event.
+            if (attempt < ATTACH_RETRIES) {
+                getWindow().getDecorView().postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        attachBridges(attempt + 1);
+                    }
+                }, ATTACH_RETRY_MS);
+            }
             return;
         }
         View decor = getWindow().getDecorView();
@@ -191,8 +217,9 @@ public class AzulActivity extends NativeActivity {
     @Override
     protected void onPause() {
         // Sensors and location keep draining the battery behind a backgrounded
-        // app unless something stops them; nothing did.
-        AzulSensors.stop(this);
+        // app unless something stops them; nothing did. Paused, not stopped: the
+        // app asked for the readings once and expects them again after onResume.
+        AzulSensors.pause(this);
         // A sign-in's Custom Tab covers the app: noted, so a return without the
         // redirect reads as a cancel (onResume).
         AzulAuthSession.onPause();
@@ -205,6 +232,8 @@ public class AzulActivity extends NativeActivity {
         // Back from a sign-in's Custom Tab without its redirect (that arrives in
         // onNewIntent, before onResume): the user closed the tab.
         AzulAuthSession.onResume();
+        // The readings the app asked for before the pause.
+        AzulSensors.resume(this);
     }
 
     @Override
@@ -212,10 +241,18 @@ public class AzulActivity extends NativeActivity {
         AzulGamepad.detach(this);
         AzulSensors.stop(this);
         AzulMediaSession.stop(this);
+        // Returns when the native side has finished: android_main has left its loop and dropped the
+        // app (NativeActivity waits for it).
         super.onDestroy();
+        // THE PROCESS ENDS WITH ITS ACTIVITY. libazul is not re-entrant: its load-time constructor
+        // hands the app's window options to android_main ONCE per process, and every JNI cookie, the
+        // input view and the bridges are per-process statics. A second activity in this process
+        // (BACK, then the launcher icon: the system keeps a finished app's process cached and starts
+        // the next launch in it) found no options, android_main returned at once and the user saw a
+        // black window that never drew. A cold start is what a launch from the launcher means for a
+        // native app (Unity, Godot and SDL activities do the same).
+        android.os.Process.killProcess(android.os.Process.myPid());
     }
-
-
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {

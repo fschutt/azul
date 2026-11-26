@@ -8,5 +8,7 @@
 //! host, so a Linux or macOS runner (or `rustc --test` on one file) runs the tests; `shell2/android`
 //! calls into it.
 
+pub mod ime;
 pub mod lifecycle;
 pub mod present;
+pub mod ui_bridge;

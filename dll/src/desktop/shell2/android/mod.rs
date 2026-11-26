@@ -33,8 +33,10 @@ use crate::{
     desktop::{
         shell2::{
             android_core::{
+                ime::ImeMirror,
                 lifecycle::{frame_work, FrameWork},
                 present::{rows_to_write, PresentState, RowDamage},
+                ui_bridge::{RawGesture, UiEvent},
             },
             common::{
                 debug_server::LogCategory,
@@ -49,6 +51,7 @@ use crate::{
 };
 
 pub mod accessibility;
+mod bridge;
 pub mod clipboard;
 /// `<webview>`: `android.webkit.WebView`s through the `AzulWebView` bridge.
 #[cfg(feature = "jni")]
@@ -91,57 +94,28 @@ pub struct AndroidWindow {
     pub backend: RenderBackend,
     /// `false` once `MainEvent::Destroy` arrives; breaks the outer loop.
     pub is_open: bool,
-    /// Theme change queued by the Java-UI-thread JNI hook
-    /// (`nativeOnUiModeChanged`), drained on the LOOP thread each iteration.
-    /// Encoding matches the JNI contract: 0 = none pending, 1 = light,
-    /// 2 = dark. The Java thread must never mutate window state or run a
-    /// pass itself — that is what left a live delta for the validation check
-    /// and raced the loop's own reads.
-    pub pending_theme: std::sync::atomic::AtomicI32,
+    /// What the Java UI thread may touch (`bridge::UiBridge`): the queues it pushes events onto (the IME's
+    /// commits and compositions, the insets, the gestures, the selection toolbar, the night mode), the
+    /// mirror of the focused text the loop publishes for the IME, and TalkBack's snapshot. The loop
+    /// applies the events with this window; the UI thread never gets a reference to it.
+    pub bridge: Arc<bridge::UiBridge>,
     /// Shared icon provider — needed by `regenerate_layout()` so widgets
     /// (notably button/icon containers) can resolve `IconReference`s.
     pub icon_provider: SharedIconProvider,
     /// Shared font registry for async font discovery / loading.
     /// `None` means the registry was never installed; defaults to disabled.
     pub font_registry: Option<Arc<FcFontRegistry>>,
-    /// `AccessibilityNodeProvider` bridge: the virtual-view tree TalkBack
-    /// reads and the queue the actions it performs land in. Hand-written
-    /// because `accesskit` has no Android adapter.
-    ///
-    /// Read from the Java UI thread via JNI while the loop thread writes it,
-    /// which is why its state is behind a lock and why nothing in it touches
-    /// the `LayoutWindow`.
-    pub accessibility_adapter: accessibility::AndroidAccessibilityAdapter,
-
     /// What was rendered and what was posted to the surface: the rows that changed between two
     /// presents and what to tell `ANativeWindow_lock` about them (`android_core::present`). The system
     /// keeps the rest of the last frame per buffer; the shell no longer guesses which buffer it got.
     present: PresentState,
 
-    /// Selection-toolbar actions (cut/copy/paste/select-all) from the UI thread.
-    pending_selection_actions: std::sync::Mutex<Vec<i32>>,
     /// Whether the floating selection toolbar is up (U2), so it is started and
     /// stopped on the TRANSITION rather than asked for every frame.
     selection_toolbar_shown: bool,
-
-    /// IME text committed on the Java UI thread, waiting for the loop thread.
-    ///
-    /// `record_text_input` only STAGES a changeset; the shared event pass is
-    /// what applies it (`ApplyPendingTextInput` -> `ApplyTextChangeset`), and a
-    /// pass must not run from the IME's thread while the loop may be mid-layout.
-    /// Same shape as the a11y action queue and the theme queue above.
-    pending_ime_commits: std::sync::Mutex<Vec<String>>,
-    /// The framework's word on pointer capture (`View.onPointerCaptureChange`,
-    /// 9d-android-a): `Some(held)` until the loop applies it to
-    /// `mouse_state.is_cursor_locked` and runs the pass that emits
-    /// `PointerLockChange`. Queued for the same reason as the IME commits:
-    /// the callback arrives on the UI thread, never mid-pass.
-    pending_pointer_capture: std::sync::Mutex<Option<bool>>,
-    /// Captured-pointer deltas (`AzulInputView.onCapturedPointerEvent`,
-    /// 9d-android-b), accumulated on the UI thread as `(dx, dy, device)` and
-    /// handed to `device_event_manager.note_raw_motion` by the loop while the
-    /// lock is held - the RawMouseMotion producer on Android.
-    pending_raw_motion: std::sync::Mutex<Option<(f64, f64, u64)>>,
+    /// Something happened that the IME's mirror of the focused text may show (an event applied, input
+    /// processed, a frame laid out): the loop publishes a new mirror at the end of the iteration.
+    ime_dirty: bool,
 
     /// A frame must be re-rastered and posted, but the layout is UNCHANGED.
     ///
@@ -255,16 +229,12 @@ impl AndroidWindow {
             native_window: None,
             backend: RenderBackend::Cpu,
             is_open: true,
-            pending_theme: std::sync::atomic::AtomicI32::new(0),
             icon_provider,
             font_registry,
-            accessibility_adapter: accessibility::AndroidAccessibilityAdapter::new(),
+            bridge: Arc::new(bridge::UiBridge::new()),
             present: PresentState::new(),
-            pending_ime_commits: std::sync::Mutex::new(Vec::new()),
-            pending_pointer_capture: std::sync::Mutex::new(None),
-            pending_raw_motion: std::sync::Mutex::new(None),
-            pending_selection_actions: std::sync::Mutex::new(Vec::new()),
             selection_toolbar_shown: false,
+            ime_dirty: false,
             needs_rerender: false,
             touch_pan_last: None,
             primary_pointer_id: None,
@@ -293,7 +263,7 @@ impl AndroidWindow {
     #[cfg(feature = "a11y")]
     pub fn process_accessibility_actions(&mut self) {
         let mut actions = Vec::new();
-        while let Some(action) = self.accessibility_adapter.poll_action() {
+        while let Some(action) = self.bridge.accessibility.poll_action() {
             actions.push(action);
         }
         if actions.is_empty() {
@@ -332,7 +302,7 @@ impl AndroidWindow {
         // dpi as `density * 96 / 160`, so the android scale (`density / 160`)
         // is exactly `dpi / 96` — the same factor everything else here uses.
         let scale = self.common.current_window_state().size.dpi as f32 / 96.0;
-        self.accessibility_adapter.update_snapshot(snapshot, scale);
+        self.bridge.accessibility.update_snapshot(snapshot, scale);
         self.common.a11y_dirty = false;
     }
     pub fn close(&mut self) {
@@ -705,16 +675,12 @@ pub fn android_main(app: AndroidApp) {
         }
     };
 
-    // Publish the window address so AzulActivity.onWindowFocusChanged can
-    // hand it to NativeGestureBridge. `&mut window` is stable for the
-    // duration of this function (window stays on the stack frame). Once
-    // AzulActivity has constructed the bridge, the Java side never
-    // dereferences the pointer except from JNI callbacks that this same
-    // thread eventually processes via MainEvent::InputAvailable.
-    ANDROID_WINDOW_PTR.store(
-        &mut window as *mut AndroidWindow as i64,
-        core::sync::atomic::Ordering::SeqCst,
-    );
+    // Publish what the Java side may call into (`bridge::UiBridge`), NOT the window: the Java UI thread
+    // holds the address on every callback, so it must be something that is safe to touch from there and
+    // that never dangles (it is leaked, and CLOSED when this function ends, below). The window stays on
+    // this thread's stack and is touched by this thread only.
+    bridge::publish(&window.bridge);
+    let _closing = CloseBridgeOnExit(Arc::clone(&window.bridge));
 
     // Register the debug/E2E timer. `run()` stashed the receiver; the loop
     // below already calls `process_timers_and_threads()`, which is what drives
@@ -740,7 +706,10 @@ pub fn android_main(app: AndroidApp) {
     // And a waker for the Java threads that hand the loop work while it may
     // be parked with no timeout (in the background): a notification's
     // dismiss receiver runs exactly then.
-    let _ = LOOP_WAKER.set(app.create_waker());
+    {
+        let waker = app.create_waker();
+        window.bridge.set_waker(move || waker.wake());
+    }
 
     // Outer driver loop — exits when MainEvent::Destroy clears window.is_open.
     while window.is_open() {
@@ -852,8 +821,7 @@ pub fn android_main(app: AndroidApp) {
                 lw.is_some_and(azul_layout::window::LayoutWindow::selection_handle_drag_active);
             let has_selection = has_selection && !handle_dragging;
             if has_selection != window.selection_toolbar_shown {
-                let native_ptr = core::ptr::from_mut(&mut window) as i64;
-                set_selection_toolbar_visible(has_selection, native_ptr);
+                set_selection_toolbar_visible(has_selection, bridge::cookie());
                 window.selection_toolbar_shown = has_selection;
             }
         }
@@ -864,157 +832,15 @@ pub fn android_main(app: AndroidApp) {
         // it: whichever ran first would consume the request and the other
         // would see nothing.
 
-        // Selection-toolbar actions, on the LOOP thread for the same reason as
-        // the IME queue below: they arrive from Android's ActionMode on the UI
-        // thread, and a system change has to be applied where the loop sees it.
-        {
-            let actions: Vec<i32> = window
-                .pending_selection_actions
-                .lock()
-                .map(|mut q| core::mem::take(&mut *q))
-                .unwrap_or_default();
-            for action in actions {
-                use azul_core::events::SystemChange;
-                // Cut names the node it cuts FROM; the others operate on the
-                // current selection. Without a focused node there is nothing
-                // to cut, so skip rather than invent a target.
-                let focused = window
-                    .common
-                    .layout_window
-                    .as_ref()
-                    .and_then(|lw| lw.focus_manager.get_focused_node().copied());
-                let change = match (action, focused) {
-                    (0, Some(target)) => SystemChange::CutToClipboard { target },
-                    (1, _) => SystemChange::CopyToClipboard,
-                    (2, _) => SystemChange::PasteFromClipboard,
-                    (3, _) => SystemChange::SelectAllText,
-                    _ => continue,
-                };
-                window.snapshot_window_state_baseline("android.selection_action");
-                let r = window.apply_system_change(&change);
-                log_info!(
-                    LogCategory::Input,
-                    "[Android] selection action {} -> {:?}",
-                    action,
-                    r
-                );
-                if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                    window.needs_rerender = true;
-                }
-            }
-        }
-
-        // Apply IME text on the LOOP thread. `record_text_input` stages a
-        // changeset; the event pass right after is what turns it into
-        // `ApplyPendingTextInput` -> `ApplyTextChangeset` and, for an editable
-        // subtree, the `DocumentEdit` the app subscribes to. Staging without a
-        // pass — which is what this did — left the text recorded and never
-        // applied, so the IME composed, committed, and nothing appeared.
-        // Pointer capture as the framework reports it (9d-android-a): the
-        // request in handle_set_pointer_lock answered "requested"; this is
-        // the truth, including a capture the system took away on focus loss.
-        // Applied through the OS-sourced state update so the diff emits
-        // PointerLockChange, and only when it differs from what is held.
-        {
-            let reported = window
-                .pending_pointer_capture
-                .lock()
-                .ok()
-                .and_then(|mut c| c.take());
-            if let Some(has_capture) = reported {
-                let held = window
-                    .common
-                    .current_window_state()
-                    .mouse_state
-                    .is_cursor_locked;
-                if held != has_capture {
-                    window.snapshot_window_state_baseline("android.pointer_capture");
-                    window
-                        .common
-                        .update_window_state(event::WindowStateSource::Os, |ws| {
-                            ws.mouse_state.is_cursor_locked = has_capture;
-                        });
-                    let _ = window.process_window_events(0);
-                }
-            }
-        }
-        // Captured-pointer deltas (9d-android-b): the same gate as X11's
-        // handle_xi_raw_motion - only while the lock is held - then the
-        // shared manager and one pass, which emits RawMouseMotion.
-        {
-            let motion = window
-                .pending_raw_motion
-                .lock()
-                .ok()
-                .and_then(|mut m| m.take());
-            if let Some((dx, dy, device)) = motion {
-                let locked = window
-                    .common
-                    .current_window_state()
-                    .mouse_state
-                    .is_cursor_locked;
-                if locked && (dx != 0.0 || dy != 0.0) {
-                    window.snapshot_window_state_baseline("android.raw_motion");
-                    if let Some(lw) = window.common.layout_window.as_mut() {
-                        lw.device_event_manager.note_raw_motion(dx, dy, device);
-                    }
-                    let _ = window.process_window_events(0);
-                }
-            }
-        }
-        {
-            let commits: Vec<String> = window
-                .pending_ime_commits
-                .lock()
-                .map(|mut q| core::mem::take(&mut *q))
-                .unwrap_or_default();
-            for text in commits {
-                window.snapshot_window_state_baseline("android.ime_commit");
-                if let Some(lw) = window.common.layout_window.as_mut() {
-                    // Commit, not clear: this carries the committed string so
-                    // CompositionEnd can report it, exactly as the desktop
-                    // shells do.
-                    lw.text_edit_manager.commit_composition(text.clone());
-                    let _ = lw.record_text_input(&text);
-                }
-                let r = window.process_window_events(0);
-                log_info!(
-                    LogCategory::Input,
-                    "[Android] IME applied {:?} -> {:?} (relayout_only={}, regen={})",
-                    text,
-                    r,
-                    window.common.relayout_only_pending(),
-                    window.common.regeneration_pending(),
-                );
-                // Same ladder as the input sites: an IME commit reports
-                // ShouldIncrementalRelayout, which must be PERFORMED here, not
-                // escalated into a DOM rebuild that discards it.
-                match r {
-                    azul_core::events::ProcessEventResult::ShouldIncrementalRelayout => {
-                        let mut dbg = None;
-                        if let Err(e) = window.incremental_relayout_dispatching(
-                            crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
-                            &mut dbg,
-                        ) {
-                            log_error!(
-                                LogCategory::Layout,
-                                "[Android] IME incremental relayout failed: {}",
-                                e
-                            );
-                        }
-                        window.common.request_relayout_only();
-                        window.needs_rerender = true;
-                    }
-                    azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow
-                    | azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => {
-                        window
-                            .common
-                            .request_regeneration(RelayoutReason::RefreshDom);
-                    }
-                    azul_core::events::ProcessEventResult::DoNothing => {}
-                    _ => window.needs_rerender = true,
-                }
-            }
+        // WHAT THE JAVA UI THREAD QUEUED (`bridge::UiBridge`): the IME's commits and compositions, the
+        // insets, the gestures, the floating toolbar's actions, pointer capture and captured deltas,
+        // each applied here, on the thread that owns the window, in the order they happened. The
+        // callbacks used to apply them from the UI thread through `&mut AndroidWindow` (a data race:
+        // the IME replaced the preedit string while the layout read it).
+        let (ui_events, ui_applied) = window.bridge.queues.drain();
+        if !ui_events.is_empty() {
+            window.ime_dirty = true;
+            apply_ui_events(&mut window, ui_events);
         }
 
         // Relayout-only, checked FIRST — the same order macOS and Wayland use.
@@ -1079,9 +905,21 @@ pub fn android_main(app: AndroidApp) {
         // writebacks, a11y, InitWindow, RedrawNeeded), so a clean iteration
         // has nothing new to post.
         if frame_dirty {
+            window.ime_dirty = true;
             let _ = render_frame(&mut window);
             // Where this frame put the `<webview>`s.
             let _ = crate::desktop::shell2::common::webview::sync(&mut window);
+        }
+
+        // THE IME'S VIEW OF THE FOCUSED TEXT: published when anything that can change it happened, and
+        // whenever the UI thread pushed an event this iteration's drain did not see (a reader waits for a
+        // mirror that has seen the events it pushed before it asked).
+        if window.ime_dirty
+            || window.bridge.queues.pushed() != window.bridge.queues.published_through()
+        {
+            window.ime_dirty = false;
+            let mirror = ime_mirror_of(&mut window);
+            window.bridge.queues.publish(ui_applied, mirror);
         }
     }
 
@@ -1089,6 +927,389 @@ pub fn android_main(app: AndroidApp) {
         LogCategory::EventLoop,
         "[Android] android_main exiting cleanly"
     );
+}
+
+/// Closes the bridge when `android_main` ends, normally or by unwinding, and withdraws the activity
+/// object: everything the UI thread or another thread may still call after this finds a CLOSED bridge
+/// (answers its default, queues nothing) and no activity (the Java calls of the extras stop).
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+struct CloseBridgeOnExit(Arc<bridge::UiBridge>);
+
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+impl Drop for CloseBridgeOnExit {
+    fn drop(&mut self) {
+        self.0.queues.close();
+        // The activity is android-activity's own global reference, valid until the `AndroidApp` is
+        // dropped, which is when this function returns: a thread that kept the pointer (the network
+        // monitor asked the dead object every ten seconds) made ART abort with "use of deleted global
+        // reference".
+        ANDROID_ACTIVITY.store(core::ptr::null_mut(), core::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// What the loop does with the result of a pass over a UI-thread event: the same ladder the input
+/// sites use. An incremental relayout is PERFORMED here, never escalated into a DOM rebuild that
+/// would throw it away (an IME commit landed in the engine's tree and was overwritten by the app's
+/// unchanged model: typing composed, committed and vanished).
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn follow_ui_result(window: &mut AndroidWindow, r: azul_core::events::ProcessEventResult) {
+    use azul_core::events::ProcessEventResult as PER;
+    match r {
+        PER::ShouldIncrementalRelayout => {
+            let mut dbg = None;
+            if let Err(e) = window.incremental_relayout_dispatching(
+                crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                &mut dbg,
+            ) {
+                log_error!(
+                    LogCategory::Layout,
+                    "[Android] UI-thread event: incremental relayout failed: {}",
+                    e
+                );
+            }
+            window.common.request_relayout_only();
+            window.needs_rerender = true;
+        }
+        PER::ShouldRegenerateDomCurrentWindow | PER::ShouldRegenerateDomAllWindows => {
+            window
+                .common
+                .request_regeneration(RelayoutReason::RefreshDom);
+        }
+        PER::DoNothing => {}
+        _ => window.needs_rerender = true,
+    }
+}
+
+/// Apply what the Java UI thread queued, in order, on the loop thread with the window this thread owns.
+///
+/// Each arm is the body of the JNI callback it replaces, which ran on the UI thread: staged edits
+/// (`record_text_input` only STAGES a changeset; the event pass after it applies it) and state changes
+/// both belong where the loop sees them.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn apply_ui_events(window: &mut AndroidWindow, events: Vec<UiEvent>) {
+    use azul_core::events::SystemChange;
+    use crate::desktop::shell2::android_core::ime::{
+        chars_covering_units_at_end, chars_covering_units_at_start,
+    };
+
+    // Captured-pointer deltas arrive in bursts: summed, one pass (like the desktop's raw motion).
+    let mut raw_motion: Option<(f64, f64, u64)> = None;
+    for event in events {
+        match event {
+            UiEvent::Commit(text) => {
+                window.snapshot_window_state_baseline("android.ime_commit");
+                if let Some(lw) = window.common.layout_window.as_mut() {
+                    // Commit, not clear: this carries the committed string so CompositionEnd can
+                    // report it, exactly as the desktop shells do.
+                    lw.text_edit_manager.commit_composition(text.clone());
+                    let _ = lw.record_text_input(&text);
+                }
+                let r = window.process_window_events(0);
+                log_info!(
+                    LogCategory::Input,
+                    "[Android] IME applied {:?} -> {:?} (relayout_only={}, regen={})",
+                    text,
+                    r,
+                    window.common.relayout_only_pending(),
+                    window.common.regeneration_pending(),
+                );
+                follow_ui_result(window, r);
+            }
+            UiEvent::SetComposing { text, cursor } => {
+                // `cursor` is Android's convention: > 0 counts from the END of the composing text,
+                // <= 0 from its start. Normalised to a byte offset, the shape Wayland and Win32 give.
+                let byte_len = text.len() as i32;
+                let caret = if cursor > 0 { byte_len } else { 0 };
+                if let Some(lw) = window.common.layout_window.as_mut() {
+                    lw.text_edit_manager.set_preedit(text, caret, caret);
+                }
+                window
+                    .common
+                    .request_regeneration(RelayoutReason::RefreshDom);
+            }
+            UiEvent::FinishComposing => {
+                if let Some(lw) = window.common.layout_window.as_mut() {
+                    // clear_preedit records CompositionEnd on its own, so a cancelled composition
+                    // still tells the app to close its overlay.
+                    lw.text_edit_manager.clear_preedit();
+                }
+                window
+                    .common
+                    .request_regeneration(RelayoutReason::RefreshDom);
+            }
+            UiEvent::DeleteSurrounding { before, after } => {
+                // The IME counts UTF-16 units (`InputConnection.deleteSurroundingText`); the engine
+                // deletes chars: an emoji is two units and one char.
+                let units = |n: i32| usize::try_from(n).unwrap_or(0);
+                let (before_chars, after_chars) = window
+                    .common
+                    .layout_window
+                    .as_mut()
+                    .and_then(|lw| lw.ime_surrounding_text())
+                    .and_then(|(text, caret)| {
+                        let caret = caret.min(text.len());
+                        text.is_char_boundary(caret).then(|| {
+                            (
+                                chars_covering_units_at_end(&text[..caret], units(before)),
+                                chars_covering_units_at_start(&text[caret..], units(after)),
+                            )
+                        })
+                    })
+                    .unwrap_or((units(before), units(after)));
+                if let Some(lw) = window.common.layout_window.as_mut() {
+                    if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
+                        for _ in 0..before_chars {
+                            lw.delete_selection(focused, true);
+                        }
+                        for _ in 0..after_chars {
+                            lw.delete_selection(focused, false);
+                        }
+                    }
+                }
+                window
+                    .common
+                    .request_regeneration(RelayoutReason::RefreshDom);
+            }
+            UiEvent::SelectionAction(action) => {
+                // Cut names the node it cuts FROM; the others operate on the current selection.
+                // Without a focused node there is nothing to cut, so skip rather than invent a target.
+                let focused = window
+                    .common
+                    .layout_window
+                    .as_ref()
+                    .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+                let change = match (action, focused) {
+                    (0, Some(target)) => SystemChange::CutToClipboard { target },
+                    (1, _) => SystemChange::CopyToClipboard,
+                    (2, _) => SystemChange::PasteFromClipboard,
+                    (3, _) => SystemChange::SelectAllText,
+                    _ => continue,
+                };
+                window.snapshot_window_state_baseline("android.selection_action");
+                let r = window.apply_system_change(&change);
+                log_info!(
+                    LogCategory::Input,
+                    "[Android] selection action {} -> {:?}",
+                    action,
+                    r
+                );
+                if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                    window.needs_rerender = true;
+                }
+            }
+            UiEvent::PointerCapture(has_capture) => {
+                // The framework's word on pointer capture (9d-android-a): the request in
+                // handle_set_pointer_lock answered "requested"; this is the truth, including a capture
+                // the system took away on focus loss. Applied through the OS-sourced state update so
+                // the diff emits PointerLockChange, and only when it differs from what is held.
+                let held = window
+                    .common
+                    .current_window_state()
+                    .mouse_state
+                    .is_cursor_locked;
+                if held != has_capture {
+                    window.snapshot_window_state_baseline("android.pointer_capture");
+                    window
+                        .common
+                        .update_window_state(event::WindowStateSource::Os, |ws| {
+                            ws.mouse_state.is_cursor_locked = has_capture;
+                        });
+                    let _ = window.process_window_events(0);
+                }
+            }
+            UiEvent::RawMotion { dx, dy, device } => {
+                let sum = raw_motion.get_or_insert((0.0, 0.0, device as u64));
+                sum.0 += f64::from(dx);
+                sum.1 += f64::from(dy);
+                sum.2 = device as u64;
+            }
+            UiEvent::Insets {
+                top,
+                bottom,
+                left,
+                right,
+                ime,
+            } => apply_insets(window, [top, bottom, left, right, ime]),
+            UiEvent::Gesture(gesture) => apply_gesture(window, gesture),
+        }
+    }
+    // The same gate as X11's handle_xi_raw_motion - only while the lock is held - then the shared manager
+    // and one pass, which emits RawMouseMotion.
+    if let Some((dx, dy, device)) = raw_motion {
+        let locked = window
+            .common
+            .current_window_state()
+            .mouse_state
+            .is_cursor_locked;
+        if locked && (dx != 0.0 || dy != 0.0) {
+            window.snapshot_window_state_baseline("android.raw_motion");
+            if let Some(lw) = window.common.layout_window.as_mut() {
+                lw.device_event_manager.note_raw_motion(dx, dy, device);
+            }
+            let _ = window.process_window_events(0);
+        }
+    }
+}
+
+/// `View.onApplyWindowInsets`: system bars, display cutout and the IME, PHYSICAL pixels
+/// `[top, bottom, left, right, ime]`, as logical `SafeAreaInsets` (everything downstream is logical).
+/// The keyboard stays apart from the bars: the navigation bar is fixed for the life of the window while
+/// the keyboard appears, animates and leaves.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn apply_insets(window: &mut AndroidWindow, px: [i32; 5]) {
+    use azul_css::props::basic::pixel::{OptionPixelValue, PixelValue};
+
+    // THE factor of the window's frame, the one layout and the pixmap use.
+    let scale = azul_layout::window::present_geometry::frame_dpi_factor(
+        window.common.current_window_state().size.dpi,
+    );
+    let to_logical = |v: i32| -> OptionPixelValue {
+        if v <= 0 || !(scale > 0.0) {
+            // 0 is "no inset", which is genuinely different from "unknown": the None case is for
+            // platforms that cannot answer at all.
+            OptionPixelValue::None
+        } else {
+            OptionPixelValue::Some(PixelValue::px(v as f32 / scale))
+        }
+    };
+    if let Some(lw) = window.common.layout_window.as_mut() {
+        lw.safe_area_insets = azul_css::system::SafeAreaInsets {
+            top: to_logical(px[0]),
+            bottom: to_logical(px[1]),
+            left: to_logical(px[2]),
+            right: to_logical(px[3]),
+            keyboard: to_logical(px[4]),
+        };
+        log_info!(
+            LogCategory::Window,
+            "[Android] insets top={} bottom={} left={} right={} ime={} (physical px)",
+            px[0],
+            px[1],
+            px[2],
+            px[3],
+            px[4],
+        );
+    }
+    window
+        .common
+        .request_regeneration(RelayoutReason::RefreshDom);
+}
+
+/// A gesture Android's detectors recognised, in PHYSICAL pixels (View coordinates), as the engine's
+/// native gesture in logical px: every other position of this shell is divided by the scale, these were
+/// stored as they came (a long press and a pinch centre landed 2.6 times too far out on a 420 dpi
+/// phone). Processed in a pass of its own: snapshot, inject, pass, clear.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn apply_gesture(window: &mut AndroidWindow, gesture: RawGesture) {
+    use azul_core::geom::LogicalPosition;
+    use azul_layout::managers::gesture::{
+        DetectedLongPress, DetectedPinch, DetectedRotation, GestureDirection, NativeGestureEvent,
+    };
+
+    let scale = azul_layout::window::present_geometry::frame_dpi_factor(
+        window.common.current_window_state().size.dpi,
+    );
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    let logical = |x: f32, y: f32| LogicalPosition {
+        x: x / scale,
+        y: y / scale,
+    };
+    let native = match gesture {
+        RawGesture::DoubleTap => NativeGestureEvent::DoubleClick,
+        RawGesture::LongPress { x, y, duration_ms } => {
+            NativeGestureEvent::LongPress(DetectedLongPress {
+                position: logical(x, y),
+                duration_ms: u64::try_from(duration_ms).unwrap_or(0),
+                callback_invoked: false,
+                session_id: 0,
+            })
+        }
+        RawGesture::Swipe { direction } => {
+            // Must match DIR_UP/DOWN/LEFT/RIGHT in NativeGestureBridge.java
+            let direction = match direction {
+                0 => GestureDirection::Up,
+                1 => GestureDirection::Down,
+                2 => GestureDirection::Left,
+                3 => GestureDirection::Right,
+                _ => return,
+            };
+            NativeGestureEvent::Swipe(direction)
+        }
+        RawGesture::Pinch {
+            scale: pinch_scale,
+            center_x,
+            center_y,
+            initial_distance,
+            current_distance,
+            duration_ms,
+            began,
+            ended,
+        } => NativeGestureEvent::Pinch(DetectedPinch {
+            scale: pinch_scale,
+            center: logical(center_x, center_y),
+            initial_distance: initial_distance / scale,
+            current_distance: current_distance / scale,
+            duration_ms: u64::try_from(duration_ms).unwrap_or(0),
+            began,
+            ended,
+        }),
+        RawGesture::Rotation {
+            angle,
+            center_x,
+            center_y,
+            duration_ms,
+        } => NativeGestureEvent::Rotation(DetectedRotation {
+            angle_radians: angle,
+            center: logical(center_x, center_y),
+            duration_ms: u64::try_from(duration_ms).unwrap_or(0),
+        }),
+    };
+    window.snapshot_window_state_baseline("android.native_gesture");
+    if let Some(lw) = window.common.layout_window.as_mut() {
+        lw.gesture_drag_manager.inject_native_gesture(native);
+    }
+    let r = window.process_window_events(0);
+    if let Some(lw) = window.common.layout_window.as_mut() {
+        // After the callbacks have observed it, so a stale OS gesture does not keep firing.
+        lw.gesture_drag_manager.clear_native_gesture();
+        lw.gesture_drag_manager.note_pinch_dispatched();
+    }
+    follow_ui_result(window, r);
+}
+
+/// The IME's view of the focused text, for the mirror the UI thread reads (`android_core::ime`).
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn ime_mirror_of(window: &mut AndroidWindow) -> ImeMirror {
+    let scale = azul_layout::window::present_geometry::frame_dpi_factor(
+        window.common.current_window_state().size.dpi,
+    );
+    let Some(lw) = window.common.layout_window.as_mut() else {
+        return ImeMirror::default();
+    };
+    let Some(focused) = lw.focus_manager.get_focused_node().copied() else {
+        // Nothing focused: the platform default, a plain single-line text field.
+        return ImeMirror::default();
+    };
+    let purpose = azul_layout::form::input_purpose(focused, &lw.layout_results) as i32;
+    let multiline = i32::from(azul_layout::form::is_multiline(focused, &lw.layout_results));
+    let (text, caret) = lw.ime_surrounding_text().unwrap_or_default();
+    let px = |v: f32| (v * scale).round() as i32;
+    ImeMirror {
+        active: true,
+        text,
+        caret,
+        selected: lw.text_edit_manager.selected_text_for_ime(),
+        selection_rect: lw.calculate_selection_bounding_rect().map(|r| {
+            (
+                px(r.origin.x),
+                px(r.origin.y),
+                px(r.size.width),
+                px(r.size.height),
+            )
+        }),
+        hints: purpose | (multiline << 8),
+        composing: lw.text_edit_manager.preedit_text.is_some(),
+    }
 }
 
 /// Whether the window has a surface to lay out for and paint to: false before `InitWindow` and
@@ -1116,14 +1337,12 @@ fn has_surface(window: &AndroidWindow) -> bool {
 /// already queued as `Initial` and the user's layout callback must see THAT,
 /// so return the implicit `RefreshDom` (which `request_regeneration` never
 /// lets overwrite a more specific queued reason) while it is still pending.
-/// Apply a theme change queued by the Java UI thread (see `pending_theme`).
+/// Apply a theme change queued by the Java UI thread (`UiQueues::set_theme`).
 /// Runs on the loop thread: contract shape (snapshot → mutate → pass), so
 /// `ThemeChanged` dispatches and no live delta is left behind.
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn drain_pending_theme(window: &mut AndroidWindow) {
-    let raw = window
-        .pending_theme
-        .swap(0, std::sync::atomic::Ordering::AcqRel);
+    let raw = window.bridge.queues.take_theme();
     let desktop = match raw {
         1 => azul_core::window::DarkLightMode::Light,
         2 => azul_core::window::DarkLightMode::Dark,
@@ -1319,6 +1538,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     use azul_core::{geom::LogicalPosition, window::CursorPosition};
+
+    // A key or a touch can move the caret or the selection the IME is shown.
+    window.ime_dirty = true;
 
     let mut iter = match app.input_events_iter() {
         Ok(it) => it,
@@ -2246,27 +2468,6 @@ fn render_frame(_window: &mut AndroidWindow) -> Result<(), WindowError> {
 #[cfg(not(all(target_os = "android", feature = "android-activity")))]
 pub fn android_main_stub() {}
 
-// ---------------------------------------------------------------------------
-// Static window-pointer slot.
-//
-// Published by `android_main` once `AndroidWindow::new` returns, read by the
-// Java `AzulActivity.nativeGetWindowPointer()` (via the `extern "system"` fn
-// below) so the activity can construct `NativeGestureBridge` with a valid
-// `nativePtr`. `i64` so it survives the `jni::sys::jlong` round-trip.
-// ---------------------------------------------------------------------------
-
-#[cfg(all(target_os = "android", feature = "android-activity"))]
-static ANDROID_WINDOW_PTR: core::sync::atomic::AtomicI64 = core::sync::atomic::AtomicI64::new(0);
-
-#[cfg(all(target_os = "android", feature = "android-activity"))]
-#[no_mangle]
-pub unsafe extern "system" fn Java_com_azul_app_AzulActivity_nativeGetWindowPointer(
-    _env: *mut core::ffi::c_void,
-    _class: *mut core::ffi::c_void,
-) -> i64 {
-    ANDROID_WINDOW_PTR.load(core::sync::atomic::Ordering::SeqCst)
-}
-
 // JavaVM* + Activity-instance pointers, published by `android_main`. The
 // dll/extra/file_picker/android.rs path needs both: attach the current
 // thread to the VM (so we get a JNIEnv*), find the AzulFilePicker class,
@@ -2313,20 +2514,10 @@ pub fn activity_ptr() -> *mut core::ffi::c_void {
     core::ptr::null_mut()
 }
 
-/// Wakes `android_main`'s `poll_events`, which blocks without a timeout while
-/// the activity has no surface. Set once `android_main` runs.
-#[cfg(all(target_os = "android", feature = "android-activity"))]
-static LOOP_WAKER: std::sync::OnceLock<android_activity::AndroidAppWaker> =
-    std::sync::OnceLock::new();
-
 /// Wake the event loop from any thread (a JNI callback that queued work for
-/// it). A no-op before `android_main` ran.
+/// it). A no-op before `android_main` ran and after it ended.
 #[cfg(all(target_os = "android", feature = "android-activity"))]
-pub fn wake_event_loop() {
-    if let Some(waker) = LOOP_WAKER.get() {
-        waker.wake();
-    }
-}
+pub use bridge::wake_event_loop;
 
 /// No loop to wake without the NativeActivity glue.
 #[cfg(not(all(target_os = "android", feature = "android-activity")))]
@@ -2367,6 +2558,8 @@ pub fn set_soft_keyboard_visible(visible: bool) {
         let mut env = vm
             .attach_current_thread()
             .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        // Released when this helper returns: this thread never returns to Java (see `LocalFrame`).
+        let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
         let activity =
             unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
         // Static helper on the Java side rather than open-coding the
@@ -2429,6 +2622,8 @@ pub fn set_selection_toolbar_visible(visible: bool, native_ptr: i64) {
         let mut env = vm
             .attach_current_thread()
             .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        // Released when this helper returns: this thread never returns to Java (see `LocalFrame`).
+        let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
         let activity =
             unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
         let class = crate::desktop::extra::find_app_class(
@@ -2495,6 +2690,8 @@ pub fn set_pointer_capture(captured: bool) -> bool {
         let mut env = vm
             .attach_current_thread()
             .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        // Released when this helper returns: this thread never returns to Java (see `LocalFrame`).
+        let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
         let activity =
             unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
         let class = crate::desktop::extra::find_app_class(
@@ -2876,6 +3073,8 @@ fn rotary_resolution(device_id: i32) -> f32 {
         let mut env = vm
             .attach_current_thread()
             .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        // Released when this helper returns: this thread never returns to Java (see `LocalFrame`).
+        let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
         // `android.view.InputDevice` is on the BOOT classpath, so a bare
         // `find_class` resolves it from a Rust thread with no Java frame.
         let device = env
@@ -3085,6 +3284,8 @@ pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
         let mut env = vm
             .attach_current_thread()
             .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        // Released when this helper returns: this thread never returns to Java (see `LocalFrame`).
+        let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
         let activity =
             unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
 
@@ -3191,647 +3392,3 @@ pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
 /// No-op without the `jni` feature — there is no way to reach the actuator.
 #[cfg(all(target_os = "android", not(feature = "jni")))]
 pub fn play_haptic(_request: &azul_core::haptics::HapticRequest) {}
-
-// ---------------------------------------------------------------------------
-// JNI bridge — surfaces NativeGestureBridge.java callbacks to Rust.
-//
-// The Java side (scripts/android/NativeGestureBridge.java) attaches to the
-// activity's content view, then dispatches each detected gesture into one
-// of these `extern "C"` symbols, passing the AndroidWindow address as a
-// `jlong`. We turn that back into `&mut AndroidWindow` and forward to
-// `GestureAndDragManager::inject_native_gesture`.
-//
-// Java declares the methods `private static native ...`, so the JNI lookup
-// name is `Java_com_azul_gesture_NativeGestureBridge_nativeOn<Verb>`.
-// `extern "system"` is the cross-platform JNI calling convention (== "C" on
-// most Unixes, `__stdcall` on Win32).
-// ---------------------------------------------------------------------------
-
-#[cfg(all(target_os = "android", feature = "android-activity"))]
-mod jni_bridge {
-    // A nested `mod` does NOT inherit the file's `use` items, and this one
-    // was missing the reason type entirely — `inject()` below has always
-    // referred to a `RelayoutReason` that is not in scope here. It surfaced
-    // only now because android is the one target that compiles this file and
-    // nothing had forced it to resolve.
-    use azul_core::callbacks::RelayoutReason;
-    use azul_core::geom::LogicalPosition;
-    use azul_layout::managers::gesture::{
-        DetectedLongPress, DetectedPinch, DetectedRotation, GestureDirection, NativeGestureEvent,
-    };
-
-    /// SAFETY: `native_ptr` is the AndroidWindow address handed to the
-    /// Java side by `android_main`. We are the only Rust thread mutating
-    /// the window in response to UI events, so the brief mutable
-    /// reference is sound.
-    pub(super) unsafe fn with_window<F>(native_ptr: i64, f: F)
-    where
-        F: FnOnce(&mut super::AndroidWindow),
-    {
-        if native_ptr == 0 {
-            return;
-        }
-        let window = &mut *(native_ptr as *mut super::AndroidWindow);
-        f(window);
-    }
-
-    fn inject(window: &mut super::AndroidWindow, gesture: NativeGestureEvent) {
-        if let Some(lw) = window.common.layout_window.as_mut() {
-            lw.gesture_drag_manager.inject_native_gesture(gesture);
-            window
-                .common
-                .request_regeneration(RelayoutReason::RefreshDom);
-        }
-    }
-
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_app_AzulActivity_nativeOnUiModeChanged(
-        _env: *mut core::ffi::c_void,
-        _class: *mut core::ffi::c_void,
-        native_ptr: i64,
-        night_mode: i32,
-    ) {
-        // `night_mode` is azul's own encoding, mapped Java-side from
-        // UI_MODE_NIGHT_MASK: 0 = undefined, 1 = light, 2 = dark. Android's
-        // constants stay on the Java side of JNI, like the a11y bridge's.
-        //
-        // Called from AzulActivity.onConfigurationChanged AND once from
-        // onWindowFocusChanged, because Android built its window from
-        // SystemStyle::default() and never read the device setting at all — an
-        // app launched on a dark-mode device rendered light and stayed light.
-        // The change hook alone would only have fixed the second half.
-        //
-        // This runs on the JAVA UI THREAD, not the loop thread. It only writes
-        // window state that the next loop iteration reads, exactly as the
-        // gesture bridge does.
-        let theme = match night_mode {
-            1 => azul_core::window::DarkLightMode::Light,
-            2 => azul_core::window::DarkLightMode::Dark,
-            // Undefined: the device is not expressing a preference, so keep
-            // whatever the window already carries.
-            _ => return,
-        };
-        // Queue only — the LOOP thread drains this (drain_pending_theme),
-        // snapshots the event-diff baseline, applies the theme and runs the
-        // pass there. Mutating window state from the Java thread raced the
-        // loop and left a live delta the validation check rightly flags.
-        let _ = theme;
-        with_window(native_ptr, |w| {
-            w.pending_theme
-                .store(night_mode, std::sync::atomic::Ordering::Release);
-        });
-    }
-
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_gesture_NativeGestureBridge_nativeOnDoubleTap(
-        _env: *mut core::ffi::c_void,
-        _class: *mut core::ffi::c_void,
-        native_ptr: i64,
-    ) {
-        with_window(native_ptr, |w| inject(w, NativeGestureEvent::DoubleClick));
-    }
-
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_gesture_NativeGestureBridge_nativeOnLongPress(
-        _env: *mut core::ffi::c_void,
-        _class: *mut core::ffi::c_void,
-        native_ptr: i64,
-        x: f32,
-        y: f32,
-        duration_ms: i64,
-    ) {
-        with_window(native_ptr, |w| {
-            inject(
-                w,
-                NativeGestureEvent::LongPress(DetectedLongPress {
-                    position: LogicalPosition { x, y },
-                    duration_ms: duration_ms as u64,
-                    callback_invoked: false,
-                    session_id: 0,
-                }),
-            );
-        });
-    }
-
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_gesture_NativeGestureBridge_nativeOnSwipe(
-        _env: *mut core::ffi::c_void,
-        _class: *mut core::ffi::c_void,
-        native_ptr: i64,
-        direction: i32,
-    ) {
-        // Must match DIR_UP/DOWN/LEFT/RIGHT in NativeGestureBridge.java
-        let dir = match direction {
-            0 => GestureDirection::Up,
-            1 => GestureDirection::Down,
-            2 => GestureDirection::Left,
-            3 => GestureDirection::Right,
-            _ => return,
-        };
-        with_window(native_ptr, |w| inject(w, NativeGestureEvent::Swipe(dir)));
-    }
-
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_gesture_NativeGestureBridge_nativeOnPinch(
-        _env: *mut core::ffi::c_void,
-        _class: *mut core::ffi::c_void,
-        native_ptr: i64,
-        scale: f32,
-        center_x: f32,
-        center_y: f32,
-        initial_distance: f32,
-        current_distance: f32,
-        duration_ms: i64,
-        // jboolean: the first update of the gesture (NativeGestureBridge's
-        // onScaleBegin), whose scale the bridge multiplies up from 1.0.
-        began: u8,
-    ) {
-        with_window(native_ptr, |w| {
-            inject(
-                w,
-                NativeGestureEvent::Pinch(DetectedPinch {
-                    scale,
-                    center: LogicalPosition {
-                        x: center_x,
-                        y: center_y,
-                    },
-                    initial_distance,
-                    current_distance,
-                    duration_ms: duration_ms as u64,
-                    began: began != 0,
-                    ended: false,
-                }),
-            );
-        });
-    }
-
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_gesture_NativeGestureBridge_nativeOnRotation(
-        _env: *mut core::ffi::c_void,
-        _class: *mut core::ffi::c_void,
-        native_ptr: i64,
-        angle_radians: f32,
-        center_x: f32,
-        center_y: f32,
-        duration_ms: i64,
-    ) {
-        with_window(native_ptr, |w| {
-            inject(
-                w,
-                NativeGestureEvent::Rotation(DetectedRotation {
-                    angle_radians,
-                    center: LogicalPosition {
-                        x: center_x,
-                        y: center_y,
-                    },
-                    duration_ms: duration_ms as u64,
-                }),
-            );
-        });
-    }
-}
-
-/// JNI entry points for Android text input.
-///
-/// Android does not hand a NativeActivity keystrokes for text: the soft
-/// keyboard talks to an `InputConnection`, a Java object, and there is no way
-/// to reach one from native code. So the Java side owns a `BaseInputConnection`
-/// on the activity's view and forwards each edit down here — the same shape the
-/// gesture bridge already uses, for the same reason.
-///
-/// This is why `shell2/android` had NO text input at all despite having a full
-/// key path: `KeyEvent` carries navigation and modifier keys, but a soft
-/// keyboard sends `commitText` and `setComposingText` and never synthesizes
-/// key events for them. An IME typing Japanese produces no `KeyEvent` whatsoever.
-#[cfg(target_os = "android")]
-pub mod text_bridge {
-    // `with_window` belongs to the sibling `jni_bridge` module, not to the
-    // android module root — the gesture bridge declared it there first and
-    // this bridge reuses it rather than defining a second copy.
-    use super::{jni_bridge::with_window, LogCategory, RelayoutReason};
-    use crate::log_info;
-
-    /// Read a Java `String` argument.
-    ///
-    /// This used to take `(*const u8, i32)` on the theory that letting Java do
-    /// the encoding kept the unsafe surface here to a slice. It also made the
-    /// method UNCALLABLE from Java: a `byte[]` arrives as a `jbyteArray` handle,
-    /// not as a pointer to its elements, and Java cannot produce a raw address
-    /// at all. `accessibility.rs` already talks to a real `JNIEnv` next door, so
-    /// this does the same.
-    unsafe fn jstring_to_string(env: *mut jni::sys::JNIEnv, s: jni::sys::jstring) -> String {
-        if s.is_null() {
-            return String::new();
-        }
-        let Ok(mut env) = jni::JNIEnv::from_raw(env) else {
-            return String::new();
-        };
-        match env.get_string(&jni::objects::JString::from_raw(s)) {
-            Ok(js) => js.into(),
-            Err(_) => String::new(),
-        }
-    }
-
-    /// Build a Java string, or null.
-    unsafe fn new_jstring(env: *mut jni::sys::JNIEnv, s: &str) -> jni::sys::jstring {
-        let null = core::ptr::null_mut();
-        let Ok(mut env) = jni::JNIEnv::from_raw(env) else {
-            return null;
-        };
-        match env.new_string(s) {
-            Ok(v) => v.into_raw(),
-            Err(_) => null,
-        }
-    }
-
-    /// `InputConnection.getTextBeforeCursor` — the `n` bytes before the caret.
-    ///
-    /// This and its two siblings are what make an IME useful rather than merely
-    /// functional: autocorrect, the suggestion strip, swipe typing and
-    /// double-space-inserts-a-period all interrogate the text around the
-    /// cursor. `BaseInputConnection`'s default answers come from its own local
-    /// Editable, which for us is an empty scratch buffer — so the IME saw a
-    /// permanently blank document and offered nothing.
-    ///
-    /// Byte-clamped to a char boundary: slicing a UTF-8 string at an arbitrary
-    /// byte panics, and `n` is a count the IME chose with no idea of our
-    /// encoding.
-    #[no_mangle]
-    /// The focused control's IME hints, packed into one int.
-    ///
-    /// `purpose | (multiline << 8)`. Packed rather than two JNI calls because
-    /// `onCreateInputConnection` runs on the UI thread while the IME is
-    /// opening, and each crossing is a chance for the window to be gone.
-    ///
-    /// Returns `0` (plain text, single line) when nothing is focused, which is
-    /// the platform default the user's ruling asked for - not a guess.
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeGetInputHints(
-        _env: *mut jni::sys::JNIEnv,
-        _class: jni::sys::jclass,
-        native_ptr: i64,
-    ) -> i32 {
-        let mut packed = 0i32;
-        with_window(native_ptr, |w| {
-            if let Some(lw) = w.common.layout_window.as_ref() {
-                if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
-                    let purpose =
-                        azul_layout::form::input_purpose(focused, &lw.layout_results) as i32;
-                    let multiline =
-                        i32::from(azul_layout::form::is_multiline(focused, &lw.layout_results));
-                    packed = purpose | (multiline << 8);
-                }
-            }
-        });
-        packed
-    }
-
-    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeGetTextBeforeCursor(
-        env: *mut jni::sys::JNIEnv,
-        _class: jni::sys::jclass,
-        native_ptr: i64,
-        n: i32,
-    ) -> jni::sys::jstring {
-        let mut out = String::new();
-        with_window(native_ptr, |w| {
-            if let Some(lw) = w.common.layout_window.as_mut() {
-                if let Some((text, caret)) = lw.ime_surrounding_text() {
-                    let want = n.max(0) as usize;
-                    let mut start = caret.saturating_sub(want);
-                    while start < caret && !text.is_char_boundary(start) {
-                        start += 1;
-                    }
-                    out = text[start..caret].to_string();
-                }
-            }
-        });
-        new_jstring(env, &out)
-    }
-
-    /// `InputConnection.getTextAfterCursor` — the `n` bytes after the caret.
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeGetTextAfterCursor(
-        env: *mut jni::sys::JNIEnv,
-        _class: jni::sys::jclass,
-        native_ptr: i64,
-        n: i32,
-    ) -> jni::sys::jstring {
-        let mut out = String::new();
-        with_window(native_ptr, |w| {
-            if let Some(lw) = w.common.layout_window.as_mut() {
-                if let Some((text, caret)) = lw.ime_surrounding_text() {
-                    let want = n.max(0) as usize;
-                    let mut end = (caret + want).min(text.len());
-                    while end > caret && !text.is_char_boundary(end) {
-                        end -= 1;
-                    }
-                    out = text[caret..end].to_string();
-                }
-            }
-        });
-        new_jstring(env, &out)
-    }
-
-    /// `InputConnection.getSelectedText` — null when there is no selection,
-    /// which is what the IME expects (an empty string means "a selection that
-    /// happens to be empty" and changes its behaviour).
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeGetSelectedText(
-        env: *mut jni::sys::JNIEnv,
-        _class: jni::sys::jclass,
-        native_ptr: i64,
-    ) -> jni::sys::jstring {
-        let mut out: Option<String> = None;
-        with_window(native_ptr, |w| {
-            if let Some(lw) = w.common.layout_window.as_ref() {
-                if let Some(sel) = lw.text_edit_manager.selected_text_for_ime() {
-                    if !sel.is_empty() {
-                        out = Some(sel);
-                    }
-                }
-            }
-        });
-        match out {
-            Some(s) => new_jstring(env, &s),
-            None => core::ptr::null_mut(),
-        }
-    }
-
-    /// Selection bounds in PHYSICAL pixels, for Android's floating toolbar.
-    ///
-    /// `ActionMode.Callback2.onGetContentRect` positions the Cut/Copy/Paste
-    /// popup over the selection, so it needs the rect in the same space the
-    /// View uses. Returns 0 when nothing is selected, so the Java side can tell
-    /// "no selection" from "an empty rect at the origin".
-    ///
-    /// Packed into a single `jlong` rather than an out-array: four 16-bit
-    /// fields cover any screen Android runs on, and it avoids an array
-    /// allocation on a path the toolbar polls while it is on screen.
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeGetSelectionRect(
-        _env: *mut jni::sys::JNIEnv,
-        _class: jni::sys::jclass,
-        native_ptr: i64,
-    ) -> i64 {
-        let mut packed = 0i64;
-        with_window(native_ptr, |w| {
-            let dpi = w.common.current_window_state().size.dpi as f32 / 96.0;
-            if let Some(lw) = w.common.layout_window.as_ref() {
-                if let Some(r) = lw.calculate_selection_bounding_rect() {
-                    let clamp = |v: f32| v.max(0.0).min(65535.0) as i64;
-                    let x = clamp(r.origin.x * dpi);
-                    let y = clamp(r.origin.y * dpi);
-                    let w_px = clamp(r.size.width * dpi).max(1);
-                    let h_px = clamp(r.size.height * dpi).max(1);
-                    packed = (x << 48) | (y << 32) | (w_px << 16) | h_px;
-                }
-            }
-        });
-        packed
-    }
-
-    /// Run a selection action chosen from the floating toolbar.
-    ///
-    /// 0 = cut, 1 = copy, 2 = paste, 3 = select all. The engine already models
-    /// all four as `SystemChange`s; this only routes Android's menu onto them,
-    /// so the clipboard payload and the undo entry are the same ones a desktop
-    /// Ctrl+C produces.
-    ///
-    /// Queued like `commitText` — the toolbar calls on the UI thread and a
-    /// system change must be applied where the loop can see it.
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeSelectionAction(
-        _env: *mut jni::sys::JNIEnv,
-        _class: jni::sys::jclass,
-        native_ptr: i64,
-        action: i32,
-    ) {
-        with_window(native_ptr, |w| {
-            if let Ok(mut q) = w.pending_selection_actions.lock() {
-                q.push(action);
-            }
-            w.common.request_regeneration(RelayoutReason::RefreshDom);
-        });
-    }
-
-    /// `InputConnection.commitText` — the IME finished composing and this is
-    /// the result.
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeCommitText(
-        env: *mut jni::sys::JNIEnv,
-        _class: jni::sys::jclass,
-        native_ptr: i64,
-        text: jni::sys::jstring,
-    ) {
-        let text = jstring_to_string(env, text);
-        log_info!(
-            LogCategory::Input,
-            "[Android] IME commitText({:?}) ptr={:#x}",
-            text,
-            native_ptr
-        );
-        with_window(native_ptr, |w| {
-            // QUEUED, not applied. This runs on the IME's thread; the changeset
-            // has to be staged and passed on the loop thread or the pass races
-            // a layout in progress.
-            if let Ok(mut q) = w.pending_ime_commits.lock() {
-                q.push(text.clone());
-            }
-            w.common.request_regeneration(RelayoutReason::RefreshDom);
-        });
-    }
-
-    /// `InputConnection.setComposingText` — the IME's in-progress preedit.
-    ///
-    /// `cursor_pos` is Android's own convention: > 0 counts from the END of the
-    /// composing text, <= 0 from its start. Normalised to a byte offset here so
-    /// the engine sees the same shape Wayland and Win32 produce.
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeSetComposingText(
-        env: *mut jni::sys::JNIEnv,
-        _class: jni::sys::jclass,
-        native_ptr: i64,
-        text: jni::sys::jstring,
-        cursor_pos: i32,
-    ) {
-        let text = jstring_to_string(env, text);
-        let byte_len = text.len() as i32;
-        let caret = if cursor_pos > 0 { byte_len } else { 0 };
-        with_window(native_ptr, |w| {
-            if let Some(lw) = w.common.layout_window.as_mut() {
-                lw.text_edit_manager.set_preedit(text.clone(), caret, caret);
-            }
-            w.common.request_regeneration(RelayoutReason::RefreshDom);
-        });
-    }
-
-    /// `InputConnection.finishComposingText` — composition ended without a
-    /// separate commit (the user tapped away, or the IME gave up).
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeFinishComposing(
-        _env: *mut core::ffi::c_void,
-        _class: *mut core::ffi::c_void,
-        native_ptr: i64,
-    ) {
-        with_window(native_ptr, |w| {
-            if let Some(lw) = w.common.layout_window.as_mut() {
-                // clear_preedit records CompositionEnd on its own, so a
-                // cancelled composition still tells the app to close its
-                // overlay.
-                lw.text_edit_manager.clear_preedit();
-            }
-            w.common.request_regeneration(RelayoutReason::RefreshDom);
-        });
-    }
-
-    /// `InputConnection.deleteSurroundingText` — the IME asking for a
-    /// backspace it did not express as a key.
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeDeleteSurrounding(
-        _env: *mut core::ffi::c_void,
-        _class: *mut core::ffi::c_void,
-        native_ptr: i64,
-        before: i32,
-        after: i32,
-    ) {
-        with_window(native_ptr, |w| {
-            if let Some(lw) = w.common.layout_window.as_mut() {
-                let Some(focused) = lw.focus_manager.get_focused_node().copied() else {
-                    return;
-                };
-                for _ in 0..before.max(0) {
-                    lw.delete_selection(focused, true);
-                }
-                for _ in 0..after.max(0) {
-                    lw.delete_selection(focused, false);
-                }
-            }
-            w.common.request_regeneration(RelayoutReason::RefreshDom);
-        });
-    }
-
-    /// `View.onApplyWindowInsets` — system bars, display cutout and the IME.
-    ///
-    /// Android had NO inset handling at all, which since API 35 is not a
-    /// cosmetic gap: edge-to-edge is mandatory there, so the status and
-    /// navigation bars sit ON TOP of the app's content unless it insets
-    /// itself. Content was being drawn under them.
-    ///
-    /// All values arrive in PHYSICAL pixels — Android insets always do — and
-    /// are converted here, because everything downstream of `SafeAreaInsets`
-    /// is logical.
-    ///
-    /// The IME inset is kept separate from `bottom` rather than added into
-    /// it: the navigation bar is fixed for the life of the window while the
-    /// keyboard appears, animates and leaves, and an app that needs to know
-    /// why its content shrank cannot recover that from one number.
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeOnWindowInsets(
-        _env: *mut core::ffi::c_void,
-        _class: *mut core::ffi::c_void,
-        native_ptr: i64,
-        top_px: i32,
-        bottom_px: i32,
-        left_px: i32,
-        right_px: i32,
-        ime_px: i32,
-    ) {
-        use azul_css::props::basic::pixel::{OptionPixelValue, PixelValue};
-
-        with_window(native_ptr, |w| {
-            let scale = w
-                .common
-                .current_window_state()
-                .size
-                .get_hidpi_factor()
-                .inner
-                .get();
-            let to_logical = |px: i32| -> OptionPixelValue {
-                if px <= 0 {
-                    // 0 is "no inset", which is genuinely different from
-                    // "unknown" — the None case is for platforms that cannot
-                    // answer at all.
-                    OptionPixelValue::None
-                } else {
-                    OptionPixelValue::Some(PixelValue::px(px as f32 / scale))
-                }
-            };
-            if let Some(lw) = w.common.layout_window.as_mut() {
-                lw.safe_area_insets = azul_css::system::SafeAreaInsets {
-                    top: to_logical(top_px),
-                    bottom: to_logical(bottom_px),
-                    left: to_logical(left_px),
-                    right: to_logical(right_px),
-                    keyboard: to_logical(ime_px),
-                };
-                log_info!(
-                    LogCategory::Window,
-                    "[Android] insets top={} bottom={} left={} right={} ime={} (physical px)",
-                    top_px,
-                    bottom_px,
-                    left_px,
-                    right_px,
-                    ime_px,
-                );
-            }
-            w.common.request_regeneration(RelayoutReason::RefreshDom);
-        });
-    }
-
-    /// Whether a composition is currently open — the Java side asks so it can
-    /// answer `InputConnection.getComposingText` without duplicating state.
-    /// `AzulInputView.onPointerCaptureChange` (9d-android-a): queue the
-    /// framework's answer for the loop; see `pending_pointer_capture`.
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeOnPointerCaptureChanged(
-        _env: *mut core::ffi::c_void,
-        _class: *mut core::ffi::c_void,
-        native_ptr: i64,
-        has_capture: i32,
-    ) {
-        with_window(native_ptr, |w| {
-            if let Ok(mut c) = w.pending_pointer_capture.lock() {
-                *c = Some(has_capture != 0);
-            }
-            // Wake the loop like the IME push does; the drain runs the pass.
-            w.common.request_regeneration(RelayoutReason::RefreshDom);
-        });
-    }
-
-    /// `AzulInputView.onCapturedPointerEvent` deltas (9d-android-b):
-    /// accumulate for the loop; see `pending_raw_motion`.
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeOnRawMotion(
-        _env: *mut core::ffi::c_void,
-        _class: *mut core::ffi::c_void,
-        native_ptr: i64,
-        device_id: i32,
-        dx: f32,
-        dy: f32,
-    ) {
-        with_window(native_ptr, |w| {
-            if let Ok(mut m) = w.pending_raw_motion.lock() {
-                let e = m.get_or_insert((0.0, 0.0, device_id as u64));
-                e.0 += f64::from(dx);
-                e.1 += f64::from(dy);
-                e.2 = device_id as u64;
-            }
-            w.common.request_regeneration(RelayoutReason::RefreshDom);
-        });
-    }
-
-    #[no_mangle]
-    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeIsComposing(
-        _env: *mut core::ffi::c_void,
-        _class: *mut core::ffi::c_void,
-        native_ptr: i64,
-    ) -> i32 {
-        let mut composing = 0;
-        with_window(native_ptr, |w| {
-            if let Some(lw) = w.common.layout_window.as_ref() {
-                composing = i32::from(lw.text_edit_manager.preedit_text.is_some());
-            }
-        });
-        composing
-    }
-}

@@ -48,7 +48,7 @@
 //! changing value cannot silently retarget an action.
 
 #[cfg(feature = "a11y")]
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use azul_core::dom::{AccessibilityAction, DomId, NodeId};
 #[cfg(feature = "a11y")]
@@ -100,18 +100,24 @@ pub const VERB_CLEAR_A11Y_FOCUS: i32 = 6;
 
 /// The Android side of the accessibility bridge.
 ///
-/// Shared with the JNI upcalls through `Arc<Mutex<..>>` on the snapshot, since
+/// Shared with the JNI upcalls through a `Mutex` on the shown tree, since
 /// those run on a different thread from the frame loop that replaces it.
 #[cfg(feature = "a11y")]
 pub struct AndroidAccessibilityAdapter {
     /// Actions TalkBack requested, drained by the frame loop.
     queue: A11yActionQueue,
-    /// What the Java side is currently being shown. Behind a `Mutex` because
-    /// the reader is the UI thread and the writer is the loop thread.
-    snapshot: Arc<Mutex<A11ySnapshot>>,
-    /// Logical → physical scale (`density / 160`, which equals `dpi / 96` given
-    /// how `android_main` derives the framework dpi). Android wants physical
-    /// pixels; the snapshot carries logical units.
+    /// What the Java side is currently being shown, with the logical -> physical scale it is shown at.
+    /// Behind ONE `Mutex` because the reader is the UI thread and the writer is the loop thread: the
+    /// scale used to sit beside it as a plain field the loop wrote while the UI thread read it.
+    state: Mutex<Shown>,
+}
+
+/// The tree TalkBack is shown.
+#[cfg(feature = "a11y")]
+struct Shown {
+    snapshot: A11ySnapshot,
+    /// Logical -> physical scale (`density / 160`, which equals `dpi / 96` given how `android_main`
+    /// derives the framework dpi). Android wants physical pixels; the snapshot carries logical units.
     scale: f32,
 }
 
@@ -121,8 +127,10 @@ impl AndroidAccessibilityAdapter {
     pub fn new() -> Self {
         Self {
             queue: A11yActionQueue::new(),
-            snapshot: Arc::new(Mutex::new(A11ySnapshot::default())),
-            scale: 1.0,
+            state: Mutex::new(Shown {
+                snapshot: A11ySnapshot::default(),
+                scale: 1.0,
+            }),
         }
     }
 
@@ -133,24 +141,25 @@ impl AndroidAccessibilityAdapter {
         self.queue.poll_action()
     }
 
-    /// Replace the tree the Java side reads. Called after every layout.
-    pub fn update_snapshot(&mut self, snapshot: A11ySnapshot, scale: f32) {
-        self.scale = if scale.is_finite() && scale > 0.0 {
+    /// Replace the tree the Java side reads. Called after every layout, on the loop thread.
+    pub fn update_snapshot(&self, snapshot: A11ySnapshot, scale: f32) {
+        let scale = if scale.is_finite() && scale > 0.0 {
             scale
         } else {
             1.0
         };
-        if let Ok(mut guard) = self.snapshot.lock() {
-            *guard = snapshot;
+        if let Ok(mut shown) = self.state.lock() {
+            shown.snapshot = snapshot;
+            shown.scale = scale;
         }
     }
 
     /// Number of virtual views, i.e. exposed DOM nodes.
     #[must_use]
     pub fn node_count(&self) -> i32 {
-        self.snapshot
+        self.state
             .lock()
-            .map_or(0, |s| i32::try_from(s.len()).unwrap_or(i32::MAX))
+            .map_or(0, |s| i32::try_from(s.snapshot.len()).unwrap_or(i32::MAX))
     }
 
     /// Serialise one node for `createAccessibilityNodeInfo`.
@@ -164,7 +173,9 @@ impl AndroidAccessibilityAdapter {
     /// documented way to say "that virtual view is gone".
     #[must_use]
     pub fn describe_node(&self, virtual_view_id: i32) -> Option<String> {
-        let guard = self.snapshot.lock().ok()?;
+        let shown = self.state.lock().ok()?;
+        let guard = &shown.snapshot;
+        let scale = shown.scale;
 
         if virtual_view_id == HOST_VIEW_ID {
             let children = guard
@@ -173,8 +184,8 @@ impl AndroidAccessibilityAdapter {
                 .map(std::string::ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(",");
-            let w = (guard.window_size.width * self.scale).round() as i32;
-            let h = (guard.window_size.height * self.scale).round() as i32;
+            let w = (guard.window_size.width * scale).round() as i32;
+            let h = (guard.window_size.height * scale).round() as i32;
             return Some(join_fields(&[
                 guard.title.clone(),
                 String::new(),
@@ -192,7 +203,7 @@ impl AndroidAccessibilityAdapter {
         let index = usize::try_from(virtual_view_id).ok()?;
         let element = guard.element(index)?;
 
-        let px = |v: f32| (v * self.scale).round() as i32;
+        let px = |v: f32| (v * scale).round() as i32;
         let left = px(element.bounds.origin.x);
         let top = px(element.bounds.origin.y);
         let right = px(element.bounds.origin.x + element.bounds.size.width);
@@ -278,9 +289,10 @@ impl AndroidAccessibilityAdapter {
     /// axis: a vertically scrollable node scrolls down, a horizontally
     /// scrollable one scrolls right.
     pub fn perform_action(&self, virtual_view_id: i32, verb: i32) -> bool {
-        let Ok(guard) = self.snapshot.lock() else {
+        let Ok(shown) = self.state.lock() else {
             return false;
         };
+        let guard = &shown.snapshot;
         let Ok(index) = usize::try_from(virtual_view_id) else {
             // HOST_VIEW_ID or garbage: no DOM node stands behind it.
             return false;
@@ -423,30 +435,22 @@ impl Default for AndroidAccessibilityAdapter {
 mod jni_bridge {
     use super::HOST_VIEW_ID;
 
-    /// Reach the accessibility adapter of the `AndroidWindow` at `native_ptr`.
+    /// Reach the accessibility adapter behind the cookie Java holds.
     ///
-    /// SAFETY / THREADING: `native_ptr` is the address `android_main`
-    /// published. These upcalls run on the Java UI thread WHILE the loop
-    /// thread holds `&mut AndroidWindow`, so this deliberately never forms a
-    /// reference to the whole window — `addr_of!` projects straight to the
-    /// adapter field, whose own state is behind a `Mutex`. Handing the closure
-    /// a `&AndroidWindow` (what the gesture bridge does) would alias the
-    /// loop thread's `&mut` for the entire struct.
-    ///
-    /// The adapter must therefore never be moved or reallocated while the
-    /// activity is alive, which holds: it is a field of the window that
-    /// `android_main` keeps on its stack frame for the whole run.
+    /// THREADING: these upcalls run on the Java UI thread (or the accessibility thread) while the loop
+    /// thread drives the window. The cookie is the address of the leaked `UiBridge` (`android/bridge.rs`),
+    /// never of the window, and the adapter's state is behind a lock, so nothing here can race the loop
+    /// or outlive it: after `android_main` returned the bridge is still there (closed adapters answer
+    /// the empty tree).
     unsafe fn with_adapter<R>(
         native_ptr: i64,
         default: R,
         f: impl FnOnce(&super::AndroidAccessibilityAdapter) -> R,
     ) -> R {
-        if native_ptr == 0 {
-            return default;
+        match super::super::bridge::from_cookie(native_ptr) {
+            Some(bridge) if !bridge.queues.is_closed() => f(&bridge.accessibility),
+            _ => default,
         }
-        let window = native_ptr as *const super::super::AndroidWindow;
-        let adapter = &*core::ptr::addr_of!((*window).accessibility_adapter);
-        f(adapter)
     }
 
     /// How many virtual views the provider should expose.
