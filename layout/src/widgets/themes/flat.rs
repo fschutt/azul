@@ -1942,10 +1942,12 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
         DROPDOWN_ARROW_BASE, DROPDOWN_LABEL_BASE, DROPDOWN_WRAPPER_BASE,
     };
 
+    // A finger needs room: a drop-down is 48 dp tall on Android and 44 pt on iOS, nothing on a desktop.
+    let mut wrapper_style = [DROPDOWN_WRAPPER_BASE, FLAT_DROPDOWN_WRAPPER_STYLE].concat();
+    wrapper_style.extend(super::decl::touch_target_floor());
+
     Dom::create_div()
-        .with_css_props(CssPropertyWithConditionsVec::from_vec(
-            [DROPDOWN_WRAPPER_BASE, FLAT_DROPDOWN_WRAPPER_STYLE].concat(),
-        ))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(wrapper_style))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DROPDOWN_CLASS))
         .with_tab_index(TabIndex::Auto)
         .with_accessibility_info(AccessibilityInfo {
