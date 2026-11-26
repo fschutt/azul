@@ -41148,6 +41148,12 @@
                                 "FontKerning": {
                                     "type": "StyleFontKerningValue"
                                 },
+                                "TextUnderlineOffset": {
+                                    "type": "StyleTextUnderlineOffsetValue"
+                                },
+                                "TextUnderlinePosition": {
+                                    "type": "StyleTextUnderlinePositionValue"
+                                },
                                 "TextDecorationColor": {
                                     "type": "StyleTextDecorationColorValue"
                                 },
@@ -52685,6 +52691,8 @@
                                 "FontVariationSettings": {},
                                 "FontOpticalSizing": {},
                                 "FontKerning": {},
+                                "TextUnderlineOffset": {},
+                                "TextUnderlinePosition": {},
                                 "TextDecorationColor": {},
                                 "TextDecorationThickness": {},
                                 "TextWrap": {},
@@ -62119,6 +62127,77 @@
                             "target": "CssPropertyValue",
                             "generic_args": [
                                 "StyleTextDecorationThickness"
+                            ]
+                        }
+                    },
+                    "StyleTextUnderlineOffset": {
+                        "external": "azul_css::props::style::text::StyleTextUnderlineOffset",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Length": {
+                                    "type": "PixelValue"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextUnderlineOffsetValue": {
+                        "external": "azul_css::props::property::StyleTextUnderlineOffsetValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextUnderlineOffset"
+                            ]
+                        }
+                    },
+                    "StyleTextUnderlinePosition": {
+                        "external": "azul_css::props::style::text::StyleTextUnderlinePosition",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "FromFont": {},
+                                "Under": {},
+                                "Left": {},
+                                "Right": {},
+                                "FromFontLeft": {},
+                                "FromFontRight": {},
+                                "UnderLeft": {},
+                                "UnderRight": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleTextUnderlinePositionValue": {
+                        "external": "azul_css::props::property::StyleTextUnderlinePositionValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextUnderlinePosition"
                             ]
                         }
                     }
