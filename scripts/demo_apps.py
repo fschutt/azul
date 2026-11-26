@@ -5,6 +5,7 @@
                                        release-page generator agree (fails with every disagreement)
     demo_apps.py plan                  the build matrices of a `demos` run, as GITHUB_OUTPUT lines
     demo_apps.py assets [<package>]    the file names every app is built as, one per line
+    demo_apps.py weights <status.json> the weight the measured build seconds of a run suggest for each app
     demo_apps.py status <dir> ...      merge the result files of a run into demo-status.json / .md
 
 Python 3.11+ (tomllib); the build scripts that run on every runner (demo_build.py, demo_gate.py) need
@@ -532,6 +533,25 @@ def main(argv):
                 continue
             for c in columns_of(a):
                 print(f"{a['package']}\t{c}\t{staged_name(a, c)}\t{release_name(a, c)}")
+        return 0
+    if cmd == "weights":
+        # demo_apps.py weights demo-status.json: the weight (1 light .. 3 heavy) the measured build seconds of each app
+        # suggest, from the mean over its desktop builds, next to the weight in the manifest
+        data = json.loads(pathlib.Path(rest[0]).read_text(encoding="utf-8"))
+        mean = {}
+        for row in data["apps"]:
+            secs = [c["seconds"] for col, c in row["cells"].items() if col in DESKTOP and c.get("status") == "built" and c.get("seconds")]
+            if secs:
+                mean[row["app"]] = sum(secs) / len(secs)
+        if not mean:
+            print("no desktop build with seconds in " + rest[0])
+            return 1
+        ordered = sorted(mean.values())
+        third = lambda v: 1 if v <= ordered[len(ordered) // 3] else (2 if v <= ordered[2 * len(ordered) // 3] else 3)
+        have = {a["package"]: a["weight"] for a in load()["app"]}
+        for app, v in sorted(mean.items(), key=lambda kv: -kv[1]):
+            mark = "" if third(v) == have.get(app) else "   <- manifest says " + str(have.get(app))
+            print(f"{app:20} {v:7.0f} s   suggested weight {third(v)}{mark}")
         return 0
     if cmd == "status":
         dirs = [d for d in rest if not d.startswith("--")]
