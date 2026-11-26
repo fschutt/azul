@@ -13,7 +13,9 @@
 #                    screen_nonblank, fatal, pass, reason, ...}
 # (and screenshot-after-tap.png, tap.json when the manifest names a button for the app: AZ_SMOKE_TAPS, a JSON map
 # of app name -> the label to press, from scripts/demo_apps.toml's [app.smoke] tap; AZ_SMOKE_EXPECTS the same for the text
-# the first screen must show) and <out-dir>/summary.json lists them. An app BOOTS (pass) when it is alive twice, is the
+# the first screen must show; AZ_SMOKE_AFTER, {app: {found: [...], gone: [...]}}, the texts that must be on the screen once the
+# button was pressed and the ones that must be gone, ui-after-tap.xml being the accessibility dump they are looked for in) and
+# <out-dir>/summary.json lists them. An app BOOTS (pass) when it is alive twice, is the
 # resumed activity, is on the screen (not the home screen, not one flat colour) and left no fatal line; the reason of a
 # failure is in result.json. Exit 0 when every app boots; 1 when one does not; 2 when the emulator itself could not be
 # started (nothing is said about the apps).
@@ -63,6 +65,10 @@ if [ "$booted" != "1" ]; then
 fi
 adb shell input keyevent 82 >/dev/null 2>&1 || true   # unlock
 adb shell settings put global window_animation_scale 0 >/dev/null 2>&1 || true
+# The engine's startup table: AZ_STARTUP=1 through the engine's own Android mechanism (the system property debug.az.startup), set
+# BEFORE the first launch. At its first present an app then writes `[startup] ...` lines and ONE `[startup-json] {...}` line with
+# first_present_ms to stderr (logcat tag RustStdoutStderr); scripts/ci/smoke_verdict.py reads it as information, never as the verdict.
+adb shell setprop debug.az.startup 1 >/dev/null 2>&1 || true
 echo "emulator booted: $(adb shell getprop ro.product.cpu.abi | tr -d '\r'), API $(adb shell getprop ro.build.version.sdk | tr -d '\r')"
 
 all_ok=0
@@ -132,10 +138,16 @@ PY
         [ -n "$(adb shell pidof "$pkg" 2>/dev/null | tr -d '\r')" ] && tap_alive=1
         adb logcat -d -v threadtime >"$dir/logcat-after-tap.txt" 2>&1 || true
         tap_fatal="$(grep -E "FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|UnsatisfiedLinkError|ANR in $pkg|Process $pkg .*(died|killed)|AndroidRuntime.*$pkg" "$dir/logcat-after-tap.txt" | head -n 1)"
-        python3 - "$dir/tap.json" "$tap_label" "$tapped" "$xy" "$tap_alive" "$tap_fatal" <<'PY'
+        # What the manifest says must be on the screen now and what must be gone ([app.smoke] after_tap, after_tap_gone, through
+        # AZ_SMOKE_AFTER): looked for in the accessibility dump of this moment (scripts/ci/ui_find.py)
+        adb shell uiautomator dump /sdcard/ui-after.xml >/dev/null 2>&1 && adb pull /sdcard/ui-after.xml "$dir/ui-after-tap.xml" >/dev/null 2>&1
+        after_json="$(python3 "$(dirname "$0")/ui_find.py" --after "$dir/ui-after-tap.xml" "${app%-android-x86_64}")"
+        python3 - "$dir/tap.json" "$tap_label" "$tapped" "$xy" "$tap_alive" "$tap_fatal" "$after_json" <<'PY'
 import json, sys
-path, label, how, xy, alive, fatal = sys.argv[1:]
-json.dump({"label": label, "found": how, "at": xy, "alive": alive == "1", "fatal": fatal or None}, open(path, "w"), indent=2)
+path, label, how, xy, alive, fatal, after = sys.argv[1:]
+facts = {"label": label, "found": how, "at": xy, "alive": alive == "1", "fatal": fatal or None}
+facts.update(json.loads(after or "{}"))
+json.dump(facts, open(path, "w"), indent=2)
 PY
         verdict_args+=(--tap "$dir/tap.json" --tap-before "$dir/screenshot.png" --tap-after "$dir/screenshot-after-tap.png")
       fi
@@ -158,7 +170,7 @@ PY
   [ -f "$dir/baseline.png" ] && verdict_args+=(--baseline "$dir/baseline.png" --after "$dir/screenshot-2.png")
   # the platform's own launch numbers (informational: `am start -W` and the activity manager's "Displayed" line)
   [ -f "$dir/start.log" ] && verdict_args+=(--start-log "$dir/start.log")
-  [ -f "$dir/logcat.txt" ] && verdict_args+=(--logcat "$dir/logcat.txt")
+  [ -f "$dir/logcat.txt" ] && verdict_args+=(--logcat "$dir/logcat.txt" --startup-log "$dir/logcat.txt")
   # THE pass line: scripts/ci/smoke_verdict.py (alive twice, on the screen, drawn, no fatal line); nothing else decides
   python3 "$(dirname "$0")/smoke_verdict.py" --out "$dir/result.json" --app "$app" --id "${pkg:-}" --alive "$alive" --alive-after "$alive_after" \
     --fatal "$fatal" --rust-lines "${rust_lines:-0}" --resumed "$resumed" --band 0.045,0.94 ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1

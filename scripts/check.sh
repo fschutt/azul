@@ -40,7 +40,7 @@ STAGES=(
   "arch-lint|fast|shell2 architecture greps (content_state_lint job)"
   "member-coverage|fast|no workspace member may join untested (check_crates job)"
   "check|fast|cargo check azul-css / azul-core / azul-layout"
-  "clippy|fast|clippy -D warnings on core/css/layout --all-targets"
+  "clippy|fast|clippy -D warnings on core/css/layout --all-targets, default features and the test stages' feature set"
   "doc-check|fast|azul-doc check (double-drop invariant + guide links)"
   "binding-syntax|fast|syntax/type-check generated bindings: zig, go, ocaml, ruby, lua, php, node"
   "doc-tests|fast|cargo test -p azul-doc --bins"
@@ -106,8 +106,9 @@ STAGES (measured warm, on an M-series Mac)
                         --test leak_regression   (whole-file cfg is macOS)
 
 FEATURE THRASH
-  CI runs `check`/`clippy` on DEFAULT features and the test stages on the
-  feature set above, in separate jobs with separate caches. Locally they share
+  CI runs `check` on DEFAULT features, `clippy` on the default features AND on
+  the feature set of the test stages, and the test stages on the feature set
+  above, in separate jobs with separate caches. Locally they share
   one target dir, so switching between them rebuilds azul-layout (~6 min).
   The stage order above groups the default-feature stages first to pay that
   cost exactly once per run. Do not reorder casually.
@@ -488,7 +489,9 @@ stage_doc_check() {
 # `azul-core/url` joined the list on 2026-08-20: the 35 tests in core/src/url.rs
 # are all `#[cfg(feature = "url")]` and NO job passed that feature, so they ran
 # nowhere in CI and nowhere here either.
-CI_TEST_FEATURES=azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server
+# `azul-layout/updater` (which turns on `http`) is in the CI's list as well; the clippy stage lints the
+# SAME list, so that the code the tests compile is linted too.
+CI_TEST_FEATURES=azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server,azul-layout/updater
 
 # The packages CI's test_lib job names. `webrender` joined on 2026-08-20 — it is
 # a workspace member (a path dependency of azul-dll, which is how cargo made it
@@ -556,6 +559,9 @@ stage_e2e_json() {
 
 stage_clippy() {
   cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets -- -D warnings
+  # the second step of the CI's clippy job: the feature set the tests compile
+  cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets \
+    --features "$CI_TEST_FEATURES" -- -D warnings
 }
 
 stage_dll_tests() {

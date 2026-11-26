@@ -184,6 +184,10 @@ pub mod hooks {
 
     use azul_layout::callbacks::CallbackInfo;
 
+    /// Grabs a real window screenshot as a base64 data-URI (the second argument:
+    /// with the window's shadow, or not; `None` follows the window).
+    pub type NativeScreenshotFn = fn(&mut CallbackInfo, Option<bool>) -> Result<String, String>;
+
     /// Host-supplied implementations for the call sites the layout crate cannot
     /// satisfy on its own. Each is optional: `None` selects the headless
     /// default (error / no-op / `None`).
@@ -191,8 +195,7 @@ pub mod hooks {
     pub struct E2eHostHooks {
         /// Grab a real window screenshot as a base64 data-URI. `None` (headless)
         /// makes the `screenshot` op return an error.
-        pub take_native_screenshot_base64:
-            Option<fn(&mut CallbackInfo, Option<bool>) -> Result<String, String>>,
+        pub take_native_screenshot_base64: Option<NativeScreenshotFn>,
     }
 
     impl E2eHostHooks {

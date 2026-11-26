@@ -1,4 +1,4 @@
-//! Lua (LuaJIT FFI): the `azul` module (`target/codegen/azul.lua`, generated
+//! Lua (`LuaJIT` FFI): the `azul` module (`target/codegen/azul.lua`, generated
 //! by `doc/src/codegen/v2/lang_lua`).
 //!
 //! The generated code drives the raw C library the module exports as
@@ -11,7 +11,7 @@
 //! and strings with the unarmed `azul._az_string` (the C call consumes it).
 //!
 //! A DOM goes through the wrapper layer instead (`lang_lua/wrappers.rs`):
-//! static factories under the api snake_case name (`azul.Dom.create_div()`,
+//! static factories under the api `snake_case` name (`azul.Dom.create_div()`,
 //! `azul.SmallAriaInfo.label(..)`), by-value `self` methods called with `:`
 //! that consume the receiver and return a new `AzDom` (`:with_child(..)`,
 //! chained one link per line), Lua string arguments (the wrappers convert
@@ -27,6 +27,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -238,7 +239,7 @@ fn dom_item_fn(item: &Item) -> String {
     let syntax = WrapperDom(LuaDom);
     let mut out = String::new();
     for line in &item_comments(&syntax, item) {
-        out.push_str(&format!("-- {line}\n"));
+        let _ = writeln!(out, "-- {line}");
     }
     let name = item.name.snake();
     let params = item
@@ -248,14 +249,16 @@ fn dom_item_fn(item: &Item) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     match item_doc(&syntax, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "function M.{name}({params})\n    return {}\nend\n",
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "-- not expressible with the Lua bindings: {reason}\nfunction M.{name}({params})\n    \
              return nil\nend\n"
-        )),
+        ); },
     }
     out
 }
@@ -294,18 +297,20 @@ fn app_main(m: &Module) -> String {
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Lua, item) {
-        out.push_str(&format!("-- {line}\n"));
+        let _ = writeln!(out, "-- {line}");
     }
     let name = item.name.snake();
     match item_doc(&Lua, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "function M.{name}()\n    return {}\nend\n",
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "-- not expressible with the Lua bindings: {reason}\nfunction M.{name}()\n    return \
              nil\nend\n"
-        )),
+        ); },
     }
     out
 }
@@ -353,7 +358,7 @@ impl CodegenBackend for Lua {
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, NO_REGISTRATION) {
-                out.push_str(&format!("-- {line}\n"));
+                let _ = writeln!(out, "-- {line}");
             }
         }
         out.push_str("\nreturn M\n");
@@ -379,9 +384,10 @@ impl CodegenBackend for Lua {
         );
         for item in &m.items {
             let name = item.name.snake();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "\nlocal {name} = styles.{name}()\nprint(('{name}: %d properties'):format(tonumber({name}.len)))\n"
-            ));
+            );
         }
         vec![
             GeneratedFile {

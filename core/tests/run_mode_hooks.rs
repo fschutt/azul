@@ -23,7 +23,8 @@ fn a_build_with_the_feature_serves_the_hooks_installed_once() {
         .with("AZ_BACKEND", "headless")
         .with("AZ_KEYRING", "memory")
         .with("AZ_KEYRING_FILE", "/tmp/a-stack/keyring.json")
-        .with("AZ_AUTH_SESSION_REDIRECT", "cancel");
+        .with("AZ_AUTH_SESSION_REDIRECT", "cancel")
+        .with("AZ_GPU_FAIL", "surface:1");
     run_mode::install(TestHooks::from_lookup(&env));
 
     // `black_box`: the constant is known to be true here, and a plain `assert!(true)` is what
@@ -42,6 +43,7 @@ fn a_build_with_the_feature_serves_the_hooks_installed_once() {
         Some(OsStr::new("/tmp/a-stack/keyring.json"))
     );
     assert_eq!(hooks.fake_redirect.as_deref(), Some("cancel"));
+    assert_eq!(hooks.gpu_fail.as_deref(), Some("surface:1"));
 
     // Installed once: a later install (another environment) is not seen.
     run_mode::install(TestHooks::from_lookup(&MapEnv::new()));
