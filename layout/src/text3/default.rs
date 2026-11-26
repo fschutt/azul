@@ -868,7 +868,7 @@ const fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
 /// the Mongolian selectors and vowel separator, the zero width and joiner characters and the bidi
 /// marks (U+200B to U+200F, U+202A to U+202E), the invisible operators and the format characters
 /// of U+2060 to U+206F, the variation selectors, the byte order mark, the specials, the musical
-/// format characters and the tags: the set HarfBuzz hides, so a text that holds one is drawn as
+/// format characters and the tags: the set `HarfBuzz` hides, so a text that holds one is drawn as
 /// the text without it. The Hangul fillers are not in it (a face may draw them).
 const fn is_hidden_default_ignorable(ch: char) -> bool {
     matches!(
