@@ -1657,8 +1657,18 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
             MainEvent::Destroy => {
                 window.close();
             }
-            MainEvent::Pause | MainEvent::Resume { .. } => {
+            MainEvent::Pause => {
                 // No-op for now; future: pause timers, stop animations.
+            }
+            MainEvent::Resume { .. } => {
+                // Back in front (HOME and back, recents, another app's dialog that covered this one): the
+                // surface may have lost what it showed without a `RedrawNeeded` (a black window until
+                // something redrew it, QA run 45776829730). The frame the shell holds is posted once,
+                // whole; a shell with no frame or no surface yet gets its first from InitWindow's request.
+                if window.present.has_frame() && has_surface(window) {
+                    window.present.redraw_needed();
+                    window.needs_rerender = true;
+                }
             }
             _ => {}
         },
