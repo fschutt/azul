@@ -60,7 +60,7 @@ pub struct CameraStyle {
     pub scale: f64,
     /// Its distance from the corner's two edges, pixels of the picture.
     pub margin: u32,
-    /// `rect` (a rounded circle is for a later version).
+    /// `rect`, or `rounded` (rectangle with rounded corners).
     pub shape: String,
 }
 
@@ -79,7 +79,7 @@ impl Default for Style {
         Self {
             background: String::from("#101010"),
             screen: ScreenStyle { fit: String::from("contain") },
-            camera: CameraStyle { corner: String::from("bottom_right"), scale: 0.22, margin: 24, shape: String::from("rect") },
+            camera: CameraStyle { corner: String::from("bottom_right"), scale: 0.20, margin: 24, shape: String::from("rect") },
         }
     }
 }
@@ -288,8 +288,8 @@ impl Edl {
         if !matches!(c.corner.as_str(), "top_left" | "top_right" | "bottom_left" | "bottom_right") {
             out.push(format!("the camera's corner {:?} is not one of the four corners", c.corner));
         }
-        if !(0.05..=0.6).contains(&c.scale) || c.shape != "rect" {
-            out.push(String::from("the camera's scale must be 0.05 to 0.6 and its shape rect"));
+        if !(0.05..=0.6).contains(&c.scale) || !matches!(c.shape.as_str(), "rect" | "rounded") {
+            out.push(String::from("the camera's scale must be 0.05 to 0.6 and its shape rect or rounded"));
         }
         if self.segments.is_empty() {
             out.push(String::from("there are no segments: nothing to show"));
@@ -417,11 +417,12 @@ pub fn identity_edl(manifest: &Manifest, files: &[(u64, String)]) -> Edl {
         }
         offset += s.duration_us();
     }
-    // The picture is the screen's shape when there is one, up to full HD.
+    // The picture is the screen's own size when there is one (so a screen alone is joined without a
+    // re-encode), scaled down only to fit 4K and never enlarged.
     let mut output = Output::default();
     if let Some(screen) = manifest.tracks.screen.as_ref() {
         let (w, h) = (screen.width.max(2), screen.height.max(2));
-        let scale = (1920.0 / f64::from(w)).min(1080.0 / f64::from(h)).min(1.0);
+        let scale = (3840.0 / f64::from(w)).min(2160.0 / f64::from(h)).min(1.0);
         output.width = ((f64::from(w) * scale / 2.0).round() as u32 * 2).max(16);
         output.height = ((f64::from(h) * scale / 2.0).round() as u32 * 2).max(16);
     }

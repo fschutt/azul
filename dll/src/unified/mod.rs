@@ -16,6 +16,8 @@ pub mod app;
 pub mod audio;
 pub mod auth_session;
 pub mod capability;
+/// The desktop's state, polled (the app in front, the pointer, the lock): api.json's `sensor` module.
+pub mod desktop_state;
 pub mod iroh;
 pub mod keyring;
 pub mod map;

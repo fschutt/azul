@@ -346,6 +346,8 @@ pub struct RecordingInfo {
     pub tracks: Vec<&'static str>,
     /// What is wrong with it (the manifest cannot be read), in words.
     pub problem: Option<String>,
+    /// The size of the video an export made in its folder (`export/video.mp4`), when there is one.
+    pub video_bytes: Option<u64>,
 }
 
 fn dir_bytes(dir: &Path, depth: u32) -> u64 {
@@ -372,6 +374,7 @@ pub fn list_recordings(recordings: &Path) -> Vec<RecordingInfo> {
         }
         let name = entry.file_name().to_string_lossy().into_owned();
         let bytes = dir_bytes(&dir, 3);
+        let video_bytes = fs::metadata(crate::recorder_export_job::video_path(&dir)).ok().filter(fs::Metadata::is_file).map(|m| m.len());
         let info = match fs::read_to_string(&manifest_path).map_err(|e| e.to_string()).and_then(|t| Manifest::parse(&t).map_err(|e| e.to_string())) {
             Ok(m) => RecordingInfo {
                 name,
@@ -381,6 +384,7 @@ pub fn list_recordings(recordings: &Path) -> Vec<RecordingInfo> {
                 bytes,
                 tracks: m.tracks.present().into_iter().map(|(n, _)| n).collect(),
                 problem: None,
+                video_bytes,
             },
             Err(e) => RecordingInfo {
                 name,
@@ -390,6 +394,7 @@ pub fn list_recordings(recordings: &Path) -> Vec<RecordingInfo> {
                 bytes,
                 tracks: Vec::new(),
                 problem: Some(e),
+                video_bytes,
             },
         };
         out.push(info);

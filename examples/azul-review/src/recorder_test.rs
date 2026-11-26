@@ -15,7 +15,7 @@ use crate::{
     recorder_clock::MockClock,
     recorder_codec::{MockFactory, PixelFormat, VideoScript},
     recorder_manifest::{SessionState, Word},
-    recorder_mp4::scan,
+    recorder_mp4::{recorder_mp4_test::tracks_of, scan},
     recorder_screen::{Damage, Rect},
     recorder_settings::GB,
 };
@@ -78,8 +78,10 @@ fn request(dir: &Path) -> StartRequest {
         utc_offset_minutes: 60,
         camera: Perm::Granted,
         microphone: Perm::Granted,
+        screen: Perm::Granted,
         camera_device: Some(String::from("FaceTime HD Camera")),
         microphone_device: Some(String::from("MacBook Air Microphone")),
+        screen_device: Some(String::from("Built-in Liquid Retina Display")),
     }
 }
 
@@ -230,7 +232,7 @@ fn a_changed_window_is_encoded_with_its_settle_repeats_and_an_idle_one_costs_not
 }
 
 #[test]
-fn a_window_captured_by_the_system_is_recorded_like_the_taps_frames_and_says_where_it_came_from() {
+fn a_display_captured_by_the_system_is_recorded_like_the_taps_frames_and_says_where_it_came_from() {
     let mut r = rig();
     let started = r.start();
     let frame = |fill: u8| RawFrame { width: 320, height: 200, format: PixelFormat::Bgra8, bytes: vec![fill; 320 * 200 * 4] };
@@ -240,10 +242,33 @@ fn a_window_captured_by_the_system_is_recorded_like_the_taps_frames_and_says_whe
     r.rec.stop("user").unwrap();
     let m = r.manifest(&started);
     let screen = m.tracks.screen.as_ref().unwrap();
-    assert_eq!((screen.source.as_str(), screen.width, screen.height, screen.vfr), ("screencapturekit", 320, 200, true));
+    assert_eq!((screen.source.as_str(), screen.width, screen.height, screen.vfr), ("display", 320, 200, true));
+    assert_eq!(screen.device.as_deref(), Some("Built-in Liquid Retina Display"), "which display it was");
     assert!((screen.scale - 2.0).abs() < f32::EPSILON);
     assert_eq!(screen.segments[0].samples, 4, "the change and its three repeats");
     assert!(m.problems().is_empty(), "{:?}", m.problems());
+}
+
+/// What the manifest calls the screen track's source follows the setting: the display, one window, or the
+/// app's own frames (whichever call of the recorder delivered them).
+///
+/// Mutation: a source that is always "display"; one that ignores that the tap's frames are the app's own.
+#[test]
+fn the_screen_tracks_source_is_the_display_the_window_or_the_apps_own_frames() {
+    let frame = || RawFrame { width: 320, height: 200, format: PixelFormat::Bgra8, bytes: vec![1; 320 * 200 * 4] };
+    let mut r = rig_with(RecorderSettings { screen_source: ScreenKind::Window, ..quiet() }, MockFactory::default());
+    let started = r.start();
+    r.rec.screen_frame(frame(), 2.0);
+    r.run(500, 100);
+    r.rec.stop("user").unwrap();
+    assert_eq!(r.manifest(&started).tracks.screen.as_ref().unwrap().source, "window");
+
+    let mut r = rig();
+    let started = r.start();
+    tap(&mut r.rec, 320, 200, 1, Damage::Full);
+    r.run(500, 100);
+    r.rec.stop("user").unwrap();
+    assert_eq!(r.manifest(&started).tracks.screen.as_ref().unwrap().source, "frame-tap", "the tap's frames are the app's own");
 }
 
 #[test]
@@ -371,8 +396,59 @@ fn a_voice_input_that_lost_time_starts_again_at_the_new_time() {
 }
 
 #[test]
-fn the_camera_is_encoded_with_a_keyframe_every_two_seconds() {
+fn the_camera_is_cut_in_chunks_of_five_seconds_a_keyframe_and_a_fragment_each() {
+    // The default: 15 pictures a second for 20 s. A keyframe is asked for every five seconds, and every
+    // chunk is one fragment of the file, so a crash loses at most one chunk and the file is cut at chunks.
     let mut r = rig();
+    let started = r.start();
+    for _ in 0..300 {
+        r.advance(66);
+        camera(&mut r.rec);
+        r.rec.tick();
+    }
+    r.rec.stop("user").unwrap();
+    let m = r.manifest(&started);
+    let cam = m.tracks.camera.as_ref().unwrap();
+    assert_eq!((cam.width, cam.height, cam.source.as_str(), cam.vfr), (64, 48, "camera", false));
+    assert_eq!(cam.device.as_deref(), Some("FaceTime HD Camera"), "which camera it was");
+    assert_eq!(cam.fps, 15);
+    let s = scan_file(&started.dir.join(&cam.segments[0].file));
+    assert_eq!(s.samples, 300);
+    assert_eq!(s.fragments, 4, "pictures at 0, 5.0, 10.0 and 15.0 s begin the four chunks of 19.8 s");
+    assert!(m.problems().is_empty(), "{:?}", m.problems());
+}
+
+/// With the camera and the microphone on, the camera's files carry a copy of the voice (two tracks) and the voice
+/// has its own files as well, whole; the setting turns the copy off.
+///
+/// Mutation: a copy that is not made; the setting ignored.
+#[test]
+fn the_cameras_files_carry_a_copy_of_the_voice_and_the_setting_says_whether() {
+    for (carry, tracks) in [(true, 2), (false, 1)] {
+        let mut r = rig_with(RecorderSettings { camera_voice: carry, ..quiet() }, MockFactory::default());
+        let started = r.start();
+        for _ in 0..150 {
+            r.advance(66);
+            camera(&mut r.rec);
+            voice(&mut r.rec, 3_168, 0.2);
+            r.rec.tick();
+        }
+        r.rec.stop("user").unwrap();
+        let m = r.manifest(&started);
+        let cam = m.tracks.camera.as_ref().unwrap();
+        assert_eq!(tracks_of(&fs::read(started.dir.join(&cam.segments[0].file)).unwrap()), tracks, "carry the voice: {carry}");
+        let audio = m.tracks.audio.as_ref().unwrap();
+        assert_eq!(tracks_of(&fs::read(started.dir.join(&audio.segments[0].file)).unwrap()), 1, "the voice's own file, whole, either way");
+        assert!(audio.segments[0].samples > 100, "{}", audio.segments[0].samples);
+        assert_eq!(cam.segments[0].samples, 150, "the camera's samples are its pictures");
+        assert!(m.problems().is_empty(), "{:?}", m.problems());
+    }
+}
+
+#[test]
+fn the_length_of_a_chunk_is_a_setting_and_the_camera_follows_it() {
+    // Two seconds: a keyframe every two seconds, and a fragment of a chunk (never under three quarters of it).
+    let mut r = rig_with(RecorderSettings { camera_chunk_us: 2_000_000, ..quiet() }, MockFactory::default());
     let started = r.start();
     for _ in 0..90 {
         r.advance(66);
@@ -382,12 +458,9 @@ fn the_camera_is_encoded_with_a_keyframe_every_two_seconds() {
     r.rec.stop("user").unwrap();
     let m = r.manifest(&started);
     let cam = m.tracks.camera.as_ref().unwrap();
-    assert_eq!((cam.width, cam.height, cam.source.as_str(), cam.vfr), (64, 48, "camera", false));
-    assert_eq!(cam.fps, 15);
     let s = scan_file(&started.dir.join(&cam.segments[0].file));
     assert_eq!(s.samples, 90);
-    assert!(s.fragments >= 2, "keyframes at 0, 2 and 4 s cut the fragments: {}", s.fragments);
-    assert!(m.problems().is_empty(), "{:?}", m.problems());
+    assert_eq!(s.fragments, 3, "six seconds in chunks of two (the third one is short)");
 }
 
 #[test]
@@ -422,6 +495,10 @@ fn a_refused_microphone_or_camera_is_said_in_the_manifest_and_the_others_record(
     assert_eq!(m.tracks.audio.as_ref().unwrap().status, TrackStatus::Denied);
     assert_eq!(m.tracks.screen.as_ref().unwrap().segments.len(), 1, "the screen needs no permission");
     assert!(m.problems().is_empty(), "{:?}", m.problems());
+    // The events say it too, once for each refused track.
+    let events = events_of(&started);
+    assert!(events.contains(r#""status":"denied","track":"camera""#), "{events}");
+    assert!(events.contains(r#""status":"denied","track":"audio""#), "{events}");
 }
 
 // ---- pause, idle, quota, length ----
@@ -662,6 +739,229 @@ fn an_input_that_runs_slow_or_fast_against_the_session_clock_is_kept_in_step_wit
         assert!(segs[1].start_us >= segs[0].end_us.unwrap().saturating_sub(100_000), "{what}: the segments are in order: {segs:?}");
         assert!(segs[1].start_us > 299_000_000 && segs[1].start_us < 302_000_000, "{what}: {}", segs[1].start_us);
     }
+}
+
+// ---- the screen's own troubles, the lock, the desktop ----
+
+fn display_frame(fill: u8) -> RawFrame {
+    RawFrame { width: 320, height: 200, format: PixelFormat::Bgra8, bytes: vec![fill; 320 * 200 * 4] }
+}
+
+/// events.jsonl as text. (An event's members are written in alphabetical order, whatever order they were sent in.)
+fn events_of(started: &Started) -> String {
+    fs::read_to_string(started.dir.join("events.jsonl")).unwrap()
+}
+
+/// The system refuses the screen (no Screen Recording permission): the track is in the manifest as denied
+/// with the words that tell what to do, the event says so, and the other tracks record. The review's
+/// own data does not depend on the video.
+#[test]
+fn a_refused_screen_is_denied_in_the_manifest_and_the_review_records_without_it() {
+    let mut r = rig();
+    let mut req = request(&r.tmp.0);
+    req.screen = Perm::Denied(String::from("Terminal may not record the screen: allow it in System Settings > Privacy & Security > Screen Recording"));
+    let started = r.rec.start(req).unwrap();
+    assert!(r.rec.screen_frame(display_frame(1), 2.0).is_none(), "frames of a refused screen are not taken");
+    r.run(500, 100);
+    camera(&mut r.rec);
+    voice(&mut r.rec, 960, 0.5);
+    r.rec.event("nav.file", r#"{"file":"src/lib.rs","lines":10}"#).unwrap();
+    let ind = r.rec.indicator();
+    assert!(ind.problems.iter().any(|(t, w)| t == "screen" && w.contains("Screen Recording")), "{:?}", ind.problems);
+    r.rec.stop("user").unwrap();
+    let m = r.manifest(&started);
+    let screen = m.tracks.screen.as_ref().unwrap();
+    assert_eq!(screen.status, TrackStatus::Denied);
+    assert!(screen.note.as_deref().unwrap().contains("System Settings") && screen.segments.is_empty());
+    assert_eq!(screen.device.as_deref(), Some("Built-in Liquid Retina Display"));
+    assert!(m.tracks.camera.as_ref().unwrap().segments.len() == 1 && m.tracks.audio.as_ref().unwrap().segments.len() == 1);
+    assert!(m.problems().is_empty(), "{:?}", m.problems());
+    let events = events_of(&started);
+    assert!(events.contains(r#""status":"denied","track":"screen""#), "{events}");
+    assert!(events.contains(r#""k":"nav.file""#), "the review's events are all there");
+}
+
+/// The display goes to sleep or is unplugged and comes back: the screen track's segment ends at the gap
+/// (what lies between two segments is time that was not recorded, and the video shows it), the next
+/// frame begins another at a keyframe, the gap is an event, and the other tracks never notice.
+///
+/// Mutation: a gap that does not end the segment (the picture is held across it: one segment); one that
+/// does not ask for a keyframe (the second segment has no keyframe to begin at and is lost).
+#[test]
+fn a_screen_gap_ends_the_screen_segment_and_the_next_frame_begins_another() {
+    let mut r = rig();
+    let started = r.start();
+    r.rec.screen_frame(display_frame(1), 2.0);
+    r.run(1_500, 100);
+    let notices = r.rec.screen_gap("the display went to sleep");
+    assert_eq!(notices, vec![Notice::ScreenGap { why: String::from("the display went to sleep") }]);
+    voice(&mut r.rec, 960, 0.5);
+    r.run(10_000, 100);
+    r.rec.screen_frame(display_frame(2), 2.0);
+    r.run(1_500, 100);
+    camera(&mut r.rec);
+    r.rec.stop("user").unwrap();
+    let m = r.manifest(&started);
+    let screen = m.tracks.screen.as_ref().unwrap();
+    assert_eq!(screen.status, TrackStatus::Stopped);
+    assert_eq!(screen.segments.len(), 2, "{:?}", screen.segments);
+    let (a, b) = (&screen.segments[0], &screen.segments[1]);
+    assert!(b.start_us >= a.end_us.unwrap() + 9_000_000, "ten seconds lie between them: {} {:?}", b.start_us, a.end_us);
+    for seg in &screen.segments {
+        let s = scan_file(&started.dir.join(&seg.file));
+        assert!(s.finished && s.samples == 4, "{s:?}");
+    }
+    assert!(m.tracks.audio.as_ref().unwrap().segments.len() == 1, "the voice knew nothing of it");
+    assert!(m.problems().is_empty(), "{:?}", m.problems());
+    let events = events_of(&started);
+    assert!(events.contains(r#""k":"recorder.screen_gap","reason":"the display went to sleep""#), "{events}");
+    // A gap with nothing recording, or when paused, is nothing.
+    assert!(r.rec.screen_gap("late").is_empty());
+}
+
+/// The screen stops while it records (the permission was withdrawn, the stream died): the track is marked
+/// failed with the reason, the words reach the indicator and the notices, an event says it, the pictures
+/// that still come are not recorded, and the camera, the voice and the events go on to the end.
+///
+/// Mutation: a failure that stops the whole session; one that is not in the manifest; pictures taken after it.
+#[test]
+fn a_screen_that_fails_while_recording_is_marked_failed_and_the_other_tracks_go_on() {
+    let mut r = rig();
+    let started = r.start();
+    r.rec.screen_frame(display_frame(1), 2.0);
+    r.run(1_500, 100);
+    let why = "Screen Recording was withdrawn: allow Terminal again in System Settings > Privacy & Security > Screen Recording";
+    let notices = r.rec.track_failed(TrackName::Screen, why);
+    assert_eq!(notices, vec![Notice::TrackFailed { track: String::from("screen"), why: why.to_string() }]);
+    assert!(r.rec.track_failed(TrackName::Screen, why).is_empty(), "said once");
+    assert!(r.rec.indicator().problems.iter().any(|(t, w)| t == "screen" && w.contains("withdrawn")));
+    assert!(r.rec.screen_frame(display_frame(9), 2.0).is_none(), "pictures that still come are not taken");
+    for _ in 0..30 {
+        r.advance(66);
+        camera(&mut r.rec);
+        voice(&mut r.rec, 960, 0.4);
+        r.rec.tick();
+    }
+    r.rec.event("nav.file", r#"{"file":"src/ink.rs","lines":20}"#).unwrap();
+    assert_eq!(r.rec.indicator().state, State::Recording);
+    r.rec.stop("user").unwrap();
+    let m = r.manifest(&started);
+    let screen = m.tracks.screen.as_ref().unwrap();
+    assert_eq!(screen.status, TrackStatus::Failed);
+    assert!(screen.note.as_deref().unwrap().contains("withdrawn"));
+    assert_eq!(screen.segments.len(), 1, "what was recorded before stays");
+    assert!(m.tracks.camera.as_ref().unwrap().segments.len() == 1 && m.tracks.audio.as_ref().unwrap().segments.len() == 1);
+    assert!(m.problems().is_empty(), "{:?}", m.problems());
+    let events = events_of(&started);
+    assert!(events.contains(r#""status":"failed","track":"screen""#), "{events}");
+    assert!(events.contains("src/ink.rs"));
+}
+
+/// A locked screen pauses the recording (the display shows the lock, and the person is away) and the
+/// unlock goes on, but only what the lock paused: a pause by the person or by the idle rule stays, and
+/// the setting can turn the whole rule off.
+///
+/// Mutation: an unlock that resumes any pause; a lock that pauses with the setting off; no lock pause.
+#[test]
+fn a_locked_screen_pauses_and_an_unlocked_one_goes_on_only_with_what_the_lock_paused() {
+    let mut r = rig();
+    let started = r.start();
+    tap(&mut r.rec, 320, 200, 1, Damage::Full);
+    r.run(500, 100);
+    assert_eq!(r.rec.set_locked(true), vec![Notice::Paused(PauseReason::Locked)]);
+    assert_eq!(r.rec.indicator().state, State::Paused(PauseReason::Locked));
+    assert!(r.rec.set_locked(true).is_empty(), "locked twice is locked once");
+    r.advance(60_000);
+    assert_eq!(r.rec.set_locked(false), vec![Notice::Resumed(PauseReason::Locked)]);
+    assert_eq!(r.rec.indicator().state, State::Recording);
+    // Paused by the person, then locked and unlocked: still paused by the person.
+    r.rec.toggle_pause();
+    assert!(r.rec.set_locked(true).is_empty());
+    assert!(r.rec.set_locked(false).is_empty());
+    assert_eq!(r.rec.indicator().state, State::Paused(PauseReason::User));
+    r.rec.toggle_pause();
+    r.rec.stop("user").unwrap();
+    let events = events_of(&started);
+    assert!(events.contains(r#""k":"session.pause","reason":"locked""#), "{events}");
+    assert!(events.contains(r#""k":"session.resume","reason":"unlocked""#), "{events}");
+    let m = r.manifest(&started);
+    assert_eq!(m.runs.len(), 3, "the lock ended a run and the unlock began another, the person's pause another: {:?}", m.runs);
+
+    // Turned off in the settings: the lock changes nothing.
+    let mut r = rig_with(RecorderSettings { pause_on_lock: false, ..quiet() }, MockFactory::default());
+    r.start();
+    assert!(r.rec.set_locked(true).is_empty() && r.rec.indicator().state == State::Recording);
+    r.rec.stop("user");
+}
+
+fn sample(front: Option<(&str, &str)>, pointer: Option<(f32, f32)>) -> DesktopSample {
+    DesktopSample {
+        front: front.map(|(bundle, name)| FrontApp { bundle: bundle.to_string(), name: name.to_string() }),
+        pointer,
+        locked: false,
+        display_asleep: false,
+    }
+}
+
+/// What the desktop does is polled by the app and told to the recorder: the app in front becomes an
+/// event when it changes (so the export can cut chapters at app switches), the pointer on the desktop one
+/// when it moved and no faster than the setting says (so the export can zoom to the cursor outside the
+/// app). Neither needs a permission of the system.
+///
+/// Mutation: the front app told at every sample (not on change); no rate for the pointer; a pointer that
+/// moved less than a point told; the first sample not told.
+#[test]
+fn the_front_app_and_the_pointer_of_the_desktop_become_events_at_their_rates() {
+    let mut r = rig_with(RecorderSettings { pointer_hz: 10, ..quiet() }, MockFactory::default());
+    let started = r.start();
+    let xcode = Some(("com.apple.dt.Xcode", "Xcode"));
+    r.rec.desktop_sample(&sample(xcode, Some((100.0, 200.0))));
+    r.advance(10);
+    r.rec.desktop_sample(&sample(xcode, Some((150.0, 200.0))));
+    r.advance(40);
+    r.rec.desktop_sample(&sample(xcode, Some((160.0, 210.0))));
+    r.advance(100);
+    r.rec.desktop_sample(&sample(xcode, Some((160.4, 210.3))));
+    r.advance(100);
+    r.rec.desktop_sample(&sample(xcode, Some((160.6, 210.5))));
+    r.advance(100);
+    r.rec.desktop_sample(&sample(Some(("com.apple.Safari", "Safari")), Some((400.0, 300.0))));
+    r.advance(100);
+    r.rec.desktop_sample(&sample(Some(("com.apple.Safari", "Safari")), None));
+    r.rec.stop("user").unwrap();
+    let events = events_of(&started);
+    let front: Vec<&str> = events.lines().filter(|l| l.contains(r#""k":"app.front""#)).collect();
+    assert_eq!(front.len(), 2, "once for each change: {front:?}");
+    assert!(front[0].contains(r#""bundle":"com.apple.dt.Xcode","name":"Xcode""#) && front[1].contains(r#""bundle":"com.apple.Safari""#));
+    let pointer: Vec<&str> = events.lines().filter(|l| l.contains(r#""k":"pointer.global""#)).collect();
+    // At 0 ms the first; 10 ms and 50 ms are inside the 100 ms of ten a second (the pointer moved, but it is told
+    // no faster); 150 ms: told, it is 60 points from the last one told; 250 ms: a fifth of a point from it, not
+    // told; 350 ms: told, far from it; the sample after that has no pointer at all.
+    assert_eq!(pointer.len(), 3, "{pointer:?}");
+    assert!(pointer[0].contains(r#""x":100.0,"y":200.0"#), "{}", pointer[0]);
+    assert!(pointer[1].contains(r#""x":160.4,"y":210.3"#), "{}", pointer[1]);
+    assert!(pointer[2].contains(r#""x":400.0,"y":300.0"#), "{}", pointer[2]);
+}
+
+/// The display asleep is a gap of the screen (told once as it goes to sleep), the lock is the lock.
+#[test]
+fn a_sleeping_display_and_a_lock_in_the_samples_do_what_their_calls_do() {
+    let mut r = rig();
+    let started = r.start();
+    r.rec.screen_frame(display_frame(1), 2.0);
+    r.run(500, 100);
+    let mut asleep = sample(None, None);
+    asleep.display_asleep = true;
+    let first = r.rec.desktop_sample(&asleep);
+    assert_eq!(first, vec![Notice::ScreenGap { why: String::from("the display went to sleep") }]);
+    assert!(r.rec.desktop_sample(&asleep).is_empty(), "told once, not at every sample");
+    asleep.display_asleep = false;
+    asleep.locked = true;
+    assert_eq!(r.rec.desktop_sample(&asleep), vec![Notice::Paused(PauseReason::Locked)]);
+    asleep.locked = false;
+    assert_eq!(r.rec.desktop_sample(&asleep), vec![Notice::Resumed(PauseReason::Locked)]);
+    r.rec.stop("user").unwrap();
+    assert!(events_of(&started).contains(r#""k":"recorder.screen_gap""#));
 }
 
 // ---- what it costs: a measurement, not a check ----

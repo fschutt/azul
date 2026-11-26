@@ -35,6 +35,7 @@ path = "src/main.rs"
 # as an .app the keys below are what the system's prompts say.
 [package.metadata.bundle]
 usage = [
+    "NSCameraUsageDescription=AzReview shows your camera in the recording window and records it with the session when you ask it to.",
     "NSMicrophoneUsageDescription=AzReview records your voice clips and listens while you dictate a note with the pen at rest.",
     "NSSpeechRecognitionUsageDescription=AzReview turns what you say, while the pen rests on the code, into a note.",
     "NSCameraUsageDescription=AzReview records your camera while you present a review, so you can explain the code in a video.",

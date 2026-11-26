@@ -20,14 +20,14 @@
 //! The hardware encoder (`h264_videotoolbox`) is used when this ffmpeg has it, else `libx264`.
 
 use std::{
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read},
     path::{Path, PathBuf},
     process::{Command as Process, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::{
@@ -35,22 +35,29 @@ use crate::{
     recorder_manifest::{Manifest, Track},
 };
 
-/// What this ffmpeg can encode with.
+/// What this ffmpeg can do for an export. Found by asking it (the encoders it lists) and by trying it (the
+/// camera's rounded corners: [`probe`]), never from the version it names: two ffmpegs of one version can be built
+/// differently, and two versions can do the same.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Encoders {
+pub struct Capabilities {
     /// `h264_videotoolbox`: the Mac's video hardware.
     pub videotoolbox: bool,
     /// `libx264`: software, everywhere.
     pub libx264: bool,
     /// The built-in `aac` encoder.
     pub aac: bool,
+    /// The route that cuts the camera's corners away ([`rounding_graph`]) made the corners of a made-up camera
+    /// transparent when this ffmpeg was tried at it. Where it did not, the camera stays a rectangle and the plan
+    /// says so.
+    pub rounding: bool,
 }
 
-/// Reads the encoders out of `ffmpeg -encoders`.
+/// Reads the encoders out of `ffmpeg -encoders` (`rounding` is not in that list: it is found by trying,
+/// [`probe`], and is `false` here).
 #[must_use]
-pub fn parse_encoders(text: &str) -> Encoders {
+pub fn parse_encoders(text: &str) -> Capabilities {
     let has = |name: &str| text.lines().any(|l| l.split_whitespace().nth(1) == Some(name));
-    Encoders { videotoolbox: has("h264_videotoolbox"), libx264: has("libx264"), aac: has("aac") }
+    Capabilities { videotoolbox: has("h264_videotoolbox"), libx264: has("libx264"), aac: has("aac"), rounding: false }
 }
 
 /// A piece of a track's file that feeds a cut.
@@ -108,11 +115,16 @@ pub struct Plan {
     pub commands: Vec<Command>,
     /// The file the join reads and what is in it.
     pub concat_list: (PathBuf, String),
+    /// More lists the commands read (a straight copy reads the voice's files from one), written the same way.
+    pub extra_lists: Vec<(PathBuf, String)>,
     /// The chapters' file and what is in it.
     pub metadata: (PathBuf, String),
     /// The video.
     pub output: PathBuf,
     pub total_us: u64,
+    /// What the export will do differently from what the cut list asked, one sentence each (the camera stays a
+    /// rectangle where this ffmpeg cannot round it): a person reads these before the export runs.
+    pub notes: Vec<String>,
 }
 
 /// The list of pieces for ffmpeg's concat demuxer.
@@ -188,12 +200,200 @@ fn corner(c: &str, margin: u32) -> String {
     }
 }
 
+/// The part of the filter graph that gives the camera's picture rounded corners (the camera comes in as
+/// `[cam_raw]`, the rounded picture leaves as `[cam]`): the picture is split, one copy becomes a grey mask
+/// (white inside a rectangle whose corners are quarter circles of radius a ninth of the width, black outside
+/// them) and `alphamerge` makes that the alpha of the other, so the overlay shows the screen there. The mask
+/// is made from the camera's own copy, so it has the camera's size whatever its aspect.
+///
+/// The `scale=iw:ih` in front of `format=gray` is not for the size: `split` gives all its pictures one pixel
+/// format, so a `format=gray` straight after it turns the camera itself grey too (the probe, which reads the
+/// colours back, found a grey camera on ffmpeg 9); a `scale` is a conversion, and lets the copies differ.
+fn rounding_graph(width: u32) -> String {
+    let r = (f64::from(width) / 9.0).round().max(2.0) as u32;
+    format!(
+        "[cam_raw]split[cam_a][cam_b];[cam_b]scale=iw:ih,format=gray,geq=lum='if(gt(abs(W/2-X),W/2-{r})*gt(abs(H/2-Y),H/2-{r}),if(lte(hypot(abs(W/2-X)-(W/2-{r}),abs(H/2-Y)-(H/2-{r})),{r}),255,0),255)'[cam_m];[cam_a][cam_m]alphamerge[cam]"
+    )
+}
+
+/// The side of the made-up screen the probe makes ([`rounding_probe_args`]), pixels.
+pub const PROBE_SIDE: usize = 96;
+/// Where the probe lays its made-up camera on the screen (its left edge and its top edge), pixels.
+pub const PROBE_CAM_X: usize = 16;
+/// See [`PROBE_CAM_X`].
+pub const PROBE_CAM_Y: usize = 24;
+/// The made-up camera's size on the screen: a 4:3 picture, as a webcam's is.
+pub const PROBE_CAM_W: usize = 64;
+/// See [`PROBE_CAM_W`].
+pub const PROBE_CAM_H: usize = 48;
+/// How long the probe waits for ffmpeg to answer, each question.
+const PROBE_LIMIT: Duration = Duration::from_secs(30);
+
+/// The ffmpeg command that makes ONE picture to find out whether this ffmpeg rounds the camera's corners: a blue
+/// screen of [`PROBE_SIDE`] pixels square, a red camera twice the size it is shown at, scaled to it, rounded by
+/// the same graph the export uses ([`rounding_graph`]) and laid over the screen as the export lays it, the picture
+/// written to standard output as RGB. [`rounding_worked`] reads it.
+#[must_use]
+pub fn rounding_probe_args() -> Vec<String> {
+    let (side, x, y, w, h) = (PROBE_SIDE, PROBE_CAM_X, PROBE_CAM_Y, PROBE_CAM_W, PROBE_CAM_H);
+    let graph = format!(
+        "[1:v]format=yuv420p,scale={w}:-2,fps=10[cam_raw];{};[0:v]format=yuv420p[b1];[b1][cam]overlay=x={x}:y={y}:eof_action=pass,format=rgb24[v]",
+        rounding_graph(PROBE_CAM_W as u32)
+    );
+    [
+        "-hide_banner".to_string(),
+        "-nostdin".to_string(),
+        "-v".to_string(),
+        "error".to_string(),
+        "-f".to_string(),
+        "lavfi".to_string(),
+        "-i".to_string(),
+        format!("color=c=blue:s={side}x{side}:r=10:d=0.5"),
+        "-f".to_string(),
+        "lavfi".to_string(),
+        "-i".to_string(),
+        format!("color=c=red:s={}x{}:r=10:d=0.5", w * 2, h * 2),
+        "-filter_complex".to_string(),
+        graph,
+        "-map".to_string(),
+        "[v]".to_string(),
+        "-frames:v".to_string(),
+        "1".to_string(),
+        "-f".to_string(),
+        "rawvideo".to_string(),
+        "-pix_fmt".to_string(),
+        "rgb24".to_string(),
+        "-".to_string(),
+    ]
+    .to_vec()
+}
+
+/// Reads the picture of [`rounding_probe_args`] (`rgb`, RGB bytes, [`PROBE_SIDE`] square): the camera's four
+/// corners show the screen's blue, its middle and the middles of its edges are the camera's red, and the screen
+/// is blue outside the camera. What is wrong is said in words.
+///
+/// # Errors
+/// The first thing that is not as the route should have made it.
+pub fn rounding_worked(rgb: &[u8]) -> Result<(), String> {
+    let want = PROBE_SIDE * PROBE_SIDE * 3;
+    if rgb.len() != want {
+        return Err(format!("it gave {} bytes where the picture of {PROBE_SIDE} x {PROBE_SIDE} is {want}", rgb.len()));
+    }
+    let at = |x: usize, y: usize| {
+        let i = (y * PROBE_SIDE + x) * 3;
+        (rgb[i], rgb[i + 1], rgb[i + 2])
+    };
+    let is_red = |(r, g, b): (u8, u8, u8)| r > 150 && g < 100 && b < 100;
+    let is_blue = |(r, g, b): (u8, u8, u8)| b > 150 && r < 100 && g < 100;
+    let (x0, y0) = (PROBE_CAM_X, PROBE_CAM_Y);
+    let (x1, y1) = (x0 + PROBE_CAM_W - 1, y0 + PROBE_CAM_H - 1);
+    let middle = at(x0 + PROBE_CAM_W / 2, y0 + PROBE_CAM_H / 2);
+    if !is_red(middle) {
+        return Err(format!("the middle of the camera's picture is {middle:?}, not the camera's red: the picture is gone"));
+    }
+    for (name, x, y) in [("top", x0 + PROBE_CAM_W / 2, y0 + 1), ("bottom", x0 + PROBE_CAM_W / 2, y1 - 1), ("left", x0 + 1, y0 + PROBE_CAM_H / 2), ("right", x1 - 1, y0 + PROBE_CAM_H / 2)] {
+        let px = at(x, y);
+        if !is_red(px) {
+            return Err(format!("the middle of the camera's {name} edge is {px:?}, not the camera's red: the rounding cuts more than the corners"));
+        }
+    }
+    for (name, x, y) in [("top left", x0, y0), ("top right", x1, y0), ("bottom left", x0, y1), ("bottom right", x1, y1)] {
+        let px = at(x, y);
+        if !is_blue(px) {
+            return Err(format!("the {name} corner of the camera's picture is {px:?}, not the screen's blue: the corner was not made transparent"));
+        }
+    }
+    let outside = at(2, 2);
+    if !is_blue(outside) {
+        return Err(format!("the screen outside the camera is {outside:?}, not blue"));
+    }
+    Ok(())
+}
+
+/// What asking an ffmpeg found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Found {
+    /// What it can do.
+    pub caps: Capabilities,
+    /// What did not work when it was tried, one sentence each, to be shown to the person.
+    pub notes: Vec<String>,
+}
+
+/// Asks `ffmpeg` what it can do: the encoders it lists, and whether its route for rounded corners makes the
+/// corners of a made-up camera transparent (one picture, [`rounding_probe_args`]). It is tried, not looked
+/// up: the version it names is never read.
+///
+/// # Errors
+/// ffmpeg does not start, fails at listing its encoders, or does not answer.
+pub fn probe(ffmpeg: &Path) -> Result<Found, String> {
+    probe_within(ffmpeg, PROBE_LIMIT)
+}
+
+/// [`probe`] with `limit` as the time each question may take.
+///
+/// # Errors
+/// As [`probe`].
+pub fn probe_within(ffmpeg: &Path, limit: Duration) -> Result<Found, String> {
+    let listing = ffmpeg_stdout(ffmpeg, &["-hide_banner".to_string(), "-encoders".to_string()], limit)?;
+    let mut caps = parse_encoders(&String::from_utf8_lossy(&listing));
+    let mut notes = Vec::new();
+    match ffmpeg_stdout(ffmpeg, &rounding_probe_args(), limit).and_then(|rgb| rounding_worked(&rgb)) {
+        Ok(()) => caps.rounding = true,
+        Err(why) => notes.push(format!("rounded corners: {why}")),
+    }
+    Ok(Found { caps, notes })
+}
+
+/// What `ffmpeg` writes to its standard output for `args`; it is killed when it has not finished within `limit`.
+fn ffmpeg_stdout(ffmpeg: &Path, args: &[String], limit: Duration) -> Result<Vec<u8>, String> {
+    let mut child = Process::new(ffmpeg)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot start {}: {e}", ffmpeg.display()))?;
+    // Both pipes are read while ffmpeg runs, so that a full pipe never holds it up.
+    let (mut out, mut err) = (child.stdout.take().expect("piped"), child.stderr.take().expect("piped"));
+    let stdout = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = out.read_to_end(&mut bytes);
+        bytes
+    });
+    let stderr = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = err.read_to_end(&mut bytes);
+        bytes
+    });
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() < limit => std::thread::sleep(Duration::from_millis(10)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("{} did not answer within {:.1} s", ffmpeg.display(), limit.as_secs_f64()));
+            }
+            Err(e) => return Err(format!("cannot wait for {}: {e}", ffmpeg.display())),
+        }
+    };
+    let stdout = stdout.join().unwrap_or_default();
+    let stderr = String::from_utf8_lossy(&stderr.join().unwrap_or_default()).into_owned();
+    if status.success() {
+        return Ok(stdout);
+    }
+    let lines: Vec<&str> = stderr.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let tail = lines[lines.len().saturating_sub(3)..].join(" | ");
+    Err(format!("{} failed ({status}): {tail}", ffmpeg.display()))
+}
+
 /// `#rrggbb` as ffmpeg writes a colour.
 fn colour(hex: &str) -> String {
     format!("0x{}", hex.trim_start_matches('#'))
 }
 
-fn encoder_args(enc: Encoders, kbps: u32) -> Result<Vec<String>, String> {
+fn encoder_args(enc: Capabilities, kbps: u32) -> Result<Vec<String>, String> {
     let words: Vec<String> = if enc.videotoolbox {
         vec![String::from("-c:v"), String::from("h264_videotoolbox"), String::from("-b:v"), format!("{kbps}k")]
     } else if enc.libx264 {
@@ -231,7 +431,7 @@ fn track_inputs(slices: &[Slice], first_input: usize, video: bool, label: &str) 
     (args, joined.clone(), Some(format!("{inputs}concat=n={}:v={v}:a={a}{joined}", slices.len())))
 }
 
-fn segment_command(m: &Manifest, e: &Edl, seg: &EdlSegment, session_dir: &Path, work_dir: &Path, enc: Encoders) -> Result<Command, String> {
+fn segment_command(m: &Manifest, e: &Edl, seg: &EdlSegment, session_dir: &Path, work_dir: &Path, enc: Capabilities) -> Result<Command, String> {
     let o = &e.output;
     let rec_us = seg.out_us - seg.in_us;
     let out_us = seg.duration_us();
@@ -293,8 +493,12 @@ fn segment_command(m: &Manifest, e: &Edl, seg: &EdlSegment, session_dir: &Path, 
             chain.push_str(&format!("+{}/TB", secs(lead)));
         }
         let w = camera_width(o.width, e.style.camera.scale);
-        chain.push_str(&format!(",scale={w}:-2,fps={fps},tpad=stop_mode=clone:stop_duration={}[cam]", secs(rec_us)));
+        let rounded = e.style.camera.shape == "rounded" && enc.rounding;
+        chain.push_str(&format!(",scale={w}:-2,fps={fps},tpad=stop_mode=clone:stop_duration={}[{}]", secs(rec_us), if rounded { "cam_raw" } else { "cam" }));
         filters.push(chain);
+        if rounded {
+            filters.push(rounding_graph(w));
+        }
         let last = if (seg.speed - 1.0).abs() > 1e-9 { "vc" } else { "v" };
         filters.push(format!("[b1][cam]overlay={}:eof_action=pass[{last}]", corner(&e.style.camera.corner, e.style.camera.margin)));
     }
@@ -325,12 +529,94 @@ fn segment_command(m: &Manifest, e: &Edl, seg: &EdlSegment, session_dir: &Path, 
     Ok(Command { id: seg.id.clone(), args, output, us: out_us })
 }
 
+/// The plan of a cut list that asks for nothing the recorded pictures cannot give as they are: ONE segment,
+/// no camera over it, no zoom, no speed, no caption, a cut that begins and ends where recorded files do and
+/// a screen that is the output's own size in every file. Then the screen's files are joined with `-c:v copy`
+/// (no encoder is needed and the pictures are not touched: an hour is a matter of seconds) and the voice's
+/// files, which are Opus, become AAC. `None` when the cut list asks for more: the cuts are then made one by
+/// one ([`build_plan`]).
+///
+/// # Errors
+/// There is a voice and this ffmpeg has no AAC encoder.
+fn straight_copy(m: &Manifest, e: &Edl, session_dir: &Path, work_dir: &Path, out_file: &Path, enc: Capabilities) -> Result<Option<Plan>, String> {
+    let [seg] = e.segments.as_slice() else { return Ok(None) };
+    if seg.camera || seg.zoom.is_some() || (seg.speed - 1.0).abs() > 1e-9 || seg.caption.is_some() || seg.title.is_some() {
+        return Ok(None);
+    }
+    let Some(screen) = m.tracks.screen.as_ref() else { return Ok(None) };
+    let slices = slices_for(screen, session_dir, seg.in_us, seg.out_us);
+    let Some(first) = slices.first() else { return Ok(None) };
+    // The files are taken whole, so each slice must be a whole file (to within a tenth of a second), the first
+    // may begin its picture a little late (a screen that did not change begins with its first change), and
+    // every file must be the output's size.
+    let whole = |sl: &Slice| {
+        screen.segments.iter().find(|s| session_dir.join(&s.file) == sl.file).and_then(|s| s.end_us.map(|end| (s.start_us, end))).is_some_and(
+            |(start, end)| sl.seek_us <= 100_000 && (end - start).abs_diff(sl.seek_us + sl.dur_us) <= 100_000,
+        )
+    };
+    // ... and no file may follow another after a gap (a screen that went away and came back): the joined
+    // files would close it up and the voice would run ahead of the picture.
+    let contiguous = slices.windows(2).all(|w| w[1].lead_us.saturating_sub(w[0].lead_us + w[0].dur_us) <= 100_000);
+    if first.lead_us > 200_000 || !contiguous || !slices.iter().all(whole) {
+        return Ok(None);
+    }
+    if slices.iter().any(|sl| size_of(screen, &sl.file, session_dir) != (e.output.width, e.output.height)) {
+        return Ok(None);
+    }
+    let voice = m.tracks.audio.as_ref().map(|a| slices_for(a, session_dir, seg.in_us, seg.out_us)).filter(|v| !v.is_empty());
+    if voice.is_some() && !enc.aac {
+        return Err(String::from("no AAC encoder in this ffmpeg"));
+    }
+    let screen_list = work_dir.join("screen_pieces.txt");
+    let voice_list = work_dir.join("audio_pieces.txt");
+    let meta_path = work_dir.join("chapters.ffmeta");
+    let mut args: Vec<String> = ["-hide_banner", "-nostdin", "-y", "-f", "concat", "-safe", "0", "-i"].iter().map(ToString::to_string).collect();
+    args.push(screen_list.to_string_lossy().into_owned());
+    let mut extra_lists = Vec::new();
+    let mut inputs = 1;
+    if let Some(v) = &voice {
+        args.extend(["-f", "concat", "-safe", "0", "-i"].iter().map(ToString::to_string));
+        args.push(voice_list.to_string_lossy().into_owned());
+        let files: Vec<PathBuf> = v.iter().map(|sl| sl.file.clone()).collect();
+        extra_lists.push((voice_list, concat_list(&files)));
+        inputs = 2;
+    }
+    args.extend(["-i".to_string(), meta_path.to_string_lossy().into_owned(), "-map".to_string(), "0:v".to_string()]);
+    if voice.is_some() {
+        args.extend(["-map".to_string(), "1:a".to_string()]);
+    }
+    args.extend(["-map_metadata".to_string(), inputs.to_string(), "-map_chapters".to_string(), inputs.to_string(), "-c:v".to_string(), "copy".to_string()]);
+    if let Some(v) = &voice {
+        let delay = if v[0].lead_us > 0 { format!(",adelay={0}|{0}", v[0].lead_us / 1_000) } else { String::new() };
+        let gain = if seg.audio.gain_db.abs() > 1e-9 { format!(",volume={:.3}dB", seg.audio.gain_db) } else { String::new() };
+        args.extend(["-af".to_string(), format!("aresample=48000{delay}{gain}")]);
+        args.extend(["-c:a", "aac", "-b:a"].iter().map(ToString::to_string));
+        args.extend([format!("{}k", e.output.audio_kbps), "-ar".to_string(), "48000".to_string()]);
+    }
+    args.extend(["-movflags".to_string(), "+faststart".to_string(), out_file.to_string_lossy().into_owned()]);
+    let files: Vec<PathBuf> = slices.iter().map(|sl| sl.file.clone()).collect();
+    let total_us = e.duration_us();
+    Ok(Some(Plan {
+        commands: vec![Command { id: String::from("join"), args, output: out_file.to_path_buf(), us: total_us }],
+        concat_list: (screen_list, concat_list(&files)),
+        extra_lists,
+        metadata: (meta_path, ffmetadata(e)),
+        output: out_file.to_path_buf(),
+        total_us,
+        notes: Vec::new(),
+    }))
+}
+
 /// The plan of an export of `edl` for the session in `session_dir`: the pieces are made in `work_dir`
 /// and the video is `out_file`.
 ///
 /// # Errors
 /// Why no plan can be made: no encoder, or a cut where the screen recorded nothing or spans a resize.
-pub fn build_plan(m: &Manifest, e: &Edl, session_dir: &Path, work_dir: &Path, out_file: &Path, enc: Encoders) -> Result<Plan, String> {
+pub fn build_plan(m: &Manifest, e: &Edl, session_dir: &Path, work_dir: &Path, out_file: &Path, enc: Capabilities) -> Result<Plan, String> {
+    // The screen alone, of one run, at its own size: its pictures are joined, not encoded again.
+    if let Some(plan) = straight_copy(m, e, session_dir, work_dir, out_file, enc)? {
+        return Ok(plan);
+    }
     encoder_args(enc, e.output.video_kbps)?;
     if !enc.aac {
         return Err(String::from("no AAC encoder in this ffmpeg"));
@@ -363,12 +649,20 @@ pub fn build_plan(m: &Manifest, e: &Edl, session_dir: &Path, work_dir: &Path, ou
     .collect();
     let total_us = e.duration_us();
     commands.push(Command { id: String::from("join"), args: join, output: out_file.to_path_buf(), us: total_us });
+    let mut notes = Vec::new();
+    if e.style.camera.shape == "rounded" && !enc.rounding && e.segments.iter().any(|seg| seg.camera) {
+        notes.push(String::from(
+            "the camera stays a rectangle: its corners were to be rounded, and this ffmpeg did not make them round when it was tried at it",
+        ));
+    }
     Ok(Plan {
         commands,
         concat_list: (list_path, concat_list(&pieces)),
+        extra_lists: Vec::new(),
         metadata: (meta_path, ffmetadata(e)),
         output: out_file.to_path_buf(),
         total_us,
+        notes,
     })
 }
 
@@ -443,6 +737,9 @@ pub fn run(plan: &Plan, ffmpeg: &Path, cancel: &AtomicBool, progress: &mut dyn F
         std::fs::create_dir_all(dir).map_err(io)?;
     }
     std::fs::write(&plan.concat_list.0, &plan.concat_list.1).map_err(io)?;
+    for (path, text) in &plan.extra_lists {
+        std::fs::write(path, text).map_err(io)?;
+    }
     std::fs::write(&plan.metadata.0, &plan.metadata.1).map_err(io)?;
     let steps = plan.commands.len();
     // The share of the whole each command is: by the video it makes, the join as much as the last cut.
@@ -455,6 +752,9 @@ pub fn run(plan: &Plan, ffmpeg: &Path, cancel: &AtomicBool, progress: &mut dyn F
             }
         }
         let _ = std::fs::remove_file(&plan.concat_list.0);
+        for (path, _) in &plan.extra_lists {
+            let _ = std::fs::remove_file(path);
+        }
         let _ = std::fs::remove_file(&plan.metadata.0);
     };
     for (i, c) in plan.commands.iter().enumerate() {
