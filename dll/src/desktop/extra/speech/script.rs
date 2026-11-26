@@ -18,7 +18,12 @@
 //! `unavailable`, with a `message`) and `fail` (a message, `after_ms`, the `partial` text said so
 //! far). `delay_ms` (200 by default) is when the words are said, `language` what was recognised.
 //! `then` is what happens after the last step: `silence` (the default) or `repeat` (the last
-//! step again). A recognizer that has no list in the script hears nothing. `preference` is who is
+//! step again). A stream (`SpeechSession::start_stream`) walks the same steps: a `say` step is one
+//! utterance whose words come as `Partial` events when they end (at their `end_ms`, or at the step's
+//! `delay_ms` when that is sooner) and as a `Final` at `delay_ms`, a `silence` step is a stretch of
+//! quiet that gives a `Quiet` event after a second, a `refuse` ends the stream (before any event
+//! the next recognizer takes it) and a `fail` gives the words of `partial` as partials and then
+//! ends the stream with the failure. A recognizer that has no list in the script hears nothing. `preference` is who is
 //! asked first: `automatic` (the default: by the call's language and the vocabulary, as a real run
 //! does), `native_first` or `builtin_first`.
 
