@@ -3582,27 +3582,14 @@ fn ceil_i32(x: f32) -> i32 {
     }
 }
 
-/// `v.round().clamp(0.0, 255.0) as u8` (NaN is 0) without a call into the math library: `v + 0.5` cut to its whole
-/// part, which in `f64` is exact for every `f32` (the sum in `f32` is not: it rounds up from 0.49999997), and which
-/// an `as` cast saturates into `0..=255` (NaN and the negatives are 0).
+/// `v.round().clamp(0.0, 255.0) as u8` (NaN is 0) without a call into the math library: the whole part, which an
+/// `as` cast saturates into `0..=255` (NaN and the negatives are 0), and one more when the fraction is a half or
+/// more (a value above 255 stays 255).
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // image/graphics: bounded colour casts
 #[inline]
 fn to_byte(v: f32) -> u8 {
-    (f64::from(v) + 0.5) as u8
-}
-
-/// `byte / 255` for every byte, the quotient `f32::from(byte) / 255.0` makes, as a table instead of a division.
-static BYTE_FRACTIONS: [f32; 256] = byte_fractions();
-
-#[allow(clippy::cast_precision_loss)] // 0..=255 is exact in f32
-const fn byte_fractions() -> [f32; 256] {
-    let mut table = [0.0_f32; 256];
-    let mut i = 0;
-    while i < 256 {
-        table[i] = i as f32 / 255.0;
-        i += 1;
-    }
-    table
+    let whole = v as u8;
+    whole.saturating_add(u8::from(v - f32::from(whole) >= 0.5))
 }
 
 /// The pixel `px` under a dab of opacity `a` (below 1): the brush colour over it.
@@ -3613,7 +3600,7 @@ fn composite(px: &mut [u8; 4], color: [f32; 3], a: f32) {
     px[0] = to_byte(color[0] * a + f32::from(px[0]) * inv);
     px[1] = to_byte(color[1] * a + f32::from(px[1]) * inv);
     px[2] = to_byte(color[2] * a + f32::from(px[2]) * inv);
-    px[3] = to_byte((a + BYTE_FRACTIONS[usize::from(px[3])] * inv) * 255.0);
+    px[3] = to_byte((a + (f32::from(px[3]) / 255.0) * inv) * 255.0);
 }
 
 /// Stamps one dab centred at (`cx`, `cy`) into `buf`, the bytes of a `w` x `h` image: every pixel whose centre
