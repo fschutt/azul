@@ -405,8 +405,19 @@ impl Builtin {
     /// length. Answers the word about what was cut. The words of an answer that are among them
     /// are marked `biased`.
     pub fn set_keywords(&mut self, words: &[String]) -> Option<String> {
-        let (vocabulary, note) = Vocabulary::from_words(words, self.tuning.max_keywords, self.tuning.max_keyword_chars);
-        self.vocabulary = vocabulary;
+        let (given, note) = Vocabulary::from_words(words, self.tuning.max_keywords, self.tuning.max_keyword_chars);
+        // The model cannot write a compound (`CssError` came out in none of three voices) but writes
+        // its words right when it is given them: an identifier is sent with its spoken parts.
+        let (sent, left_out) = given.with_spoken_parts(self.tuning.max_keywords);
+        self.vocabulary = sent;
+        let note = note.or_else(|| {
+            left_out.then(|| {
+                format!(
+                    "the vocabulary was cut to {} words (the spoken parts of identifiers are sent too and count)",
+                    self.tuning.max_keywords
+                )
+            })
+        });
         note.map(|note| format!("{}: {note}", Kind::Builtin.describe()))
     }
 }

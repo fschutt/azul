@@ -860,9 +860,17 @@ impl SpeechSession {
         status.into()
     }
 
-    /// The words the built-in model should favour (names, jargon, the app's own vocabulary):
-    /// at most `max_keywords` of 64 characters each. Answers what was cut, empty when nothing was.
-    /// The system's recognizer does not take it.
+    /// The words the recognizers should favour (names, jargon, identifiers of the app): at most
+    /// `max_keywords` of 64 characters each (the system's recognizer takes 100, Apple's guidance).
+    /// Answers what was cut, empty when nothing was. Pass the identifiers as they are written:
+    /// the session shapes them for each recognizer. The system's recognizer gets the entries as
+    /// given (`CssError` is then written as spelt: 15 of 33 identifiers in the experiment, 0
+    /// without), the built-in model gets them with the spoken parts of every identifier
+    /// (`css error`, `unwrap or else`; it cannot write a compound but writes the parts right: its
+    /// "something else" fell from 18 to 11 of 33), and the spoken parts count against the limit. A
+    /// word of an answer that is one of the vocabulary's has `biased` set (favouring pulls the
+    /// probability of a right word down: do not read it as doubt). Ordinary speech gained no
+    /// code word in 36 runs of the experiment. The numbers are in [`vocabulary`]'s module docs.
     pub fn set_vocabulary(&self, words: StringVec) -> AzString {
         let Some(inner) = self.inner() else {
             return AzString::from(String::new());

@@ -1,7 +1,7 @@
 //! The vocabulary: what is kept of the words an app hands in, which words of an answer count as
 //! favoured, and which entries are identifiers.
 
-use super::{key, looks_like_identifier, Vocabulary};
+use super::{key, looks_like_identifier, spoken_parts, Vocabulary};
 use super::super::recognizer::Word;
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -127,4 +127,61 @@ fn an_entry_that_looks_like_an_identifier_is_found() {
     let (phrase, _) = Vocabulary::from_words(&words(&["open the AzReview"]), 200, 64);
     assert!(phrase.has_identifier());
     assert!(!Vocabulary::default().has_identifier());
+}
+
+#[test]
+fn the_spoken_parts_of_an_identifier_are_its_words_in_lower_case() {
+    for (identifier, parts) in [
+        ("CssError", "css error"),
+        ("SpeechSession", "speech session"),
+        ("AzReview", "az review"),
+        ("DataTableCell", "data table cell"),
+        ("ScrollManager", "scroll manager"),
+        ("HttpRequest", "http request"),
+        ("HTTPRequest", "http request"),
+        ("unwrap_or_else", "unwrap or else"),
+        ("snake_case", "snake case"),
+        ("cssError", "css error"),
+        ("iPhone", "i phone"),
+        ("parseJSON", "parse json"),
+        ("JSONParser", "json parser"),
+        ("getHTTPResponseCode", "get http response code"),
+        ("x86_64", "x86 64"),
+        ("MAX_KEEP_MS", "max keep ms"),
+        ("__init__", "init"),
+    ] {
+        let expected = (parts.split(' ').count() > 1).then(|| parts.to_string());
+        assert_eq!(spoken_parts(identifier), expected, "{identifier}");
+    }
+    // Nothing to add for a word, an acronym or what is no identifier.
+    for plain in ["CSS", "API", "enum", "Rust", "Tübingen", "", "_", "  ", "...", "a b c"] {
+        assert_eq!(spoken_parts(plain), None, "{plain:?}");
+    }
+    // A phrase is not an identifier: its words are said as they are.
+    assert_eq!(spoken_parts("open the AzReview"), None);
+}
+
+#[test]
+fn the_built_in_models_list_holds_the_entries_and_the_spoken_parts_of_the_identifiers_among_them() {
+    let (vocabulary, _) = Vocabulary::from_words(&words(&["CssError", "enum", "unwrap_or_else", "css error"]), 200, 64);
+    let (shaped, left_out) = vocabulary.with_spoken_parts(200);
+    assert!(!left_out);
+    // Each identifier is followed by its parts; what the app gave as parts already is not added twice.
+    assert_eq!(shaped.entries(), ["CssError", "enum", "unwrap_or_else", "unwrap or else", "css error"]);
+    assert!(shaped.has_identifier());
+    // The words of the parts are marked too.
+    assert!(shaped.marks("css") && shaped.marks("else") && !shaped.marks("hello"));
+    // The original is untouched: the system's recognizer gets the entries as given.
+    assert_eq!(vocabulary.entries(), ["CssError", "enum", "unwrap_or_else", "css error"]);
+    assert!(!vocabulary.marks("else"));
+
+    // The limit counts what is really sent.
+    let many: Vec<String> = (0..150).map(|i| format!("DataTable{i}Cell")).collect();
+    let (many, _) = Vocabulary::from_words(&many, 200, 64);
+    let (shaped, left_out) = many.with_spoken_parts(200);
+    assert_eq!(shaped.entries().len(), 200);
+    assert!(left_out, "300 words were to be sent, 200 are");
+    // An entry and its parts stay together at the cut.
+    assert_eq!(shaped.entries()[198], "DataTable99Cell");
+    assert_eq!(shaped.entries()[199], "data table99 cell");
 }

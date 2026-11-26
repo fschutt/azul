@@ -375,7 +375,11 @@ fn the_vocabulary_is_handed_to_the_engine_and_kept_to_the_limits() {
     ]);
     assert_eq!(note, None);
     let _ = listen(&mut rig, "de", 10_000);
-    assert_eq!(rig.seen.lock().unwrap().calls[0].2, "AzReview\nNeckarbrücke\nlinebreak");
+    assert_eq!(
+        rig.seen.lock().unwrap().calls[0].2,
+        "AzReview\naz review\nNeckarbrücke\nlinebreak",
+        "an identifier goes with its spoken parts"
+    );
 
     let many: Vec<String> = (0..500).map(|i| format!("word{i}")).collect();
     let note = rig.builtin.set_keywords(&many).expect("cut");
@@ -770,4 +774,23 @@ fn a_microphone_that_is_not_kept_is_closed_before_the_engine_runs() {
     let _ = kept_listen(&mut rig, 10_000);
     assert_eq!((*rig.room.opened.lock().unwrap(), *rig.room.closed.lock().unwrap()), (1, 1));
     assert!(!rig.keeper.is_held());
+}
+
+/// The model cannot write `CssError` but writes "css error" right when it is given it: the engine
+/// gets both, and a word of either is marked.
+#[test]
+fn an_identifier_goes_to_the_engine_with_its_spoken_parts_and_the_words_of_both_are_marked() {
+    let reply = r#"{"text":"We had a CSS error in the enum.","language":"en","words":[{"word":"We","start":0.0,"end":0.2,"probability":0.99},{"word":"had","start":0.2,"end":0.4,"probability":0.99},{"word":"a","start":0.4,"end":0.5,"probability":0.99},{"word":"CSS","start":0.5,"end":0.9,"probability":0.5},{"word":"error","start":0.9,"end":1.2,"probability":0.8},{"word":"in","start":1.2,"end":1.3,"probability":0.99},{"word":"the","start":1.3,"end":1.4,"probability":0.99},{"word":"enum.","start":1.4,"end":1.8,"probability":0.4}]}"#;
+    let mut rig = rig_with_reply(reply);
+    let note = rig.builtin.set_keywords(&["CssError".to_string(), "enum".to_string()]);
+    assert_eq!(note, None);
+    let answer = listen(&mut rig, "en", 10_000);
+    assert_eq!(rig.seen.lock().unwrap().calls[0].2, "CssError\ncss error\nenum");
+    let marked: Vec<&str> = answer.words.iter().filter(|w| w.biased).map(|w| w.text.as_str()).collect();
+    assert_eq!(marked, ["CSS", "error", "enum."]);
+    // What is really sent counts against the limit, and the note says so.
+    let identifiers: Vec<String> = (0..150).map(|i| format!("DataTable{i}Cell")).collect();
+    let note = rig.builtin.set_keywords(&identifiers).expect("cut");
+    assert!(note.contains("spoken parts"), "{note}");
+    assert_eq!(rig.builtin.vocabulary.entries().len(), 200);
 }
