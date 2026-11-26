@@ -745,7 +745,8 @@ pub struct TransientWindowManager {
     forced_open: Vec<NodeId>,
     /// Bumped whenever the set of inline-docked nodes or their zones may
     /// have changed (a drop, a tear-off, a window opening or closing), never
-    /// for a window that only moved with its anchor. The
+    /// for a window that only moved with its anchor, nor for an inline window
+    /// that opens as its config said (the pass before drew it so). The
     /// layout fast path compares it with the generation it last laid out:
     /// an identical DOM whose docking changed must still re-layout.
     dock_generation: u64,
@@ -1112,7 +1113,31 @@ impl TransientWindowManager {
         // open and which of them are grafted inline where. A window that
         // merely moved followed its anchor, which the parent's layout has
         // just placed - another pass would lay the page out again, cold.
-        if self.layout_docks() != docks_before {
+        let docks_after = self.layout_docks();
+        // A window the manager had not met was drawn by its config alone by the
+        // pass this reconcile follows (`TransientDocks::is_inline`: "inline on
+        // its very first frame instead of one frame late"). Opening it as the
+        // inline window its config said it is changes nothing that pass read:
+        // the layout already has it grafted where the registry puts it. (An app
+        // whose first DOM holds an opened inline panel laid itself out twice
+        // before its first frame, the second time cold.) Not for a window the
+        // config did not open or inline (a callback's `set_transient_window_open`
+        // opened it, or the app's `torn` attribute says it is not inline): that
+        // pass drew it as nothing or elsewhere.
+        let mut docks_before = docks_before;
+        for p in &wanted {
+            let drawn_by_config = p.dock == TransientDock::Inline
+                && !p.torn
+                && !self.forced_open.contains(&p.node);
+            if !drawn_by_config || docks_before.known.contains(&p.node) {
+                continue;
+            }
+            if let Some(zone) = docks_after.inline.get(&p.node) {
+                docks_before.known.insert(p.node);
+                docks_before.inline.insert(p.node, *zone);
+            }
+        }
+        if docks_after != docks_before {
             self.dock_generation += 1;
         }
         diff
