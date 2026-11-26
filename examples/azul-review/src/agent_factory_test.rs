@@ -311,6 +311,7 @@ fn a_factory_makes_the_backend_when_a_worker_calls_it_and_the_job_runs() {
             text: "add a note".to_string(),
             start_ms: 0,
             end_ms: 500,
+            words: Vec::new(),
         }],
         strokes: Vec::new(),
         context: Context {

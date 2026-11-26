@@ -13,6 +13,8 @@ fn the_defaults_are_realistic_and_none_is_zero() {
         ("context lines", l.max_context_lines),
         ("line chars", l.max_line_chars),
         ("words under", l.max_words_under),
+        ("vocabulary", l.max_vocabulary),
+        ("said words", l.max_said_words),
         ("utterances", l.max_utterances),
         ("transcript", l.max_transcript_chars),
         ("turns", l.max_turns),

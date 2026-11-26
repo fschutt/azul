@@ -938,6 +938,12 @@ impl StyleLetterSpacingParseErrorOwned {
 pub fn parse_style_letter_spacing(
     input: &str,
 ) -> Result<StyleLetterSpacing, StyleLetterSpacingParseError<'_>> {
+    // `normal` is no extra spacing between the letters: the zero length (CSS Text 3 s8.2).
+    if input.trim().eq_ignore_ascii_case("normal") {
+        return Ok(StyleLetterSpacing {
+            inner: PixelValue::zero(),
+        });
+    }
     crate::props::basic::pixel::parse_pixel_value(input)
         .map(|inner| StyleLetterSpacing { inner })
         .map_err(StyleLetterSpacingParseError::PixelValue)
@@ -1756,6 +1762,12 @@ impl StyleWordSpacingParseErrorOwned {
 pub fn parse_style_word_spacing(
     input: &str,
 ) -> Result<StyleWordSpacing, StyleWordSpacingParseError<'_>> {
+    // `normal` is no extra spacing between the words: the zero length (CSS Text 3 s8.1).
+    if input.trim().eq_ignore_ascii_case("normal") {
+        return Ok(StyleWordSpacing {
+            inner: PixelValue::zero(),
+        });
+    }
     crate::props::basic::pixel::parse_pixel_value(input)
         .map(|inner| StyleWordSpacing { inner })
         .map_err(StyleWordSpacingParseError::PixelValue)
@@ -5348,3 +5360,7 @@ mod autotest_generated {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "text_test.rs"]
+mod text_test;

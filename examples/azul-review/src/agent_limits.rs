@@ -27,6 +27,10 @@ pub struct Limits {
     pub max_line_chars: usize,
     /// Words listed as under the strokes.
     pub max_words_under: usize,
+    /// Names of the vocabulary a request lists for the words to be read against.
+    pub max_vocabulary: usize,
+    /// Words of one utterance that are listed with their probabilities.
+    pub max_said_words: usize,
     /// Utterances of the user's words.
     pub max_utterances: usize,
     /// Characters of all the user's words together.
@@ -72,6 +76,8 @@ impl Default for Limits {
             max_context_lines: 160,
             max_line_chars: 300,
             max_words_under: 48,
+            max_vocabulary: 48,
+            max_said_words: 60,
             max_utterances: 40,
             max_transcript_chars: 6_000,
             max_turns: 20,
@@ -107,6 +113,8 @@ impl Limits {
             max_context_lines: s(self.max_context_lines),
             max_line_chars: s(self.max_line_chars),
             max_words_under: s(self.max_words_under),
+            max_vocabulary: s(self.max_vocabulary),
+            max_said_words: s(self.max_said_words),
             max_utterances: s(self.max_utterances),
             max_transcript_chars: s(self.max_transcript_chars),
             max_turns: s(self.max_turns),

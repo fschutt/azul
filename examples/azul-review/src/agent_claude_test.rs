@@ -38,6 +38,7 @@ fn request(task: Task) -> Request {
             text: "what does this do?".to_string(),
             start_ms: 0,
             end_ms: 900,
+            words: Vec::new(),
         }],
         strokes: Vec::new(),
         context: Context {

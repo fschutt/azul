@@ -431,3 +431,44 @@ The one face of the tests whose outlines are CFF2 (the other variable faces are 
 with `gvar`): `a_variable_font_never_reaches_shaping_as_a_variable_file` checks that an instance of
 it is a static face too. Not made by a script; a copy of the file the printpdf and rust-fontconfig
 tests use.
+
+## 14. azul-mock-features.ttf - one OpenType feature for each CSS font feature
+
+Made by `python3 scripts/gen_features_test_font.py` (fontTools; deterministic, like the others).
+
+| | |
+|---|---|
+| family name | **Azul Mock Features** |
+| upem / ascent / descent | 1000 / 800 / -200 |
+| numGlyphs | 140 (`.notdef`, the 95 printable ASCII glyphs, 44 glyphs only a feature reaches) |
+| cmap | U+0020..U+007E, `gid = cp - 0x1F` as in the liga and kern fonts |
+| advance (every ASCII glyph) | **500** |
+| tables | `cmap glyf head hhea hmtx loca maxp name OS/2 post GSUB` (scripts `DFLT` and `latn`) |
+
+The glyphs a feature reaches (not in the cmap), their glyph ids and advances. A test sets a letter
+under a CSS property and reads WHICH glyph came out. Every feature changes one letter (or two, for
+a ligature), and no two features a test turns on together change the same letter:
+
+| gid | glyph | advance | feature | input | what asks for it |
+|-----|-------|---------|---------|-------|------------------|
+| 96..101 | `A.jp78` `A.jp83` `A.jp90` `A.jp04` `A.smpl` `A.trad` | 510, 520, 530, 540, 550, 560 | `jp78` `jp83` `jp90` `jp04` `smpl` `trad` | `A` | `font-variant-east-asian: jis78` ... `traditional` |
+| 102, 103 | `E.fwid` `E.pwid` | 1000, 400 | `fwid` `pwid` | `E` | `font-variant-east-asian: full-width` / `proportional-width` |
+| 104 | `R.ruby` | 570 | `ruby` | `R` | `font-variant-east-asian: ruby` |
+| 105..110 | `a.smcp` `B.c2sc` `b.pcap` `C.c2pc` `u.unic` `t.titl` | 480, 485, 470, 475, 490, 495 | `smcp` `c2sc` `pcap` `c2pc` `unic` `titl` | `a` `B` `b` `C` `u` `t` | `font-variant-caps: small-caps` `all-small-caps` `petite-caps` `all-petite-caps` `unicase` `titling-caps` |
+| 111..118 | `one.lnum` `two.onum` `three.pnum` `four.tnum` `five.frac` `six.afrc` `seven.ordn` `zero.zero` | 505, 506, 400, 600, 507, 508, 509, 511 | `lnum` `onum` `pnum` `tnum` `frac` `afrc` `ordn` `zero` | `1` `2` `3` `4` `5` `6` `7` `0` | `font-variant-numeric` |
+| 119, 120 | `p.subs` `q.sups` | 350, 360 | `subs` `sups` | `p` `q` | `font-variant-position: sub` / `super` |
+| 121 | `k.calt` | 540 | `calt` | `k` | the default of a Latin script; `font-variant-ligatures: contextual` |
+| 122 | `j.hist` | 530 | `hist` | `j` | `font-variant-alternates: historical-forms` |
+| 123, 124 | `x.ss01` `y.ss02` | 560, 570 | `ss01` `ss02` | `x` `y` | `font-variant-alternates: styleset(1, 2)` |
+| 125, 126 | `z.cv01` `v.cv02` | 580, 590 | `cv01` `cv02` | `z` `v` | `font-variant-alternates: character-variant(1, 2)` |
+| 127 | `f_i` | 700 | `liga` | `f` `i` | the default; `font-variant-ligatures` |
+| 128 | `c_l` | 710 | `clig` | `c` `l` | the default; `font-variant-ligatures` |
+| 129 | `d_l` | 720 | `dlig` | `d` `l` | `font-variant-ligatures: discretionary-ligatures` |
+| 130 | `h_l` | 730 | `hlig` | `h` `l` | `font-variant-ligatures: historical-ligatures` |
+| 131..133 | `s.alt1` `s.alt2` `s.alt3` | 550, 551, 552 | `salt` (alternates) | `s` | `font-feature-settings: "salt" 1..3`, `font-variant-alternates: stylistic(n)` |
+| 134, 135 | `w.swsh1` `w.swsh2` | 600, 601 | `swsh` (alternates) | `w` | `font-variant-alternates: swash(n)` |
+| 136, 137 | `o.orn1` `o.orn2` | 610, 611 | `ornm` (alternates) | `o` | `font-variant-alternates: ornaments(n)` |
+| 138, 139 | `n.nalt1` `n.nalt2` | 620, 621 | `nalt` (alternates) | `n` | `font-variant-alternates: annotation(n)` |
+
+A Latin script turns `liga`, `clig` and `calt` on by itself, so `fi`, `cl` and `k` change without a
+word of CSS; the other features change their letter only where something asks for them.

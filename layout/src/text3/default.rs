@@ -21,7 +21,7 @@ use crate::{
     text3::{
         cache::{
             BidiDirection, BidiLevel, FontManager, FontSelector, FontVariantCaps,
-            FontVariantLigatures, Glyph, GlyphOrientation, GlyphSource,
+            Glyph, GlyphOrientation, GlyphSource,
             LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, ShallowClone, StyleProperties,
             TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
         },
@@ -654,30 +654,56 @@ struct FeatureSelection {
     kerning: bool,
 }
 
+/// The most `font-feature-settings` entries a run reads. The stylesheet parser keeps the first 64
+/// distinct tags of a value (`azul_css::props::basic::font::MAX_FONT_FEATURES`) and the style
+/// builder adds at most one (`font-kerning`), so only a style made by hand has more: the entries
+/// after these are not read, and a run's features cost a bounded amount of work.
+const MAX_FEATURE_ENTRIES: usize = 128;
+
 /// The features a run in `script` under `style` is shaped with, the way
 /// Chrome stacks them: the script's defaults, without the optional
 /// ligatures (`liga`, `clig`) where the text is tracked (CSS Text 3 s8.2: a
-/// non-zero letter-spacing should not join letters), then the
-/// `font-variant-*` features, then `font-feature-settings`, which has the
-/// last word - `0` turns a feature off, one the script turns on by default
-/// or `kern` included, `1` or more turns it on (more picks an alternate).
+/// non-zero letter-spacing should not join letters), without the groups
+/// `font-variant-ligatures` turns off, then the `font-variant-*` features,
+/// then `font-feature-settings` (and `font-kerning`, which the style builder
+/// puts in front of them), which has the last word - `0` turns a feature
+/// off, one the script turns on by default or `kern` included, `1` or more
+/// turns it on (more picks the alternate of that number, counted from 1).
 fn select_features(script: Script, style: &StyleProperties) -> FeatureSelection {
     let mut mask = build_feature_mask_for_script(script);
     if style.letter_spacing.resolve_px(style.font_size_px) != 0.0 {
         mask.remove(Feature::LIGA | Feature::CLIG);
     }
+    // `font-variant-ligatures`: a group it turns off takes its features out of the script's own
+    // (`liga` and `clig`, `calt`), `none` all of them but `rlig`, which a script needs.
+    for tag in style.font_variant_ligatures.opentype_off() {
+        mask.remove(FeatureMask::from_tag(u32::from_be_bytes(tag)));
+    }
     let mut features = Vec::new();
     add_variant_features(style, &mut features);
     let mut kerning = true;
-    for (tag, value) in style.font_features.iter().filter_map(|s| parse_font_feature(s)) {
+    let entries = style
+        .font_features
+        .iter()
+        .filter_map(|s| parse_font_feature(s))
+        .take(MAX_FEATURE_ENTRIES);
+    for (tag, value) in entries {
+        if tag == u32::from_be_bytes(*b"kern") {
+            // `kern` is the shaper's kerning switch, not a feature to add: the script's own
+            // features ask for it already, and its lookups applied a second time would add every
+            // pair adjustment twice.
+            kerning = value != 0;
+            continue;
+        }
         features.retain(|f: &FeatureInfo| f.feature_tag != tag);
         if value == 0 {
             mask.remove(FeatureMask::from_tag(tag));
-            kerning &= tag != u32::from_be_bytes(*b"kern");
         } else {
             features.push(FeatureInfo {
                 feature_tag: tag,
-                alternate: (value > 1).then_some(value as usize),
+                // The alternate of a value counted from 1: `"salt" 1` is the first of the set (no
+                // index), `"salt" 2` the second.
+                alternate: (value > 1).then(|| (value - 1) as usize),
             });
         }
     }
@@ -698,18 +724,10 @@ fn add_variant_features(style: &StyleProperties, features: &mut Vec<FeatureInfo>
         });
     };
 
-    // Note on disabling features: The CSS properties `font-variant-ligatures: none` or
-    // `no-common-ligatures` are meant to disable features that may be on by default for a
-    // given script. The `allsorts` API for applying custom features is additive and does not
-    // currently support disabling default features. This implementation only handles enabling
-    // non-default features.
-
-    // Ligatures
-    match style.font_variant_ligatures {
-        FontVariantLigatures::Discretionary => add_on(b"dlig"),
-        FontVariantLigatures::Historical => add_on(b"hlig"),
-        FontVariantLigatures::Contextual => add_on(b"calt"),
-        _ => {} // Other cases are either default-on or require disabling.
+    // Ligatures: the groups `font-variant-ligatures` turns ON. A group it turns off was taken out of
+    // the script's features by `select_features`.
+    for tag in style.font_variant_ligatures.opentype_on() {
+        add_on(&tag);
     }
 
     // Caps
@@ -732,6 +750,11 @@ fn add_variant_features(style: &StyleProperties, features: &mut Vec<FeatureInfo>
     // Numeric: every feature the value asks for - it combines groups
     // (`tabular-nums slashed-zero` is `tnum` AND `zero`).
     for tag in style.font_variant_numeric.opentype_features() {
+        add_on(&tag);
+    }
+
+    // East Asian forms: every feature the value asks for (`jis78 full-width` is `jp78` AND `fwid`).
+    for tag in style.font_variant_east_asian.opentype_features() {
         add_on(&tag);
     }
 }
@@ -838,6 +861,32 @@ const fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
         Welsh => *b"CYM ",
     };
     u32::from_be_bytes(tag_bytes)
+}
+
+/// Whether `ch` is a default-ignorable code point that is drawn as nothing and takes no room: the
+/// soft hyphen, the combining grapheme joiner, the Arabic letter mark, the Khmer vowel inherents,
+/// the Mongolian selectors and vowel separator, the zero width and joiner characters and the bidi
+/// marks (U+200B to U+200F, U+202A to U+202E), the invisible operators and the format characters
+/// of U+2060 to U+206F, the variation selectors, the byte order mark, the specials, the musical
+/// format characters and the tags: the set `HarfBuzz` hides, so a text that holds one is drawn as
+/// the text without it. The Hangul fillers are not in it (a face may draw them).
+const fn is_hidden_default_ignorable(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x00AD
+            | 0x034F
+            | 0x061C
+            | 0x17B4..=0x17B5
+            | 0x180B..=0x180E
+            | 0x200B..=0x200F
+            | 0x202A..=0x202E
+            | 0x2060..=0x206F
+            | 0xFE00..=0xFE0F
+            | 0xFEFF
+            | 0xFFF0..=0xFFF8
+            | 0x1D173..=0x1D17A
+            | 0xE0000..=0xE0FFF
+    )
 }
 
 /// The piece of `text` each shaped glyph stands for, as `(start, len)` in bytes.
@@ -1419,6 +1468,9 @@ fn shape_text_internal_with(
         .collect();
     let placements = resolve_placements(&infos, &advances, &kernings, scale_factor, direction);
 
+    // The glyph a hidden default-ignorable code point is drawn with: the face's space, which has
+    // no outline (a face without one keeps the glyph it has).
+    let blank_glyph = parsed_font.lookup_glyph_index(0x20);
     let mut shaped_glyphs = Vec::with_capacity(infos.len());
     for (((info, &(byte_index, byte_len)), placement), &kerning) in
         infos.iter().zip(&spans).zip(&placements).zip(&kernings)
@@ -1432,9 +1484,32 @@ fn shape_text_internal_with(
             .or_else(|| text.get(byte_index..).and_then(|s| s.chars().next()))
             .unwrap_or('\u{FFFD}');
 
+        // A glyph that only stands for default-ignorable code points (a ligature that holds a
+        // letter is no such glyph) is drawn as nothing and takes no room.
+        let hidden = !info.glyph.unicodes.is_empty()
+            && info.glyph.unicodes.iter().all(|&c| is_hidden_default_ignorable(c));
+        let (glyph_id, advance, kerning, offset) = if hidden {
+            (
+                blank_glyph.unwrap_or(info.glyph.glyph_index),
+                0.0,
+                0.0,
+                Point { x: 0.0, y: 0.0 },
+            )
+        } else {
+            (
+                info.glyph.glyph_index,
+                placement.advance,
+                kerning,
+                Point {
+                    x: placement.offset_x,
+                    y: placement.offset_y,
+                },
+            )
+        };
+
         let vert = parsed_font.get_vertical_metrics(info.glyph.glyph_index);
         let glyph = Glyph {
-            glyph_id: info.glyph.glyph_index,
+            glyph_id,
             codepoint: source_char,
             font_hash,
             font_metrics,
@@ -1444,12 +1519,9 @@ fn shape_text_internal_with(
             logical_byte_len: byte_len,
             content_index: 0,
             cluster,
-            advance: placement.advance,
+            advance,
             kerning,
-            offset: Point {
-                x: placement.offset_x,
-                y: placement.offset_y,
-            },
+            offset,
             vertical_advance: vert.as_ref().map_or(0.0, |v| v.advance * font_size),
             vertical_origin_y: vert.as_ref().map_or(0.0, |v| v.origin_y * font_size),
             vertical_bearing: vert.map_or(Point { x: 0.0, y: 0.0 }, |v| Point {
@@ -1529,7 +1601,7 @@ mod autotest_generated {
     use rust_fontconfig::{FcFontCache, FontBytes, FontId};
 
     use super::*;
-    use crate::text3::script::Language;
+    use crate::text3::{cache::FontVariantLigatures, script::Language};
 
     /// Positive control: the built-in `Azul Mock Mono` TrueType face.
     const MOCK_MONO: &[u8] = crate::text3::mock_fonts::MOCK_MONO_TTF;
@@ -2752,8 +2824,12 @@ mod autotest_generated {
             vec![u32::from_be_bytes(*b"c2sc"), u32::from_be_bytes(*b"smcp")]
         );
 
+        use azul_css::props::basic::font_variation::StyleFontLigatureChoice;
         let combined = StyleProperties {
-            font_variant_ligatures: FontVariantLigatures::Discretionary,
+            font_variant_ligatures: FontVariantLigatures {
+                discretionary: StyleFontLigatureChoice::On,
+                ..Default::default()
+            },
             font_variant_numeric: crate::text3::cache::FontVariantNumeric {
                 tabular_nums: true,
                 ..Default::default()
@@ -2774,17 +2850,26 @@ mod autotest_generated {
 
     #[test]
     fn add_variant_features_is_additive_and_never_panics_for_any_variant() {
+        use azul_css::props::basic::font_variation::StyleFontLigatureChoice::{Off, On, Unset};
+        let ligature = |common, discretionary, historical, contextual| FontVariantLigatures {
+            common,
+            discretionary,
+            historical,
+            contextual,
+        };
         let ligatures = [
-            FontVariantLigatures::Normal,
-            FontVariantLigatures::None,
-            FontVariantLigatures::Common,
-            FontVariantLigatures::NoCommon,
-            FontVariantLigatures::Discretionary,
-            FontVariantLigatures::NoDiscretionary,
-            FontVariantLigatures::Historical,
-            FontVariantLigatures::NoHistorical,
-            FontVariantLigatures::Contextual,
-            FontVariantLigatures::NoContextual,
+            FontVariantLigatures::NORMAL,
+            FontVariantLigatures::NONE,
+            ligature(On, Unset, Unset, Unset),
+            ligature(Off, Unset, Unset, Unset),
+            ligature(Unset, On, Unset, Unset),
+            ligature(Unset, Off, Unset, Unset),
+            ligature(Unset, Unset, On, Unset),
+            ligature(Unset, Unset, Off, Unset),
+            ligature(Unset, Unset, Unset, On),
+            ligature(Unset, Unset, Unset, Off),
+            // the widest value the grammar allows: every group on
+            ligature(On, On, On, On),
         ];
         let caps = [
             FontVariantCaps::Normal,
@@ -2840,10 +2925,11 @@ mod autotest_generated {
                     add_variant_features(&style, &mut features);
                     assert_eq!(features[0].feature_tag, sentinel.feature_tag);
                     assert_eq!(features[0].alternate, Some(7));
-                    // at most 2 (caps) + 1 (ligature) + 5 (numeric: one per
-                    // group, ordinal, slashed-zero) new tags
+                    // at most 5 (ligatures: liga, clig, dlig, hlig, calt) + 2 (caps) + 5
+                    // (numeric: one per group, ordinal, slashed-zero) new tags, and the
+                    // sentinel
                     assert!(
-                        features.len() <= 9,
+                        features.len() <= 13,
                         "{l:?}/{c:?}/{n:?} emitted too many features"
                     );
                     for f in &features[1..] {

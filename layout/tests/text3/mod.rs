@@ -20,8 +20,8 @@ use azul_layout::{
         cache::{
             BidiDirection, BidiLevel, FontSelector, FontStack, Glyph, GlyphOrientation,
             GlyphSource, LayoutError, LayoutFontMetrics, LineHeight, ParsedFontTrait, Point,
-            PositionedItem, ShapedItem, Spacing, StyleProperties, TextDecoration, TextOrientation,
-            TextTransform, VerticalMetrics, WritingMode,
+            PositionedItem, ShapedItem, Spacing, StyleProperties, TextDecoration, TextTransform,
+            VerticalMetrics, WritingMode,
         },
         script::Script,
     },
@@ -573,7 +573,6 @@ pub fn default_style() -> Arc<StyleProperties> {
         tab_size: 4.0,
         text_transform: TextTransform::default(),
         writing_mode: WritingMode::HorizontalTb,
-        text_orientation: TextOrientation::Mixed,
         text_combine_upright: None,
         font_variant_caps: Default::default(),
         font_variant_numeric: Default::default(),
