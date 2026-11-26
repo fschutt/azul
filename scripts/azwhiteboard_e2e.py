@@ -9,13 +9,17 @@
        `WBDEMO_DROPPED`); its cutout is drawn on a Thread by the CPU renderer (`WBDEMO_RENDERED <w>x<h>`:
        the pixels of the window's scale) and the board is kept (`WBDEMO_SAVED <file>`): a zip with
        board.json and one PNG per cutout;
-    4. a second loop is lifted by pressing and holding inside it (no grip) and dropped lower on the bar;
+    4. a second loop is lifted by pressing and holding inside it (no grip: `WBDEMO_HELD`, then `WBDEMO_LIFTED`)
+       and dropped lower on the bar;
     5. an arrow is drawn from the rim of one cutout to the other; double click on a cutout jumps to its
        lines (`WBDEMO_JUMP <file> <first> <last> Fresh`);
-    6. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 2`).
+    6. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 3`: the
+       two cutouts and the arrow).
 
 With `--window cpu` (or `gpu`) it runs in a real window, at the display's scale, and the screenshots are the
-window as the system composited it. Run ONE app at a time:
+window as the system composited it (macOS: `screencapture -l` of the demo's own window, which also works while
+the display sleeps; the app's own capture then comes back white). The window is as large as the screen allows,
+the bar lies against its right edge. Run ONE app at a time:
 
     python3 scripts/azwhiteboard_e2e.py --bin target/debug/examples/whiteboard_demo --out /tmp/azwhiteboard-shots
 """
@@ -24,6 +28,8 @@ import json
 import math
 import os
 import re
+import subprocess
+import sys
 import time
 import zipfile
 
@@ -56,6 +62,43 @@ def read_board(path):
         manifest = json.loads(z.read("board.json").decode("utf-8"))
         pictures = {n: z.read(n) for n in z.namelist() if n.endswith(".png")}
     return manifest, pictures
+
+
+def window_number(pid):
+    """The window server's number of the largest window of process `pid` (macOS, through the system's own
+    JavaScript for Automation: no Python module is needed), or None."""
+    script = (
+        'ObjC.import("CoreGraphics");'
+        'var l = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionAll, 0)));'
+        'l.filter(function (w) { return w.kCGWindowOwnerPID === %d && w.kCGWindowLayer === 0; })'
+        '.map(function (w) { return w.kCGWindowNumber + " " + (w.kCGWindowBounds.Width * w.kCGWindowBounds.Height); })'
+        '.join("\\n");' % pid
+    )
+    try:
+        done = subprocess.run(["osascript", "-l", "JavaScript", "-e", script], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    best = None
+    for line in done.stdout.split("\n"):
+        parts = line.split()
+        if len(parts) == 2 and (best is None or float(parts[1]) > best[1]):
+            best = (int(parts[0]), float(parts[1]))
+    return best[0] if best else None
+
+
+def shoot(app, path):
+    """A picture of the window. A real window is the system's capture of the demo's own window; where that cannot
+    be had (headless, another system) it is the harness's."""
+    if e2e.BACKEND != "headless" and sys.platform == "darwin":
+        app.settle()
+        number = window_number(app.process.pid)
+        if number is not None:
+            done = subprocess.run(["screencapture", "-x", "-o", "-l", str(number), path],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if done.returncode == 0 and os.path.exists(path) and os.path.getsize(path) > 0:
+                app.log("screenshot %s (%d bytes, screencapture of window %d)" % (path, os.path.getsize(path), number))
+                return
+    app.screenshot(path)
 
 
 class Demo:
@@ -115,7 +158,60 @@ def wait_for(app, key, pattern, what):
     return app.printed(key, pattern)[-1]
 
 
+def perf_body(args, logs, out):
+    """The frame times of a full board (`WBE2E_PERF=n`: `n` cutouts and the arrows between them, `WBDEMO_FILL`):
+    a cutout dragged over the bar, the board panned by the wheel; the demo prints its own surface and layout
+    times (`WBDEMO_PERF`), which are what this run reports."""
+    binary = find_binary(args)
+    data_dir = os.path.join(logs, "data")
+    os.makedirs(data_dir, exist_ok=True)
+    argv = ["--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en"]
+    fill = os.environ.get("WBE2E_PERF", "200")
+    app = e2e.App("whiteboard-perf", binary, argv, args.debug_port, logs, args.timeout,
+                  extra_env={"WBDEMO_FILL": fill, "WBDEMO_PROFILE": "1"})
+    try:
+        app.until("the demo's window", lambda: app.has_id(SURFACE) and app.has_id(PAGE))
+        app.frame(3)
+        filled = wait_for(app, "WBDEMO_FILLED", r"\d+", "the full board")
+        demo = Demo(app)
+        # A dab on the page starts the demo's clock (its 100 ms timer prints the times every two seconds).
+        demo.draw([(600.0, 400.0), (601.0, 400.0), (602.0, 401.0)])
+        bar = app.rect(SURFACE)
+        first = app.rect("__azreview_whiteboard-cutout-1")
+        if not bar or not first:
+            raise Failure("no bar or no first cutout: %s %s" % (bar, first))
+        cx, cy = first["x"] + first["width"] / 2.0, first["y"] + first["height"] / 2.0
+        shoot(app, os.path.join(out, "p1-full.png"))
+        # The first cutout carried over the board, to and fro, a frame each step.
+        app.must("mouse_move", x=cx, y=cy)
+        app.must("mouse_down", x=cx, y=cy)
+        for i in range(1, 61):
+            t = math.sin(i / 60.0 * math.pi * 2.0)
+            app.must("mouse_move", x=cx + 90.0 * t, y=cy + 60.0 * (1.0 - math.cos(i / 60.0 * math.pi * 2.0)) / 2.0)
+            app.frame(1)
+        app.must("mouse_up", x=cx, y=cy)
+        app.frame(2)
+        # The board panned by the wheel.
+        mx, my = bar["x"] + bar["width"] / 2.0, bar["y"] + bar["height"] / 2.0
+        for i in range(24):
+            app.must("wheel", x=mx, y=my, delta_x=0.0, delta_y=-60.0 if i % 2 == 0 else 60.0)
+            app.frame(2)
+        shoot(app, os.path.join(out, "p2-panned.png"))
+        time.sleep(5.0)
+        lines = app.printed("WBDEMO_PERF", r".+")
+        if not lines:
+            raise Failure("the demo printed no frame times")
+        for line in lines[-6:]:
+            print("[azwhiteboard] perf (board of %s): %s" % (filled, line))
+    finally:
+        app.stop()
+    print("[azwhiteboard] PERF DONE")
+    return True
+
+
 def body(args, logs, out):
+    if os.environ.get("WBE2E_PERF"):
+        return perf_body(args, logs, out)
     binary = find_binary(args)
     data_dir = os.path.join(logs, "data")
     os.makedirs(data_dir, exist_ok=True)
@@ -125,7 +221,7 @@ def body(args, logs, out):
         app.until("the demo's window", lambda: app.has_id(SURFACE) and app.has_id(PAGE))
         app.frame(3)
         demo = Demo(app)
-        app.screenshot(os.path.join(out, "1-empty.png"))
+        shoot(app, os.path.join(out, "1-empty.png"))
 
         # A quick slash across a word is no loop.
         demo.draw([(300.0, 107.0), (320.0, 106.0), (340.0, 105.0), (360.0, 104.0), (380.0, 103.0), (400.0, 102.0)])
@@ -136,9 +232,18 @@ def body(args, logs, out):
         loop = ellipse(330.0, 104.0, 90.0, 26.0)
         demo.draw(loop)
         armed = wait_for(app, "WBDEMO_ARMED", r"\d+ \d+", "the loop arms its region")
-        app.screenshot(os.path.join(out, "2-armed.png"))
+        shoot(app, os.path.join(out, "2-armed.png"))
         grip = max(loop, key=lambda p: p[0] - p[1])
-        bar_x = WIDTH - BAR_W // 2
+        bar = app.rect(SURFACE)
+        if not bar or bar.get("width", 0) < 100:
+            raise Failure("the bar has no box: %s" % bar)
+        # The bar lies against the window's right edge, and the demo's idea of it (where a drop is measured
+        # from) is that edge: the surface says where it is.
+        win = app.value("get_state").get("window_state", {})
+        if abs(bar["x"] + bar["width"] - float(win.get("logical_width", bar["x"] + bar["width"]))) > 1.5:
+            raise Failure("the bar is not against the window's right edge: %s in a window %s wide" % (bar, win.get("logical_width")))
+        bar_x = bar["x"] + bar["width"] / 2.0
+        low = min(520.0, bar["y"] + bar["height"] - 90.0)
         before = app.count("WBDEMO_DROPPED")
         demo.carry(grip, (bar_x, 220.0))
         app.until("the drop", lambda: app.count("WBDEMO_DROPPED") > before)
@@ -148,7 +253,7 @@ def body(args, logs, out):
             raise Failure("the cutout's picture is %s: too small to be the loop's region" % size)
         saved = wait_for(app, "WBDEMO_SAVED", r".+", "the board kept")
         app.frame(3)
-        app.screenshot(os.path.join(out, "3-dropped.png"))
+        shoot(app, os.path.join(out, "3-dropped.png"))
         path = board_file(data_dir)
         manifest, pictures = read_board(path)
         cutouts = [i for i in manifest["items"] if i["kind"] == "cutout"]
@@ -159,12 +264,14 @@ def body(args, logs, out):
         print("[azwhiteboard] armed %s, cutout %s, kept as %s" % (armed, size, os.path.basename(saved)))
 
         # A second loop, lifted by pressing and holding inside it: no grip.
-        loop2 = ellipse(330.0, 236.0, 90.0, 26.0)
+        loop2 = ellipse(330.0, 170.0, 90.0, 26.0)
         demo.draw(loop2)
         app.until("the second loop arms", lambda: app.count("WBDEMO_ARMED") >= 2)
         before = app.count("WBDEMO_DROPPED")
-        demo.carry((330.0, 236.0), (bar_x - 20, 520.0), hold=0.6)
+        demo.carry((330.0, 170.0), (bar_x - 20, low), hold=0.6)
         app.until("the second drop", lambda: app.count("WBDEMO_DROPPED") > before)
+        if app.count("WBDEMO_HELD") != 1:
+            raise Failure("the second loop was not lifted by the hold: %d holds" % app.count("WBDEMO_HELD"))
         app.until("the second picture", lambda: app.count("WBDEMO_RENDERED") >= 2)
         app.until("the board kept again", lambda: len(read_board(board_file(data_dir))[0]["items"]) == 2)
         app.frame(3)
@@ -177,7 +284,7 @@ def body(args, logs, out):
         x1, y1 = second["x"] + second["width"] / 2.0, second["y"] + second["height"] / 2.0
         app.drag(x0, y0, x1, y1, steps=10)
         app.until("the arrow kept", lambda: any(i["kind"] == "arrow" for i in read_board(board_file(data_dir))[0]["items"]))
-        app.screenshot(os.path.join(out, "4-arrow.png"))
+        shoot(app, os.path.join(out, "4-arrow.png"))
 
         # A double click on the first cutout jumps back to its lines.
         cx, cy = first["x"] + first["width"] / 2.0, first["y"] + first["height"] / 2.0
@@ -189,7 +296,7 @@ def body(args, logs, out):
         if not re.search(r"Fresh$", jump):
             raise Failure("the jump says %r, the file is as it was" % jump)
         app.frame(2)
-        app.screenshot(os.path.join(out, "5-jumped.png"))
+        shoot(app, os.path.join(out, "5-jumped.png"))
         print("[azwhiteboard] jump: %s" % jump)
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
@@ -201,12 +308,12 @@ def body(args, logs, out):
     app = e2e.App("whiteboard2", binary, argv, args.debug_port, logs, args.timeout)
     try:
         app.until("the second window", lambda: app.has_id(SURFACE))
-        app.expect_line("WBDEMO_LOADED", "2", "the board read back")
+        app.expect_line("WBDEMO_LOADED", "3", "the board read back (two cutouts and the arrow)")
         app.frame(3)
         for i in (1, 2):
             if not app.rect("__azreview_whiteboard-cutout-%d" % i):
                 raise Failure("cutout %d did not come back" % i)
-        app.screenshot(os.path.join(out, "6-restarted.png"))
+        shoot(app, os.path.join(out, "6-restarted.png"))
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise

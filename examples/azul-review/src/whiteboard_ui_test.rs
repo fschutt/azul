@@ -127,6 +127,28 @@ fn a_cutout_is_a_node_under_the_surface_with_its_label() {
 }
 
 #[test]
+fn a_frame_shows_while_a_region_is_carried_over_the_bar_and_the_surface_stays_on_top_of_it() {
+    crate::l10n::in_english();
+    let host = host();
+    let made = |over: bool| {
+        host.run(|p| {
+            p.drag_over = over;
+            panel_dom(p, &host)
+        })
+        .expect("a panel")
+    };
+    let (still, over) = (made(false), made(true));
+    assert_eq!(over.children.as_slice().len(), still.children.as_slice().len() + 1, "the frame is one node more");
+    let last = over.children.as_slice().last().expect("children");
+    assert!(last.root.has_id(AzString::from(SURFACE_ID)), "the surface, not the frame, is over everything");
+    for n in nodes(&over) {
+        if !n.root.has_id(AzString::from(SURFACE_ID)) {
+            assert!(n.root.callbacks.as_slice().is_empty(), "the frame answers nothing: the surface keeps the pointer");
+        }
+    }
+}
+
+#[test]
 fn a_cutout_without_its_picture_shows_the_lines_it_was_made_from() {
     crate::l10n::in_english();
     let host = host();

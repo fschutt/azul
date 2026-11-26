@@ -84,7 +84,8 @@ pub struct Panel {
     /// The size of the surface in logical px, and the window's pixel scale, as the last frame had them.
     pub viewport: Size,
     pub dpr: f32,
-    /// A region is being carried over the bar.
+    /// A region is being carried over the bar: the panel shows a frame inside its edge. It is a node, so the window
+    /// refreshes its DOM when this changes (`Motion::Dragging { over_bar }` says it, twice in a drag).
     pub drag_over: bool,
     /// What the person was last told (a refused cutout, a repaired file).
     pub hint: Option<String>,
@@ -311,14 +312,10 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
     let began = Instant::now();
     let selected = panel.wb.input.selection();
     let cutouts: Vec<Cutout> = panel.wb.board.cutouts().cloned().collect();
-    let mut root = Dom::create_div().with_css(
-        format!(
-            "position: relative; flex-grow: 1; min-height: 0px; min-width: 0px; overflow: hidden; background: #f4f1ea; \
-             border: 2px solid {};",
-            if panel.drag_over { "#205cd6" } else { "transparent" }
-        )
-        .as_str(),
-    );
+    // No border on the panel: its origin is the surface's and the cutouts', and the bar's rect (where a drop is
+    // measured from) is the panel's own.
+    let mut root = Dom::create_div()
+        .with_css("position: relative; flex-grow: 1; min-height: 0px; min-width: 0px; overflow: hidden; background: #f4f1ea;");
     for c in &cutouts {
         root.add_child(cutout_dom(panel, host, c, selected == Some(c.id)));
     }
@@ -333,6 +330,13 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
         root.add_child(Dom::create_p_with_text(said).with_css(
             "position: absolute; left: 8px; right: 8px; bottom: 8px; margin: 0px; padding: 6px 8px; background: #fff3cd; \
              border: 1px solid #e0c36a; border-radius: 4px; font-size: 11px; color: #5a4a10;",
+        ));
+    }
+    if panel.drag_over {
+        // A region is carried over the bar: a frame inside its edge says it will be taken. Under the surface, which
+        // keeps the pointer.
+        root.add_child(Dom::create_div().with_css(
+            "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; border: 2px solid #205cd6;",
         ));
     }
     root.add_child(surface(host));

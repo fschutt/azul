@@ -8,7 +8,8 @@
 //! It is the whiteboard's own test window until the review window has its right bar: everything it does
 //! goes through [`Whiteboard`] and [`crate::whiteboard_ui`], the very calls the review window makes.
 //! `scripts/azwhiteboard_e2e.py` drives it. stdout, for scripts: `WBDEMO_ARMED <first> <last>`,
-//! `WBDEMO_LIFTED`, `WBDEMO_DROPPED`, `WBDEMO_RENDERED <w>x<h> | <why>`, `WBDEMO_SAVED <path>`,
+//! `WBDEMO_HELD` (a press inside a loop was held), `WBDEMO_LIFTED` (the region follows the pointer),
+//! `WBDEMO_DROPPED`, `WBDEMO_RENDERED <w>x<h> | <why>`, `WBDEMO_SAVED <path>`,
 //! `WBDEMO_LOADED <items>`, `WBDEMO_JUMP <file> <first> <last> <freshness>`.
 
 use std::path::PathBuf;
@@ -50,6 +51,8 @@ const PAGE_H: f32 = 46.0 * LINE_H + 40.0;
 const BAR_W: f32 = 340.0;
 /// The room over the page and the bar (none: the window is the demo's).
 const TOP: f32 = 0.0;
+/// The margin round the sheet: the sheet and its margins are 746 px high, which a laptop's 748 px window holds.
+const SHEET_MARGIN: f32 = 8.0;
 /// The font's advance of the page's monospace, px (what the lines' text boxes are measured with).
 const CHAR_W: f32 = 6.6;
 
@@ -136,14 +139,23 @@ extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     let host = host(&data);
     let page = page_dom(&demo, &data);
+    // The bar lies against the window's right edge and takes its whole height, whatever the window's width: that
+    // is where `bar_of` (the drag's idea of the bar) looks for it. A window narrower than the page and the bar
+    // (a laptop's screen) shows the page's left part; the body does not scroll.
     let bar = {
         let panel_dom = whiteboard_ui::panel_dom(&mut demo.panel, &host);
         Dom::create_div()
-            .with_css(format!("display: flex; flex-direction: column; width: {BAR_W}px; flex-shrink: 0; min-height: 0px; margin-left: auto;").as_str())
+            .with_css(
+                format!(
+                    "position: absolute; right: 0px; top: {TOP}px; bottom: 0px; width: {BAR_W}px; display: flex; \
+                     flex-direction: column;"
+                )
+                .as_str(),
+            )
             .with_child(panel_dom)
     };
     Dom::create_body()
-        .with_css("display: flex; flex-direction: row; background: #e9e5dc; margin: 0px;")
+        .with_css("position: relative; width: 100%; height: 100%; overflow: hidden; background: #e9e5dc; margin: 0px;")
         .with_child(page)
         .with_child(bar)
 }
@@ -161,7 +173,7 @@ fn page_dom(demo: &Demo, app: &RefAny) -> Dom {
     }
     let mut sheet = Dom::create_div().with_css(
         format!(
-            "position: relative; width: {PAGE_W}px; height: {PAGE_H}px; background: #ffffff; flex-shrink: 0; margin: 12px; \
+            "position: relative; width: {PAGE_W}px; height: {PAGE_H}px; background: #ffffff; flex-shrink: 0; margin: {SHEET_MARGIN}px; \
              overflow: hidden;"
         )
         .as_str(),
@@ -270,13 +282,22 @@ extern "C" fn on_page_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let now = d.panel.now_ms();
     let bar = bar_of(size);
     let motion = d.panel.wb.page_motion(window, now, &bar);
+    let mut update = Update::DoNothing;
     match motion {
-        Motion::Held(_) | Motion::Lifted(_) => {
+        Motion::Held(_) => {
             // A held press was no stroke: the dab it began is dropped.
+            d.live = None;
+            say("WBDEMO_HELD");
+        }
+        Motion::Lifted(_) => {
             d.live = None;
             say("WBDEMO_LIFTED");
         }
         Motion::Dragging { over_bar, .. } => {
+            // The bar's frame is a node: it comes and goes with a new DOM (twice in a drag, not at every move).
+            if d.panel.drag_over != over_bar {
+                update = Update::RefreshDom;
+            }
             d.panel.drag_over = over_bar;
         }
         Motion::Inking | Motion::Nothing => {}
@@ -288,7 +309,7 @@ extern "C" fn on_page_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     }
     drop(d);
     redraw_page(&mut info);
-    Update::DoNothing
+    update
 }
 
 extern "C" fn on_page_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -437,7 +458,7 @@ extern "C" fn on_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbac
         let now = d.panel.now_ms();
         if d.panel.wb.page_tick(now).is_some() {
             d.live = None;
-            say("WBDEMO_LIFTED");
+            say("WBDEMO_HELD");
             update = Update::RefreshDom;
         }
         if d.panel.wb.expire(now) {
