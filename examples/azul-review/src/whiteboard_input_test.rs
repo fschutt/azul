@@ -391,6 +391,18 @@ fn a_double_click_on_a_cutout_jumps_to_it_and_on_its_label_edits_it_and_on_nothi
 }
 
 #[test]
+fn a_double_click_on_an_arrow_edits_its_label_and_on_an_end_of_it_does_nothing() {
+    let (mut board, a, b) = two();
+    let arrow = board.add_arrow(End::item(a), End::item(b), 0.0, "").expect("added");
+    let mut input = BoardInput::default();
+    assert_eq!(input.double_click(&mut board, p(400.0, 150.0)), Out::EditLabel(arrow));
+    // Selected, its middle is the grip that bends it: the double click there is the same.
+    input.select(Some(arrow));
+    assert_eq!(input.double_click(&mut board, p(400.0, 150.0)), Out::EditLabel(arrow));
+    assert_eq!(input.double_click(&mut board, p(300.0, 150.0)), Out::Nothing, "an end of the selected arrow");
+}
+
+#[test]
 fn delete_takes_the_selection_off_with_its_arrows_in_one_step() {
     let (mut board, a, b) = two();
     board.add_arrow(End::item(a), End::item(b), 0.0, "").expect("added");

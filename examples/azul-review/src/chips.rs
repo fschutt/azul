@@ -10,16 +10,21 @@
 //! reads the chips. The mock conversations (`mock`) stand in until the real backends answer.
 
 /// Where a conversation stands. The order is how much a file is to be looked at: what works outranks what waits
-/// outranks what is done.
+/// outranks what is done, and a conversation nobody waits on (its words are there and nothing was asked, or the agent
+/// could not answer) comes last: it gives its file no colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum State {
+    /// The reviewer's words are there and nothing was asked (or the agent chose to do nothing).
+    Draft,
+    /// The agent could not answer.
+    Failed,
     Done,
     Suggested,
     Working,
 }
 
 /// One conversation as the bar shows it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Chip {
     pub id: u64,
     /// The file, as the tree names it (its path under the folder).
@@ -81,6 +86,44 @@ impl Chips {
         Pushed::Kept
     }
 
+    /// Keeps `chip` in the place of the one of the same file and number (changed in place: the bar keeps its order), or
+    /// as a new one.
+    pub fn upsert(&mut self, chip: Chip) -> Pushed {
+        match self.chips.iter_mut().find(|c| c.id == chip.id && c.file == chip.file) {
+            Some(at) => {
+                *at = chip;
+                Pushed::Kept
+            }
+            None => self.push(chip),
+        }
+    }
+
+    /// Takes conversation `id` of `file` out; whether it was there.
+    pub fn remove(&mut self, file: &str, id: u64) -> bool {
+        let before = self.chips.len();
+        self.chips.retain(|c| !(c.id == id && c.file == file));
+        self.chips.len() != before
+    }
+
+    /// Takes out the chips of `file` that nobody works on or waits on (they are in the file's archive and come back
+    /// when it is opened); how many.
+    pub fn remove_resting(&mut self, file: &str) -> usize {
+        let before = self.chips.len();
+        self.chips.retain(|c| c.file != file || matches!(c.state, State::Working | State::Suggested));
+        before - self.chips.len()
+    }
+
+    /// Sets the state of conversation `id` of `file`; whether there is such a one.
+    pub fn set_state_of(&mut self, file: &str, id: u64, state: State) -> bool {
+        match self.chips.iter_mut().find(|c| c.id == id && c.file == file) {
+            Some(chip) => {
+                chip.state = state;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Sets the state of conversation `id`; whether there is such a one.
     pub fn set_state(&mut self, id: u64, state: State) -> bool {
         match self.chips.iter_mut().find(|c| c.id == id) {
@@ -113,6 +156,8 @@ impl Chips {
                 State::Working => counts.working += 1,
                 State::Suggested => counts.suggested += 1,
                 State::Done => counts.done += 1,
+                // nobody works on them, waits on them or has finished them: none of the three
+                State::Draft | State::Failed => {}
             }
         }
         counts
@@ -129,6 +174,43 @@ impl Chips {
     pub fn is_empty(&self) -> bool {
         self.chips.is_empty()
     }
+}
+
+/// How many finished conversations the bottom bar shows before it folds the older ones into a count.
+pub const BAR_DONE: usize = 6;
+
+/// What the bottom bar shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarItem<'a> {
+    Chip(&'a Chip),
+    /// This many finished conversations are folded into one count.
+    MoreDone(usize),
+}
+
+/// The bar's items for the conversations of the open file: what works first, then what waits, what failed, what is only
+/// a draft, and last the finished ones - of those the `max_done` newest, the older ones folded into one count - so that
+/// the bar stays short with fifty conversations and what needs the reviewer is never the one that is folded.
+#[must_use]
+pub fn bar_items<'a>(chips: &[&'a Chip], max_done: usize) -> Vec<BarItem<'a>> {
+    const fn rank(state: State) -> u8 {
+        match state {
+            State::Working => 0,
+            State::Suggested => 1,
+            State::Failed => 2,
+            State::Draft => 3,
+            State::Done => 4,
+        }
+    }
+    let mut sorted: Vec<&'a Chip> = chips.to_vec();
+    sorted.sort_by_key(|c| (rank(c.state), c.id));
+    let (done, rest): (Vec<&'a Chip>, Vec<&'a Chip>) = sorted.into_iter().partition(|c| c.state == State::Done);
+    let folded = done.len().saturating_sub(max_done);
+    let mut items: Vec<BarItem<'a>> = rest.into_iter().map(BarItem::Chip).collect();
+    items.extend(done.into_iter().skip(folded).map(BarItem::Chip));
+    if folded > 0 {
+        items.push(BarItem::MoreDone(folded));
+    }
+    items
 }
 
 /// The first words of what was said as a chip's title: whitespace folded to single spaces, at most `max_chars`

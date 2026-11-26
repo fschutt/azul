@@ -3,13 +3,15 @@
 //! (its outline and its grip show); press the grip, or press and hold inside the loop, then drag it onto the
 //! bar: the cutout is drawn by the CPU renderer on a Thread and lies where it was dropped. Drag a rim to
 //! draw an arrow, drag the body to move, the corner to resize, double-click to jump back to the lines
-//! (they flash); the board is kept in the data folder and comes back at the next start.
+//! (they flash), Delete takes the selection off, Mod+Z steps back; the board is kept in the data folder and
+//! comes back at the next start.
 //!
 //! It is the whiteboard's own test window until the review window has its right bar: everything it does
 //! goes through [`Whiteboard`] and [`crate::whiteboard_ui`], the very calls the review window makes.
 //! `scripts/azwhiteboard_e2e.py` drives it. stdout, for scripts: `WBDEMO_ARMED <first> <last>`,
-//! `WBDEMO_LIFTED`, `WBDEMO_DROPPED`, `WBDEMO_RENDERED <w>x<h> | <why>`, `WBDEMO_SAVED <path>`,
-//! `WBDEMO_LOADED <items>`, `WBDEMO_JUMP <file> <first> <last> <freshness>`.
+//! `WBDEMO_HELD` (a press inside a loop was held), `WBDEMO_LIFTED` (the region follows the pointer),
+//! `WBDEMO_DROPPED`, `WBDEMO_RENDERED <w>x<h> <ms>ms | <why>`, `WBDEMO_SAVED <path>`,
+//! `WBDEMO_LOADED <items>`, `WBDEMO_JUMP <file> <first> <last> <freshness>`, `WBDEMO_KEY <key> <items>`.
 
 use std::path::PathBuf;
 
@@ -50,6 +52,8 @@ const PAGE_H: f32 = 46.0 * LINE_H + 40.0;
 const BAR_W: f32 = 340.0;
 /// The room over the page and the bar (none: the window is the demo's).
 const TOP: f32 = 0.0;
+/// The margin round the sheet: the sheet and its margins are 746 px high, which a laptop's 748 px window holds.
+const SHEET_MARGIN: f32 = 8.0;
 /// The font's advance of the page's monospace, px (what the lines' text boxes are measured with).
 const CHAR_W: f32 = 6.6;
 
@@ -68,6 +72,8 @@ struct Demo {
     /// `WBDEMO_PROFILE`: the frame times are printed every two seconds.
     profile: bool,
     ticks: u32,
+    /// The pictures being drawn on a Thread, and since when (the time a drop took to become a picture is told).
+    render_started: Vec<(ItemId, std::time::Instant)>,
 }
 
 fn demo_text() -> (String, Vec<String>) {
@@ -136,16 +142,66 @@ extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     let host = host(&data);
     let page = page_dom(&demo, &data);
+    // The bar lies against the window's right edge and takes its whole height, whatever the window's width: that
+    // is where `bar_of` (the drag's idea of the bar) looks for it. A window narrower than the page and the bar
+    // (a laptop's screen) shows the page's left part; the body does not scroll.
     let bar = {
         let panel_dom = whiteboard_ui::panel_dom(&mut demo.panel, &host);
         Dom::create_div()
-            .with_css(format!("display: flex; flex-direction: column; width: {BAR_W}px; flex-shrink: 0; min-height: 0px;").as_str())
+            .with_css(
+                format!(
+                    "position: absolute; right: 0px; top: {TOP}px; bottom: 0px; width: {BAR_W}px; display: flex; \
+                     flex-direction: column;"
+                )
+                .as_str(),
+            )
             .with_child(panel_dom)
     };
     Dom::create_body()
-        .with_css("display: flex; flex-direction: row; background: #e9e5dc; margin: 0px;")
+        .with_css("position: relative; width: 100%; height: 100%; overflow: hidden; background: #e9e5dc; margin: 0px;")
         .with_child(page)
         .with_child(bar)
+        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), data.clone(), on_key)
+}
+
+/// The panel's keys (Delete, Escape, the two steps): what the review window routes to the panel when the
+/// whiteboard has the keyboard.
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(code) = info.get_current_keyboard_state().current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    let mods = info.get_key_modifiers();
+    let Some(key) = whiteboard_ui::key_of(code, mods.primary_down(), mods.shift) else {
+        return Update::DoNothing;
+    };
+    // While a label is typed in its text area the keys are the text's (Delete, Backspace, Mod+Z).
+    if data.downcast_ref::<Demo>().is_some_and(|d| d.panel.editing.is_some()) {
+        return Update::DoNothing;
+    }
+    info.prevent_default();
+    let acted = {
+        let Some(mut d) = data.downcast_mut::<Demo>() else {
+            return Update::DoNothing;
+        };
+        let acted = whiteboard_ui::on_key(&mut d.panel, key);
+        if acted {
+            say(&format!("WBDEMO_KEY {key:?} {}", d.panel.wb.board.len()));
+        }
+        acted
+    };
+    if !acted {
+        return Update::DoNothing;
+    }
+    on_changed(&mut data, &mut info);
+    redraw_surface(&mut info);
+    Update::RefreshDom
+}
+
+/// A new frame of the bar's surface (the arrows are drawn on it, the cutouts are nodes of the new DOM).
+fn redraw_surface(info: &mut CallbackInfo) {
+    if let Some(node) = whiteboard_ui::surface_node(info) {
+        kit::redraw_image(info, node);
+    }
 }
 
 fn page_dom(demo: &Demo, app: &RefAny) -> Dom {
@@ -161,7 +217,7 @@ fn page_dom(demo: &Demo, app: &RefAny) -> Dom {
     }
     let mut sheet = Dom::create_div().with_css(
         format!(
-            "position: relative; width: {PAGE_W}px; height: {PAGE_H}px; background: #ffffff; flex-shrink: 0; margin: 12px; \
+            "position: relative; width: {PAGE_W}px; height: {PAGE_H}px; background: #ffffff; flex-shrink: 0; margin: {SHEET_MARGIN}px; \
              overflow: hidden;"
         )
         .as_str(),
@@ -209,6 +265,12 @@ extern "C" fn render_page_ink(mut data: RefAny, info: RenderImageCallbackInfo) -
     }
     let now = demo.panel.now_ms();
     whiteboard_ui::paint_armed(&mut image, k, &demo.panel.wb.armed, 0, now);
+    // A lifted region follows the pointer as its outline (over the bar the bar's frame takes over).
+    if let Some(ghost) = demo.panel.wb.drag.ghost() {
+        if let Some(region) = demo.panel.wb.armed.get(ghost.region) {
+            whiteboard_ui::paint_ghost(&mut image, k, &region.polygon, ghost.offset());
+        }
+    }
     ImageRef::create_rawimage(image).into_option().unwrap_or_else(blank)
 }
 
@@ -270,13 +332,22 @@ extern "C" fn on_page_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let now = d.panel.now_ms();
     let bar = bar_of(size);
     let motion = d.panel.wb.page_motion(window, now, &bar);
+    let mut update = Update::DoNothing;
     match motion {
-        Motion::Held(_) | Motion::Lifted(_) => {
+        Motion::Held(_) => {
             // A held press was no stroke: the dab it began is dropped.
+            d.live = None;
+            say("WBDEMO_HELD");
+        }
+        Motion::Lifted(_) => {
             d.live = None;
             say("WBDEMO_LIFTED");
         }
         Motion::Dragging { over_bar, .. } => {
+            // The bar's frame is a node: it comes and goes with a new DOM (twice in a drag, not at every move).
+            if d.panel.drag_over != over_bar {
+                update = Update::RefreshDom;
+            }
             d.panel.drag_over = over_bar;
         }
         Motion::Inking | Motion::Nothing => {}
@@ -288,7 +359,7 @@ extern "C" fn on_page_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     }
     drop(d);
     redraw_page(&mut info);
-    Update::DoNothing
+    update
 }
 
 extern "C" fn on_page_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -353,6 +424,7 @@ extern "C" fn on_page_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 images: info.get_image_cache_clone(),
             };
             let id = made.id;
+            d.render_started.push((id, std::time::Instant::now()));
             drop(d);
             whiteboard_render::spawn_render(&mut info, &app, id, request, on_rendered as WriteBackCallbackType);
         }
@@ -365,8 +437,15 @@ extern "C" fn on_rendered(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
     let Some(done) = whiteboard_render::take_rendered(&mut msg) else {
         return Update::DoNothing;
     };
+    let took = app
+        .downcast_mut::<Demo>()
+        .and_then(|mut d| {
+            let at = d.render_started.iter().position(|(id, _)| *id == done.id)?;
+            Some(d.render_started.remove(at).1.elapsed().as_millis())
+        })
+        .map_or_else(String::new, |ms| format!(" {ms}ms"));
     match &done.image {
-        Ok(img) => say(&format!("WBDEMO_RENDERED {}x{}", img.width, img.height)),
+        Ok(img) => say(&format!("WBDEMO_RENDERED {}x{}{took}", img.width, img.height)),
         Err(why) => say(&format!("WBDEMO_RENDERED {why}")),
     }
     if let Some(mut d) = app.downcast_mut::<Demo>() {
@@ -376,28 +455,41 @@ extern "C" fn on_rendered(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
     Update::RefreshDom
 }
 
-/// Keeps the board (the demo writes it where it stands: the review window uses the file thread).
-fn on_changed(app: &mut RefAny, _info: &mut CallbackInfo) {
-    let Some(mut d) = app.downcast_mut::<Demo>() else {
-        return;
+/// Keeps the board: its zip is made and written on a Thread ([`whiteboard_archive::spawn_save`]; the owner's gate lets one
+/// write run at a time, and says when another is wanted after it).
+fn on_changed(app: &mut RefAny, info: &mut CallbackInfo) {
+    let (entries, path) = {
+        let Some(mut d) = app.downcast_mut::<Demo>() else {
+            return;
+        };
+        let now = d.panel.now_ms();
+        let Some(job) = d.panel.wb.save_job(now) else {
+            return;
+        };
+        (job.entries, d.board_path.clone())
     };
-    let now = d.panel.now_ms();
-    let Some(job) = d.panel.wb.save_job(now) else {
-        return;
+    whiteboard_archive::spawn_save(info, app, entries, path, on_saved as WriteBackCallbackType);
+}
+
+/// The Thread has written the file (or could not).
+extern "C" fn on_saved(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(result) = whiteboard_archive::take_saved(&mut msg) else {
+        return Update::DoNothing;
     };
-    let result = whiteboard_archive::pack(&job.entries).and_then(|bytes| {
-        if let Some(dir) = d.board_path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let again = {
+        let Some(mut d) = app.downcast_mut::<Demo>() else {
+            return Update::DoNothing;
+        };
+        match &result {
+            Ok(()) => say(&format!("WBDEMO_SAVED {}", d.board_path.display())),
+            Err(why) => say(&format!("WBDEMO_SAVE_ERROR {why}")),
         }
-        let tmp = d.board_path.with_extension("tmp");
-        std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &d.board_path).map_err(|e| e.to_string())
-    });
-    match &result {
-        Ok(()) => say(&format!("WBDEMO_SAVED {}", d.board_path.display())),
-        Err(why) => say(&format!("WBDEMO_SAVE_ERROR {why}")),
+        d.panel.wb.save_done(&result)
+    };
+    if again {
+        on_changed(&mut app, &mut info);
     }
-    d.panel.wb.save_done(&result);
+    Update::DoNothing
 }
 
 fn on_jump(app: &mut RefAny, id: ItemId, _info: &mut CallbackInfo) -> Update {
@@ -406,10 +498,14 @@ fn on_jump(app: &mut RefAny, id: ItemId, _info: &mut CallbackInfo) -> Update {
     };
     let (name, lines) = (d.file.clone(), d.lines.clone());
     let files = OneFile { name: &name, lines: &lines };
-    if let Ok(target) = jump(&mut d.panel.wb.board, id, &files) {
-        say(&format!("WBDEMO_JUMP {} {} {} {:?}", target.file, target.first_line, target.last_line, target.freshness));
-        let until = d.panel.now_ms() + 1_500;
-        d.flash = Some((target.first_line, target.last_line, until));
+    match jump(&mut d.panel.wb.board, id, &files) {
+        Ok(target) => {
+            say(&format!("WBDEMO_JUMP {} {} {} {:?}", target.file, target.first_line, target.last_line, target.freshness));
+            let until = d.panel.now_ms() + 1_500;
+            d.flash = Some((target.first_line, target.last_line, until));
+            d.panel.tell_jump(&target);
+        }
+        Err(refused) => d.panel.hint = Some(whiteboard_ui::say(&refused)),
     }
     Update::RefreshDom
 }
@@ -437,7 +533,7 @@ extern "C" fn on_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbac
         let now = d.panel.now_ms();
         if d.panel.wb.page_tick(now).is_some() {
             d.live = None;
-            say("WBDEMO_LIFTED");
+            say("WBDEMO_HELD");
             update = Update::RefreshDom;
         }
         if d.panel.wb.expire(now) {
@@ -524,6 +620,7 @@ pub fn run() {
         timer: None,
         profile,
         ticks: 0,
+        render_started: Vec::new(),
     };
     let app = App::create(RefAny::new(state), config);
     let window = kit::window_options(&kit_ref, layout, (1_400.0, 800.0), (900.0, 500.0), on_window_created);

@@ -189,6 +189,8 @@ text-decoration: underline;
 - `font-variant-ligatures` accepts `normal`, `none`, or any combination of `common-ligatures` / `no-common-ligatures`, `discretionary-ligatures` / `no-discretionary-ligatures`, `historical-ligatures` / `no-historical-ligatures`, `contextual` / `no-contextual`. Type `StyleFontVariantLigatures`.
 - `font-variant-east-asian` accepts `normal`, or `jis78`, `jis83`, `jis90`, `jis04`, `simplified`, `traditional` (one), `full-width`, `proportional-width` (one), and `ruby`. Type `StyleFontVariantEastAsian`.
 - `font-variant-numeric`, `font-variant-caps`, and `font-feature-settings` accept the CSS Fonts 4 values. Types `StyleFontVariantNumeric`, `StyleFontVariantCaps`, `StyleFontFeatureSettings`.
+- `font-variant-position` accepts `normal`, `sub`, or `super`. Type `StyleFontVariantPosition`. Asks the font for its `subs` or `sups` glyphs.
+- `text-rendering` accepts `auto`, `optimizeSpeed`, `optimizeLegibility`, or `geometricPrecision`. Type `StyleTextRendering`. `optimizeSpeed` turns the kerning and the common ligatures off where `font-kerning` and `font-variant-ligatures` say nothing.
 - `font-synthesis-weight`, `font-synthesis-style`, `font-synthesis-small-caps`, and `font-synthesis-position` accept `auto` or `none`. Type `StyleFontSynthesis`.
 - `font-synthesis` (shorthand) accepts `none` or any of `weight`, `style`, `small-caps`, `position`; the ones not listed are `none`.
 - `font-variant` (shorthand) sets `font-variant-caps`, `-numeric`, `-ligatures`, and `-east-asian`; `none` is `font-variant-ligatures: none`.
@@ -208,6 +210,7 @@ text-decoration: underline;
 - `unicode-bidi` accepts `normal`, `embed`, `isolate`, `bidi-override`, `isolate-override`, or `plaintext`. Type `StyleUnicodeBidi`. `bidi-override` and `isolate-override` on a block make its letters run in the direction of the block; `plaintext` takes the direction from the first strong letter.
 - `writing-mode` accepts `horizontal-tb`, `vertical-rl`, or `vertical-lr`. Type `LayoutWritingMode`. Read for the text of every node; the glyph runs of a PDF say the writing mode of their text.
 - `text-combine-upright` accepts `none`, `all`, or `digits <2-4>`. Type `StyleTextCombineUpright`. In a vertical block the characters set side by side in one em of the line (tate-chu-yoko); in horizontal text it has no effect.
+- `text-wrap` accepts `wrap`, `nowrap`, `balance`, `stable`, or `pretty`. Type `StyleTextWrap`. `balance` and `pretty` break a paragraph as a whole (`balance` up to ten lines).
 - `white-space` accepts `normal`, `nowrap`, `pre`, `pre-wrap`, `pre-line`, or `break-spaces`. Type `StyleWhiteSpace`.
 - `word-break` accepts `normal`, `break-all`, or `keep-all`. Type `StyleWordBreak`.
 - `overflow-wrap` (also spelled `word-wrap`) accepts `normal`, `break-word`, or `anywhere`. Type `StyleOverflowWrap`.

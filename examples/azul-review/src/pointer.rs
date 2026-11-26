@@ -400,7 +400,7 @@ impl AppState {
         let line = slash::recognise(&samples)?;
         let file = self.file()?;
         let (first_line, lines) = file.page(stroke.page);
-        let words = deletion::words_hit(&line, &ui::page_grid(first_line), lines);
+        let words = deletion::words_hit(&line, &ui::page_grid(first_line), &lines);
         if words.is_empty() {
             return None;
         }

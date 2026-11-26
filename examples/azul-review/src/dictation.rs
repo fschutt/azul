@@ -102,6 +102,24 @@ pub struct HeardWord {
     pub probability: f32,
 }
 
+/// One utterance, as the window takes it: its text, the wall-clock moment of the call that heard it and its words with
+/// their times (empty where the recogniser gives none).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Said {
+    pub text: String,
+    /// The wall-clock moment the call began, Unix ms: the moment of a word is this plus its `start_ms`.
+    pub started_unix_ms: u64,
+    pub words: Vec<HeardWord>,
+}
+
+impl Said {
+    /// An utterance of `text` with no words and no time, as it was given.
+    #[must_use]
+    pub fn plain(text: &str) -> Self {
+        Self { text: text.to_string(), started_unix_ms: 0, words: Vec::new() }
+    }
+}
+
 /// What one listen call heard.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Heard {
@@ -179,8 +197,8 @@ pub enum Out {
     Ready,
     /// The words of the utterance so far (empty: none any more).
     Partial(String),
-    /// Words that were understood.
-    Text(String),
+    /// Words that were understood: an utterance, with its words and times.
+    Text(Said),
     /// The listener refused: the status and its words, for the user.
     Failed { status: Status, message: String },
     /// The loop is over.
@@ -347,7 +365,7 @@ pub fn run(
                     told_final = true;
                     last_words = clock.now_ms();
                     shown.clear();
-                    out(Out::Text(text.to_string()));
+                    out(Out::Text(Said { text: text.to_string(), started_unix_ms: said.started_unix_ms, words: said.words.clone() }));
                 }
             }
         });
@@ -355,7 +373,11 @@ pub fn run(
         match heard.status {
             Status::Heard if !told_final && !heard.text.trim().is_empty() => {
                 shown.clear();
-                out(Out::Text(heard.text.trim().to_string()));
+                out(Out::Text(Said {
+                    text: heard.text.trim().to_string(),
+                    started_unix_ms: heard.started_unix_ms,
+                    words: heard.words.clone(),
+                }));
                 last_words = now;
             }
             Status::Heard | Status::Nothing => {}

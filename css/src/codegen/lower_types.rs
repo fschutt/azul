@@ -230,6 +230,9 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::FontVariationSettings(v) => prop_value(v, "FontVariationSettings", "StyleFontVariationSettingsValue", "StyleFontVariationSettings", None),
         P::FontOpticalSizing(v) => prop_value(v, "FontOpticalSizing", "StyleFontOpticalSizingValue", "StyleFontOpticalSizing", None),
         P::FontKerning(v) => prop_value(v, "FontKerning", "StyleFontKerningValue", "StyleFontKerning", None),
+        P::TextWrap(v) => prop_value(v, "TextWrap", "StyleTextWrapValue", "StyleTextWrap", None),
+        P::FontVariantPosition(v) => prop_value(v, "FontVariantPosition", "StyleFontVariantPositionValue", "StyleFontVariantPosition", None),
+        P::TextRendering(v) => prop_value(v, "TextRendering", "StyleTextRenderingValue", "StyleTextRendering", None),
         P::FontVariantLigatures(v) => prop_value(v, "FontVariantLigatures", "StyleFontVariantLigaturesValue", "StyleFontVariantLigatures", None),
         P::FontVariantEastAsian(v) => prop_value(v, "FontVariantEastAsian", "StyleFontVariantEastAsianValue", "StyleFontVariantEastAsian", None),
         P::FontSynthesisWeight(v) => prop_value(v, "FontSynthesisWeight", "StyleFontSynthesisValue", "StyleFontSynthesis", None),
@@ -3068,6 +3071,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("StyleFontVariantLigaturesValue", "css"),
     ("StyleFontVariantNumeric", "css"),
     ("StyleFontVariantNumericValue", "css"),
+    ("StyleFontVariantPosition", "css"),
+    ("StyleFontVariantPositionValue", "css"),
     ("StyleFontVariationSettings", "css"),
     ("StyleFontVariationSettingsValue", "css"),
     ("StyleFontWeight", "css"),
@@ -3176,9 +3181,13 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("StyleTextOverflow", "css"),
     ("StyleTextOverflowParseErrorOwned", "css"),
     ("StyleTextOverflowValue", "css"),
+    ("StyleTextRendering", "css"),
+    ("StyleTextRenderingValue", "css"),
     ("StyleTextTransform", "css"),
     ("StyleTextTransformParseErrorOwned", "css"),
     ("StyleTextTransformValue", "css"),
+    ("StyleTextWrap", "css"),
+    ("StyleTextWrapValue", "css"),
     ("StyleTransform", "css"),
     ("StyleTransformMatrix2D", "css"),
     ("StyleTransformMatrix3D", "css"),
@@ -3887,6 +3896,7 @@ pub(crate) static C_LIKE_ENUMS: &[&str] = &[
     "StyleFontOpticalSizing",
     "StyleFontSynthesis",
     "StyleFontVariantCaps",
+    "StyleFontVariantPosition",
     "StyleHyphens",
     "StyleInitialLetterAlign",
     "StyleInitialLetterWrap",
@@ -3906,7 +3916,9 @@ pub(crate) static C_LIKE_ENUMS: &[&str] = &[
     "StyleTextDecoration",
     "StyleTextOrientation",
     "StyleTextOverflow",
+    "StyleTextRendering",
     "StyleTextTransform",
+    "StyleTextWrap",
     "StyleUnicodeBidi",
     "StyleUserSelect",
     "StyleVisibility",
@@ -4133,6 +4145,9 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("FontVariationSettings", "StyleFontVariationSettingsValue", ""),
     ("FontOpticalSizing", "StyleFontOpticalSizingValue", ""),
     ("FontKerning", "StyleFontKerningValue", ""),
+    ("TextWrap", "StyleTextWrapValue", ""),
+    ("FontVariantPosition", "StyleFontVariantPositionValue", ""),
+    ("TextRendering", "StyleTextRenderingValue", ""),
     ("FontVariantLigatures", "StyleFontVariantLigaturesValue", ""),
     ("FontVariantEastAsian", "StyleFontVariantEastAsianValue", ""),
     ("FontSynthesisWeight", "StyleFontSynthesisValue", ""),
@@ -4369,6 +4384,9 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "FontVariationSettings",
     "FontOpticalSizing",
     "FontKerning",
+    "TextWrap",
+    "FontVariantPosition",
+    "TextRendering",
     "FontVariantLigatures",
     "FontVariantEastAsian",
     "FontSynthesisWeight",
@@ -7301,6 +7319,42 @@ impl Lower for crate::props::basic::font::StyleFontFeatureSettings {
                 ("inner", self.inner.lower()),
             ],
         )
+    }
+}
+
+impl Lower for crate::props::basic::font_variation::StyleTextWrap {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Wrap => "Wrap",
+            Self::Nowrap => "Nowrap",
+            Self::Balance => "Balance",
+            Self::Stable => "Stable",
+            Self::Pretty => "Pretty",
+        };
+        Expr::unit("StyleTextWrap", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::basic::font_variation::StyleFontVariantPosition {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Normal => "Normal",
+            Self::Subscript => "Subscript",
+            Self::Superscript => "Superscript",
+        };
+        Expr::unit("StyleFontVariantPosition", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::basic::font_variation::StyleTextRendering {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Auto => "Auto",
+            Self::OptimizeSpeed => "OptimizeSpeed",
+            Self::OptimizeLegibility => "OptimizeLegibility",
+            Self::GeometricPrecision => "GeometricPrecision",
+        };
+        Expr::unit("StyleTextRendering", EnumShape::CLike, variant)
     }
 }
 

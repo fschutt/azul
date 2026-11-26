@@ -187,3 +187,60 @@ fn an_empty_remembered_folder_is_no_folder() {
     assert_eq!(pick_root(None, Some("  "), true, |_| true), PathBuf::new());
     assert_eq!(pick_root(None, Some(""), true, |_| true), PathBuf::new());
 }
+
+#[test]
+fn the_agent_switches_are_taken_out_like_the_others() {
+    let (sw, rest) = Switches::extract(argv(&["f", "--agent", "mock", "--agent-delay-ms=40", "--agent-auto", "off"])).expect("valid");
+    assert_eq!(sw.agent, Some(crate::agent_backend::BackendKind::Mock));
+    assert_eq!(sw.agent_delay_ms, Some(40));
+    assert_eq!(sw.agent_auto, Some(false));
+    assert_eq!(rest, argv(&["f"]));
+    let (sw, _) = Switches::extract(argv(&["--agent=claude-print", "--agent-auto=on"])).expect("valid");
+    assert_eq!(sw.agent, Some(crate::agent_backend::BackendKind::ClaudePrint));
+    assert_eq!(sw.agent_auto, Some(true));
+}
+
+#[test]
+fn an_agent_switch_that_cannot_be_read_is_refused_with_the_choices() {
+    let why = Switches::extract(argv(&["--agent", "gpt"])).expect_err("no such backend");
+    assert!(why.contains("--agent") && why.contains("mock") && why.contains("claude-print"), "{why}");
+    assert!(Switches::extract(argv(&["--agent-delay-ms", "soon"])).is_err());
+    let why = Switches::extract(argv(&["--agent-auto", "maybe"])).expect_err("on or off");
+    assert!(why.contains("on") && why.contains("off"), "{why}");
+}
+
+#[test]
+fn the_agent_asks_by_itself_unless_a_setting_or_a_switch_says_not_and_the_switch_wins() {
+    let none = BTreeMap::new();
+    let r = resolve(&none, &Switches::default());
+    assert_eq!((r.agent, r.agent_delay_ms, r.agent_auto), (None, 800, true));
+    let mut values = BTreeMap::new();
+    values.insert(KEY_ASK_AGENT.to_string(), "off".to_string());
+    assert!(!resolve(&values, &Switches::default()).agent_auto);
+    let sw = Switches { agent_auto: Some(true), ..Switches::default() };
+    assert!(resolve(&values, &sw).agent_auto, "the switch over the setting");
+    values.insert(KEY_ASK_AGENT.to_string(), "sometimes".to_string());
+    let r = resolve(&values, &Switches::default());
+    assert!(r.agent_auto, "a setting that is neither on nor off is the default");
+    assert!(r.notes.iter().any(|n| n.contains(KEY_ASK_AGENT)), "and the log is told: {:?}", r.notes);
+}
+
+#[test]
+fn the_symbol_index_is_built_unless_a_setting_or_a_switch_says_not_and_the_switch_wins() {
+    let (sw, rest) = Switches::extract(argv(&["f", "--symbols", "off"])).expect("valid");
+    assert_eq!(sw.symbols, Some(false));
+    assert_eq!(rest, argv(&["f"]));
+    assert_eq!(Switches::extract(argv(&["--symbols=on"])).expect("valid").0.symbols, Some(true));
+    let why = Switches::extract(argv(&["--symbols", "maybe"])).expect_err("on or off");
+    assert!(why.contains("--symbols") && why.contains("on") && why.contains("off"), "{why}");
+
+    let none = BTreeMap::new();
+    assert!(resolve(&none, &Switches::default()).symbols, "built by default");
+    let mut values = BTreeMap::new();
+    values.insert(KEY_SYMBOLS.to_string(), "off".to_string());
+    assert!(!resolve(&values, &Switches::default()).symbols);
+    assert!(resolve(&values, &Switches { symbols: Some(true), ..Switches::default() }).symbols, "the switch over the setting");
+    values.insert(KEY_SYMBOLS.to_string(), "later".to_string());
+    let r = resolve(&values, &Switches::default());
+    assert!(r.symbols && r.notes.iter().any(|n| n.contains(KEY_SYMBOLS)), "{:?}", r.notes);
+}

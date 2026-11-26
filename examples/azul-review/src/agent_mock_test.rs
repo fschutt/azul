@@ -41,7 +41,7 @@ fn stroke(id: u64, pinned: bool) -> StrokeInput {
 }
 
 fn request(task: Task, said: &str, pinned: bool) -> Request {
-    Request::Review(ReviewRequest {
+    Request::Review(ReviewRequest { symbols: String::new(),
         task,
         conversation: 3,
         language: "en".to_string(),

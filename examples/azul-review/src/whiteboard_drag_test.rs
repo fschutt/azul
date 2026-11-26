@@ -195,6 +195,10 @@ fn pressing_and_holding_inside_lifts_the_region_after_the_hold_time_and_then_it_
     let m = drag.motion(Pt::new(1_050.0, 300.0), 1_500, &bar(true));
     assert_eq!(m, Motion::Dragging { region: id, over_bar: true, open_bar: false });
     assert_eq!(drag.ghost().map(|g| g.at), Some(Pt::new(1_050.0, 300.0)));
+    // The ghost remembers where the press was, so that the region's outline can be drawn carried by the difference.
+    let ghost = drag.ghost().expect("carried");
+    assert_eq!(ghost.from, win(word()));
+    assert_eq!(ghost.offset(), Pt::new(1_050.0 - win(word()).x, 300.0 - win(word()).y));
     // Let go over the bar: dropped there, in the bar's own coordinates.
     assert_eq!(
         drag.release(Pt::new(1_050.0, 300.0), &bar(true)),

@@ -41135,6 +41135,15 @@
                                 "FontKerning": {
                                     "type": "StyleFontKerningValue"
                                 },
+                                "TextWrap": {
+                                    "type": "StyleTextWrapValue"
+                                },
+                                "FontVariantPosition": {
+                                    "type": "StyleFontVariantPositionValue"
+                                },
+                                "TextRendering": {
+                                    "type": "StyleTextRenderingValue"
+                                },
                                 "FontVariantLigatures": {
                                     "type": "StyleFontVariantLigaturesValue"
                                 },
@@ -52657,6 +52666,9 @@
                                 "FontVariationSettings": {},
                                 "FontOpticalSizing": {},
                                 "FontKerning": {},
+                                "TextWrap": {},
+                                "FontVariantPosition": {},
+                                "TextRendering": {},
                                 "FontVariantLigatures": {},
                                 "FontVariantEastAsian": {},
                                 "FontSynthesisWeight": {},
@@ -61922,6 +61934,105 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "StyleFontVariantPosition": {
+                        "external": "azul_css::props::basic::font_variation::StyleFontVariantPosition",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Normal": {},
+                                "Subscript": {},
+                                "Superscript": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleFontVariantPositionValue": {
+                        "external": "azul_css::props::property::StyleFontVariantPositionValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleFontVariantPosition"
+                            ]
+                        }
+                    },
+                    "StyleTextRendering": {
+                        "external": "azul_css::props::basic::font_variation::StyleTextRendering",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "OptimizeSpeed": {},
+                                "OptimizeLegibility": {},
+                                "GeometricPrecision": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleTextRenderingValue": {
+                        "external": "azul_css::props::property::StyleTextRenderingValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextRendering"
+                            ]
+                        }
+                    },
+                    "StyleTextWrap": {
+                        "external": "azul_css::props::basic::font_variation::StyleTextWrap",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Wrap": {},
+                                "Nowrap": {},
+                                "Balance": {},
+                                "Stable": {},
+                                "Pretty": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleTextWrapValue": {
+                        "external": "azul_css::props::property::StyleTextWrapValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextWrap"
+                            ]
+                        }
                     }
                 }
             },
@@ -179690,6 +179801,219 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "SpeechEventVec": {
+                        "external": "azul_dll::unified::speech::SpeechEventVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "SpeechEvent",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "SpeechEventVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `SpeechEventVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "SpeechEventVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `SpeechEventVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechEventVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "speech_event_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "speech_event_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "speech_event_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `SpeechEventVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "SpeechEvent"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechEventVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `SpeechEventVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const SpeechEvent"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechEventVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionSpeechEvent"
+                                },
+                                "fn_body": "speech_event_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `SpeechEventVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechEventVecSlice"
+                                },
+                                "fn_body": "speech_event_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechEventVecSlice"
+                                },
+                                "fn_body": "speech_event_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "SpeechEventVecDestructor": {
+                        "external": "azul_dll::unified::speech::SpeechEventVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "SpeechEventVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "SpeechEventVecDestructorType": {
+                        "external": "azul_dll::unified::speech::SpeechEventVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "SpeechEventVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -191014,6 +191338,30 @@
                                     "type": "SpeechWord",
                                     "doc": [
                                         "Some value of type SpeechWord"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionSpeechEvent": {
+                        "external": "azul_dll::unified::speech::OptionSpeechEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "SpeechEvent",
+                                    "doc": [
+                                        "Some value of type SpeechEvent"
                                     ]
                                 }
                             }
@@ -218788,6 +219136,9 @@
                                 },
                                 "probability": {
                                     "type": "f32"
+                                },
+                                "biased": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -218843,6 +219194,12 @@
                                 },
                                 "max_model_mb": {
                                     "type": "u32"
+                                },
+                                "mic_keep_ms": {
+                                    "type": "u32"
+                                },
+                                "armed_idle_ms": {
+                                    "type": "u32"
                                 }
                             }
                         ],
@@ -218852,6 +219209,7 @@
                         "external": "azul_dll::unified::speech::SpeechSession",
                         "custom_impls": [
                             "Clone",
+                            "Debug",
                             "Default",
                             "Drop"
                         ],
@@ -219020,6 +219378,128 @@
                                     }
                                 ],
                                 "fn_body": "object.reset()"
+                            },
+                            "audio_flowing": {
+                                "doc": [
+                                    "Whether sound is reaching the recognizer in the call that runs: false until the",
+                                    "microphone delivers its first sound (it takes a moment to start: about 270 ms on a Mac),",
+                                    "true from then until the call ends. A window shows \"speak now\" from the moment it turns",
+                                    "true: what is said before is lost. Poll it from another thread while `listen_blocking`",
+                                    "runs on a worker thread. A recognizer that cannot tell (Windows, Android) makes it true",
+                                    "when it begins to listen."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.audio_flowing()"
+                            },
+                            "set_preference": {
+                                "doc": [
+                                    "Who is asked first: [`SpeechPreference::Automatic`] by default."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "preference": "SpeechPreference"
+                                    }
+                                ],
+                                "fn_body": "object.set_preference(preference)"
+                            },
+                            "start_stream": {
+                                "doc": [
+                                    "Listens as a stream: utterance after utterance on one microphone, with what each has",
+                                    "come to as it goes, until [`SpeechStream::stop`], [`SpeechStream::cancel`], the options'",
+                                    "time or utterance count. Returns at once; the stream listens on a thread of its own, through",
+                                    "the same chain as [`Self::listen_blocking`] (the same order, the same hand-over to the next",
+                                    "recognizer on a refusal before the first event). What was said before the call and is",
+                                    "still in the microphone's buffer (an armed session keeps the last 2 s) is part of the first",
+                                    "utterance. A call or another stream that runs waits for this one to end."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "language": "String"
+                                    },
+                                    {
+                                        "options": "SpeechStreamOptions"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechStream"
+                                },
+                                "fn_body": "object.start_stream(language, options)"
+                            },
+                            "state": {
+                                "doc": [
+                                    "What the session is ready for ([`SpeechState`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechState"
+                                },
+                                "fn_body": "object.state()"
+                            },
+                            "arm": {
+                                "doc": [
+                                    "Opens the microphone now and keeps it open (see [`SpeechStandby`]), so that the next call",
+                                    "starts at once and hears what came in meanwhile (the last 2 s): arm when the user is about",
+                                    "to speak (the pen comes in range, the button is hovered), not when they have begun. Opening",
+                                    "costs about 270 ms once. Answers why it could not, empty when the session is armed (the",
+                                    "permission rules of the microphone apply: a refusal is a sentence the user can act on).",
+                                    "Arming an armed session starts the waiting time again. It takes no language and needs none:",
+                                    "the microphone does not depend on one, the built-in model takes the language per call, and",
+                                    "the system's recognizer is made for the language of each call (14-49 ms with an armed",
+                                    "microphone). Safe to call while a call or a stream listens (they hand the microphone back",
+                                    "armed) and at any time again; [`Self::disarm`] is as safe."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.arm().into()"
+                            },
+                            "disarm": {
+                                "doc": [
+                                    "Closes the microphone that waits for a call: the system's indicator goes out. A call that",
+                                    "is running goes on."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "fn_body": "object.disarm()"
+                            },
+                            "set_standby": {
+                                "doc": [
+                                    "What stays open between calls: [`SpeechStandby::OnDemand`] by default."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "standby": "SpeechStandby"
+                                    }
+                                ],
+                                "fn_body": "object.set_standby(standby)"
                             }
                         },
                         "repr": "C"
@@ -219035,6 +219515,271 @@
                             {
                                 "ptr": {
                                     "type": "SpeechWord",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechPreference": {
+                        "external": "azul_dll::unified::speech::SpeechPreference",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Automatic": {},
+                                "NativeFirst": {},
+                                "BuiltinFirst": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechStream": {
+                        "external": "azul_dll::unified::speech::SpeechStream",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Default",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "poll_events": {
+                                "doc": [
+                                    "The events that came since the last call, oldest first; never waits."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechEventVec"
+                                },
+                                "fn_body": "object.poll_events()"
+                            },
+                            "wait_events": {
+                                "doc": [
+                                    "The events that came since the last call, waiting up to `timeout_ms` for the first one:",
+                                    "returns as soon as there is one (a worker thread that waits here neither spins nor adds a",
+                                    "polling period to the latency), at once when the stream is over, empty when the time ran",
+                                    "out first."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "timeout_ms": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechEventVec"
+                                },
+                                "fn_body": "object.wait_events(timeout_ms)"
+                            },
+                            "stop": {
+                                "doc": [
+                                    "Ends the stream after the utterance that goes on (an `Ended` event follows)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "fn_body": "object.stop()"
+                            },
+                            "cancel": {
+                                "doc": [
+                                    "Ends the stream now: the utterance that goes on is dropped without a final (an `Ended`",
+                                    "event follows)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "fn_body": "object.cancel()"
+                            },
+                            "is_running": {
+                                "doc": [
+                                    "Whether the stream is still listening (events may still be waiting to be collected)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_running()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "SpeechEvent": {
+                        "external": "azul_dll::unified::speech::SpeechEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "kind": {
+                                    "type": "SpeechEventKind"
+                                },
+                                "at_ms": {
+                                    "type": "u32"
+                                },
+                                "heard": {
+                                    "type": "SpeechHeard"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechEventKind": {
+                        "external": "azul_dll::unified::speech::SpeechEventKind",
+                        "custom_impls": [
+                            "From"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ready": {},
+                                "Partial": {},
+                                "Final": {},
+                                "Quiet": {},
+                                "Ended": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechStandby": {
+                        "external": "azul_dll::unified::speech::SpeechStandby",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Off": {},
+                                "OnDemand": {},
+                                "WhileArmed": {},
+                                "Always": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechState": {
+                        "external": "azul_dll::unified::speech::SpeechState",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Cold": {},
+                                "Warm": {},
+                                "Armed": {},
+                                "Listening": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechStreamOptions": {
+                        "external": "azul_dll::unified::speech::SpeechStreamOptions",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "partials": {
+                                    "type": "bool"
+                                },
+                                "endpoint_ms": {
+                                    "type": "u32"
+                                },
+                                "max_ms": {
+                                    "type": "u32"
+                                },
+                                "max_utterances": {
+                                    "type": "u32"
+                                },
+                                "pre_roll_ms": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechEventVecSlice": {
+                        "external": "azul_dll::unified::speech::SpeechEventVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "SpeechEvent",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"

@@ -98,3 +98,22 @@ fn the_deletions_are_counted_for_the_scripts_that_check_a_slash() {
     let v = parsed(&s);
     assert_eq!((v["slashes"].as_u64(), v["deleted_words"].as_u64()), (Some(1), Some(5)));
 }
+
+#[test]
+fn what_has_been_looked_at_is_told_for_the_scripts_that_wait_for_it() {
+    let mut s = crate::lib_test::on_disk_for_state("progress", &[("a.rs", "one\ntwo\n"), ("b.rs", "x\n")]);
+    let v = parsed(&s);
+    assert_eq!(v["progress"]["seen_pages"], 0);
+    assert_eq!(v["progress"]["pages"], 1);
+    assert_eq!(v["progress"]["reviewed"], false);
+    for _ in 0..4 {
+        s.watch_pages(0.0, 1_200.0, 400);
+    }
+    s.refresh_rollup();
+    let v = parsed(&s);
+    assert_eq!(v["progress"]["seen_pages"], 1);
+    assert_eq!(v["progress"]["reviewed"], true);
+    assert_eq!(v["progress"]["workspace"]["files_reviewed"], 1);
+    assert_eq!(v["progress"]["workspace"]["lines_reviewed"], 2);
+    assert_eq!(v["progress"]["counting"], true, "b.rs is not counted yet");
+}
