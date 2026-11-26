@@ -713,9 +713,9 @@ pub enum CombinedCssPropertyType {
     /// (`list-style-image` is not supported and ignored)
     ListStyle,
     /// `font-variant` shorthand: sets `font-variant-numeric`, `font-variant-caps`,
-    /// `font-variant-ligatures` and `font-variant-east-asian`; the keywords of the
-    /// other `font-variant-*` longhands (position, alternates, emoji), which azul
-    /// has not, set nothing
+    /// `font-variant-ligatures`, `font-variant-east-asian` and `font-variant-position`;
+    /// the keywords of the other `font-variant-*` longhands (alternates, emoji), which
+    /// azul has not, set nothing
     FontVariant,
     /// `font-synthesis` shorthand: sets `font-synthesis-weight`, `-style`,
     /// `-small-caps` and `-position`
@@ -4555,6 +4555,7 @@ pub fn parse_combined_css_property(
                 CssPropertyType::FontVariantNumeric,
                 CssPropertyType::FontVariantLigatures,
                 CssPropertyType::FontVariantEastAsian,
+                CssPropertyType::FontVariantPosition,
                 CssPropertyType::FontKerning,
                 CssPropertyType::FontOpticalSizing,
                 CssPropertyType::FontVariationSettings,
@@ -4602,6 +4603,7 @@ pub fn parse_combined_css_property(
                 CssPropertyType::FontVariantCaps,
                 CssPropertyType::FontVariantLigatures,
                 CssPropertyType::FontVariantEastAsian,
+                CssPropertyType::FontVariantPosition,
             ]
         }
         FontSynthesis => {
@@ -5361,9 +5363,10 @@ pub fn parse_combined_css_property(
         // is the ligatures' `none` (the other longhands are `normal`). The
         // numeric keywords go to `font-variant-numeric`, the ligature ones to
         // `font-variant-ligatures`, the East Asian ones to
-        // `font-variant-east-asian`, one caps keyword to `font-variant-caps`;
-        // the keywords of the longhands azul has not (position, alternates,
-        // emoji) are taken and set nothing.
+        // `font-variant-east-asian`, one caps keyword to `font-variant-caps`,
+        // `sub` or `super` to `font-variant-position`; the keywords of the
+        // longhands azul has not (alternates, emoji) are taken and set
+        // nothing.
         FontVariant => crate::props::basic::font_shorthand::parse_font_variant_shorthand(value)
             .map_err(CssParsingError::InvalidValue),
     }
