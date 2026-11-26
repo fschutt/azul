@@ -15,6 +15,11 @@
 //!   the file gets its name (one `rename`: a program that dies half way leaves a `.partial` file, never a
 //!   model that is half a model).
 //!
+//! * only https is fetched from, redirects are capped by the shared download, and nothing that came is ever
+//!   executed or loaded as code: it is the DATA an engine that is already in the program reads. A store build
+//!   (iOS, Android, a store's desktop app) has this code and downloads data only: what a store forbids, a
+//!   program that fetches and installs a program of its own, is compiled out of such a build (the updater).
+//!
 //! The transport is a seam ([`ModelFetch`]) so the rules above are tested without a network.
 
 // The items are `pub` for the tests and for the parts of the module that are re-exported.
@@ -469,6 +474,14 @@ impl Shared {
         let file = folder.join(self.source.file_name);
         if self.complete(&file) {
             return Ok(());
+        }
+        // Nothing is fetched over a plain connection: what arrives is checked, but a download the network can
+        // read and change is not asked for.
+        if !self.source.url.starts_with("https://") {
+            return Err(Stop::Failed(format!(
+                "the model's address is not an https one ({}): nothing is fetched over a plain connection",
+                self.source.url
+            )));
         }
         std::fs::create_dir_all(&folder).map_err(|e| Stop::Failed(format!("{}: {e}", folder.display())))?;
         let partial = folder.join(format!("{}.partial", self.source.file_name));
