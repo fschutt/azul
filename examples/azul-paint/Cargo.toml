@@ -20,7 +20,6 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "android-activity"] }
 ctor = "0.2"
 
 [lib]
@@ -31,6 +30,3 @@ crate-type = ["rlib", "cdylib"]
 [[bin]]
 name = "AzPaint"
 path = "src/main.rs"
-
-[target.'cfg(target_os = "ios")'.dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static"] }

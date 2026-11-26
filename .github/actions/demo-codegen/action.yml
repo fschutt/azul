@@ -1,0 +1,32 @@
+name: The generated bindings of a demos run
+description: >-
+  Generates the bindings every azul-dll build reads (azul-doc codegen all) and uploads them as ONE tar,
+  codegen-tree-<OS>, the artifact .github/actions/codegen-tree unpacks. The caches are the ones rust.yml's
+  codegen jobs use (same keys), so a run of either fills them for the other.
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
+      with:
+        toolchain: 1.91.0
+    - name: Cache the generated bindings
+      id: codegen-cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: target/codegen
+        key: codegen-v2--${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
+    - name: Generate the bindings
+      if: steps.codegen-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: cargo run -r -p azul-doc codegen all
+    - name: Pack the generated bindings into one file
+      # One tar: a zip of the tree's 15,847 files ran Windows out of file handles while it was unpacked.
+      shell: bash
+      run: tar -cf codegen-tree.tar -C target/codegen .
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: codegen-tree-${{ runner.os }}
+        path: codegen-tree.tar
+        retention-days: 1
+        if-no-files-found: error

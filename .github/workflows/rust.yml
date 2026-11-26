@@ -6,6 +6,9 @@
 #   (ci-command.yml), or `gh workflow run rust.yml --ref <branch> -f run_mode=ci`; and on a
 #   release tag.
 # - deploy: Manual trigger, downloads CI artifacts, deploys to GitHub Pages
+# - demos: every Az app for every platform, boot-tested, in one status table (demos.yml, the apps named by
+#   scripts/demo_apps.toml); `gh workflow run rust.yml --ref master -f run_mode=demos`. It builds artifacts only;
+#   publish_demos uploads them to the release, and the user decides when.
 
 name: build
 
@@ -23,8 +26,14 @@ on:
           - ci
           - website
           - deploy
+          - demos
         required: true
         default: 'ci'
+      publish_demos:
+        description: 'demos only: upload the built apps to the GitHub release AZUL_VERSION (default off: a run builds artifacts and a status table only)'
+        type: boolean
+        required: false
+        default: false
       cache_bust:
         description: 'Force-clear all caches'
         type: boolean
@@ -41,13 +50,15 @@ permissions:
   pages: write # zizmor: ignore[excessive-permissions] the Pages deploy job needs it; moving it into that job's own block is the owner's call
   id-token: write # zizmor: ignore[excessive-permissions] OIDC publishing and the Pages deploy need it; moving it into their jobs' own blocks is the owner's call
 
-# Only allow one run per branch. A newer push cancels an older run.
+# Only allow one run per branch. A newer push cancels an older run. A `demos` run (hours of runners) is in a
+# group of its own: another dispatch on the branch neither cancels it nor is cancelled by it, and a second
+# demos run waits for the first.
 concurrency:
   group: >-
-    ${{ github.workflow }}-${{
+    ${{ github.workflow }}${{ github.event.inputs.run_mode == 'demos' && '-demos' || '' }}-${{
       (github.event.pull_request.head.repo.full_name == github.repository
         && github.event.pull_request.head.ref) || github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event.inputs.run_mode != 'demos' }}
 
 env:
   # Force ANSI color off for every step so tool output renders correctly in markdown summaries.
@@ -63,6 +74,20 @@ env:
   CACHE_BUST: ${{ github.event.inputs.cache_bust == 'true' && github.run_id || '' }}
 
 jobs:
+  # Run mode `demos`: the apps of scripts/demo_apps.toml built for every platform against ONE prebuilt libazul
+  # per target, boot-tested on an emulator and a simulator, listed in a status table (.github/workflows/demos.yml).
+  # No other job of this file runs in this mode. `contents: write` is what the publish job of demos.yml needs
+  # (publish_demos); every job of it asks for the read it uses.
+  demos:
+    name: Demo apps
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_mode == 'demos'
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/demos.yml
+    with:
+      publish: ${{ inputs.publish_demos }}
+
   # CI Jobs run on push, PR, or manual 'ci' mode.
   # Pipeline stages:
   # 1. Preflight: Fast checks (lints, docs, clippy) that depend on nothing.

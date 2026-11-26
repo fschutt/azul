@@ -7,6 +7,7 @@
 import json
 import pathlib
 import sys
+import tarfile
 import tempfile
 import unittest
 
@@ -15,6 +16,7 @@ sys.path.insert(0, str(HERE))
 import demo_apps  # noqa: E402
 import demo_build  # noqa: E402
 import demo_gate  # noqa: E402
+import demo_publish  # noqa: E402
 
 
 def cargo_json(*artifacts):
@@ -240,6 +242,64 @@ class StatusTest(unittest.TestCase):
         self.assertEqual((cell["status"], cell["boot"]), ("built", "boots"))
         self.assertEqual(data["summary"]["assets"], 1)
         self.assertIn("built, boots", md)
+
+
+class PublishTest(unittest.TestCase):
+    def run_dir(self, root, names):
+        out = root / "demoapps-x" / "demos-out"
+        out.mkdir(parents=True)
+        for n in names:
+            (out / n).write_bytes(b"binary of " + n.encode())
+        (out / "logs").mkdir()
+        (out / "logs" / "AzWidgets-linux").write_bytes(b"a log that happens to share the name")
+        return root
+
+    def test_a_desktop_binary_is_shipped_as_a_tar_gz_and_a_macos_one_with_its_unquarantine_script(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self.run_dir(pathlib.Path(d), ["AzWidgets-linux", "AzWidgets-macos", "AzWidgets-windows.exe"])
+            out = pathlib.Path(d) / "release"
+            listing = demo_publish.assemble(root, out, "0.2.0", "abc")
+            self.assertEqual(sorted(x["name"] for x in listing),
+                             ["AzWidgets-linux.tar.gz", "AzWidgets-macos.tar.gz", "AzWidgets-windows.exe.tar.gz"])
+            with tarfile.open(out / "AzWidgets-macos.tar.gz") as t:
+                self.assertEqual(sorted(t.getnames()), ["AzWidgets-macos", "README-macOS.txt", "unquarantine.sh"])
+                self.assertEqual(t.getmember("AzWidgets-macos").mode, 0o755)
+                self.assertIn(b'exec "./AzWidgets-macos"', t.extractfile("unquarantine.sh").read())
+            with tarfile.open(out / "AzWidgets-linux.tar.gz") as t:
+                self.assertEqual(t.getnames(), ["AzWidgets-linux"])
+
+    def test_a_phone_file_is_shipped_as_it_is_and_the_listing_names_every_asset(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self.run_dir(pathlib.Path(d), ["AzCompanion-android-arm64.apk", "AzCompanion-ios-device.app.zip"])
+            out = pathlib.Path(d) / "release"
+            demo_publish.assemble(root, out, "0.2.0", "abc")
+            self.assertEqual((out / "AzCompanion-android-arm64.apk").read_bytes(), b"binary of AzCompanion-android-arm64.apk")
+            listing = json.loads((out / "release-assets.json").read_text())
+            self.assertEqual(sorted(x["name"] for x in listing),
+                             ["AzCompanion-android-arm64.apk", "AzCompanion-ios-device.app.zip", "companion.json"])
+
+    def test_companion_json_names_every_file_with_its_hash_and_says_it_is_unsigned(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self.run_dir(pathlib.Path(d), ["AzCompanion-android-arm64.apk", "AzCompanion-ios-sim.app.zip"])
+            out = pathlib.Path(d) / "release"
+            demo_publish.assemble(root, out, "0.2.0", "deadbeef")
+            c = json.loads((out / "companion.json").read_text())
+        self.assertEqual((c["schema"], c["app"], c["release"], c["git"]), (1, "AzCompanion", "0.2.0", "deadbeef"))
+        self.assertEqual([f["name"] for f in c["files"]], ["AzCompanion-android-arm64.apk", "AzCompanion-ios-sim.app.zip"])
+        self.assertEqual([f["platform"] for f in c["files"]], ["android-arm64", "ios-sim"])
+        for f in c["files"]:
+            self.assertRegex(f["sha256"], r"^[0-9a-f]{64}$")
+            self.assertGreater(f["size"], 0)
+        self.assertIsNone(c["signature"])
+        self.assertIn("unsigned", c["signature_note"])
+        self.assertIsInstance(c["protocol_version"], int)
+
+    def test_a_run_without_the_companion_makes_no_companion_json(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self.run_dir(pathlib.Path(d), ["AzWidgets-linux"])
+            out = pathlib.Path(d) / "release"
+            demo_publish.assemble(root, out, "0.2.0", "abc")
+            self.assertFalse((out / "companion.json").exists())
 
 
 if __name__ == "__main__":

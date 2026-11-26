@@ -14,6 +14,13 @@
 # Env knobs:
 #   AZ_ANDROID_NO_DEPLOY=1   skip adb install + am start
 #   AZ_ANDROID_FEATURES=...  override cargo --features list (default: same as Sprint F gate)
+#   AZ_ANDROID_LINK_LIB=...  the prebuilt libazul.so of this ABI (scripts/demo_lib.sh): the app is
+#                            built with link-dynamic against it (AZ_LINK_PATH, no engine crate
+#                            compiles) and the APK carries it next to the app's own library
+#   AZ_ANDROID_PERMISSIONS=a,b  <uses-permission> entries on top of the template's normal ones
+#   AZ_ANDROID_BUILD_JSON=...   where cargo's JSON log goes (default target/android-build-<crate>-<target>.json),
+#                            read by scripts/demo_gate.py (the engine crates must not appear in it)
+#   VERSION_NAME, VERSION_CODE, LABEL   the manifest's version and the name under the icon
 
 set -euo pipefail
 
@@ -72,6 +79,15 @@ for need in "$BT/aapt2" "$BT/zipalign" "$BT/apksigner" "$PLATFORM/android.jar"; 
     [[ -e "$need" ]] || { echo "missing $need — run sdkmanager 'build-tools;34.0.0' 'platforms;android-34'" >&2; exit 3; }
 done
 
+# The one libazul of this ABI, built once by the lib job (scripts/demo_lib.sh): every app links it over the
+# C ABI (azul-dll's link-dynamic) instead of compiling the engine into its own library.
+LINK_LIB="${AZ_ANDROID_LINK_LIB:-}"
+if [[ -n "$LINK_LIB" ]]; then
+    [[ -f "$LINK_LIB" ]] || { echo "AZ_ANDROID_LINK_LIB=$LINK_LIB is not a file" >&2; exit 8; }
+    LINK_LIB="$(cd "$(dirname "$LINK_LIB")" && pwd)/$(basename "$LINK_LIB")"
+    export AZ_LINK_PATH="$LINK_LIB"
+fi
+
 # The workspace to BUILD. Normally this script's own parent (running from a
 # checkout), but azul-doc embeds this file and materializes it into a cache
 # directory — from there `dirname $0/..` is the cache, not a crate. So the
@@ -100,7 +116,7 @@ fi
 if [[ -n "${AZ_ANDROID_EXTRA_FEATURES:-}" ]]; then
     FEATURE_ARGS+=(--features "$AZ_ANDROID_EXTRA_FEATURES")
 fi
-CARGO_LOG="$WORKSPACE_ROOT/target/android-build-${CRATE}-${TARGET}.json"
+CARGO_LOG="${AZ_ANDROID_BUILD_JSON:-$WORKSPACE_ROOT/target/android-build-${CRATE}-${TARGET}.json}"
 mkdir -p "$WORKSPACE_ROOT/target"
 
 # --lib: Android loads the cdylib (.so) via NativeActivity; build ONLY the
@@ -126,6 +142,12 @@ echo "==> cargo build --lib --target $TARGET --release -p $CRATE ${FEATURE_ARGS[
 SRC_SO="$(python3 "$ASSET_ROOT/scripts/cargo_bin_path.py" "$CARGO_LOG" "$CRATE" cdylib || true)"
 [[ -f "$SRC_SO" ]] || { echo "missing $SRC_SO — '$CRATE' produced no cdylib (.so). A demo must declare crate-type=cdylib + android_main to ship as an APK; skipping." >&2; exit 4; }
 cp "$SRC_SO" "$BUILD_DIR/lib/$ABI/lib${LIB_NAME}.so"
+if [[ -n "$LINK_LIB" ]]; then
+    # The app library names libazul.so as a needed library: Android's loader finds it in this same folder,
+    # and NativeActivity finds ANativeActivity_onCreate and the JNI entry points in it through the app
+    # library (dlsym searches the handle's dependencies).
+    cp "$LINK_LIB" "$BUILD_DIR/lib/$ABI/libazul.so"
+fi
 
 # Java sources for the optional native-gesture bridge. If present, we
 # compile them with javac, dex with d8, and ship classes.dex inside the
@@ -236,7 +258,7 @@ echo "==> aapt2 link (compile manifest)"
     -I "$PLATFORM/android.jar" \
     -o base.apk
 
-echo "==> add lib/$ABI/libazul.so to APK"
+echo "==> add lib/$ABI/*.so to APK"
 # zip from BUILD_DIR so entries carry the FULL lib/<abi>/ prefix. `cd lib`
 # stripped it, shipping the .so at <abi>/... where Android never looks —
 # every published APK crashed on launch with "Unable to find native
@@ -252,8 +274,10 @@ fi
 echo "==> zipalign"
 "$BT/zipalign" -f 4 base.apk aligned.apk
 
-# Debug keystore — generate once if absent. apksigner is happy with it.
-KS="$ASSET_ROOT/scripts/android/debug.keystore"
+# THE debug keystore: scripts/android/debug.keystore is in the repo (a public key, alias androiddebugkey,
+# password android), so every build of every demo is signed with the same key and a phone accepts an
+# update over an older install. Generated only when absent (a checkout that lost it).
+KS="${AZ_ANDROID_KEYSTORE:-$ASSET_ROOT/scripts/android/debug.keystore}"
 if [[ ! -f "$KS" ]]; then
     echo "==> creating debug keystore at $KS"
     keytool -genkeypair \
