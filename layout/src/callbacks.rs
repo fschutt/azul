@@ -1935,8 +1935,22 @@ impl CallbackInfo {
                 );
             }
             azul_core::window::SysDialogType::UpdateVersion => {
-                #[cfg(feature = "updater")]
+                #[cfg(all(
+                    feature = "updater",
+                    not(any(target_os = "ios", target_os = "android", feature = "store_app"))
+                ))]
                 crate::dialogs::update_version::open(self);
+                // a store delivers the updates of an app that is installed from it, and forbids
+                // the app to download or install code of its own: that build has no such dialog
+                #[cfg(all(
+                    feature = "updater",
+                    any(target_os = "ios", target_os = "android", feature = "store_app")
+                ))]
+                eprintln!(
+                    "[azul] invoke_system_dialog(UpdateVersion): this app is installed from a \
+                     store, which delivers its updates; the dialog that installs one is not part \
+                     of this build"
+                );
                 #[cfg(not(feature = "updater"))]
                 eprintln!(
                     "[azul] invoke_system_dialog(UpdateVersion): azul-layout was built without \

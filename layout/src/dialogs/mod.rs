@@ -31,7 +31,10 @@ pub mod report;
 pub mod report_problem;
 #[cfg(feature = "telemetry")]
 pub mod telemetry_consent;
+// The dialog that offers "Install now" downloads a program and replaces the running one: a store
+// build has no such code (see `updater::InstallKind::AppStore`).
 #[cfg(feature = "updater")]
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 pub mod update_version;
 
 use azul_core::{
