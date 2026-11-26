@@ -126,6 +126,14 @@ jobs:
       - name: Release contracts (naming, widget wiring, sparse checkout, api.json)
         run: python3 scripts/preflight_contracts.py
 
+      # The one list of the demo apps (scripts/demo_apps.toml) against the workspace, the apps' own manifests and the
+      # build scripts; its reader needs tomllib, which the runner's default Python 3.10 does not have.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: The demo apps agree with the workspace (scripts/demo_apps.toml)
+        run: python3 scripts/demo_apps.py check && python3 scripts/test_demo_apps.py
+
       - name: Public tree (no credentials, no agent notes)
         run: python3 scripts/check_public_tree.py --self-test && python3 scripts/check_public_tree.py
 
