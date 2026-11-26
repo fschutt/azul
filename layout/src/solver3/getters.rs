@@ -4988,16 +4988,20 @@ fn decoration_paint_of(
             .is_none_or(|cc| cc.dom_declared(flag))
     };
     let node_data = &styled_dom.node_data.as_container()[dom_id];
+    // `currentcolor` of this box: its node, by index (a document of more than four billion
+    // nodes paints the line in the colour of the text)
+    let current_color = u32::try_from(dom_id.index())
+        .map_or(DecorationColor::Text, DecorationColor::CurrentOf);
     let color = if declared(flags::DOM_HAS_TEXT_DECORATION_COLOR) {
         match cache
             .get_text_decoration_color(node_data, &dom_id, node_state)
             .and_then(|v| v.get_property().copied())
         {
             Some(StyleTextDecorationColor::Color(color)) => DecorationColor::Color(color),
-            Some(StyleTextDecorationColor::CurrentColor) | None => DecorationColor::CurrentOf(dom_id),
+            Some(StyleTextDecorationColor::CurrentColor) | None => current_color,
         }
     } else {
-        DecorationColor::CurrentOf(dom_id)
+        current_color
     };
     let thickness = if declared(flags::DOM_HAS_TEXT_DECORATION_THICKNESS) {
         match cache

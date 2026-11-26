@@ -9,7 +9,6 @@ license = "MIT"
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "debug-server", "android-activity"] }
 ctor = "0.2"
 
 [features]
@@ -27,6 +26,3 @@ crate-type = ["rlib", "cdylib"]
 [[bin]]
 name = "AzBuilder"
 path = "src/main.rs"
-
-[target.'cfg(target_os = "ios")'.dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "debug-server"] }

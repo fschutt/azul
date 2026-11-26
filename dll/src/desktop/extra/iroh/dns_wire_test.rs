@@ -42,8 +42,13 @@ fn the_instance_label_is_the_base32_of_the_key_that_iroh_parses_back() {
         let id = SecretKey::from_bytes(&[seed; 32]).public();
         let label = instance_label(id.as_bytes());
         assert_eq!(label.len(), 52, "{label}");
-        assert!(label.bytes().all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b)));
-        assert_eq!(EndpointId::from_str(&label).expect("iroh reads the label"), id);
+        assert!(label
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b)));
+        assert_eq!(
+            EndpointId::from_str(&label).expect("iroh reads the label"),
+            id
+        );
         assert_eq!(
             instance_fullname(&label),
             format!("{label}._irohv1._udp.local.")
@@ -110,7 +115,10 @@ fn a_hostile_srv_record_is_nothing_and_never_a_panic() {
 fn a_bsd_sockaddr_gives_an_ip_and_a_wrong_one_gives_none() {
     let mut v4 = vec![16u8, 2, 0x04, 0xd2, 192, 168, 1, 8];
     v4.extend_from_slice(&[0; 8]);
-    assert_eq!(ip_from_sockaddr(&v4), Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 8))));
+    assert_eq!(
+        ip_from_sockaddr(&v4),
+        Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 8)))
+    );
 
     let ip6 = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
     let mut v6 = vec![28u8, 30, 0, 80, 0, 0, 0, 0];
@@ -150,7 +158,10 @@ fn the_socket_addresses_of_a_peer_are_the_usable_ones_of_its_targets_once_each()
         "a-9.local.".to_string(),
         vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))],
     );
-    hosts.insert("elsewhere.local.".to_string(), vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2))]);
+    hosts.insert(
+        "elsewhere.local.".to_string(),
+        vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2))],
+    );
     assert_eq!(
         assemble(&ports, &hosts),
         vec![
@@ -165,7 +176,10 @@ fn the_socket_addresses_of_a_peer_are_the_usable_ones_of_its_targets_once_each()
     for n in 0..1000u16 {
         let target = format!("t{n:04}.local.");
         ports.insert(target.clone(), 1000 + n);
-        hosts.insert(target, vec![IpAddr::V4(Ipv4Addr::new(10, 0, (n >> 8) as u8, n as u8))]);
+        hosts.insert(
+            target,
+            vec![IpAddr::V4(Ipv4Addr::new(10, 0, (n >> 8) as u8, n as u8))],
+        );
     }
     assert_eq!(assemble(&ports, &hosts).len(), MAX_ADDRESSES_PER_PEER);
 }
@@ -173,7 +187,10 @@ fn the_socket_addresses_of_a_peer_are_the_usable_ones_of_its_targets_once_each()
 #[test]
 fn the_errors_of_the_system_are_told_in_words() {
     let denied = describe_error(-65570);
-    assert!(denied.contains("Local Network") && denied.contains("NSBonjourServices"), "{denied}");
+    assert!(
+        denied.contains("Local Network") && denied.contains("NSBonjourServices"),
+        "{denied}"
+    );
     assert!(describe_error(-65563).contains("not running"));
     assert!(describe_error(-1).contains("-1"));
 }
@@ -194,6 +211,89 @@ fn a_host_is_filed_under_one_spelling_in_lower_case_with_its_root_dot() {
         .push(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 8)));
     assert_eq!(
         assemble(&ports, &hosts),
-        vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 8)), 41234)]
+        vec![SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 8)),
+            41234
+        )]
     );
+}
+
+/// The data of a TXT record: each string behind its length byte.
+fn txt(strings: &[&[u8]]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for string in strings {
+        out.push(string.len() as u8);
+        out.extend_from_slice(string);
+    }
+    out
+}
+
+#[test]
+fn an_attribute_is_read_from_the_txt_record_the_way_rfc_6763_writes_it() {
+    let record = txt(&[
+        b"relay=https://relay.example",
+        b"user-data=azreview/1;p=ab12;n=Studio Mac",
+    ]);
+    assert_eq!(
+        txt_value(&record, "user-data").as_deref(),
+        Some("azreview/1;p=ab12;n=Studio Mac")
+    );
+    assert_eq!(
+        txt_value(&record, "relay").as_deref(),
+        Some("https://relay.example")
+    );
+    assert_eq!(txt_value(&record, "absent"), None);
+    // keys are case-insensitive and the first one of a key counts
+    assert_eq!(
+        txt_value(&txt(&[b"User-Data=one", b"user-data=two"]), "user-data").as_deref(),
+        Some("one")
+    );
+    // a value may hold an equals sign, or be empty
+    assert_eq!(
+        txt_value(&txt(&[b"user-data=a=b"]), "user-data").as_deref(),
+        Some("a=b")
+    );
+    assert_eq!(
+        txt_value(&txt(&[b"user-data="]), "user-data").as_deref(),
+        Some("")
+    );
+    // an attribute without a value has none
+    assert_eq!(txt_value(&txt(&[b"user-data"]), "user-data"), None);
+    // the empty record of a service without attributes, and no record at all
+    assert_eq!(txt_value(&[0], "user-data"), None);
+    assert_eq!(txt_value(&[], "user-data"), None);
+}
+
+#[test]
+fn a_hostile_txt_record_is_nothing_and_never_a_panic() {
+    // a length that runs past the end
+    assert_eq!(txt_value(&[5, b'a', b'b'], "a"), None);
+    assert_eq!(txt_value(&[255], "user-data"), None);
+    // a value that is not UTF-8
+    let mut bad = vec![12];
+    bad.extend_from_slice(b"user-data=");
+    bad.extend_from_slice(&[0xff, 0xfe]);
+    assert_eq!(txt_value(&bad, "user-data"), None);
+    // thirty thousand tiny strings are read, and the key behind them is found
+    let mut many = Vec::new();
+    for _ in 0..30_000 {
+        many.extend_from_slice(&[1, b'x']);
+    }
+    many.extend_from_slice(&txt(&[b"user-data=late"]));
+    assert_eq!(txt_value(&many, "user-data").as_deref(), Some("late"));
+    // every prefix and every one-byte corruption of a good record is survived
+    let good = txt(&[
+        b"relay=https://relay.example",
+        b"user-data=azreview/1;n=Studio Mac",
+    ]);
+    for end in 0..=good.len() {
+        let _ = txt_value(&good[..end], "user-data");
+    }
+    for at in 0..good.len() {
+        for byte in [0u8, 1, 0x7f, 0x80, 0xff] {
+            let mut corrupt = good.clone();
+            corrupt[at] = byte;
+            let _ = txt_value(&corrupt, "user-data");
+        }
+    }
 }

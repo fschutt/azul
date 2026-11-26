@@ -27,7 +27,7 @@ mod wasm_stub {
     use azul_css::{AzString, StringVec, U8Vec};
     use azul_layout::callbacks::ResultU8VecString;
 
-    use super::{IrohConfig, IrohPeerStats, OptionIrohEvent};
+    use super::{IrohConfig, IrohNearbyPeerVec, IrohPeerStats, OptionIrohEvent};
 
     /// wasm stub of the desktop `IrohEndpoint`, with the same `#[repr(C)]` layout.
     #[repr(C)]
@@ -117,6 +117,14 @@ mod wasm_stub {
         /// Nothing is bound on wasm.
         pub fn local_discovery_status(&self) -> AzString {
             AzString::from_const_str("")
+        }
+        /// Nothing is bound on wasm: nothing changes.
+        pub fn set_advertised(&self, _text: AzString) -> bool {
+            false
+        }
+        /// Nothing is bound on wasm: no endpoint is nearby.
+        pub fn nearby_peers(&self) -> IrohNearbyPeerVec {
+            IrohNearbyPeerVec::from_vec(Vec::new())
         }
         pub fn peer_count(&self) -> usize {
             0
