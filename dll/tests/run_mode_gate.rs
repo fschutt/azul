@@ -511,3 +511,29 @@ fn the_shared_gate_names_the_http_client_for_the_desktop_and_the_mobile_sets() {
         );
     }
 }
+
+// ---- what the shipped libazul holds because its documents promise it ----
+
+/// `hyphens: auto` on a German text, and `IcuDate::now()`: the first needs the dictionaries of every
+/// language (azul-layout's `text_layout_hyphenation_all`, which the dll could not forward at all, so
+/// no libazul that shipped hyphenated anything but English), the second azul-layout's `icu_chrono`.
+#[test]
+fn the_feature_closure_of_dist_holds_the_hyphenation_of_every_language_and_the_clock() {
+    let table = dll_features();
+    let (features, entries) = closure(&table, "dist");
+    assert!(
+        features.contains("hyphenation-all"),
+        "dist does not switch on the dll's `hyphenation-all`: {features:?}"
+    );
+    assert!(
+        entries.contains("azul-layout/text_layout_hyphenation_all"),
+        "no feature of dist reaches azul-layout's text_layout_hyphenation_all"
+    );
+    assert!(
+        entries.contains("azul-layout/icu_chrono"),
+        "no feature of dist reaches azul-layout's icu_chrono (IcuDate::now())"
+    );
+    // a build with `icu` has the clock, whatever else it has: the api declares the functions
+    let (_, icu_entries) = closure(&table, "icu");
+    assert!(icu_entries.contains("azul-layout/icu_chrono"));
+}

@@ -7,17 +7,19 @@
 
 Each --column is a title and the `shots/` directory of one scripts/ci/mobile_qa.py run (`NN-<stem>.png`). The sheets
 have one ROW per column (so the platform and mode read down the left) and one CELL per scenario; a scenario a run did
-not reach (or that the platform has no equivalent of) is a grey cell that says so. Four sheets, grouped:
+not reach (or that the platform has no equivalent of) is a grey cell that says so. Five sheets, grouped:
   1-first-frame-and-touch     the launcher, the first frame, scrolled, scrolled back, a tap, the keyboard
   2-rotation-and-leaving      landscape, a tap in landscape, portrait again, home, back in front, 10 s away
   3-system-changes            memory pressure, dark mode, text size / font scale, display density
   4-dying-and-coming-back     BACK and start again, force-stop, killed in the background, 300 random touches
+  5-cpu-against-gpu           AZ_BACKEND cpu / gpu / auto and the pixel diff of cpu against gpu
 A cell is the picture at 216 x 480; the full pictures stay in the runs' shots/ directories.
 """
 import argparse
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 CELL_W, CELL_H = 216, 480
@@ -35,7 +37,7 @@ SHEETS = {
         ("text field + keyboard", ["keyboard-and-text"], []),
     ],
     "2-rotation-and-leaving": [
-        ("landscape", ["landscape"], ["landscape"]),
+        ("landscape", ["landscape"], ["landscape-only-app", "landscape"]),
         ("landscape after a tap", ["landscape-after-tap"], []),
         ("portrait again", ["portrait-again"], ["portrait-again"]),
         ("home pressed", ["home-pressed"], ["other-app-in-front"]),
@@ -49,6 +51,12 @@ SHEETS = {
         ("font / text size big", ["font-1.5"], ["text-accessibility-xxxl"]),
         ("display density 480", ["density-480"], []),
         ("density reset", ["density-reset"], []),
+    ],
+    "5-cpu-against-gpu": [
+        ("AZ_BACKEND=cpu", ["AZ_BACKEND-cpu"], ["AZ_BACKEND-cpu"]),
+        ("AZ_BACKEND=gpu", ["AZ_BACKEND-gpu"], ["AZ_BACKEND-gpu"]),
+        ("AZ_BACKEND=auto", ["AZ_BACKEND-auto"], ["AZ_BACKEND-auto"]),
+        ("diff cpu / gpu (red = differs)", ["diff-cpu-vs-gpu"], ["diff-cpu-vs-gpu"]),
     ],
     "4-dying-and-coming-back": [
         ("after BACK", ["after-back"], []),
@@ -76,7 +84,7 @@ def magick(*args):
 
 def find_shot(shots_dir, stems):
     for stem in stems:
-        hits = sorted(Path(shots_dir).glob(f"[0-9][0-9]-{stem}.png"))
+        hits = sorted(Path(shots_dir).glob(f"[0-9]*-{stem}.png"))
         if hits:
             return hits[0]
     return None
@@ -98,8 +106,7 @@ def cell(shot, caption, work, name, missing_text):
 def build(out_dir, columns):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    work = out_dir / ".work"
-    work.mkdir(exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="azgallery-"))     # temp files stay in the system temp folder: nothing is deleted
     made = []
     for sheet, cells in SHEETS.items():
         rows = []
@@ -123,9 +130,7 @@ def build(out_dir, columns):
         magick(*rows, "-append", sheet_png)
         made.append(sheet_png)
         print("wrote", sheet_png)
-    for p in work.glob("*.png"):
-        p.unlink()
-    work.rmdir()
+    print("temp files left in", work)
     return made
 
 

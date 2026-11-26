@@ -263,6 +263,69 @@ fn main() {
     if target.contains("android") {
         configure_android();
     }
+
+    // The vendor's static speech engine (a build of one's own: no shipped build has the feature).
+    if env::var("CARGO_FEATURE_SPEECH_ENGINE_STATIC").is_ok() {
+        link_speech_engine_static(&target);
+    }
+}
+
+/// `speech-engine-static`: links the Cactus engine's static library, `libcactus.a` of the vendor's
+/// release (one object, 2 to 3 MB, 13 C functions), and the C++ runtime it was built against.
+///
+/// * the folder of the archive is `AZUL_CACTUS_LIB_DIR` or `target/speech-engine/static`, where
+///   `scripts/fetch_whistle.sh --static` puts it (pinned by sha256); nothing is fetched here;
+/// * the engine is C++ on libc++ (`std::__1`), not libstdc++: on Apple it is the system's `libc++`,
+///   on Linux `libc++` and `libc++abi` (packages `libc++-dev` and `libc++abi-dev`; `AZUL_CACTUS_CXX_DIR`
+///   names their folder when it is not on the linker's path, `AZUL_CACTUS_CXX_STATIC=1` links the
+///   archives instead of the libraries), on Android the NDK's `c++_static`;
+/// * the release's archives for Windows are built for MinGW (their exceptions are `__gxx_personality_seh0`
+///   on libc++), so only the `windows-gnu` targets can take them, not MSVC; macOS on Intel, musl and
+///   Android on x86_64 have no archive at all: the engine then stays a shared library opened at run
+///   time (the default).
+fn link_speech_engine_static(target: &str) {
+    println!("cargo:rerun-if-env-changed=AZUL_CACTUS_LIB_DIR");
+    println!("cargo:rerun-if-env-changed=AZUL_CACTUS_CXX_DIR");
+    println!("cargo:rerun-if-env-changed=AZUL_CACTUS_CXX_STATIC");
+
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let workspace_root = Path::new(&manifest_dir).parent().expect("the crate sits in the workspace");
+    let dir = env::var("AZUL_CACTUS_LIB_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| workspace_root.join("target/speech-engine/static"));
+    let archive = dir.join("libcactus.a");
+    assert!(
+        archive.is_file(),
+        "speech-engine-static needs {}: run `scripts/fetch_whistle.sh --static` (or name the folder of \
+         the archive with AZUL_CACTUS_LIB_DIR)",
+        archive.display()
+    );
+    println!("cargo:rerun-if-changed={}", archive.display());
+    println!("cargo:rustc-link-search=native={}", dir.display());
+    println!("cargo:rustc-link-lib=static=cactus");
+
+    if let Ok(cxx_dir) = env::var("AZUL_CACTUS_CXX_DIR") {
+        println!("cargo:rustc-link-search=native={cxx_dir}");
+    }
+    let kind = if env::var("AZUL_CACTUS_CXX_STATIC").is_ok_and(|v| v == "1") { "static=" } else { "" };
+    if target.contains("apple") {
+        println!("cargo:rustc-link-lib=c++");
+    } else if target.contains("android") {
+        println!("cargo:rustc-link-lib=static=c++_static");
+        println!("cargo:rustc-link-lib=static=c++abi");
+    } else if target.contains("linux") && !target.contains("musl") {
+        println!("cargo:rustc-link-lib={kind}c++");
+        println!("cargo:rustc-link-lib={kind}c++abi");
+    } else if target.contains("windows-gnu") {
+        println!("cargo:rustc-link-lib={kind}c++");
+        println!("cargo:rustc-link-lib={kind}unwind");
+    } else {
+        panic!(
+            "speech-engine-static: the vendor's release has no static engine for {target} (macOS on Intel, \
+             musl, Android on x86_64 and Windows MSVC have none): leave the feature off and open the \
+             engine's shared library at run time"
+        );
+    }
 }
 
 // ── Export restriction: keep only the azul C API in the cdylib ────────

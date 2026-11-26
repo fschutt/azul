@@ -28,8 +28,10 @@ command -v "$JAVAC" >/dev/null 2>&1 || { echo "javac not found (JDK 17: set JAVA
 KS="${AZ_ANDROID_KEYSTORE:-$root/scripts/android/debug.keystore}"
 [[ -f "$KS" ]] || { echo "missing $KS" >&2; exit 5; }
 
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# The intermediate files go to a new directory next to the APK (a few KB per build): nothing here deletes anything, because the
+# script is also run on a developer's machine, where only its owner removes files.
+mkdir -p "$(dirname "$out")"
+work="$(mktemp -d "$(dirname "$out")/floor-work.XXXXXX")"
 mkdir -p "$work/classes" "$work/dex"
 
 "$JAVAC" -source 11 -target 11 -classpath "$PLATFORM/android.jar" -d "$work/classes" "$here/FloorActivity.java"

@@ -152,7 +152,7 @@ import json, sys
 path, label, how, xy, alive, fatal = sys.argv[1:]
 json.dump({"label": label, "found": "by its " + how, "at": xy, "alive": alive == "1", "fatal": fatal or None}, open(path, "w"), indent=2)
 PY
-        verdict_args+=(--tap "$dir/tap.json")
+        verdict_args+=(--tap "$dir/tap.json" --tap-before "$dir/screenshot.png" --tap-after "$dir/screenshot-after-tap.png")
       else
         echo "idb is not installed: \"$tap_label\" is not pressed"
       fi
@@ -191,7 +191,7 @@ PY
   [ -f "$dir/baseline.png" ] && verdict_args+=(--baseline "$dir/baseline.png" --after "$dir/screenshot-2.png")
   # THE pass line: scripts/ci/smoke_verdict.py (alive twice, on the screen, drawn, no fatal line); nothing else decides
   python3 "$(dirname "$0")/smoke_verdict.py" --out "$dir/result.json" --app "$name" --id "$bid" --alive "$alive" --alive-after "$alive_after" \
-    --fatal "$fatal" --rust-lines "${rust_lines:-0}" ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1
+    --fatal "$fatal" --rust-lines "${rust_lines:-0}" --band 0.075,0.965 ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1
 done
 python3 - "$out" <<'PY'
 import json, pathlib, sys

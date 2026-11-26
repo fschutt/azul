@@ -3,7 +3,13 @@
   "title": "azboard/1",
   "description": "A whiteboard of code: cutouts of source files (a picture of some lines, with the path, the lines, a hash of them, the revision they were circled at and a permalink to them there) and the arrows between them, with a history of snapshots that say why the architecture is shaped the way it is. Written by AzReview; read by it and by any viewer. A reader ignores a field it does not know and leaves out an item of a kind it does not know; it refuses a document whose format names a newer major version. See azboard.md.",
   "type": "object",
-  "required": ["format", "board", "workspace", "canvas", "items"],
+  "required": [
+    "format",
+    "board",
+    "workspace",
+    "canvas",
+    "items"
+  ],
   "properties": {
     "format": {
       "description": "The name and the major version of the format. A reader of version 1 refuses azboard/2 and later.",
@@ -17,26 +23,50 @@
     "board": {
       "description": "Which board of its workspace this is.",
       "type": "object",
-      "required": ["id", "name"],
+      "required": [
+        "id",
+        "name"
+      ],
       "properties": {
-        "id": {"description": "Stable among the boards of the workspace.", "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
-        "name": {"type": "string", "maxLength": 80},
-        "created_ms": {"description": "Unix milliseconds.", "type": "integer", "minimum": 0},
-        "modified_ms": {"description": "Unix milliseconds: when the board was last kept, or exported.", "type": "integer", "minimum": 0}
+        "id": {
+          "description": "Stable among the boards of the workspace.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "created_ms": {
+          "description": "Unix milliseconds.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "modified_ms": {
+          "description": "Unix milliseconds: when the board was last kept, or exported.",
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "workspace": {
       "description": "The folder the code was in: its own name, never its path on the machine.",
       "type": "object",
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "properties": {
-        "name": {"type": "string"},
+        "name": {
+          "type": "string"
+        },
         "path_in_repo": {
           "description": "Where the folder lies inside the repository, with '/' and none at either end. Absent when it is the repository's own folder. The paths of the items are the repository's own: this is what is taken off to get the folder's.",
           "type": "string",
           "$ref": "#/$defs/path"
         },
-        "repo": {"$ref": "#/$defs/repo"}
+        "repo": {
+          "$ref": "#/$defs/repo"
+        }
       }
     },
     "author": {
@@ -47,20 +77,57 @@
     "canvas": {
       "description": "The coordinates of the items: px, x grows to the right, y downwards from the top-left corner; the origin is arbitrary and the canvas has no edge.",
       "type": "object",
-      "required": ["unit", "origin", "view"],
+      "required": [
+        "unit",
+        "origin",
+        "view"
+      ],
       "properties": {
-        "unit": {"const": "px"},
-        "origin": {"const": "top-left"},
+        "unit": {
+          "const": "px"
+        },
+        "origin": {
+          "const": "top-left"
+        },
         "view": {
           "description": "How the person last looked at the canvas: the pan (the canvas point at the panel's top-left corner, in px) and the zoom.",
           "type": "object",
-          "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "zoom": {"type": "number", "exclusiveMinimum": 0}}
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "zoom": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
         },
         "bounds": {
           "description": "The rectangle that holds every cutout and every free end of an arrow: where a viewer fits the picture. Derived; a reader may ignore it.",
           "type": "object",
-          "required": ["x", "y", "width", "height"],
-          "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "width": {"type": "number"}, "height": {"type": "number"}}
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            }
+          }
         }
       }
     },
@@ -72,17 +139,23 @@
     "assets": {
       "description": "The pictures, by id. A cutout names its picture here.",
       "type": "object",
-      "additionalProperties": {"$ref": "#/$defs/asset"}
+      "additionalProperties": {
+        "$ref": "#/$defs/asset"
+      }
     },
     "items": {
       "description": "What is on the board, in the order it is drawn (the last is on top).",
       "type": "array",
-      "items": {"$ref": "#/$defs/item"}
+      "items": {
+        "$ref": "#/$defs/item"
+      }
     },
     "snapshots": {
-      "description": "The history of the board: save points that are never changed once written, oldest first, each with the reason it was taken.",
+      "description": "The history of the board: save points that are never changed once written, oldest first, each with the reason it was taken. A snapshot holds the whole state of the board (every item, with the references of its cutouts) as it was.",
       "type": "array",
-      "items": {"type": "object"}
+      "items": {
+        "$ref": "#/$defs/snapshot"
+      }
     }
   },
   "$defs": {
@@ -92,7 +165,9 @@
       "minLength": 1,
       "maxLength": 1000,
       "pattern": "^(?![A-Za-z]:)(?!/)([^/\\\\\\u0000-\\u001f]+/)*[^/\\\\\\u0000-\\u001f]+$",
-      "not": {"pattern": "(^|/)\\.\\.?(/|$)"}
+      "not": {
+        "pattern": "(^|/)\\.\\.?(/|$)"
+      }
     },
     "rev": {
       "description": "A full commit hash: 40 hex digits (SHA-1) or 64 (SHA-256), lower case.",
@@ -106,7 +181,14 @@
     },
     "point": {
       "type": "array",
-      "prefixItems": [{"type": "number"}, {"type": "number"}],
+      "prefixItems": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        }
+      ],
       "items": false,
       "minItems": 2
     },
@@ -114,21 +196,58 @@
       "description": "The git repository the code is in, as far as it is known; absent for a folder that is no repository (then there are no links, only paths and lines).",
       "type": "object",
       "properties": {
-        "remote": {"description": "The remote as git says it, without a password or token in it.", "type": "string"},
-        "web_url": {"description": "The remote as a web address: https://github.com/owner/repo.", "type": "string", "pattern": "^https?://"},
-        "host": {"description": "Which form a link to a line takes.", "enum": ["github", "gitlab", "bitbucket", "gitea", "other"]},
-        "rev": {"description": "The commit the folder was at when the document was written.", "$ref": "#/$defs/rev"},
-        "branch": {"description": "A hint: the branch HEAD was on.", "type": "string"},
-        "dirty": {"description": "Whether the working tree had changes that were not committed (files git tracks). Absent when it was not looked at.", "type": "boolean"}
+        "remote": {
+          "description": "The remote as git says it, without a password or token in it.",
+          "type": "string"
+        },
+        "web_url": {
+          "description": "The remote as a web address: https://github.com/owner/repo.",
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "host": {
+          "description": "Which form a link to a line takes.",
+          "enum": [
+            "github",
+            "gitlab",
+            "bitbucket",
+            "gitea",
+            "other"
+          ]
+        },
+        "rev": {
+          "description": "The commit the folder was at when the document was written.",
+          "$ref": "#/$defs/rev"
+        },
+        "branch": {
+          "description": "A hint: the branch HEAD was on.",
+          "type": "string"
+        },
+        "dirty": {
+          "description": "Whether the working tree had changes that were not committed (files git tracks). Absent when it was not looked at.",
+          "type": "boolean"
+        }
       }
     },
     "asset": {
       "type": "object",
-      "required": ["type", "src"],
+      "required": [
+        "type",
+        "src"
+      ],
       "properties": {
-        "type": {"const": "image/png"},
-        "width": {"description": "In pixels of the picture itself.", "type": "integer", "minimum": 1},
-        "height": {"type": "integer", "minimum": 1},
+        "type": {
+          "const": "image/png"
+        },
+        "width": {
+          "description": "In pixels of the picture itself.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
         "src": {
           "description": "A data: address (data:image/png;base64,...), or a name relative to the document: a file beside it, or an entry of the archive the document is kept in. Never an address on the web: a reader does not fetch one.",
           "type": "string"
@@ -137,71 +256,190 @@
     },
     "item": {
       "type": "object",
-      "required": ["kind", "id"],
+      "required": [
+        "kind",
+        "id"
+      ],
       "properties": {
-        "kind": {"description": "cutout or arrow; a reader leaves out a kind it does not know.", "type": "string"},
-        "id": {"description": "Stable and never given twice on the board.", "type": "integer", "minimum": 1}
+        "kind": {
+          "description": "cutout or arrow; a reader leaves out a kind it does not know.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Stable and never given twice on the board.",
+          "type": "integer",
+          "minimum": 1
+        }
       },
       "allOf": [
-        {"if": {"properties": {"kind": {"const": "cutout"}}, "required": ["kind"]}, "then": {"$ref": "#/$defs/cutout"}},
-        {"if": {"properties": {"kind": {"const": "arrow"}}, "required": ["kind"]}, "then": {"$ref": "#/$defs/arrow"}}
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "cutout"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/cutout"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "arrow"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/arrow"
+          }
+        }
       ]
     },
     "cutout": {
       "description": "A picture of some lines of a file, with where they came from.",
       "type": "object",
-      "required": ["x", "y", "width", "height", "source"],
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height",
+        "source"
+      ],
       "properties": {
-        "x": {"description": "The top-left corner on the canvas.", "type": "number"},
-        "y": {"type": "number"},
-        "width": {"description": "How large the cutout is shown on the canvas.", "type": "number", "exclusiveMinimum": 0},
-        "height": {"type": "number", "exclusiveMinimum": 0},
-        "label": {"description": "What the person wrote under it.", "type": "string"},
+        "x": {
+          "description": "The top-left corner on the canvas.",
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "width": {
+          "description": "How large the cutout is shown on the canvas.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "label": {
+          "description": "What the person wrote under it.",
+          "type": "string"
+        },
         "image": {
           "type": "object",
-          "required": ["asset"],
+          "required": [
+            "asset"
+          ],
           "properties": {
-            "asset": {"description": "A key of the document's assets.", "type": "string"},
-            "scale": {"description": "Device pixels of the picture for one px of the canvas: the picture is shown width/scale of the canvas wide.", "type": "number", "exclusiveMinimum": 0}
+            "asset": {
+              "description": "A key of the document's assets.",
+              "type": "string"
+            },
+            "scale": {
+              "description": "Device pixels of the picture for one px of the canvas: the picture is shown width/scale of the canvas wide.",
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
           }
         },
-        "image_state": {"description": "Why there is no picture: it was not drawn yet, or could not be.", "enum": ["pending", "failed"]},
-        "image_note": {"type": "string"},
-        "source": {"$ref": "#/$defs/source"}
+        "image_state": {
+          "description": "Why there is no picture: it was not drawn yet, or could not be.",
+          "enum": [
+            "pending",
+            "failed"
+          ]
+        },
+        "image_note": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
       }
     },
     "source": {
       "description": "The lines of code a cutout shows.",
       "type": "object",
-      "required": ["path", "line_start", "line_end"],
+      "required": [
+        "path",
+        "line_start",
+        "line_end"
+      ],
       "properties": {
-        "path": {"description": "Relative to the repository's root (to the workspace's folder when it is no repository).", "$ref": "#/$defs/path"},
-        "line_start": {"description": "Counted from 1, both ends included.", "type": "integer", "minimum": 1},
-        "line_end": {"type": "integer", "minimum": 1},
+        "path": {
+          "description": "Relative to the repository's root (to the workspace's folder when it is no repository).",
+          "$ref": "#/$defs/path"
+        },
+        "line_start": {
+          "description": "Counted from 1, both ends included.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "line_end": {
+          "type": "integer",
+          "minimum": 1
+        },
         "hash": {
           "description": "The SHA-256 of the covered lines, each followed by a line feed (a carriage return at the end of a line is not part of it), as UTF-8: cut the lines out of the file at 'rev', write a line feed after each, hash. All the covered lines, also when 'code' holds fewer.",
           "$ref": "#/$defs/hash"
         },
-        "rev": {"description": "The commit the lines were circled at. Absent when it was not known; then there is no permalink.", "$ref": "#/$defs/rev"},
+        "rev": {
+          "description": "The commit the lines were circled at. Absent when it was not known; then there is no permalink.",
+          "$ref": "#/$defs/rev"
+        },
         "permalink": {
           "description": "The address of these lines at 'rev' on the repository's host (GitHub: https://github.com/owner/repo/blob/REV/PATH#L10-L20; GitLab, Bitbucket and Gitea have their own forms; another host the template of the settings, else GitHub's). A link that names a commit shows the same lines for ever.",
           "type": "string",
           "pattern": "^https?://"
         },
-        "language": {"description": "By the file's name, for colouring the code.", "type": "string"},
-        "code": {"description": "The lines as the board kept them (at most 200 lines of 300 characters): what a viewer shows and searches.", "type": "array", "items": {"type": "string"}},
-        "azreview": {"description": "What only AzReview itself uses (the page of the file the loop was drawn on, its outline, two quick hashes); another reader leaves it alone.", "type": "object"}
+        "language": {
+          "description": "By the file's name, for colouring the code.",
+          "type": "string"
+        },
+        "code": {
+          "description": "The lines as the board kept them (at most 200 lines of 300 characters): what a viewer shows and searches.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "azreview": {
+          "description": "What only AzReview itself uses (the page of the file the loop was drawn on, its outline, two quick hashes); another reader leaves it alone.",
+          "type": "object"
+        }
       }
     },
     "arrow": {
       "description": "An arrow from one end to another, the head at 'to'.",
       "type": "object",
-      "required": ["from", "to"],
+      "required": [
+        "from",
+        "to"
+      ],
       "properties": {
-        "from": {"$ref": "#/$defs/end"},
-        "to": {"$ref": "#/$defs/end"},
-        "bend": {"description": "0 is straight; the sign says to which side it curves.", "type": "number"},
-        "label": {"type": "string"}
+        "from": {
+          "$ref": "#/$defs/end"
+        },
+        "to": {
+          "$ref": "#/$defs/end"
+        },
+        "bend": {
+          "description": "0 is straight; the sign says to which side it curves.",
+          "type": "number"
+        },
+        "label": {
+          "type": "string"
+        }
       }
     },
     "end": {
@@ -209,21 +447,350 @@
       "oneOf": [
         {
           "type": "object",
-          "required": ["item"],
+          "required": [
+            "item"
+          ],
           "properties": {
-            "item": {"description": "The id of the cutout.", "type": "integer", "minimum": 1},
-            "anchor": {"description": "Where on the cutout: auto (where the line to the other end meets its edge), the middle of a side, or a point given as fractions of its width and height.", "enum": ["auto", "side", "point"]},
-            "side": {"enum": ["top", "right", "bottom", "left"]},
-            "u": {"type": "number"},
-            "v": {"type": "number"}
+            "item": {
+              "description": "The id of the cutout.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "anchor": {
+              "description": "Where on the cutout: auto (where the line to the other end meets its edge), the middle of a side, or a point given as fractions of its width and height.",
+              "enum": [
+                "auto",
+                "side",
+                "point"
+              ]
+            },
+            "side": {
+              "enum": [
+                "top",
+                "right",
+                "bottom",
+                "left"
+              ]
+            },
+            "u": {
+              "type": "number"
+            },
+            "v": {
+              "type": "number"
+            }
           }
         },
         {
           "type": "object",
-          "required": ["free"],
-          "properties": {"free": {"$ref": "#/$defs/point"}}
+          "required": [
+            "free"
+          ],
+          "properties": {
+            "free": {
+              "$ref": "#/$defs/point"
+            }
+          }
         }
       ]
+    },
+    "brief": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "enum": [
+            "cutout",
+            "arrow"
+          ]
+        },
+        "name": {
+          "description": "A cutout's label, else its file and lines; an arrow's label, else its two ends.",
+          "type": "string"
+        }
+      }
+    },
+    "snapshot": {
+      "description": "An immutable save point of a board. Its text is written once; 'hash' is the SHA-256 of that text without 'hash', in the canonical form of RFC 8785 (JCS): a published history can be checked, and a snapshot that does not hash to its hash was changed after it was written.",
+      "type": "object",
+      "required": [
+        "id",
+        "taken_ms",
+        "why",
+        "items",
+        "hash"
+      ],
+      "properties": {
+        "id": {
+          "description": "s1, s2, ...: never given twice on a board.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        },
+        "parent": {
+          "description": "The snapshot this one follows: a chain, like commits. Absent for the first.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        },
+        "taken_ms": {
+          "description": "Unix milliseconds.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "author": {
+          "description": "The git name as configured (or the setting's), nothing else personal.",
+          "type": "string",
+          "maxLength": 200
+        },
+        "code": {
+          "description": "Where the code was when the snapshot was taken. The links of the snapshot's items name the revision each reference was circled at.",
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "object",
+              "properties": {
+                "remote": {
+                  "type": "string"
+                },
+                "web_url": {
+                  "type": "string",
+                  "pattern": "^https?://"
+                },
+                "host": {
+                  "enum": [
+                    "github",
+                    "gitlab",
+                    "bitbucket",
+                    "gitea",
+                    "other"
+                  ]
+                }
+              }
+            },
+            "path_in_repo": {
+              "$ref": "#/$defs/path"
+            },
+            "rev": {
+              "description": "The full hash of HEAD.",
+              "$ref": "#/$defs/rev"
+            },
+            "branch": {
+              "type": "string"
+            },
+            "dirty": {
+              "description": "Whether the working tree had changes that were not committed.",
+              "type": "boolean"
+            },
+            "rev_time_ms": {
+              "description": "When the revision was committed, Unix milliseconds.",
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "why": {
+          "description": "THE reason: why the architecture is shaped like this now, or why it changed since the parent. Free text, line feeds allowed. The most important field of the document.",
+          "type": "string",
+          "maxLength": 20000
+        },
+        "tags": {
+          "description": "Decision numbers, links to issues and pull requests, as typed.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "maxItems": 24
+        },
+        "summary": {
+          "description": "What changed since the parent, worked out from the two states (never typed): the same two states always give the same summary.",
+          "type": "object",
+          "properties": {
+            "added": {
+              "description": "Items that are in this snapshot and not in the parent.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/brief"
+              }
+            },
+            "removed": {
+              "description": "Items of the parent that are not in this snapshot.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/brief"
+              }
+            },
+            "moved": {
+              "description": "Cutouts that lie somewhere else (by at least half a px).",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "from",
+                  "to"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "from": {
+                    "$ref": "#/$defs/point"
+                  },
+                  "to": {
+                    "$ref": "#/$defs/point"
+                  }
+                }
+              }
+            },
+            "changed": {
+              "description": "Items whose place is the same and something else is not: label, size, reference (the code a cutout points at: its path, its lines or what they say; the same lines at a newer revision are the same reference), ends, bend.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "what"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "what": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "label",
+                        "size",
+                        "reference",
+                        "ends",
+                        "bend"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "references": {
+              "description": "What looking for the code again found, when the snapshot was taken at a newer revision: only the references that are not as they were. moved: the same lines, somewhere else in the file; changed: the first and last lines of the cutout were found and what is between them is not as it was; vanished: nothing of them is there (or the file is gone), and the reference is left as it was. The items of the snapshot point at the new places and name the new revision.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "status",
+                  "from"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "status": {
+                    "enum": [
+                      "moved",
+                      "changed",
+                      "vanished"
+                    ]
+                  },
+                  "from": {
+                    "description": "The lines it pointed at: first, last.",
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 2
+                  },
+                  "to": {
+                    "description": "The lines it points at now. Absent for a vanished reference.",
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 2
+                  }
+                }
+              }
+            }
+          }
+        },
+        "evidence": {
+          "description": "What was said while the board was made, kept with the reason: a recording and the words (optional).",
+          "type": "object",
+          "properties": {
+            "session": {
+              "type": "string"
+            },
+            "start_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "end_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "transcript": {
+              "type": "string"
+            }
+          }
+        },
+        "canvas": {
+          "type": "object",
+          "properties": {
+            "view": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "zoom": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                }
+              }
+            }
+          }
+        },
+        "next_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "items": {
+          "description": "The board as it was: the same kinds of item as the document's, naming their pictures among the document's assets.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/item"
+          }
+        },
+        "hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
     }
   }
 }

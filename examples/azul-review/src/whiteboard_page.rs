@@ -441,6 +441,22 @@ pub fn release(data: &mut RefAny, info: &mut CallbackInfo) -> bool {
     true
 }
 
+/// How far round the grip of a loop a rest still counts as being on it, px: a hand reaching for the grip does not stop on its
+/// very edge.
+const GRIP_REACH_PX: f32 = 8.0;
+
+/// Whether a pen (or a pointer) that rests at `p` of `page` is reaching for the board and not asking to be listened to: it is
+/// on (or a little way round) the grip of a loop that waits to be taken, or a press on a loop is being followed (held to lift it,
+/// carried). A rest there starts no dictation.
+#[must_use]
+pub fn rest_is_for_the_board(state: &AppState, page: usize, p: Pt) -> bool {
+    state.wb.try_borrow().is_ok_and(|g| {
+        let now = g.panel.now_ms();
+        g.panel.wb.drag.is_active()
+            || g.panel.wb.armed.all().iter().any(|r| r.page == page && now < r.expires_at_ms() && r.grip.inflate(GRIP_REACH_PX).contains(p))
+    })
+}
+
 /// The window lost the focus (or the pointer's release was never heard): a press on a loop that is followed, or a loop that is
 /// carried, is let go of where it lies, and stays armed.
 pub fn let_go(data: &mut RefAny, info: &mut CallbackInfo) {
