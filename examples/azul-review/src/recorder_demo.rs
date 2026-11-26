@@ -107,9 +107,12 @@ extern "C" fn on_auto_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Tim
     let Some(seconds) = auto else {
         return TimerCallbackReturn { should_update: Update::DoNothing, should_terminate: TerminateTimer::Terminate };
     };
-    // Not started yet: waiting for the delay to be over.
+    // Not started yet: waiting for the delay to be over (the window is left alone meanwhile).
     let Some(since) = since else {
-        if created.is_some_and(|created| created.elapsed() >= StdDuration::from_millis(delay_ms)) && !start_on_its_own(&mut data, &mut info.callback_info) {
+        if !created.is_some_and(|created| created.elapsed() >= StdDuration::from_millis(delay_ms)) {
+            return keep_going;
+        }
+        if !start_on_its_own(&mut data, &mut info.callback_info) {
             return TimerCallbackReturn { should_update: Update::DoNothing, should_terminate: TerminateTimer::Terminate };
         }
         return TimerCallbackReturn { should_update: Update::RefreshDom, ..keep_going };
