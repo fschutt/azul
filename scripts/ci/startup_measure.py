@@ -79,6 +79,10 @@ def main():
     ap.add_argument("--json", default=None, help="write the per-run timelines and the summary here")
     ap.add_argument("--wrap", nargs=argparse.REMAINDER, default=[], help="a command that wraps the app (xvfb-run -a ...); must be the last option")
     ap.add_argument("--keep-going", action="store_true", help="do not stop at the first run without a timeline")
+    ap.add_argument("--expect-layouts", type=int, default=None,
+                    help="fail (exit 2) unless every run began exactly this many layout passes before its first present")
+    ap.add_argument("--max-first-present-ms", type=float, default=None,
+                    help="fail (exit 2) when the median first present of the warm runs is above this")
     args = ap.parse_args()
 
     env = dict(os.environ)
@@ -177,7 +181,24 @@ def main():
     if args.json:
         with open(args.json, "w") as f:
             json.dump({"summary": summary, "rows": rows, "runs": runs}, f, indent=1)
-    return 0
+
+    failed = False
+    if args.expect_layouts is not None:
+        counts = [r["timeline"].get("layout_passes") for r in good]
+        wrong = [c for c in counts if c != args.expect_layouts]
+        if wrong:
+            print(f"GATE FAILED: layout passes before the first present: {counts}, expected {args.expect_layouts} in every run")
+            failed = True
+        else:
+            print(f"gate ok: {args.expect_layouts} layout pass(es) before the first present in every run")
+    if args.max_first_present_ms is not None:
+        got = summary["median_first_present_ms_warm"] if warm else summary["median_first_present_ms_all"]
+        if got is None or got > args.max_first_present_ms:
+            print(f"GATE FAILED: median first present {got} ms is above {args.max_first_present_ms} ms")
+            failed = True
+        else:
+            print(f"gate ok: median first present {got:.1f} ms <= {args.max_first_present_ms} ms")
+    return 2 if failed else 0
 
 
 if __name__ == "__main__":

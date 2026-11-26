@@ -8184,6 +8184,12 @@ impl MacOSWindow {
             LogCategory::Layout,
             "[Window Init] Performing initial layout"
         );
+        // It IS the layout the window was born owing, with the create callback's asks already applied: it
+        // retires the requests that stand when it begins, as the headless shell's first layout and every
+        // desktop backend's first frame do. Left raised, the first `drawRect:` rebuilt the DOM a second time
+        // for nothing (the user's layout callback, the styled DOM, the equivalence check: the startup
+        // timeline of 2026-11-26 counted it). A request the layout's own lifecycle callbacks raise stays.
+        let initial_layout_epoch = window.common.regen_epoch();
         if let Err(e) = window.regenerate_layout() {
             log_warn!(
                 LogCategory::Layout,
@@ -8191,6 +8197,9 @@ impl MacOSWindow {
                 e
             );
         }
+        window
+            .common
+            .clear_regeneration_unless_reraised(initial_layout_epoch);
 
         startup.mark("window:initial_layout_done");
         // A window created to fit its content (a window-drawn menu) takes the size
@@ -8214,11 +8223,10 @@ impl MacOSWindow {
             startup.mark("window:a11y_initialized");
         }
 
-        // Request a regeneration so drawRect will build and send the transaction
-        window
-            .common
-            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
-        startup.mark("window:regeneration_requested_at_end_of_init");
+        // No regeneration is requested here: the initial layout above is the one the first frame shows. What
+        // the first `drawRect:` still owes is the TRANSACTION (the display list sent to WebRender, the CPU
+        // frame): `display_list_initialized` stays false until it has built it, and the frame path rebuilds the
+        // display list from the layout that is there (`render_and_present_in_draw_rect`).
 
         // Detect current monitor and set monitor_id
         window.detect_current_monitor();
@@ -10786,9 +10794,17 @@ impl MacOSWindow {
         // NOTE: Timer callbacks are invoked in the NSTimer tick_timers callback,
         // NOT here. See tick_timers in GLView/CPUView.
 
-        // Force layout on first frame — layout_results is empty until the first
-        // regenerate_layout() call. Both GPU and CPU paths need this.
-        if !self.common.display_list_initialized {
+        // A layout on the first frame ONLY when none has run: `layout_results` is empty until the first
+        // regenerate_layout() call (the window constructor runs it, so a window that was made has results
+        // and its first frame builds the display list from them; the layout is not run a second time).
+        // Both GPU and CPU paths need results.
+        if crate::desktop::shell2::common::first_frame::first_frame_owes_layout(
+            self.common.display_list_initialized,
+            self.common
+                .layout_window
+                .as_ref()
+                .is_some_and(|lw| !lw.layout_results.is_empty()),
+        ) {
             self.common
                 .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         }
