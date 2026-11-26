@@ -53,12 +53,28 @@ fn nothing_waits_on_the_clock_until_a_loop_is_armed_a_press_is_followed_a_board_
 fn a_loop_is_armed_until_its_time_is_up_and_then_the_clock_has_nothing_to_wait_for() {
     let mut g = glue();
     arm(&mut g, 1_000);
-    let early = tick_at(&mut g, 2_000);
+    // the first look: a loop is armed, the pages are built for it
+    let first = tick_at(&mut g, 2_000);
+    assert!(first.more && first.redraw && first.pages_changed, "{first:?}");
+    // the next: the same loop, only its ring is drawn again
+    let early = tick_at(&mut g, 2_300);
     assert!(early.more && early.redraw && !early.pages_changed, "{early:?}");
     let late = tick_at(&mut g, 1_000 + ARM_MS_DEFAULT + 1);
     assert!(late.pages_changed, "the loop is gone from the page: its layer and its words go");
     assert!(!late.more, "nothing is left to wait for");
     assert!(g.panel.wb.armed.is_empty());
+}
+
+#[test]
+fn a_loop_that_is_let_go_of_before_its_time_is_up_takes_its_words_with_it_at_the_next_look() {
+    let mut g = glue();
+    let id = arm(&mut g, 0);
+    let _ = tick_at(&mut g, 500);
+    assert!(!tick_at(&mut g, 800).pages_changed, "nothing changed on the page");
+    // what armed it was erased or taken back
+    g.panel.wb.armed.disarm(id);
+    let after = tick_at(&mut g, 1_100);
+    assert!(after.pages_changed && !after.more, "the pages are built again, nothing waits: {after:?}");
 }
 
 #[test]

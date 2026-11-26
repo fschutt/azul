@@ -122,7 +122,7 @@ def build(out_dir, columns):
             for ci, (caption, a_stems, i_stems) in enumerate(cells):
                 stems = i_stems if ios else a_stems
                 shot = find_shot(shots_dir, stems) if stems else None
-                why = "no such step on this platform" if not stems else "not reached (the app was gone)"
+                why = "no such step on this platform" if not stems else "no picture of this step in this run"
                 parts.append(cell(shot, caption, work, f"{sheet}-{ri}-{ci}", why))
             strip = work / f"{sheet}-{ri}-strip.png"
             magick(*parts, "+append", strip)

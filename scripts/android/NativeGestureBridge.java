@@ -108,7 +108,7 @@ public final class NativeGestureBridge
                 d.getFocusX(), d.getFocusY(),
                 pinchStartSpan, d.getCurrentSpan(),
                 d.getEventTime() - pinchStartUptimeMs,
-                pinchBegan);
+                pinchBegan, false);
         pinchBegan = false;
         return true;
     }
@@ -123,7 +123,20 @@ public final class NativeGestureBridge
     }
 
     @Override
-    public void onScaleEnd(ScaleGestureDetector d) { /* no-op */ }
+    public void onScaleEnd(ScaleGestureDetector d) {
+        // The fingers lifted (or the system took the gesture): the LAST update of the pinch, which
+        // azul's DetectedPinch.ended is for - an app settles its zoom (snaps to a level, renders at
+        // full quality) on it. A gesture that never sent an update has nothing to end.
+        if (!pinchBegan) {
+            nativeOnPinch(
+                    nativePtr,
+                    pinchScale,
+                    d.getFocusX(), d.getFocusY(),
+                    pinchStartSpan, d.getCurrentSpan(),
+                    d.getEventTime() - pinchStartUptimeMs,
+                    false, true);
+        }
+    }
 
     // ─── Custom two-finger rotation ────────────────────────────────
 
@@ -143,6 +156,14 @@ public final class NativeGestureBridge
         }
         float delta = angle - lastAngle;
         lastAngle = angle;
+        // atan2 wraps at +-PI: two fingers crossing the line to the left of their middle made one step
+        // of nearly 2*PI. The step is the shortest turn.
+        while (delta > (float) Math.PI) {
+            delta -= (float) (2 * Math.PI);
+        }
+        while (delta < -(float) Math.PI) {
+            delta += (float) (2 * Math.PI);
+        }
         nativeOnRotation(
                 nativePtr, delta,
                 (ev.getX(0) + ev.getX(1)) * 0.5f,
@@ -159,7 +180,7 @@ public final class NativeGestureBridge
             long nativePtr,
             float scale, float centerX, float centerY,
             float initialDistance, float currentDistance,
-            long durationMs, boolean began);
+            long durationMs, boolean began, boolean ended);
     private static native void nativeOnRotation(
             long nativePtr,
             float angleRadians, float centerX, float centerY,

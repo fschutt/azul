@@ -120,6 +120,26 @@ def walk_nodes(obj, out=None):
     return out
 
 
+def layout_overflow(layout_answer, width):
+    """The nodes of `get_all_nodes_layout` whose rect crosses the window's right edge: the page does not fit a phone's width
+    (a toolbar that cannot wrap, a card or video of a fixed 480 px). -> (count, [(tag, id, classes, x, y, w, h), ...] the
+    widest first, without the nodes inside an offender that starts at the same place)."""
+    data = (layout_answer or {}).get("data") or {}
+    nodes = ((data.get("value") or {}).get("nodes") if isinstance(data, dict) else None) or []
+    over = []
+    for n in nodes:
+        r = n.get("rect")
+        if not r or r.get("width", 0) <= 0:
+            continue
+        if r["x"] < width and r["x"] + r["width"] > width + 1.0:
+            over.append((n.get("tag"), n.get("id"), n.get("classes") or [], r["x"], r["y"], r["width"], r["height"]))
+    top = []
+    for o in sorted(over, key=lambda t: (-t[5], t[4])):
+        if not any(abs(o[3] - t[3]) < 1 and t[4] - 1 <= o[4] <= t[4] + t[6] for t in top):
+            top.append(o)
+    return len(over), top
+
+
 def e2e_session(args):
     run = q.Run(args.out, args.platform, {"label": args.label, "port": args.port, "kind": "e2e"})
     if args.platform == "android":
@@ -173,6 +193,7 @@ def e2e_session(args):
         state["ready"] = took is not None
         if took is not None:
             (run.logs_dir / "get_state.json").write_text(json.dumps(answer, indent=2), encoding="utf-8")
+            state["get_state"] = answer
             s.note("get_state: " + json.dumps(answer)[:300])
             dpi = find_key(answer, "dpi")
             if isinstance(dpi, (int, float)) and dpi > 0:
@@ -215,6 +236,13 @@ def e2e_session(args):
             layout = srv.op("get_all_nodes_layout", timeout=60)
             (run.logs_dir / "nodes-layout.json").write_text(json.dumps(layout), encoding="utf-8")
             s.note(f"{len(walk_nodes(layout))} nodes with a rect logged")
+            width = find_key(state.get("get_state"), "logical_width") or 0
+            if width:
+                count, top = layout_overflow(layout, float(width))
+                first = ", ".join(f"{t[0]}{'#' + t[1] if t[1] else ''} x {t[3]:.0f}..{t[3] + t[5]:.0f} at y {t[4]:.0f}" for t in top[:4])
+                s.check(f"the page fits the window's width ({float(width):.0f} logical px): no node crosses the right edge", count == 0,
+                        f"{count} nodes cross it; widest: {first}", required=False)
+                (run.logs_dir / "layout-overflow.json").write_text(json.dumps({"width": width, "count": count, "top": top[:40]}), encoding="utf-8")
         except Exception as e:  # noqa: BLE001
             s.note(f"get_all_nodes_layout: {e}")
         try:
