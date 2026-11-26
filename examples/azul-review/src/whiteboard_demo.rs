@@ -10,7 +10,7 @@
 //! goes through [`Whiteboard`] and [`crate::whiteboard_ui`], the very calls the review window makes.
 //! `scripts/azwhiteboard_e2e.py` drives it. stdout, for scripts: `WBDEMO_ARMED <first> <last>`,
 //! `WBDEMO_HELD` (a press inside a loop was held), `WBDEMO_LIFTED` (the region follows the pointer),
-//! `WBDEMO_DROPPED`, `WBDEMO_RENDERED <w>x<h> | <why>`, `WBDEMO_SAVED <path>`,
+//! `WBDEMO_DROPPED`, `WBDEMO_RENDERED <w>x<h> <ms>ms | <why>`, `WBDEMO_SAVED <path>`,
 //! `WBDEMO_LOADED <items>`, `WBDEMO_JUMP <file> <first> <last> <freshness>`, `WBDEMO_KEY <key> <items>`.
 
 use std::path::PathBuf;
@@ -72,6 +72,8 @@ struct Demo {
     /// `WBDEMO_PROFILE`: the frame times are printed every two seconds.
     profile: bool,
     ticks: u32,
+    /// The pictures being drawn on a Thread, and since when (the time a drop took to become a picture is told).
+    render_started: Vec<(ItemId, std::time::Instant)>,
 }
 
 fn demo_text() -> (String, Vec<String>) {
@@ -422,6 +424,7 @@ extern "C" fn on_page_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 images: info.get_image_cache_clone(),
             };
             let id = made.id;
+            d.render_started.push((id, std::time::Instant::now()));
             drop(d);
             whiteboard_render::spawn_render(&mut info, &app, id, request, on_rendered as WriteBackCallbackType);
         }
@@ -434,8 +437,15 @@ extern "C" fn on_rendered(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
     let Some(done) = whiteboard_render::take_rendered(&mut msg) else {
         return Update::DoNothing;
     };
+    let took = app
+        .downcast_mut::<Demo>()
+        .and_then(|mut d| {
+            let at = d.render_started.iter().position(|(id, _)| *id == done.id)?;
+            Some(d.render_started.remove(at).1.elapsed().as_millis())
+        })
+        .map_or_else(String::new, |ms| format!(" {ms}ms"));
     match &done.image {
-        Ok(img) => say(&format!("WBDEMO_RENDERED {}x{}", img.width, img.height)),
+        Ok(img) => say(&format!("WBDEMO_RENDERED {}x{}{took}", img.width, img.height)),
         Err(why) => say(&format!("WBDEMO_RENDERED {why}")),
     }
     if let Some(mut d) = app.downcast_mut::<Demo>() {
@@ -606,6 +616,7 @@ pub fn run() {
         timer: None,
         profile,
         ticks: 0,
+        render_started: Vec::new(),
     };
     let app = App::create(RefAny::new(state), config);
     let window = kit::window_options(&kit_ref, layout, (1_400.0, 800.0), (900.0, 500.0), on_window_created);

@@ -267,8 +267,8 @@ def body(args, logs, out):
         before = app.count("WBDEMO_DROPPED")
         demo.carry(grip, (bar_x, 220.0), shot=os.path.join(out, "3-%s.png"))
         app.until("the drop", lambda: app.count("WBDEMO_DROPPED") > before)
-        size = wait_for(app, "WBDEMO_RENDERED", r"\d+x\d+", "the cutout drawn by the CPU renderer")
-        w, h = (int(v) for v in size.split("x"))
+        size = wait_for(app, "WBDEMO_RENDERED", r"\d+x\d+(?: \d+ms)?", "the cutout drawn by the CPU renderer")
+        w, h = (int(v) for v in size.split()[0].split("x"))
         if w < 100 or h < 40:
             raise Failure("the cutout's picture is %s: too small to be the loop's region" % size)
         saved = wait_for(app, "WBDEMO_SAVED", r".+", "the board kept")
