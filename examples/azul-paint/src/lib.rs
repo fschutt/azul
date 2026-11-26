@@ -1297,7 +1297,9 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     } else {
         column.add_child(header);
         column.add_child(canvas);
-        if compact {
+        // A phone has no menu bar in any orientation (the commands it holds are these keys), and a
+        // narrow window of any machine has too little room for the header and a menu.
+        if compact || cfg!(any(target_os = "android", target_os = "ios")) {
             column.add_child(toolbar(&data));
         }
         if about_open {
