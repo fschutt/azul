@@ -120,8 +120,10 @@ for mode in "${mode_list[@]}"; do
       [ -n "$xpkg" ] || { echo "no package in the badging of $xapk"; continue; }
       echo "---- first look at $xn ($xpkg)"
       mkdir -p "$d/apps"
+      # AZ_QA_TAPS: lines `<apk name>=<button label>`: step 03e presses that button of that app
+      xtap="$(printf '%s\n' "${AZ_QA_TAPS:-}" | sed -n "s/^$xn=//p" | head -n 1)"
       python3 "$here/mobile_qa.py" android --out "$d/apps/$xn" --apk "$xapk" --package "$xpkg" --activity "${xact:-}" \
-        --label "$xn" --gpu "$mode" --only "${AZ_QA_ONLY_EXTRA:-03,08,09,12,13}" 2>&1 | tee "$d/apps/$xn.log"
+        --label "$xn" --gpu "$mode" --only "${AZ_QA_ONLY_EXTRA:-03,08,09,12,13}" ${xtap:+--tap-label "$xtap"} 2>&1 | tee "$d/apps/$xn.log"
     done
   fi
   adb emu kill >/dev/null 2>&1 || true

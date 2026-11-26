@@ -27,6 +27,7 @@ import demo_publish  # noqa: E402
 sys.path.insert(0, str(HERE / "ci"))
 import png_compare  # noqa: E402
 import smoke_verdict  # noqa: E402
+import ui_find  # noqa: E402
 
 
 def cargo_json(*artifacts):
@@ -572,6 +573,121 @@ class IosPlistTest(unittest.TestCase):
         # the texts are escaped: a quote, an ampersand and a tag are text, not markup
         env = demo_build.ios_plist_env({"ios": {"usage": {"NSCameraUsageDescription": 'Tom & "Jerry" <b>look</b>.'}}})
         self.assertEqual(env["AZ_IOS_USAGE"], 'NSCameraUsageDescription=Tom & "Jerry" <b>look</b>.')
+
+
+ANDROID_DUMP = """<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<hierarchy rotation="0">
+  <node index="0" text="" class="android.widget.FrameLayout" bounds="[0,0][1080,2400]">
+    <node index="0" text="Demo Mac" content-desc="" class="android.view.View" bounds="[40,100][600,180]" />
+    <node index="1" text="" content-desc="Remote" class="android.view.View" bounds="[0,2200][540,2400]" />
+    <node index="2" text="Tone" content-desc="Quick button: Tone" class="android.view.View" bounds="[0,1800][270,1900]" />
+  </node>
+</hierarchy>
+"""
+IDB_DUMP = json.dumps([{"AXLabel": "Demo Mac", "type": "StaticText", "frame": {"x": 10, "y": 50, "width": 200, "height": 30}},
+                       {"AXLabel": None, "AXValue": "Remote", "title": None, "frame": {"x": 0, "y": 800, "width": 100, "height": 40}}])
+
+
+class UiFindTest(unittest.TestCase):
+    """scripts/ci/ui_find.py: is a text on the screen, by the accessibility dump of uiautomator (Android) or idb (iOS)?"""
+
+    def find(self, text, *words):
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "dump"
+            path.write_text(text, encoding="utf-8")
+            return ui_find.find(str(path), list(words))
+
+    def test_a_text_or_a_content_description_of_the_android_dump_is_found_whatever_its_case(self):
+        got = self.find(ANDROID_DUMP, "Demo Mac", "remote", "Quick button", "Connect to AzReview")
+        self.assertEqual(got, {"Demo Mac": True, "remote": True, "Quick button": True, "Connect to AzReview": False})
+
+    def test_a_label_or_a_value_of_the_idb_dump_is_found(self):
+        got = self.find(IDB_DUMP, "demo mac", "Remote", "Files")
+        self.assertEqual(got, {"demo mac": True, "Remote": True, "Files": False})
+
+    def test_a_dump_that_cannot_be_read_finds_nothing(self):
+        self.assertEqual(self.find("<hierarchy><node text='Demo Mac'", "Demo Mac"), {"Demo Mac": False})
+        self.assertEqual(self.find("", "Demo Mac"), {"Demo Mac": False})
+        self.assertEqual(ui_find.find("/no/such/dump", ["Demo Mac"]), {"Demo Mac": False})
+
+    def test_the_command_prints_the_answer_as_json(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "dump.xml"
+            path.write_text(ANDROID_DUMP, encoding="utf-8")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(ui_find.main([str(path), "Demo Mac", "Settings"]), 0)
+            self.assertEqual(json.loads(buf.getvalue()), {"Demo Mac": True, "Settings": False})
+            self.assertEqual(ui_find.main([]), 2)
+
+
+class AfterTapTest(unittest.TestCase):
+    """What must be on the screen once the button the manifest names was pressed (AzCompanion: the remote with its pretend Mac, and
+    the pairing screen gone): the texts come from [app.smoke] after_tap and after_tap_gone."""
+
+    BASE = {"alive": True, "alive_after": True, "screen_nonblank": True, "home_similarity": 0.2, "differs_from_home": True}
+
+    def tap(self, **kw):
+        return {**self.BASE, "tap": {"label": "Try it without a Mac", "alive": True, "fatal": None, "changed_screen": True, **kw}}
+
+    def test_the_remote_is_there_and_the_pairing_screen_is_gone(self):
+        facts = self.tap(after_found={"Demo Mac": True}, after_present={"Connect to AzReview": False})
+        self.assertEqual(smoke_verdict.judge(facts), (True, "alive twice, on the screen, drawn, no fatal line"))
+
+    def test_a_text_that_does_not_come_up_fails_the_app_and_says_which(self):
+        passed, reason = smoke_verdict.judge(self.tap(after_found={"Demo Mac": False}, after_present={"Connect to AzReview": False}))
+        self.assertFalse(passed)
+        self.assertIn('"Try it without a Mac"', reason)
+        self.assertIn('"Demo Mac"', reason)
+        self.assertIn("does not show", reason)
+
+    def test_a_text_that_must_be_gone_but_is_still_there_fails_the_app(self):
+        passed, reason = smoke_verdict.judge(self.tap(after_found={"Demo Mac": True}, after_present={"Connect to AzReview": True}))
+        self.assertFalse(passed)
+        self.assertIn('"Connect to AzReview"', reason)
+        self.assertIn("still shows", reason)
+
+    def test_a_screen_that_did_not_change_is_the_first_thing_said(self):
+        passed, reason = smoke_verdict.judge(self.tap(changed_screen=False, screen_similarity=1.0, after_found={"Demo Mac": False}))
+        self.assertFalse(passed)
+        self.assertIn("changed nothing", reason)
+
+    def test_the_result_file_carries_the_questions_and_the_answers(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "home.png").write_bytes(synthetic_png(96, 160, home_screen))
+            (root / "before.png").write_bytes(synthetic_png(96, 160, app_screen))
+            (root / "after.png").write_bytes(synthetic_png(96, 160, lambda x, y: (30, 90, 200, 255) if (x + y) % 5 else (250, 250, 250, 255)))
+            (root / "tap.json").write_text(json.dumps({"label": "Try", "found": "by its name", "alive": True, "fatal": None,
+                                                       "after_found": {"Demo Mac": True}, "after_present": {"Connect to AzReview": False}}))
+            argv = ["--out", str(root / "r.json"), "--app", "AzX", "--id", "x", "--alive", "1", "--alive-after", "1",
+                    "--baseline", str(root / "home.png"), "--after", str(root / "before.png"), "--tap", str(root / "tap.json"),
+                    "--tap-before", str(root / "before.png"), "--tap-after", str(root / "after.png")]
+            self.assertEqual(smoke_verdict.main(argv), 0)
+            tap = json.loads((root / "r.json").read_text())["tap"]
+            self.assertEqual((tap["after_found"], tap["after_present"]), ({"Demo Mac": True}, {"Connect to AzReview": False}))
+
+    def test_the_manifest_names_them_for_the_companion_and_the_plan_hands_them_on(self):
+        m = demo_apps.load()
+        smoke = next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]
+        self.assertEqual(smoke["after_tap"], ["Demo Mac"])
+        self.assertEqual(smoke["after_tap_gone"], ["Connect to AzReview"])
+        self.assertEqual(json.loads(demo_apps.plan(m)["smoke_after"]), {"AzCompanion": {"found": ["Demo Mac"], "gone": ["Connect to AzReview"]}})
+
+    def test_a_text_after_a_tap_needs_a_tap_and_is_a_list_of_texts(self):
+        m = demo_apps.load()
+        app = next(a for a in m["app"] if a["package"] == "AzWidgets")
+        app["smoke"] = {"after_tap": ["Demo Mac"]}
+        self.assertTrue(any("AzWidgets" in e and "after_tap" in e and "tap" in e for e in demo_apps.check(m)))
+        m = demo_apps.load()
+        next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]["after_tap"] = "Demo Mac"
+        self.assertTrue(any("AzCompanion" in e and "after_tap" in e and "list" in e for e in demo_apps.check(m)))
+
+    def test_both_boot_tests_look_at_the_screen_after_the_press(self):
+        for name in ("android_smoke.sh", "ios_smoke.sh"):
+            text = (HERE / "ci" / name).read_text(encoding="utf-8")
+            self.assertIn("AZ_SMOKE_AFTER", text, name)
+            self.assertIn("ui_find.py", text, name)
 
 
 class ApkGateTest(unittest.TestCase):
