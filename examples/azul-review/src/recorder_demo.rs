@@ -3,7 +3,8 @@
 //! is the recorder's own test window until the review window has its menu entry for it: everything it does goes
 //! through [`RecorderHost`] and [`crate::recorder_ui`], the very calls the review window makes.
 //!
-//! `recorder_demo [--data-dir DIR] [--language en|de]`. Recordings go to `review/recordings` of the data folder.
+//! `recorder_demo [--record screen,camera,mic] [--data-dir DIR] [--language en|de]`. Recordings go to `review/recordings` of
+//! the data folder; `--record` says which of the three the recorder takes (all, when it is not given).
 //! stdout, for scripts: `RECDEMO_RECOVERED <n>` (recordings put right at the start), `RECDEMO_READY <folder>`.
 
 use std::path::PathBuf;
@@ -14,6 +15,7 @@ use azul_appkit::{args::AppArgs, l10n::begin_layout, ui as kit};
 use crate::{
     recorder::Deps,
     recorder_azul::AzulFactory,
+    recorder_args::{own_arguments, parse_utc_offset},
     recorder_clock::{Clock, SessionClock},
     recorder_host::{Facts, RecorderHost},
     recorder_manifest::{AppInfo, HostInfo, Workspace},
@@ -76,24 +78,16 @@ pub fn local_utc_offset_minutes() -> i32 {
         .unwrap_or(0)
 }
 
-/// `+0100` / `-0530` as minutes; `None` for anything else.
-#[must_use]
-pub fn parse_utc_offset(text: &str) -> Option<i32> {
-    let (sign, digits) = match text.as_bytes().first()? {
-        b'+' => (1, &text[1..]),
-        b'-' => (-1, &text[1..]),
-        _ => return None,
-    };
-    if digits.len() != 4 || !digits.bytes().all(|c| c.is_ascii_digit()) {
-        return None;
-    }
-    let (hours, minutes): (i32, i32) = (digits[..2].parse().ok()?, digits[2..].parse().ok()?);
-    (hours <= 14 && minutes < 60).then_some(sign * (hours * 60 + minutes))
-}
-
-/// Starts the demo window.
+/// Starts the demo window: `recorder_demo [--record screen,camera,mic] [--data-dir DIR] [--language en|de]`.
 pub fn run() {
-    let args = match AppArgs::parse(&crate::SPEC, std::env::args().skip(1).collect::<Vec<String>>()) {
+    let (record, rest) = match own_arguments(std::env::args().skip(1).collect()) {
+        Ok(parsed) => parsed,
+        Err(why) => {
+            eprintln!("{why}");
+            std::process::exit(2);
+        }
+    };
+    let args = match AppArgs::parse(&crate::SPEC, rest) {
         Ok(a) => a,
         Err(why) => {
             eprintln!("{why}");
@@ -122,7 +116,11 @@ pub fn run() {
         hotkey: String::from(recorder_ui::pause_hotkey_label()),
     };
     let dir = facts.recordings_dir.clone();
-    let mut host = RecorderHost::new(RecorderSettings::default(), facts, real_deps());
+    let mut settings = RecorderSettings::default();
+    if let Some((screen, camera, microphone)) = record {
+        (settings.screen, settings.camera, settings.microphone) = (screen, camera, microphone);
+    }
+    let mut host = RecorderHost::new(settings, facts, real_deps());
     let recovered = host.recover();
     println!("RECDEMO_RECOVERED {recovered}");
     host.refresh();
@@ -133,7 +131,3 @@ pub fn run() {
     window.create_callback = Some(Callback::create(on_window_created)).into();
     app.run(window);
 }
-
-#[cfg(test)]
-#[path = "recorder_demo_test.rs"]
-mod recorder_demo_test;

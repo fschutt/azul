@@ -75,6 +75,7 @@ mod l10n_tests;
 pub mod model;
 pub mod perf;
 pub mod recorder;
+pub mod recorder_args;
 pub mod recorder_azul;
 pub mod recorder_clock;
 pub mod recorder_codec;
