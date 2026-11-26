@@ -487,7 +487,14 @@ def e2e_session(args):
         before = device_shot(s, "writer-before")
         w, h = dev.dims
         height0 = (find_key(srv.op("get_state"), "logical_height") or 0)
-        dev.tap(int(w * 0.5), int(h * 0.45))          # into the page
+        at = None
+        for selector in ("#__azwriter_doc-page-0", ".__azul-native-rich-text-editor-host"):     # the document's editor: the first line of the page
+            at = tap_node(s, selector)
+            if at:
+                s.note(f"tapped the document editor {selector} at {at}")
+                break
+        if not at:
+            dev.tap(int(w * 0.5), int(h * 0.45))      # into the page, where the editor is not known
         dev.settle(1.5)
         up = dev.ime_shown()
         dev.sh("input text hello")
