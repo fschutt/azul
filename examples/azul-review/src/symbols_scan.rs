@@ -377,15 +377,19 @@ impl<'a> Lexer<'a> {
         let n = self.src.len();
         let next = self.at(self.i + 1);
         if next == b'\\' {
-            // '\n', '\'', '\u{..}'
-            let mut j = self.i + 2;
-            while j < n && self.src[j] != b'\'' && self.src[j] != b'\n' {
-                if self.src[j] == b'\\' {
+            // '\n', '\'', '\\', '\u{..}': the backslash and the one character it escapes (which may itself be a
+            // quote or a backslash), then up to the closing quote. A line end is never part of it: an unfinished
+            // literal stops before it, so the line is still counted.
+            let escaped = self.at(self.i + 2);
+            let end = if escaped == b'\n' || escaped == 0 {
+                (self.i + 2).min(n)
+            } else {
+                let mut j = self.i + 3;
+                while j < n && self.src[j] != b'\'' && self.src[j] != b'\n' {
                     j += 1;
                 }
-                j += 1;
-            }
-            let end = (j + 1).min(n);
+                if j < n && self.src[j] == b'\'' { j + 1 } else { j.min(n) }
+            };
             self.i = end;
             self.push(T::Str, 0, start, end, line);
             return;
