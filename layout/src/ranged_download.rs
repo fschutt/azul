@@ -25,6 +25,7 @@ use std::{io::Write as _, path::Path};
 const WINDOW: u64 = 1024 * 1024;
 
 /// What to download and how.
+#[derive(Clone, Copy)]
 pub struct Request<'a> {
     /// Where the file is.
     pub url: &'a str,
@@ -44,8 +45,19 @@ pub struct Request<'a> {
     pub cancel: &'a dyn Fn() -> bool,
 }
 
+impl core::fmt::Debug for Request<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Request")
+            .field("url", &self.url)
+            .field("partial_path", &self.partial_path)
+            .field("max_bytes", &self.max_bytes)
+            .field("what", &self.what)
+            .finish_non_exhaustive()
+    }
+}
+
 /// What a download did.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Outcome {
     /// Bytes that were already on disk from an earlier attempt and are kept (0: a fresh download, or
     /// a server that restarted it).

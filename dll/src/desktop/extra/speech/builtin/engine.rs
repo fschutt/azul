@@ -307,7 +307,9 @@ mod linked {
         ) -> c_int;
     }
 
-    /// The Cactus engine of the static library. Like the library's, it has one process-global model.
+    /// The Cactus engine of the static library. Like the library's, it has one process-global model; the
+    /// handle itself is four function pointers, so a copy of it is the same engine.
+    #[derive(Clone, Copy)]
     pub struct LinkedEngine {
         abi: Abi,
     }
