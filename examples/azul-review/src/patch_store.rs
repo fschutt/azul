@@ -88,9 +88,10 @@ fn rationale_of(note: &Note) -> String {
 }
 
 /// The patch of a resolved conversation: its header, and the diff of what was taken against the file `file` (a path of the
-/// workspace) whose bytes are `bytes` (or why they could not be read), at `now_unix_ms`. `base` is the workspace's revision.
+/// workspace) whose bytes are `bytes` (or why they could not be read), at `now_unix_ms`. The base in the header is the
+/// revision the conversation BEGAN at ([`crate::conversation::Conversation::base`]), not the one the workspace is at now.
 #[must_use]
-pub fn made(note: &Note, file: &str, bytes: Result<&[u8], &str>, base: Option<&str>, now_unix_ms: u64) -> Made {
+pub fn made(note: &Note, file: &str, bytes: Result<&[u8], &str>, now_unix_ms: u64) -> Made {
     let outcome = note.talk.outcome();
     let path = file.replace('\\', "/");
     let mut files: Vec<(String, String)> = Vec::new();
@@ -118,7 +119,7 @@ pub fn made(note: &Note, file: &str, bytes: Result<&[u8], &str>, base: Option<&s
     let header = Header {
         conversation: note.id,
         outcome,
-        base,
+        base: note.talk.base.as_deref(),
         time_unix_ms: now_unix_ms,
         said: &said,
         understood: understood.as_deref(),
@@ -126,6 +127,25 @@ pub fn made(note: &Note, file: &str, bytes: Result<&[u8], &str>, base: Option<&s
         left_out: &left_out,
     };
     Made { outcome, name: patch::file_name(note.id, now_unix_ms), text: patch::render(&header, &files), changed: !files.is_empty(), left_out: left_out.len() }
+}
+
+/// The longest revision a header or an archive keeps: a SHA-256 repository's hash is 64 hex digits.
+const MAX_REVISION: usize = 64;
+
+/// Whether `text` can be a git revision: hex digits, not empty, no longer than a hash is.
+#[must_use]
+pub fn is_revision(text: &str) -> bool {
+    !text.is_empty() && text.len() <= MAX_REVISION && text.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// The revision the repository of the workspace at `root` is at (HEAD, read from the files of `.git`: no process is run), or
+/// none: no folder, no repository, no commit yet, or a HEAD that is no hash.
+#[must_use]
+pub fn base_of(root: &std::path::Path) -> Option<String> {
+    if root.as_os_str().is_empty() {
+        return None;
+    }
+    crate::whiteboard_git::read(root, None).and_then(|facts| facts.rev).filter(|rev| is_revision(rev))
 }
 
 /// The drive key of the patch `name` of the workspace at `root`.
@@ -163,8 +183,7 @@ pub(crate) fn record_due(data: &RefAny, info: &mut CallbackInfo) {
         let now = crate::agent_window::unix_now_ms();
         let mut jobs = Vec::new();
         for note in s.notes.iter_mut().filter(|n| n.talk.due()) {
-            // the base is the workspace's git head: `None` until the git-head reader (`.git` files, no process) is on master
-            let patch = made(note, &file, bytes.as_deref().map_err(String::as_str), None, now);
+            let patch = made(note, &file, bytes.as_deref().map_err(String::as_str), now);
             if let Some(gone) = superseded(note.talk.patch.as_deref(), &patch.name) {
                 jobs.push(FileJob::Delete { key: key_of(&root, &gone) });
             }

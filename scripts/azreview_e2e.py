@@ -654,6 +654,58 @@ def ink_to_agent(args, logs, out, binary):
     app.log("PASS: the strokes near a conversation reach the agent: the word under the stroke is the one it answers")
 
 
+def mic_smoke(args, logs, out, binary):
+    """BY HAND, with the real recogniser: the microphone IS opened. A dictation that starts, the stream the engine gives it, the
+    microphone's states, a stop that ends it. Nobody has to speak: what is heard (nothing, the room) is only told. It needs the
+    environment variable AZREVIEW_MIC_OK=1, so that no run opens a microphone by accident; announce it first. Where the
+    system's permission for the microphone or for speech is not given the answer is a refusal in words, which is told and is
+    a pass of the plumbing too."""
+    if os.environ.get("AZREVIEW_MIC_OK") != "1":
+        print("[azreview] SKIPPED: the microphone smoke test (it opens the microphone: AZREVIEW_MIC_OK=1 and an announcement first)", flush=True)
+        return
+    data_dir = os.path.join(logs, "data-mic")
+    folder = os.path.join(logs, "folder-mic")
+    os.makedirs(data_dir, exist_ok=True)
+    fixture(folder)
+    app = e2e.App("review-mic", binary,
+                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en", "--agent", "mock",
+                   "--agent-auto", "off", "--dwell-ms", "400", "--dwell-input", "any", "--silence-ms", "4000", "--standby", "off"],
+                  args.debug_port + 10, logs, args.timeout)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        show_files(app)
+        pick(app, "src", "lib.rs")
+        app.frame(3)
+        strip = app.rect(STRIP)
+        base = (strip["x"] + 160.0, strip["y"] + 140.0)
+        app.must("mouse_move", x=base[0], y=base[1])
+        app.until("the dictation to start", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started 1") > 0)[1])
+        began = time.perf_counter()
+        # either the microphone opens (ready) or the system says why not (refused / failed): within 30 s (a permission prompt waits)
+        app.until("the microphone opened or a refusal", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"ready 1") > 0
+                  or app.count("AZREVIEW_DICTATION", r"refused .*") > 0 or app.count("AZREVIEW_DICTATION", r"ended 1 .*") > 0)[1])
+        opened_after = time.perf_counter() - began
+        print("[review-mic] after %.2f s: %s" % (opened_after, app.printed("AZREVIEW_DICTATION", r".*")), flush=True)
+        print("[review-mic] the microphone's states: %s" % app.printed("AZREVIEW_MIC", r".*"), flush=True)
+        if app.count("AZREVIEW_DICTATION", r"ended 1 .*") == 0 and app.has_id("__azreview_dictation-stop"):
+            time.sleep(2.0)
+            t0 = time.perf_counter()
+            app.click(selector="#__azreview_dictation-stop")
+            app.until("the stop ends it", lambda: app.count("AZREVIEW_DICTATION", r"ended 1 .*") > 0)
+            took = time.perf_counter() - t0
+            print("[review-mic] the stop key ended the dictation after %.2f s" % took, flush=True)
+            if took > 6.0:
+                raise Failure("a stop took %.1f s to end the real stream" % took)
+        print("[review-mic] the lines: %s" % app.printed("AZREVIEW_DICTATION", r".*"), flush=True)
+        no_lint(app, "the microphone smoke run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: a dictation through the real recogniser starts, tells its microphone and ends at a stop (nothing was said)")
+
+
 def dictation_stream(args, logs, out, binary):
     """A dictation through the engine's stream (a test-hooks libazul, which scripts the recogniser: nothing opens a microphone):
     the words come as they are said (the words so far, then each utterance), the microphone is told, the quiet ends the stream
@@ -1403,13 +1455,16 @@ def notes_in(path):
 
 def run_all(args, logs, out):
     binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
-    # AZREVIEW_E2E_ONLY=slash, progress, growth, ink, dictation, stream or conversations runs that step alone (the others each take minutes).
+    # AZREVIEW_E2E_ONLY=slash, progress, growth, ink, dictation, stream, mic (by hand: it opens the microphone) or conversations runs that step alone (the others each take minutes).
     only = os.environ.get("AZREVIEW_E2E_ONLY", "")
     if only == "slash":
         slash(args, logs, out, binary)
         return True
     if only == "progress":
         progress(args, logs, out, binary)
+        return True
+    if only == "mic":
+        mic_smoke(args, logs, out, binary)
         return True
     if only == "ink":
         ink_to_agent(args, logs, out, binary)

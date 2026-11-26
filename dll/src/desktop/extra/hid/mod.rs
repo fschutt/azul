@@ -10,6 +10,10 @@
 //! 9g-ii-c) the `HidDeviceVec` / `HidReportVec` types that let a binding read
 //! them. Nothing produced. This is the producer.
 //!
+//! The capability pump enumerates from the FIRST USE of the devices on (a node that listens for `HidReport`, a pad
+//! listened to, or a callback that asks with `get_hid_devices()` / `get_hid_reports()`), not at the first window
+//! activation: opening every HID device is 146 ms of the window's thread on a Mac, for apps that use none.
+//!
 //! Per-platform:
 //! - **Linux**: `/dev/hidraw*`, implemented here. No library to load.
 //! - **macOS**: `IOHIDManager`, implemented here. dlopen'd; needs Input Monitoring.

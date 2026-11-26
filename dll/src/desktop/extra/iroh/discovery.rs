@@ -29,7 +29,7 @@ use iroh::{
 };
 use n0_future::{boxed::BoxStream, StreamExt};
 
-use super::types::IrohConfig;
+use super::{nearby::Nearby, types::IrohConfig};
 
 /// The most addresses of one announcement that a dial gets: a computer has a handful (an IPv4
 /// address, a few IPv6 ones with their privacy variants); an announcement of hundreds is hostile.
@@ -111,13 +111,16 @@ pub(super) trait LocalDiscovery: Send + Sync {
     }
 
     /// Starts it for `endpoint`, inside the engine's runtime. `announce`: whether this endpoint
-    /// announces itself too; `ignored` counts the announced addresses that were not used.
-    /// `Err(reason)`: the network or the OS refused it; the engine keeps the endpoint without it.
+    /// announces itself too; `ignored` counts the announced addresses that were not used;
+    /// `nearby` is told of every endpoint that announces itself on the network and of every one
+    /// that stops. `Err(reason)`: the network or the OS refused it; the engine keeps the
+    /// endpoint without it.
     fn start(
         &self,
         endpoint: &Endpoint,
         announce: bool,
         ignored: &Arc<AtomicU64>,
+        nearby: &Arc<Nearby>,
     ) -> Result<Option<Held>, String>;
 }
 
@@ -219,11 +222,16 @@ pub(super) fn sanitised(item: Item, ignored: &AtomicU64) -> Item {
 pub(super) struct LocalLookup<L> {
     inner: L,
     ignored: Arc<AtomicU64>,
+    nearby: Arc<Nearby>,
 }
 
 impl<L> LocalLookup<L> {
-    pub(super) fn new(inner: L, ignored: Arc<AtomicU64>) -> Self {
-        LocalLookup { inner, ignored }
+    pub(super) fn new(inner: L, ignored: Arc<AtomicU64>, nearby: Arc<Nearby>) -> Self {
+        LocalLookup {
+            inner,
+            ignored,
+            nearby,
+        }
     }
 }
 
@@ -234,10 +242,15 @@ impl<L: AddressLookup> AddressLookup for LocalLookup<L> {
 
     fn resolve(&self, endpoint_id: EndpointId) -> Option<BoxStream<Result<Item, LookupError>>> {
         let ignored = self.ignored.clone();
+        let nearby = self.nearby.clone();
         let found = self.inner.resolve(endpoint_id)?;
-        Some(Box::pin(
-            found.map(move |found| found.map(|item| sanitised(item, &ignored))),
-        ))
+        Some(Box::pin(found.map(move |found| {
+            found.map(|item| {
+                // an endpoint that a dial finds is on the network: the list hears it too
+                nearby.seen(item.endpoint_info());
+                sanitised(item, &ignored)
+            })
+        })))
     }
 }
 

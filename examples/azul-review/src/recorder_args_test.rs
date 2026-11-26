@@ -60,10 +60,10 @@ fn args(list: &[&str]) -> Vec<String> {
 /// Mutation: the number left in the app's arguments; the first of two taken; a recording asked for when none was.
 #[test]
 fn the_auto_switch_is_taken_out_with_its_seconds_and_the_rest_is_left_in_order() {
-    assert_eq!(take_auto(args(&["--record", "camera,mic", "--auto", "12", "--data-dir", "/d"])), Ok((Some(Auto { seconds: 12, note: None }), args(&["--record", "camera,mic", "--data-dir", "/d"]))));
+    assert_eq!(take_auto(args(&["--record", "camera,mic", "--auto", "12", "--data-dir", "/d"])), Ok((Some(Auto { seconds: 12, delay_ms: 0, note: None }), args(&["--record", "camera,mic", "--data-dir", "/d"]))));
     assert_eq!(take_auto(args(&["--language", "de"])), Ok((None, args(&["--language", "de"]))));
     assert_eq!(take_auto(Vec::new()), Ok((None, Vec::new())));
-    assert_eq!(take_auto(args(&["--auto", "5", "--auto", "9"])).unwrap().0, Some(Auto { seconds: 9, note: None }));
+    assert_eq!(take_auto(args(&["--auto", "5", "--auto", "9"])).unwrap().0, Some(Auto { seconds: 9, delay_ms: 0, note: None }));
 }
 
 /// A time outside what an unattended recording is for is brought into the range and said so, not refused and not
@@ -75,8 +75,8 @@ fn the_auto_switch_is_taken_out_with_its_seconds_and_the_rest_is_left_in_order()
 #[test]
 fn a_time_outside_the_range_is_brought_into_it_and_said_so() {
     let seconds = |text: &str| take_auto(args(&["--auto", text])).unwrap().0.unwrap();
-    assert_eq!(seconds("2"), Auto { seconds: AUTO_SECONDS_MIN, note: None });
-    assert_eq!(seconds("600"), Auto { seconds: AUTO_SECONDS_MAX, note: None });
+    assert_eq!(seconds("2"), Auto { seconds: AUTO_SECONDS_MIN, delay_ms: 0, note: None });
+    assert_eq!(seconds("600"), Auto { seconds: AUTO_SECONDS_MAX, delay_ms: 0, note: None });
     let low = seconds("1");
     assert_eq!(low.seconds, AUTO_SECONDS_MIN);
     assert!(low.note.as_deref().is_some_and(|n| n.contains("--auto 1:") && n.contains("recording 2 seconds instead")), "{low:?}");
@@ -101,5 +101,27 @@ fn what_is_no_number_of_seconds_is_refused() {
         assert!(why.contains("--auto") && why.contains("seconds"), "{bad:?}: {why}");
     }
     assert!(take_auto(args(&["--record", "mic", "--auto"])).unwrap_err().contains("--auto"));
+}
+
+/// The recording can start a while after the window is up (`--auto-delay-ms`), so that the start of the devices is
+/// measured apart from the start of the program: it is taken out of the arguments with the recording's time, in
+/// either order, brought into 0 to a minute with a note when it was not, and refused without a recording to delay.
+///
+/// Mutation: a delay left in the app's arguments; a delay over the limit taken; a delay without a recording taken; a
+/// delay that is not a number taken.
+#[test]
+fn the_recording_can_be_asked_to_start_a_while_after_the_window_is_up() {
+    assert_eq!(take_auto(args(&["--auto", "10", "--auto-delay-ms", "2500", "--language", "de"])), Ok((Some(Auto { seconds: 10, delay_ms: 2_500, note: None }), args(&["--language", "de"]))));
+    assert_eq!(take_auto(args(&["--auto-delay-ms", "0", "--auto", "4"])).unwrap().0, Some(Auto { seconds: 4, delay_ms: 0, note: None }));
+    assert_eq!(take_auto(args(&["--auto", "5", "--auto-delay-ms", "100", "--auto-delay-ms", "900"])).unwrap().0.unwrap().delay_ms, 900, "the last one given counts");
+    let capped = take_auto(args(&["--auto", "10", "--auto-delay-ms", "600000"])).unwrap().0.unwrap();
+    assert_eq!(capped.delay_ms, AUTO_DELAY_MS_MAX);
+    assert!(capped.note.as_deref().is_some_and(|n| n.contains("--auto-delay-ms 600000") && n.contains("60000 ms")), "{capped:?}");
+    assert!(take_auto(args(&["--auto-delay-ms", "500"])).unwrap_err().contains("--auto"), "a delay of nothing");
+    for bad in ["", "soon", "-1", "1.5"] {
+        let why = take_auto(args(&["--auto", "10", "--auto-delay-ms", bad])).unwrap_err();
+        assert!(why.contains("--auto-delay-ms") && why.contains("milliseconds"), "{bad:?}: {why}");
+    }
+    assert!(take_auto(args(&["--auto", "10", "--auto-delay-ms"])).unwrap_err().contains("--auto-delay-ms"));
 }
 

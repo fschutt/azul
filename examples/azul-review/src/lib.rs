@@ -117,6 +117,7 @@ pub mod recorder_patch;
 pub mod recorder_policy;
 pub mod recorder_probe;
 pub mod recorder_screen;
+pub mod recorder_ticks;
 pub mod recorder_ui;
 pub mod recorder_settings;
 pub mod recorder_track;
@@ -171,6 +172,7 @@ pub mod whiteboard_input;
 pub mod whiteboard_jump;
 pub mod whiteboard_json;
 pub mod whiteboard_lasso;
+pub mod whiteboard_place;
 pub mod whiteboard_render;
 pub mod whiteboard_settings;
 pub mod whiteboard_store;
@@ -1218,6 +1220,13 @@ impl AppState {
 
     pub(crate) fn file(&self) -> Option<&code::SourceFile> {
         self.open.as_ref()
+    }
+
+    /// A conversation begins: its note is kept with the revision the workspace is at now (what its suggestions will be made against;
+    /// the patch of its resolution says it), read from the files of `.git`.
+    pub fn start_conversation(&mut self, mut note: Note) {
+        note.talk.base = patch_store::base_of(&self.root);
+        self.notes.push(note);
     }
 
     /// Where the lines of `page` are drawn: the lines the suggestions of the conversations would put in (the ones that wait

@@ -1,7 +1,7 @@
 {
     "0.2.0": {
         "apiversion": 1,
-        "git": "d5b046d24",
+        "git": "6e2cb9598",
         "date": "2026-11-26",
         "installation": {
             "tabOrder": [
@@ -19025,6 +19025,11 @@
                                 "doc": [
                                     "The HID devices the platform enumerated.",
                                     "",
+                                    "The devices are enumerated when something first uses them (a node that listens for `HidReport`, or this call,",
+                                    "or `get_hid_reports`): opening every HID device of the machine takes a while, and an app that uses none of them",
+                                    "should not pay it at its first window. The first call therefore answers the list as it is (empty before the",
+                                    "first enumeration) and asks for the enumeration; the list is there from the next event on.",
+                                    "",
                                     "Returns an owned vec rather than a borrowed slice because this crosses",
                                     "the C API, where a slice has no representation."
                                 ],
@@ -19046,6 +19051,10 @@
                                     "The bytes are exactly as the device sent them, because decoding needs",
                                     "that device's report descriptor and a framework guessing at it would",
                                     "be wrong more often than useful. This is the same trade WebHID makes.",
+                                    "",
+                                    "The HID devices are enumerated when something first uses them (a node that listens for `HidReport`, or this",
+                                    "call, or `get_hid_devices`): the first call answers what there is (nothing before the first enumeration) and",
+                                    "asks for it, and the reports come from the next event on.",
                                     "",
                                     "Returns an owned vec rather than a borrowed slice because this crosses",
                                     "the C API, where a slice has no representation."
@@ -41139,6 +41148,12 @@
                                 "FontKerning": {
                                     "type": "StyleFontKerningValue"
                                 },
+                                "TextDecorationColor": {
+                                    "type": "StyleTextDecorationColorValue"
+                                },
+                                "TextDecorationThickness": {
+                                    "type": "StyleTextDecorationThicknessValue"
+                                },
                                 "TextWrap": {
                                     "type": "StyleTextWrapValue"
                                 },
@@ -52670,6 +52685,8 @@
                                 "FontVariationSettings": {},
                                 "FontOpticalSizing": {},
                                 "FontKerning": {},
+                                "TextDecorationColor": {},
+                                "TextDecorationThickness": {},
                                 "TextWrap": {},
                                 "FontVariantPosition": {},
                                 "TextRendering": {},
@@ -62035,6 +62052,73 @@
                             "target": "CssPropertyValue",
                             "generic_args": [
                                 "StyleTextWrap"
+                            ]
+                        }
+                    },
+                    "StyleTextDecorationColor": {
+                        "external": "azul_css::props::style::text::StyleTextDecorationColor",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "CurrentColor": {},
+                                "Color": {
+                                    "type": "ColorU"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextDecorationColorValue": {
+                        "external": "azul_css::props::property::StyleTextDecorationColorValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextDecorationColor"
+                            ]
+                        }
+                    },
+                    "StyleTextDecorationThickness": {
+                        "external": "azul_css::props::style::text::StyleTextDecorationThickness",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "FromFont": {},
+                                "Length": {
+                                    "type": "PixelValue"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextDecorationThicknessValue": {
+                        "external": "azul_css::props::property::StyleTextDecorationThicknessValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextDecorationThickness"
                             ]
                         }
                     }
@@ -180018,6 +180102,219 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "IrohNearbyPeerVec": {
+                        "external": "azul_dll::unified::iroh::IrohNearbyPeerVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "IrohNearbyPeer",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "IrohNearbyPeerVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `IrohNearbyPeerVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "IrohNearbyPeerVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `IrohNearbyPeerVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohNearbyPeerVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "iroh_nearby_peer_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "iroh_nearby_peer_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "iroh_nearby_peer_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `IrohNearbyPeerVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "IrohNearbyPeer"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohNearbyPeerVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `IrohNearbyPeerVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const IrohNearbyPeer"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohNearbyPeerVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionIrohNearbyPeer"
+                                },
+                                "fn_body": "iroh_nearby_peer_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `IrohNearbyPeerVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohNearbyPeerVecSlice"
+                                },
+                                "fn_body": "iroh_nearby_peer_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohNearbyPeerVecSlice"
+                                },
+                                "fn_body": "iroh_nearby_peer_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "IrohNearbyPeerVecDestructor": {
+                        "external": "azul_dll::unified::iroh::IrohNearbyPeerVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "IrohNearbyPeerVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "IrohNearbyPeerVecDestructorType": {
+                        "external": "azul_dll::unified::iroh::IrohNearbyPeerVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "IrohNearbyPeerVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -191366,6 +191663,30 @@
                                     "type": "SpeechEvent",
                                     "doc": [
                                         "Some value of type SpeechEvent"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionIrohNearbyPeer": {
+                        "external": "azul_dll::unified::iroh::OptionIrohNearbyPeer",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "IrohNearbyPeer",
+                                    "doc": [
+                                        "Some value of type IrohNearbyPeer"
                                     ]
                                 }
                             }
@@ -210383,6 +210704,9 @@
                                 "relay_url": {
                                     "type": "String"
                                 },
+                                "advertised": {
+                                    "type": "String"
+                                },
                                 "secret_key": {
                                     "type": "U8Vec"
                                 },
@@ -210579,6 +210903,25 @@
                                     "type": "IrohConfig"
                                 },
                                 "fn_body": "object.with_local_discovery(local_discovery)"
+                            },
+                            "with_advertised": {
+                                "doc": [
+                                    "Returns the config that tells the computers on the local network `text` about this",
+                                    "endpoint (see [`IrohConfig::advertised`]): an app that finds its other instances there",
+                                    "puts a short project id and a display name in it. Nothing is announced by default."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohConfig"
+                                },
+                                "fn_body": "object.with_advertised(text)"
                             }
                         },
                         "repr": "C"
@@ -210601,36 +210944,14 @@
                         ],
                         "enum_fields": [
                             {
-                                "Ready": {
-                                    "doc": [
-                                        "The endpoint knows its addresses. `text` is its ticket."
-                                    ]
-                                },
-                                "PeerConnected": {
-                                    "doc": [
-                                        "A connection was dialed or accepted. `text` is the remote endpoint id."
-                                    ]
-                                },
-                                "PeerDisconnected": {
-                                    "doc": [
-                                        "A connection closed. `text` is the reason."
-                                    ]
-                                },
-                                "Frame": {
-                                    "doc": [
-                                        "The newest frame of a track. Frames that arrived while it was pending were skipped."
-                                    ]
-                                },
-                                "Message": {
-                                    "doc": [
-                                        "A reliable message, delivered in the order the peer sent it."
-                                    ]
-                                },
-                                "Error": {
-                                    "doc": [
-                                        "A bind, dial or transport failure. `text` describes it."
-                                    ]
-                                }
+                                "Ready": {},
+                                "PeerConnected": {},
+                                "PeerDisconnected": {},
+                                "Frame": {},
+                                "Message": {},
+                                "Error": {},
+                                "NearbyAppeared": {},
+                                "NearbyGone": {}
                             }
                         ],
                         "repr": "C"
@@ -211128,6 +211449,44 @@
                                     "type": "String"
                                 },
                                 "fn_body": "object.local_discovery_status().into()"
+                            },
+                            "nearby_peers": {
+                                "doc": [
+                                    "The endpoints that announced themselves on the local network and are still announcing,",
+                                    "by endpoint id: what they advertise about themselves and the addresses a dial can use (at",
+                                    "most 64 endpoints, 16 addresses each). It is the state behind the `NearbyAppeared` and",
+                                    "`NearbyGone` events, filled while local discovery is on; nothing is dialed by it: an app",
+                                    "that wants to join one passes its endpoint id to `connect`. Empty when nothing is bound."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohNearbyPeerVec"
+                                },
+                                "fn_body": "object.nearby_peers()"
+                            },
+                            "set_advertised": {
+                                "doc": [
+                                    "Changes what this endpoint tells the computers on the local network about itself while it",
+                                    "is bound (`IrohConfig::advertised` sets the first text): the same cleaning and the same",
+                                    "245 bytes apply, and `local_discovery_status` says when the text was cut. An empty text",
+                                    "advertises nothing again. Returns false when nothing is bound."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.set_advertised(text)"
                             }
                         },
                         "repr": "C"
@@ -211473,6 +211832,54 @@
                                 "fn_body": "object.set_mesh_cap(room_size)"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "IrohNearbyPeer": {
+                        "external": "azul_dll::unified::iroh::IrohNearbyPeer",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "endpoint_id": {
+                                    "type": "String"
+                                },
+                                "advertised": {
+                                    "type": "String"
+                                },
+                                "addresses": {
+                                    "type": "StringVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "IrohNearbyPeerVecSlice": {
+                        "external": "azul_dll::unified::iroh::IrohNearbyPeerVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "IrohNearbyPeer",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }

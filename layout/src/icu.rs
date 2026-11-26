@@ -503,6 +503,15 @@ pub struct IcuDateTime {
     pub time: IcuTime,
 }
 
+// What `IcuDateTime::from_timestamp` and `from_timestamp_millis` return through the C API: a
+// timestamp that no date has (out of the range of the calendar) is `None`.
+azul_css::impl_option!(
+    IcuDateTime,
+    OptionIcuDateTime,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
 impl IcuDate {
     /// Create a new `IcuDate` from year, month, day.
     #[must_use]

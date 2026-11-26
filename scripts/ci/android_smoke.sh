@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
-# android_smoke.sh: do APKs BOOT? Starts ONE x86_64 emulator, then for every APK: installs it, starts its
-# launcher activity, waits, takes a screenshot and reads the log for a crash.
+# android_smoke.sh: do APKs BOOT? Starts ONE x86_64 emulator, then for every APK: installs it, takes a picture of the
+# home screen, starts the launcher activity, waits, takes a screenshot, looks again a few seconds later and reads the log.
 #
 #   scripts/ci/android_smoke.sh <out-dir> <seconds-to-wait> <apk> [<apk> ...]
 #
 # For an Ubuntu runner with KVM (without hardware acceleration the emulator is unusable) and the runner's
 # Android SDK (build-tools 34 for aapt2). Per APK <out-dir>/<apk name without .apk>/ holds
-#   screenshot.png   what the app showed after the wait
-#   logcat.txt       the log of that run
-#   result.json      {app, package, booted, alive, fatal: "<first fatal line>" | null, rust_log_lines, screen_nonblank}
-# and <out-dir>/summary.json lists them. Exit 0 when every app is alive after the wait with no fatal line in
-# the log; 1 when one is not; 2 when the emulator itself could not be started (nothing is said about the apps).
+#   baseline.png     the home screen before the launch (what an app that never came to the front leaves behind)
+#   screenshot.png   what the app showed after the wait; screenshot-2.png the second look
+#   logcat.txt       the log of that run;  activities.txt  what the system says is resumed;  tombstones.txt
+#   result.json      the verdict of scripts/ci/smoke_verdict.py: {app, id, alive, alive_after, resumed, differs_from_home,
+#                    screen_nonblank, fatal, pass, reason, ...}
+# (and screenshot-after-tap.png, tap.json when the manifest names a button for the app: AZ_SMOKE_TAPS, a JSON map
+# of app name -> the label to press, from scripts/demo_apps.toml's [app.smoke] tap; AZ_SMOKE_EXPECTS the same for the text
+# the first screen must show) and <out-dir>/summary.json lists them. An app BOOTS (pass) when it is alive twice, is the
+# resumed activity, is on the screen (not the home screen, not one flat colour) and left no fatal line; the reason of a
+# failure is in result.json. Exit 0 when every app boots; 1 when one does not; 2 when the emulator itself could not be
+# started (nothing is said about the apps).
 set -uo pipefail
 
 out="${1:?out-dir}"; wait_s="${2:?seconds}"; shift 2
@@ -66,7 +72,8 @@ for apk in "$@"; do
   badging="$("$aapt2" dump badging "$apk" 2>/dev/null)"
   pkg="$(echo "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
   act="$(echo "$badging" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" | head -n 1)"
-  alive=0; fatal=""; rust_lines=0; nonblank=0
+  alive=0; alive_after=0; fatal=""; rust_lines=0; resumed=""; expect_text=""; expect_found=""
+  verdict_args=()
   if [ -z "$pkg" ] || [ -z "$act" ]; then
     fatal="no package or launchable activity in the APK's badging"
   else
@@ -74,32 +81,84 @@ for apk in "$@"; do
     if ! adb install -r -t "$apk" >"$dir/install.log" 2>&1; then
       fatal="adb install failed: $(tail -n 1 "$dir/install.log")"
     else
+      # The launcher, as it is with the app installed: the picture the app's screen is told apart from
+      # (scripts/ci/smoke_verdict.py: an app that never came to the front leaves it behind).
+      adb shell input keyevent KEYCODE_HOME >/dev/null 2>&1; sleep 2
+      adb exec-out screencap -p >"$dir/baseline.png" 2>/dev/null || true
       adb shell am start -W -n "$pkg/$act" >"$dir/start.log" 2>&1 || true
       sleep "$wait_s"
       adb exec-out screencap -p >"$dir/screenshot.png" 2>/dev/null || true
       [ -n "$(adb shell pidof "$pkg" 2>/dev/null | tr -d '\r')" ] && alive=1
+      # which app the system itself says is in front
+      adb shell dumpsys activity activities >"$dir/activities.txt" 2>&1 || true
+      if grep -E "ResumedActivity" "$dir/activities.txt" | grep -q "$pkg/"; then resumed=yes; else resumed=no; fi
+      # the text the manifest expects on the first screen ([app.smoke] expect): in uiautomator's dump of it
+      expect_text="$(python3 -c 'import json,os,sys; print(json.loads(os.environ.get("AZ_SMOKE_EXPECTS") or "{}").get(sys.argv[1], ""))' "${app%-android-x86_64}")"
+      if [ -n "$expect_text" ] && [ "$alive" = "1" ]; then
+        adb shell uiautomator dump /sdcard/ui-first.xml >/dev/null 2>&1 && adb pull /sdcard/ui-first.xml "$dir/ui-first.xml" >/dev/null 2>&1
+        if grep -qiF -- "$expect_text" "$dir/ui-first.xml" 2>/dev/null; then expect_found="yes"; else expect_found="no"; fi
+      fi
+      # A button the manifest names ([app.smoke] tap): press it, wait, and look again. Found by its accessibility
+      # name in uiautomator's dump; else where the app's own notes put it (130 dp above the bottom edge, centred).
+      tap_label="$(python3 -c 'import json,os,sys; print(json.loads(os.environ.get("AZ_SMOKE_TAPS") or "{}").get(sys.argv[1], ""))' "${app%-android-x86_64}")"
+      if [ -n "$tap_label" ] && [ "$alive" = "1" ]; then
+        tapped="no"
+        adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 && adb pull /sdcard/ui.xml "$dir/ui-before.xml" >/dev/null 2>&1
+        xy="$(python3 - "$dir/ui-before.xml" "$tap_label" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+try:
+    root = ET.parse(sys.argv[1]).getroot()
+except Exception:
+    sys.exit(1)
+for n in root.iter("node"):
+    if sys.argv[2].lower() in (n.get("text", "") + " " + n.get("content-desc", "")).lower():
+        m = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", n.get("bounds", ""))
+        if m:
+            a, b, c, d = map(int, m.groups())
+            print((a + c) // 2, (b + d) // 2)
+            sys.exit(0)
+sys.exit(1)
+PY
+)" && tapped="by its name"
+        if [ -z "$xy" ]; then
+          wh="$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -n 1)"; dpi="$(adb shell wm density | grep -o '[0-9]*' | tail -n 1)"
+          xy="$(( ${wh%x*} / 2 )) $(( ${wh#*x} - 130 * ${dpi:-160} / 160 ))"; tapped="by its place"
+        fi
+        # shellcheck disable=SC2086
+        adb shell input tap $xy
+        sleep 5
+        adb exec-out screencap -p >"$dir/screenshot-after-tap.png" 2>/dev/null || true
+        tap_alive=0
+        [ -n "$(adb shell pidof "$pkg" 2>/dev/null | tr -d '\r')" ] && tap_alive=1
+        adb logcat -d -v threadtime >"$dir/logcat-after-tap.txt" 2>&1 || true
+        tap_fatal="$(grep -E "FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|UnsatisfiedLinkError|ANR in $pkg|Process $pkg .*(died|killed)|AndroidRuntime.*$pkg" "$dir/logcat-after-tap.txt" | head -n 1)"
+        python3 - "$dir/tap.json" "$tap_label" "$tapped" "$xy" "$tap_alive" "$tap_fatal" <<'PY'
+import json, sys
+path, label, how, xy, alive, fatal = sys.argv[1:]
+json.dump({"label": label, "found": how, "at": xy, "alive": alive == "1", "fatal": fatal or None}, open(path, "w"), indent=2)
+PY
+        verdict_args+=(--tap "$dir/tap.json")
+      fi
+      # The second look, a few seconds after the last thing the app was asked to do: still there, still on the screen.
+      sleep 3
+      [ -n "$(adb shell pidof "$pkg" 2>/dev/null | tr -d '\r')" ] && alive_after=1
+      adb exec-out screencap -p >"$dir/screenshot-2.png" 2>/dev/null || true
       adb logcat -d -v threadtime >"$dir/logcat.txt" 2>&1 || true
       # the first fatal line OF THIS APP: the JVM or the native side said its process died (other processes of the
       # emulator crash now and then and are not this app's verdict)
       fatal="$(grep -E "FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|UnsatisfiedLinkError|dlopen failed|ANR in $pkg|Process $pkg .*(died|killed)|AndroidRuntime.*$pkg" "$dir/logcat.txt" | head -n 1)"
       rust_lines="$(grep -c -E 'RustStdoutStderr| azul' "$dir/logcat.txt" || true)"
-      python3 - "$dir/screenshot.png" <<'PY' && nonblank=1
-import sys
-data = open(sys.argv[1], "rb").read()
-sys.exit(0 if data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) > 8000 else 1)
-PY
+      # tombstones, when the native side died
+      adb shell 'ls /data/tombstones 2>/dev/null' >"$dir/tombstones.txt" 2>&1 || true
       adb shell am force-stop "$pkg" >/dev/null 2>&1 || true
       adb uninstall "$pkg" >/dev/null 2>&1 || true
     fi
   fi
-  python3 - "$dir/result.json" "$app" "$pkg" "$alive" "$fatal" "${rust_lines:-0}" "$nonblank" <<'PY'
-import json, sys
-path, app, pkg, alive, fatal, rust, nonblank = sys.argv[1:]
-json.dump({"app": app, "package": pkg, "booted": True, "alive": alive == "1", "fatal": fatal or None,
-           "rust_log_lines": int(rust), "screen_nonblank": nonblank == "1"}, open(path, "w"), indent=2)
-PY
-  echo "[$([ "$alive" = 1 ] && [ -z "$fatal" ] && echo PASS || echo FAIL)] $app: alive=$alive fatal=${fatal:-none} rust_lines=${rust_lines:-0} screen=$nonblank"
-  { [ "$alive" = "1" ] && [ -z "$fatal" ]; } || all_ok=1
+  [ -n "$expect_text" ] && verdict_args+=(--expect-text "$expect_text" --expect-found "$expect_found")
+  [ -f "$dir/baseline.png" ] && verdict_args+=(--baseline "$dir/baseline.png" --after "$dir/screenshot-2.png")
+  # THE pass line: scripts/ci/smoke_verdict.py (alive twice, on the screen, drawn, no fatal line); nothing else decides
+  python3 "$(dirname "$0")/smoke_verdict.py" --out "$dir/result.json" --app "$app" --id "${pkg:-}" --alive "$alive" --alive-after "$alive_after" \
+    --fatal "$fatal" --rust-lines "${rust_lines:-0}" --resumed "$resumed" ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1
 done
 python3 - "$out" <<'PY'
 import json, pathlib, sys

@@ -2425,35 +2425,31 @@ fn generate_release_pages(
             version
         );
 
-        // Per-demo "run as a web app" Dockerfiles. Copy each
-        // examples/<crate>/Dockerfile to release/<version>/<crate>.Dockerfile (with
-        // the ARG default pinned to this release) so the release page's Web (Docker)
-        // links resolve to a `docker build`-able URL. Best-effort: a missing source
-        // (running outside the repo) just skips that demo.
-        for crate_name in [
-            "azul-paint",
-            "azul-widgets",
-            "azul-maps",
-            "azul-vault",
-            "azul-gamepad",
-            "azul-camera-app",
-            "azul-screenshare-app",
-            "azul-video-app",
-            "azul-meet",
-            "azul-self-test",
-        ] {
-            let src = examples_dir.join(crate_name).join("Dockerfile");
-            if let Ok(contents) = fs::read_to_string(&src) {
+        // Per-demo "run as a web app" Dockerfiles. Copy the Dockerfile of every app of
+        // scripts/demo_apps.toml that has `docker = true` (the ONE list of the apps, the one the
+        // release page's Web rows come from) to release/<version>/<Package>.Dockerfile, named
+        // after the PACKAGE like every other asset of the app (the page links that name; a copy
+        // named after the directory is a file nothing links), with the ARG default pinned to this
+        // release, so the links resolve to a `docker build`-able URL. Best-effort: a missing
+        // source (running outside the repo) just skips that demo.
+        let repo_root = examples_dir.parent().unwrap_or(examples_dir);
+        let mut dockerfiles = 0usize;
+        for (src, published) in
+            dllgen::demo_apps::dockerfile_copies(&dllgen::demo_apps::Manifest::embedded())
+        {
+            if let Ok(contents) = fs::read_to_string(repo_root.join(&src)) {
                 let pinned = contents.replace(
                     "ARG AZUL_VERSION=0.2.0",
                     &format!("ARG AZUL_VERSION={version}"),
                 );
-                let _ = fs::write(version_dir.join(format!("{crate_name}.Dockerfile")), pinned);
+                if fs::write(version_dir.join(&published), pinned).is_ok() {
+                    dockerfiles += 1;
+                }
             }
         }
         println!(
-            "  [OK] Generated: release/{}/<demo>.Dockerfile (web/Docker)",
-            version
+            "  [OK] Generated: release/{}/<Package>.Dockerfile (web/Docker, {} apps)",
+            version, dockerfiles
         );
 
         // Copy per-language (non-whitelist) bindings + scaffolding so that the

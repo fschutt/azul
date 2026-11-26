@@ -74,3 +74,53 @@ fn a_desktop_has_the_wallpapers_it_was_given_and_no_other_desktop_does() {
     assert!(matches!(yours.environment([1, 2, 3]), Environment::Highlight(_)));
     assert!(!yours.refresh(), "a desktop without a reader has nothing to read again");
 }
+
+/// A desktop that was never read is not read by a refresh (the shells refresh at every window activation, the first at
+/// the window's start: the wallpaper is read when a metal first asks for it, not then); once it was read, a refresh
+/// reads it again, and a desktop that was given its wallpapers reads them again too.
+///
+/// Mutation: a refresh that reads a desktop nobody read; one that does not read a desktop that was read.
+#[test]
+fn a_refresh_reads_only_a_desktop_that_was_read_before() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static READS: AtomicUsize = AtomicUsize::new(0);
+    fn counted() -> Vec<Wallpaper> {
+        READS.fetch_add(1, Ordering::SeqCst);
+        vec![grey(20, SCREEN)]
+    }
+    let desktop = DesktopWallpapers::new();
+    desktop.set_loader(counted);
+    assert!(!desktop.refresh(), "nothing read, nothing to read again");
+    assert_eq!(READS.load(Ordering::SeqCst), 0, "the activation did not read the wallpaper");
+    assert_eq!(desktop.generation(), 0);
+
+    assert!(matches!(desktop.environment([1, 2, 3]), Environment::Wallpapers(_)));
+    assert_eq!(READS.load(Ordering::SeqCst), 1, "the first metal reads it");
+    assert!(!desktop.refresh(), "the same wallpaper is no change");
+    assert_eq!(READS.load(Ordering::SeqCst), 2, "a refresh of a desktop that was read reads again");
+}
+
+/// A reader that found no wallpaper at the first metal (a desktop without one) is asked again by a refresh: the user may
+/// have set one while the app was away.
+///
+/// Mutation: a refresh that skips a desktop whose first reading found nothing.
+#[test]
+fn a_desktop_whose_first_reading_found_nothing_is_read_again_by_a_refresh() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static READS: AtomicUsize = AtomicUsize::new(0);
+    fn none_at_first() -> Vec<Wallpaper> {
+        if READS.fetch_add(1, Ordering::SeqCst) == 0 {
+            Vec::new()
+        } else {
+            vec![grey(20, SCREEN)]
+        }
+    }
+    let desktop = DesktopWallpapers::new();
+    desktop.set_loader(none_at_first);
+    assert!(matches!(desktop.environment([1, 2, 3]), Environment::Highlight(_)), "no wallpaper yet");
+    assert_eq!(desktop.generation(), 0);
+    assert!(desktop.refresh(), "one was set while the app was away");
+    assert_eq!(desktop.generation(), 1);
+    assert_eq!(READS.load(Ordering::SeqCst), 2);
+}
+
