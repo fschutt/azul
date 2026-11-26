@@ -45,7 +45,7 @@ fn sources(overlay: &ContentOverlay, dom_id: DomId, node: usize) -> Vec<Option<u
         .expect("the entry is there")
         .content
         .clone();
-    for_each_run_mut(&mut content, &mut |run| named.push(run.source_node_id.map(NodeId::index)));
+    for_each_run_mut(&mut content, &mut |run| named.push(run.source_node_id.map(|node| node.index())));
     named
 }
 
