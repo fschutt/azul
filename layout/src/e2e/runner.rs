@@ -1060,7 +1060,7 @@ impl Runner {
             // No window is open in the runner, so `dismiss` returns None - its
             // bookkeeping (forced-open released, focus owed, node held
             // dismissed) is what counts.
-            let _ = self.layout_window.transient_windows.dismiss(node);
+            drop(self.layout_window.transient_windows.dismiss(node));
         }
         // The Escape is spent (a press is not: it goes on to its target).
         if by_escape {
@@ -3476,7 +3476,7 @@ impl Runner {
             CallbackChange::RetryGlobalHotkey { hotkey } => {
                 let hotkeys = self.layout_window.global_hotkeys.shared();
                 hotkeys.retry(*hotkey);
-                let _ = hotkeys.sync();
+                drop(hotkeys.sync());
                 ProcessEventResult::DoNothing
             }
             CallbackChange::SetPointerLock { locked } => {
@@ -4826,6 +4826,7 @@ fn window_listeners(styled_dom: &StyledDom) -> Vec<NodeId> {
     nodes
 }
 
+#[must_use]
 pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
     run_e2e_test_with_dom(test, None)
 }
@@ -4834,6 +4835,7 @@ pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
 /// environment as a host read it once at the start - the traces of the runner (`AZ_ACT_DEBUG`,
 /// `AZ_ANIM_DEBUG`), the solver's and the text group's switches. [`run_e2e_test`] runs under the
 /// defaults, the behaviour of an empty environment.
+#[must_use]
 pub fn run_e2e_test_with_settings(
     test: &E2eTest,
     settings: &crate::settings::LayoutSettings,

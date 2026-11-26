@@ -6188,6 +6188,7 @@ pub fn scripted_run_owns_the_clock() -> bool {
 /// the HTTP server / `AZ_RECORD` exactly as before. (The lean stub overrides
 /// this to follow `AZ_LOG` and forward to the `log` facade instead.)
 #[cfg(feature = "std")]
+#[must_use]
 pub fn log_active() -> bool {
     is_debug_enabled()
 }
@@ -6204,7 +6205,7 @@ pub fn log_active() -> bool {
 pub fn init_recording(record: Option<&std::path::Path>) {
     if let Some(path) = record {
         if let Ok(file) = std::fs::File::create(path) {
-            let _ = RECORD_FILE.set(Mutex::new(file));
+            drop(RECORD_FILE.set(Mutex::new(file)));
             DEBUG_ENABLED.store(true, Ordering::SeqCst);
             SERVER_START_TIME.get_or_init(std::time::Instant::now);
             LOG_QUEUE.get_or_init(|| Mutex::new(Vec::new()));
@@ -6269,7 +6270,7 @@ pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> mpsc::Receiver<DebugResponseData>
 
     if let Some(handle) = get_debug_server() {
         if let Ok(mut sender) = handle.request_tx.lock() {
-            let _ = sender.send(request);
+            drop(sender.send(request));
         }
         announce_debug_request();
     }
@@ -6382,7 +6383,7 @@ fn log_internal(
     if let Some(file) = RECORD_FILE.get() {
         if let Ok(mut f) = file.lock() {
             use std::io::Write;
-            let _ = writeln!(
+            let _unused = writeln!(
                 f,
                 "[{timestamp_us:>12}us] [{level:?}] [{category:?}] {message}"
             );
@@ -6974,10 +6975,10 @@ pub fn send_ok(
         }
     }
     // Clear logs to prevent memory buildup
-    let _ = take_logs();
+    drop(take_logs());
     let response = DebugResponseData::Ok { window_state, data };
     // Receiver may have disconnected (HTTP thread timed out) — ignore send errors
-    let _ = request.response_tx.send(response);
+    drop(request.response_tx.send(response));
 }
 
 /// Send an error response to a debug request
@@ -7014,15 +7015,16 @@ fn synthesize_solid_image(
 
 pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
     // Clear logs to prevent memory buildup
-    let _ = take_logs();
+    drop(take_logs());
     let response = DebugResponseData::Err(message.into());
     // Receiver may have disconnected (HTTP thread timed out) — ignore send errors
-    let _ = request.response_tx.send(response);
+    drop(request.response_tx.send(response));
 }
 
 /// Helper function for serializing `DebugHttpResponse`
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server")]
+#[must_use]
 pub fn serialize_http_response(response: &DebugHttpResponse) -> String {
     serde_json::to_string_pretty(response)
         .unwrap_or_else(|_| r#"{"status":"error","message":"Serialization failed"}"#.to_string())
@@ -7094,7 +7096,7 @@ pub fn handle_event_request(
 
             // Send via spmc channel, then wake the UI loop that serves it
             if let Ok(mut sender) = request_tx.lock() {
-                let _ = sender.send(request);
+                drop(sender.send(request));
             }
             announce_debug_request();
 
@@ -7455,6 +7457,7 @@ impl AssertionResult {
 /// | `assert_global_hotkeys` | `expect` (`[{accelerator, status?, owner?}]`), `count?` |
 /// | `assert_memory_growth` | `vs` (a `snapshot_resources` name), `max_bytes` |
 #[cfg(feature = "std")]
+#[must_use]
 pub fn evaluate_assertion(
     op: &str,
     params: &serde_json::Value,
@@ -8791,7 +8794,7 @@ fn eval_assert_screenshot(
 
         // Save the actual screenshot if requested
         if let Some(actual_path) = save_actual {
-            let _ = std::fs::write(actual_path, &png_bytes);
+            drop(std::fs::write(actual_path, &png_bytes));
         }
 
         // Load and compare against reference
@@ -8810,7 +8813,7 @@ fn eval_assert_screenshot(
                 if e.kind() == std::io::ErrorKind::NotFound {
                     if e2e_record_mode(callback_info) {
                         if let Some(parent) = std::path::Path::new(reference_path).parent() {
-                            let _ = std::fs::create_dir_all(parent);
+                            drop(std::fs::create_dir_all(parent));
                         }
                         if let Err(we) = std::fs::write(reference_path, &png_bytes) {
                             return AssertionResult::fail(format!(
@@ -15326,12 +15329,12 @@ fn resume_e2e_continuation_inner(
     }
 
     // All tests done — send results
-    let _ = cont.response_tx.send(DebugResponseData::Ok {
+    drop(cont.response_tx.send(DebugResponseData::Ok {
         window_state: None,
         data: Some(ResponseData::E2eResults(E2eResultsResponse {
             results: cont.completed_results,
         })),
-    });
+    }));
 
     needs_update
 }
@@ -18999,8 +19002,8 @@ fn serve_debug_event(
             // capture order.
             match callback_info.render_screenshot(dom_id) {
                 Ok(pixmap) => {
-                    let _ = take_logs();
-                    let _ = request
+                    drop(take_logs());
+                    drop(request
                         .response_tx
                         .send(DebugResponseData::pending_screenshot(
                             pixmap,
@@ -19010,7 +19013,7 @@ fn serve_debug_event(
                                 .e2e
                                 .shot_dir
                                 .clone(),
-                        ));
+                        )));
                 }
                 Err(e) => {
                     send_err(request, e.as_str().to_string());
@@ -25436,14 +25439,14 @@ fn write_shot_to_dir(dir: Option<&std::path::Path>, data_uri: &str) {
     let Some(dir) = dir else {
         return;
     };
-    let _ = std::fs::create_dir_all(dir);
+    drop(std::fs::create_dir_all(dir));
     // Numbers the files ONE process writes into the one `AZ_E2E_SHOT_DIR` (process configuration), in
     // the order the scenario asked for them, whichever window took them.
     static SHOT_N: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
     let n = SHOT_N.fetch_add(1, Ordering::Relaxed);
     let raw = data_uri.rsplit(',').next().unwrap_or("");
     if let Ok(bytes) = base64_decode_for_shot(raw) {
-        let _ = std::fs::write(dir.join(format!("shot-{n:03}.png")), bytes);
+        drop(std::fs::write(dir.join(format!("shot-{n:03}.png")), bytes));
     }
 }
 
