@@ -9,6 +9,7 @@ import contextlib
 import io
 import json
 import pathlib
+import re
 import sys
 import tarfile
 import tempfile
@@ -347,6 +348,63 @@ class E2eVariantTest(unittest.TestCase):
                 demo_build.main(argv + ["--variant", "mobile"])
             with self.assertRaises(SystemExit):
                 demo_build.main(argv + ["--variant", "no-such-variant"])
+
+
+class WorkflowContractTest(unittest.TestCase):
+    """.github/workflows/demos.yml reads the plan job's outputs and the fields of its matrix entries: a name that the plan does not
+    write is an empty value at run time, found hours into a run. The workflow is read as text (the standard library has no YAML)."""
+
+    def setUp(self):
+        self.path = demo_apps.ROOT / ".github" / "workflows" / "demos.yml"
+        self.text = self.path.read_text(encoding="utf-8")
+        self.plan = demo_apps.plan(demo_apps.load(), e2e=True)
+
+    def jobs(self):
+        """{job name: body text} of the `jobs:` section."""
+        body = self.text[self.text.index("\njobs:\n"):]
+        parts = re.split(r"(?m)^  ([A-Za-z_][\w-]*):[ \t]*$", body)
+        return {parts[i]: parts[i + 1] for i in range(1, len(parts) - 1, 2)}
+
+    def test_the_plan_job_hands_on_every_key_the_plan_writes(self):
+        outputs = set(re.findall(r"(?m)^      (\w+): \$\{\{ steps\.plan\.outputs\.(\w+) \}\}$", self.jobs()["plan"]))
+        self.assertTrue(all(a == b for a, b in outputs), outputs)
+        self.assertEqual({a for a, _ in outputs}, set(self.plan))
+
+    def test_every_matrix_field_a_job_reads_is_in_every_entry_of_its_plan_list(self):
+        seen = 0
+        for name, body in self.jobs().items():
+            m = re.search(r"matrix: \$\{\{ fromJSON\(needs\.plan\.outputs\.(\w+)\) \}\}", body)
+            if not m:
+                continue
+            key = m.group(1)
+            self.assertIn(key, self.plan, f"{name} reads a list the plan does not write")
+            fields = set(re.findall(r"matrix\.(\w+)", body))
+            for entry in self.plan[key]:
+                missing = sorted(fields - set(entry))
+                self.assertEqual(missing, [], f"{name}: matrix.{missing} is in no field of the plan's {key} entry {entry.get('id') or entry.get('leg')}")
+            seen += 1
+        self.assertGreaterEqual(seen, 10)   # five libs, five apps
+
+    def test_the_phone_app_jobs_pass_the_variant_and_the_publish_job_never_reads_the_qa_artifacts(self):
+        jobs = self.jobs()
+        for name in ("apps_android", "apps_ios"):
+            self.assertIn('--variant "${{ matrix.variant }}"', jobs[name], name)
+        self.assertIn("pattern: demoapps-*", jobs["publish"])
+        self.assertNotIn("demoe2e", jobs["publish"])
+        for entry in self.plan["apps_android"] + self.plan["apps_ios"]:
+            self.assertEqual(entry["artifact"].startswith("demoe2e-"), entry["variant"] == "mobile-e2e")
+
+    def test_the_boot_tests_read_only_the_shipped_apps(self):
+        jobs = self.jobs()
+        self.assertIn("name: demoapps-android-x86_64", jobs["smoke_android"])
+        self.assertIn("name: demoapps-ios-sim", jobs["smoke_ios"])
+
+    def test_rust_yml_hands_the_inputs_to_the_workflow_and_keeps_no_list_of_apps(self):
+        rust = (demo_apps.ROOT / ".github" / "workflows" / "rust.yml").read_text(encoding="utf-8")
+        self.assertIn("uses: ./.github/workflows/demos.yml", rust)
+        self.assertIn("publish: ${{ inputs.publish_demos }}", rust)
+        self.assertIn("e2e: ${{ inputs.demos_e2e }}", rust)
+        self.assertEqual(demo_apps.check(), [])
 
 
 class BuildTest(unittest.TestCase):

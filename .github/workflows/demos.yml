@@ -1,0 +1,869 @@
+# .github/workflows/demos.yml: every Az app for every platform, boot-tested, in one status table.
+#
+# Called by rust.yml's run mode `demos` (`gh workflow run rust.yml --ref master -f run_mode=demos`); it is a
+# workflow of its own so that rust.yml, 380 KB of the 500 KB a workflow file may have, does not grow by it.
+#
+# scripts/demo_apps.toml is the one list of apps: the plan job turns it into the matrices below and fails
+# the run when the manifest, the workspace and the apps' own manifests disagree.
+#
+#   plan -> codegen (3 OSes) -> libs, ONE libazul per target and variant -> apps, grouped, each build
+#   `cargo build -p <App>` against that library with NO engine crate compiled (scripts/demo_gate.py
+#   reads cargo's JSON and fails the app that did) -> boot tests (an Android emulator with KVM, the iOS
+#   Simulator) -> report (demo-status.json / .md, the job summary) -> publish (only on `publish`).
+#
+# The QA variant (input `e2e`, rust.yml's demos_e2e): the phone libazul with the engine's debug server, linked by the same app
+# build for the apps that say `e2e = true`, as <Name>-e2e-<column> in artifacts named demoe2e-*. An artifact of the run for
+# the QA of the phone shells, never published: no release asset, no page link, not boot-tested here.
+#
+# Nothing here signs. The iOS device apps are UNSIGNED on purpose (AzReview signs them for the phone they
+# are installed on, with the user's own Apple ID); the APKs carry the fixed public debug key of
+# scripts/android/debug.keystore, so an update over an older install is accepted.
+
+name: demos
+
+on:
+  workflow_call:
+    inputs:
+      publish:
+        description: 'Upload the built apps to the GitHub release (the user decides when; never from a test run)'
+        type: boolean
+        default: false
+      e2e:
+        description: 'Also build the QA variant of the phone libazul with the engine debug server and the apps that ask for it (artifacts demoe2e-*, never published)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  NO_COLOR: "1"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  plan:
+    name: Plan (scripts/demo_apps.toml)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      libs_linux: ${{ steps.plan.outputs.libs_linux }}
+      libs_macos: ${{ steps.plan.outputs.libs_macos }}
+      libs_windows: ${{ steps.plan.outputs.libs_windows }}
+      libs_android: ${{ steps.plan.outputs.libs_android }}
+      libs_ios: ${{ steps.plan.outputs.libs_ios }}
+      apps_linux: ${{ steps.plan.outputs.apps_linux }}
+      apps_macos: ${{ steps.plan.outputs.apps_macos }}
+      apps_windows: ${{ steps.plan.outputs.apps_windows }}
+      apps_android: ${{ steps.plan.outputs.apps_android }}
+      apps_ios: ${{ steps.plan.outputs.apps_ios }}
+      smoke_taps: ${{ steps.plan.outputs.smoke_taps }}
+      smoke_expects: ${{ steps.plan.outputs.smoke_expects }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: The manifest, the workspace and the apps agree
+        run: python3 scripts/demo_apps.py check
+      - name: The matrices
+        id: plan
+        env:
+          E2E: ${{ inputs.e2e }}
+        run: |
+          flags=()
+          if [ "$E2E" = "true" ]; then flags+=(--e2e); fi
+          python3 scripts/demo_apps.py plan "${flags[@]}"
+
+  # The generated bindings every azul-dll build reads (the tree rust.yml's codegen jobs make, the same artifact
+  # names, the same caches). One job per OS: a red Windows generator does not hold back the Linux apps.
+  codegen_linux:
+    name: Generate bindings (Linux)
+    needs: [plan]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/demo-codegen
+
+  codegen_macos:
+    name: Generate bindings (macOS)
+    needs: [plan]
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/demo-codegen
+
+  codegen_windows:
+    name: Generate bindings (Windows)
+    needs: [plan]
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/demo-codegen
+
+  # ------------------------------------------------------------------------------------------------
+  # The libraries: ONE per target and variant, linked by every app of that target.
+  # ------------------------------------------------------------------------------------------------
+  lib_linux:
+    name: libazul (${{ matrix.id }})
+    needs: [plan, codegen_linux]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.libs_linux) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The library of this source is already built
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: demo-lib-out
+          key: demolib-v1-${{ matrix.id }}-${{ hashFiles('scripts/demo_apps.toml', 'Cargo.lock', 'css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs', 'dll/build_link.rs', 'dll/Cargo.toml', 'scripts/demo_lib.sh', 'scripts/strip_staticlib.sh') }}
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          toolchain: 1.91.0
+      - name: Install clang and the X11 / GL / video headers
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+      - name: Download generated bindings
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/codegen-tree
+        with:
+          os: ${{ matrix.codegen_os }}
+      - name: Build the library (${{ matrix.features }})
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash scripts/demo_lib.sh ${{ matrix.kind }} "${{ matrix.target }}" "${{ matrix.features }}" demo-lib-out
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.artifact }}
+          path: demo-lib-out
+          retention-days: 7
+          if-no-files-found: error
+      # what the status table says about the library (target, features, seconds, size), apart from the library
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: demolibinfo-${{ matrix.id }}
+          path: demo-lib-out/libazul.info.json
+          retention-days: 30
+          if-no-files-found: warn
+
+  lib_macos:
+    name: libazul (${{ matrix.id }})
+    needs: [plan, codegen_macos]
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.plan.outputs.libs_macos) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The library of this source is already built
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: demo-lib-out
+          key: demolib-v1-${{ matrix.id }}-${{ hashFiles('scripts/demo_apps.toml', 'Cargo.lock', 'css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs', 'dll/build_link.rs', 'dll/Cargo.toml', 'scripts/demo_lib.sh', 'scripts/strip_staticlib.sh') }}
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          toolchain: 1.91.0
+          targets: ${{ matrix.target }}
+      - name: Install coreutils
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: brew install coreutils
+      - name: Download generated bindings
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/codegen-tree
+        with:
+          os: ${{ matrix.codegen_os }}
+      - name: Build the library (${{ matrix.features }})
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          # the oldest macOS rustc builds for on this CPU: the C parts of the engine (cc-rs) target it too
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
+        run: bash scripts/demo_lib.sh ${{ matrix.kind }} "${{ matrix.target }}" "${{ matrix.features }}" demo-lib-out
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.artifact }}
+          path: demo-lib-out
+          retention-days: 7
+          if-no-files-found: error
+      # what the status table says about the library (target, features, seconds, size), apart from the library
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: demolibinfo-${{ matrix.id }}
+          path: demo-lib-out/libazul.info.json
+          retention-days: 30
+          if-no-files-found: warn
+
+  lib_windows:
+    name: libazul (${{ matrix.id }})
+    needs: [plan, codegen_windows]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.libs_windows) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The library of this source is already built
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: demo-lib-out
+          key: demolib-v1-${{ matrix.id }}-${{ hashFiles('scripts/demo_apps.toml', 'Cargo.lock', 'css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs', 'dll/build_link.rs', 'dll/Cargo.toml', 'scripts/demo_lib.sh', 'scripts/strip_staticlib.sh') }}
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          toolchain: 1.91.0
+      - name: MinGW-w64, as the library and the demo jobs of rust.yml have it (the image's, else chocolatey's)
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          if command -v gcc >/dev/null 2>&1; then
+            echo "gcc already on PATH: $(gcc --version | head -1)"
+            exit 0
+          fi
+          if [ -x /c/msys64/mingw64/bin/gcc.exe ]; then
+            printf '%s\n' "using the image's MinGW-w64 at /c/msys64/mingw64/bin"
+            printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            if choco install mingw --version 16.1.0 -y --no-progress; then exit 0; fi
+            echo "::warning::choco install mingw failed (attempt $attempt/3); retrying"
+            sleep 15
+          done
+          echo "::error::MinGW unavailable: no gcc on PATH, none in the image, and choco failed 3x"
+          exit 1
+      - name: Download generated bindings
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/codegen-tree
+        with:
+          os: ${{ matrix.codegen_os }}
+      - name: Build the library (${{ matrix.features }})
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: bash scripts/demo_lib.sh ${{ matrix.kind }} "${{ matrix.target }}" "${{ matrix.features }}" demo-lib-out
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.artifact }}
+          path: demo-lib-out
+          retention-days: 7
+          if-no-files-found: error
+      # what the status table says about the library (target, features, seconds, size), apart from the library
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: demolibinfo-${{ matrix.id }}
+          path: demo-lib-out/libazul.info.json
+          retention-days: 30
+          if-no-files-found: warn
+
+  lib_android:
+    name: libazul (${{ matrix.id }})
+    needs: [plan, codegen_linux]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.libs_android) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The library of this source is already built
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: demo-lib-out
+          key: demolib-v1-${{ matrix.id }}-${{ hashFiles('scripts/demo_apps.toml', 'Cargo.lock', 'css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs', 'dll/build_link.rs', 'dll/Cargo.toml', 'scripts/demo_lib.sh', 'scripts/strip_staticlib.sh') }}
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          toolchain: 1.91.0
+          targets: ${{ matrix.target }}
+      - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
+        if: steps.cache.outputs.cache-hit != 'true'
+        id: ndk
+        with:
+          ndk-version: r27
+      - name: Download generated bindings
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/codegen-tree
+        with:
+          os: ${{ matrix.codegen_os }}
+      - name: Build the library (${{ matrix.features }})
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: bash scripts/demo_lib.sh ${{ matrix.kind }} "${{ matrix.target }}" "${{ matrix.features }}" demo-lib-out
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.artifact }}
+          path: demo-lib-out
+          retention-days: 7
+          if-no-files-found: error
+      # what the status table says about the library (target, features, seconds, size), apart from the library
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: demolibinfo-${{ matrix.id }}
+          path: demo-lib-out/libazul.info.json
+          retention-days: 30
+          if-no-files-found: warn
+
+  lib_ios:
+    name: libazul (${{ matrix.id }})
+    needs: [plan, codegen_macos]
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.plan.outputs.libs_ios) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The library of this source is already built
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: demo-lib-out
+          key: demolib-v1-${{ matrix.id }}-${{ hashFiles('scripts/demo_apps.toml', 'Cargo.lock', 'css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs', 'dll/build_link.rs', 'dll/Cargo.toml', 'scripts/demo_lib.sh', 'scripts/strip_staticlib.sh') }}
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          toolchain: 1.91.0
+          targets: ${{ matrix.target }}
+      - name: Download generated bindings
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/codegen-tree
+        with:
+          os: ${{ matrix.codegen_os }}
+      - name: The iOS SDK resolves
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          xcode-select -p
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphonesimulator --show-sdk-path
+      - name: Build the library (${{ matrix.features }})
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash scripts/demo_lib.sh ${{ matrix.kind }} "${{ matrix.target }}" "${{ matrix.features }}" demo-lib-out
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.artifact }}
+          path: demo-lib-out
+          retention-days: 7
+          if-no-files-found: error
+      # what the status table says about the library (target, features, seconds, size), apart from the library
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: demolibinfo-${{ matrix.id }}
+          path: demo-lib-out/libazul.info.json
+          retention-days: 30
+          if-no-files-found: warn
+
+  # ------------------------------------------------------------------------------------------------
+  # The apps: one job per (platform, group of apps), every app its own `cargo build` against the library.
+  # A failing app leaves a result file and never stops the others (scripts/demo_build.py).
+  # ------------------------------------------------------------------------------------------------
+  apps_linux:
+    name: Apps (${{ matrix.leg }} ${{ matrix.group }}/${{ matrix.groups }})
+    needs: [plan, codegen_linux, lib_linux]
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.apps_linux) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+      - name: Free disk space and install the system packages
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeQL 2>/dev/null || true
+          sudo apt-get update -qq || true
+          sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev xvfb libgl1-mesa-dri fonts-dejavu-core
+      - name: Download generated bindings
+        uses: ./.github/actions/codegen-tree
+        with:
+          os: ${{ matrix.codegen_os }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ matrix.lib_artifact }}
+          path: libazul-prebuilt
+      - name: Build ${{ matrix.apps }}
+        run: >-
+          python3 scripts/demo_build.py desktop --leg ${{ matrix.leg }} --apps "${{ matrix.apps }}"
+          --lib libazul-prebuilt/${{ matrix.lib_file }} --out demos-out --results demos-results --run-check
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ${{ matrix.artifact }}
+          path: demos-out
+          retention-days: 30
+          if-no-files-found: warn
+      # the small files the status table reads, apart from the binaries: the report job downloads only these
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ${{ matrix.results_artifact }}
+          path: demos-results
+          retention-days: 30
+          if-no-files-found: warn
+
+  apps_macos:
+    # Apple Silicon and Intel on the same runner kind: the Intel apps are built for x86_64 on an arm64 runner,
+    # against the x86_64 library (macOS runners are the scarce kind: 5 at once on this account).
+    name: Apps (${{ matrix.leg }} ${{ matrix.group }}/${{ matrix.groups }})
+    needs: [plan, codegen_macos, lib_macos]
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.plan.outputs.apps_macos) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+          targets: ${{ matrix.target }}
+      - name: Download generated bindings
+        uses: ./.github/actions/codegen-tree
+        with:
+          os: ${{ matrix.codegen_os }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ matrix.lib_artifact }}
+          path: libazul-prebuilt
+      - name: Build ${{ matrix.apps }}
+        run: >-
+          python3 scripts/demo_build.py desktop --leg ${{ matrix.leg }} --apps "${{ matrix.apps }}"
+          --lib libazul-prebuilt/${{ matrix.lib_file }} --out demos-out --results demos-results
+          ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          --deployment-target ${{ matrix.deployment_target }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ${{ matrix.artifact }}
+          path: demos-out
+          retention-days: 30
+          if-no-files-found: warn
+      # the small files the status table reads, apart from the binaries: the report job downloads only these
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ${{ matrix.results_artifact }}
+          path: demos-results
+          retention-days: 30
+          if-no-files-found: warn
+
+  apps_windows:
+    name: Apps (${{ matrix.leg }} ${{ matrix.group }}/${{ matrix.groups }})
+    needs: [plan, codegen_windows, lib_windows]
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.apps_windows) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+      - name: MinGW-w64, as the library and the demo jobs of rust.yml have it (the image's, else chocolatey's)
+        shell: bash
+        run: |
+          if command -v gcc >/dev/null 2>&1; then
+            echo "gcc already on PATH: $(gcc --version | head -1)"
+            exit 0
+          fi
+          if [ -x /c/msys64/mingw64/bin/gcc.exe ]; then
+            printf '%s\n' "using the image's MinGW-w64 at /c/msys64/mingw64/bin"
+            printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            if choco install mingw --version 16.1.0 -y --no-progress; then exit 0; fi
+            echo "::warning::choco install mingw failed (attempt $attempt/3); retrying"
+            sleep 15
+          done
+          echo "::error::MinGW unavailable: no gcc on PATH, none in the image, and choco failed 3x"
+          exit 1
+      - name: Download generated bindings
+        uses: ./.github/actions/codegen-tree
+        with:
+          os: ${{ matrix.codegen_os }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ matrix.lib_artifact }}
+          path: libazul-prebuilt
+      - name: Build ${{ matrix.apps }}
+        shell: bash
+        run: >-
+          python3 scripts/demo_build.py desktop --leg ${{ matrix.leg }} --apps "${{ matrix.apps }}"
+          --lib libazul-prebuilt/${{ matrix.lib_file }} --out demos-out --results demos-results
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ${{ matrix.artifact }}
+          path: demos-out
+          retention-days: 30
+          if-no-files-found: warn
+      # the small files the status table reads, apart from the binaries: the report job downloads only these
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ${{ matrix.results_artifact }}
+          path: demos-results
+          retention-days: 30
+          if-no-files-found: warn
+
+  apps_android:
+    name: Apps (${{ matrix.leg }})
+    needs: [plan, codegen_linux, lib_android]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.apps_android) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+          targets: ${{ matrix.target }}
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          cmdline-tools-version: 12266719
+          packages: platform-tools
+      - name: Install SDK build-tools + platform
+        run: sdkmanager "build-tools;34.0.0" "platforms;android-34"
+      - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
+        id: ndk
+        with:
+          ndk-version: r27
+      - name: Download generated bindings
+        uses: ./.github/actions/codegen-tree
+        with:
+          os: ${{ matrix.codegen_os }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: demolib-${{ matrix.leg }}-*
+          path: demo-libs
+      - name: Build ${{ matrix.apps }}
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: >-
+          python3 scripts/demo_build.py android --target ${{ matrix.target }} --apps "${{ matrix.apps }}"
+          --libs demo-libs --out demos-out --results demos-results --variant "${{ matrix.variant }}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ${{ matrix.artifact }}
+          path: demos-out
+          retention-days: 30
+          if-no-files-found: warn
+      # the small files the status table reads, apart from the binaries: the report job downloads only these
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ${{ matrix.results_artifact }}
+          path: demos-results
+          retention-days: 30
+          if-no-files-found: warn
+
+  apps_ios:
+    name: Apps (${{ matrix.leg }})
+    needs: [plan, codegen_macos, lib_ios]
+    strategy:
+      fail-fast: false
+      # macOS runners are 5 at once on this account: the Apple apps take 3, the phone apps 1, the rest is for others
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.plan.outputs.apps_ios) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+          targets: ${{ matrix.target }}
+      - name: Download generated bindings
+        uses: ./.github/actions/codegen-tree
+        with:
+          os: ${{ matrix.codegen_os }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: demolib-${{ matrix.leg }}-*
+          path: demo-libs
+      - name: Build ${{ matrix.apps }}
+        run: >-
+          python3 scripts/demo_build.py ios --target ${{ matrix.target }} --apps "${{ matrix.apps }}"
+          --libs demo-libs --out demos-out --results demos-results --variant "${{ matrix.variant }}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ${{ matrix.artifact }}
+          path: demos-out
+          retention-days: 30
+          if-no-files-found: warn
+      # the small files the status table reads, apart from the binaries: the report job downloads only these
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ${{ matrix.results_artifact }}
+          path: demos-results
+          retention-days: 30
+          if-no-files-found: warn
+
+  # ------------------------------------------------------------------------------------------------
+  # Do they BOOT? An x86_64 emulator with KVM and the iOS Simulator start every phone app, wait,
+  # take a screenshot and read the log. Informs, never blocks.
+  # ------------------------------------------------------------------------------------------------
+  smoke_android:
+    name: Boot test (Android emulator)
+    needs: [plan, apps_android]
+    if: ${{ !cancelled() && needs.apps_android.result != 'skipped' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: demoapps-android-x86_64
+          path: apks
+      - name: Start every app on an emulator
+        env:
+          AZ_SMOKE_TAPS: ${{ needs.plan.outputs.smoke_taps }}
+          AZ_SMOKE_EXPECTS: ${{ needs.plan.outputs.smoke_expects }}
+        run: bash scripts/ci/android_smoke.sh demosmoke-android 15 apks/*.apk
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: demosmoke-android
+          path: demosmoke-android
+          retention-days: 30
+          if-no-files-found: warn
+
+  smoke_ios:
+    name: Boot test (iOS Simulator)
+    needs: [plan, apps_ios]
+    if: ${{ !cancelled() && needs.apps_ios.result != 'skipped' }}
+    runs-on: macos-15
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: demoapps-ios-sim
+          path: apps
+      - name: idb, to press the button a manifest names (best effort)
+        continue-on-error: true
+        run: |
+          brew tap facebook/fb
+          brew install idb-companion
+          python3 -m venv "$RUNNER_TEMP/idb"
+          "$RUNNER_TEMP/idb/bin/pip" install fb-idb
+          echo "$RUNNER_TEMP/idb/bin" >> "$GITHUB_PATH"
+      - name: Start every app in a simulator
+        env:
+          AZ_SMOKE_TAPS: ${{ needs.plan.outputs.smoke_taps }}
+          AZ_SMOKE_EXPECTS: ${{ needs.plan.outputs.smoke_expects }}
+        run: bash scripts/ci/ios_smoke.sh demosmoke-ios 12 apps/*-ios-sim.app.zip
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: demosmoke-ios
+          path: demosmoke-ios
+          retention-days: 30
+          if-no-files-found: warn
+
+  # ------------------------------------------------------------------------------------------------
+  # The status table of the run: which app built on which target, which booted, how big, how long.
+  # ------------------------------------------------------------------------------------------------
+  report:
+    name: Status table
+    needs: [plan, lib_linux, lib_macos, lib_windows, lib_android, lib_ios, apps_linux, apps_macos, apps_windows, apps_android, apps_ios, smoke_android, smoke_ios]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: demoresults-*
+          path: demo-all
+          merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: always()
+        with:
+          pattern: demosmoke-*
+          path: demo-smoke
+          merge-multiple: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: always()
+        with:
+          pattern: demolibinfo-*
+          path: demo-libinfo
+          merge-multiple: false
+      - name: The numbers of the run (runner minutes, artifacts)
+        id: numbers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          jobs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --jq '.jobs[] | [.started_at, .completed_at] | @tsv' || true)"
+          minutes="$(printf '%s\n' "$jobs" | python3 -c '
+          import sys, datetime
+          total = 0.0
+          for line in sys.stdin:
+              a, _, b = line.strip().partition("\t")
+              if a and b and b != "null":
+                  f = lambda s: datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+                  total += (f(b) - f(a)).total_seconds() / 60
+          print(round(total))')"
+          artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=1" --jq '.total_count' || echo 0)"
+          echo "minutes=$minutes" >> "$GITHUB_OUTPUT"
+          echo "artifacts=$artifacts" >> "$GITHUB_OUTPUT"
+      - name: The status table
+        run: >-
+          python3 scripts/demo_apps.py status demo-all demo-smoke demo-libinfo
+          --artifacts=${{ steps.numbers.outputs.artifacts }} --runner_minutes=${{ steps.numbers.outputs.minutes }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: demo-status
+          path: |
+            demo-status.json
+            demo-status.md
+          retention-days: 30
+
+  # ------------------------------------------------------------------------------------------------
+  # Publishing: ONLY when the run was asked to (rust.yml's publish_demos, the user's word). The assets are
+  # the names the release page links (doc/src/dllgen/demo_apps.rs builds the same names from the manifest):
+  # desktop binaries as .tar.gz, the phone files as they are, companion.json for AzReview's installer.
+  # ------------------------------------------------------------------------------------------------
+  publish:
+    name: Publish to the release
+    needs: [plan, report]
+    if: ${{ inputs.publish && !cancelled() && needs.report.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: demoapps-*
+          path: demo-all
+          merge-multiple: true
+      - name: The release assets
+        run: >-
+          python3 scripts/demo_publish.py assemble --in demo-all --out release-assets
+          --version "${{ needs.plan.outputs.version }}" --sha "${{ github.sha }}"
+      # The status of the run rides along as demo-status.json: the website deploy reads it to say WHY a link of the page is
+      # not available (scripts/prune_dead_release_links.py --demo-status).
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: demo-status
+          path: demo-status
+      - name: The status travels with the assets
+        run: cp demo-status/demo-status.json release-assets/demo-status.json
+      - name: Upload them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release view "$VERSION" >/dev/null 2>&1 || gh release create "$VERSION" --title "Azul $VERSION" \
+            --notes "Azul $VERSION release. Binaries attached; docs and small assets at https://azul.rs/ui/release/$VERSION/."
+          cd release-assets
+          files=()
+          for f in *; do
+            [ "$f" = release-assets.json ] || files+=("$f")
+          done
+          gh release upload "$VERSION" "${files[@]}" --clobber
+          echo "uploaded ${#files[@]} assets to $VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: demo-release-assets
+          path: release-assets/release-assets.json
+          retention-days: 30
