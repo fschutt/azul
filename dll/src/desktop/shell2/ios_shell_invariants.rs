@@ -583,3 +583,36 @@ fn the_ios_delegate_answers_a_memory_warning_by_releasing_what_it_can() {
     let warning = body(IOS_MOD_RS, "extern \"C\" fn app_did_receive_memory_warning(");
     at(warning, "FrameBufferPool::new()", "app_did_receive_memory_warning");
 }
+
+/// A finger that went down is a TAP CANDIDATE: until it has moved more than the touch slop it scrolls nothing and the
+/// pointer stays where it landed, a lift inside the slop is a click at the landing point, the lift of a pan clicks
+/// nothing, and `touchesCancelled:` ("clean up any state": the system took the gesture over) releases the button over
+/// NOTHING. The handler moved the pointer and the page by any move above a hundredth of a point (a real finger's
+/// jitter scrolled the page and lost the click) and treated a cancelled touch as an ended one (a click on whatever
+/// the finger was over). The rule is the Android shell's (`android_core::slop`), the decision table is pure
+/// (`ios_logic::mouse_plan`).
+#[test]
+fn the_touch_handler_applies_the_touch_slop_and_never_clicks_a_cancelled_gesture() {
+    at(IOS_MOD_RS, "tap: TapSlop,", "IOSWindow: the slop state of the primary finger");
+    let touch = body(IOS_MOD_RS, "fn handle_touch(");
+    let code = code_of(touch);
+    for needed in [
+        "window.tap.down(",
+        "window.tap.moved(",
+        "window.tap.up()",
+        "window.tap.cancel()",
+        "mouse_plan(",
+        "TouchPhase::Cancelled",
+        "CursorPlan::Leave",
+        "HitPlan::Nowhere",
+        "FullHitTest::empty(",
+        "SlopMove::Hold",
+        "SlopMove::Start",
+    ] {
+        assert!(code.contains(needed), "handle_touch: `{needed}` is missing");
+    }
+    assert!(
+        !code.contains("2 | 3 if primary_in_set => ms.left_down = false"),
+        "a cancelled touch is released by the plan, not as an ended one (a click)"
+    );
+}
