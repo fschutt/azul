@@ -1166,7 +1166,7 @@ pub(crate) fn float_shape_outside<T: ParsedFontTrait>(
 /// so `normal` is `nowrap` and `pre-wrap` and `break-spaces` are `pre`; `pre-line` still wraps
 /// (no `white-space` collapses spaces, keeps the newlines and does not wrap).
 #[must_use]
-pub fn white_space_under_text_wrap(
+pub const fn white_space_under_text_wrap(
     white_space: StyleWhiteSpace,
     text_wrap: azul_css::props::basic::font_variation::StyleTextWrap,
 ) -> StyleWhiteSpace {
