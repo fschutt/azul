@@ -456,6 +456,13 @@ and a made-up tone and nothing from any device: 640 x 360 H.264, 60 pictures, 2.
 files: "Movie analyzed with 0 error", "System support for decoding this track: Yes"; ffprobe agrees; the
 VideoToolbox stream carries its colour tags itself.
 
+**The export**, timed by the ignored test `an_export_is_timed_per_hour_of_recording` (a made-up minute: a
+1920 x 1248 display, a 720p camera and the voice; this Mac, VideoToolbox, ffmpeg 9.0.2, 8 Mbit/s of output):
+with the camera over the screen the pictures are composed and encoded once, 10.4 s for the minute, so **about
+10.4 minutes for an hour of recording** (5.8 times real time; a 54 MB minute is 3.2 GB an hour at that bit
+rate, the cut list's `video_kbps` sets it); without the camera the screen's files are copied and the voice made
+AAC, 0.6 s for the minute, so **about 36 seconds for an hour** (100 times real time).
+
 ## 10. Combining the tracks by hand (ffmpeg, HandBrake)
 
 The exporter (section 6) puts a session together by itself. This is the same thing by hand, for a session of
