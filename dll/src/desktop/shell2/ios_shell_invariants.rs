@@ -11,6 +11,8 @@ const IOS_CLIPBOARD_RS: &str = include_str!("ios/clipboard.rs");
 const IOS_WEBVIEW_RS: &str = include_str!("ios/webview.rs");
 const FILE_PICKER_RS: &str = include_str!("../extra/file_picker/ios.rs");
 const CAMERA_RS: &str = include_str!("../extra/camera/avfoundation.rs");
+const AVF_AUTH_RS: &str = include_str!("../extra/camera/avf_auth.rs");
+const SENSORS_APPLE_RS: &str = include_str!("../extra/sensors/apple.rs");
 const RUN_RS: &str = include_str!("run.rs");
 
 /// The body of the first fn declared by `decl`, from its opening brace to the matching closing one.
@@ -465,4 +467,35 @@ fn the_camera_does_not_import_device_types_newer_than_the_deployment_target() {
         );
     }
     at(&code, "dlsym(RTLD_DEFAULT", "the camera's device types");
+}
+
+/// A bundle that asks the system for the camera, the microphone or motion data without the
+/// purpose string in its Info.plist is stopped by the system. The engine asks `info_plist` first and
+/// answers "unavailable" with the missing key named (never a crash, never a silent no-op).
+#[test]
+fn the_protected_requests_of_the_ios_build_check_their_purpose_string_first() {
+    let auth = code_of(AVF_AUTH_RS);
+    assert_eq!(
+        auth.matches("request_would_stop_the_process(key)").count(),
+        2,
+        "the blocking and the non-blocking request both ask first"
+    );
+    at(&auth, "missing_key_message(", "avf_auth");
+    let request = auth.find("requestAccessForMediaType_completionHandler(media").expect("a request");
+    let check = auth.find("request_would_stop_the_process(key)").expect("a check");
+    assert!(check < request, "the check comes before the first request");
+
+    let sensors = body(SENSORS_APPLE_RS, "fn start_push_only_sensors(");
+    in_order(
+        sensors,
+        "request_would_stop_the_process(keys::MOTION)",
+        "CMAltimeter::isRelativeAltitudeAvailable()",
+        "start_push_only_sensors",
+    );
+    in_order(
+        sensors,
+        "request_would_stop_the_process(keys::MOTION)",
+        "startPedometerUpdatesFromDate_withHandler",
+        "start_push_only_sensors",
+    );
 }

@@ -45,6 +45,9 @@ pub mod gamepad;
 pub mod geolocation;
 pub mod haptics;
 pub mod hid;
+/// What the app's own `Info.plist` says (the purpose strings the protected APIs need), so a request
+/// that would stop the process is refused with a diagnostic instead.
+pub mod info_plist;
 /// Peer-to-peer QUIC connections (`IrohEndpoint`) and forwarder selection; the engine needs the `iroh` feature.
 pub mod iroh;
 pub mod keyring;
