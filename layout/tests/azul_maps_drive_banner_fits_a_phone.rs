@@ -1,11 +1,11 @@
 //! The AzMaps navigation banner and bar fit a phone.
 //!
 //! While a route is driven the map shows a banner (the next manoeuvre) over the top and a bar (arrival, the
-//! switches, End) over the bottom. Both were centred boxes of a fixed width - 460 and 560 px, `left: 50%` and a
-//! negative margin - so on a 411 dp phone the banner ran 25 dp out of the screen on each side and the bar 75 dp:
-//! the End key and the first switch were off the screen. On a phone (a window narrower than
-//! `COMPACT_WIDTH`) they are as wide as the screen less 8 px each side; a desktop window keeps the centred
-//! boxes.
+//! switches, End) over the bottom. Both were boxes of a fixed width - 460 and 560 px of content, 16 and 12 px of
+//! padding on each side, `left: 50%` and a negative margin - so on a 411 dp phone the banner ran 24 dp out of the
+//! screen on the left and 56 dp on the right, the bar 74 and 98 dp: the End key and the first switch were off the
+//! screen. On a phone (a window narrower than
+//! `COMPACT_WIDTH`) they are as wide as the screen less 8 px each side; a desktop window keeps the boxes it had.
 //!
 //! The app is an example crate this one cannot link, so this reads its SOURCE, the way
 //! `azul_maps_sidebar_is_a_sheet_on_a_phone.rs` does: the styles are the constants of
@@ -220,19 +220,25 @@ fn the_end_key_of_the_bar_is_on_the_screen_and_a_finger_wide() {
 }
 
 #[test]
-fn a_phone_in_landscape_and_a_desktop_window_keep_the_centred_boxes() {
+fn a_phone_in_landscape_and_a_desktop_window_keep_the_boxes_they_had() {
+    // The boxes of a desktop window, as they were before the phone's: 460 and 560 px of content (a box is
+    // its content and its padding, 16 and 12 px a side, on top), the left edge 230 and 280 px before the
+    // middle of the window.
     for (width, height) in [(852.0, 393.0), (1024.0, 720.0)] {
         let w = lay_out(width, height);
         let banner = rect_of_id(&w, "banner");
         let bar = rect_of_id(&w, "bar");
-        assert!((banner.size.width - 460.0).abs() <= 1.0, "{width}: the banner is {}", banner.size.width);
-        assert!((bar.size.width - 560.0).abs() <= 1.0, "{width}: the bar is {}", bar.size.width);
-        for r in [banner, bar] {
-            assert!(
-                (r.origin.x + r.size.width / 2.0 - width / 2.0).abs() <= 1.0,
-                "{width}: centred, the box is at {}",
-                r.origin.x
-            );
-        }
+        assert!((banner.size.width - 492.0).abs() <= 1.0, "{width}: the banner is {}", banner.size.width);
+        assert!((bar.size.width - 584.0).abs() <= 1.0, "{width}: the bar is {}", bar.size.width);
+        assert!(
+            (banner.origin.x - (width / 2.0 - 230.0)).abs() <= 1.0,
+            "{width}: the banner starts at {}",
+            banner.origin.x
+        );
+        assert!(
+            (bar.origin.x - (width / 2.0 - 280.0)).abs() <= 1.0,
+            "{width}: the bar starts at {}",
+            bar.origin.x
+        );
     }
 }

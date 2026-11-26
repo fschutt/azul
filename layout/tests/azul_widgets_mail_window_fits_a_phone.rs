@@ -173,8 +173,9 @@ fn on_a_phone_the_three_panes_stand_one_over_the_other_inside_the_card() {
 fn a_wide_window_keeps_the_row_of_300_and_240_px_panes() {
     let w = lay_out(1024.0);
     let [list, reading, todo] = panes(&w);
-    assert!((list.size.width - 300.0).abs() <= 1.0, "the list is {}", list.size.width);
-    assert!((todo.size.width - 240.0).abs() <= 1.0, "the to-do bar is {}", todo.size.width);
+    // 300 and 240 px of content and the 1 px border of a pane on each side
+    assert!((list.size.width - 302.0).abs() <= 1.0, "the list is {}", list.size.width);
+    assert!((todo.size.width - 242.0).abs() <= 1.0, "the to-do bar is {}", todo.size.width);
     assert!(reading.size.width > 100.0, "the reading pane has the rest: {}", reading.size.width);
     assert!(
         (list.origin.y - reading.origin.y).abs() <= 1.0 && (reading.origin.y - todo.origin.y).abs() <= 1.0,

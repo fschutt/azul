@@ -74,7 +74,9 @@ const WINDOW_CSS_PHONE: &str = "display: flex; flex-direction: column; gap: 12px
 /// The width of the list pane and of the to-do bar beside the reading pane, and on a phone.
 const LIST_WIDTH: &str = "width: 300px;";
 const TODO_WIDTH: &str = "width: 240px;";
-const FULL_WIDTH: &str = "width: 100%;";
+/// On a phone a pane is as wide as the card, its border included: it stretches across the column (a width of
+/// 100 % would be the card's content and the pane's two borders on top of it).
+const FULL_WIDTH: &str = "align-self: stretch;";
 
 /// Every value the mail cards show.
 #[derive(Clone)]
