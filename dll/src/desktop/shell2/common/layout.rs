@@ -448,29 +448,51 @@ pub fn regenerate_layout(
             }
         }
 
-        // VERIFY the detected system UI font actually resolved, whichever
-        // branch ran. A configured family the scan cannot locate must degrade
-        // to the fallback list with a LOUD warning, never silently — a
-        // screen of .notdef is corrupted output, and the warning is the only
-        // difference between "misconfigured theme" and "font system broke".
-        if let Some(ui) = system_style.fonts.ui_font.as_ref() {
-            let pattern = rust_fontconfig::FcPattern {
-                name: Some(ui.as_str().to_string()),
-                ..Default::default()
-            };
-            let mut trace = Vec::new();
-            if layout_window
+        // VERIFY the system UI font resolved, once the scan is complete (an
+        // earlier answer is only "not yet") and once per app (every window and
+        // every regeneration asks; the first one claims the check). A UI font
+        // the scan cannot locate must degrade to the fallback list with a LOUD
+        // warning, never silently — a screen of .notdef is corrupted output,
+        // and the warning is the only difference between "misconfigured theme"
+        // and "font system broke". What is looked for is what the text
+        // resolves: the `system-ui` generic family. The family the OS reports
+        // for its UI font is no name to look up on every platform
+        // (`.AppleSystemUIFont`, CoreText's alias of San Francisco, is in the
+        // name table of no font file), see `check_system_ui_font`.
+        if registry.is_build_complete()
+            && layout_window
                 .font_manager
-                .fc_cache
-                .query(&pattern, &mut trace)
-                .is_none()
-            {
-                crate::plog_warn!(
-                    "[fonts] the system UI font {:?} (from SystemStyle) was NOT found by the font \
-                     scan — text set in it falls back to the platform default list. Check the \
-                     family name and the scanned font directories.",
-                    ui.as_str()
-                );
+                .registered_fonts
+                .claim_system_ui_font_check()
+        {
+            if let Some(ui) = system_style.fonts.ui_font.as_ref() {
+                use azul_layout::font::loading::{check_system_ui_font, SystemUiFontCheck};
+                match check_system_ui_font(
+                    &layout_window.font_manager.fc_cache,
+                    ui.as_str(),
+                    rust_fontconfig::OperatingSystem::current(),
+                ) {
+                    SystemUiFontCheck::Found => {}
+                    SystemUiFontCheck::GenericMissing => {
+                        crate::plog_warn!(
+                            "[fonts] the `system-ui` font family resolves to no scanned font (the \
+                             OS reports {:?} as its UI font): text set in the system UI font \
+                             falls back to the last-resort fonts. Check the scanned font \
+                             directories.",
+                            ui.as_str()
+                        );
+                    }
+                    SystemUiFontCheck::PrimaryMissing(family) => {
+                        crate::plog_warn!(
+                            "[fonts] the system UI font {:?} was NOT found by the font scan (the \
+                             OS reports {:?}): text set in the system UI font falls back to the \
+                             rest of the platform's list. Check the family name and the scanned \
+                             font directories.",
+                            family,
+                            ui.as_str()
+                        );
+                    }
+                }
             }
         }
     } else {

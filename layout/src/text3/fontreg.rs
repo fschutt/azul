@@ -34,7 +34,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, RwLock,
     },
 };
@@ -97,6 +97,9 @@ pub struct RegisteredFonts {
     /// How many registrations changed `faces`: the layout's signal that font chains and shaped
     /// text may be stale.
     generation: AtomicU64,
+    /// Whether the app has made its one check of the system UI font
+    /// ([`Self::claim_system_ui_font_check`]).
+    system_ui_font_checked: AtomicBool,
     /// Tests: how often this registry has parsed the style of a face (`parse_style`).
     #[cfg(test)]
     style_parses: core::sync::atomic::AtomicUsize,
@@ -117,6 +120,14 @@ impl core::fmt::Debug for RegisteredFonts {
 }
 
 impl RegisteredFonts {
+    /// Claims the one check of the system UI font an app makes after its font scan
+    /// (`font::loading::check_system_ui_font`): `true` for the first caller, `false` for every
+    /// later one, of every window and every regeneration of the layout. The windows of an app
+    /// hold this one registry, so the check - and its warning - is the app's, made once.
+    pub fn claim_system_ui_font_check(&self) -> bool {
+        !self.system_ui_font_checked.swap(true, Ordering::AcqRel)
+    }
+
     /// Installs the faces the app ships (`AppConfig::bundled_fonts`): every font manager built on
     /// this registry registers them (`FontManager::register_builtin_ui_fonts` has the rules).
     /// Replaces what an earlier call installed. A face whose bytes do not parse is left out.
