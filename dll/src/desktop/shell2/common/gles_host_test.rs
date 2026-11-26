@@ -55,7 +55,7 @@ const MAX_DIFFERING_SHARE: f64 = 0.03;
 const MAX_MEAN_DIFF: f64 = 2.0;
 
 /// The variable that turns "no OpenGL ES here" from a skip into a failure.
-const REQUIRE: &str = "AZ_REQUIRE_GLES";
+pub(super) const REQUIRE: &str = "AZ_REQUIRE_GLES";
 
 /// An OpenGL ES 3 context on a pbuffer-less surfaceless display, current on this thread.
 struct OffscreenGles {
@@ -389,7 +389,7 @@ fn keep(name: &str, gpu: &AzulPixmap, cpu: &AzulPixmap) {
 }
 
 /// Fails with the numbers when the two pictures are not the same page within the QA's limits.
-fn assert_same_picture(name: &str, gpu: &AzulPixmap, cpu: &AzulPixmap) {
+pub(super) fn assert_same_picture(name: &str, gpu: &AzulPixmap, cpu: &AzulPixmap) {
     keep(name, gpu, cpu);
     let d = difference(gpu, cpu);
     eprintln!(
@@ -407,7 +407,7 @@ fn assert_same_picture(name: &str, gpu: &AzulPixmap, cpu: &AzulPixmap) {
 }
 
 /// Three squares, a bordered box with round corners, a gradient and some text on white.
-fn page() -> Dom {
+pub(super) fn page() -> Dom {
     let swatch = |colour: &str| {
         Dom::create_div().with_css(format!("width: 60px; height: 60px; background: {colour};").as_str())
     };

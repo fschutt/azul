@@ -24,6 +24,13 @@ pub mod error;
 pub mod gl_loader;
 /// What an OpenGL ES context says about itself, read as a decision: version, software or emulated, WebRender's minimum.
 pub mod gles_probe;
+/// The GPU path of a window that draws with OpenGL ES over EGL: the executor of the lifecycle reducer (Android; and Linux for
+/// its host test).
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub mod gles_gpu;
+/// The lifecycle executor against real EGL and WebRender on a host with Mesa (test only).
+#[cfg(all(test, target_os = "linux"))]
+mod gles_gpu_host_test;
 /// The GPU renderer on OpenGL ES against the CPU renderer, on a host with Mesa (test only).
 #[cfg(all(test, target_os = "linux"))]
 mod gles_host_test;

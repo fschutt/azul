@@ -444,6 +444,33 @@ impl EglSession {
         Ok(())
     }
 
+    /// Makes a pbuffer of `width` x `height` pixels in the place of the window's surface: what a host with no window
+    /// system draws to (the test). It is the "window surface" of every other method (`bind`, `swap`, `surface_size`);
+    /// a swap posts nothing. An earlier surface of this session is destroyed first.
+    ///
+    /// # Errors
+    ///
+    /// `eglCreatePbufferSurface` failed (stage `surface`): the config cannot make a pbuffer, or the size is too large.
+    pub fn create_offscreen_surface(&mut self, width: u32, height: u32) -> Result<(), EglFailure> {
+        self.destroy_window_surface();
+        let to_int = |v: u32| EglInt::try_from(v).unwrap_or(EglInt::MAX).max(1);
+        let attribs = [EGL_WIDTH, to_int(width), EGL_HEIGHT, to_int(height), EGL_NONE];
+        // SAFETY: a valid config; the list ends with EGL_NONE.
+        let surface = unsafe {
+            (self.api.create_pbuffer_surface)(self.display, self.config, attribs.as_ptr())
+        };
+        if surface.is_null() {
+            return Err(EglFailure::new(
+                "surface",
+                "eglCreatePbufferSurface",
+                self.api.error(),
+                format!("{width} x {height}"),
+            ));
+        }
+        self.window_surface = surface;
+        Ok(())
+    }
+
     /// Destroys the window's surface, in the order that disconnects the window: the context is bound to something else
     /// FIRST (a current surface is only marked for deletion, and the native window stays connected to it), then the
     /// surface goes. Only then may the `ANativeWindow` be released.
