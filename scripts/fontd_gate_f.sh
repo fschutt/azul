@@ -43,7 +43,13 @@ step_new() {
   return "${PIPESTATUS[0]}"
 }
 
+step_env() {
+  cargo test -p azul-srcgate --test env_gate -- --nocapture 2>&1 | grep -v "^   Compiling\|^    Finished\|^     Running" | tail -60
+  return "${PIPESTATUS[0]}"
+}
+
 st check_layout step_check
+st env_gate step_env
 st clippy step_clippy
 st clippy_features step_clippy_features
 st bless step_bless
