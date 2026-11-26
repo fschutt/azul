@@ -120,6 +120,7 @@ pub mod symbols_tokens;
 pub mod ui;
 pub mod vocabulary;
 pub mod voice;
+pub mod workspace_view;
 pub mod whiteboard;
 pub mod whiteboard_app;
 pub mod whiteboard_archive;
@@ -398,21 +399,24 @@ impl AppState {
         let Some(id) = self.tree.find(path).filter(|&id| self.tree.kind(id) == Some(tree::Kind::File)) else {
             return false;
         };
-        let lines = match self.read_lines(path) {
-            Ok(lines) => lines,
+        let read_at = std::time::Instant::now();
+        let file = match self.read_file(path) {
+            Ok(file) => file,
             Err(why) => {
                 self.problem = Some(not_shown(path, &why));
                 return false;
             }
         };
+        let line_count = file.line_count();
+        // how long reading a file takes, for the scripts that measure it (and for a report of one that opens slowly)
+        println!(
+            "AZREVIEW_OPEN {path} lines={line_count} held_as={} read_ms={}",
+            if file.big.is_some() { "text" } else { "lines" },
+            read_at.elapsed().as_millis()
+        );
         self.begin_file(Some(id));
-        self.tree.set_lines(id, u32::try_from(lines.len()).unwrap_or(u32::MAX));
-        let line_count = lines.len();
-        self.open = Some(code::SourceFile {
-            path: self.root.join(path),
-            display: path.to_string(),
-            lines,
-        });
+        self.tree.set_lines(id, u32::try_from(line_count).unwrap_or(u32::MAX));
+        self.open = Some(file);
         self.rederive();
         self.say(
             "nav.file",
@@ -423,10 +427,10 @@ impl AppState {
         true
     }
 
-    /// The lines of the file at `path`, read from the workspace's source.
-    fn read_lines(&self, path: &str) -> Result<Vec<String>, code::NotShown> {
+    /// The file at `path`, read from the workspace's source: held as lines, or as its text when it is big.
+    fn read_file(&self, path: &str) -> Result<code::SourceFile, code::NotShown> {
         match self.source.read(path, code::MAX_OPEN_BYTES) {
-            Ok(bytes) => code::lines_of(&bytes),
+            Ok(bytes) => code::open_bytes(self.root.join(path), path.to_string(), bytes),
             Err(symbols_source::ReadError::TooLarge(bytes)) => Err(code::NotShown::TooLarge(bytes)),
             Err(other) => Err(code::NotShown::Unreadable(format!("{other:?}"))),
         }
@@ -721,7 +725,7 @@ impl AppState {
         match self.file() {
             Some(file) if !self.slashes.is_empty() => {
                 let (first_line, lines) = file.page(page);
-                deletion::hidden_ranges(&self.slashes, first_line, lines)
+                deletion::hidden_ranges(&self.slashes, first_line, &lines)
             }
             _ => Vec::new(),
         }
@@ -1916,7 +1920,11 @@ pub extern "C" fn on_strip_scroll(mut data: RefAny, mut info: CallbackInfo) -> U
     }
     s.visible_page = page;
     drop(s);
-    ui::reveal_pill(&mut info, page);
+    // The strip of a file of many pages is rebuilt around the page in view (`layout::strip_items`); one that shows every
+    // page is scrolled to its number.
+    if pages <= layout::STRIP_ALL {
+        ui::reveal_pill(&mut info, page);
+    }
     Update::RefreshDom
 }
 

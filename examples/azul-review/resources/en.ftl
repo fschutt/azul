@@ -189,6 +189,7 @@ azreview-resize-tree = Change the width of the file tree
 azreview-resize-panel = Change the width of the whiteboard
 azreview-menu-view = View
 azreview-speech-chain = Speech recognisers, in the order they are asked
+azreview-page-skip = Skip to page { $n }
 azreview-not-shown = { $file } is not shown: { $why }
 azreview-not-shown-binary = it is no text.
 azreview-not-shown-large = it is { $size }, over the { $limit } a page strip holds.

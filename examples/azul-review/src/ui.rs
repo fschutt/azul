@@ -851,11 +851,29 @@ fn page_strip(s: &AppState, data: &RefAny) -> Dom {
         .as_str(),
     );
     if let Some(file) = s.file() {
-        for page in 0..file.page_count() {
-            strip.add_child(page_pill(page, page == s.visible_page, data));
+        // A file of thousands of pages has a strip of a couple of dozen keys (`layout::strip_items`), not a key a page.
+        for item in crate::layout::strip_items(file.page_count(), s.visible_page) {
+            strip.add_child(match item {
+                crate::layout::StripItem::Page(page) => page_pill(page, page == s.visible_page, data),
+                crate::layout::StripItem::Skip { to } => skip_pill(to, data),
+            });
         }
     }
     strip
+}
+
+/// The key of a gap of pages that are not shown: a click goes to the page in the middle of it.
+fn skip_pill(to: usize, data: &RefAny) -> Dom {
+    let name = AzString::from(t_args("azreview-page-skip", &[("n", Arg::from(to + 1))]));
+    key(
+        "padding: 0px 7px; font-family: monospace; background: transparent; color: system:secondary-text; \
+         border: 1px solid transparent;",
+        name,
+        data.clone(),
+        crate::on_jump_to_page,
+    )
+    .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: to })))
+    .with_child(Dom::create_span_with_text("\u{2026}"))
 }
 
 /// The tools at the top bar's right end: the voice meter while recording, record, save and the settings, all one
@@ -1323,7 +1341,7 @@ fn page_sheet(
         ),
     );
 
-    sheet.add_child(page_code_column_hidden(first_line, lines, hidden));
+    sheet.add_child(page_code_column_hidden(first_line, &lines, hidden));
     // The markers of the dictated notes: over the code, under the pen layer (they take no stroke).
     for marker in column::markers(notes, page, listening) {
         sheet.add_child(marker);
@@ -1370,6 +1388,9 @@ fn piece_css(hidden: bool) -> String {
 /// text have ids for the scripts that measure them (`__azreview_line-<n>`, `__azreview_line-<n>-text`), a hidden piece
 /// one of its own (`__azreview_hidden-<n>-<byte>`).
 fn code_row(number: usize, line: &str, hidden: &[(usize, usize)]) -> Dom {
+    // What is past the right edge of the page is not seen: it is not shaped (a line of a minified bundle is a million
+    // characters, and shaping it for a page that shows a hundred and ten takes seconds).
+    let line = clip_line(line);
     let mut row = Dom::create_div()
         .with_id(format!("__azreview_line-{number}").as_str())
         .with_css(format!("display: flex; flex-direction: row; height: {LINE_H}px;").as_str());
@@ -1405,6 +1426,17 @@ fn code_row(number: usize, line: &str, hidden: &[(usize, usize)]) -> Dom {
         row.add_child(pieces);
     }
     row
+}
+
+/// How many characters of a line a page can show: the code column's width in columns, and a few over.
+pub(crate) const CODE_COLUMNS: usize = ((CODE_W - GUTTER_W) / CHAR_W) as usize + 8;
+
+/// `line` as far as the page shows it: at most [`CODE_COLUMNS`] characters.
+fn clip_line(line: &str) -> &str {
+    match line.char_indices().nth(CODE_COLUMNS) {
+        Some((end, _)) => &line[..end],
+        None => line,
+    }
 }
 
 /// The geometry of a page's code for the agent and for finding a word: line `first_line` starts under the page's padding,
@@ -1553,6 +1585,7 @@ mod tests {
                 path: std::path::PathBuf::from(format!("f{i}.rs")),
                 display: format!("f{i}.rs"),
                 lines: lines.clone(),
+                big: None,
             })
             .collect();
         AppState::create(

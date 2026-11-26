@@ -8,6 +8,7 @@ fn file() -> code::SourceFile {
         path: PathBuf::from("f.rs"),
         display: "f.rs".to_string(),
         lines: (0..120).map(|i| format!("fn f{i}() {{}}")).collect(),
+        big: None,
     }
 }
 
@@ -79,7 +80,7 @@ pub(crate) fn app_with_slash_file() -> AppState {
     let mut lines: Vec<String> = (0..120).map(|i| format!("fn f{i}() {{}}")).collect();
     lines[11] = format!("{}abcdefghij klm = 1;", " ".repeat(33));
     lines[code::LINES_PER_PAGE + 11] = format!("{}pqrstuvwxy zzz = 2;", " ".repeat(33));
-    let f = code::SourceFile { path: PathBuf::from("f.rs"), display: "f.rs".to_string(), lines };
+    let f = code::SourceFile { path: PathBuf::from("f.rs"), display: "f.rs".to_string(), lines, big: None };
     AppState::create(PathBuf::new(), vec![f], RefAny::new(0u8), PathBuf::new())
 }
 

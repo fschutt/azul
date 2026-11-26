@@ -21,6 +21,7 @@ fn app() -> AppState {
         path: PathBuf::from("f.rs"),
         display: "f.rs".to_string(),
         lines: (0..100).map(|i| format!("fn f{i}() {{}}")).collect(),
+        big: None,
     };
     AppState::create(PathBuf::new(), vec![file], RefAny::new(0u8), PathBuf::new())
 }

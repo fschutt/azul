@@ -26,6 +26,7 @@ fn app_with(hook: Arc<Collect>) -> AppState {
         path: PathBuf::from(name),
         display: name.to_string(),
         lines: (0..n).map(|i| format!("fn f{i}() {{}}")).collect(),
+        big: None,
     };
     let mut s = AppState::create(PathBuf::from("/work/p"), vec![file("a.rs", 3), file("b.rs", 120)], RefAny::new(0u8), PathBuf::new());
     s.recorder = hook;

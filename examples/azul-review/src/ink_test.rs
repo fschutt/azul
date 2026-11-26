@@ -122,6 +122,7 @@ fn keeping_a_stroke_tells_the_page_it_only_grew() {
             path: std::path::PathBuf::from("f.rs"),
             display: "f.rs".to_string(),
             lines: vec!["fn f() {}".to_string()],
+            big: None,
         }],
         azul::prelude::RefAny::new(0u8),
         std::path::PathBuf::new(),

@@ -189,6 +189,7 @@ azreview-resize-tree = Breite des Dateibaums ändern
 azreview-resize-panel = Breite des Whiteboards ändern
 azreview-menu-view = Ansicht
 azreview-speech-chain = Spracherkenner in der Reihenfolge, in der sie gefragt werden
+azreview-page-skip = Weiter zu Seite { $n }
 azreview-not-shown = { $file } wird nicht angezeigt: { $why }
 azreview-not-shown-binary = Es ist kein Text.
 azreview-not-shown-large = Es hat { $size }, mehr als die { $limit }, die ein Seitenstreifen aufnimmt.
