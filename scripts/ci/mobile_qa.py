@@ -1152,6 +1152,27 @@ class IOS:
     def simctl(self, *args, timeout=120, env=None):
         return self.x("xcrun", "simctl", *args, timeout=timeout, env=env)
 
+    def to_file(self, log_name, *cmd, timeout=600):
+        """Run a command with its output going straight into logs/<log_name> (a FILE, not a pipe: the first trial run of this
+        harness hung for an hour in `log show` because a killed command's children kept a pipe open). -> (rc, the file's text)"""
+        path = self.run.logs_dir / log_name
+        with open(path, "wb") as fh:
+            try:
+                rc = subprocess.run(list(cmd), stdout=fh, stderr=subprocess.STDOUT, timeout=timeout).returncode
+            except subprocess.TimeoutExpired:
+                rc = 124
+        return rc, path.read_text(encoding="utf-8", errors="replace")
+
+    def fire(self, *args, wait=25):
+        """`simctl <args>` that is allowed to run on in the background: waits `wait` seconds for it, never kills it, never
+        blocks longer (launches and the like). -> its output so far"""
+        proc = subprocess.Popen(["xcrun", "simctl"] + list(args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        try:
+            out, _e = proc.communicate(timeout=wait)
+        except subprocess.TimeoutExpired:
+            return "(still running after %d s)" % wait
+        return out.decode("utf-8", "replace")
+
     # -- state
     def pid(self):
         _rc, out, _err = self.simctl("spawn", self.udid, "launchctl", "list")
@@ -1238,15 +1259,25 @@ class IOS:
         out_f = self.run.logs_dir / f"console-{self.launch_count}.out.txt"
         err_f = self.run.logs_dir / f"console-{self.launch_count}.err.txt"
         cmd = ["launch"] + (["--terminate-running-process"] if cold else []) + [f"--stdout={out_f}", f"--stderr={err_f}", self.udid, self.bundle]
-        rc, out, err = self.simctl(*cmd, timeout=120, env=env)
+        # `simctl launch` prints "<bundle>: <pid>" and returns; when it does not (it can wait for the app to exit when the
+        # output is redirected) it is left running after 25 s: waiting for it would block every step that follows
+        proc = subprocess.Popen(["xcrun", "simctl"] + cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+        try:
+            raw_out, raw_err = proc.communicate(timeout=25)
+            rc = proc.returncode
+        except subprocess.TimeoutExpired:
+            raw_out, raw_err, rc = b"", b"", None
+        out = raw_out.decode("utf-8", "replace")
+        err = raw_err.decode("utf-8", "replace")
         m = re.search(r":\s*(\d+)\s*$", out.strip())
-        return {"rc": rc, "pid": m.group(1) if m else "", "out": out.strip(), "err": err.strip(), "console": (out_f, err_f)}
+        return {"rc": rc, "pid": m.group(1) if m else self.pid(), "out": out.strip() or "(simctl launch still running after 25 s)",
+                "err": err.strip(), "console": (out_f, err_f)}
 
     def terminate(self):
         self.simctl("terminate", self.udid, self.bundle)
 
     def open_other_app(self, bundle="com.apple.Preferences"):
-        return self.simctl("launch", self.udid, bundle)
+        return self.fire("launch", self.udid, bundle)
 
     def wait_for_front(self, timeout=45):
         t0 = time.time()
@@ -1308,7 +1339,10 @@ class IOS:
 
     def gui_keystroke(self, char_code):
         """Cmd + arrow in the Simulator app (Device > Rotate Left = Cmd-Left, Rotate Right = Cmd-Right). Needs the
-        GUI app and the runner's accessibility permission for osascript. -> (ok, message)"""
+        GUI app and the runner's accessibility permission for osascript. OFF unless AZ_QA_GUI=1: it is the one part
+        of the QA that touches the runner's window server. -> (ok, message)"""
+        if os.environ.get("AZ_QA_GUI") != "1":
+            return False, "the Simulator GUI steps are off (AZ_QA_GUI=1 turns them on)"
         if not self.gui:
             self.x("open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", self.udid, timeout=60)
             time.sleep(8)
@@ -1319,7 +1353,9 @@ class IOS:
         return rc == 0, (err or out).strip()[:200]
 
     def gui_menu(self, menu, item):
-        """A Simulator menu item by name (Debug > Simulate Memory Warning ...). -> (ok, message)"""
+        """A Simulator menu item by name (Debug > Simulate Memory Warning ...). OFF unless AZ_QA_GUI=1. -> (ok, message)"""
+        if os.environ.get("AZ_QA_GUI") != "1":
+            return False, "the Simulator GUI steps are off (AZ_QA_GUI=1 turns them on)"
         if not self.gui:
             self.x("open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", self.udid, timeout=60)
             time.sleep(8)
@@ -1354,8 +1390,6 @@ def ios_scenarios(args):
         s.note(f"{run.meta.get('device')} / {run.meta.get('runtime')}")
         s.check("the simulator answers", rc == 0, run.meta.get("runtime", ""))
 
-    run.step("00-device", "the simulator is up; light appearance, medium text, a neutral status bar (9:41, full battery)", s_device)
-
     def recover(s):
         """Before a step: appearance and text size back to normal, the app running (started again when an earlier
         step left it dead: that step has already said so)."""
@@ -1373,7 +1407,8 @@ def ios_scenarios(args):
     run.recover = recover
 
     def s_home(s):
-        dev.simctl("launch", args.udid, "com.apple.springboard")
+        # the home screen as it is after boot and install (the app's icon on it): no launch of SpringBoard through simctl
+        # (the first trial run lost 127 s to it and the install after it timed out)
         dev.settle(3.0)
         sig, w, h, fname = dev.capture("home-baseline")
         s.shots.append(fname)
@@ -1381,19 +1416,21 @@ def ios_scenarios(args):
         s.check("the home screen is a picture", not is_flat(sig), f"{flat_fraction(sig):.3f}")
         s.note(f"screen {w}x{h}")
 
-    run.step("01-home-baseline", "the home screen before the app starts: the picture an app must differ from", s_home)
-
     def s_install(s):
         if args.app:
-            rc, _o, err = dev.simctl("install", args.udid, args.app, timeout=180)
-            s.check("simctl install succeeds", rc == 0, err.strip()[:160])
+            t0 = time.time()
+            rc, text = dev.to_file("install.log", "xcrun", "simctl", "install", args.udid, args.app, timeout=600)
+            s.check("simctl install succeeds", rc == 0, f"{text.strip()[-160:]} ({time.time() - t0:.0f} s)")
             plist = Path(args.app) / "Info.plist"
             if plist.exists():
                 import plistlib
                 info = plistlib.loads(plist.read_bytes())
                 s.note(f"{info.get('CFBundleIdentifier')} {info.get('CFBundleShortVersionString')} min iOS {info.get('MinimumOSVersion')} orientations {info.get('UISupportedInterfaceOrientations')}")
 
-    run.step("02-install", "install the Simulator app", s_install)
+    # the order of the demos pipeline's smoke test, which works: boot, install, then everything else
+    run.step("00-install", "install the Simulator app", s_install)
+    run.step("01-device", "the simulator is up; light appearance, medium text, a neutral status bar (9:41, full battery)", s_device)
+    run.step("02-home-baseline", "the home screen before the app starts: the picture an app must differ from", s_home)
 
     def s_cold(s):
         l = dev.launch(cold=True)
@@ -1550,8 +1587,9 @@ def ios_scenarios(args):
     run.step("10-terminate-and-start-again", "kill the process, start again", s_cold2)
 
     def s_logs(s):
-        rc, out, _e = dev.simctl("spawn", args.udid, "log", "show", "--last", "20m", "--style", "compact", "--info", "--debug", timeout=300)
-        (run.logs_dir / "log-all.txt").write_text(out, encoding="utf-8", errors="replace")
+        # straight into a file with a bound (a pipe hung the first trial for an hour); the last 6 minutes, info level
+        rc, out = dev.to_file("log-all.txt", "xcrun", "simctl", "spawn", args.udid, "log", "show", "--last", "6m", "--style", "compact", "--info", timeout=240)
+        s.note(f"log show exit {rc}, {len(out.splitlines())} lines")
         mine = [l for l in out.splitlines() if exe in l or "launchd_sim" in l and dev.bundle in l]
         (run.logs_dir / "log-app.txt").write_text("\n".join(mine), encoding="utf-8")
         rep = dev.crash_reports()
