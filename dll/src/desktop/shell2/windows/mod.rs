@@ -2480,6 +2480,16 @@ impl Win32Window {
             let _ = self.set_prevent_system_sleep(true);
         }
 
+        // exclude_from_capture: a window that does not ask is left as the system made it.
+        if let Some(excluded) = crate::desktop::shell2::common::capture_exclusion::exclusion_to_apply(
+            None,
+            &self.common.current_window_state().flags,
+        ) {
+            if let Err(e) = self.set_exclude_from_capture(excluded) {
+                log_error!(LogCategory::Window, "Failed to set exclude_from_capture: {}", e);
+            }
+        }
+
         // Seed BOTH baselines: the event-diff one (so the first pass has
         // something to diff against) and the OS-sync one — everything above is
         // now applied on the HWND, so the first sync_window_state() must not
@@ -3200,6 +3210,16 @@ impl Win32Window {
                     "Failed to set prevent_system_sleep: {}",
                     e
                 );
+            }
+        }
+
+        // exclude_from_capture flag changed?
+        if let Some(excluded) = crate::desktop::shell2::common::capture_exclusion::exclusion_to_apply(
+            Some(&previous.flags),
+            &current.flags,
+        ) {
+            if let Err(e) = self.set_exclude_from_capture(excluded) {
+                log_error!(LogCategory::Window, "Failed to set exclude_from_capture: {}", e);
             }
         }
 
@@ -7548,6 +7568,22 @@ impl Win32Window {
 
         if result == 0 {
             Err("SetWindowPos failed for is_top_level".to_string())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Keep the window out of screen captures (or show it to them again): `SetWindowDisplayAffinity` with
+    /// `WDA_EXCLUDEFROMCAPTURE`, which needs Windows 10 version 2004 (an older Windows refuses it).
+    pub fn set_exclude_from_capture(&mut self, excluded: bool) -> Result<(), String> {
+        let Some(set) = self.win32.user32.SetWindowDisplayAffinity else {
+            return Err("SetWindowDisplayAffinity is not in this user32.dll".to_string());
+        };
+        let affinity = crate::desktop::shell2::common::capture_exclusion::windows_display_affinity(excluded);
+        if unsafe { set(self.hwnd, affinity) } == 0 {
+            Err(format!(
+                "SetWindowDisplayAffinity({affinity:#x}) failed (WDA_EXCLUDEFROMCAPTURE needs Windows 10 version 2004)"
+            ))
         } else {
             Ok(())
         }

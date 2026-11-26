@@ -203,10 +203,10 @@ fn should_emit_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
-    !matches!(
-        s.category,
-        TypeCategory::Recursive | TypeCategory::VecRef | TypeCategory::GenericTemplate
-    )
+    // A borrowed slice (`VecRef`) is a plain `{ptr, len}` struct and is declared like any other: a struct may hold one
+    // by value (`FrameTapInfo` holds the frame's pixels and the rectangles that changed in them), and an alias that is
+    // used must be declared before the struct that holds it.
+    !matches!(s.category, TypeCategory::Recursive | TypeCategory::GenericTemplate)
 }
 
 fn emit_unit_enum(b: &mut CodeBuilder, e: &EnumDef) {

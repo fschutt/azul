@@ -196,6 +196,8 @@ mod click_into_a_virtual_view_page;
 mod cpurender_image_probe;
 #[path = "cross_block_selection.rs"]
 mod cross_block_selection;
+#[path = "css_zoom_scales_flex_items_grid_items_and_blocks_alike.rs"]
+mod css_zoom_scales_flex_items_grid_items_and_blocks_alike;
 #[path = "delete_keyed_to_caret_owner.rs"]
 mod delete_keyed_to_caret_owner;
 #[path = "damage_raster_reports_what_it_painted.rs"]
@@ -848,6 +850,8 @@ mod a_space_between_a_tables_inline_children_is_kept;
 mod an_inline_tables_baseline_is_its_first_rows;
 #[path = "a_captions_own_caption_side_places_it.rs"]
 mod a_captions_own_caption_side_places_it;
+#[path = "a_captured_pointer_outside_its_node_is_measured_through_the_transforms_around_it.rs"]
+mod a_captured_pointer_outside_its_node_is_measured_through_the_transforms_around_it;
 #[path = "a_spanning_cells_percentage_is_shared_by_its_columns.rs"]
 mod a_spanning_cells_percentage_is_shared_by_its_columns;
 #[path = "a_right_to_left_tables_columns_run_from_the_right.rs"]

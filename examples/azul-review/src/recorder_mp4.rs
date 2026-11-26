@@ -617,29 +617,15 @@ fn empty_table(kind: &[u8; 4]) -> Vec<u8> {
     full_box(kind, 0, 0, &[0, 0, 0, 0])
 }
 
-/// The `moov` of a fragmented file: the one track, with empty sample tables, and `mvex` to say
-/// that fragments follow.
-fn moov(track: &TrackConfig, created_unix_s: u64) -> Vec<u8> {
-    let created = u32::try_from(created_unix_s + MP4_EPOCH_OFFSET_S).unwrap_or(u32::MAX);
+/// One `trak`: the track `track_id`, with empty sample tables (the samples are in the fragments).
+fn trak_box(track: &TrackConfig, track_id: u32, created: u32) -> Vec<u8> {
     let timescale = track.timescale();
     let is_video = matches!(track, TrackConfig::Video(_));
-
-    let mut mvhd = Vec::new();
-    put_u32(&mut mvhd, created);
-    put_u32(&mut mvhd, created);
-    put_u32(&mut mvhd, 1_000);
-    put_u32(&mut mvhd, 0); // duration: unknown while recording
-    put_u32(&mut mvhd, 0x0001_0000); // rate
-    put_u16(&mut mvhd, 0x0100); // volume
-    put_zeros(&mut mvhd, 10);
-    identity_matrix(&mut mvhd);
-    put_zeros(&mut mvhd, 24);
-    put_u32(&mut mvhd, 2); // next_track_ID
 
     let mut tkhd = Vec::new();
     put_u32(&mut tkhd, created);
     put_u32(&mut tkhd, created);
-    put_u32(&mut tkhd, 1); // track_ID
+    put_u32(&mut tkhd, track_id);
     put_u32(&mut tkhd, 0);
     put_u32(&mut tkhd, 0); // duration
     put_zeros(&mut tkhd, 8);
@@ -700,16 +686,44 @@ fn moov(track: &TrackConfig, created_unix_s: u64) -> Vec<u8> {
 
     let mut trak = full_box(b"tkhd", 0, 3, &tkhd);
     trak.extend_from_slice(&boxed(b"mdia", &mdia));
+    boxed(b"trak", &trak)
+}
 
-    let mut trex = Vec::new();
-    put_u32(&mut trex, 1);
-    put_u32(&mut trex, 1); // default_sample_description_index
-    put_zeros(&mut trex, 12);
+/// The `moov` of a fragmented file: the tracks (numbered from 1, in this order), with empty sample tables,
+/// and `mvex` to say that fragments follow for each.
+fn moov_of(tracks: &[&TrackConfig], created_unix_s: u64) -> Vec<u8> {
+    let created = u32::try_from(created_unix_s + MP4_EPOCH_OFFSET_S).unwrap_or(u32::MAX);
+
+    let mut mvhd = Vec::new();
+    put_u32(&mut mvhd, created);
+    put_u32(&mut mvhd, created);
+    put_u32(&mut mvhd, 1_000);
+    put_u32(&mut mvhd, 0); // duration: unknown while recording
+    put_u32(&mut mvhd, 0x0001_0000); // rate
+    put_u16(&mut mvhd, 0x0100); // volume
+    put_zeros(&mut mvhd, 10);
+    identity_matrix(&mut mvhd);
+    put_zeros(&mut mvhd, 24);
+    put_u32(&mut mvhd, u32::try_from(tracks.len() + 1).unwrap_or(u32::MAX)); // next_track_ID
 
     let mut body = full_box(b"mvhd", 0, 0, &mvhd);
-    body.extend_from_slice(&boxed(b"trak", &trak));
-    body.extend_from_slice(&boxed(b"mvex", &full_box(b"trex", 0, 0, &trex)));
+    let mut mvex = Vec::new();
+    for (i, track) in tracks.iter().enumerate() {
+        let id = u32::try_from(i + 1).unwrap_or(u32::MAX);
+        body.extend_from_slice(&trak_box(track, id, created));
+        let mut trex = Vec::new();
+        put_u32(&mut trex, id);
+        put_u32(&mut trex, 1); // default_sample_description_index
+        put_zeros(&mut trex, 12);
+        mvex.extend_from_slice(&full_box(b"trex", 0, 0, &trex));
+    }
+    body.extend_from_slice(&boxed(b"mvex", &mvex));
     boxed(b"moov", &body)
+}
+
+/// The `moov` of a file of one track.
+fn moov(track: &TrackConfig, created_unix_s: u64) -> Vec<u8> {
+    moov_of(&[track], created_unix_s)
 }
 
 // ---------------------------------------------------------------------------
@@ -754,6 +768,17 @@ pub struct Limits {
     pub max_fragment_samples: usize,
     /// A sample over this is refused.
     pub max_sample_bytes: usize,
+}
+
+impl Limits {
+    /// The limits of a track cut in chunks of `chunk_us` (the camera): a fragment closes at the first
+    /// keyframe once it spans three quarters of a chunk, so a keyframe stamped a little early by a clock
+    /// that is read in steps still closes its chunk, and at the first picture of any kind once it spans a
+    /// chunk and a half, so a stream that gives no keyframe is cut anyway. Bytes and samples as the others.
+    #[must_use]
+    pub fn chunked(chunk_us: u64) -> Self {
+        Self { min_fragment_us: chunk_us - chunk_us / 4, max_fragment_us: chunk_us + chunk_us / 2, ..Self::default() }
+    }
 }
 
 impl Default for Limits {
@@ -1031,6 +1056,322 @@ impl FragmentWriter {
 }
 
 // ---------------------------------------------------------------------------
+// A picture and a voice in one file
+// ---------------------------------------------------------------------------
+
+/// The writer of one fragmented MP4 file of a picture (track 1, H.264) and a voice (track 2, Opus): the file a
+/// camera's chunk is, carrying the microphone's voice as well, so that one file plays with its sound in any
+/// player and in HandBrake (which opens Opus in an MP4 only where a picture is in the file).
+///
+/// A fragment closes where the picture's would (at a keyframe once it spans the minimum, or at its limits) and
+/// holds the voice up to the picture that begins the next one: its run of the picture first, then its run of the
+/// voice, the voice's data after the picture's in the `mdat`. A fragment before the voice began has the
+/// picture's run alone. The voice alone can close a fragment only when it fills the limits by itself (the
+/// picture has stopped coming), and that fragment has the voice's run alone; the scanner reads the picture's
+/// run (track 1) of each fragment, so a file of this kind is cut and recovered as a file of the picture.
+pub struct JointWriter {
+    limits: Limits,
+    video: Vec<Pending>,
+    voice: Vec<Pending>,
+    pending_bytes: usize,
+    last_video_ticks: Option<u64>,
+    last_voice_ticks: Option<u64>,
+    last_video_duration: u64,
+    sequence: u32,
+    index: Vec<(u64, u64)>,
+    stats: MuxStats,
+    voice_samples: u64,
+    finished: bool,
+}
+
+/// The ticks an Opus packet lasts: what its table of contents says, 20 ms when it does not.
+fn opus_duration_ticks(packet: &[u8]) -> u64 {
+    opus_packet_samples(packet).map_or(960, u64::from).max(1)
+}
+
+impl JointWriter {
+    /// A writer for a picture and a voice, and the first bytes of the file (`ftyp` and a `moov` of two tracks).
+    #[must_use]
+    pub fn new(video: VideoConfig, opus: OpusConfig, created_unix_s: u64, limits: Limits) -> (Self, Vec<u8>) {
+        let mut head = ftyp();
+        head.extend_from_slice(&moov_of(&[&TrackConfig::Video(video), &TrackConfig::Opus(opus)], created_unix_s));
+        let stats = MuxStats { bytes: head.len() as u64, ..MuxStats::default() };
+        (
+            Self {
+                limits,
+                video: Vec::new(),
+                voice: Vec::new(),
+                pending_bytes: 0,
+                last_video_ticks: None,
+                last_voice_ticks: None,
+                last_video_duration: 1,
+                sequence: 0,
+                index: Vec::new(),
+                stats,
+                voice_samples: 0,
+                finished: false,
+            },
+            head,
+        )
+    }
+
+    /// What the writer has done (`samples` counts the pictures).
+    #[must_use]
+    pub const fn stats(&self) -> MuxStats {
+        self.stats
+    }
+
+    /// The voice's packets taken so far.
+    #[must_use]
+    pub const fn voice_samples(&self) -> u64 {
+        self.voice_samples
+    }
+
+    fn check(&self, data: &[u8]) -> Result<(), MuxError> {
+        if self.finished {
+            return Err(MuxError::Finished);
+        }
+        if data.is_empty() {
+            return Err(MuxError::EmptySample);
+        }
+        if data.len() > self.limits.max_sample_bytes {
+            return Err(MuxError::SampleTooLarge { bytes: data.len(), limit: self.limits.max_sample_bytes });
+        }
+        Ok(())
+    }
+
+    /// Takes one picture (in the file's own form: [`annexb_to_avcc`]'s bytes) at `pts_us` microseconds from the start of
+    /// the file's timeline; the bytes of a fragment when this picture closed one (usually nothing).
+    ///
+    /// # Errors
+    /// The sample is empty or too large, or the file is finished.
+    pub fn push_video(&mut self, pts_us: u64, data: Vec<u8>, sync: bool) -> Result<Vec<u8>, MuxError> {
+        self.check(&data)?;
+        let mut ticks = us_to_ticks(pts_us, VIDEO_TIMESCALE);
+        if let Some(last) = self.last_video_ticks {
+            if ticks <= last {
+                ticks = last + 1;
+                self.stats.bumped += 1;
+            }
+        }
+        let mut out = Vec::new();
+        if self.picture_closes_before(ticks, sync, data.len()) {
+            out = self.close_fragment(Some(ticks_to_us(ticks, VIDEO_TIMESCALE)), 0);
+        }
+        self.pending_bytes += data.len();
+        self.video.push(Pending { ticks, data, sync });
+        self.last_video_ticks = Some(ticks);
+        self.stats.samples += 1;
+        Ok(out)
+    }
+
+    /// Takes one voice packet at `pts_us` microseconds from the start of the file's timeline.
+    ///
+    /// # Errors
+    /// As [`Self::push_video`].
+    pub fn push_voice(&mut self, pts_us: u64, data: Vec<u8>) -> Result<Vec<u8>, MuxError> {
+        self.push_voice_ticks(us_to_ticks(pts_us, OPUS_TIMESCALE), data)
+    }
+
+    /// [`Self::push_voice`] with the time in ticks of 48 kHz.
+    ///
+    /// # Errors
+    /// As [`Self::push_video`].
+    pub fn push_voice_ticks(&mut self, ticks: u64, data: Vec<u8>) -> Result<Vec<u8>, MuxError> {
+        self.check(&data)?;
+        let mut ticks = ticks;
+        if let Some(last) = self.last_voice_ticks {
+            if ticks <= last {
+                ticks = last + 1;
+                self.stats.bumped += 1;
+            }
+        }
+        let mut out = Vec::new();
+        if self.voice_closes_before(ticks, data.len()) {
+            // The voice fills the limits alone: everything pending is written, the voice up to this packet.
+            out = self.close_fragment(Some(ticks_to_us(ticks, OPUS_TIMESCALE)), 0);
+        }
+        self.pending_bytes += data.len();
+        self.voice.push(Pending { ticks, data, sync: true });
+        self.last_voice_ticks = Some(ticks);
+        self.voice_samples += 1;
+        Ok(out)
+    }
+
+    fn picture_closes_before(&self, next_ticks: u64, next_sync: bool, next_bytes: usize) -> bool {
+        let Some(first) = self.video.first() else {
+            return false;
+        };
+        let span_us = ticks_to_us(next_ticks.saturating_sub(first.ticks), VIDEO_TIMESCALE);
+        (next_sync && span_us >= self.limits.min_fragment_us)
+            || span_us >= self.limits.max_fragment_us
+            || self.pending_bytes + next_bytes > self.limits.max_fragment_bytes
+            || self.video.len() + self.voice.len() >= self.limits.max_fragment_samples
+    }
+
+    fn voice_closes_before(&self, next_ticks: u64, next_bytes: usize) -> bool {
+        let Some(first) = self.voice.first() else {
+            return false;
+        };
+        let span_us = ticks_to_us(next_ticks.saturating_sub(first.ticks), OPUS_TIMESCALE);
+        span_us >= self.limits.max_fragment_us
+            || self.pending_bytes + next_bytes > self.limits.max_fragment_bytes
+            || self.video.len() + self.voice.len() >= self.limits.max_fragment_samples
+    }
+
+    /// Writes the open fragment. `boundary_us` is where the next fragment begins (the time of the picture, or of the
+    /// voice packet, that closed this one): the pictures are all written, the voice up to it, and what the
+    /// voice has after it stays for the next. Without one (the end of the file) everything is written, and the last
+    /// picture lasts `tail` ticks.
+    fn close_fragment(&mut self, boundary_us: Option<u64>, tail: u64) -> Vec<u8> {
+        let take_voice = match boundary_us {
+            Some(boundary) => self.voice.iter().take_while(|v| ticks_to_us(v.ticks, OPUS_TIMESCALE) < boundary).count(),
+            None => self.voice.len(),
+        };
+        if self.video.is_empty() && take_voice == 0 {
+            return Vec::new();
+        }
+        let videos = std::mem::take(&mut self.video);
+        let voices: Vec<Pending> = self.voice.drain(..take_voice).collect();
+        self.pending_bytes = self.voice.iter().map(|v| v.data.len()).sum();
+
+        let video_durations = durations_of(&videos, boundary_us.map(|us| us_to_ticks(us, VIDEO_TIMESCALE)), tail);
+        if let Some(last) = video_durations.last() {
+            self.last_video_duration = *last;
+        }
+        let next_voice = self.voice.first().map(|v| v.ticks);
+        let voice_durations: Vec<u64> = (0..voices.len())
+            .map(|i| match voices.get(i + 1) {
+                Some(next) => next.ticks.saturating_sub(voices[i].ticks).max(1),
+                None => match next_voice {
+                    Some(next) => next.saturating_sub(voices[i].ticks).max(1),
+                    None => opus_duration_ticks(&voices[i].data),
+                },
+            })
+            .collect();
+
+        self.sequence += 1;
+        let mfhd = full_box(b"mfhd", 0, 0, &self.sequence.to_be_bytes());
+        let video_bytes: usize = videos.iter().map(|s| s.data.len()).sum();
+        let voice_bytes: usize = voices.iter().map(|s| s.data.len()).sum();
+        let payload_len = video_bytes + voice_bytes;
+
+        // The picture's `traf` and the voice's: each its own base time and run; the data offsets are from the start of
+        // the `moof` to the run's first sample in the `mdat` (the picture's media first), known once the `moof`'s
+        // size is, so the `moof` is built twice.
+        let traf = |track_id: u32, samples: &[Pending], durations: &[u64], is_video: bool, data_offset: u32| -> Vec<u8> {
+            let mut tfhd = Vec::new();
+            put_u32(&mut tfhd, track_id);
+            let tfhd = full_box(b"tfhd", 0, 0x0002_0000, &tfhd); // default-base-is-moof
+            let mut tfdt = Vec::new();
+            put_u64(&mut tfdt, samples[0].ticks);
+            let tfdt = full_box(b"tfdt", 1, 0, &tfdt);
+            let mut t = Vec::with_capacity(8 + samples.len() * 12);
+            put_u32(&mut t, u32::try_from(samples.len()).unwrap_or(u32::MAX));
+            put_u32(&mut t, data_offset);
+            for (s, d) in samples.iter().zip(durations) {
+                put_u32(&mut t, u32::try_from(*d).unwrap_or(u32::MAX));
+                put_u32(&mut t, u32::try_from(s.data.len()).unwrap_or(u32::MAX));
+                put_u32(&mut t, if s.sync { 0x0200_0000 } else if is_video { 0x0101_0000 } else { 0x0200_0000 });
+            }
+            let mut body = tfhd;
+            body.extend_from_slice(&tfdt);
+            body.extend_from_slice(&full_box(b"trun", 0, 0x0000_0701, &t));
+            boxed(b"traf", &body)
+        };
+        let build = |video_offset: u32, voice_offset: u32| -> Vec<u8> {
+            let mut body = mfhd.clone();
+            if !videos.is_empty() {
+                body.extend_from_slice(&traf(1, &videos, &video_durations, true, video_offset));
+            }
+            if !voices.is_empty() {
+                body.extend_from_slice(&traf(2, &voices, &voice_durations, false, voice_offset));
+            }
+            boxed(b"moof", &body)
+        };
+        let moof_len = build(0, 0).len();
+        let big = u32::try_from(payload_len + 8).is_err();
+        let first_media = moof_len + if big { 16 } else { 8 };
+        let video_offset = u32::try_from(first_media).unwrap_or(u32::MAX);
+        let voice_offset = u32::try_from(first_media + video_bytes).unwrap_or(u32::MAX);
+        let moof = build(video_offset, voice_offset);
+
+        let mut out = Vec::with_capacity(moof.len() + payload_len + 16);
+        let moof_offset = self.stats.bytes;
+        out.extend_from_slice(&moof);
+        if big {
+            put_u32(&mut out, 1);
+            out.extend_from_slice(b"mdat");
+            put_u64(&mut out, payload_len as u64 + 16);
+        } else {
+            put_u32(&mut out, u32::try_from(payload_len + 8).unwrap_or(u32::MAX));
+            out.extend_from_slice(b"mdat");
+        }
+        for s in videos.iter().chain(&voices) {
+            out.extend_from_slice(&s.data);
+        }
+        if videos.first().is_some_and(|s| s.sync) {
+            self.index.push((videos[0].ticks, moof_offset));
+        }
+        self.stats.fragments += 1;
+        self.stats.bytes += out.len() as u64;
+        out
+    }
+
+    /// Closes the file: the last fragment (its last picture lasts until `end_us`, or as long as the one before it
+    /// when `end_us` is not past it, the last packet of the voice as long as it says) and the index of the
+    /// pictures that lets a player seek. Returns the bytes to append.
+    pub fn finish(&mut self, end_us: u64) -> Vec<u8> {
+        if self.finished {
+            return Vec::new();
+        }
+        self.finished = true;
+        let last = self.video.last().map_or(0, |p| p.ticks);
+        let end = us_to_ticks(end_us, VIDEO_TIMESCALE);
+        let tail = if end > last {
+            end - last
+        } else if self.video.len() >= 2 {
+            last - self.video[self.video.len() - 2].ticks
+        } else {
+            self.last_video_duration
+        };
+        let mut out = self.close_fragment(None, tail);
+        let fragment_len = out.len() as u64;
+        if !self.index.is_empty() {
+            let mut tfra = Vec::new();
+            put_u32(&mut tfra, 1); // track_ID: the picture's
+            put_u32(&mut tfra, 0);
+            put_u32(&mut tfra, u32::try_from(self.index.len()).unwrap_or(u32::MAX));
+            for (time, offset) in &self.index {
+                put_u64(&mut tfra, *time);
+                put_u64(&mut tfra, *offset);
+                tfra.extend_from_slice(&[1, 1, 1]);
+            }
+            let mut mfra = full_box(b"tfra", 1, 0, &tfra);
+            let mfro_size = u32::try_from(mfra.len() + 8 + 16).unwrap_or(u32::MAX);
+            mfra.extend_from_slice(&full_box(b"mfro", 0, 0, &mfro_size.to_be_bytes()));
+            out.extend_from_slice(&boxed(b"mfra", &mfra));
+        }
+        self.stats.bytes += out.len() as u64 - fragment_len;
+        out
+    }
+}
+
+/// The durations of `samples`: each lasts until the next one's time, the last until `next_ticks` (where the next fragment
+/// begins) or, without one, for `tail` ticks.
+fn durations_of(samples: &[Pending], next_ticks: Option<u64>, tail: u64) -> Vec<u64> {
+    (0..samples.len())
+        .map(|i| {
+            let end = match samples.get(i + 1) {
+                Some(next) => next.ticks,
+                None => next_ticks.unwrap_or_else(|| samples[i].ticks + tail.max(1)),
+            };
+            end.saturating_sub(samples[i].ticks).max(1)
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
 // The scanner
 // ---------------------------------------------------------------------------
 
@@ -1190,7 +1531,11 @@ fn read_moov(moov: &[u8], scan: &mut Scan) {
 
 /// What one `moof` holds: the time of its first sample, its sample count and its length in ticks.
 fn read_moof(moof: &[u8]) -> Option<(u64, u64, u64)> {
-    let traf = child(moof, b"traf")?;
+    // The run of track 1 (the picture's, or the one track's of a file of one); a fragment that has none (a joint file's
+    // fragment of the voice alone) is whole and holds no samples of the track.
+    let Some(traf) = children(moof).into_iter().filter(|(k, _)| k == b"traf").map(|(_, b)| b).find(|t| child(t, b"tfhd").and_then(|h| be32(h, 4)) == Some(1)) else {
+        return Some((0, 0, 0));
+    };
     let tfhd = child(traf, b"tfhd")?;
     let tfhd_flags = be32(tfhd, 0)? & 0x00ff_ffff;
     let mut at = 8;
@@ -1321,4 +1666,4 @@ pub fn scan<R: Read + Seek>(reader: &mut R) -> Result<Scan, ScanError> {
 
 #[cfg(test)]
 #[path = "recorder_mp4_test.rs"]
-mod recorder_mp4_test;
+pub(crate) mod recorder_mp4_test;

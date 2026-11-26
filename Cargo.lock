@@ -68,6 +68,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "AzCompanion"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "azul-review-link",
+]
+
+[[package]]
 name = "AzContacts"
 version = "0.1.0"
 dependencies = [
@@ -1988,6 +1996,15 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "azul-review-link"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "hmac 0.12.1",
+ "sha2 0.10.9",
 ]
 
 [[package]]

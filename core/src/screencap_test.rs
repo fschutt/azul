@@ -8,7 +8,7 @@ mod autotest_generated {
 
     /// Representative + extreme sources: both payload boundaries (0, MAX) for
     /// each carrying variant, so a truncating/aliasing constructor cannot pass.
-    const ALL_SOURCES: [ScreenCaptureSource; 7] = [
+    const ALL_SOURCES: [ScreenCaptureSource; 10] = [
         ScreenCaptureSource::PrimaryDisplay,
         ScreenCaptureSource::Display(0),
         ScreenCaptureSource::Display(1),
@@ -16,6 +16,9 @@ mod autotest_generated {
         ScreenCaptureSource::Window(0),
         ScreenCaptureSource::Window(1),
         ScreenCaptureSource::Window(u64::MAX),
+        ScreenCaptureSource::DisplayId(0),
+        ScreenCaptureSource::DisplayId(1),
+        ScreenCaptureSource::DisplayId(u32::MAX),
     ];
 
     // ---- ScreenCaptureConfig::new — constructor: no_panic ----
@@ -52,6 +55,7 @@ mod autotest_generated {
             assert_eq!(cfg.source, source, "source must equal the argument");
             assert_eq!(cfg.fps, def.fps);
             assert_eq!(cfg.output_format, def.output_format);
+            assert_eq!((cfg.show_cursor, cfg.include_own_windows), (true, false), "the cursor is shown, the app's own windows are not");
             // Absolute invariants, not merely "== whatever Default says":
             assert_eq!(cfg.fps, 0, "0 => backend picks the frame rate");
             assert_eq!(
@@ -112,6 +116,26 @@ mod autotest_generated {
 
         // Enough room for the widest payload; guards against a narrowed repr.
         assert!(size_of::<ScreenCaptureSource>() >= size_of::<u64>());
+    }
+
+    /// A display by the system's id is not a display by its index, and its id keeps its full width.
+    ///
+    /// Mutation: `DisplayId` spelled as `Display` (the two compare equal); an id narrowed on the way.
+    #[test]
+    fn a_display_by_its_id_is_not_a_display_by_its_index() {
+        assert_ne!(ScreenCaptureSource::DisplayId(1), ScreenCaptureSource::Display(1));
+        assert_ne!(ScreenCaptureSource::DisplayId(0), ScreenCaptureSource::PrimaryDisplay, "id 0 is asked for by id");
+        let cfg = ScreenCaptureConfig::new(ScreenCaptureSource::DisplayId(69_733_382));
+        assert!(matches!(cfg.source, ScreenCaptureSource::DisplayId(69_733_382)));
+        assert_ne!(
+            ScreenCaptureConfig { show_cursor: false, ..ScreenCaptureConfig::default() },
+            ScreenCaptureConfig::default(),
+            "the cursor is part of what is asked for"
+        );
+        assert_ne!(
+            ScreenCaptureConfig { include_own_windows: true, ..ScreenCaptureConfig::default() },
+            ScreenCaptureConfig::default()
+        );
     }
 
     #[test]

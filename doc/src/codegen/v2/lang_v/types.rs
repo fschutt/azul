@@ -26,7 +26,7 @@ use super::{
         },
     },
     ffi_type_name, field_type_for_ref_kind, include_enum, include_struct, map_type_to_v,
-    sanitize_identifier,
+    sanitize_identifier, snake_fields,
 };
 
 pub fn generate_types(
@@ -136,8 +136,8 @@ fn emit_simple_enum(b: &mut CodeBuilder, e: &EnumDef) {
     }
 
     b.line(&format!("pub enum {} as {} {{", name, backing));
-    for v in &e.variants {
-        b.line(&format!("\t{}", sanitize_identifier(&v.name)));
+    for field in snake_fields(e.variants.iter().map(|v| v.name.as_str())) {
+        b.line(&format!("\t{}", field));
     }
     b.line("}");
     b.blank();
@@ -194,11 +194,13 @@ fn emit_tagged_union(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
         b.line("}");
     }
 
-    // The union itself: one field per variant struct.
+    // The union itself: one field per variant struct (a field name has no uppercase letter in
+    // V, the struct it holds keeps the variant's own spelling).
     b.line(&format!("pub union {} {{", name));
-    for v in &e.variants {
+    let fields = snake_fields(e.variants.iter().map(|v| v.name.as_str()));
+    for (v, field) in e.variants.iter().zip(fields) {
         let vname = sanitize_identifier(&v.name);
-        b.line(&format!("\t{} {}Variant_{}", vname, name, vname));
+        b.line(&format!("\t{} {}Variant_{}", field, name, vname));
     }
     b.line("}");
     b.blank();
@@ -219,7 +221,7 @@ fn emit_struct(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         // matches the generated `azul.h`.
         b.line(&format!("pub struct {} {{", name));
         b.line("pub mut:");
-        b.line("\t_dummy u8");
+        b.line("\tdummy u8");
         b.line("}");
         b.blank();
         return;
@@ -303,8 +305,8 @@ fn emit_monomorphized_alias(
                 return;
             }
             b.line(&format!("pub enum {} as {} {{", name, backing));
-            for v in variants {
-                b.line(&format!("\t{}", sanitize_identifier(v)));
+            for field in snake_fields(variants.iter().map(|v| v.as_str())) {
+                b.line(&format!("\t{}", field));
             }
             b.line("}");
             b.blank();
@@ -313,7 +315,7 @@ fn emit_monomorphized_alias(
             if fields.is_empty() {
                 b.line(&format!("pub struct {} {{", name));
                 b.line("pub mut:");
-                b.line("\t_dummy u8");
+                b.line("\tdummy u8");
                 b.line("}");
                 b.blank();
                 return;
@@ -342,9 +344,10 @@ fn emit_monomorphized_alias(
                 b.line("}");
             }
             b.line(&format!("pub union {} {{", name));
-            for v in variants {
+            let fields = snake_fields(variants.iter().map(|v| v.name.as_str()));
+            for (v, field) in variants.iter().zip(fields) {
                 let vname = sanitize_identifier(&v.name);
-                b.line(&format!("\t{} {}Variant_{}", vname, name, vname));
+                b.line(&format!("\t{} {}Variant_{}", field, name, vname));
             }
             b.line("}");
             b.blank();

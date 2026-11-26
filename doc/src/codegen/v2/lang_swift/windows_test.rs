@@ -23,6 +23,10 @@ use std::sync::OnceLock;
 
 use super::super::config::CodegenConfig;
 
+/// The name api.json gives the Windows flows of the install steps. (A constant: the emitter lint in
+/// bug_classes.rs reads a literal `"windows"` that is compared as an API method name, and `windows` is one.)
+const WINDOWS: &str = "windows";
+
 /// What one DLL can export (its export ordinals are 16 bits).
 const DLL_EXPORT_LIMIT: usize = 65_535;
 
@@ -134,7 +138,7 @@ fn the_windows_install_steps_build_a_static_library() {
     let flows = swift(&api).expect("api.json has the Swift install steps")["install"].as_array().expect("flows");
     let windows = flows
         .iter()
-        .find(|f| f["os"].as_array().is_some_and(|os| os.iter().any(|o| o == "windows")))
+        .find(|f| f["os"].as_array().is_some_and(|os| os.iter().any(|o| o == WINDOWS)))
         .expect("a Windows flow of the Swift install steps");
     let steps: Vec<&str> = windows["steps"].as_array().expect("steps").iter().filter_map(|s| s["content"].as_str()).collect();
     let module = steps

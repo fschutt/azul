@@ -54,7 +54,7 @@ impl CoreGraphicsFunctions {
 ///
 /// The deviceDescription dictionary contains a "NSScreenNumber" key
 /// which maps to the CGDirectDisplayID for that screen.
-pub(super) fn get_display_id_from_screen(screen: &objc2_app_kit::NSScreen) -> Option<CGDirectDisplayID> {
+pub(crate) fn get_display_id_from_screen(screen: &objc2_app_kit::NSScreen) -> Option<CGDirectDisplayID> {
     unsafe {
         use objc2::msg_send;
 

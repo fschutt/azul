@@ -23,6 +23,9 @@ pub mod accessibility;
 /// What the app chose (its mode, its language) and configured, shared by every window of it.
 pub mod app_shared;
 pub mod capability_pump;
+/// Keeping a window out of screen captures (`WindowFlags::exclude_from_capture`): the one decision every
+/// shell makes about it, and the values the platforms take.
+pub mod capture_exclusion;
 pub mod clipboard;
 pub mod debug_server;
 #[cfg(feature = "e2e-test")]

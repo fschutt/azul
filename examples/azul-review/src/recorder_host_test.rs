@@ -1,0 +1,789 @@
+//! The recorder as the app holds it: what the window asks the system for at each moment, how a recording
+//! starts and says why it did not, what the panel keeps of the recorder's notices, and the list of recordings.
+//! On stand-in encoders and a clock the test moves; no window, no azul.
+
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        Arc, Mutex,
+    },
+    time::{Duration, Instant},
+};
+
+use azul_appkit::phrase::{Arg, Phrase, Text};
+
+use super::*;
+use crate::{
+    recorder::{DesktopSample, FrontApp},
+    recorder_clock::{Clock, MockClock},
+    recorder_codec::{MockFactory, PixelFormat, RawFrame},
+    recorder_export_job::{Failure, Made, Renderer},
+    recorder_manifest::{AppInfo, HostInfo, Workspace},
+    recorder_panel::{Access, Do, Dot, Severity},
+    recorder_settings::{RecorderSettings, ScreenKind},
+};
+
+struct Tmp(PathBuf);
+
+impl Tmp {
+    fn new() -> Self {
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        let path = std::env::temp_dir().join(format!("azreview-host-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+}
+
+impl Drop for Tmp {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+struct Rig {
+    host: RecorderHost,
+    clock: MockClock,
+    free: Arc<std::sync::atomic::AtomicU64>,
+    tmp: Tmp,
+}
+
+fn facts(dir: &std::path::Path) -> Facts {
+    Facts {
+        app: AppInfo { name: String::from("AzReview"), version: String::from("0.1.0") },
+        workspace: Workspace { root: String::from("/w"), name: String::from("w") },
+        host: HostInfo { os: String::from("macos"), arch: String::from("aarch64") },
+        utc_offset_minutes: 60,
+        recordings_dir: dir.join("recordings"),
+        who: Arg::from("Terminal"),
+        decimal: '.',
+        hotkey: String::from("Cmd+Shift+P"),
+    }
+}
+
+fn rig_with(settings: RecorderSettings) -> Rig {
+    let clock = MockClock::at(0);
+    let free = Arc::new(std::sync::atomic::AtomicU64::new(500 * 1_000_000_000));
+    let (c, f) = (clock.clone(), Arc::clone(&free));
+    let deps = Deps {
+        unix_ms: Box::new(|| 1_764_108_000_000),
+        make_clock: Box::new(move |_| Arc::new(c.clone()) as Arc<dyn Clock>),
+        free_bytes: Box::new(move |_| Some(f.load(Ordering::SeqCst))),
+        factory: Box::new(MockFactory::default()),
+    };
+    let tmp = Tmp::new();
+    Rig { host: RecorderHost::new(settings, facts(&tmp.0), deps), clock, free, tmp }
+}
+
+fn quiet() -> RecorderSettings {
+    RecorderSettings { idle_pause_us: None, ..RecorderSettings::default() }
+}
+
+fn rig() -> Rig {
+    rig_with(quiet())
+}
+
+const ALL_ALLOWED: Accesses = Accesses { screen: Access::Allowed, camera: Access::Allowed, microphone: Access::Allowed };
+const DISPLAY: DisplayFacts = DisplayFacts { id: 1, width: 2560, height: 1664 };
+
+fn devices() -> Devices {
+    Devices { screen: Some(String::from("Built-in Display")), camera: Some(String::from("FaceTime HD Camera")), microphone: Some(String::from("MacBook Microphone")) }
+}
+
+impl Rig {
+    fn start(&mut self) -> bool {
+        self.host.start(ALL_ALLOWED, devices(), DISPLAY, &[DISPLAY])
+    }
+}
+
+// ---- what the window asks the system for ----
+
+/// A picture is no bigger than the display and no wider than the setting; its aspect is the display's, its sides
+/// are even (an encoder takes no odd side).
+///
+/// Mutation: an enlarged picture; a distorted aspect; an odd side.
+#[test]
+fn the_picture_asked_for_keeps_the_displays_aspect_never_grows_and_has_even_sides() {
+    assert_eq!(consumer_size(2560, 1664, 1920), (1920, 1248));
+    assert_eq!(consumer_size(1440, 900, 1920), (1440, 900), "a display narrower than the setting is not enlarged");
+    assert_eq!(consumer_size(1920, 1080, 1920), (1920, 1080));
+    assert_eq!(consumer_size(3840, 2160, 1920), (1920, 1080));
+    assert_eq!(consumer_size(1366, 768, 1366), (1366, 768));
+    assert_eq!(consumer_size(1365, 767, 2000), (1364, 766), "odd sides are cut down to even ones: neither the display nor the setting is exceeded");
+    let (w, h) = consumer_size(2561, 1601, 999);
+    assert!(w % 2 == 0 && h % 2 == 0 && w <= 999, "{w} x {h}");
+    assert_eq!(consumer_size(1, 1, 1920), (0, 0), "a side that is cut to nothing is no picture");
+    assert_eq!(consumer_size(0, 0, 1920), (0, 0), "no display, no picture");
+    assert_eq!(consumer_size(2560, 1664, 0), (0, 0), "a width of nothing is no picture");
+}
+
+/// Nothing is open while nothing records: no screen, no camera, no microphone. A recording asks for the
+/// screen (the display, in the setting's size), the camera and the microphone; a pause lets them all go.
+///
+/// Mutation: devices left open while idle; devices left open in a pause; the screen when it is off in the settings.
+#[test]
+fn nothing_is_open_until_a_recording_runs_and_a_pause_lets_everything_go() {
+    let mut r = rig();
+    assert_eq!(r.host.wants(), Wants::default(), "idle: nothing");
+    assert!(r.start(), "{:?}", r.host.error());
+    let wants = r.host.wants();
+    assert_eq!(wants.screen, Some(ScreenWant { display_id: 1, width: 1920, height: 1248, exclude: vec![String::from("com.apple.notificationcenterui")] }));
+    assert!(wants.camera && wants.microphone && !wants.tap);
+    r.host.toggle_pause();
+    assert_eq!(r.host.wants(), Wants::default(), "paused: the devices are let go");
+    r.host.toggle_pause();
+    assert!(r.host.wants().camera, "and open again when it goes on");
+    r.host.stop();
+    assert_eq!(r.host.wants(), Wants::default(), "stopped: nothing");
+}
+
+/// The camera's preview can be on before and between recordings: the camera alone, and never the screen or the
+/// microphone; a camera the system refused is not asked for.
+///
+/// Mutation: a preview that opens the microphone; a preview of a refused camera.
+#[test]
+fn the_camera_preview_opens_the_camera_alone_and_only_where_it_is_allowed() {
+    let mut r = rig();
+    r.host.set_preview(true, Access::Allowed);
+    assert_eq!(r.host.wants(), Wants { camera: true, ..Wants::default() });
+    r.host.set_preview(true, Access::Denied);
+    assert_eq!(r.host.wants(), Wants::default(), "a refused camera is not opened");
+    r.host.set_preview(false, Access::Allowed);
+    assert!(!r.host.preview());
+    assert_eq!(r.host.wants(), Wants::default());
+}
+
+/// What the settings and the system say takes devices out of a recording: a screen that is off, a camera that is
+/// off or refused, the review's own frames (the window taps them, the capture is not asked).
+///
+/// Mutation: a refused camera asked for anyway; the own frames' source that also captures the display.
+#[test]
+fn the_settings_and_the_systems_answers_take_devices_out_of_what_is_asked_for() {
+    let mut r = rig_with(RecorderSettings { camera: false, microphone: false, ..quiet() });
+    assert!(r.start());
+    let wants = r.host.wants();
+    assert!(wants.screen.is_some() && !wants.camera && !wants.microphone);
+
+    let mut r = rig();
+    assert!(r.host.start(Accesses { camera: Access::Denied, microphone: Access::Restricted, ..ALL_ALLOWED }, devices(), DISPLAY, &[DISPLAY]));
+    let wants = r.host.wants();
+    assert!(wants.screen.is_some() && !wants.camera && !wants.microphone, "{wants:?}");
+
+    let mut r = rig_with(RecorderSettings { screen_source: ScreenKind::OwnFrames, ..quiet() });
+    assert!(r.start());
+    let wants = r.host.wants();
+    assert_eq!((wants.screen.is_some(), wants.tap), (false, true), "the window's own frames come from its tap");
+
+    let mut r = rig_with(RecorderSettings { screen: false, ..quiet() });
+    assert!(r.start());
+    assert_eq!((r.host.wants().screen, r.host.wants().tap), (None, false));
+
+    let mut r = rig();
+    assert!(r.host.start(Accesses { screen: Access::Denied, ..ALL_ALLOWED }, devices(), DISPLAY, &[DISPLAY]));
+    assert_eq!(r.host.wants().screen, None, "a refused screen is not asked for again every second");
+}
+
+/// The exclusion list of the settings goes to the capture as it is.
+#[test]
+fn the_apps_to_leave_out_are_the_settings() {
+    let mut r = rig_with(RecorderSettings { screen_exclude: vec![String::from("com.example.One"), String::from("com.example.Two")], ..quiet() });
+    assert!(r.start());
+    assert_eq!(r.host.wants().screen.unwrap().exclude, vec!["com.example.One", "com.example.Two"]);
+}
+
+/// The display of a recording is the one the window is on, unless the settings name another by the system's
+/// number; a number of a display that is not there is said, and the window's display is recorded (never none).
+///
+/// Mutation: a named display that is ignored; an unknown number that records nothing or says nothing.
+#[test]
+fn the_display_is_the_windows_unless_the_settings_name_another_and_a_missing_one_is_said() {
+    let (a, b) = (DisplayFacts { id: 11, width: 2560, height: 1664 }, DisplayFacts { id: 22, width: 1920, height: 1080 });
+    assert_eq!(pick_display(0, a, &[a, b]), (a, None), "no display named: the window's");
+    assert_eq!(pick_display(22, a, &[a, b]), (b, None), "another, by the system's number");
+    assert_eq!(pick_display(11, a, &[a, b]), (a, None));
+    let (picked, said) = pick_display(99, a, &[a, b]);
+    assert_eq!(picked, a, "the window's, since display 99 is not there");
+    let said = said.expect("it is said");
+    assert_eq!(said.phrase("azreview-rec-notice-display-missing").unwrap().get("id"), Some(&Arg::Int(99)));
+    assert_eq!(pick_display(22, a, &[]), (a, Some(Text::from(Phrase::new("azreview-rec-notice-display-missing").arg("id", 22_u32)))), "no list, no choice");
+}
+
+/// A recording of the display the settings name is of that display, at its own size, and one of a display that is
+/// not there says so in the panel and records the window's.
+///
+/// Mutation: the named display's size not used; the missing display not said in the panel.
+#[test]
+fn a_named_display_is_the_one_recorded_at_its_own_size_and_a_missing_one_is_said_in_the_panel() {
+    let (a, b) = (DisplayFacts { id: 11, width: 2560, height: 1664 }, DisplayFacts { id: 22, width: 1920, height: 1080 });
+    let mut r = rig_with(RecorderSettings { screen_display: 22, ..quiet() });
+    assert!(r.host.start(ALL_ALLOWED, devices(), a, &[a, b]), "{:?}", r.host.error());
+    let screen = r.host.wants().screen.expect("the screen");
+    assert_eq!((screen.display_id, screen.width, screen.height), (22, 1920, 1080));
+    let mut r = rig_with(RecorderSettings { screen_display: 99, ..quiet() });
+    assert!(r.host.start(ALL_ALLOWED, devices(), a, &[a, b]));
+    let screen = r.host.wants().screen.expect("the screen");
+    assert_eq!((screen.display_id, screen.width, screen.height), (11, 1920, 1248), "the window's display");
+    assert!(r.host.recent().any(|n| n.severity == Severity::Warning && n.text.phrase("azreview-rec-notice-display-missing").is_some()), "{:?}", r.host.recent().collect::<Vec<_>>());
+}
+
+// ---- starting ----
+
+/// A recording starts with what the system allows, and a refusal of one device does not stop the others: the panel
+/// names the one that is off.
+///
+/// Mutation: a refused camera that stops the recording; a refusal that is not said.
+#[test]
+fn a_recording_starts_and_a_refused_device_is_named_while_the_rest_records() {
+    let mut r = rig();
+    assert!(r.host.start(Accesses { camera: Access::Denied, ..ALL_ALLOWED }, devices(), DISPLAY, &[DISPLAY]), "{:?}", r.host.error());
+    assert_eq!(r.host.hud().dot, Dot::Recording);
+    assert!(r.host.error().is_none());
+    r.clock.advance_ms(200);
+    r.host.tick();
+    let hud = r.host.hud();
+    assert!(
+        hud.notes.iter().any(|n| n.severity == Severity::Warning && n.text.phrase("azreview-rec-problem").is_some_and(|p| p.get("track") == Some(&Arg::word("azreview-rec-track-camera", "camera")))),
+        "the camera is named: {:?}",
+        hud.notes
+    );
+}
+
+/// A recording that cannot start says why in words: a window source azul cannot capture yet (never a quiet fall
+/// back to the whole display), a recording going already, a full disk, nothing to record.
+///
+/// Mutation: a window source that records the display; an error that is not kept.
+#[test]
+fn a_recording_that_cannot_start_says_why_and_nothing_is_recorded() {
+    let mut r = rig_with(RecorderSettings { screen_source: ScreenKind::Window, ..quiet() });
+    assert!(!r.start());
+    assert_eq!(r.host.error(), Some(&Text::key("azreview-rec-error-window-source")));
+    assert_eq!(r.host.hud().dot, Dot::Idle);
+    assert_eq!(r.host.wants(), Wants::default());
+
+    let mut r = rig();
+    assert!(r.start());
+    assert!(!r.start(), "a second start");
+    assert_eq!(r.host.error(), Some(&Text::key("azreview-rec-error-busy")));
+    assert_eq!(r.host.hud().dot, Dot::Recording, "the first goes on");
+
+    let mut r = rig();
+    r.free.store(4_500_000_000, Ordering::SeqCst);
+    assert!(!r.start());
+    let error = r.host.error().expect("words");
+    let p = error.phrase("azreview-rec-error-disk-full").expect("the disk");
+    assert_eq!(p.get("free"), Some(&Arg::from("4.5 GB")));
+
+    let mut r = rig_with(RecorderSettings { screen: false, camera: false, microphone: false, ..quiet() });
+    assert!(!r.start());
+    assert_eq!(r.host.error(), Some(&Text::key("azreview-rec-error-nothing")));
+
+    // A start that works forgets the last error.
+    let mut r = rig();
+    r.free.store(4_500_000_000, Ordering::SeqCst);
+    assert!(!r.start());
+    r.free.store(500_000_000_000, Ordering::SeqCst);
+    assert!(r.start());
+    assert!(r.host.error().is_none());
+}
+
+// ---- what the panel keeps ----
+
+/// The recorder's notices are kept for the panel, the newest last and at most twenty; a pause and a
+/// resume show up in them.
+///
+/// Mutation: a notice that is dropped; more than twenty kept.
+#[test]
+fn the_recorders_notices_are_kept_for_the_panel_the_newest_last_and_at_most_twenty() {
+    let mut r = rig();
+    assert!(r.start());
+    r.host.toggle_pause();
+    r.host.toggle_pause();
+    let kept: Vec<Text> = r.host.recent().map(|n| n.text.clone()).collect();
+    assert_eq!(kept, vec![Text::key("azreview-rec-status-paused-user"), Text::key("azreview-rec-notice-resumed")]);
+    for _ in 0..40 {
+        r.host.toggle_pause();
+    }
+    assert_eq!(r.host.recent().count(), 20);
+    assert_eq!(r.host.recent().last().map(|n| n.text.clone()), Some(Text::key("azreview-rec-notice-resumed")), "the newest is kept");
+    // A new recording starts with a clean list: what the last one said is not this one's.
+    r.host.stop();
+    assert!(r.host.recent().count() > 0, "the last one's saved notice");
+    assert!(r.start());
+    assert_eq!(r.host.recent().count(), 0, "{:?}", r.host.recent().collect::<Vec<_>>());
+}
+
+/// The pause key pauses a recording and resumes it, and does nothing when nothing records.
+///
+/// Mutation: a pause of an idle recorder.
+#[test]
+fn the_pause_key_pauses_and_resumes_and_does_nothing_when_idle() {
+    let mut r = rig();
+    r.host.toggle_pause();
+    assert_eq!((r.host.hud().dot, r.host.recent().count()), (Dot::Idle, 0));
+    assert!(r.start());
+    r.host.toggle_pause();
+    let hud = r.host.hud();
+    assert_eq!(hud.dot, Dot::Paused);
+    assert_eq!(hud.buttons.iter().map(|b| b.what).collect::<Vec<_>>(), vec![Do::Resume, Do::Stop]);
+    assert_eq!(hud.buttons[0].described, Phrase::new("azreview-rec-resume-described").arg("hotkey", "Cmd+Shift+P"), "the key as the facts name it");
+    r.host.toggle_pause();
+    assert_eq!(r.host.hud().dot, Dot::Recording);
+}
+
+/// What comes in goes to the files: the picture of the screen, the camera's, the voice, and what the desktop was
+/// doing; stopping keeps the recording in the list with its length and says where it was saved.
+///
+/// Mutation: frames that are not passed on; a stop that does not refresh the list.
+#[test]
+fn what_comes_in_goes_to_the_files_and_a_stopped_recording_is_in_the_list() {
+    let mut r = rig();
+    assert!(r.start());
+    let (w, h) = (1920, 1248);
+    for i in 0..30_u8 {
+        r.clock.advance_ms(100);
+        r.host.screen_frame(RawFrame { width: w, height: h, format: PixelFormat::Rgba8, bytes: vec![i; w as usize * h as usize * 4] }, 1.0);
+        r.host.camera_frame(RawFrame { width: 64, height: 48, format: PixelFormat::Nv12, bytes: vec![0; 64 * 48 * 3 / 2] });
+        r.host.audio_chunk(&vec![0.1; 4_800], 48_000, 1);
+        r.host.tick();
+    }
+    r.host.desktop_sample(&DesktopSample { front: Some(FrontApp { bundle: String::from("com.apple.Safari"), name: String::from("Safari") }), ..DesktopSample::default() });
+    assert!(r.host.rows().is_empty(), "the list is read when it is asked to be");
+    r.host.stop();
+    let rows = r.host.rows();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].tracks, vec!["screen", "camera", "audio"]);
+    assert_eq!(rows[0].state, Phrase::new("azreview-rec-state-complete"));
+    assert!(rows[0].length.starts_with("0:0") || rows[0].length.starts_with("0:1"), "{}", rows[0].length);
+    let saved = r.host.recent().last().expect("said").text.phrase("azreview-rec-notice-saved").cloned().expect("saved");
+    assert_eq!(saved.get("name"), Some(&Arg::from(rows[0].name.as_str())));
+    assert_eq!(r.host.hud().dot, Dot::Idle);
+    assert!(r.host.path_of(&rows[0].name).is_some_and(|p| p.join("manifest.json").is_file()));
+    assert!(r.host.event_sink().is_none(), "no recording, no sink");
+}
+
+/// A recording can be deleted from the list, and nothing else can: a name that is not a recording's is refused
+/// in words.
+///
+/// Mutation: a delete that reaches outside the recordings folder; a refusal that is not said.
+#[test]
+fn a_recording_can_be_deleted_and_a_name_that_is_not_one_is_refused() {
+    let mut r = rig();
+    assert!(r.start());
+    r.clock.advance_ms(500);
+    r.host.stop();
+    let name = r.host.rows()[0].name.clone();
+    let outside = r.tmp.0.join("keep.txt");
+    fs::write(&outside, b"mine").unwrap();
+    assert!(!r.host.delete("../keep.txt"));
+    assert!(!r.host.delete("missing"));
+    assert!(outside.is_file(), "nothing outside the folder is touched");
+    let error = r.host.recent().last().expect("said");
+    assert_eq!(error.severity, Severity::Warning);
+    assert!(error.text.phrase("azreview-rec-error-delete").is_some(), "{:?}", error.text);
+    assert!(r.host.delete(&name));
+    assert!(r.host.rows().is_empty());
+    assert_eq!(r.host.path_of(&name), None, "a name that is gone is no path");
+    for not_a_name in ["../keep.txt", "..", ".", "recordings/..", "a/b", "/", ""] {
+        assert_eq!(r.host.path_of(not_a_name), None, "{not_a_name:?}: a path is not a name");
+    }
+}
+
+/// A recording that is being written cannot be deleted from under its writer.
+///
+/// Mutation: a delete of the recording that is going.
+#[test]
+fn a_recording_that_is_going_is_not_deleted() {
+    let mut r = rig();
+    assert!(r.start());
+    let name = r.host.current().expect("a recording is going");
+    // (It is a recording to the folder's eyes once the writer has written its manifest, a moment after the start.)
+    let folder = r.tmp.0.join("recordings").join(&name);
+    for _ in 0..500 {
+        if folder.join("manifest.json").is_file() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(folder.join("manifest.json").is_file());
+    assert!(!r.host.delete(&name));
+    assert!(folder.join("manifest.json").is_file(), "the folder is still there, whole");
+    let said = r.host.recent().last().expect("said");
+    assert_eq!(said.severity, Severity::Warning);
+    assert!(said.text.phrase("azreview-rec-error-delete").is_some_and(|p| p.get("name") == Some(&Arg::from(name.as_str()))), "{:?}", said.text);
+    assert!(r.host.path_of(&name).is_some(), "it is still there");
+    assert_eq!(r.host.current(), Some(name), "and still going");
+}
+
+/// A recording that was cut off (the app ended while it ran) is put right when the app starts again, and the
+/// panel says how many. (The folder of a recording that is going is copied, as a killed process leaves it, and the
+/// copy is what the next start finds.)
+///
+/// Mutation: no recovery at the start; no word about it.
+#[test]
+fn a_recording_cut_off_is_put_right_at_the_next_start_and_the_panel_says_so() {
+    fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
+        fs::create_dir_all(to).unwrap();
+        for entry in fs::read_dir(from).unwrap().flatten() {
+            let (src, dst) = (entry.path(), to.join(entry.file_name()));
+            if src.is_dir() {
+                copy_dir(&src, &dst);
+            } else {
+                let _ = fs::copy(&src, &dst);
+            }
+        }
+    }
+    let mut r = rig();
+    assert!(r.start());
+    r.clock.advance_ms(1_000);
+    r.host.tick();
+    // (The writer thread writes the first manifest a moment after the start.)
+    let name = r.host.current().expect("going");
+    let manifest = r.tmp.0.join("recordings").join(&name).join("manifest.json");
+    for _ in 0..500 {
+        if manifest.is_file() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(manifest.is_file(), "the manifest of a recording that began");
+    let elsewhere = Tmp::new();
+    copy_dir(&r.tmp.0.join("recordings").join(&name), &elsewhere.0.join("recordings").join(&name));
+    r.host.stop();
+
+    let clock = MockClock::at(0);
+    let deps = Deps {
+        unix_ms: Box::new(|| 1_764_108_000_000),
+        make_clock: Box::new(move |_| Arc::new(clock.clone()) as Arc<dyn Clock>),
+        free_bytes: Box::new(|_| Some(500_000_000_000)),
+        factory: Box::new(MockFactory::default()),
+    };
+    let mut again = RecorderHost::new(quiet(), facts(&elsewhere.0), deps);
+    assert_eq!(again.recover(), 1);
+    let said = again.recent().last().expect("said").text.phrase("azreview-rec-notice-recovered").cloned().expect("words");
+    assert_eq!(said.get("count"), Some(&Arg::Int(1)));
+    assert_eq!(again.rows().iter().map(|row| row.state.clone()).collect::<Vec<_>>(), vec![Phrase::new("azreview-rec-state-recovered")]);
+    assert_eq!(again.recover(), 0, "a recording that is right is not recovered again");
+    assert_eq!(again.recent().count(), 1, "and nothing is said again");
+}
+
+/// A locked screen pauses the recording (the setting says so) and the unlock goes on, only after a pause the lock
+/// made.
+///
+/// Mutation: a lock that is not passed on.
+#[test]
+fn the_lock_of_the_screen_pauses_and_the_unlock_resumes() {
+    let mut r = rig();
+    assert!(r.start());
+    r.host.session_locked(true);
+    assert_eq!(r.host.hud().dot, Dot::Paused);
+    assert_eq!(r.host.hud().status, Phrase::new("azreview-rec-status-paused-locked"));
+    r.host.session_locked(false);
+    assert_eq!(r.host.hud().dot, Dot::Recording);
+}
+
+// ---- what the review's window tells the recorder ----
+
+/// What the window tells the recorder reaches the recording that is going and nothing else: the hook is open while
+/// a recording runs (and only then), an event told during it is in that recording's events in the recorder's words,
+/// and a second recording's events go to the second folder, none of them to the first.
+///
+/// Mutation: a hook that is not given the sink when a recording starts; one that keeps the sink of the recording
+/// that ended; one that keeps a first recording's sink for the second.
+#[test]
+fn what_the_window_tells_the_recorder_reaches_the_recording_that_is_going_and_nothing_else() {
+    let mut r = rig();
+    let hook = r.host.hook();
+    assert!(!hook.is_open(), "nothing records: nothing takes what is told");
+    hook.event("nav.file", r#"{"file":"before.rs","lines":1}"#);
+
+    assert!(r.start());
+    assert!(hook.is_open());
+    r.clock.advance_ms(500);
+    hook.event("nav.file", r#"{"file":"first.rs","lines":2}"#);
+    let first = r.host.path_of(&r.host.current().unwrap()).unwrap();
+    r.host.stop();
+    assert!(!hook.is_open(), "a recording that ended takes nothing more");
+    hook.event("nav.file", r#"{"file":"between.rs","lines":3}"#);
+
+    r.clock.advance_ms(2_000);
+    assert!(r.start());
+    assert!(hook.is_open());
+    hook.event("nav.file", r#"{"file":"second.rs","lines":4}"#);
+    let second = r.host.path_of(&r.host.current().unwrap()).unwrap();
+    assert_ne!(first, second);
+    r.host.stop();
+
+    let events = |dir: &std::path::Path| fs::read_to_string(dir.join("events.jsonl")).unwrap();
+    let (a, b) = (events(&first), events(&second));
+    let line = a.lines().find(|l| l.contains("first.rs")).unwrap_or_else(|| panic!("the first's event is in {a}"));
+    assert!(line.contains(r#""k":"nav.file""#) && line.contains(r#""lines":2"#), "{line}");
+    assert!(!a.contains("before.rs") && !a.contains("between.rs") && !a.contains("second.rs"), "{a}");
+    assert!(b.contains("second.rs") && !b.contains("first.rs") && !b.contains("between.rs") && !b.contains("before.rs"), "{b}");
+}
+
+/// A recording the recorder ends by itself (the session's length is up) takes nothing more either: the hook is closed
+/// by the tick that saw it end, not left holding a sink that goes nowhere.
+///
+/// Mutation: a tick that leaves the hook as it was.
+#[test]
+fn a_recording_that_ends_by_its_length_closes_the_hook() {
+    let mut r = rig_with(RecorderSettings { max_session_us: 5_000_000, ..quiet() });
+    let hook = r.host.hook();
+    assert!(r.start());
+    assert!(hook.is_open());
+    r.clock.advance_ms(6_000);
+    r.host.tick();
+    assert_eq!(r.host.hud().dot, Dot::Idle, "the recording ended at its length");
+    assert!(!hook.is_open());
+}
+
+// ---- exporting a recording ----
+
+/// What the test does to the renderers it gives the host: lets them finish, and says what they were given.
+#[derive(Default, Clone)]
+struct Gate {
+    /// The renderers wait for this before they make the video.
+    release: Arc<AtomicBool>,
+    /// What the renderers were asked to export, and whether any saw a cancel.
+    given: Arc<Mutex<Vec<PathBuf>>>,
+    saw_cancel: Arc<AtomicBool>,
+}
+
+struct Gated(Gate);
+
+impl Renderer for Gated {
+    fn render(&mut self, session: &Path, cancel: &AtomicBool, progress: &mut dyn FnMut(f64)) -> Result<Made, Failure> {
+        self.0.given.lock().unwrap().push(session.to_path_buf());
+        progress(0.5);
+        while !self.0.release.load(Ordering::SeqCst) {
+            if cancel.load(Ordering::SeqCst) {
+                self.0.saw_cancel.store(true, Ordering::SeqCst);
+                return Err(Failure::Cancelled);
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let file = crate::recorder_export_job::video_path(session);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, vec![0_u8; 2_000_000]).unwrap();
+        Ok(Made { file, bytes: 2_000_000, notes: Vec::new() })
+    }
+}
+
+impl Rig {
+    /// The host exports with renderers that wait for the gate.
+    fn gated(&mut self) -> Gate {
+        let gate = Gate::default();
+        let g = gate.clone();
+        self.host.set_renderer(Box::new(move || Box::new(Gated(g.clone()))));
+        gate
+    }
+
+    /// A recording of two seconds with a screen, a camera and a voice, stopped: its name.
+    fn recorded(&mut self) -> String {
+        assert!(self.start());
+        for i in 0..20_u8 {
+            self.clock.advance_ms(100);
+            self.host.screen_frame(RawFrame { width: 1920, height: 1248, format: PixelFormat::Rgba8, bytes: vec![i; 1920 * 1248 * 4] }, 1.0);
+            self.host.audio_chunk(&vec![0.1; 4_800], 48_000, 1);
+            self.host.tick();
+        }
+        let name = self.host.current().expect("a recording goes");
+        self.host.stop();
+        name
+    }
+
+    fn row(&self, name: &str) -> crate::recorder_panel::Row {
+        self.host.rows().into_iter().find(|r| r.name == name).expect("the recording is in the list")
+    }
+
+    fn wait_for(&self, name: &str, what: &str, done: impl Fn(&crate::recorder_panel::ExportLine) -> bool) {
+        let from = Instant::now();
+        while !done(&self.row(name).export) {
+            assert!(from.elapsed() < Duration::from_secs(5), "{what}: {:?}", self.row(name).export);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// The last warning the panel keeps, as the key and its `why`.
+    fn last_export_refusal(&self) -> Option<String> {
+        let note = self.host.recent().last()?;
+        let p = note.text.phrase("azreview-rec-error-export")?;
+        Some(format!("{:?}", p.get("why")))
+    }
+}
+
+/// A finished recording is exported by a job of the host: the row says how far it is, then names the video and
+/// offers it; the renderer is given the recording's own folder, and the video is where the recording is.
+///
+/// Mutation: a job given another folder; a row that does not follow the job; a video that is not found afterwards.
+#[test]
+fn a_finished_recording_is_exported_by_a_job_and_the_row_follows_it() {
+    use crate::recorder_panel::{ExportLine, RowDo};
+    let mut r = rig();
+    let gate = r.gated();
+    let name = r.recorded();
+    assert!(r.row(&name).actions.iter().any(|b| b.what == RowDo::Export), "a finished recording with a screen");
+    assert_eq!(r.row(&name).export, ExportLine::None);
+    assert!(r.host.video_of(&name).is_none(), "no video yet");
+
+    assert!(r.host.export(&name));
+    r.wait_for(&name, "the job reports", |e| matches!(e, ExportLine::Running { percent: 50 }));
+    assert_eq!(gate.given.lock().unwrap().clone(), vec![r.host.path_of(&name).unwrap()], "the renderer is given the recording's folder");
+    assert!(r.row(&name).actions.iter().any(|b| b.what == RowDo::CancelExport));
+
+    gate.release.store(true, Ordering::SeqCst);
+    r.wait_for(&name, "the job ends", |e| matches!(e, ExportLine::Done { .. }));
+    let row = r.row(&name);
+    assert_eq!(row.export, ExportLine::Done { name: String::from("video.mp4"), size: String::from("2 MB"), notes: Vec::new() });
+    assert!(row.actions.iter().any(|b| b.what == RowDo::OpenVideo));
+    let video = r.host.video_of(&name).expect("the video is there");
+    assert_eq!(video, r.host.path_of(&name).unwrap().join("export").join("video.mp4"));
+    // A fresh read of the folder (the next run of the app) finds the same video.
+    r.host.refresh();
+    assert_eq!(r.row(&name).export, ExportLine::Done { name: String::from("video.mp4"), size: String::from("2 MB"), notes: Vec::new() });
+}
+
+/// What cannot be exported is said, in the panel's notes, and no job is started: the recording that is being
+/// recorded, one that has no screen, a name that is not a recording, and one that is being exported already.
+///
+/// Mutation: an export of the recording that is being written; one of a recording without a screen; a second job
+/// for a recording that is exported already; a refusal that is not said.
+#[test]
+fn what_cannot_be_exported_is_said_and_starts_nothing() {
+    let mut r = rig();
+    let gate = r.gated();
+    let name = r.recorded();
+    // The recording that is going: a second one, not finished.
+    r.clock.advance_ms(2_000);
+    assert!(r.start());
+    let going = r.host.current().unwrap();
+    assert_ne!(going, name);
+    r.host.refresh();
+    assert!(!r.host.export(&going));
+    assert!(r.last_export_refusal().unwrap().contains("being recorded"), "{:?}", r.last_export_refusal());
+    r.host.stop();
+    // A name that is not a recording.
+    assert!(!r.host.export("../elsewhere"));
+    assert!(!r.host.export("no-such-recording"));
+    assert!(r.last_export_refusal().unwrap().contains("not a recording"), "{:?}", r.last_export_refusal());
+    // One that is exported already.
+    assert!(r.host.export(&name));
+    assert!(!r.host.export(&name));
+    assert!(r.last_export_refusal().unwrap().contains("already"), "{:?}", r.last_export_refusal());
+    r.wait_for(&name, "the job reports", |e| matches!(e, crate::recorder_panel::ExportLine::Running { percent: 50 }));
+    let given = gate.given.lock().unwrap().clone();
+    assert_eq!(given.len(), 1, "one job only: {given:?}");
+    gate.release.store(true, Ordering::SeqCst);
+    r.wait_for(&name, "the job ends", |e| matches!(e, crate::recorder_panel::ExportLine::Done { .. }));
+
+    // A recording the app left unfinished (a crash that was not put right): the notes say it was still being written.
+    let dir = r.host.path_of(&name).unwrap();
+    let notes = fs::read_to_string(dir.join("manifest.json")).unwrap();
+    assert!(notes.contains("\"complete\""), "{notes}");
+    let unfinished = dir.parent().unwrap().join("2026-01-02_00-00-00");
+    fs::create_dir_all(&unfinished).unwrap();
+    fs::write(unfinished.join("manifest.json"), notes.replace("\"complete\"", "\"recording\"")).unwrap();
+    r.host.refresh();
+    assert!(!r.host.export("2026-01-02_00-00-00"));
+    assert!(r.last_export_refusal().unwrap().contains("not finished"), "{:?}", r.last_export_refusal());
+    // A folder that appeared since the list was read is not exported before the list has it.
+    let newcomer = dir.parent().unwrap().join("2026-01-03_00-00-00");
+    fs::create_dir_all(&newcomer).unwrap();
+    fs::write(newcomer.join("manifest.json"), &notes).unwrap();
+    assert!(!r.host.export("2026-01-03_00-00-00"));
+    assert!(r.last_export_refusal().unwrap().contains("not a recording of the list"), "{:?}", r.last_export_refusal());
+
+    // A recording with no screen (the camera and the voice alone).
+    let mut r = rig_with(RecorderSettings { screen: false, ..quiet() });
+    let _gate = r.gated();
+    let name = r.recorded();
+    assert!(!r.host.export(&name));
+    assert!(r.last_export_refusal().unwrap().contains("no screen"), "{:?}", r.last_export_refusal());
+}
+
+/// A cancel stops the job and the row says so and offers to start again; a recording that is being exported is not
+/// deleted, and one that is not is, with the job's word about it.
+///
+/// Mutation: a cancel that is not passed on; a recording deleted under its export; a delete that leaves the job.
+#[test]
+fn an_export_can_be_cancelled_and_a_recording_under_export_is_not_deleted() {
+    use crate::recorder_panel::{ExportLine, RowDo};
+    let mut r = rig();
+    let gate = r.gated();
+    let name = r.recorded();
+    assert!(r.host.export(&name));
+    r.wait_for(&name, "the job reports", |e| matches!(e, ExportLine::Running { .. }));
+    assert!(!r.host.delete(&name), "not while it is exported");
+    assert!(r.host.path_of(&name).is_some());
+    assert!(r.host.recent().last().unwrap().text.phrase("azreview-rec-error-delete").is_some());
+    r.host.cancel_export(&name);
+    r.wait_for(&name, "the job is cancelled", |e| matches!(e, ExportLine::Cancelled));
+    assert!(gate.saw_cancel.load(Ordering::SeqCst));
+    assert!(r.row(&name).actions.iter().any(|b| b.what == RowDo::Export), "it can be started again");
+    // Again, and this time to the end.
+    assert!(r.host.export(&name));
+    gate.release.store(true, Ordering::SeqCst);
+    r.wait_for(&name, "the job ends", |e| matches!(e, ExportLine::Done { .. }));
+    assert!(r.host.delete(&name), "the job is over: the recording can go");
+    assert!(r.host.path_of(&name).is_none());
+    assert!(r.host.rows().is_empty());
+    assert!(r.host.export_marks().is_empty(), "the job of a recording that is gone is gone");
+}
+
+/// The window is told when an export's line changes (the marks differ between how far it is, that it is done and that
+/// it was cancelled), so that it draws again then and not otherwise.
+///
+/// Mutation: marks that do not change with the progress; marks that do not tell done from cancelled.
+#[test]
+fn the_marks_of_the_exports_change_when_a_row_would_look_different() {
+    let mut r = rig();
+    let gate = r.gated();
+    let name = r.recorded();
+    assert!(r.host.export_marks().is_empty(), "nothing exported: nothing to watch");
+    assert!(r.host.export(&name));
+    r.wait_for(&name, "the job reports", |e| matches!(e, crate::recorder_panel::ExportLine::Running { percent: 50 }));
+    let running = r.host.export_marks();
+    assert_eq!(running.len(), 1);
+    assert_eq!(running[0].0, name);
+    assert!(r.host.exports_running());
+    r.host.cancel_export(&name);
+    r.wait_for(&name, "the job is cancelled", |e| matches!(e, crate::recorder_panel::ExportLine::Cancelled));
+    let cancelled = r.host.export_marks();
+    assert_ne!(cancelled, running);
+    assert!(!r.host.exports_running());
+    assert!(r.host.export(&name));
+    gate.release.store(true, Ordering::SeqCst);
+    r.wait_for(&name, "the job ends", |e| matches!(e, crate::recorder_panel::ExportLine::Done { .. }));
+    let done = r.host.export_marks();
+    assert_ne!(done, cancelled);
+    assert_ne!(done, running);
+}
+
+/// A host that is let go while an export runs cancels it and waits for it: nothing is left running behind the app.
+///
+/// Mutation: a host that leaves its jobs running.
+#[test]
+fn a_host_that_is_let_go_cancels_the_exports_it_runs() {
+    let mut r = rig();
+    let gate = r.gated();
+    let name = r.recorded();
+    assert!(r.host.export(&name));
+    r.wait_for(&name, "the job reports", |e| matches!(e, crate::recorder_panel::ExportLine::Running { .. }));
+    let Rig { host, tmp, .. } = r;
+    drop(host);
+    assert!(gate.saw_cancel.load(Ordering::SeqCst), "the renderer was told to stop, and had stopped when the host was gone");
+    drop(tmp);
+}
+
+/// The ffmpeg of the settings is the export's own only when the person named one: the default is not a choice.
+///
+/// Mutation: the default taken as a choice; a named one dropped.
+#[test]
+fn the_ffmpeg_of_the_settings_is_named_only_when_the_person_named_it() {
+    assert_eq!(named_ffmpeg(&RecorderSettings::default()), None);
+    let custom = RecorderSettings { ffmpeg: PathBuf::from("/opt/tools/ffmpeg"), ..RecorderSettings::default() };
+    assert_eq!(named_ffmpeg(&custom), Some(PathBuf::from("/opt/tools/ffmpeg")));
+}
+

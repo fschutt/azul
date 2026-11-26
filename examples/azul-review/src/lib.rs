@@ -92,18 +92,28 @@ pub mod pointer;
 pub mod progress;
 pub mod progress_store;
 pub mod recorder;
+pub mod recorder_app;
+pub mod recorder_args;
 pub mod recorder_azul;
 pub mod recorder_clock;
 pub mod recorder_codec;
+pub mod recorder_demo;
 pub mod recorder_edl;
 pub mod recorder_events;
 pub mod recorder_hook;
 pub mod recorder_export;
+pub mod recorder_export_cli;
+pub mod recorder_export_job;
 pub mod recorder_fs;
+pub mod recorder_host;
 pub mod recorder_manifest;
 pub mod recorder_mp4;
+pub mod recorder_panel;
+pub mod recorder_patch;
 pub mod recorder_policy;
+pub mod recorder_probe;
 pub mod recorder_screen;
+pub mod recorder_ui;
 pub mod recorder_settings;
 pub mod recorder_track;
 pub mod recorder_wb;
@@ -141,6 +151,8 @@ pub mod workspace_view;
 pub mod whiteboard;
 pub mod whiteboard_app;
 pub mod whiteboard_archive;
+pub mod whiteboard_boards;
+pub mod whiteboard_boards_ui;
 pub mod whiteboard_cutout;
 pub mod whiteboard_demo;
 pub mod whiteboard_drag;
@@ -346,6 +358,10 @@ pub struct AppState {
     /// A session write is in flight; another one waits for it (one writer).
     pub saving: bool,
     pub save_pending: bool,
+    /// The session recorder (the screen, the camera, the voice) and its window; made at the start. What the review tells it
+    /// goes through [`Self::recorder`], the hook, which reaches the recording that is going. (Not `recording`: that is the
+    /// voice clip being made.)
+    pub session_recorder: Option<recorder_ui::RecorderApp>,
 }
 
 impl AppState {
@@ -454,6 +470,7 @@ impl AppState {
             data_root,
             saving: false,
             save_pending: false,
+            session_recorder: None,
         }
     }
 
@@ -1357,6 +1374,21 @@ pub fn run() {
         notes_op::register_ops(&mut config);
         state_op::register_ops(&mut config);
     }
+    // The session recorder: its settings from the settings file (what was capped is said), the machine's facts once.
+    let recorded = recorder_settings::resolve(&values);
+    for note in &recorded.notes {
+        eprintln!("[AzReview] {note}");
+    }
+    let recordings = state.data_root.join(ABOUT.app_folder).join("recordings");
+    let mut recorder = recorder_app::host(recorded.settings, &recordings, &state.root, '.');
+    let recovered = recorder.recover();
+    if recovered > 0 {
+        println!("AZREVIEW_RECORDINGS_RECOVERED {recovered}");
+    }
+    recorder.refresh();
+    // What the review tells a recorder reaches the recording that is going (and nobody when none is).
+    state.recorder = std::sync::Arc::new(recorder.hook());
+    state.session_recorder = Some(recorder_ui::RecorderApp::new(recorder));
     let app = App::create(RefAny::new(state), config);
     startup::phase("app_created");
     let mut window =
@@ -1364,6 +1396,29 @@ pub fn run() {
     window.renderer = OptionRendererOptions::Some(window_renderer());
     startup::phase("run_called");
     app.run(window);
+}
+
+/// Runs `f` on the session recorder in the app's state; whether the app has one.
+fn with_recorder(app: &mut RefAny, f: &mut dyn FnMut(&mut recorder_ui::RecorderApp)) -> bool {
+    let Some(mut state) = app.downcast_mut::<AppState>() else { return false };
+    match state.session_recorder.as_mut() {
+        Some(session_recorder) => {
+            f(session_recorder);
+            true
+        }
+        None => false,
+    }
+}
+
+/// The recorder's window: what the recorder says, the way the review's other windows are laid out.
+extern "C" fn layout_recorder(data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    recorder_ui::hud(&recorder_ui::Host { app: data, with: with_recorder }, &info)
+}
+
+/// Session > Recording...: the recorder's window.
+pub extern "C" fn on_menu_recorder(data: RefAny, mut info: CallbackInfo) -> Update {
+    recorder_ui::open(&recorder_ui::Host { app: data, with: with_recorder }, &mut info, layout_recorder);
+    Update::DoNothing
 }
 
 /// The kit's handle, out of the app's state.

@@ -922,6 +922,16 @@ impl CpuBackend {
             .map(|values| core::mem::replace(&mut self.previous_gpu_values, values));
         self.previous_gpu_values_generation = Some(value_generation);
 
+        // A frame tap that has not heard a frame of this size has no picture to lay rectangles over: this
+        // frame is made, and made whole, even if the window changed nothing (a recording that starts on
+        // a window that is at rest).
+        if layout_window
+            .frame_tap
+            .as_ref()
+            .is_some_and(|tap| tap.needs_a_whole_frame(pixel_w, pixel_h))
+        {
+            self.force_full_repaint = true;
+        }
         // Can the pixels of the previous frame still be trusted? Yes when the
         // buffer did not change size at all, and yes on a GROW (the old pixels
         // were copied over verbatim). No on a shrink / first allocation.
@@ -1991,14 +2001,6 @@ impl CpuBackend {
         } else {
             None
         };
-        if output.is_external() {
-            // #27: the pixels live in the platform's backbuffer and the shell
-            // presents them from there. Retaining the borrowed wrapper would
-            // dangle once the shm pool is recreated — keep nothing.
-            self.last_frame = None;
-        } else {
-            self.last_frame = Some(output);
-        }
         self.last_frame_damage = if is_incremental {
             FrameDamage::Rects(requested_damage)
         } else {
@@ -2022,6 +2024,29 @@ impl CpuBackend {
         } else {
             FrameDamage::Full
         };
+        // The app's frame tap hears the finished frame, and what of it changed on screen (the
+        // present damage: the moved clips too). It is heard HERE, with `output` in hand: a frame
+        // painted into the platform's own buffer is kept nowhere else (below).
+        if let Some(tap) = &layout_window.frame_tap {
+            // (A target of the platform's can be wider than the frame: its rows are padded.)
+            crate::frame_tap::deliver(
+                tap,
+                output.data(),
+                pixel_w,
+                pixel_h,
+                output.width() as usize * 4,
+                dpi_factor,
+                &self.last_present_damage,
+            );
+        }
+        if output.is_external() {
+            // #27: the pixels live in the platform's backbuffer and the shell
+            // presents them from there. Retaining the borrowed wrapper would
+            // dangle once the shm pool is recreated — keep nothing.
+            self.last_frame = None;
+        } else {
+            self.last_frame = Some(output);
+        }
         all_damage
     }
 }

@@ -28,10 +28,9 @@
   (define data (refany-create model))
   (define app (app-create data (app-config-create)))
 
-  (define wco (make-window-create-options))
+  (define wco (window-create-options-create layout))
   (define ws (window-create-options-window-state wco)) ; a view: writes reach wco
   (set-full-window-state-title! ws "Hello World")
-  (set-AzFullWindowState-layout-callback! ws (register-callback "LayoutCallback" layout))
 
   (define sz (AzFullWindowState-size ws))
   (define dims (AzWindowSize-dimensions sz))

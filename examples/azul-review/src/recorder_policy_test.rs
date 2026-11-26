@@ -41,17 +41,18 @@ fn the_hours_left_are_the_room_over_the_rate() {
 #[test]
 fn what_a_recording_will_write_is_estimated_from_its_settings() {
     let all = RecorderSettings::default();
-    let both = expected_bytes_per_hour(&all, (2_880, 1_800));
-    // The screen at a quarter of 3 Mbit/s, the camera at 800 kbit/s, the voice at 32: ~0.7 GB.
+    let both = expected_bytes_per_hour(&all, (1_920, 1_248));
+    // The display at 1920 wide: a quarter of 2.6 Mbit/s for the screen, the camera at 800 kbit/s, the voice
+    // at 32: ~0.67 GB an hour.
     assert!((650_000_000..750_000_000).contains(&both), "{both}");
 
     let voice_only = RecorderSettings { screen: false, camera: false, ..RecorderSettings::default() };
-    assert_eq!(expected_bytes_per_hour(&voice_only, (2_880, 1_800)), u64::from(AUDIO_KBPS) * 1_000 / 8 * 3_600);
+    assert_eq!(expected_bytes_per_hour(&voice_only, (1_920, 1_248)), u64::from(AUDIO_KBPS) * 1_000 / 8 * 3_600);
     let nothing = RecorderSettings { screen: false, camera: false, microphone: false, ..RecorderSettings::default() };
     assert_eq!(expected_bytes_per_hour(&nothing, (100, 100)), 0);
 
     let low = RecorderSettings { quality: Quality::Low, ..RecorderSettings::default() };
-    assert!(expected_bytes_per_hour(&low, (2_880, 1_800)) < both);
+    assert!(expected_bytes_per_hour(&low, (1_920, 1_248)) < both);
 }
 
 // ---- the rate ----

@@ -26,6 +26,10 @@ pub enum ScreenCaptureSource {
     Display(u32),
     /// A specific window by its platform id / handle.
     Window(u64),
+    /// A specific display by the system's own id (macOS: its `CGDirectDisplayID`; `0` is the
+    /// primary display). Unlike an index it names the same display while others come and go, and
+    /// the id of a display is what a list of displays (`Monitor`) and a setting can keep.
+    DisplayId(u32),
 }
 
 /// Requested screen-capture configuration — the input to the screencap
@@ -41,6 +45,12 @@ pub struct ScreenCaptureConfig {
     /// default; `Nv12` (a later `RawImageFormat` addition) is the zero-copy
     /// path on platforms that produce it natively.
     pub output_format: RawImageFormat,
+    /// Whether the cursor is in the picture. Default: yes.
+    pub show_cursor: bool,
+    /// Whether this app's own windows are in the picture. Default: no - a shared desktop that shows
+    /// the sharing app loops (every repaint of the tile is a change of the screen); an app that
+    /// records ITS OWN review from the display wants them in.
+    pub include_own_windows: bool,
 }
 
 impl Default for ScreenCaptureConfig {
@@ -49,6 +59,8 @@ impl Default for ScreenCaptureConfig {
             source: ScreenCaptureSource::PrimaryDisplay,
             fps: 0,
             output_format: RawImageFormat::BGRA8,
+            show_cursor: true,
+            include_own_windows: false,
         }
     }
 }
