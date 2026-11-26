@@ -64,6 +64,19 @@ for tool in "CC:${CLANG_TARGET}24-clang" "CXX:${CLANG_TARGET}24-clang++" "AR:llv
         export "$var=$NDKBIN/${tool#*:}"
     fi
 done
+# The LINKER cargo links the cdylib with (the app's own, and azul-dll's when it is built link-dynamic).
+# The workspace's .cargo/config.toml names it once, for the Homebrew layout of a Mac
+# (/opt/homebrew/...darwin-x86_64/...): anywhere else (a Linux runner) cargo stops with
+# "error: linker ... not found" at the first cdylib it links, which is how the first x86_64 emulator
+# run died (2026-11-26: the library step, scripts/demo_lib.sh, named its linker, this step did not).
+# The environment wins over config.toml, so name the linker of THIS NDK (unless the caller named one).
+TARGET_UPPER="$(echo "$TARGET_ENV" | tr '[:lower:]' '[:upper:]')"
+for tool in "LINKER:${CLANG_TARGET}24-clang" "AR:llvm-ar"; do
+    var="CARGO_TARGET_${TARGET_UPPER}_${tool%%:*}"
+    if [[ -z "${!var:-}" ]]; then
+        export "$var=$NDKBIN/${tool#*:}"
+    fi
+done
 
 BT="$ANDROID_HOME/build-tools/34.0.0"
 PLATFORM="$ANDROID_HOME/platforms/android-34"
