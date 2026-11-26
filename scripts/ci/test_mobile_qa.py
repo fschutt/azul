@@ -323,6 +323,25 @@ class ImeAndTableTests(unittest.TestCase):
             self.assertTrue(doc["render"]["cpu_against_gpu"]["ok"])
 
 
+class LayoutOverflowTests(unittest.TestCase):
+    def test_nodes_crossing_the_right_edge_are_found_widest_first_without_their_children(self):
+        import mobile_e2e as e
+        nodes = [
+            {"node_id": 0, "tag": "body", "id": None, "classes": [], "rect": {"x": 0.0, "y": 0.0, "width": 411.4, "height": 817.5}},
+            {"node_id": 1, "tag": "div", "id": None, "classes": [], "rect": {"x": 42.0, "y": 1970.0, "width": 480.0, "height": 270.0}},
+            {"node_id": 2, "tag": "button", "id": "video-overlay", "classes": ["b"], "rect": {"x": 42.0, "y": 2000.0, "width": 480.0, "height": 40.0}},
+            {"node_id": 3, "tag": "p", "id": None, "classes": [], "rect": {"x": 85.0, "y": 2094.0, "width": 394.0, "height": 42.0}},
+            {"node_id": 4, "tag": "span", "id": None, "classes": [], "rect": None},
+            {"node_id": 5, "tag": "div", "id": None, "classes": [], "rect": {"x": 500.0, "y": 10.0, "width": 50.0, "height": 10.0}},   # entirely off to the right: not 'crossing'
+        ]
+        answer = {"status": "ok", "data": {"type": "all_nodes_layout", "value": {"dom_id": 0, "node_count": 6, "nodes": nodes}}}
+        count, top = e.layout_overflow(answer, 411.4)
+        self.assertEqual(count, 3)                       # the video box, the button inside it, the paragraph
+        self.assertEqual(top[0][:2], ("div", None))      # the widest first
+        self.assertTrue(all(t[1] != "video-overlay" for t in top))   # the button starts at the same x inside the box: not listed again
+        self.assertEqual(e.layout_overflow({"data": {}}, 411.4), (0, []))
+
+
 class ExitReasonTests(unittest.TestCase):
     EXIT = """ACTIVITY MANAGER PROCESS EXIT INFO (dumpsys activity exit-info)
   package: com.azul.AzWidgets
