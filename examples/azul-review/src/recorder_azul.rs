@@ -14,7 +14,7 @@ use azul::{
     video::{VideoEncoder, VideoFrame},
 };
 
-use crate::recorder_codec::{AudioCodec, CodecFactory, PixelFormat, RawFrame, VideoCodec};
+use crate::recorder_codec::{in_background, AudioCodec, CodecFactory, PixelFormat, RawFrame, VideoCodec};
 
 /// azul's `VideoEncoder` as a [`VideoCodec`].
 pub struct AzulVideoCodec {
@@ -81,6 +81,11 @@ impl AudioCodec for AzulAudioCodec {
     }
 }
 
+/// The side of the picture the warm-up session is for, pixels (what the engine's own probe uses).
+const WARM_UP_SIDE: u32 = 128;
+/// Its bit rate.
+const WARM_UP_KBPS: u32 = 400;
+
 /// Opens azul's encoders.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AzulFactory;
@@ -96,6 +101,14 @@ impl CodecFactory for AzulFactory {
                 VideoEncoder::backend_name().as_str()
             ))
         }
+    }
+
+    fn warm_up(&self) {
+        // A small session, opened and closed on a thread of its own: the engine's first VideoToolbox session of the process
+        // (its probe, the framework, the hardware encoder) is 0.3 to 0.4 s, which the real open at the first picture
+        // paid on the window's thread (a stack sample of the demo: 173 of 1536 samples of the main thread in
+        // `AzVideoEncoder::open`). The encoder is made and dropped on that thread; nothing is handed over.
+        in_background("recorder-warmup", || drop(VideoEncoder::open(WARM_UP_SIDE, WARM_UP_SIDE, false, WARM_UP_KBPS)));
     }
 
     fn audio(&self, sample_rate: u32, channels: u16, kbps: u32) -> Result<Box<dyn AudioCodec>, String> {

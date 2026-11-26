@@ -162,6 +162,98 @@ def sig_diff(a, b):
     return sum(abs(x - y) for x, y in zip(a, b)) / (255.0 * len(a))
 
 
+# the stated thresholds of the CPU-against-GPU picture comparison (renderers may differ in anti-aliasing, not in layout)
+PIXEL_TOLERANCE = 24          # a pixel DIFFERS when any of its channels differs by more than this (of 255)
+MAX_DIFFERING_SHARE = 0.03    # the comparison passes below this share of differing pixels ...
+MAX_MEAN_DIFF = 2.0           # ... and below this mean |channel difference| (of 255)
+
+
+def diff_pixels(a, b, width, height, tolerance=PIXEL_TOLERANCE):
+    """Compare two RGBA bitmaps of the same size pixel by pixel.
+    -> {differing, share, mean_abs, max_abs, bbox: (x0, y0, x1, y1) | None, image: RGBA bytes}; the image is the first
+    picture dimmed to a third with every differing pixel red, so a person sees WHERE the renderers disagree."""
+    stride = width * 4
+    differing = 0
+    total_abs = 0
+    max_abs = 0
+    x0, y0, x1, y1 = width, height, -1, -1
+    out = bytearray(len(a))
+    for y in range(height):
+        ra, rb = a[y * stride:(y + 1) * stride], b[y * stride:(y + 1) * stride]
+        base = y * stride
+        if ra == rb:
+            row = bytearray(ra)
+            row[0::4] = bytes(v // 3 for v in ra[0::4])
+            row[1::4] = bytes(v // 3 for v in ra[1::4])
+            row[2::4] = bytes(v // 3 for v in ra[2::4])
+            out[base:base + stride] = row
+            continue
+        row = bytearray(ra)
+        for x in range(width):
+            i = x * 4
+            d0, d1, d2 = abs(ra[i] - rb[i]), abs(ra[i + 1] - rb[i + 1]), abs(ra[i + 2] - rb[i + 2])
+            total_abs += d0 + d1 + d2
+            m = max(d0, d1, d2)
+            if m > max_abs:
+                max_abs = m
+            if m > tolerance:
+                differing += 1
+                row[i], row[i + 1], row[i + 2] = 255, 0, 0
+                if x < x0:
+                    x0 = x
+                if x > x1:
+                    x1 = x
+                if y < y0:
+                    y0 = y
+                y1 = y
+            else:
+                row[i], row[i + 1], row[i + 2] = ra[i] // 3, ra[i + 1] // 3, ra[i + 2] // 3
+        out[base:base + stride] = row
+    return {"differing": differing, "share": differing / float(width * height), "mean_abs": total_abs / float(width * height * 3),
+            "max_abs": max_abs, "bbox": (x0, y0, x1, y1) if differing else None, "image": bytes(out)}
+
+
+# The one line a phone shell writes when its window gets a renderer (the contract the GPU work is held to):
+#     [render] backend=<cpu|gpu> requested=<cpu|gpu|auto> device=<free text>
+# `AZ_LOG=info` shows it in logcat (RustStdoutStderr) / on the console. A build that has no such line is "unknown".
+BACKEND_LINE = re.compile(r"\[render\][^\n]*?\bbackend=(\w+)(?:[^\n]*?\brequested=(\w+))?(?:[^\n]*?\bdevice=([^\n]*))?")
+
+
+def backend_ran(text):
+    """-> (ran, requested, device) from the engine's `[render] backend=` line (the LAST one), or ("unknown", None, None)."""
+    found = None
+    for line in text.splitlines():
+        m = BACKEND_LINE.search(line)
+        if m:
+            found = (m.group(1).lower(), (m.group(2) or "").lower() or None, (m.group(3) or "").strip() or None)
+    return found or ("unknown", None, None)
+
+
+def percentile(values, p):
+    v = sorted(values)
+    if not v:
+        return None
+    k = max(0, min(len(v) - 1, int(round(p / 100.0 * (len(v) - 1)))))
+    return v[k]
+
+
+def frame_intervals_ms(present_times_ns):
+    """Frame times (ms) from the sorted present timestamps (ns) of SurfaceFlinger's --latency: zero and the
+    9223372036854775807 'pending' marker are skipped."""
+    ts = sorted(t for t in present_times_ns if 0 < t < 9223372036854775807)
+    return [(b - a) / 1e6 for a, b in zip(ts, ts[1:])]
+
+
+def parse_sf_latency(text):
+    """`dumpsys SurfaceFlinger --latency <layer>`: line 1 the refresh period (ns), then rows `desired actual ready`.
+    -> (refresh_ms, [actual present timestamps in ns])"""
+    lines = [l.split() for l in text.strip().splitlines() if l.strip()]
+    if not lines or len(lines[0]) != 1:
+        return None, []
+    refresh = int(lines[0][0]) / 1e6
+    return refresh, [int(l[1]) for l in lines[1:] if len(l) == 3]
+
+
 # ---------------------------------------------------------------------------------------------
 # parsing what the platforms say
 # ---------------------------------------------------------------------------------------------
@@ -192,8 +284,25 @@ def parse_bounds(xml_text):
     return found
 
 
+# "has died" is NOT here: the Android shell ends its own process after BACK on purpose (libazul is not re-entrant), and the
+# system logs that as `Process ... has died`. A real crash says FATAL EXCEPTION / Fatal signal / a panic, and the exit
+# reasons (parse_exit_reasons) name it: APP CRASH, CRASH_NATIVE, ANR.
 FATAL_PATTERNS = ("FATAL EXCEPTION", "Fatal signal", "SIGSEGV", "SIGABRT", "SIGBUS", "UnsatisfiedLinkError",
-                  "dlopen failed", "panicked at", "An unexpected panic", "has died", "ANR in")
+                  "dlopen failed", "panicked at", "An unexpected panic", "ANR in")
+CRASH_EXIT_REASONS = (4, 5, 6, 7)       # ApplicationExitInfo: CRASH, CRASH_NATIVE, ANR, INITIALIZATION_FAILURE
+
+
+def parse_exit_reasons(text):
+    """The entries of `dumpsys activity exit-info <package>` -> [(timestamp, pid, reason code, reason name)], newest first."""
+    out = []
+    for m in re.finditer(r"timestamp=(\S+ \S+) pid=(\d+)[^\n]*\n\s*process=\S+ reason=(\d+) \((.*?)\) subreason=", text):
+        out.append((m.group(1), int(m.group(2)), int(m.group(3)), m.group(4)))
+    return out
+
+
+def create_activity_lines(events_text, package):
+    """The `am_create_activity` / `wm_create_activity` events of the package in the events buffer."""
+    return [l for l in events_text.splitlines() if ("am_create_activity" in l or "wm_create_activity" in l) and package in l]
 
 
 def fatal_lines(text, package):
@@ -244,11 +353,21 @@ class Run:
         self.platform, self.meta, self.steps = platform, dict(meta), []
         self.t0 = time.time()
         self.recover = None
+        self.only = None             # {"03", "08", ...}: run only these steps (00-02, the device and the install, always run)
+        self.extra_shots = 100       # diff images are numbered from 100 so they never collide with a step's own pictures
+
+    def next_shot_number(self):
+        self.extra_shots += 1
+        return self.extra_shots
 
     def step(self, name, what, fn, needs_app=False):
         """Run `fn(step)`; an exception is the step's failure, never the run's. A step that `needs_app` is
         preceded by `self.recover(step)` (when one is set): a step is judged on a live app, so the crash of an
         earlier step is reported once, by that step, and does not fail every step after it."""
+        if self.only is not None:
+            prefix = name.split("-")[0]
+            if prefix not in ("00", "01", "02", "e00", "e01") and prefix not in self.only and prefix.rstrip("abcdefghijklmnopqrstuvwxyz") not in self.only:
+                return None
         s = Step(self, name, what)
         self.steps.append(s)
         print(f"--- {name}: {what}", flush=True)
@@ -281,6 +400,73 @@ class Run:
         (self.out / "qa.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def displayed_ms(text, package=""):
+    """The system's own first-frame time: `ActivityTaskManager: Displayed pkg/act: +1s304ms` -> 1304 (the last one)."""
+    found = None
+    for line in text.splitlines():
+        m = re.search(r"Displayed \S*" + re.escape(package) + r"\S*(?: for user \d+)?: \+(?:(\d+)s)?(\d+)ms", line)
+        if m:
+            found = int(m.group(1) or 0) * 1000 + int(m.group(2))
+    return found
+
+
+def report_modes(run, step, results, expect_gpu, platform):
+    """The verdict of the AZ_BACKEND runs. `results[mode]` = {ran, requested, device, rgba, dims, first_frame_s,
+    displayed_ms, frames: {median, p95, n} | None}. Says, per mode, WHICH backend ran: a request for the GPU that ran
+    the CPU renderer is a FINDING (informational while the build has no GPU path, a FAILURE once `--expect-gpu` says it
+    has), and compares the cpu and gpu pictures pixel by pixel with the stated thresholds, keeping the diff image."""
+    summary = []
+    for mode in ("cpu", "gpu", "auto"):
+        r = results.get(mode)
+        if not r:
+            continue
+        ran = r["ran"]
+        bits = [f"ran {ran}" + (f" on {r['device']}" if r.get("device") else "")]
+        if r.get("displayed_ms") is not None:
+            bits.append(f"Displayed {r['displayed_ms']} ms")
+        if r.get("first_frame_s") is not None:
+            bits.append(f"first frame seen after {r['first_frame_s']:.1f} s")
+        f = r.get("frames")
+        if f:
+            bits.append(f"scroll frame time median {f['median']:.1f} / p95 {f['p95']:.1f} ms (n={f['n']})")
+        summary.append(f"{mode}: " + ", ".join(bits))
+        step.note(f"AZ_BACKEND={mode}: " + ", ".join(bits))
+        if mode == "cpu":
+            step.check("requested cpu: the CPU renderer ran", ran in ("cpu", "unknown"), f"ran {ran}", required=True)
+        elif mode in ("gpu", "auto"):
+            if ran == "gpu":
+                step.check(f"requested {mode}: the GPU renderer ran", True, r.get("device") or "")
+            elif ran == "cpu":
+                step.check(f"requested {mode}: the GPU renderer ran", False,
+                           f"requested {mode}, ran cpu: the CPU renderer drew the page (finding; the GPU path is not in this build)",
+                           required=expect_gpu and mode == "gpu")
+            else:
+                step.check(f"requested {mode}: the engine says which renderer ran", False,
+                           "no `[render] backend=` line in the engine's log: it cannot be told which renderer drew", required=expect_gpu and mode == "gpu")
+    run.meta["render_modes"] = " | ".join(summary)
+    cpu, gpu = results.get("cpu"), results.get("gpu")
+    if cpu and gpu and cpu.get("rgba") and gpu.get("rgba") and cpu["dims"] == gpu["dims"]:
+        w, h = cpu["dims"]
+        d = diff_pixels(cpu["rgba"], gpu["rgba"], w, h)
+        fname = f"{run.next_shot_number():02d}-diff-cpu-vs-gpu.png"
+        write_png(run.shots_dir / fname, w, h, d["image"])
+        step.shots.append(fname)
+        verdict = d["share"] < MAX_DIFFERING_SHARE and d["mean_abs"] < MAX_MEAN_DIFF
+        step.check("the cpu and gpu pictures agree", verdict,
+                   f"{d['share'] * 100:.2f} % of the pixels differ by more than {PIXEL_TOLERANCE}/255 (limit {MAX_DIFFERING_SHARE * 100:.0f} %), "
+                   f"mean |diff| {d['mean_abs']:.2f}/255 (limit {MAX_MEAN_DIFF}), max {d['max_abs']}"
+                   + (f", box {d['bbox']}" if d["bbox"] else ""))
+        step.note("the cpu-vs-gpu comparison runs on " + (f"{ran_pair(cpu, gpu)}" ))
+    elif cpu and gpu:
+        step.check("the cpu and gpu pictures could be compared", False, "no pixels or different sizes", required=False)
+
+
+def ran_pair(cpu, gpu):
+    same = cpu["ran"] == gpu["ran"]
+    return (f"two runs of the SAME renderer ({cpu['ran']}): it proves nothing about a GPU path until the backends differ" if same
+            else f"the {cpu['ran']} and the {gpu['ran']} renderer")
+
+
 # ---------------------------------------------------------------------------------------------
 # Android
 # ---------------------------------------------------------------------------------------------
@@ -289,6 +475,7 @@ class Android:
         self.run, self.package, self.activity, self.serial = run, package, activity, serial
         self.home_sig = None
         self.last_sig = None
+        self.last_rgba = None
         self.dims = (0, 0)
         self.shot_count = 0
 
@@ -341,6 +528,7 @@ class Android:
         fname = f"{self.shot_count:02d}-{name}.png"
         write_png(self.run.shots_dir / fname, w, h, rgba)
         self.last_sig = sig
+        self.last_rgba = rgba
         self.dims = (w, h)
         return sig, w, h, fname
 
@@ -367,6 +555,12 @@ class Android:
         mine = [l for l in crash.splitlines() if self.package in l or "libazul" in l or "azul" in l.lower()]
         new = [l for l in mine if l[:18] >= mark]
         step.check("the crash log holds nothing of the app", not new, new[0][:200] if new else "")
+
+    def no_recreation_since(self, step, mark):
+        """A configuration change the manifest handles does not recreate the activity: no new create_activity event."""
+        ev = self.adb("logcat", "-b", "events", "-d", "-v", "threadtime", timeout=60)
+        new = [l for l in create_activity_lines(ev, self.package) if l[:18] >= mark]
+        step.check("the activity was not recreated by this change (the manifest lists it)", not new, new[0].split(":", 3)[-1].strip()[:120] if new else "")
 
     def now_mark(self):
         t = self.sh("date '+%m-%d %H:%M:%S'").strip()
@@ -413,6 +607,33 @@ class Android:
             time.sleep(1.0)
         return None
 
+    def sf_layers(self):
+        """The SurfaceFlinger layers of this app's window (`dumpsys SurfaceFlinger --list`)."""
+        out = self.sh("dumpsys SurfaceFlinger --list")
+        return [l.strip() for l in out.splitlines() if self.package in l and "Surface(" not in l and "Task=" not in l
+                and "Splash" not in l and "Background" not in l]
+
+    def scroll_frame_stats(self, seconds=3.0):
+        """Frame times while a finger scrolls for `seconds`: SurfaceFlinger keeps the present timestamps of the last 128
+        frames of every layer (`--latency`), whichever renderer drew them. -> {median, p95, max, n, refresh_ms, layer} | None"""
+        layers = self.sf_layers()
+        if not layers:
+            return None
+        for layer in layers:
+            self.sh(f"dumpsys SurfaceFlinger --latency-clear '{layer}'")
+        w, h = self.dims
+        self.swipe(w * 0.5, h * 0.72, w * 0.5, h * 0.28, int(seconds * 1000))
+        best = None
+        for layer in layers:
+            refresh, times = parse_sf_latency(self.sh(f"dumpsys SurfaceFlinger --latency '{layer}'"))
+            iv = frame_intervals_ms(times)
+            if iv and (best is None or len(iv) > best[0]):
+                best = (len(iv), layer, refresh, iv)
+        if not best:
+            return None
+        n, layer, refresh, iv = best
+        return {"median": percentile(iv, 50), "p95": percentile(iv, 95), "max": max(iv), "n": n, "refresh_ms": refresh, "layer": layer}
+
     def settle(self, seconds=2.0):
         time.sleep(seconds)
 
@@ -422,6 +643,7 @@ class Android:
 
 def android_scenarios(args):
     run = Run(args.out, "android", {"label": args.label, "package": args.package, "gpu": args.gpu, "apk": os.path.basename(args.apk or "")})
+    run.only = set(args.only.split(",")) if args.only else None
     dev = Android(run, args.package, args.activity, args.serial)
     pts = json.loads(args.points) if args.points else {}
     P = {  # fractions of the screen, from the Widget Showcase in portrait (AzWidgets)
@@ -509,6 +731,8 @@ def android_scenarios(args):
         start = dev.launch(cold=True)
         total = re.search(r"TotalTime: (\d+)", start)
         s.note(f"am start -W: TotalTime {total.group(1) if total else '?'} ms")
+        if total:
+            run.meta["cold_start_ms"] = int(total.group(1))      # the number that has a history across re-runs
         t = dev.wait_for_front(timeout=args.first_frame_timeout)
         s.check("a first frame appears (alive, focus, not flat, not the launcher)", t is not None,
                 f"after {t:.1f} s" if t is not None else f"nothing after {args.first_frame_timeout} s")
@@ -527,6 +751,90 @@ def android_scenarios(args):
             s.note("meminfo: " + " | ".join(l.strip() for l in mem.splitlines()))
 
     run.step("03-cold-start", "start the app from nothing: first frame, portrait picture, cost at rest", s_cold)
+
+    def s_modes(s):
+        """AZ_BACKEND=cpu / gpu / auto through the system property the engine reads, one cold start each. Per mode: which
+        renderer RAN (the engine's `[render] backend=` line), the first-frame time (the system's `Displayed`), the frame
+        times of a 3 s scroll (SurfaceFlinger), the picture; then the cpu and gpu pictures compared pixel by pixel."""
+        results = {}
+        for mode in ("cpu", "gpu", "auto"):
+            dev.sh(f"setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1;AZ_BACKEND={mode}'")
+            dev.adb("logcat", "-c")
+            dev.launch(cold=True)
+            t = dev.wait_for_front(timeout=args.first_frame_timeout)
+            dev.settle(2.5)
+            sig = dev.look(s, f"AZ_BACKEND-{mode}")
+            rgba, dims = dev.last_rgba, dev.dims
+            text = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
+            ran, requested, device = backend_ran(text)
+            if ran == "unknown" and any("[Android] present" in l for l in text.splitlines()):
+                ran, device = "cpu", "inferred: the CPU present path (ANativeWindow_lock) logged its frames"
+            s.check(f"AZ_BACKEND={mode}: the app draws", t is not None and not is_flat(sig), f"first frame after {t:.1f} s" if t is not None else "no frame")
+            frames = dev.scroll_frame_stats(3.0)
+            dev.settle(1.0)
+            results[mode] = {"ran": ran, "requested": requested, "device": device, "rgba": rgba, "dims": dims, "first_frame_s": t,
+                             "displayed_ms": displayed_ms(text, args.package), "frames": frames}
+        report_modes(run, s, results, args.expect_gpu, "android")
+        dev.sh("setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1'")
+        dev.launch(cold=True)       # the default start again: what the later steps compare with
+        dev.wait_for_front(timeout=args.first_frame_timeout)
+        dev.settle(2.5)
+        state["portrait"] = dev.look(s, "default-again")
+
+    run.step("03b-render-modes", "AZ_BACKEND=cpu, gpu, auto: which renderer ran, first frame, scroll frame times, cpu against gpu pixel by pixel", s_modes, needs_app=True)
+
+    def s_series(s):
+        """N cold starts of the app (and of the floor APK, an empty Java Activity, when one is given), each from the
+        launcher with the process gone: `am start -W` TotalTime / ThisTime / WaitTime, and the system's own events
+        (am_proc_start, am_create_activity, wm_activity_launch_time) kept for the startup timeline work."""
+        def stats(values):
+            v = sorted(values)
+            return {"min": v[0], "median": v[len(v) // 2], "max": v[-1], "n": len(v)}
+
+        def series(pkg, act, label):
+            times = []
+            dev.adb("logcat", "-b", "events", "-c")
+            for i in range(args.series + 1):            # the first run only warms the page cache: not counted
+                dev.sh(f"am force-stop {pkg}")
+                dev.home()
+                time.sleep(2.5)
+                out = dev.sh(f"am start -W -n {pkg}/{act}", timeout=120)
+                total = re.search(r"TotalTime: (\d+)", out)
+                this = re.search(r"ThisTime: (\d+)", out)
+                wait = re.search(r"WaitTime: (\d+)", out)
+                if i > 0 and total:
+                    times.append({"total": int(total.group(1)), "this": int(this.group(1)) if this else None,
+                                  "wait": int(wait.group(1)) if wait else None})
+                time.sleep(3.0)
+            events = dev.adb("logcat", "-b", "events", "-d", "-v", "threadtime", timeout=60)
+            dev.save_log(f"events-{label}.txt", "\n".join(l for l in events.splitlines() if pkg in l))
+            dev.sh(f"am force-stop {pkg}")
+            return times
+
+        mine = series(args.package, dev.resolve_activity(), "app")
+        if mine:
+            st = stats([t["total"] for t in mine])
+            run.meta["cold_start_series_ms"] = f"median {st['median']} min {st['min']} max {st['max']} (n={st['n']})"
+            s.note(f"{args.package}: TotalTime ms {[t['total'] for t in mine]}; median {st['median']}")
+        s.check(f"{args.series} cold starts of the app were measured", len(mine) == args.series, f"{len(mine)} measured")
+        if args.floor_apk:
+            out = dev.adb("install", "-r", "-t", args.floor_apk, timeout=120)
+            s.check("the floor APK installs", "Success" in out, out.strip()[-120:], required=False)
+            floor = series("com.azul.floor", ".FloorActivity", "floor")
+            if floor:
+                fs = stats([t["total"] for t in floor])
+                run.meta["floor_start_series_ms"] = f"median {fs['median']} min {fs['min']} max {fs['max']} (n={fs['n']})"
+                s.note(f"floor (an empty Java Activity): TotalTime ms {[t['total'] for t in floor]}; median {fs['median']}")
+                if mine:
+                    s.note(f"the app costs {st['median'] - fs['median']} ms more than the floor at the median")
+            dev.sh("pm uninstall com.azul.floor")
+        dev.launch(cold=True)
+        dev.wait_for_front(timeout=args.first_frame_timeout)
+        dev.settle(2.5)
+        state["portrait"] = dev.look(s, "after-series")
+
+    if args.series:
+        run.step("03d-cold-start-series", "N cold starts from the launcher: the app against the floor (an empty Java Activity)", s_series, needs_app=True)
 
     def s_ui_dump(s):
         dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
@@ -679,6 +987,7 @@ def android_scenarios(args):
         dev.sh("cmd uimode night no")
         dev.settle(2.5)
         dev.look(s, "system-light-again")
+        dev.no_recreation_since(s, mark)
         dev.no_crash_since(s, mark)
 
     run.step("12-system-dark-mode", "the system switches to dark mode and back (a configuration change)", s_dark, needs_app=True)
@@ -693,6 +1002,7 @@ def android_scenarios(args):
         dev.alive_and_front(s)
         dev.sh("settings put system font_scale 1.0")
         dev.settle(2.5)
+        dev.no_recreation_since(s, mark)
         dev.no_crash_since(s, mark)
 
     run.step("13-font-scale", "the system font scale goes to 1.5 and back", s_font, needs_app=True)
@@ -707,6 +1017,7 @@ def android_scenarios(args):
         dev.settle(3.0)
         dev.look(s, "density-reset")
         dev.alive_and_front(s, " after the reset")
+        dev.no_recreation_since(s, mark)
         dev.no_crash_since(s, mark)
 
     run.step("14-display-density", "the display density changes under the running app and back", s_density, needs_app=True)
@@ -729,7 +1040,7 @@ def android_scenarios(args):
         s.note(f"pid {pid0} -> {dev.pid() or '-'}")
         dev.no_crash_since(s, mark)
 
-    run.step("15-back-then-relaunch", "BACK leaves the app; starting it again must show it again", s_back, needs_app=True)
+    run.step("15-back-then-relaunch", "BACK ends the app (its process too, on purpose); starting it again is a cold start that shows it", s_back, needs_app=True)
 
     def s_cold2(s):
         mark = dev.now_mark()
@@ -785,6 +1096,11 @@ def android_scenarios(args):
         dev.save_log("window.txt", dev.sh("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp|Rotation|mDisplayRotation' | head -20"))
         bad = fatal_lines(full, args.package)
         s.check("no fatal line of the app in the whole log", not bad, bad[0][:240] if bad else "")
+        exits = parse_exit_reasons(dev.sh(f"dumpsys activity exit-info {args.package}"))
+        crashes = [e for e in exits if e[2] in CRASH_EXIT_REASONS]
+        s.check("no exit of the app was a crash or an ANR (the system's own exit reasons)", not crashes,
+                "; ".join(f"{e[0]} pid {e[1]}: {e[3]}" for e in crashes[:3]))
+        s.note("exit reasons, newest first: " + ", ".join(f"{e[3]}" for e in exits[:8]))
         shown = [l.split("ActivityTaskManager:")[-1].strip() for l in full.splitlines() if "Displayed" in l and run.meta.get("package", "") in l]
         if shown:
             s.note("Displayed: " + " | ".join(x[:110] for x in shown[:6]))
@@ -857,7 +1173,32 @@ class IOS:
         sig, _sw, _sh, _px = parse_bmp(small.read_bytes())
         small.unlink()
         self.dims = (w, h)
+        self.last_png = path
         return sig, w, h, fname
+
+    def last_rgba_full(self):
+        """The full-resolution pixels of the last picture (sips makes a BMP of the PNG). -> (rgba, w, h) | None"""
+        if not getattr(self, "last_png", None):
+            return None
+        big = self.run.shots_dir / f".full-{self.shot_count}.bmp"
+        rc, _o, _e = self.x("sips", "--setProperty", "format", "bmp", str(self.last_png), "--out", str(big), timeout=120)
+        if rc != 0 or not big.exists():
+            return None
+        try:
+            _sig, w, h, rgba = parse_bmp(big.read_bytes())
+        finally:
+            big.unlink()
+        return rgba, w, h
+
+    def console_text(self, launch_no=None):
+        """What the app wrote to stdout and stderr in launch number `launch_no` (default: the last)."""
+        n = launch_no or self.launch_count
+        out = ""
+        for suffix in ("out", "err"):
+            f = self.run.logs_dir / f"console-{n}.{suffix}.txt"
+            if f.exists():
+                out += f.read_text(errors="replace") + "\n"
+        return out
 
     def look(self, step, name, expect_changed_from=None, allow_launcher=False):
         sig, w, h, fname = self.capture(name)
@@ -931,6 +1272,28 @@ class IOS:
                 pass
         return found
 
+    def landscape_copy(self):
+        """A copy of the .app whose Info.plist allows only the two landscape orientations, signed ad hoc again (a
+        Simulator app needs a signature, not an identity): when an app only supports landscape the Simulator starts it
+        in landscape. Tests the landscape LAYOUT where the rotation itself cannot be pressed. -> the new .app path."""
+        import plistlib
+        import shutil
+        dst = self.run.logs_dir / "landscape-app" / Path(self.app_dir).name
+        if dst.parent.exists():
+            shutil.rmtree(dst.parent)
+        dst.parent.mkdir(parents=True)
+        shutil.copytree(self.app_dir, dst, symlinks=True)
+        info_path = dst / "Info.plist"
+        info = plistlib.loads(info_path.read_bytes())
+        both = ["UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"]
+        info["UISupportedInterfaceOrientations"] = both
+        info["UISupportedInterfaceOrientations~ipad"] = both
+        info_path.write_bytes(plistlib.dumps(info))
+        rc, _o, err = self.x("codesign", "--force", "--sign", "-", "--timestamp=none", str(dst), timeout=120)
+        if rc != 0:
+            raise RuntimeError(f"codesign: {err.strip()[:200]}")
+        return dst
+
     def gui_keystroke(self, char_code):
         """Cmd + arrow in the Simulator app (Device > Rotate Left = Cmd-Left, Rotate Right = Cmd-Right). Needs the
         GUI app and the runner's accessibility permission for osascript. -> (ok, message)"""
@@ -956,6 +1319,7 @@ class IOS:
 
 def ios_scenarios(args):
     run = Run(args.out, "ios", {"label": args.label, "bundle": args.bundle})
+    run.only = set(args.only.split(",")) if args.only else None
     run.t0 = time.time()
     exe = args.exe or args.bundle.rsplit(".", 1)[-1]
     dev = IOS(run, args.udid, args.bundle, exe, args.app)
@@ -1040,21 +1404,28 @@ def ios_scenarios(args):
     run.step("03-cold-start", "start the app from nothing: first frame, portrait picture, no panic, no crash report", s_cold)
 
     def s_modes(s):
-        base = state["portrait"]
+        """AZ_BACKEND=cpu / gpu / auto through SIMCTL_CHILD_, one cold start each. Per mode: which renderer RAN (the
+        engine's `[render] backend=` line on the console), the picture, the time to the first frame as the poll saw it;
+        then the cpu and gpu pictures compared pixel by pixel (the Simulator has no frame-time source outside the app:
+        those come from the e2e session)."""
+        results = {}
         for mode in ("cpu", "gpu", "auto"):
-            l = dev.launch(extra_env={"AZ_BACKEND": mode}, cold=True)
+            dev.launch(extra_env={"AZ_BACKEND": mode}, cold=True)
             t = dev.wait_for_front(timeout=args.first_frame_timeout)
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_BACKEND-{mode}")
+            full = dev.last_rgba_full()
+            ran, requested, device = backend_ran(dev.console_text())
             s.check(f"AZ_BACKEND={mode}: the app draws", t is not None and not is_flat(sig), f"first frame after {t:.1f} s" if t is not None else "no frame")
-            if base is not None:
-                s.note(f"AZ_BACKEND={mode} differs {sig_diff(sig, base):.4f} from the default start (the phone shell has one renderer, the CPU one)")
+            results[mode] = {"ran": ran, "requested": requested, "device": device, "rgba": full[0] if full else None,
+                             "dims": (full[1], full[2]) if full else dev.dims, "first_frame_s": t, "displayed_ms": None, "frames": None}
+        report_modes(run, s, results, args.expect_gpu, "ios")
         dev.launch(cold=True)       # the default start again: the picture the later steps compare with
         dev.wait_for_front(timeout=args.first_frame_timeout)
         dev.settle(2.0)
         state["portrait"] = dev.look(s, "default-again")
 
-    run.step("04-render-modes", "AZ_BACKEND=cpu, gpu, auto through SIMCTL_CHILD_ (the shell has only the CPU renderer: all three alike)", s_modes)
+    run.step("04-render-modes", "AZ_BACKEND=cpu, gpu, auto: which renderer ran, first frame, cpu against gpu pixel by pixel", s_modes)
 
     def s_appearance(s):
         base = dev.look(s, "light")
@@ -1112,13 +1483,33 @@ def ios_scenarios(args):
         sig = dev.look(s, "landscape")
         w, h = dev.dims
         s.note(f"screenshot {w}x{h} after the rotation")
-        s.check("the picture changed with the rotation", sig_diff(sig, before) > SAME_BELOW, f"differs {sig_diff(sig, before):.3f}", required=False)
+        changed = sig_diff(sig, before) > SAME_BELOW
+        s.check("the picture changed with the rotation", changed, f"differs {sig_diff(sig, before):.3f}", required=False)
         dev.alive_step(s)
-        ok2, msg2 = dev.gui_keystroke(29)  # Cmd-Right: back
-        dev.settle(3.5)
-        again = dev.look(s, "portrait-again")
-        s.check("back in portrait the picture is the first one again", sig_diff(again, before) < 0.10, f"differs {sig_diff(again, before):.3f}", required=False)
-        dev.alive_step(s, " after rotating back")
+        if ok:
+            dev.gui_keystroke(29)          # Cmd-Right: back
+            dev.settle(3.5)
+            again = dev.look(s, "portrait-again")
+            s.check("back in portrait the picture is the first one again", sig_diff(again, before) < 0.10, f"differs {sig_diff(again, before):.3f}", required=False)
+            dev.alive_step(s, " after rotating back")
+        if not (ok and changed) and args.app:
+            # the rotation could not be pressed or did nothing: the landscape LAYOUT through an app that allows only landscape
+            s.note("falling back to a landscape-only copy of the app (Info.plist orientations)")
+            try:
+                copy = dev.landscape_copy()
+                rc, _o, err = dev.simctl("install", args.udid, str(copy), timeout=180)
+                s.check("the landscape-only copy installs", rc == 0, err.strip()[:160], required=False)
+                dev.launch(cold=True)
+                t = dev.wait_for_front(timeout=args.first_frame_timeout)
+                dev.settle(3.0)
+                lsig = dev.look(s, "landscape-only-app")
+                s.check("the landscape-only copy draws", t is not None and not is_flat(lsig), f"first frame after {t:.1f} s" if t is not None else "no frame", required=False)
+                s.note(f"landscape-only app screenshot {dev.dims[0]}x{dev.dims[1]}")
+            finally:
+                dev.simctl("install", args.udid, args.app, timeout=180)   # the original app again
+                dev.launch(cold=True)
+                dev.wait_for_front(timeout=args.first_frame_timeout)
+                dev.settle(2.0)
 
     run.step("08-rotate", "rotate the device left and back while the app runs (Simulator menu through osascript)", s_rotate, needs_app=True)
 
@@ -1180,6 +1571,10 @@ def main(argv):
     a.add_argument("--serial", default="")
     a.add_argument("--points", default="", help="JSON {name: [fx, fy]} overriding the tap points (fractions of the screen)")
     a.add_argument("--first-frame-timeout", type=int, default=45)
+    a.add_argument("--only", default="", help="comma list of step numbers to run besides 00-02, e.g. 03,08,09,12 (a first look at another app)")
+    a.add_argument("--series", type=int, default=0, help="N cold starts to measure (0: none)")
+    a.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
+    a.add_argument("--floor-apk", default="", help="the floor APK (an empty Java Activity) measured the same way")
     i = sub.add_parser("ios")
     i.add_argument("--out", required=True)
     i.add_argument("--udid", required=True)
@@ -1188,6 +1583,8 @@ def main(argv):
     i.add_argument("--app", default="", help="the .app directory to install")
     i.add_argument("--label", default="AzWidgets")
     i.add_argument("--first-frame-timeout", type=int, default=45)
+    i.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
+    i.add_argument("--only", default="", help="comma list of step numbers to run besides 00-02")
     args = ap.parse_args(argv)
     run = android_scenarios(args) if args.platform == "android" else ios_scenarios(args)
     failed = [s.name for s in run.steps if not s.ok]

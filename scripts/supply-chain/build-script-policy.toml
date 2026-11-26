@@ -2191,6 +2191,13 @@ review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["1.15.2:79a7a4ee75a4aea82f723b4143ac28ecbd9dd162f302718db4d9f68fa5ea9710"]
 
+[crate."socks"]  # build-dependency
+allow = true
+risk = "low"
+review = "digest-only"
+reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
+reviewed = ["0.3.4:1a92fba076e8db702f845f162522877041e4bcf40098764100aa7ebc33596e55"]
+
 [crate."spin"]  # build-dependency
 allow = true
 risk = "low"
@@ -2715,6 +2722,13 @@ risk = "low"
 review = "audited"
 reason = "emits link-search for the bundled windows.lib import library on x86_64-msvc"
 reviewed = ["0.42.2:648a2c85ad55de6c6478ce22ec7fd492bfd5760c4e61928b2f66937dab94f889", "0.48.5:648a2c85ad55de6c6478ce22ec7fd492bfd5760c4e61928b2f66937dab94f889", "0.52.6:ede6125cf9720739f7dcfecef56faa11245ba61787c472cf7057efa8ca85b32c"]
+
+[crate."winreg"]  # build-dependency
+allow = true
+risk = "low"
+review = "digest-only"
+reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
+reviewed = ["0.56.0:dd92c530b8326aa03921dbadb0b4f2f06e658cb83b544c3b030cc1a4bad08d26"]
 
 [crate."wit-bindgen"]  # build-script
 allow = true

@@ -248,6 +248,25 @@ Declare permissions in `AndroidManifest.xml` (`CAMERA`, `RECORD_AUDIO`,
 (API 24); AAudio (API 26) is loaded at runtime, so on 7.0/7.1 the app runs and
 audio just reports unavailable.
 
+**16 KiB memory pages.** Android 15 and later run on devices whose kernel uses 16 KiB pages,
+and Google requires apps that target Android 15 (targetSdk 35) and later to support them from
+2027-02-01. A native library whose segments are aligned to 4 KiB (the default of NDK 27's
+linker; NDK 28 aligns to 16 KiB) cannot be loaded there. Link every library of your app, yours
+and `libazul.so`, with 16 KiB alignment by naming the flags once in the `.cargo/config.toml` of
+your project (this repository does it for the demo apps):
+
+```toml
+[target.aarch64-linux-android]
+rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384", "-Clink-arg=-Wl,-z,common-page-size=16384"]
+[target.x86_64-linux-android]
+rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384", "-Clink-arg=-Wl,-z,common-page-size=16384"]
+```
+
+`python3 scripts/android_elf_check.py app.apk` reads the program headers of every library of an
+APK and names each one whose `PT_LOAD` alignment is below 16 KiB (`llvm-readelf -lW lib.so` shows
+the same column, `Align`). A `RUSTFLAGS` environment variable replaces the flags of the config
+file, so name them there too when you set one.
+
 ## iOS
 
 ### Build + bundle the .app/.ipa (no Xcode project)
@@ -319,6 +338,19 @@ missing, the lookup answers `kDNSServiceErr_PolicyDenied` and the dial's error s
 AZ_IOS_LOCAL_NETWORK="Find the computer you control on your network" \
   bash scripts/build-ios.sh aarch64-apple-ios my-app
 ```
+
+## Updates on a phone
+
+The App Store and Google Play deliver the updates of an app that is installed from them, and both
+forbid an app to download or install code of its own (App Store Review Guideline 2.5.2, Google
+Play's Device and Network Abuse policy). A libazul built for iOS or Android therefore has no code
+that fetches, stages or installs a program: the updater is still there (its types and functions
+are part of the C API on every target), `InstallKind::detect()` answers `AppStore`, the mode is
+clamped to notify-only, a check can still read your manifest and tell the user that a newer
+version exists, and `stage_program_update`, the automatic staging and the update dialog answer
+that the store delivers the updates. The HTTP client itself (map tiles, `http_get`, your own
+requests) is part of every build except wasm32. A desktop app that is sold through the Mac App
+Store or the Microsoft Store gets the same build with azul-layout's `store_app` feature.
 
 ## Installing & debugging the built app
 
