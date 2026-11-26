@@ -611,7 +611,7 @@ fn resume_without_blocking<T: Send + 'static>(
             .name("azul-http".into())
             .spawn(move || {
                 // Fails only when the request was dropped unanswered.
-                let _ = answer_tx.send(transfer());
+                drop(answer_tx.send(transfer()));
             });
         if spawned.is_err() {
             return crate::request::complete(data, on_result, lost());
@@ -619,7 +619,7 @@ fn resume_without_blocking<T: Send + 'static>(
         crate::request::defer(
             data,
             on_result,
-            alloc::boxed::Box::new(move || match answer_rx.try_recv() {
+            Box::new(move || match answer_rx.try_recv() {
                 Ok(answer) => Some(azul_core::refany::RefAny::new(answer)),
                 Err(TryRecvError::Empty) => None,
                 Err(TryRecvError::Disconnected) => Some(azul_core::refany::RefAny::new(lost())),

@@ -33,6 +33,45 @@ const PEN_RADIUS: f32 = 1.6;
 const MARKER_RADIUS: f32 = 9.0;
 /// How much of its colour the marker leaves on the white paper.
 pub const MARKER_ALPHA: f32 = 0.38;
+/// The most a layer is magnified by: a display above this ratio is drawn at it (a 4x layer of a
+/// 1000 x 651 px page is 4000 x 2604 px, 42 MB).
+pub const MAX_RASTER_SCALE: f32 = 4.0;
+
+/// The colour a fresh layer is cleared to: nothing. A layer is composited as premultiplied alpha, so
+/// "transparent white" (255, 255, 255, 0) would not be nothing: it ADDS white to everything under the
+/// layer, and the code under the pen's layer disappears.
+pub const CLEAR: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 0,
+};
+
+/// The scale a layer is rasterised at: the window's device pixel ratio (2 on a Retina display), so
+/// a stroke's edge is as sharp as the display's pixels; 1 where the window reports none or nonsense.
+#[must_use]
+pub fn raster_scale(device_pixel_ratio: f32) -> f32 {
+    if device_pixel_ratio.is_finite() && device_pixel_ratio >= 1.0 {
+        device_pixel_ratio.min(MAX_RASTER_SCALE)
+    } else {
+        1.0
+    }
+}
+
+/// A layer's frame size in px: its `logical` size (px at 1x) at `scale`, whole px, at least one each way.
+#[must_use]
+pub fn raster_size(logical: (f32, f32), scale: f32) -> (u32, u32) {
+    let px = |v: f32| (v * scale).round().max(1.0) as u32;
+    (px(logical.0), px(logical.1))
+}
+
+/// `b` as it is in a frame rasterised at `scale`: the nib is as wide on the screen as at 1x, so in the
+/// frame's px it is `scale` times as wide.
+#[must_use]
+pub fn brush_at(mut b: Brush, scale: f32) -> Brush {
+    b.radius *= scale;
+    b
+}
 
 /// Which strokes a layer draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,10 +252,12 @@ impl LiveProgress {
     }
 
     /// Paints what the frame lacks of `live` (`None`: no stroke is being
-    /// drawn on this layer) with `paint`; whether anything was painted.
+    /// drawn on this layer) with `paint`, in the px of a frame rasterised at `scale`; whether
+    /// anything was painted.
     pub fn paint(
         &mut self,
         live: Option<&Stroke>,
+        scale: f32,
         paint: &mut dyn FnMut(f32, f32, f32, f32, Brush),
     ) -> bool {
         let Some(live) = live else {
@@ -232,7 +273,7 @@ impl LiveProgress {
         if live.points.len() <= self.points {
             return false;
         }
-        paint_from(live, self.points, paint);
+        paint_from(live, self.points, scale, paint);
         self.points = live.points.len();
         true
     }
@@ -265,31 +306,43 @@ pub fn brush(semantic: Semantic, pressure: f32) -> Brush {
 }
 
 /// Paints `stroke` from its point `from` on: every segment that ends at a
-/// point from there (a stroke of one point is a dab).
-fn paint_from(stroke: &Stroke, from: usize, paint: &mut dyn FnMut(f32, f32, f32, f32, Brush)) {
+/// point from there (a stroke of one point is a dab). The points and the nib are in the px of a frame
+/// rasterised at `scale` (the stroke's own are the page's logical px).
+fn paint_from(
+    stroke: &Stroke,
+    from: usize,
+    scale: f32,
+    paint: &mut dyn FnMut(f32, f32, f32, f32, Brush),
+) {
     if let [p] = stroke.points.as_slice() {
-        paint(p.x, p.y, p.x, p.y, brush(stroke.semantic, p.pressure));
+        paint(
+            p.x * scale,
+            p.y * scale,
+            p.x * scale,
+            p.y * scale,
+            brush_at(brush(stroke.semantic, p.pressure), scale),
+        );
         return;
     }
     for i in from.max(1)..stroke.points.len() {
         let (a, b) = (stroke.points[i - 1], stroke.points[i]);
         paint(
-            a.x,
-            a.y,
-            b.x,
-            b.y,
-            brush(stroke.semantic, (a.pressure + b.pressure) * 0.5),
+            a.x * scale,
+            a.y * scale,
+            b.x * scale,
+            b.y * scale,
+            brush_at(brush(stroke.semantic, (a.pressure + b.pressure) * 0.5), scale),
         );
     }
 }
 
-/// A transparent `w` x `h` frame with `strokes` painted on the CPU
-/// (premultiplied RGBA: painting over transparent black keeps it so).
+/// A transparent `w` x `h` frame (px at `scale` times the page's logical px) with `strokes`
+/// painted on the CPU (premultiplied RGBA: painting over transparent black keeps it so).
 #[must_use]
-pub fn draw_cpu(w: u32, h: u32, strokes: &[Stroke]) -> RawImage {
+pub fn draw_cpu(w: u32, h: u32, scale: f32, strokes: &[Stroke]) -> RawImage {
     let mut img = RawImage::create_rgba8(w, h, vec![0u8; (w as usize) * (h as usize) * 4], true);
     for s in strokes {
-        paint_from(s, 0, &mut |x0, y0, x1, y1, b| {
+        paint_from(s, 0, scale, &mut |x0, y0, x1, y1, b| {
             img.paint_stroke(x0, y0, x1, y1, b)
         });
     }
@@ -388,9 +441,13 @@ fn kept(app: &mut RefAny, page: usize, layer: Layer) -> Vec<Stroke> {
 /// The ink layer's `RenderImageCallback`: the kept frame, with what changed
 /// since it was drawn painted in.
 pub extern "C" fn render_ink(mut data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {
-    let size = info.get_bounds().get_logical_size();
-    let (w, h) = (size.width.max(1.0) as u32, size.height.max(1.0) as u32);
-    draw_frame(&mut data, &mut info, w, h).unwrap_or_else(|| {
+    // The frame has the display's pixels: the layer's logical size times the window's device
+    // pixel ratio (the engine asks again when the window moves to a display of another ratio).
+    let bounds = info.get_bounds();
+    let logical = bounds.get_logical_size();
+    let scale = raster_scale(bounds.get_hidpi_factor().inner.get());
+    let (w, h) = raster_size((logical.width, logical.height), scale);
+    draw_frame(&mut data, &mut info, w, h, scale).unwrap_or_else(|| {
         ImageRef::null_image(
             w as usize,
             h as usize,
@@ -405,9 +462,10 @@ fn draw_frame(
     info: &mut RenderImageCallbackInfo,
     w: u32,
     h: u32,
+    scale: f32,
 ) -> Option<ImageRef> {
     let began = std::time::Instant::now();
-    let drawn = draw_frame_untimed(data, info, w, h);
+    let drawn = draw_frame_untimed(data, info, w, h, scale);
     // `AZREVIEW_PROFILE`: what a frame of an ink layer cost.
     let app = data.downcast_ref::<InkCanvas>().map(|c| c.app.clone());
     if let Some(mut app) = app {
@@ -425,6 +483,7 @@ fn draw_frame_untimed(
     info: &mut RenderImageCallbackInfo,
     w: u32,
     h: u32,
+    scale: f32,
 ) -> Option<ImageRef> {
     let mut canvas = data.downcast_mut::<InkCanvas>()?;
     let canvas = &mut *canvas;
@@ -442,19 +501,13 @@ fn draw_frame_untimed(
             .as_ref()
             .is_some_and(|t| t.size.width == w && t.size.height == h);
         if !fits {
-            let clear = ColorU {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 0,
-            };
             frame.texture = Some(Texture::allocate_rgba8(
                 gl,
                 PhysicalSizeU32 {
                     width: w,
                     height: h,
                 },
-                clear,
+                CLEAR,
             ));
             frame.key = None;
         }
@@ -468,7 +521,7 @@ fn draw_frame_untimed(
                 // not seen yet are left (a stroke is kept when the pen lifts, the last moves may not
                 // have had a frame).
                 if let Some(done) = append.and_then(|a| stroke_by_id(&mut app, a.id)) {
-                    frame.live.paint(Some(&done), &mut |x0, y0, x1, y1, b| {
+                    frame.live.paint(Some(&done), scale, &mut |x0, y0, x1, y1, b| {
                         tex.paint_stroke(x0, y0, x1, y1, b)
                     });
                 }
@@ -479,7 +532,7 @@ fn draw_frame_untimed(
                 // A fresh texture holds whatever the driver left in it: clear it first.
                 tex.clear();
                 for s in &kept(&mut app, page, layer) {
-                    paint_from(s, 0, &mut |x0, y0, x1, y1, b| {
+                    paint_from(s, 0, scale, &mut |x0, y0, x1, y1, b| {
                         tex.paint_stroke(x0, y0, x1, y1, b)
                     });
                 }
@@ -487,7 +540,7 @@ fn draw_frame_untimed(
                 frame.live = LiveProgress::default();
             }
         }
-        frame.live.paint(live.as_ref(), &mut |x0, y0, x1, y1, b| {
+        frame.live.paint(live.as_ref(), scale, &mut |x0, y0, x1, y1, b| {
             tex.paint_stroke(x0, y0, x1, y1, b)
         });
         return Some(ImageRef::gl_texture(tex.clone()));
@@ -507,7 +560,7 @@ fn draw_frame_untimed(
                 append.and_then(|a| stroke_by_id(&mut app, a.id)),
                 frame.pixels.as_mut(),
             ) {
-                changed |= frame.live.paint(Some(&done), &mut |x0, y0, x1, y1, b| {
+                changed |= frame.live.paint(Some(&done), scale, &mut |x0, y0, x1, y1, b| {
                     pixels.paint_stroke(x0, y0, x1, y1, b)
                 });
             }
@@ -515,14 +568,14 @@ fn draw_frame_untimed(
             frame.live = LiveProgress::default();
         }
         CatchUp::Whole => {
-            frame.pixels = Some(draw_cpu(w, h, &kept(&mut app, page, layer)));
+            frame.pixels = Some(draw_cpu(w, h, scale, &kept(&mut app, page, layer)));
             frame.key = Some(key);
             frame.live = LiveProgress::default();
             changed = true;
         }
     }
     let pixels = frame.pixels.as_mut()?;
-    changed |= frame.live.paint(live.as_ref(), &mut |x0, y0, x1, y1, b| {
+    changed |= frame.live.paint(live.as_ref(), scale, &mut |x0, y0, x1, y1, b| {
         pixels.paint_stroke(x0, y0, x1, y1, b)
     });
     if changed || frame.shown.is_none() {
@@ -579,6 +632,7 @@ pub fn point_from(x: f32, y: f32, pressure: f32, tilt_x: f32, tilt_y: f32) -> In
         },
         tilt_x,
         tilt_y,
+        t_ms: 0,
     }
 }
 
