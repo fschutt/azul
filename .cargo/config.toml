@@ -9,6 +9,8 @@
 # `brew install --cask android-commandlinetools` and `sdkmanager 'ndk;27.0.12077973'`.
 # If your NDK lives elsewhere, override via environment:
 # CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=...
+# scripts/build-android.sh and scripts/demo_lib.sh do that themselves from the NDK they are pointed at (ANDROID_NDK_HOME),
+# so a Linux runner never reaches these paths.
 
 [target.x86_64-pc-windows-gnu]
 linker = "x86_64-w64-mingw32-gcc"

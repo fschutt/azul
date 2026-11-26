@@ -13133,16 +13133,17 @@ where
                     let sd = self.ctx.styled_dom;
                     let colour_of = |paint: &LinePaint| match paint.color {
                         DecorationColor::Text => live_color,
-                        DecorationColor::CurrentOf(box_id) => sd
-                            .styled_nodes
-                            .as_container()
-                            .get(box_id)
-                            .map_or(live_color, |styled| {
-                                super::getters::get_used_text_color(
-                                    sd,
-                                    box_id,
-                                    &styled.styled_node_state,
-                                )
+                        DecorationColor::CurrentOf(index) => usize::try_from(index)
+                            .ok()
+                            .map(NodeId::new)
+                            .and_then(|box_id| {
+                                sd.styled_nodes
+                                    .as_container()
+                                    .get(box_id)
+                                    .map(|styled| (box_id, &styled.styled_node_state))
+                            })
+                            .map_or(live_color, |(box_id, state)| {
+                                super::getters::get_used_text_color(sd, box_id, state)
                             }),
                         DecorationColor::Color(color) => {
                             super::getters::system_colors_resolved(sd, color)
