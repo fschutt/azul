@@ -218,7 +218,7 @@ That is the *entire* difference from a desktop app.
   started a second time in the same process. `AzulActivity` therefore **ends the process when the activity is
   destroyed**: BACK, then the launcher icon, is a cold start. The manifest lists every configuration change
   (rotation, screen size, font size, bold text, locale, layout direction, dark mode, ...), so none of them recreates
-  the activity; the app is told through its callbacks (`WindowResize`, `WindowDpiChanged`, the system style).
+  the activity; the app sees them in its window state (size, dpi, the system style) at its next layout.
 - An Android app process has no `HOME` and no `XDG_*` variables. `AzulActivity` sets `HOME` and `XDG_DATA_HOME` to
   `getFilesDir()`, `XDG_CONFIG_HOME` to `files/config`, and `XDG_CACHE_HOME` and `TMPDIR` to `getCacheDir()` before the
   library loads (what the caller set is kept), so `FilePath::get_data_dir()`, `get_config_dir()` and
