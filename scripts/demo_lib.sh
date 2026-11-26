@@ -39,7 +39,7 @@ profile_dir() {
 case "$kind" in
   desktop)
     # What ships (build_lib): prod-release, thin LTO, the static archive without the bitcode.
-    cargo build --profile prod-release "${target_flag[@]}" -p azul-dll --features "$features"
+    cargo build --profile prod-release ${target_flag[@]+"${target_flag[@]}"} -p azul-dll --features "$features"
     dir="$(profile_dir prod-release)"
     for f in libazul.a azul.lib; do
       [ -f "$dir/$f" ] || continue
@@ -60,7 +60,7 @@ case "$kind" in
     export "CARGO_TARGET_${upper}_LINKER=$ndkbin/${target}24-clang"
     export "CARGO_TARGET_${upper}_AR=$ndkbin/llvm-ar"
     export "CC_${lower}=$ndkbin/${target}24-clang" "CXX_${lower}=$ndkbin/${target}24-clang++" "AR_${lower}=$ndkbin/llvm-ar"
-    cargo build --release "${target_flag[@]}" -p azul-dll --no-default-features --features "$features"
+    cargo build --release ${target_flag[@]+"${target_flag[@]}"} -p azul-dll --no-default-features --features "$features"
     dir="$(profile_dir release)"
     cp "$dir/libazul.so" "$out/libazul.so"
     "$ndkbin/llvm-strip" --strip-unneeded "$out/libazul.so"
@@ -75,7 +75,7 @@ case "$kind" in
     # Only the archive is built (no cdylib to link on an iPhone), and rustc prints, for the staticlib, the
     # system libraries and frameworks a consumer must link it with.
     log="$out/libazul.build.log"
-    cargo rustc --release "${target_flag[@]}" -p azul-dll --lib --crate-type staticlib \
+    cargo rustc --release ${target_flag[@]+"${target_flag[@]}"} -p azul-dll --lib --crate-type staticlib \
       --no-default-features --features "$features" -- --print native-static-libs 2>&1 | tee "$log"
     dir="$(profile_dir release)"
     cp "$dir/libazul.a" "$out/libazul.a"

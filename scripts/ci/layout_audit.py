@@ -180,7 +180,7 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
     for name, found in (("right", right), ("left", left)):
         found.sort(key=lambda e: (-e["w"], e["y"]))
         outer = _outer(found)
-        result[f"edge_{name}"] = {"count": len(found), "outer": len(outer), "top": outer[:LIST_LIMIT]}
+        result[f"edge_{name}"] = {"count": len(found), "outer": len(outer), "top": outer}
 
     # -- under the bars (the a11y tree: device pixels)
     bands = (bars or {}).get("bands") or []
@@ -210,8 +210,8 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
                     under["boxes"] += 1
                 break
     result["under_bars"] = {"bands_px": [{"name": b["name"], "rect": list(b["rect"])} for b in bands],
-                            "tappable": {"count": len(under["tappable"]), "top": under["tappable"][:LIST_LIMIT]},
-                            "text": {"count": len(under["text"]), "top": under["text"][:LIST_LIMIT]},
+                            "tappable": {"count": len(under["tappable"]), "top": under["tappable"]},
+                            "text": {"count": len(under["text"]), "top": under["text"]},
                             "other_boxes": under["boxes"]}
 
     # -- touch targets
@@ -249,7 +249,7 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
     for e in small:
         roles[e.get("role") or "?"] = roles.get(e.get("role") or "?", 0) + 1
     result["small_targets"] = {"tappable": tappable_count, "no_bounds": unknown, "small": len(small), "inside_a_large_parent": covered,
-                               "by_role": roles, "top": small[:LIST_LIMIT]}
+                               "by_role": roles, "top": small}
 
     # -- scroll containers wider than they are, and where every scroller stood when the boxes were read
     sideways, offsets = [], []
@@ -263,7 +263,7 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
                              "container_h": round(st.get("container_height", 0.0), 1), "content_w": round(st.get("content_width", 0.0), 1),
                              "max_scroll_x": round(st["max_scroll_x"], 1)})
     sideways.sort(key=lambda e: -e["max_scroll_x"])
-    result["sideways_scroll"] = {"count": len(sideways), "top": sideways[:LIST_LIMIT], "scrollers": len(scroll_states(scroll_answer)), "offset_at_reading": offsets}
+    result["sideways_scroll"] = {"count": len(sideways), "top": sideways, "scrollers": len(scroll_states(scroll_answer)), "offset_at_reading": offsets}
 
     # -- text-bearing boxes that cross the window or a clipping ancestor
     cut = []
@@ -293,7 +293,7 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
         if why:
             cut.append(_entry(layout_by_id.get(a.get("node_id")), a, box, why))
     cut.sort(key=lambda e: (e["y"], e["x"]))
-    result["cut_text"] = {"count": len(cut), "top": cut[:LIST_LIMIT]}
+    result["cut_text"] = {"count": len(cut), "top": cut}
     return result
 
 
@@ -302,12 +302,13 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
 def _table(entries, columns):
     if not entries:
         return ["(none)", ""]
+    shown, more = entries[:LIST_LIMIT], max(0, len(entries) - LIST_LIMIT)
     lines = ["| " + " | ".join(columns) + " |", "|" + "---|" * len(columns)]
-    for e in entries:
+    for e in shown:
         text = e.get("text", "")
         cells = {"node": e["node"], "role": e.get("role") or "", "text": text.replace("|", "/"), "x": e["x"], "y": e["y"], "w": e["w"], "h": e["h"], "why": e["why"]}
         lines.append("| " + " | ".join(str(cells[c]) for c in columns) + " |")
-    return lines + [""]
+    return lines + ([f"... and {more} more (all of them are in layout-audit.json)"] if more else []) + [""]
 
 
 def report_markdown(audits, label=""):
@@ -340,7 +341,7 @@ def report_markdown(audits, label=""):
         out += [f"### Scroll containers whose content is wider than the container: {sw['count']} of {sw['scrollers']} (the page scrolls sideways)", ""]
         if sw["top"]:
             out += ["| node | container w x h (dp) | content w | scrolls sideways by |", "|---|---|---|---|"]
-            out += [f"| {e['node']} | {e['container_w']} x {e['container_h']} | {e['content_w']} | {e['max_scroll_x']} |" for e in sw["top"]] + [""]
+            out += [f"| {e['node']} | {e['container_w']} x {e['container_h']} | {e['content_w']} | {e['max_scroll_x']} |" for e in sw["top"][:LIST_LIMIT]] + [""]
         else:
             out += ["(none)", ""]
         out += ["Scroll offsets when the boxes were read: " + (", ".join(f"{o['node']} ({o['scroll_x']}, {o['scroll_y']})" for o in sw["offset_at_reading"]) or "all at the top"), "",
