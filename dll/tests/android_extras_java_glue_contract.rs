@@ -8,7 +8,9 @@
 //! * a rejected finger is not the end of a biometric attempt: "onAuthenticationFailed: Called when a biometric
 //!   (e.g. fingerprint, face, etc.) is presented but not recognized as belonging to the user" - the prompt stays up,
 //!   and the terminal answer comes from onAuthenticationSucceeded or onAuthenticationError. The Rust side resolves a
-//!   request at its FIRST result, so reporting the rejection made the later success a dropped call.
+//!   request at its FIRST result, so reporting the rejection made the later success a dropped call;
+//! * a picked document is copied off the UI thread: `onActivityResult` runs on it, and a cloud provider streams the
+//!   file while it is read (minutes for a video): "input dispatching timed out" after five seconds, the ANR dialog.
 //!
 //!     CARGO_MANIFEST_DIR=$PWD/dll rustc --edition 2021 --test dll/tests/android_extras_java_glue_contract.rs -o /tmp/t && /tmp/t
 
@@ -91,4 +93,24 @@ fn a_rejected_finger_does_not_end_the_biometric_attempt() {
     assert!(succeeded.contains("RESULT_AUTHENTICATED"));
     let error = method_body(&src, "public void onAuthenticationError(");
     assert!(error.contains("nativeOnBiometricResult(handle, mapped)"));
+}
+
+/// The copy of a picked document into the app's cache (`uriToCachedFile`: `ContentResolver.openInputStream`
+/// and a loop of reads) must not run on the thread `onActivityResult` is delivered on, the UI thread.
+///
+/// Mutation: `uriToCachedFile` called straight from `onActivityResultProxy` (the state of 0f3e1eb093).
+#[test]
+fn a_picked_document_is_copied_off_the_ui_thread() {
+    let src = java_code("scripts/android/AzulFilePicker.java");
+    let proxy = method_body(&src, "public static boolean onActivityResultProxy(");
+    assert!(
+        !proxy.contains("uriToCachedFile("),
+        "onActivityResultProxy runs on the UI thread: the copy belongs on a worker thread"
+    );
+    assert!(proxy.contains("new Thread("), "the result is delivered from a worker thread");
+    // whatever the worker does, it answers the request even when the copy throws
+    let worker = method_body(&src, "private static void deliver(");
+    assert!(worker.contains("uriToCachedFile("));
+    assert!(worker.contains("catch (Throwable"), "an error on the worker must still answer the request");
+    assert!(worker.contains("nativeOnResult("));
 }
