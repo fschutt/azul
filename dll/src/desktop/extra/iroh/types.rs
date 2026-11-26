@@ -25,18 +25,8 @@ impl Default for IrohRelayMode {
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct IrohConfig {
-    /// Application protocol name. Only peers that bind the same name can connect.
-    pub alpn: AzString,
-    /// Relay fallback for peers without a direct path.
-    pub relay_mode: IrohRelayMode,
-    /// Never use a direct path: no UDP socket is bound and no hole is punched, so every packet
-    /// goes through the relay of `relay_mode` (a network that blocks UDP, or a test that proves
-    /// the relay carries the traffic). Needs a relay; `port` does not apply.
-    pub relay_only: bool,
-    /// Relay server URL, used when `relay_mode` is `Custom`.
-    pub relay_url: AzString,
-    /// 32-byte secret key that fixes the endpoint id. Empty generates a new identity.
-    pub secret_key: U8Vec,
+    // The fields are ordered by decreasing alignment (azul-doc autofix refuses a struct whose
+    // order wastes padding): the 8-byte ones, the 4-byte ones, then the 2- and 1-byte ones.
     /// The certificate authorities the relays' (and any other non-iroh) TLS is checked
     /// against: the app's set by default (`AppConfig::trust_roots`), the public roots, or the
     /// ones it pins - minus any it distrusts - so a relay with a forged certificate is
@@ -50,10 +40,22 @@ pub struct IrohConfig {
     /// dials). `IrohEndpoint::set_allowed_peers` changes it while bound and
     /// `IrohEndpoint::clear_allowed_peers` goes back to accepting every peer.
     pub allowed_peers: OptionStringVec,
-    /// Local UDP port, 0 for any free port.
-    pub port: u16,
+    /// Application protocol name. Only peers that bind the same name can connect.
+    pub alpn: AzString,
+    /// Relay server URL, used when `relay_mode` is `Custom`.
+    pub relay_url: AzString,
+    /// 32-byte secret key that fixes the endpoint id. Empty generates a new identity.
+    pub secret_key: U8Vec,
+    /// Relay fallback for peers without a direct path.
+    pub relay_mode: IrohRelayMode,
     /// Largest inbound frame or message in bytes. Larger ones are dropped.
     pub max_frame_bytes: u32,
+    /// Local UDP port, 0 for any free port.
+    pub port: u16,
+    /// Never use a direct path: no UDP socket is bound and no hole is punched, so every packet
+    /// goes through the relay of `relay_mode` (a network that blocks UDP, or a test that proves
+    /// the relay carries the traffic). Needs a relay; `port` does not apply.
+    pub relay_only: bool,
     /// Find peers on the local network by their endpoint id (mDNS), without a ticket's saved
     /// addresses or a relay, and announce this endpoint there. On by default; see
     /// [`IrohConfig::with_local_discovery`] for what is announced and how to turn it off.
