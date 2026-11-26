@@ -789,11 +789,18 @@ impl FluentLocalizerHandle {
     /// The translated string, or the message ID if not found.
     #[must_use]
     pub fn translate(&self, locale: AzString, message_id: AzString, args: FmtArgVec) -> AzString {
-        let locale = locale.as_str();
+        // A POSIX or Java spelling (`de_DE`) is the BCP 47 one (`de-DE`) for the lookup.
+        let spelled_with_hyphens;
+        let locale = if locale.as_str().contains('_') {
+            spelled_with_hyphens = locale.as_str().replace('_', "-");
+            spelled_with_hyphens.as_str()
+        } else {
+            locale.as_str()
+        };
         let message_id = message_id.as_str();
 
         // Try the requested locale first
-        if let Some(result) = self.try_translate(locale, message_id, &args) {
+        if let Some(result) = self.try_translate_tag(locale, message_id, &args) {
             return result;
         }
 
@@ -810,7 +817,7 @@ impl FluentLocalizerHandle {
 
         // Try the requested locale's language: `fr-CA` -> `fr`
         for parent in less_specific_locales(locale) {
-            if let Some(result) = self.try_translate(parent, message_id, &args) {
+            if let Some(result) = self.try_translate_tag(parent, message_id, &args) {
                 return result;
             }
         }
@@ -822,11 +829,11 @@ impl FluentLocalizerHandle {
             .lock().map_or_else(|_| "en-US".to_string(), |g| g.clone());
 
         if locale != default_locale {
-            if let Some(result) = self.try_translate(&default_locale, message_id, &args) {
+            if let Some(result) = self.try_translate_tag(&default_locale, message_id, &args) {
                 return result;
             }
             for parent in less_specific_locales(&default_locale) {
-                if let Some(result) = self.try_translate(parent, message_id, &args) {
+                if let Some(result) = self.try_translate_tag(parent, message_id, &args) {
                     return result;
                 }
             }
@@ -843,6 +850,19 @@ impl FluentLocalizerHandle {
                 .get(locale)
                 .and_then(|bundle| bundle.format(message_id, args).map(AzString::from))
         })
+    }
+
+    /// [`Self::try_translate`] for a requested language TAG: as it is written, then as a
+    /// canonical tag writes it (`DE-de` is `de-DE`; a tag's case carries no meaning).
+    fn try_translate_tag(&self, locale: &str, message_id: &str, args: &FmtArgVec) -> Option<AzString> {
+        if let Some(found) = self.try_translate(locale, message_id, args) {
+            return Some(found);
+        }
+        let canonical = canonical_tag_case(locale);
+        if canonical == locale {
+            return None;
+        }
+        self.try_translate(&canonical, message_id, args)
     }
 
     /// Check if a message ID exists in the given locale.
@@ -975,6 +995,39 @@ impl FluentLocalizerHandle {
         if let Ok(mut bundles) = self.inner().bundles.lock() {
             bundles.clear();
         }
+    }
+}
+
+impl_option!(
+    FluentLocalizerHandle,
+    OptionFluentLocalizerHandle,
+    copy = false,
+    [Debug, Clone]
+);
+
+/// The window's own Fluent localizer, as the layout pass hands it to a `layout()` callback
+/// (`LayoutCallbackInfo.get_fluent_localizer` of the C API): the one the pass translates the DOM's
+/// `AzString::tr` texts with, made from the app's `AppConfig::fluent_locales`. A handle is a
+/// counted reference (`Clone` takes one, the bundles are shared) and is `Send` and `Sync`, so
+/// words said with it are the window's words on any thread - which is the point of asking: an
+/// app says some words as plain text, in the callback (a placeholder, an accessible name, a
+/// widget's label, which the widget measures and wraps), and a library that keeps its own state
+/// per thread loses it when the loop runs on another thread than the one the app started on
+/// (Android: the app starts on the thread that loads the library, the loop runs on the
+/// activity's thread). `None` for an app that registered no translations.
+///
+/// Does not declare a dependency on the locale: `get_locale()` does, and a layout that says
+/// words reads it.
+#[must_use]
+pub fn fluent_localizer_of(
+    info: &azul_core::callbacks::LayoutCallbackInfo,
+) -> OptionFluentLocalizerHandle {
+    match info
+        .localizer()
+        .and_then(|opaque| opaque.downcast_ref::<FluentLocalizerHandle>())
+    {
+        Some(handle) => OptionFluentLocalizerHandle::Some(handle.clone()),
+        None => OptionFluentLocalizerHandle::None,
     }
 }
 
@@ -1298,6 +1351,30 @@ fn less_specific_locales(locale: &str) -> impl Iterator<Item = &str> + '_ {
             Some(rest)
         }
     })
+}
+
+/// `tag` as a canonical BCP 47 tag writes its case: the language lower case, a four-letter script
+/// Title case, a two-letter region upper case, any other subtag as it is (`DE-de` is `de-DE`,
+/// `zh-hans-cn` is `zh-Hans-CN`).
+fn canonical_tag_case(tag: &str) -> String {
+    let mut out = String::with_capacity(tag.len());
+    for (index, subtag) in tag.split('-').enumerate() {
+        if index > 0 {
+            out.push('-');
+        }
+        let letters = subtag.bytes().all(|b| b.is_ascii_alphabetic());
+        if index == 0 {
+            out.push_str(&subtag.to_ascii_lowercase());
+        } else if subtag.len() == 4 && letters {
+            out.push_str(&subtag[..1].to_ascii_uppercase());
+            out.push_str(&subtag[1..].to_ascii_lowercase());
+        } else if subtag.len() == 2 && letters {
+            out.push_str(&subtag.to_ascii_uppercase());
+        } else {
+            out.push_str(subtag);
+        }
+    }
+    out
 }
 
 /// Check if a string looks like a BCP 47 locale identifier.
@@ -2736,3 +2813,7 @@ mod autotest_generated {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(test)]
+#[path = "fluent_test.rs"]
+mod fluent_test;
