@@ -114,7 +114,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 34] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 221] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 224] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
