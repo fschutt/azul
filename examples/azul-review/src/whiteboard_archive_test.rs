@@ -189,3 +189,49 @@ fn a_load_on_a_thread_hands_the_board_back_through_one_message() {
     assert!(take_loaded(&mut msg).is_none(), "taken once");
     assert!(take_loaded(&mut RefAny::new(0_u8)).is_none(), "not a load's message");
 }
+
+/// A folder of its own for a test, removed by the test.
+fn scratch(tag: &str) -> PathBuf {
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    std::env::temp_dir().join(format!("azreview-wb-{tag}-{}-{nanos}", std::process::id()))
+}
+
+#[test]
+fn a_file_is_written_whole_beside_itself_and_renamed_over_the_old_one() {
+    let dir = scratch("atomic");
+    let path = dir.join("review").join("boards").join("w.azboard.zip");
+    // The folder is made; the first write is the file.
+    write_atomic(&path, b"first").expect("written");
+    assert_eq!(std::fs::read(&path).expect("read"), b"first");
+    // The second replaces it, and nothing of the writing is left beside it.
+    write_atomic(&path, b"second, longer").expect("written");
+    assert_eq!(std::fs::read(&path).expect("read"), b"second, longer");
+    let beside: Vec<String> = std::fs::read_dir(path.parent().expect("a folder"))
+        .expect("listed")
+        .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+        .collect();
+    assert_eq!(beside, vec!["w.azboard.zip".to_string()], "{beside:?}");
+    // A file that cannot be written is an error, and the old one is as it was.
+    let blocked = dir.join("review").join("boards").join("w.azboard.zip").join("inside");
+    assert!(write_atomic(&blocked, b"never").is_err(), "a folder is not made under a file");
+    assert_eq!(std::fs::read(&path).expect("read"), b"second, longer");
+    let _gone = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_zip_a_save_writes_is_the_board_and_a_save_on_a_thread_answers_through_one_message() {
+    let dir = scratch("save");
+    let path = dir.join("w.azboard.zip");
+    let data = board();
+    // What the Thread does, here: pack the store's entries and write them.
+    let entries = store::write(&data, "w", 1);
+    write_atomic(&path, &pack(&entries).expect("packed")).expect("written");
+    let loaded = load(&std::fs::read(&path).expect("read"), &LIMITS).expect("the file is a board");
+    assert_eq!(loaded.data.items.len(), data.items.len());
+    let _gone = std::fs::remove_dir_all(&dir);
+    // The message the worker sends is taken out whole, once.
+    let mut msg = RefAny::new(Some(SaveAnswer { result: Ok(()) }));
+    assert_eq!(take_saved(&mut msg), Some(Ok(())));
+    assert!(take_saved(&mut msg).is_none(), "taken once");
+    assert!(take_saved(&mut RefAny::new(0_u8)).is_none(), "not a save's message");
+}

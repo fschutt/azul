@@ -2,10 +2,13 @@
 //! its cutouts through azul's PNG codec. Thin glue: what a file holds, how it is read and what is
 //! refused is `whiteboard_store`'s, tested on its own.
 //!
-//! A save is built on the UI thread (the pictures are already PNGs, the zip deflates them lightly:
-//! little more than a copy) and written on the file thread (`azul_appkit`'s file jobs: atomic, one
-//! writer). A load decodes every picture, which takes a while for a full board: [`spawn_load`] does it
-//! on a Thread of its own and hands the board back.
+//! A save is built on the UI thread (the entries of the store: the manifest and the pictures' PNGs, as they
+//! are kept), and made into the zip and written on a Thread of its own ([`spawn_save`]: atomic, one writer -
+//! the owner's `SaveGate`), so that a full board never holds the window up. A load decodes every picture,
+//! which takes a while for a full board: [`spawn_load`] does it on a Thread of its own and hands the board
+//! back.
+
+use std::path::{Path, PathBuf};
 
 use azul::{
     callbacks::{CallbackInfo, RefAny, WriteBackCallbackType},
@@ -202,6 +205,66 @@ pub fn spawn_load(info: &mut CallbackInfo, app: &RefAny, bytes: Vec<u8>, limits:
 pub fn take_loaded(msg: &mut RefAny) -> Option<Result<Loaded, StoreError>> {
     let mut guard = msg.downcast_mut::<Option<LoadAnswer>>()?;
     guard.take().map(|l| l.result)
+}
+
+/// Writes `bytes` to `path` the way a board file is kept: the folder is made if need be, the bytes go to a file of
+/// their own beside it and that is renamed over `path`, so that the file is the old board or the new one, never half
+/// of one.
+///
+/// # Errors
+/// What the file system said.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("board");
+    let beside = path.with_file_name(format!(".{name}.tmp"));
+    std::fs::write(&beside, bytes).map_err(|e| e.to_string())?;
+    std::fs::rename(&beside, path).map_err(|e| {
+        let _gone = std::fs::remove_file(&beside);
+        e.to_string()
+    })
+}
+
+/// What a save on its Thread is given.
+struct SaveInit {
+    job: Option<(Vec<Entry>, PathBuf)>,
+    on_done: WriteBackCallbackType,
+}
+
+/// The answer of a save: the file is written, or why not.
+pub struct SaveAnswer {
+    pub result: Result<(), String>,
+}
+
+extern "C" fn save_worker(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let Some(((entries, path), on_done)) = init
+        .downcast_mut::<SaveInit>()
+        .and_then(|mut i| Some((i.job.take()?, i.on_done)))
+    else {
+        return;
+    };
+    let result = pack(&entries).and_then(|bytes| write_atomic(&path, &bytes));
+    let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
+        on_done,
+        RefAny::new(Some(SaveAnswer { result })),
+    )));
+}
+
+/// Makes the zip of `entries` and writes it to `path` on an azul `Thread`; `on_done(app, message, info)` hears of it
+/// on the UI thread ([`take_saved`]).
+pub fn spawn_save(info: &mut CallbackInfo, app: &RefAny, entries: Vec<Entry>, path: PathBuf, on_done: WriteBackCallbackType) {
+    info.add_thread(
+        ThreadId::unique(),
+        Thread::create(RefAny::new(SaveInit { job: Some((entries, path)), on_done }), app.clone(), save_worker),
+    );
+}
+
+/// The answer out of a write-back's message (`None` if it is not one).
+#[must_use]
+pub fn take_saved(msg: &mut RefAny) -> Option<Result<(), String>> {
+    let mut guard = msg.downcast_mut::<Option<SaveAnswer>>()?;
+    guard.take().map(|a| a.result)
 }
 
 #[cfg(test)]

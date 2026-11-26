@@ -445,28 +445,41 @@ extern "C" fn on_rendered(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
     Update::RefreshDom
 }
 
-/// Keeps the board (the demo writes it where it stands: the review window uses the file thread).
-fn on_changed(app: &mut RefAny, _info: &mut CallbackInfo) {
-    let Some(mut d) = app.downcast_mut::<Demo>() else {
-        return;
+/// Keeps the board: its zip is made and written on a Thread ([`whiteboard_archive::spawn_save`]; the owner's gate lets one
+/// write run at a time, and says when another is wanted after it).
+fn on_changed(app: &mut RefAny, info: &mut CallbackInfo) {
+    let (entries, path) = {
+        let Some(mut d) = app.downcast_mut::<Demo>() else {
+            return;
+        };
+        let now = d.panel.now_ms();
+        let Some(job) = d.panel.wb.save_job(now) else {
+            return;
+        };
+        (job.entries, d.board_path.clone())
     };
-    let now = d.panel.now_ms();
-    let Some(job) = d.panel.wb.save_job(now) else {
-        return;
+    whiteboard_archive::spawn_save(info, app, entries, path, on_saved as WriteBackCallbackType);
+}
+
+/// The Thread has written the file (or could not).
+extern "C" fn on_saved(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(result) = whiteboard_archive::take_saved(&mut msg) else {
+        return Update::DoNothing;
     };
-    let result = whiteboard_archive::pack(&job.entries).and_then(|bytes| {
-        if let Some(dir) = d.board_path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let again = {
+        let Some(mut d) = app.downcast_mut::<Demo>() else {
+            return Update::DoNothing;
+        };
+        match &result {
+            Ok(()) => say(&format!("WBDEMO_SAVED {}", d.board_path.display())),
+            Err(why) => say(&format!("WBDEMO_SAVE_ERROR {why}")),
         }
-        let tmp = d.board_path.with_extension("tmp");
-        std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &d.board_path).map_err(|e| e.to_string())
-    });
-    match &result {
-        Ok(()) => say(&format!("WBDEMO_SAVED {}", d.board_path.display())),
-        Err(why) => say(&format!("WBDEMO_SAVE_ERROR {why}")),
+        d.panel.wb.save_done(&result)
+    };
+    if again {
+        on_changed(&mut app, &mut info);
     }
-    d.panel.wb.save_done(&result);
+    Update::DoNothing
 }
 
 fn on_jump(app: &mut RefAny, id: ItemId, _info: &mut CallbackInfo) -> Update {
