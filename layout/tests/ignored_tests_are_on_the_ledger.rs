@@ -198,6 +198,14 @@ const LEDGER: &[Row] = &[
         reason: "needs the Cactus engine library, whistle.cact and two recordings (scripts/fetch_whistle.sh); run by hand, the engine owns one process-global model",
     },
     Row {
+        file: "dll/tests/speech_model_download.rs",
+        test: "the_real_model_is_fetched_stopped_resumed_and_checked_against_its_pin",
+        kind: Kind::Hardware,
+        id: None,
+        owner: "dll/speech",
+        reason: "needs the network: it fetches the 16.9 MB model from huggingface.co (run by hand)",
+    },
+    Row {
         file: "layout/src/cpurender/raster.rs",
         test: "how_long_a_labels_halo_takes_to_dilate",
         kind: Kind::Diagnostic,
@@ -357,7 +365,8 @@ const COUNTS: &[(Kind, usize)] = &[
     // + the built-in speech recogniser's real-engine test (dll/tests/speech_builtin_engine.rs): 11 -> 12.
     // + the two real-network tests of iroh's local discovery (extra/iroh/engine_test.rs, bonjour_test.rs): 12 -> 14.
     // + the real desktop of a Mac (extra/desktop_state/desktop_state_test.rs): 14 -> 15.
-    (Kind::Hardware, 15),
+    // + the speech model fetched from the real server (dll/tests/speech_model_download.rs): 15 -> 16.
+    (Kind::Hardware, 16),
 ];
 
 /// The crates whose sources are scanned (`src/` and `tests/` of each).
