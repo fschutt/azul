@@ -61,6 +61,15 @@ pub(super) const DEFAULT_CH_WIDTH: f32 = 8.0;
 /// Approximate space character width as a fraction of `font_size`.
 pub(super) const SPACE_WIDTH_RATIO: f32 = 0.5;
 
+/// The distance of one unit of `tab-size` in px: the width of a space (`SPACE_WIDTH_RATIO` of the
+/// font size) with the letter and the word spacing of the text. The tab stops of a text are the
+/// multiples of the tab size of these; a `tab-size` that is a length is that many px, a number of
+/// these units ([`StyleProperties::tab_size`](super::StyleProperties::tab_size)).
+#[must_use]
+pub fn tab_stop_unit_px(font_size_px: f32, letter_spacing_px: f32, word_spacing_px: f32) -> f32 {
+    font_size_px * SPACE_WIDTH_RATIO + letter_spacing_px + word_spacing_px
+}
+
 /// The CSS-initial font size (16px) as the default strut's: the parent font
 /// size `vertical-align: sub` / `super` shift by when no container set one.
 pub(super) const DEFAULT_STRUT_FONT_SIZE: f32 = 16.0;

@@ -1392,8 +1392,8 @@ n24 p23 d23 Inline @0,144 -x- ic=38.40625/38.40625
   dl41 PopStackingContext
 === writing modes
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x466 ov=800x466 bl=607 ic=100/284.8125
-n1 p0 d1 Block { establishes_new_context: false } @0,0 800x466 ov=800x466 mt=0 mb=0 bl=607 ic=100/284.8125 rel=0,0
+n0 root d0 Block { establishes_new_context: true } @0,0 800x466 ov=800x466 bl=591 ic=100/284.8125
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x466 ov=800x466 mt=0 mb=0 bl=591 ic=100/284.8125 rel=0,0
 n2 p1 d2 Inline @0,0 800x200 ov=16x640 bl=637 ic=57.609375/284.8125 rel=0,0
 n3 p2 d3 Inline @0,0 -x- ic=57.609375/284.8125
 n4 p1 d4 Block { establishes_new_context: true } @0,200 800x150 ov=90x20 bl=13 ic=100/100 rel=0,200
@@ -1405,7 +1405,8 @@ n9 p1 d9 Inline @0,350 800x16 ov=70.40625x16 bl=13 ic=70.40625/70.40625 rel=0,35
 n10 p9 d10 Inline @0,350 -x- ic=70.40625/70.40625
 n11 p1 d11 Inline @0,366 800x100 ov=16x112 bl=109 ic=51.203125/51.203125 rel=0,366
 n12 p11 d12 Inline @0,366 -x- ic=51.203125/51.203125
-n13 p1 d13 Inline @0,466 800x0 ov=16x144 bl=141 ic=73.609375/73.609375 rel=0,466
+n13 p1 d13 Inline @0,466 800x0 ov=21x128 bl=125 ic=73.609375/73.609375 rel=0,466
+  line 0 y=0 items=8 glyphs=7 x=0..21
 n14 p13 d14 Inline @0,466 -x- ic=16/16
 n15 p14 d15 Inline @0,466 -x- ic=16/16
 n16 p13 d16 Inline @0,466 -x- ic=57.609375/57.609375
@@ -1515,27 +1516,24 @@ n16 p13 d16 Inline @0,466 -x- ic=57.609375/57.609375
   dl103 HitTestArea 0,430.20313 8x16
   dl104 HitTestArea 0,446.20313 8x16
   dl105 HitTestArea 0,462.20313 8x16
-  dl106 HitTestArea 0,466 0x0
-  dl107 Text -16,466 32x144 glyphs=1 fs=16
-  dl108 Text -16,466 32x144 glyphs=1 fs=16
-  dl109 Text -16,466 32x144 glyphs=1 fs=16
-  dl110 Text -16,466 32x144 glyphs=1 fs=16
-  dl111 Text -16,466 32x144 glyphs=1 fs=16
-  dl112 Text -16,466 32x144 glyphs=1 fs=16
-  dl113 Text -16,466 32x144 glyphs=1 fs=16
-  dl114 Text -16,466 32x144 glyphs=1 fs=16
-  dl115 Text -16,466 32x144 glyphs=1 fs=16
-  dl116 HitTestArea 0,466.20313 8x16
-  dl117 HitTestArea 0,482.20313 8x16
-  dl118 HitTestArea 0,498.20313 8x16
-  dl119 HitTestArea 0,514.2031 8x16
-  dl120 HitTestArea 0,530.2031 14.40625x16
-  dl121 HitTestArea 0,546.2031 8x16
-  dl122 HitTestArea 0,562.2031 3.203125x16
-  dl123 HitTestArea 0,578.2031 8x16
-  dl124 HitTestArea 0,594.2031 8x16
-  dl125 HitTestArea 0,466 0x0
-  dl126 PopStackingContext
+  dl106 HitTestArea 0,466 21x128
+  dl107 Text -16,466 53x128 glyphs=2 fs=16
+  dl108 Text -16,466 53x128 glyphs=1 fs=16
+  dl109 Text -16,466 53x128 glyphs=1 fs=16
+  dl110 Text -16,466 53x128 glyphs=1 fs=16
+  dl111 Text -16,466 53x128 glyphs=1 fs=16
+  dl112 Text -16,466 53x128 glyphs=1 fs=16
+  dl113 Text -16,466 53x128 glyphs=1 fs=16
+  dl114 Text -16,466 53x128 glyphs=1 fs=16
+  dl115 HitTestArea 0,482.20313 8x16
+  dl116 HitTestArea 0,498.20313 8x16
+  dl117 HitTestArea 0,514.2031 14.40625x16
+  dl118 HitTestArea 0,530.2031 8x16
+  dl119 HitTestArea 0,546.2031 3.203125x16
+  dl120 HitTestArea 0,562.2031 8x16
+  dl121 HitTestArea 0,578.2031 8x16
+  dl122 HitTestArea 0,466 0x0
+  dl123 PopStackingContext
 === deep nesting
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 800x124 ov=800x124 bl=105 ic=114.40625/348.8125

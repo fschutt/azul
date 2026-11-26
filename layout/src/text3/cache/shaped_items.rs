@@ -215,6 +215,9 @@ pub enum ShapedItem {
     // as a single unbreakable object.
     CombinedBlock {
         source: ContentIndex,
+        /// The text the block combines (the digits of a `text-combine-upright: digits 2`): what
+        /// the glyphs of a PDF's text layer stand for.
+        text: Arc<str>,
         /// The glyphs to be rendered horizontally within the vertical line.
         glyphs: ShapedGlyphVec,
         /// Uniform style of the combined run (tate-chu-yoko is one style;

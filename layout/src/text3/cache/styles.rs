@@ -409,10 +409,11 @@ pub struct StyleProperties {
     pub tab_size: f32,
     // text-transform
     pub text_transform: TextTransform,
-    // Vertical text properties
+    /// `writing-mode`: how the text's lines run (`vertical-rl` and `vertical-lr` are vertical). Read
+    /// by the PDF glyph runs, which say it, and by the runs a paint merges.
     pub writing_mode: WritingMode,
-    pub text_orientation: TextOrientation,
-    // Tate-chu-yoko
+    /// Tate-chu-yoko (`text-combine-upright`): the digits or the whole run set side by side in
+    /// one em of a vertical line. The only trigger of combined text in the logical items.
     pub text_combine_upright: Option<TextCombineUpright>,
 
     // Variant handling
@@ -420,6 +421,10 @@ pub struct StyleProperties {
     pub font_variant_numeric: FontVariantNumeric,
     pub font_variant_ligatures: FontVariantLigatures,
     pub font_variant_east_asian: FontVariantEastAsian,
+
+    /// `font-synthesis`: which faces the engine may fake where the font has none (the bold, the
+    /// italic, the small capitals, the super- and subscripts).
+    pub font_synthesis: FontSynthesis,
 
     /// The element's own `vertical-align` (baseline / sub / super / length / percentage).
     /// Read per shaped cluster by `get_item_vertical_align` so an inline `<span>` shifts
@@ -448,12 +453,12 @@ impl Default for StyleProperties {
             tab_size: TAB_SIZE, // CSS default
             text_transform: TextTransform::default(),
             writing_mode: WritingMode::default(),
-            text_orientation: TextOrientation::default(),
             text_combine_upright: None,
             font_variant_caps: FontVariantCaps::default(),
             font_variant_numeric: FontVariantNumeric::default(),
             font_variant_ligatures: FontVariantLigatures::default(),
             font_variant_east_asian: FontVariantEastAsian::default(),
+            font_synthesis: FontSynthesis::default(),
             vertical_align: VerticalAlign::Baseline,
         }
     }
@@ -486,6 +491,14 @@ impl StyleProperties {
         self.font_stack
             .first_selector()
             .is_some_and(|s| s.request.weight_at_least(600))
+    }
+
+    /// Whether a face without a bold cut is drawn thickened for this text: it asks for a bold
+    /// weight ([`Self::asks_for_bold`]) and `font-synthesis-weight` is not `none`. The one
+    /// question every synthetic bold - the display list's, the PDF run's - is decided by.
+    #[must_use]
+    pub fn asks_for_synthetic_bold(&self) -> bool {
+        self.font_synthesis.weight && self.asks_for_bold()
     }
 
     /// Whether the text reads as italic: oblique is a slanted rendering of an
@@ -534,7 +547,6 @@ impl Hash for StyleProperties {
         self.text_decoration.hash(state);
         self.font_features.hash(state);
         self.writing_mode.hash(state);
-        self.text_orientation.hash(state);
         self.text_combine_upright.hash(state);
         self.vertical_align.hash(state);
         self.letter_spacing.hash(state);
@@ -557,6 +569,7 @@ impl Hash for StyleProperties {
         self.font_variant_numeric.hash(state);
         self.font_variant_ligatures.hash(state);
         self.font_variant_east_asian.hash(state);
+        self.font_synthesis.hash(state);
 
         // The inline box's decoration. This hash is a cache KEY - the text
         // cache's first stage is `calculate_id(&content)` - so a span's text
@@ -631,9 +644,10 @@ impl StyleProperties {
     /// - `font_stack` (with the request of each font: weight, stretch, style, optical size and
     ///   `font-variation-settings`), `font_size_px`, `font_features`
     /// - `letter_spacing`, `word_spacing`, `line_height`, `tab_size`
-    /// - `writing_mode`, `text_orientation`, `text_combine_upright`
+    /// - `writing_mode`, `text_combine_upright`
     /// - `text_transform`
-    /// - `font_variant`_* (affects glyph selection)
+    /// - `font_variant`_* (affects glyph selection) and `font_synthesis` (small capitals are
+    ///   synthesized or not)
     /// - an inline box's left / right border, padding and margin: they move
     ///   the pen (`inline_offsets` in `position_one_line`)
     ///
@@ -665,17 +679,18 @@ impl StyleProperties {
 
         // Writing mode (affects layout direction)
         self.writing_mode.hash(&mut hasher);
-        self.text_orientation.hash(&mut hasher);
         self.text_combine_upright.hash(&mut hasher);
 
         // Text transform (affects which characters are used)
         self.text_transform.hash(&mut hasher);
 
-        // Font variants (affect glyph selection)
+        // Font variants (affect glyph selection) and what may be faked where a face lacks them
+        // (the small capitals are shaped as such)
         self.font_variant_caps.hash(&mut hasher);
         self.font_variant_numeric.hash(&mut hasher);
         self.font_variant_ligatures.hash(&mut hasher);
         self.font_variant_east_asian.hash(&mut hasher);
+        self.font_synthesis.hash(&mut hasher);
 
         // An inline box's horizontal margin + border + padding move the pen
         // (`inline_offsets` in `position_one_line`): a span that gains one
@@ -730,34 +745,52 @@ pub type FontVariantCaps = azul_css::props::basic::font::StyleFontVariantCaps;
 /// [`StyleFontVariantNumeric::opentype_features`]: azul_css::props::basic::font::StyleFontVariantNumeric::opentype_features
 pub type FontVariantNumeric = azul_css::props::basic::font::StyleFontVariantNumeric;
 
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
-pub enum FontVariantLigatures {
-    #[default]
-    Normal,
-    None,
-    Common,
-    NoCommon,
-    Discretionary,
-    NoDiscretionary,
-    Historical,
-    NoHistorical,
-    Contextual,
-    NoContextual,
+/// The text's `font-variant-ligatures` (CSS Fonts 4 s6.4) - the CSS value as it is: one choice
+/// per group (common, discretionary, historical, contextual), any combination of them. The
+/// shaper turns on [`StyleFontVariantLigatures::opentype_on`] (`dlig`, `hlig`, ...) and takes
+/// [`StyleFontVariantLigatures::opentype_off`] (`liga` and `clig`, `calt`, ...) out of the
+/// features a script turns on by default; `none` takes out all of them, never `rlig`.
+///
+/// [`StyleFontVariantLigatures::opentype_on`]: azul_css::props::basic::font_variation::StyleFontVariantLigatures::opentype_on
+/// [`StyleFontVariantLigatures::opentype_off`]: azul_css::props::basic::font_variation::StyleFontVariantLigatures::opentype_off
+pub type FontVariantLigatures = azul_css::props::basic::font_variation::StyleFontVariantLigatures;
+
+/// The text's `font-variant-east-asian` (CSS Fonts 4 s6.8) - the CSS value as it is: one of the
+/// JIS and the simplified / traditional forms, one of the two widths, and `ruby`, in any
+/// combination the grammar allows. The shaper turns on
+/// [`StyleFontVariantEastAsian::opentype_features`] (`jp78`, `fwid`, `ruby`, ...).
+///
+/// [`StyleFontVariantEastAsian::opentype_features`]: azul_css::props::basic::font_variation::StyleFontVariantEastAsian::opentype_features
+pub type FontVariantEastAsian = azul_css::props::basic::font_variation::StyleFontVariantEastAsian;
+
+/// What `font-synthesis` lets the engine fake where a font has no face or feature for what the text
+/// asks (CSS Fonts 4 s2.5): the bold of a weight the family lacks, the slant of an italic it lacks,
+/// the small capitals of a font without `smcp`, the super- and subscripts of a font without `sups`
+/// and `subs`. Every switch is on (`auto`) unless a `font-synthesis*` property says `none`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(clippy::struct_excessive_bools)] // one switch per longhand of `font-synthesis`
+pub struct FontSynthesis {
+    /// `font-synthesis-weight`: a face without a bold cut is drawn thickened.
+    pub weight: bool,
+    /// `font-synthesis-style`: a family without an italic or oblique face is drawn slanted.
+    pub style: bool,
+    /// `font-synthesis-small-caps`: a font without small capitals gets them from scaled capitals.
+    pub small_caps: bool,
+    /// `font-synthesis-position`: a font without super- and subscript forms gets them from
+    /// smaller, raised or lowered glyphs.
+    pub position: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
-pub enum FontVariantEastAsian {
-    #[default]
-    Normal,
-    Jis78,
-    Jis83,
-    Jis90,
-    Jis04,
-    Simplified,
-    Traditional,
-    FullWidth,
-    ProportionalWidth,
-    Ruby,
+impl Default for FontSynthesis {
+    /// `font-synthesis: auto`, the initial value: everything may be faked.
+    fn default() -> Self {
+        Self {
+            weight: true,
+            style: true,
+            small_caps: true,
+            position: true,
+        }
+    }
 }
 
 /// A bidi embedding level (UAX 9): even levels run left to right, odd ones
@@ -821,7 +854,6 @@ pub struct PartialStyleProperties {
     pub tab_size: Option<f32>,
     pub text_transform: Option<TextTransform>,
     pub writing_mode: Option<WritingMode>,
-    pub text_orientation: Option<TextOrientation>,
     pub text_combine_upright: Option<Option<TextCombineUpright>>,
     pub font_variant_caps: Option<FontVariantCaps>,
     pub font_variant_numeric: Option<FontVariantNumeric>,
@@ -843,7 +875,6 @@ impl Hash for PartialStyleProperties {
         self.tab_size.map(f32::to_bits).hash(state);
         self.text_transform.hash(state);
         self.writing_mode.hash(state);
-        self.text_orientation.hash(state);
         self.text_combine_upright.hash(state);
         self.font_variant_caps.hash(state);
         self.font_variant_numeric.hash(state);
@@ -865,7 +896,6 @@ impl PartialEq for PartialStyleProperties {
         self.tab_size.map(f32::to_bits) == other.tab_size.map(f32::to_bits) &&
         self.text_transform == other.text_transform &&
         self.writing_mode == other.writing_mode &&
-        self.text_orientation == other.text_orientation &&
         self.text_combine_upright == other.text_combine_upright &&
         self.font_variant_caps == other.font_variant_caps &&
         self.font_variant_numeric == other.font_variant_numeric &&
@@ -911,9 +941,6 @@ impl StyleProperties {
         }
         if let Some(val) = partial.writing_mode {
             new_style.writing_mode = val;
-        }
-        if let Some(val) = partial.text_orientation {
-            new_style.text_orientation = val;
         }
         if let Some(val) = &partial.text_combine_upright {
             new_style.text_combine_upright.clone_from(val);
