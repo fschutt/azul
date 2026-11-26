@@ -36,7 +36,7 @@ use taffy::style::{MaxTrackSizingFunction, MinTrackSizingFunction, TrackSizingFu
 
 use crate::solver3::{
     calc::CalcResolveContext,
-    getters::{get_overflow_x, get_overflow_y},
+    getters::{get_effective_zoom, get_overflow_x, get_overflow_y},
     layout_tree::LayoutNodeId,
 };
 
@@ -507,6 +507,58 @@ fn css_height_to_px(h: &LayoutHeight) -> Option<f32> {
         LayoutHeight::Px(px) => pixel_value_to_pixels_fallback(px),
         _ => None,
     }
+}
+
+/// `style` of a box under the `zoom` of its subtree (`zoom` other than 1): every absolute length of
+/// it scaled - the sizes and their bounds, the margins, the padding, the borders, the insets, the
+/// gaps and the flex basis. CSS Viewport `zoom` scales the box and everything inside it; the
+/// block layout reads its lengths through `getters::zoomed_length`, and a flex or grid item is
+/// laid out by taffy from THIS style, so this is where its lengths are scaled. Percentages, `auto`
+/// and `calc()` are not lengths: they follow what they are of.
+fn zoom_taffy_style(style: &mut Style, zoom: f32) {
+    fn dimension(d: Dimension, zoom: f32) -> Dimension {
+        let raw = d.into_raw();
+        if raw.tag() == CompactLength::LENGTH_TAG {
+            Dimension::length(raw.value() * zoom)
+        } else {
+            d
+        }
+    }
+    fn length_percentage(d: LengthPercentage, zoom: f32) -> LengthPercentage {
+        let raw = d.into_raw();
+        if raw.tag() == CompactLength::LENGTH_TAG {
+            LengthPercentage::length(raw.value() * zoom)
+        } else {
+            d
+        }
+    }
+    fn length_percentage_auto(d: LengthPercentageAuto, zoom: f32) -> LengthPercentageAuto {
+        let raw = d.into_raw();
+        if raw.tag() == CompactLength::LENGTH_TAG {
+            LengthPercentageAuto::length(raw.value() * zoom)
+        } else {
+            d
+        }
+    }
+    for size in [&mut style.size, &mut style.min_size, &mut style.max_size] {
+        size.width = dimension(size.width, zoom);
+        size.height = dimension(size.height, zoom);
+    }
+    for rect in [&mut style.padding, &mut style.border] {
+        rect.left = length_percentage(rect.left, zoom);
+        rect.right = length_percentage(rect.right, zoom);
+        rect.top = length_percentage(rect.top, zoom);
+        rect.bottom = length_percentage(rect.bottom, zoom);
+    }
+    for rect in [&mut style.margin, &mut style.inset] {
+        rect.left = length_percentage_auto(rect.left, zoom);
+        rect.right = length_percentage_auto(rect.right, zoom);
+        rect.top = length_percentage_auto(rect.top, zoom);
+        rect.bottom = length_percentage_auto(rect.bottom, zoom);
+    }
+    style.gap.width = length_percentage(style.gap.width, zoom);
+    style.gap.height = length_percentage(style.gap.height, zoom);
+    style.flex_basis = dimension(style.flex_basis, zoom);
 }
 
 // Helper function to convert MultiValue<PixelValue> to LengthPercentageAuto
@@ -1807,6 +1859,13 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         };
         // CSS spec: default align-content is "normal". Taffy handles
         // this internally when align_content is None.
+
+        // `zoom`: the lengths above are the author's; the box and its subtree are laid out at
+        // `zoom` times them ([`zoom_taffy_style`]).
+        let zoom = get_effective_zoom(styled_dom, id);
+        if (zoom - 1.0).abs() > f32::EPSILON {
+            zoom_taffy_style(&mut taffy_style, zoom);
+        }
 
         taffy_style
     }

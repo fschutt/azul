@@ -151,6 +151,8 @@ pub mod workspace_view;
 pub mod whiteboard;
 pub mod whiteboard_app;
 pub mod whiteboard_archive;
+pub mod whiteboard_boards;
+pub mod whiteboard_boards_ui;
 pub mod whiteboard_cutout;
 pub mod whiteboard_demo;
 pub mod whiteboard_drag;

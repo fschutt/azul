@@ -158,6 +158,27 @@ azreview-whiteboard-cutout-name = { $file }, Zeilen { $first } bis { $last }
 azreview-whiteboard-label-placeholder = Beschriftung hinzufügen
 azreview-whiteboard-label-name = Beschriftung von { $file }, Zeilen { $first } bis { $last }
 azreview-whiteboard-arrow-label-name = Beschriftung des Pfeils
+azreview-whiteboard-notice-too-many-boards = Dieser Ordner hat { $limit } Whiteboards, so viele wie Platz ist: Lösche zuerst eines.
+azreview-whiteboard-notice-board-name-cut = Der Name eines Whiteboards hat höchstens { $limit } Zeichen: der Rest wurde abgeschnitten.
+azreview-whiteboard-notice-board-name-empty = Ein Whiteboard braucht einen Namen.
+azreview-whiteboard-notice-no-such-board = In diesem Ordner gibt es dieses Whiteboard nicht.
+azreview-whiteboard-notice-board-busy = Das Whiteboard wird gerade gespeichert oder geöffnet: einen Moment.
+azreview-whiteboard-boards-not-an-index = Die Liste der Whiteboards dieses Ordners konnte nicht gelesen werden ({ $why }). Sie bleibt, wie sie ist, und eine neue Liste wird begonnen.
+azreview-whiteboard-boards-too-new = Die Liste der Whiteboards dieses Ordners wurde von einem neueren AzReview gespeichert (Format { $found }). Sie bleibt, wie sie ist.
+azreview-whiteboard-boards-too-large = Die Liste der Whiteboards dieses Ordners ist weit größer, als eine Liste ist ({ $bytes } Bytes). Sie bleibt, wie sie ist, und eine neue Liste wird begonnen.
+azreview-whiteboard-board-default = Board { $n }
+azreview-whiteboard-board-copy = { $name } Kopie
+azreview-whiteboard-boards-switcher = Whiteboards, geöffnet: { $name }
+azreview-whiteboard-board-new = Neues Whiteboard
+azreview-whiteboard-board-rename = Umbenennen
+azreview-whiteboard-board-duplicate = Duplizieren
+azreview-whiteboard-board-delete = Löschen
+azreview-whiteboard-board-up = Nach oben
+azreview-whiteboard-board-down = Nach unten
+azreview-whiteboard-board-undo = Rückgängig
+azreview-whiteboard-board-deleted = Whiteboard "{ $name }" gelöscht
+azreview-whiteboard-board-rename-name = Name des Whiteboards { $name }
+azreview-whiteboard-board-loading = Das Whiteboard wird geöffnet ...
 
 ## Diktieren und die Seitenspalte der Notizen
 

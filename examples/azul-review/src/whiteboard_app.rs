@@ -9,7 +9,8 @@
 use std::sync::Arc;
 
 use crate::{
-    whiteboard::{kept_lines, lines_hash, Board, CutoutDraft, CutoutImage, ImageSlot, ItemId, Limits, Notice, Source},
+    whiteboard::{kept_lines, lines_hash, Board, BoardData, CutoutDraft, CutoutImage, ImageSlot, ItemId, Limits, Notice, Source},
+    whiteboard_boards::{self as boards, BoardIndex, BoardsError},
     whiteboard_cutout::{plan, CapturePlan},
     whiteboard_drag::{Armed, ArmedRegion, ArmedRegions, Bar, Drag, Motion, Pointer, Press, RegionId, Release, Tick},
     whiteboard_geom::{Pt, Rect, Size},
@@ -24,6 +25,9 @@ pub const BAR_MAX_SHARE: f32 = 0.6;
 pub const BAR_DEFAULT_PX: f32 = 340.0;
 /// The width of the thin bar a closed whiteboard is, px.
 pub const EDGE_PX: f32 = 12.0;
+/// The height of the header of the bar, px: the board's name and the list of boards. The board lies under it, so a
+/// point of the bar is a point of the board that much higher.
+pub const HEADER_PX: f32 = 30.0;
 
 /// Whether the right bar is open and how wide: kept in the settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -84,6 +88,40 @@ pub struct SaveJob {
     pub view_revision: u64,
 }
 
+/// A file to write that is not the open board's own save: the copy a duplicate made.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Write {
+    /// Among the app's files.
+    pub name: String,
+    pub entries: Vec<Entry>,
+}
+
+/// What the host does after a change of the list of boards.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Plan {
+    /// Write these, each atomically (the list of boards: a few hundred bytes).
+    pub effects: Vec<Effect>,
+    /// The file of a copy to make: its zip is made of the entries and written like a save, but it is not the open
+    /// board's save (`save_done` is not told of it).
+    pub copy: Option<Write>,
+    /// Read this board's file (among the app's files) and hand what it holds to [`Whiteboard::loaded`] (or
+    /// [`Whiteboard::loaded_none`] when there is none).
+    pub load: Option<String>,
+}
+
+/// What the host does when the list of boards has been read at the start.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IndexStart {
+    /// Write these (the list started anew or repaired, and a copy of a list that could not be used).
+    pub effects: Vec<Effect>,
+    /// The file of the board that is open: read it.
+    pub load: String,
+    /// What was wrong with the list, to tell the person.
+    pub told: Option<BoardsError>,
+    /// The name a list that could not be used was kept under.
+    pub kept_as: Option<String>,
+}
+
 /// The whiteboard of one workspace and everything that goes with it.
 pub struct Whiteboard {
     pub board: Board,
@@ -99,7 +137,15 @@ pub struct Whiteboard {
     notices: Vec<Notice>,
     /// A file written by a newer version: never replaced.
     protect_file: bool,
+    /// The list of boards was written by a newer version: it is never replaced, so no board is kept.
+    index_protected: bool,
     saving: Option<(u64, u64, u64)>,
+    /// The boards of the workspace, and which is open.
+    boards: BoardIndex,
+    /// The board that is open is being read: what shows is empty until [`Self::loaded`].
+    loading: bool,
+    /// The list of boards changed (a board was kept) and was not given to the host yet ([`Self::take_index_effect`]).
+    index_dirty: bool,
 }
 
 impl Whiteboard {
@@ -122,7 +168,13 @@ impl Whiteboard {
             gate: SaveGate::default(),
             notices: Vec::new(),
             protect_file: false,
+            index_protected: false,
             saving: None,
+            // Until the list has been read ([`Self::index_loaded`]) the workspace has the one board of the one-board
+            // version, in its file.
+            boards: BoardIndex::migrated(workspace, "Board 1", 0),
+            loading: false,
+            index_dirty: false,
         }
     }
 
@@ -203,8 +255,8 @@ impl Whiteboard {
         had
     }
 
-    /// Region `region` is dropped on the bar at `at_bar` (from the bar's top-left corner): its cutout is
-    /// put on the board, centred there, and waits for its picture ([`Self::image_ready`]). The region is
+    /// Region `region` is dropped on the bar at `at_bar` (from the bar's top-left corner, the header [`HEADER_PX`] included):
+    /// its cutout is put on the board, centred there, and waits for its picture ([`Self::image_ready`]). The region is
     /// used up; when the cutout is refused (the board is full) it stays armed.
     ///
     /// # Errors
@@ -217,6 +269,9 @@ impl Whiteboard {
         dpr: f32,
         page: Size,
     ) -> Result<CutoutJob, Notice> {
+        if self.loading {
+            return Err(Notice::BoardBusy);
+        }
         let Some(r) = self.armed.get(region).cloned() else {
             return Err(Notice::NoSuchItem { id: region });
         };
@@ -233,7 +288,7 @@ impl Whiteboard {
             range_hash: lines_hash(&lines),
             lines,
         };
-        let centre = self.board.view().to_board(at_bar);
+        let centre = self.board.view().to_board(Pt::new(at_bar.x, at_bar.y - HEADER_PX));
         let at = Pt::new(centre.x - made.logical.w * 0.5, centre.y - made.logical.h * 0.5);
         let id = self.board.add_cutout(CutoutDraft::pending(at, made.logical, source))?;
         self.armed.disarm(region);
@@ -290,6 +345,234 @@ impl Whiteboard {
         text.trim().parse::<f32>().ok().filter(|w| w.is_finite() && *w > 0.0)
     }
 
+    // ---- the boards
+
+    /// The boards of the workspace.
+    #[must_use]
+    pub const fn boards(&self) -> &BoardIndex {
+        &self.boards
+    }
+
+    /// The board that is open: its id and its name (what the app's companion shows).
+    #[must_use]
+    pub fn active_board(&self) -> (&str, &str) {
+        let b = self.boards.active();
+        (&b.id, &b.name)
+    }
+
+    /// The name of the open board's file among the app's files.
+    #[must_use]
+    pub fn board_file(&self) -> String {
+        self.boards.active().file.clone()
+    }
+
+    /// The name of the list of boards among the app's files.
+    #[must_use]
+    pub fn index_name(&self) -> String {
+        boards::index_name(&self.workspace)
+    }
+
+    /// Whether the board that is open is being read (the bar shows it empty and takes no pointer until it is in).
+    #[must_use]
+    pub const fn is_loading(&self) -> bool {
+        self.loading
+    }
+
+    /// The list of boards was read at the start (`raw`: the bytes of its file, `None` when there is none;
+    /// `legacy_file`: whether the one-board version's file is there). What it holds is the list now; a list that
+    /// is none is kept aside and a new one started, one of a newer version is never replaced, one with entries that
+    /// cannot be used is repaired with a copy of what it was. Then the board that is open is to be read.
+    pub fn index_loaded(&mut self, raw: Option<Vec<u8>>, legacy_file: bool, first_name: &str, now_ms: u64) -> IndexStart {
+        let started = |ws: &str| if legacy_file { BoardIndex::migrated(ws, first_name, now_ms) } else { BoardIndex::fresh(ws, first_name, now_ms) };
+        let aside = |bytes: Vec<u8>, ws: &str| {
+            let name = store::quarantine_name(&boards::index_name(ws), now_ms);
+            (name.clone(), Effect { name, bytes })
+        };
+        let ws = self.workspace.clone();
+        let (mut effects, mut told, mut kept_as) = (Vec::new(), None, None);
+        match raw {
+            None => {
+                self.boards = started(&ws);
+                effects.push(self.index_effect());
+            }
+            Some(bytes) => {
+                let parsed = std::str::from_utf8(&bytes)
+                    .map_err(|_| BoardsError::NotAnIndex("it is not text".to_string()))
+                    .and_then(|text| BoardIndex::from_json(text, &ws));
+                match parsed {
+                    Ok((index, 0)) => self.boards = index,
+                    Ok((index, _left_out)) => {
+                        let (name, copy) = aside(bytes, &ws);
+                        self.boards = index;
+                        kept_as = Some(name);
+                        effects.push(copy);
+                        effects.push(self.index_effect());
+                    }
+                    Err(BoardsError::TooNew { found }) => {
+                        self.boards = started(&ws);
+                        self.index_protected = true;
+                        self.protect_file = true;
+                        told = Some(BoardsError::TooNew { found });
+                    }
+                    Err(e) => {
+                        let (name, copy) = aside(bytes, &ws);
+                        self.boards = started(&ws);
+                        kept_as = Some(name);
+                        told = Some(e);
+                        effects.push(copy);
+                        effects.push(self.index_effect());
+                    }
+                }
+            }
+        }
+        self.index_dirty = false;
+        IndexStart { effects, load: self.boards.active().file.clone(), told, kept_as }
+    }
+
+    fn index_effect(&self) -> Effect {
+        Effect { name: boards::index_name(&self.workspace), bytes: self.boards.to_json().into_bytes() }
+    }
+
+    /// The list of boards, to be written, if it changed since the host last had it (a board was kept: its time is new).
+    pub fn take_index_effect(&mut self) -> Option<Effect> {
+        if !self.index_dirty || self.index_protected {
+            return None;
+        }
+        self.index_dirty = false;
+        Some(self.index_effect())
+    }
+
+    /// What the whiteboard is left for another board only when nothing is lost: the open board is kept, no write
+    /// runs and no board is being read.
+    fn leave(&self) -> Result<(), Notice> {
+        let unkept = self.board.needs_save() && !self.protect_file;
+        if self.loading || self.gate.is_busy() || unkept {
+            Err(Notice::BoardBusy)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// The open board is replaced by an empty one (then maybe read: `loading`).
+    fn start_empty(&mut self, loading: bool) {
+        let _repaired = self.board.replace_with(BoardData::default());
+        self.input = BoardInput::default();
+        self.status = Status::New;
+        self.saving = None;
+        self.protect_file = self.index_protected;
+        self.loading = loading;
+    }
+
+    /// The plan of a change of the list alone: the list, to be written.
+    fn list_plan(&mut self) -> Plan {
+        self.index_dirty = false;
+        Plan { effects: vec![self.index_effect()], ..Plan::default() }
+    }
+
+    fn name_cut(&mut self, cut: bool) {
+        if cut {
+            self.notices.push(Notice::BoardNameCut { limit: boards::MAX_NAME_CHARS });
+        }
+    }
+
+    /// Opens board `id`: the board that is open must be kept first, then the other is read from its file.
+    ///
+    /// # Errors
+    /// There is no such board, or the open one is not kept yet, or a board is being read ([`Notice::BoardBusy`]: ask
+    /// for a save, and again when it is done).
+    pub fn switch_board(&mut self, id: &str, _now_ms: u64) -> Result<Plan, Notice> {
+        if !self.boards.get(id).is_some_and(boards::BoardMeta::is_shown) {
+            return Err(Notice::NoSuchBoard);
+        }
+        if self.boards.active().id == id {
+            return Ok(Plan::default());
+        }
+        self.leave()?;
+        self.boards.set_active(id)?;
+        self.start_empty(true);
+        let mut plan = self.list_plan();
+        plan.load = Some(self.boards.active().file.clone());
+        Ok(plan)
+    }
+
+    /// A new, empty board, named `name`, at the end of the list, and open.
+    ///
+    /// # Errors
+    /// The open board is not kept yet ([`Notice::BoardBusy`]), the workspace has as many boards as it may, the name is empty.
+    pub fn new_board(&mut self, name: &str, now_ms: u64) -> Result<Plan, Notice> {
+        self.leave()?;
+        let (id, cut) = self.boards.create(name, now_ms)?;
+        self.name_cut(cut);
+        self.boards.set_active(&id)?;
+        self.start_empty(false);
+        Ok(self.list_plan())
+    }
+
+    /// Gives board `id` another name.
+    ///
+    /// # Errors
+    /// There is no such board, or the name is empty.
+    pub fn rename_board(&mut self, id: &str, name: &str, now_ms: u64) -> Result<Plan, Notice> {
+        let cut = self.boards.rename(id, name, now_ms)?;
+        self.name_cut(cut);
+        Ok(self.list_plan())
+    }
+
+    /// A copy of the open board as it is now (its unkept changes too), named `name`, in a file of its own, at the
+    /// end of the list. The open board stays open.
+    ///
+    /// # Errors
+    /// The workspace has as many boards as it may, the name is empty.
+    pub fn duplicate_board(&mut self, name: &str, now_ms: u64) -> Result<Plan, Notice> {
+        let (id, cut) = self.boards.create(name, now_ms)?;
+        self.name_cut(cut);
+        let file = self.boards.get(&id).map(|b| b.file.clone()).unwrap_or_default();
+        let entries = store::write(&self.board.snapshot(), &self.workspace, now_ms);
+        let mut plan = self.list_plan();
+        plan.copy = Some(Write { name: file, entries });
+        Ok(plan)
+    }
+
+    /// Deletes board `id` (softly: [`Self::restore_board`] brings it back). When it was the open one the next board
+    /// opens (read from its file), or, when it was the last, a new empty one named `fresh_name`.
+    ///
+    /// # Errors
+    /// There is no such board, or the board is open and not kept yet ([`Notice::BoardBusy`]).
+    pub fn delete_board(&mut self, id: &str, now_ms: u64, fresh_name: &str) -> Result<Plan, Notice> {
+        let was_open = self.boards.active().id == id;
+        if was_open && self.boards.get(id).is_some_and(boards::BoardMeta::is_shown) {
+            self.leave()?;
+        }
+        let gone = self.boards.delete(id, now_ms, fresh_name)?;
+        if !was_open {
+            return Ok(self.list_plan());
+        }
+        self.start_empty(!gone.replaced_by_new);
+        let mut plan = self.list_plan();
+        if !gone.replaced_by_new {
+            plan.load = Some(self.boards.active().file.clone());
+        }
+        Ok(plan)
+    }
+
+    /// Brings a deleted board back into the list (it is not opened).
+    ///
+    /// # Errors
+    /// There is no such deleted board, or the workspace has as many boards as it may.
+    pub fn restore_board(&mut self, id: &str, _now_ms: u64) -> Result<Plan, Notice> {
+        self.boards.restore(id)?;
+        Ok(self.list_plan())
+    }
+
+    /// Puts board `id` at place `to` in the list.
+    ///
+    /// # Errors
+    /// There is no such board.
+    pub fn move_board(&mut self, id: &str, to: usize, _now_ms: u64) -> Result<Plan, Notice> {
+        self.boards.move_to(id, to)?;
+        Ok(self.list_plan())
+    }
+
     // ---- the file
 
     /// The save to write, when the board has changed since it was kept and none is being written (a save
@@ -302,7 +585,7 @@ impl Whiteboard {
         let view_revision = self.board.view_revision();
         self.saving = Some((revision, view_revision, now_ms));
         Some(SaveJob {
-            name: store::board_name(&self.workspace),
+            name: self.boards.active().file.clone(),
             entries: store::write(&self.board.snapshot(), &self.workspace, now_ms),
             revision,
             view_revision,
@@ -317,6 +600,9 @@ impl Whiteboard {
             (Ok(()), Some((revision, view, at))) => {
                 self.board.mark_saved_at(revision, view);
                 self.status = Status::Saved(at);
+                let open = self.boards.active().id.clone();
+                self.boards.touch(&open, at);
+                self.index_dirty = true;
             }
             (Err(why), _) => self.status = Status::SaveFailed(why.clone()),
             (Ok(()), None) => {}
@@ -324,9 +610,10 @@ impl Whiteboard {
         again
     }
 
-    /// There was no file for this workspace.
+    /// There was no file for the board that is open.
     pub fn loaded_none(&mut self) -> Vec<Effect> {
         self.status = Status::New;
+        self.loading = false;
         Vec::new()
     }
 
@@ -334,8 +621,9 @@ impl Whiteboard {
     /// is the board now; a file that is no board of this version is kept aside (the effects to write)
     /// before anything replaces it, and a file of a newer version is never replaced.
     pub fn loaded(&mut self, result: Result<Loaded, StoreError>, raw: Option<Vec<u8>>, now_ms: u64) -> Vec<Effect> {
+        self.loading = false;
         let aside = |raw: Option<Vec<u8>>| -> (Option<String>, Vec<Effect>) {
-            let name = store::quarantine_name(&store::board_name(&self.workspace), now_ms);
+            let name = store::quarantine_name(&self.boards.active().file, now_ms);
             match raw {
                 Some(bytes) => (Some(name.clone()), vec![Effect { name, bytes }]),
                 None => (None, Vec::new()),
