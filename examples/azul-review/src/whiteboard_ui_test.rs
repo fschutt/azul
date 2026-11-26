@@ -302,6 +302,24 @@ fn the_keys_of_the_panel_take_the_selection_off_and_let_go_and_take_a_step_back(
 }
 
 #[test]
+fn a_jump_to_a_file_that_is_not_as_it_was_tells_so_and_one_to_a_file_that_is_takes_it_back() {
+    use crate::whiteboard_jump::Freshness;
+    crate::l10n::in_english();
+    let target = |freshness| JumpTarget { id: 1, file: "src/lib.rs".to_string(), first_line: 20, last_line: 24, freshness };
+    assert_eq!(jump_words(&target(Freshness::Fresh)), None, "nothing to say about a file that is as it was");
+    assert!(jump_words(&target(Freshness::FileChanged)).expect("told").contains("file has changed"));
+    let moved = jump_words(&target(Freshness::LinesMoved)).expect("told");
+    assert!(moved.contains("20") && moved.contains("24"), "where the lines went: {moved}");
+    assert!(jump_words(&target(Freshness::LinesChanged)).expect("told").contains("have changed"));
+    assert!(jump_words(&target(Freshness::FileMissing)).expect("told").contains("no longer there"));
+    let mut panel = Panel::new("/w");
+    panel.tell_jump(&target(Freshness::LinesChanged));
+    assert!(panel.hint.is_some());
+    panel.tell_jump(&target(Freshness::Fresh));
+    assert!(panel.hint.is_none(), "the word is taken back");
+}
+
+#[test]
 fn the_panels_keys_are_delete_escape_and_the_two_steps_and_nothing_else() {
     use VirtualKeyCode as K;
     assert_eq!(key_of(K::Delete, false, false), Some(Key::Delete));

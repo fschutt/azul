@@ -498,10 +498,14 @@ fn on_jump(app: &mut RefAny, id: ItemId, _info: &mut CallbackInfo) -> Update {
     };
     let (name, lines) = (d.file.clone(), d.lines.clone());
     let files = OneFile { name: &name, lines: &lines };
-    if let Ok(target) = jump(&mut d.panel.wb.board, id, &files) {
-        say(&format!("WBDEMO_JUMP {} {} {} {:?}", target.file, target.first_line, target.last_line, target.freshness));
-        let until = d.panel.now_ms() + 1_500;
-        d.flash = Some((target.first_line, target.last_line, until));
+    match jump(&mut d.panel.wb.board, id, &files) {
+        Ok(target) => {
+            say(&format!("WBDEMO_JUMP {} {} {} {:?}", target.file, target.first_line, target.last_line, target.freshness));
+            let until = d.panel.now_ms() + 1_500;
+            d.flash = Some((target.first_line, target.last_line, until));
+            d.panel.tell_jump(&target);
+        }
+        Err(refused) => d.panel.hint = Some(whiteboard_ui::say(&refused)),
     }
     Update::RefreshDom
 }

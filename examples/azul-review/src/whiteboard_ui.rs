@@ -26,6 +26,7 @@ use crate::{
     whiteboard_drag::{ArmedRegions, GRIP_PX},
     whiteboard_geom::{arrowhead, Curve, Pt, Size},
     whiteboard_input::{Mods, Out, PointerKind},
+    whiteboard_jump::JumpTarget,
 };
 
 /// The id of the node that takes the pointer (and the window's text of it for a script).
@@ -143,6 +144,22 @@ impl Panel {
             self.hint = Some(say(&n));
         }
     }
+
+    /// A jump to a cutout's lines was made: when the file is not as it was when they were circled, the person is told
+    /// (the cutout keeps its picture); when it is, a word said before is taken back.
+    pub fn tell_jump(&mut self, target: &JumpTarget) {
+        self.hint = jump_words(target);
+    }
+}
+
+/// What a jump says about the file, in the person's language (`None` when the file is as it was).
+#[must_use]
+pub fn jump_words(target: &JumpTarget) -> Option<String> {
+    let key = target.freshness.key()?;
+    Some(t_args(
+        key,
+        &[("first", Arg::from(target.first_line as usize)), ("last", Arg::from(target.last_line as usize))],
+    ))
 }
 
 /// A notice in the person's language.
