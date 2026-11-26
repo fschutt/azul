@@ -421,6 +421,41 @@ class GpuConsoleTests(unittest.TestCase):
         self.assertIsNone(q.find_key(None, "dpi"))
 
 
+class EngineContractTests(unittest.TestCase):
+    """The harness reads words the engine writes. The words are in the engine's source: when one side changes without the other,
+    this fails (the Rust side pins the same words in its own tests)."""
+
+    ROOT = Path(__file__).resolve().parents[2] / "dll" / "src" / "desktop" / "shell2"
+
+    def source(self, relative):
+        return (self.ROOT / relative).read_text(encoding="utf-8")
+
+    def test_the_frames_line_the_harness_parses_is_the_one_the_engine_formats(self):
+        text = self.source("common/frame_stats.rs")
+        self.assertIn('"[render] frames n={frames} over_ms={} interval_ms median={} p95={} max={}"', text)
+        self.assertIn('" draw_ms median={} p95={}"', text)
+        # and the parser takes a line made the same way
+        self.assertEqual(len(q.engine_frames("[render] frames n=3 over_ms=40 interval_ms median=1.0 p95=2.0 max=3.0")), 1)
+
+    def test_the_contract_and_fallback_lines_the_harness_parses_are_the_ones_the_engine_formats(self):
+        text = self.source("common/gpu_select.rs")
+        self.assertIn('"[render] backend={backend} requested={} device={device}"', text)
+        self.assertIn('"[render] gpu unavailable at {}: {}; drawing on the CPU"', text)
+
+    def test_the_lines_that_prove_no_gl_in_the_background_are_the_ones_the_shell_writes(self):
+        text = self.source("ios/gpu.rs")
+        for needle in ("[iOS GPU] GL commands stopped (", "[iOS GPU] GL commands allowed again (",
+                       "[iOS GPU] memory pressure: the renderer's caches are released"):
+            self.assertIn(needle, text)
+        self.assertTrue(q.GL_STOPPED.search("[iOS GPU] GL commands stopped (Backgrounded)"))
+        self.assertTrue(q.GL_ALLOWED.search("[iOS GPU] GL commands allowed again (Resumed)"))
+
+    def test_every_stage_the_failure_step_injects_is_a_stage_the_engine_knows(self):
+        text = self.source("common/gpu_select.rs")
+        for spec in ("library", "functions", "context", "make_current", "surface", "probe", "renderer", "document", "shaders", "frame", "lost"):
+            self.assertIn(f'"{spec}"', text, spec)
+
+
 LOGCAT_START = """\
 11-26 07:41:11.070   517   886 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.azul.AzWidgets/com.azul.app.AzulActivity} with LAUNCH_SINGLE_TOP from uid 2000 (BAL_ALLOW_PERMISSION) result code=0
 11-26 07:41:11.083   517   546 I ActivityManager: Start proc 2878:com.azul.AzWidgets/u0a141 for next-top-activity {com.azul.AzWidgets/com.azul.app.AzulActivity}
