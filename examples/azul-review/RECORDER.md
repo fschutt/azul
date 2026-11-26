@@ -316,11 +316,20 @@ cut, burns in captions.
   composited with ffmpeg's `overlay` or by compositing frames and piping them to ffmpeg's stdin. That
   also keeps the look under our control and works with a plain ffmpeg.
 
-### v3: the agent (designed, not built)
+### v3: the agent (built: `agent_export.rs`)
 
 An editing task in the agent settings (next to exploration and editing; the backend is the gear's
-choice) reads manifest + transcript + event summary and returns an EDL: highlights, structure,
-titles, zooms to where the pen worked. The same schema, the same renderer.
+choice) reads the facts of the session (`SessionFacts::from_manifest`), what was said as stretches of
+speech with their word times (`speeches(&transcript_lines)`) and a summary of the events
+(`summarize(events_jsonl, &facts)`: the files visited and for how long, the conversations and how they
+ended, the boxes of the pen's strokes, the markers, the idle gaps) and returns a cut list: highlights,
+structure, titles, zooms to where the pen worked. It never sees video. The cut list is thin on purpose and
+in seconds (a model slips on a multiplication by a million); `CutList::to_edl` puts it onto the recorder's
+own EDL, the same schema and the same renderer (the picture's size, the style and the captions' setting
+stay the recorder's, the segments, chapters and title are the agent's, and the captions are made from the
+transcript, so a caption never says what was not said), and `Edl::problems(&manifest)` is the check that
+says whether it can be rendered. The real result: three exports by a real model (sonnet), 5 to 7 segments
+and about ten seconds each, all passed `Edl::problems`.
 
 ## 7. Getting the screen: three sources, one track
 
