@@ -73,6 +73,8 @@ inline AzCssPropertyWithConditionsVec style_text() {
             AzCssPropertyWithConditions_simple(AzCssProperty_textDecoration(AzStyleTextDecoration_Underline)),
             AzCssPropertyWithConditions_simple(AzCssProperty_textDecorationColor([]{ AzStyleTextDecorationColorValue v{}; v.Exact = AzStyleTextDecorationColorValueVariant_Exact{ AzStyleTextDecorationColorValue_Tag_Exact, AzStyleTextDecorationColor_color(AzColorU{ 204, 51, 0, 255 }) }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_textDecorationThickness([]{ AzStyleTextDecorationThicknessValue v{}; v.Exact = AzStyleTextDecorationThicknessValueVariant_Exact{ AzStyleTextDecorationThicknessValue_Tag_Exact, AzStyleTextDecorationThickness_length(AzPixelValue_px(2.0f)) }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textUnderlineOffset([]{ AzStyleTextUnderlineOffsetValue v{}; v.Exact = AzStyleTextUnderlineOffsetValueVariant_Exact{ AzStyleTextUnderlineOffsetValue_Tag_Exact, AzStyleTextUnderlineOffset_length(AzPixelValue_px(3.0f)) }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textUnderlinePosition([]{ AzStyleTextUnderlinePositionValue v{}; v.Exact = AzStyleTextUnderlinePositionValueVariant_Exact{ AzStyleTextUnderlinePositionValue_Tag_Exact, AzStyleTextUnderlinePosition_UnderLeft }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_hyphenationLanguage([]{ AzStyleHyphenationLanguageValue v{}; v.Exact = AzStyleHyphenationLanguageValueVariant_Exact{ AzStyleHyphenationLanguageValue_Tag_Exact, AzStyleHyphenationLanguage{ AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("en-US"), 0, 5) } }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_exclusionMargin([]{ AzStyleExclusionMarginValue v{}; v.Exact = AzStyleExclusionMarginValueVariant_Exact{ AzStyleExclusionMarginValue_Tag_Exact, AzStyleExclusionMargin{ AzFloatValue_create(10.5f) } }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_caretColor(AzCaretColor{ AzColorU{ 255, 0, 0, 255 } })),
@@ -83,7 +85,7 @@ inline AzCssPropertyWithConditionsVec style_text() {
             AzCssPropertyWithConditions_simple(AzCssProperty_selectionRadius([]{ AzSelectionRadiusValue v{}; v.Exact = AzSelectionRadiusValueVariant_Exact{ AzSelectionRadiusValue_Tag_Exact, AzSelectionRadius{ AzPixelValue_px(3.0f) } }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_font(AzStyleFontFamilyVec_copyFromPtr(std::vector<AzStyleFontFamily>{ AzStyleFontFamily_system(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("caption"), 0, 7)) }.data(), 1))),
         }.data(),
-        65
+        67
     );
 }
 

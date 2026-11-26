@@ -9,8 +9,10 @@
 //! the window is up (or MS milliseconds after that, so that the program's own start is over and the start of the devices
 //! is measured alone), stops after SECONDS (2 to 600) and closes the window.
 //! stdout, for scripts: `RECDEMO_RECOVERED <n>` (recordings put right at the start), `RECDEMO_READY <folder>`, and
-//! with `--auto` `RECDEMO_STARTED <folder>`, then `RECDEMO_TICKS count=<n> first_ms=<ms> max_gap_ms=<ms>` (how steadily
-//! the window's timer ran: the first tick's distance from the start and the longest gap between two) and
+//! with `--auto` `RECDEMO_STARTED <folder>`, then `RECDEMO_TICKS count=<n> first_ms=<ms> max_gap_ms=<ms> max_work_ms=<ms>`
+//! (how steadily the window's timer ran: the first tick's distance from the start, the longest gap between two, and the
+//! longest time one tick spent in its own work, which tells a gap that was a call of the tick from one in which the loop
+//! did not run it) and
 //! `RECDEMO_STOPPED <folder>` (or `RECDEMO_FAILED <why>` when it did not start).
 
 use std::{

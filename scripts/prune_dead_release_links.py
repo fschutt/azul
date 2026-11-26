@@ -186,8 +186,11 @@ def replacement(attrs, rest, inner, why=None):
     if m:
         classes = m.group(2)
     text = "not available"
+    title = ""
     if why:
         text += ": build failed: " + html.escape(why, quote=True)
+        # the whole reason is the title too: a table cell shows the first lines of it (docs-release.css)
+        title = f" title='{text}'"
     if "docs-card" in classes:
         # Mirror deploy.rs::generate_asset_card's missing-asset tile exactly, so
         # a pruned card looks identical to one the generator knew was absent.
@@ -202,7 +205,7 @@ def replacement(attrs, rest, inner, why=None):
             f"{body}<p class='docs-card-file'>{text}</p></div>"
         )
     return (
-        f"<span class='release-link-missing is-missing'>{inner} "
+        f"<span class='release-link-missing is-missing'{title}>{inner} "
         f"&mdash; {text}</span>"
     )
 

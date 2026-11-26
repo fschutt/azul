@@ -541,3 +541,47 @@ fn a_session_and_a_stream_print_their_state_and_counters_and_nothing_else() {
     assert!(format!("{stream:?}").contains("running: false"));
     assert_eq!(format!("{:?}", SpeechStream::default()), "SpeechStream(closed)");
 }
+
+/// The handles are moved to threads and shared between them: the session is made for it (a worker
+/// listens while the window cancels or asks its state) and the generated bindings say so too. Each
+/// handle goes to a thread of its own here; `Send` and `Sync` are checked by the compiler.
+#[test]
+fn the_session_and_stream_handles_are_moved_to_threads_and_shared_between_them() {
+    fn is_send<T: Send>() {}
+    fn is_sync<T: Sync>() {}
+    is_send::<SpeechSession>();
+    is_sync::<SpeechSession>();
+    is_send::<SpeechStream>();
+    is_sync::<SpeechStream>();
+
+    let (session, _keeper, _closed) = watched_session(vec![say(100, "first")]);
+    // A clone listens on a thread while this thread cancels, arms and asks.
+    let worker = session.clone();
+    let heard = std::thread::spawn(move || worker.listen_blocking(AzString::from("en".to_string()), 1_000))
+        .join()
+        .expect("the worker thread");
+    assert_eq!(heard.status, HeardStatus::Heard);
+    let asker = session.clone();
+    let state = std::thread::spawn(move || {
+        asker.cancel();
+        (asker.arm().as_str().to_string(), asker.state())
+    })
+    .join()
+    .expect("the asking thread");
+    assert_eq!(state, (String::new(), SpeechState::Armed));
+
+    // A stream is waited for on one thread and stopped from another.
+    let stream = session.start_stream(AzString::from("en".to_string()), SpeechStreamOptions::default());
+    let waiter = stream.clone();
+    let waiting = std::thread::spawn(move || {
+        let began = std::time::Instant::now();
+        while waiter.is_running() {
+            drop(waiter.wait_events(20));
+            assert!(began.elapsed() < std::time::Duration::from_secs(5), "the stream was not stopped");
+        }
+    });
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let stopper = stream;
+    std::thread::spawn(move || stopper.stop()).join().expect("the stopping thread");
+    waiting.join().expect("the waiting thread");
+}

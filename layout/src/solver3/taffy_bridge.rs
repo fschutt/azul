@@ -511,10 +511,10 @@ fn css_height_to_px(h: &LayoutHeight) -> Option<f32> {
 
 /// `style` of a box under the `zoom` of its subtree (`zoom` other than 1): every absolute length of
 /// it scaled - the sizes and their bounds, the margins, the padding, the borders, the insets, the
-/// gaps and the flex basis. CSS Viewport `zoom` scales the box and everything inside it; the
-/// block layout reads its lengths through `getters::zoomed_length`, and a flex or grid item is
-/// laid out by taffy from THIS style, so this is where its lengths are scaled. Percentages, `auto`
-/// and `calc()` are not lengths: they follow what they are of.
+/// gaps, the flex basis and the fixed tracks of a grid. CSS Viewport `zoom` scales the box and
+/// everything inside it; the block layout reads its lengths through `getters::zoomed_length`, and
+/// a flex or grid item is laid out by taffy from THIS style, so this is where its lengths are
+/// scaled. Percentages, `auto`, `fr` and `calc()` are not lengths: they follow what they are of.
 fn zoom_taffy_style(style: &mut Style, zoom: f32) {
     fn dimension(d: Dimension, zoom: f32) -> Dimension {
         let raw = d.into_raw();
@@ -540,6 +540,25 @@ fn zoom_taffy_style(style: &mut Style, zoom: f32) {
             d
         }
     }
+    fn min_track(t: MinTrackSizingFunction, zoom: f32) -> MinTrackSizingFunction {
+        let raw = t.into_raw();
+        if raw.tag() == CompactLength::LENGTH_TAG {
+            MinTrackSizingFunction::length(raw.value() * zoom)
+        } else {
+            t
+        }
+    }
+    fn max_track(t: MaxTrackSizingFunction, zoom: f32) -> MaxTrackSizingFunction {
+        let raw = t.into_raw();
+        if raw.tag() == CompactLength::LENGTH_TAG {
+            MaxTrackSizingFunction::length(raw.value() * zoom)
+        } else {
+            t
+        }
+    }
+    fn track(t: TrackSizingFunction, zoom: f32) -> TrackSizingFunction {
+        minmax(min_track(t.min, zoom), max_track(t.max, zoom))
+    }
     for size in [&mut style.size, &mut style.min_size, &mut style.max_size] {
         size.width = dimension(size.width, zoom);
         size.height = dimension(size.height, zoom);
@@ -559,6 +578,30 @@ fn zoom_taffy_style(style: &mut Style, zoom: f32) {
     style.gap.width = length_percentage(style.gap.width, zoom);
     style.gap.height = length_percentage(style.gap.height, zoom);
     style.flex_basis = dimension(style.flex_basis, zoom);
+    // The tracks of a grid: the lengths of `grid-template-columns` and `-rows` and of the tracks
+    // `grid-auto-columns` and `-rows` make for the items that have none. `fr`, `auto`,
+    // `min-content`, `max-content` and percentages are not lengths.
+    for component in style
+        .grid_template_columns
+        .iter_mut()
+        .chain(style.grid_template_rows.iter_mut())
+    {
+        match component {
+            GridTemplateComponent::Single(single) => *single = track(*single, zoom),
+            GridTemplateComponent::Repeat(repetition) => {
+                for repeated in &mut repetition.tracks {
+                    *repeated = track(*repeated, zoom);
+                }
+            }
+        }
+    }
+    for implicit in style
+        .grid_auto_columns
+        .iter_mut()
+        .chain(style.grid_auto_rows.iter_mut())
+    {
+        *implicit = track(*implicit, zoom);
+    }
 }
 
 // Helper function to convert MultiValue<PixelValue> to LengthPercentageAuto
