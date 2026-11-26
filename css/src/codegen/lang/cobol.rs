@@ -245,15 +245,15 @@ impl LinearSyntax for Cobol {
 
     fn set_field(&self, target: &str, _ty: &str, name: &str, value: &str) -> String {
         let f = field(name);
-        match value.strip_prefix(POINTER_LITERAL) {
-            Some(n) => match n.strip_prefix('-') {
-                Some(neg) => format!(
-                    "SET {f} OF {target} TO NULL SET {f} OF {target} DOWN BY {neg}"
-                ),
-                None => format!("SET {f} OF {target} TO NULL SET {f} OF {target} UP BY {n}"),
+        value.strip_prefix(POINTER_LITERAL).map_or_else(
+            || format!("MOVE {value} TO {f} OF {target}"),
+            |n| {
+                n.strip_prefix('-').map_or_else(
+                    || format!("SET {f} OF {target} TO NULL SET {f} OF {target} UP BY {n}"),
+                    |neg| format!("SET {f} OF {target} TO NULL SET {f} OF {target} DOWN BY {neg}"),
+                )
             },
-            None => format!("MOVE {value} TO {f} OF {target}"),
-        }
+        )
     }
 
     fn set_elem(&self, arr: &str, index: usize, value: &str) -> String {

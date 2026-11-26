@@ -343,10 +343,10 @@ fn params_sig(item: &Item) -> String {
             } else {
                 format!("Azul::{}", p.ty)
             };
-            match &p.default {
-                Some(d) => format!("{} : {ty} = {}", cr_param(&p.name), expr_doc(&Crystal, d).flat()),
-                None => format!("{} : {ty}", cr_param(&p.name)),
-            }
+            p.default.as_ref().map_or_else(
+                || format!("{} : {ty}", cr_param(&p.name)),
+                |d| format!("{} : {ty} = {}", cr_param(&p.name), expr_doc(&Crystal, d).flat()),
+            )
         })
         .collect();
     format!("({})", params.join(", "))

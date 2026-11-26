@@ -202,9 +202,11 @@ fn dom_item_fn(item: &Item) -> String {
     let params = item
         .params
         .iter()
-        .map(|p| match &p.default {
-            Some(d) => format!("string {} = {}", d_param(&p.name), expr_doc(&D, d).flat()),
-            None => format!("string {}", d_param(&p.name)),
+        .map(|p| {
+            p.default.as_ref().map_or_else(
+                || format!("string {}", d_param(&p.name)),
+                |d| format!("string {} = {}", d_param(&p.name), expr_doc(&D, d).flat()),
+            )
         })
         .collect::<Vec<_>>()
         .join(", ");

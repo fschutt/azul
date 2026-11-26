@@ -319,9 +319,11 @@ fn lambda_list(item: &Item) -> String {
     let params: Vec<String> = item
         .params
         .iter()
-        .map(|p| match &p.default {
-            Some(d) => format!("({} {})", lisp_param(&p.name), lisp_default(d)),
-            None => lisp_param(&p.name),
+        .map(|p| {
+            p.default.as_ref().map_or_else(
+                || lisp_param(&p.name),
+                |d| format!("({} {})", lisp_param(&p.name), lisp_default(d)),
+            )
         })
         .collect();
     format!("(&optional {})", params.join(" "))

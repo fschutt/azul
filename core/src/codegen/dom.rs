@@ -801,10 +801,7 @@ fn default_value(f: &ComponentDataField) -> Expr {
 /// A text or attribute value: [`Expr::Str`], [`Expr::Param`], or an
 /// [`Expr::Concat`] of both — placeholders only in a template.
 fn text_expr(raw: &str, params: Option<&[FragmentParam]>) -> Expr {
-    match params {
-        None => Expr::str(raw),
-        Some(params) => split_template(raw, params),
-    }
+    params.map_or_else(|| Expr::str(raw), |params| split_template(raw, params))
 }
 
 /// `{name}` → the parameter, `{{` / `}}` → a literal brace, anything else
@@ -1184,13 +1181,13 @@ impl Lower<'_, '_> {
                     .params
                     .iter()
                     .map(|p| {
-                        if let Some(v) = node.attributes.get_key(&p.name) {
-                            self.text(v.as_str())
-                        } else if p.name == "text" && !text.is_empty() {
-                            text_used = true;
-                            self.text(&text)
-                        } else {
-                            Expr::str(&p.default)
+                        match node.attributes.get_key(&p.name) {
+                            Some(v) => self.text(v.as_str()),
+                            None if p.name == "text" && !text.is_empty() => {
+                                text_used = true;
+                                self.text(&text)
+                            }
+                            None => Expr::str(&p.default),
                         }
                     })
                     .collect();

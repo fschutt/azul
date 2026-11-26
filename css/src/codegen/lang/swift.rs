@@ -247,9 +247,11 @@ fn dom_item_fn(item: &Item) -> String {
     let params = item
         .params
         .iter()
-        .map(|p| match &p.default {
-            Some(d) => format!("{}: String = {}", swift_param(&p.name), expr_doc(&Swift, d).flat()),
-            None => format!("{}: String", swift_param(&p.name)),
+        .map(|p| {
+            p.default.as_ref().map_or_else(
+                || format!("{}: String", swift_param(&p.name)),
+                |d| format!("{}: String = {}", swift_param(&p.name), expr_doc(&Swift, d).flat()),
+            )
         })
         .collect::<Vec<_>>()
         .join(", ");

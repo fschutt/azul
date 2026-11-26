@@ -362,10 +362,10 @@ impl LinearSyntax for Ada {
         payload: Option<&str>,
     ) -> Option<String> {
         let tag = literal(variant);
-        Some(match payload {
-            Some(p) => format!("Az_{ty}'(Tag => {tag}, Payload_{} => {p})", sanitize(variant)),
-            None => format!("Az_{ty}'(Tag => {tag})"),
-        })
+        Some(payload.map_or_else(
+            || format!("Az_{ty}'(Tag => {tag})"),
+            |p| format!("Az_{ty}'(Tag => {tag}, Payload_{} => {p})", sanitize(variant)),
+        ))
     }
 
     fn struct_expr(&self, ty: &str, fields: &[(String, String)]) -> Option<String> {

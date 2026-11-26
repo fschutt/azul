@@ -188,13 +188,17 @@ fn item_def(item: &Item) -> String {
     let params = item
         .params
         .iter()
-        .map(|p| match &p.default {
-            Some(d) => format!(
-                "{}={}",
-                py_param(&p.name),
-                crate::codegen::lang::expr_doc(&Python, d).flat()
-            ),
-            None => py_param(&p.name),
+        .map(|p| {
+            p.default.as_ref().map_or_else(
+                || py_param(&p.name),
+                |d| {
+                    format!(
+                        "{}={}",
+                        py_param(&p.name),
+                        crate::codegen::lang::expr_doc(&Python, d).flat()
+                    )
+                },
+            )
         })
         .collect::<Vec<_>>()
         .join(", ");

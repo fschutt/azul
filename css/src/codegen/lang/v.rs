@@ -184,10 +184,10 @@ impl LinearSyntax for V {
 
     fn union_expr(&self, ty: &str, variant: &str, tag: usize, payload: Option<&str>) -> Option<String> {
         let v = ident(variant);
-        let inner = match payload {
-            Some(p) => format!("tag: {tag}, payload: {p}"),
-            None => format!("tag: {tag}"),
-        };
+        let inner = payload.map_or_else(
+            || format!("tag: {tag}"),
+            |p| format!("tag: {tag}, payload: {p}"),
+        );
         Some(format!("azul.Az{ty}{{ {v}: azul.Az{ty}Variant_{v}{{ {inner} }} }}"))
     }
 

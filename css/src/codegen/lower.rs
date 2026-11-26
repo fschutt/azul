@@ -268,10 +268,10 @@ pub fn desugar_calls(e: &Expr) -> Expr {
                     };
                     alias_value(variant, kw, Vec::new())
                 }
-                ("CssProperty", ctor, [x]) => match css_property_variant_of_ctor(ctor) {
-                    Some(variant) => alias_value(variant, "Exact", vec![x.clone()]),
-                    None => Expr::call(class, method, args.clone()),
-                },
+                ("CssProperty", ctor, [x]) => css_property_variant_of_ctor(ctor).map_or_else(
+                    || Expr::call(class, method, args.clone()),
+                    |variant| alias_value(variant, "Exact", vec![x.clone()]),
+                ),
                 ("FloatValue", "create", [Expr::Float { text, .. }]) => float_value(text),
                 ("PixelValue", "px", [Expr::Float { text, .. }]) => pixel(metric("Px"), text),
                 ("PixelValue", "pt", [Expr::Float { text, .. }]) => pixel(metric("Pt"), text),
@@ -386,10 +386,10 @@ pub(crate) fn prop_value<T: Lower>(
     ctor: Option<&'static str>,
 ) -> Expr {
     match v {
-        CssPropertyValue::Exact(x) => match ctor {
-            Some(c) => Expr::call("CssProperty", c, vec![x.lower()]),
-            None => wrapped_value(variant, alias, inner, ctor, "Exact", vec![x.lower()]),
-        },
+        CssPropertyValue::Exact(x) => ctor.map_or_else(
+            || wrapped_value(variant, alias, inner, ctor, "Exact", vec![x.lower()]),
+            |c| Expr::call("CssProperty", c, vec![x.lower()]),
+        ),
         CssPropertyValue::Auto => keyword(variant, "auto"),
         CssPropertyValue::None => keyword(variant, "none"),
         CssPropertyValue::Initial => keyword(variant, "initial"),
@@ -601,7 +601,7 @@ pub fn lower_styles(css: &Css) -> Module {
             states.into_iter().map(DynamicSelector::PseudoState).collect();
         conditions.extend(rule.conditions.as_slice().iter().cloned());
 
-        let idx = if let Some(i) = groups.iter().position(|g| g.base == base) { i } else {
+        let idx = groups.iter().position(|g| g.base == base).unwrap_or_else(|| {
             groups.push(Group {
                 base: base.clone(),
                 selectors: Vec::new(),
@@ -609,7 +609,7 @@ pub fn lower_styles(css: &Css) -> Module {
                 notes: Vec::new(),
             });
             groups.len() - 1
-        };
+        });
         let g = &mut groups[idx];
         let shown = if full.is_empty() { "*".to_string() } else { full };
         let shown = if rule.conditions.as_slice().is_empty() {
@@ -623,10 +623,10 @@ pub fn lower_styles(css: &Css) -> Module {
         for decl in rule.declarations.as_slice() {
             let (prop, dynamic_id) = match decl {
                 CssDeclaration::Static(p) => (p.clone(), None),
-                CssDeclaration::Dynamic(d) => match decl.var_reference() {
-                    Some(r) => (crate::custom_properties::resolve_var(r, &own_vars), None),
-                    None => (d.default_value.clone(), Some(d.dynamic_id.as_str())),
-                },
+                CssDeclaration::Dynamic(d) => decl.var_reference().map_or_else(
+                    || (d.default_value.clone(), Some(d.dynamic_id.as_str())),
+                    |r| (crate::custom_properties::resolve_var(r, &own_vars), None),
+                ),
                 CssDeclaration::CustomProperty(_) => continue,
             };
             let e = lower_declaration(&prop, dynamic_id, &conditions, &mut g.notes);

@@ -121,14 +121,16 @@ impl ExprSyntax for OCaml {
             ),
             EnumShape::Generic { arg, .. } => {
                 let tag = union_tag(ty, variant).unwrap_or(0);
-                let payload = match args.into_iter().next() {
-                    Some(p) => app(
-                        "Some".to_string(),
-                        vec![app(format!("az_payload {}", ctype(arg)), vec![p], broken)],
-                        broken,
-                    ),
-                    None => Doc::text("None"),
-                };
+                let payload = args.into_iter().next().map_or_else(
+                    || Doc::text("None"),
+                    |p| {
+                        app(
+                            "Some".to_string(),
+                            vec![app(format!("az_payload {}", ctype(arg)), vec![p], broken)],
+                            broken,
+                        )
+                    },
+                );
                 app(
                     format!("az_union {} {tag}", ctype(ty)),
                     vec![payload],
