@@ -3,6 +3,8 @@
 use azul::prelude::*;
 use azul_review_link::view::Session;
 
+use azul_review_link::frame::{AgentFinished, FinishKind};
+
 use super::kit::{column, div, px, text, Cx};
 use super::{editor, files, pair, remote, settings, Screen};
 use crate::theme as th;
@@ -47,8 +49,46 @@ pub fn phone(cx: &Cx) -> Dom {
     .with_child(screen);
     if let Some((key, _)) = &ui.toast {
         shell.add_child(toast(cx, &cx.t(key)));
+    } else if let Some((done, _)) = &ui.finished_note {
+        shell.add_child(banner(cx, &finished_words(cx, done)));
     }
     shell
+}
+
+/// What an agent that finished says: how it ended and where (the file and the line).
+fn finished_words(cx: &Cx, done: &AgentFinished) -> String {
+    let file = done.file.rsplit('/').next().unwrap_or(&done.file);
+    let place = match (file.is_empty(), done.line) {
+        (true, _) => String::new(),
+        (false, 0) => file.to_string(),
+        (false, line) => format!("{file}:{line}"),
+    };
+    let key = match done.kind {
+        FinishKind::Done => "finished-done",
+        FinishKind::Suggestion => "finished-suggestion",
+        FinishKind::NoAction => "finished-noaction",
+        FinishKind::Failed => "finished-failed",
+    };
+    cx.tf(key, &[("where", &place)])
+}
+
+/// A line over the top of the pad for a moment (an agent finished: the pad is where the eyes are, the buttons stay readable).
+fn banner(cx: &Cx, words: &str) -> Dom {
+    div(&format!(
+        "position: absolute; left: 0px; right: 0px; top: {}; display: flex; flex-direction: row; justify-content: center;",
+        px(cx.z.pad.y + 10.0)
+    ))
+    .with_child(text(
+        words,
+        &format!(
+            "max-width: {}; padding: 10px 16px; border-radius: 18px; background: {}; color: {}; font-size: 14px; \
+             border: 1px solid {};",
+            px(cx.env.width - 48.0),
+            th::SURFACE_HI,
+            th::TEXT,
+            th::SEPARATOR
+        ),
+    ))
 }
 
 /// A line over the bottom of the screen for a moment.

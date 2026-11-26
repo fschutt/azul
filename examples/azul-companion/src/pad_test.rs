@@ -1,11 +1,11 @@
-//! The pad's gestures: taps send nothing, a drag sends cumulative pans the other way from the finger, a pinch zooms,
+//! The pad's gestures: taps send nothing, a drag sends cumulative pans (the viewport the other way from the finger), a pinch zooms,
 //! the two combine in one gesture, two quick taps fit the width, the page strip turns pages.
 
 use super::*;
 
 fn scale() -> PadScale {
-    // a pad 300 wide; the Mac shows half the page's width (zoom 2); an A4-ish page
-    PadScale { pad_w: 300.0, view: Rect { x: 0.25, y: 0.3, w: 0.5, h: 0.4 }, page_aspect: 0.707 }
+    // the sheets take 600 pixels a unit on the pad (the Mac shows half the page's width, zoom 2, in a frame 300 wide)
+    PadScale { px_per_unit: 600.0, direction: PanDirection::ContentFollowsFinger }
 }
 
 fn gesture_of(out: &[PadOut]) -> Vec<(u32, Phase, (f32, f32), f32)> {
@@ -109,21 +109,20 @@ fn a_drag_starts_after_the_slop_and_the_view_goes_the_other_way_from_the_finger(
 }
 
 #[test]
-fn a_drag_down_moves_the_view_up_by_the_page_shape() {
+fn a_drag_down_moves_the_viewport_up_by_as_much_per_pixel_as_a_drag_across() {
     let mut pad = PadState::new();
     pad.pointer_down(0, 100.0, 0.0);
     pad.pointer_move(10, 100.0, 10.0, &scale());
     let out = gesture_of(&pad.pointer_move(20, 100.0, 110.0, &scale()));
-    // 100 px down: the same px scale as across, in page heights: width / height of the page
-    let expected = -100.0 * (0.5 / 300.0) * 0.707;
-    assert!(near(out[0].2 .1, expected), "{out:?} wanted {expected}");
+    // 100 px down: the content goes down by 100 / 600 of a unit, so the viewport goes up by that
+    assert!(near(out[0].2 .1, -100.0 / 600.0), "{out:?}");
     assert!(near(out[0].2 .0, 0.0));
 }
 
 #[test]
 fn a_finer_zoom_makes_a_finer_drag() {
-    let mut zoomed = scale();
-    zoomed.view = Rect { x: 0.4, y: 0.4, w: 0.1, h: 0.08 };
+    // zoomed in the sheets are bigger on the pad: more pixels a unit, so a pixel of finger is fewer units
+    let zoomed = PadScale { px_per_unit: 6_000.0, ..scale() };
     let pan_for = |s: &PadScale| {
         let mut pad = PadState::new();
         pad.pointer_down(0, 0.0, 0.0);
@@ -131,6 +130,22 @@ fn a_finer_zoom_makes_a_finer_drag() {
         gesture_of(&pad.pointer_move(2, 110.0, 0.0, s))[0].2 .0
     };
     assert!(pan_for(&zoomed).abs() < pan_for(&scale()).abs() / 4.0);
+}
+
+#[test]
+fn the_content_follows_the_finger_unless_the_mac_says_to_reverse_it() {
+    let pan_after = |direction| {
+        let mut pad = PadState::new();
+        pad.pointer_down(0, 100.0, 100.0);
+        pad.pointer_move(1, 110.0, 100.0, &PadScale { direction, ..scale() });
+        gesture_of(&pad.pointer_move(2, 160.0, 140.0, &PadScale { direction, ..scale() }))[0].2
+    };
+    let (right, down) = pan_after(PanDirection::ContentFollowsFinger);
+    assert!(right < 0.0 && down < 0.0, "a finger that goes right and down moves the content right and down, the viewport left and up: {right} {down}");
+    let (right, down) = pan_after(PanDirection::ViewportFollowsFinger);
+    assert!(right > 0.0 && down > 0.0, "reversed, the viewport goes with the finger: {right} {down}");
+    // and the sheets drawn under the finger move by the finger's own number of pixels: 50 px across is 50 / 600 of a unit
+    assert!(near(pan_after(PanDirection::ViewportFollowsFinger).0, 50.0 / 600.0));
 }
 
 #[test]
@@ -239,7 +254,7 @@ fn events_out_of_order_or_with_nonsense_numbers_send_nothing_and_never_panic() {
     pad.pointer_down(2, f32::NAN, 0.0);
     assert!(pad.pointer_move(3, f32::INFINITY, 0.0, &scale()).is_empty());
     assert!(pad.pointer_up(1, 0.0, 0.0).is_empty(), "the clock went back");
-    let flat = PadScale { pad_w: 0.0, ..scale() };
+    let flat = PadScale { px_per_unit: 0.0, ..scale() };
     let mut pad = PadState::new();
     pad.pointer_down(0, 0.0, 0.0);
     let out = gesture_of(&pad.pointer_move(1, 50.0, 0.0, &flat));

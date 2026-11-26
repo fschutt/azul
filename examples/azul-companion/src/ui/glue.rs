@@ -6,11 +6,13 @@
 use azul::{
     callbacks::{TextAreaOnTextInputCallbackType, TextInputOnTextInputCallbackType},
     dom::DomNodeId,
+    gesture::{HapticPattern, HapticTarget},
     option::OptionPixelValue,
     prelude::*,
     str::String as AzString,
     widgets::{OnTextInputReturn, TextAreaState, TextInputState, TextInputValid},
 };
+use azul_review_link::frame::Haptic;
 use azul_review_link::limits::{clean_text, MAX_BUTTON_TEXT_CHARS, MAX_LABEL_CHARS};
 
 use super::kit::Cx;
@@ -63,10 +65,10 @@ pub fn with_action(dom: Dom, filter: HoverEventFilter, root: &RefAny, action: Ac
 
 // ---- the pad
 
-/// Where the pointer is on the pad (the pad's own layout pixels) and how wide the pad is. The engine answers the cursor local
+/// Where the pointer is on the pad (the pad's own layout pixels) and how big the pad is. The engine answers the cursor local
 /// to the node the callback sits on, and undoes a transform that paints the screen smaller (the simulator's window on a small
 /// screen), so a drag of a given length on the pad is the same drag at every scale.
-fn pad_point(info: &CallbackInfo) -> Option<(f32, f32, f32)> {
+fn pad_point(info: &CallbackInfo) -> Option<(f32, f32, (f32, f32))> {
     let local = info.get_cursor_relative_to_node().into_option()?;
     let dom = info.get_hit_node().dom;
     let node = info.get_node_id_by_id_attribute(dom, AzString::from(super::remote::PAD_ID));
@@ -74,20 +76,20 @@ fn pad_point(info: &CallbackInfo) -> Option<(f32, f32, f32)> {
         return None;
     }
     let rect = info.get_node_rect(DomNodeId { dom, node }).into_option()?;
-    Some((local.x, local.y, rect.size.width))
+    Some((local.x, local.y, (rect.size.width, rect.size.height)))
 }
 
 fn pad_event(mut data: RefAny, mut info: CallbackInfo, make: impl FnOnce(f32, f32) -> PadEvent) -> Update {
     let Some(mut root) = data.downcast_mut::<Root>() else {
         return Update::DoNothing;
     };
-    let Some((x, y, pad_w)) = pad_point(&info) else {
+    let Some((x, y, pad)) = pad_point(&info) else {
         return Update::DoNothing;
     };
     let now = root.now();
     let before = root.ui.pad.live().is_some();
-    let changed = root.pad_event(now, make(x, y), pad_w);
-    if matches!(root.ui.pad.live(), Some(_)) || before {
+    let changed = root.pad_event(now, make(x, y), pad);
+    if root.ui.pad.live().is_some() || before {
         info.prevent_default();
     }
     if changed {
@@ -126,7 +128,7 @@ pub extern "C" fn on_pad_pinch(mut data: RefAny, mut info: CallbackInfo) -> Upda
     };
     let now = root.now();
     info.prevent_default();
-    if root.pad_event(now, PadEvent::Pinch { scale: pinch.scale, began: pinch.began, ended: pinch.ended }, 0.0) {
+    if root.pad_event(now, PadEvent::Pinch { scale: pinch.scale, began: pinch.began, ended: pinch.ended }, (0.0, 0.0)) {
         Update::RefreshDom
     } else {
         Update::DoNothing
@@ -205,7 +207,8 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
         EnvSource::Fixed(env) => env,
         EnvSource::Window => window_env(&info),
     };
-    let cx = Cx { root: &root, env: &env, data: &data, z: layout::zones(&env) };
+    let ribbon = root.api.view().pen.as_ref().is_some_and(|p| p.return_point.is_some());
+    let cx = Cx { root: &root, env: &env, data: &data, z: layout::zones_with(&env, ribbon) };
     let phone = chrome::phone(&cx);
     match &root.sim {
         Some(sim) => crate::sim::wrap(&cx, sim, phone),
@@ -221,6 +224,14 @@ pub extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCa
     };
     let now = root.now();
     let mut changed = root.tick(now);
+    if let Some(buzz) = root.take_haptic() {
+        let pattern = match buzz {
+            Haptic::Success => HapticPattern::Success,
+            Haptic::Warning => HapticPattern::Warning,
+            Haptic::Error => HapticPattern::Error,
+        };
+        info.callback_info.play_haptic(pattern, HapticTarget::System);
+    }
     if let Some(mut sim) = root.sim.take() {
         changed |= sim.tick(&mut root, now, &mut info.callback_info);
         root.sim = Some(sim);
@@ -241,6 +252,15 @@ pub extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Upd
         .with_interval(Duration::System(SystemTimeDiff::from_millis(TICK_MS)));
     info.add_timer(TimerId::unique(), timer);
     Update::DoNothing
+}
+
+/// The window of the phone's own app: the title and the timer on creation; the size is the screen's.
+#[must_use]
+pub fn phone_window_options(title: &str) -> WindowCreateOptions {
+    let mut window = WindowCreateOptions::create(layout);
+    window.window_state.title = AzString::from(title);
+    window.create_callback = Some(Callback::create(on_window_created)).into();
+    window
 }
 
 /// The window of the app: the title, the size (a phone's own, or the simulator's), the timer on creation.

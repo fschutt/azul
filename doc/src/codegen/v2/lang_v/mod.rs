@@ -54,8 +54,14 @@
 //! `#flag -L.` + `#flag -lazul` (plus the macOS `#flag darwin -framework
 //! …` set) make V's C backend link `libazul`. The user drops
 //! `libazul.{so,dylib}` / `azul.dll` on the library path and builds with
-//! `v run .`. The generated `azul.v` is meant to live in an `azul/`
-//! subdirectory imported via `import azul`.
+//! `v -no-skip-unused run .`. The generated `azul.v` is meant to live in an
+//! `azul/` subdirectory imported via `import azul`.
+//!
+//! `-no-skip-unused` is needed: V writes a C prototype for every `fn C.` declaration (they carry
+//! `@[c_extern]`, see `functions.rs`) but leaves out the types that only the functions the program
+//! does not call name, and gcc stops at the first prototype ("unknown type name
+//! `azul__AzIconDesignedFor`", V 0.5.2, run 45765384332); with the flag the C compiles and only
+//! the link wants libazul (run 45766307680).
 
 pub mod fields;
 pub mod functions;
@@ -123,7 +129,8 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("// / Odin / Nim bindings.");
     b.line("//");
     b.line("// Build: place libazul.{so,dylib}/azul.dll on the link path (`#flag -L.`)");
-    b.line("// and build the directory with `v run .`.");
+    b.line("// and build the directory with `v -no-skip-unused run .`: V leaves out the types");
+    b.line("// of the functions a program does not call, but not their C prototypes.");
     b.line("// ============================================================================");
     b.blank();
 }
@@ -321,6 +328,23 @@ pub fn snake_fields<'a>(names: impl IntoIterator<Item = &'a str>) -> Vec<String>
             field
         })
         .collect()
+}
+
+/// The name of a struct field in V. V refuses a field name that starts with an underscore ("field
+/// name `_reserved` cannot start with `_`", V 0.5.2: 27 members of `azul.v` - `_reserved`,
+/// `_abi_mut`, `_abi_ref` and the fields of tuple structs, `_0`, `_1`, `_2`), so the underscores
+/// move to the end (`reserved_`, `abi_mut_`) and a name that would then start with a digit gets an
+/// `f` (`f0`, `f1`). Layout is by position, the names are the binding's own.
+pub fn v_field_name(name: &str) -> String {
+    let rest = name.trim_start_matches('_');
+    if rest.len() == name.len() {
+        return sanitize_identifier(name);
+    }
+    match rest.chars().next() {
+        None => "unnamed".to_string(),
+        Some(c) if c.is_ascii_digit() => format!("f{rest}"),
+        Some(_) => format!("{rest}_"),
+    }
 }
 
 /// Sanitize a name for use as a V identifier. V reserved words get a

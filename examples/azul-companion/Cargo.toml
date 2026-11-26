@@ -17,10 +17,21 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 # What the phone and AzReview say to each other: frames, pairing, the phone's client, the host.
 azul-review-link = { path = "../azul-review-link" }
 
+# Android loads the app as a library (its entry is a load-time constructor, see lib.rs); iOS and the desktop run the binary.
+[target.'cfg(target_os = "android")'.dependencies]
+ctor = "0.2"
+
 [lib]
 name = "azul_companion"
 path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
 
+# The phone's own app (iOS: this binary; Android: the library above).
+[[bin]]
+name = "AzCompanion"
+path = "src/main.rs"
+
+# The macOS simulator window: the phone beside a pretend Mac. Never built for a phone.
 [[bin]]
 name = "companion_sim"
 path = "src/bin/companion_sim.rs"

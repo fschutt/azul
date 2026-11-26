@@ -1814,6 +1814,10 @@ pub const DOM_HAS_TEXT_WRAP: u64 = 1 << 38;
 pub const DOM_HAS_FONT_VARIANT_POSITION: u64 = 1 << 39;
 /// The DOM declares `text-rendering` with a value other than its initial one.
 pub const DOM_HAS_TEXT_RENDERING: u64 = 1 << 40;
+/// The DOM declares `text-decoration-color` with a value other than its initial one.
+pub const DOM_HAS_TEXT_DECORATION_COLOR: u64 = 1 << 41;
+/// The DOM declares `text-decoration-thickness` with a value other than its initial one.
+pub const DOM_HAS_TEXT_DECORATION_THICKNESS: u64 = 1 << 42;
 pub const SCROLLBAR_GUTTER_AUTO: u8 = 0;
 pub const SCROLLBAR_GUTTER_STABLE: u8 = 1;
 pub const SCROLLBAR_GUTTER_BOTH_EDGES: u8 = 2;
@@ -5237,8 +5241,10 @@ mod autotest_generated {
             DOM_HAS_TEXT_WRAP,
             DOM_HAS_FONT_VARIANT_POSITION,
             DOM_HAS_TEXT_RENDERING,
+            DOM_HAS_TEXT_DECORATION_COLOR,
+            DOM_HAS_TEXT_DECORATION_THICKNESS,
         ];
-        assert_eq!(flags.len(), 41, "the word has 41 of its 64 bits taken");
+        assert_eq!(flags.len(), 43, "the word has 43 of its 64 bits taken");
 
         let mut seen = 0u64;
         for f in flags {

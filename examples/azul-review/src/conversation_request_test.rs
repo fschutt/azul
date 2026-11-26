@@ -29,7 +29,7 @@ fn note(text: &str) -> Note {
 }
 
 fn word(text: &str, from: u32, to: u32, p: f32) -> HeardWord {
-    HeardWord { text: text.to_string(), start_ms: from, end_ms: to, probability: p }
+    HeardWord { text: text.to_string(), start_ms: from, end_ms: to, probability: p, biased: false }
 }
 
 fn request(n: &Note) -> ReviewRequest {
@@ -201,4 +201,44 @@ fn a_follow_up_is_read_alone() {
     n.talk.receive(&crate::agent_review::Reply { answer: "At n.".to_string(), ..Default::default() }, 1);
     assert!(n.talk.say("and compute stale flag?", 5));
     assert_eq!(spoken_of(&n).text, "and compute stale flag?");
+}
+
+#[test]
+fn the_agent_is_told_which_words_were_favoured_by_the_recogniser_so_that_a_low_probability_on_them_is_no_doubt() {
+    let mut favoured = word("compute_stale_flag", 100, 300, 0.2);
+    favoured.biased = true;
+    let said = Said { text: "compute_stale_flag now".to_string(), started_unix_ms: 1_000, words: vec![favoured, word("now", 320, 500, 0.9)] };
+    let utterance = heard(&said);
+    assert!(utterance.words[0].biased && !utterance.words[1].biased, "{:?}", utterance.words);
+}
+
+#[test]
+fn the_request_lists_the_words_the_strokes_are_on_with_their_lines_and_columns() {
+    let n = note("rename this");
+    // the note is on the second page, which begins at line 47
+    let grid = ui::page_grid(47);
+    // a stroke along the first word of the first line of that page ("line 47")
+    let first = file().lines[46].clone();
+    let word_end = first.find(' ').unwrap_or(first.len());
+    let (x0, x1) = (grid.origin_x + 0.5, grid.origin_x + (word_end.max(1) as f32 - 0.5) * grid.char_width);
+    let y = grid.origin_y + grid.line_height / 2.0;
+    let stroke = crate::agent_stroke::StrokeInput {
+        id: 3,
+        page: 1,
+        meaning: None,
+        pinned: false,
+        nib: "marker".to_string(),
+        nib_width: 18.0,
+        t0_ms: 0,
+        samples: vec![
+            crate::agent_stroke::Sample { x: x0, y, pressure: 0.5, dt_ms: 0, tilt: None },
+            crate::agent_stroke::Sample { x: x1, y, pressure: 0.5, dt_ms: 40, tilt: None },
+        ],
+    };
+    let r = review_request(&n, &file(), "en", vec![stroke], None, Task::Editing, 99_000, String::new());
+    assert_eq!(r.context.words_under.len(), 1, "{:?}", r.context.words_under);
+    assert_eq!((r.context.words_under[0].stroke, r.context.words_under[0].line, r.context.words_under[0].col), (3, 47, 0));
+    assert_eq!(r.context.words_under[0].text, &first[..word_end]);
+    // no strokes, no words
+    assert!(request(&n).context.words_under.is_empty());
 }
