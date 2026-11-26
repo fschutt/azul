@@ -2814,6 +2814,47 @@ impl XdndState {
     }
 }
 
+/// libgtk-3 and the input method context made from it: the fallback that positions the IME's candidate window
+/// when a window has no XIM. Built by `load_gtk_im`, on first use.
+pub struct GtkImFallback {
+    pub gtk: Rc<Gtk3Im>,
+    pub context: *mut dlopen::GtkIMContext,
+}
+
+/// Loads libgtk-3 and makes its IM context (None when the library or the context is not there: the IME's candidate
+/// window then stays where the input method puts it). Called once per window, by the first
+/// `sync_ime_position_to_os` that finds no XIM; the startup timeline marks it as `x11:gtk_im_loaded`.
+fn load_gtk_im(startup: &crate::desktop::startup_timeline::StartupTimeline) -> Option<GtkImFallback> {
+    let loaded = match Gtk3Im::new() {
+        Ok(gtk) => {
+            log_info!(
+                LogCategory::Platform,
+                "[X11] GTK3 IM context loaded for IME support"
+            );
+            let context = unsafe { (gtk.gtk_im_context_simple_new)() };
+            if context.is_null() {
+                log_warn!(
+                    LogCategory::Platform,
+                    "[X11] Failed to create GTK IM context instance"
+                );
+                None
+            } else {
+                Some(GtkImFallback { gtk, context })
+            }
+        }
+        Err(e) => {
+            log_debug!(
+                LogCategory::Platform,
+                "[X11] GTK3 IM not available (IME positioning disabled): {:?}",
+                e
+            );
+            None
+        }
+    };
+    startup.mark_with("x11:gtk_im_loaded", || format!("loaded={}", loaded.is_some()));
+    loaded
+}
+
 pub struct X11Window {
     /// Raw pointer motion accumulated since the last event pass, in device
     /// units. Accumulated rather than dispatched per event because the X
@@ -2859,8 +2900,11 @@ pub struct X11Window {
     /// Optional XShape for alpha-shaped windows (loaded on first use).
     xext: Option<Rc<dlopen::Xext>>,
     xext_probed: bool,
-    pub gtk_im: Option<Rc<Gtk3Im>>, // Optional GTK IM context for IME
-    pub gtk_im_context: Option<*mut dlopen::GtkIMContext>, // GTK IM context instance
+    /// libgtk-3's input method context, the fallback that positions the IME's candidate window when there is no XIM
+    /// (`sync_ime_position_to_os`). Loaded on the FIRST position that finds no XIM, not when the window is created:
+    /// libgtk-3 pulls in GDK, Pango, Cairo, GIO and about a hundred more libraries, and a window with an XIM (the usual
+    /// one) never asks for it.
+    pub gtk_im: std::cell::OnceCell<Option<GtkImFallback>>,
     pub display: *mut Display,
     /// True if THIS window opened `display` (and must XCloseDisplay it on Drop +
     /// drain/dispatch its event queue). False for CHILD windows (menus/dialogs)
@@ -3629,38 +3673,6 @@ impl X11Window {
         }
         startup.mark("x11:libs_loaded");
 
-        // Try to load GTK3 IM context for IME support (optional, fail silently)
-        let (gtk_im, gtk_im_context) = match Gtk3Im::new() {
-            Ok(gtk) => {
-                log_info!(
-                    LogCategory::Platform,
-                    "[X11] GTK3 IM context loaded for IME support"
-                );
-                let ctx = unsafe { (gtk.gtk_im_context_simple_new)() };
-                if !ctx.is_null() {
-                    (Some(gtk), Some(ctx))
-                } else {
-                    log_warn!(
-                        LogCategory::Platform,
-                        "[X11] Failed to create GTK IM context instance"
-                    );
-                    (None, None)
-                }
-            }
-            Err(e) => {
-                log_debug!(
-                    LogCategory::Platform,
-                    "[X11] GTK3 IM not available (IME positioning disabled): {:?}",
-                    e
-                );
-                (None, None)
-            }
-        };
-
-        // libgtk-3 and everything it loads (GDK, Pango, Cairo, GIO ...) come in with the IM context: the
-        // startup timeline says what that costs on this machine.
-        startup.mark_with("x11:gtk_im_loaded", || format!("loaded={}", gtk_im.is_some()));
-
         // Establish the C library's LC_CTYPE locale from the environment
         // BEFORE XOpenDisplay / XOpenIM. Without this the process stays in the
         // default "C" (ASCII) locale, so XmbLookupString and the whole XIM
@@ -4400,8 +4412,7 @@ impl X11Window {
             xrender,
             xext: None,
             xext_probed: false,
-            gtk_im,
-            gtk_im_context,
+            gtk_im: std::cell::OnceCell::new(),
             display,
             parent_window_id: options.parent_window_id,
             owns_display,
@@ -9022,8 +9033,11 @@ impl X11Window {
                 return;
             }
 
-            // Fallback to GTK IM context if XIM not available
-            if let (Some(ref gtk_im), Some(ctx)) = (&self.gtk_im, self.gtk_im_context) {
+            // Fallback to GTK IM context if XIM not available (loaded now, the first time: see `gtk_im`)
+            if let Some(fallback) = self
+                .gtk_im
+                .get_or_init(|| load_gtk_im(self.common.app.startup()))
+            {
                 let gdk_rect = dlopen::GdkRectangle {
                     x: (rect.origin.x * scale) as i32,
                     y: (rect.origin.y * scale) as i32,
@@ -9032,7 +9046,7 @@ impl X11Window {
                 };
 
                 unsafe {
-                    (gtk_im.gtk_im_context_set_cursor_location)(ctx, &gdk_rect);
+                    (fallback.gtk.gtk_im_context_set_cursor_location)(fallback.context, &gdk_rect);
                 }
             }
         }
@@ -10306,3 +10320,7 @@ mod motif_decoration_tests {
         assert_ne!(motif_decor_bits(WindowDecorations::NoTitleAutoInject), 0);
     }
 }
+
+#[cfg(test)]
+#[path = "gtk_im_test.rs"]
+mod gtk_im_test;
