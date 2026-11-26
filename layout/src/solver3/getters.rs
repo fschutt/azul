@@ -7397,6 +7397,9 @@ fn variable_instance_of(
 ) -> Option<rust_fontconfig::FontMatch> {
     let variation = fc_cache.variation(&face.id)?;
     let coordinates = font_coordinates(request, &variation);
+    // `AZ_PROFILE=cpu` counts the instances a chain asks for (n) and what making them cost (total): one per group
+    // of the chain whose first face is a variable font, a cache hit for the ones made before.
+    let _instance_span = crate::probe::Probe::span("variable_instance");
     let id = fc_cache.variable_instance(&face.id, &coordinates)?;
     Some(rust_fontconfig::FontMatch {
         id,
