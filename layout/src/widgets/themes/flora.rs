@@ -2515,6 +2515,8 @@ pub fn text_input(mut ti: TextInput) -> Dom {
         // The design system's field (see `field_skin`), the states last.
         container_style.extend(field_skin());
         container_style.extend(field_states());
+        // A finger needs room: 48 dp on Android, 44 pt on iOS, nothing on a desktop.
+        container_style.extend(super::decl::touch_target_floor());
     } else {
         // A caller's field (a PDF form's, on paper): only the night twins it
         // left open, and the shared ring.

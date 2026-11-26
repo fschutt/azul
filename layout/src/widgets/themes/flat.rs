@@ -1059,6 +1059,7 @@ pub fn text_input(mut ti: TextInput) -> Dom {
     // of the resolver is that flat and flora cannot drift on this answer.
     let resolved_container_style = ti.resolved_container_style();
     let resolved_label_style = ti.resolved_label_style();
+    let owns_container = ti.container_style.as_ref().is_none();
 
     let state_ref = RefAny::new(ti.text_input_state);
 
@@ -1075,6 +1076,11 @@ pub fn text_input(mut ti: TextInput) -> Dom {
     // pushed after these would beat the dark hover/focus ring. One array so
     // half of them cannot ship.
     container_style.extend_from_slice(&FIELD_BORDER_STATES);
+    // A finger needs room: a field is 48 dp tall on Android and 44 pt on iOS (nothing on a desktop;
+    // a caller's own field - a form's on paper - sizes itself).
+    if owns_container {
+        container_style.extend(super::decl::touch_target_floor());
+    }
 
     let mut label_style: Vec<CssPropertyWithConditions> = resolved_label_style.as_slice().to_vec();
     super::decl::push_dark_twin(&mut label_style, system_palette::DARK_TEXT);
