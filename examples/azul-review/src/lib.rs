@@ -1102,6 +1102,16 @@ impl AppState {
         })
     }
 
+    /// A stroke is no longer on the page (erased, or taken back): a loop it armed for the whiteboard is not armed any more (its
+    /// outline and its words go with the next look of the clock).
+    fn stroke_gone(&mut self, id: u64) {
+        let glue = self.wb.get_mut();
+        let armed: Vec<u64> = glue.panel.wb.armed.all().iter().filter(|r| r.stroke_id == id).map(|r| r.id).collect();
+        for region in armed {
+            glue.panel.wb.armed.disarm(region);
+        }
+    }
+
     /// Takes the last edit back; whether there was one.
     pub fn undo(&mut self) -> bool {
         let Some(edit) = self.history.pop() else {
@@ -1110,6 +1120,7 @@ impl AppState {
         match &edit {
             Edit::Added(stroke) => {
                 self.strokes.retain(|s| s.id != stroke.id);
+                self.stroke_gone(stroke.id);
                 self.ink.touch(stroke.page);
             }
             Edit::Erased(stroke, index) => {
@@ -1138,6 +1149,7 @@ impl AppState {
             }
             Edit::Erased(stroke, _) => {
                 self.strokes.retain(|s| s.id != stroke.id);
+                self.stroke_gone(stroke.id);
                 self.ink.touch(stroke.page);
             }
             Edit::Slashed(deletion) => {
@@ -1156,6 +1168,7 @@ impl AppState {
             return None;
         }
         let stroke = self.strokes.remove(index);
+        self.stroke_gone(stroke.id);
         self.history.push(Edit::Erased(stroke.clone(), index));
         self.redo_stack.clear();
         self.ink.touch(stroke.page);

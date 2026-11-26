@@ -80,6 +80,25 @@ fn a_ticket_that_is_garbled_or_the_endpoints_own_cannot_be_dialed_at_all() {
 }
 
 #[test]
+fn a_bare_key_is_found_only_where_the_local_network_has_discovery_and_at_the_address_the_endpoint_has_now() {
+    let (net, mut mac, mut phone) = two();
+    let key = mac.local_id();
+    // no discovery: a key is no ticket
+    assert!(phone.connect(0, &key).is_err());
+    // discovery: the key reaches the endpoint, also after its address changed
+    net.set_knobs(Knobs { discovery: true, ..Knobs::default() });
+    net.change_address("mac");
+    phone.poll(0);
+    phone.connect(0, &key).expect("a key is dialed on a network with discovery");
+    let on_phone = events(&mut phone, 0, 100);
+    assert!(on_phone.iter().any(|(_, e)| matches!(e, LinkEvent::Connected { id, .. } if *id == key)), "{on_phone:?}");
+    let on_mac = events(&mut mac, 0, 100);
+    assert!(on_mac.iter().any(|(_, e)| matches!(e, LinkEvent::Connected { id, .. } if *id == phone.local_id())), "{on_mac:?}");
+    // a key nobody has is no ticket either
+    assert!(phone.connect(200, &MockNet::key("nobody")).is_err());
+}
+
+#[test]
 fn a_ticket_for_an_endpoint_that_is_not_there_fails_later_with_a_word() {
     let (net, _, mut phone) = two();
     let _ = net;
