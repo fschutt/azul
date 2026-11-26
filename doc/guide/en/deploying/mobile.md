@@ -382,6 +382,38 @@ progress and the user's yes), over https, with the size and the SHA-256 of the f
 the pin before it is used. Nothing that was downloaded is executed or loaded as code, and an app
 that is offline (`set_offline`) fetches nothing.
 
+## Designing for a phone
+
+A phone is a small screen with bars on it, a finger instead of a pointer, a language the user has already
+chosen, and a window that rotates. What the engine does for you, and what it leaves to the app:
+
+**Safe areas.** The root of your DOM is laid out in the window minus the system's bars
+(`SafeAreaInsets`: the status bar and the camera cut-out on top, the navigation bar or the home indicator at the
+bottom, the cut-out at the side in landscape), so nothing of a plain app lies under a bar. The insets arrive
+after the first frame and move on a rotation; the engine lays the root out again when they do, also for a UI
+that never changes by itself (a map, a canvas). An app that wants to draw under the bars (a full-bleed map, a
+video) sets `WindowFlags::extend_into_safe_area` (the browser's `viewport-fit=cover`) and puts its own controls
+inside `info.get_safe_area_insets()`. The soft keyboard is a separate inset (`SafeAreaInsets::keyboard`): it
+does not shrink the root, the engine scrolls the focused text field into view above it.
+
+**Touch targets.** Material asks for 48 dp, Apple for 44 pt. On a phone the engine's `Button` and `TextInput`
+are at least that big in each direction (a link keeps the height of its line, a desktop window keeps the desktop's
+sizes); the application button of a `Ribbon` is a row of its tab picker. Check boxes, switches and radio buttons
+have no such floor yet, and a node of your own with a click callback is as big as you made it: give it 48 dp.
+
+**Language.** The phone's language is the system style's language: on Android the activity's configuration (language
+and country, read before the window is made and again when it changes while the app runs), on iOS
+`NSLocale.preferredLanguages`. With your Fluent resources registered (`AppConfig::fluent_locales`) the texts made
+with `AzString::tr` translate on their own and again when the language changes. Words that your `layout()` says as
+plain text (a placeholder, an accessible name, a label a widget measures) are said with the window's own
+localizer, `info.get_fluent_localizer()`: do not keep a localizer in a thread-local of your own, the app starts on
+one thread and its loop may run on another one (it does on Android).
+
+**Narrow windows.** Decide a phone layout from the window's width with `info.window_width_less_than(px)`: the
+layout is built again only when the width crosses `px`, not on every pixel of a resize or a rotation. The demos use
+560 to 600 dp as the phone's edge (AzMaps' sidebar becomes a sheet over the map, AzPaint's menu commands become keys
+under the canvas, AzWriter's ribbon becomes a format bar) and keep the desktop layout for a landscape phone.
+
 ## Installing & debugging the built app
 
 You don't have to build anything to try the demos — every example is published
