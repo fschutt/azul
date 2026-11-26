@@ -889,3 +889,29 @@ fn a_conversation_that_begins_keeps_the_revision_the_workspace_is_at_then_and_no
     plain.start_conversation(note(3));
     assert_eq!(plain.notes[0].talk.base, None);
 }
+
+// ---- the zoom of the pages
+
+#[test]
+fn the_pages_are_drawn_at_the_zoom_held_between_the_limits_and_at_one_when_it_is_no_number() {
+    let mut s = app_with_file();
+    assert_eq!(s.page_zoom(), 1.0, "the pages have always been drawn at 1");
+    s.zoom = 1.5;
+    assert_eq!(s.page_zoom(), 1.5);
+    s.zoom = 50.0;
+    assert_eq!(s.page_zoom(), page_view::Z_MAX);
+    s.zoom = 0.01;
+    assert_eq!(s.page_zoom(), page_view::Z_MIN);
+    for bad in [f32::NAN, f32::INFINITY, 0.0, -2.0] {
+        s.zoom = bad;
+        assert_eq!(s.page_zoom(), 1.0, "{bad}");
+    }
+}
+
+#[test]
+fn the_zoom_the_callbacks_read_is_the_apps_and_one_where_there_is_no_app() {
+    assert_eq!(ui::zoom_of(&RefAny::new(0u8)), 1.0);
+    let mut s = app_with_file();
+    s.zoom = 1.25;
+    assert_eq!(ui::zoom_of(&RefAny::new(s)), 1.25);
+}

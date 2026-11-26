@@ -24,11 +24,12 @@ use azul_review_link::{
     viewport::{self, Space},
 };
 
-/// The least the pages are drawn at: half their size (two sheets in the window's width and more).
+/// The least the pages are drawn at: half their size (a quarter of the pixels).
 pub const Z_MIN: f32 = 0.5;
-/// The most the pages are drawn at. A page is two layers of ink as big as the page times the display's pixel ratio, squared: past
-/// this the memory of a page is more than a window may spend on it.
-pub const Z_MAX: f32 = 3.0;
+/// The most the pages are drawn at. A page is two layers of ink as big as the page (1000 px wide) times the zoom and the display's pixel
+/// ratio, in each direction: at 2 on a display of ratio 2 that is about 47 MB a layer, and past this the memory of a page is more than a
+/// window may spend on it.
+pub const Z_MAX: f32 = 2.0;
 
 /// The size AzReview has when the layout gives none (an A4 sheet at the size the pages have been drawn at).
 const DEFAULT_PAGE: (f32, f32) = (554.0, 784.0);
@@ -134,7 +135,8 @@ impl Looking {
     #[must_use]
     pub fn scroll(&self, g: &Geometry) -> (f32, f32) {
         let g = g.sane();
-        ((self.page as f32 * g.stride() + self.at.0) * self.zoom, self.at.1 * self.zoom)
+        let (zoom, page, at) = self.held(&g);
+        ((page as f32 * g.stride() + at.0) * zoom, at.1 * zoom)
     }
 
     /// The window of a strip scrolled to `scroll` (px of the screen) with the pages drawn at `zoom`.
@@ -154,9 +156,16 @@ impl Looking {
     #[must_use]
     pub fn view(&self, g: &Geometry) -> Rect {
         let g = g.sane();
-        let sheet = self.zoom * g.page_w;
-        let column_top = self.page as f32 * (g.page_h + g.gap) / g.page_w;
-        Rect { x: self.at.0 / g.page_w, y: column_top + self.at.1 / g.page_w, w: g.window.0 / sheet, h: g.window.1 / sheet }
+        let (zoom, page, at) = self.held(&g);
+        let sheet = zoom * g.page_w;
+        let column_top = page as f32 * (g.page_h + g.gap) / g.page_w;
+        Rect { x: at.0 / g.page_w, y: column_top + at.1 / g.page_w, w: g.window.0 / sheet, h: g.window.1 / sheet }
+    }
+
+    /// The numbers of this window made safe: the zoom between the limits, the page one of the pages, the place a number on the page.
+    fn held(&self, g: &Geometry) -> (f32, usize, (f32, f32)) {
+        let finite = |v: f32| if v.is_finite() { v.max(0.0) } else { 0.0 };
+        (held_zoom(self.zoom), self.page.min(g.pages - 1), (finite(self.at.0), finite(self.at.1)))
     }
 
     /// The window a view of the column asks for, as far as the pages can be shown: the zoom between the limits, the page the middle of

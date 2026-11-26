@@ -84,6 +84,7 @@ pub fn state_json(s: &AppState) -> String {
         },
         "progress": progress_json(s),
         "visible_page": s.visible_page,
+        "zoom": s.page_zoom(),
         "strokes": s.strokes.len(),
         "slashes": s.slashes.len(),
         "deleted_words": s.slashes.iter().map(|d| d.words.len()).sum::<usize>(),

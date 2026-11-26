@@ -30,7 +30,7 @@ use azul_appkit::{
     ui as kit,
 };
 use azul_review_link::{
-    frame::{HostSettings, ReplyStatus, Rows},
+    frame::{HostSettings, ReplyStatus, Rows, ViewportOp},
     host::{CompanionHost, ConfirmError, HostConfig, HostEvent, PhoneInfo},
     iroh_link::{IrohLink, IrohOptions},
     limits::{CONFIRM_TIMEOUT_MS, MAX_PAIRED_PHONES},
@@ -42,6 +42,7 @@ use crate::{
     companion_io::{self, Loaded},
     companion_store::{self, Stored},
     ids,
+    page_view::Held,
     AppState,
 };
 
@@ -117,9 +118,18 @@ pub enum PairError {
     TooManyPhones,
 }
 
+/// What a phone asks of the window that the glue cannot answer by itself, because it needs the window's state.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Command {
+    /// A step of a drag or a pinch, a fit, a page key or a reset: the window's view of the pages moves (`companion_cmd::viewport`).
+    Viewport(ViewportOp),
+}
+
 /// What a look at the host found, for the window to act on.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Polled {
+    /// What the phones asked, in the order they asked it.
+    pub commands: Vec<Command>,
     /// A phone asks to be paired: the window shows it whatever page it is on.
     pub attention: bool,
     /// What the settings page shows may have changed (a phone came or went, the address is known).
@@ -145,6 +155,13 @@ pub struct Glue {
     ticket_known: bool,
     offer: Option<Offer>,
     asked: Option<Asked>,
+    /// The gesture of the phone that is under way (a drag or a pinch) with the view it began on.
+    pub held: Held,
+    /// Where the strip is to be scrolled once the pages were laid out at their new zoom, and whether the timer that does it is under way.
+    pub(crate) pending_scroll: Option<(f32, f32)>,
+    pub(crate) settling: bool,
+    /// Something the phone is told of moved: its state is made and sent again at the next look at the host.
+    pen_dirty: bool,
     saving: bool,
     save_pending: bool,
     log: Vec<String>,
@@ -167,10 +184,26 @@ impl Glue {
             ticket_known: false,
             offer: None,
             asked: None,
+            held: Held::default(),
+            pending_scroll: None,
+            settling: false,
+            pen_dirty: false,
             saving: false,
             save_pending: false,
             log: Vec::new(),
         }
+    }
+
+    /// Something the phone is told of moved (the file, the page, the zoom, the pen): its state is sent again at the next look.
+    pub fn touch(&mut self) {
+        self.pen_dirty = true;
+    }
+
+    /// Whether the phone's state is to be made and sent now: something moved, and a phone is here to be told (the host keeps the newest for
+    /// one that comes). Taking the answer clears it.
+    pub fn take_dirty(&mut self) -> bool {
+        let here = self.host.as_ref().is_some_and(|h| h.phones().iter().any(|p| p.connected));
+        std::mem::take(&mut self.pen_dirty) && here
     }
 
     /// The milliseconds since this glue was made: the monotonic clock the host is polled with.
@@ -208,6 +241,12 @@ impl Glue {
     /// The host, for the pairing and the commands (`None` while nothing is bound).
     pub fn host_mut(&mut self) -> Option<&mut Station> {
         self.host.as_mut()
+    }
+
+    /// What the user settled on this computer that the phones obey (the defaults while nothing is bound).
+    #[must_use]
+    pub fn host_settings(&self) -> HostSettings {
+        self.host.as_ref().map_or_else(HostSettings::default, |h| h.settings())
     }
 
     /// Whether the endpoint's address is known (a code for a phone can be made from it).
@@ -424,7 +463,11 @@ impl Glue {
                 self.asked = None;
                 self.offer = None;
             }
-            HostEvent::PeerConnected { .. } => out.changed = true,
+            HostEvent::PeerConnected { .. } => {
+                // the host sends a phone that comes the newest state it has: the window makes a new one
+                self.pen_dirty = true;
+                out.changed = true;
+            }
             HostEvent::PeerGone { peer, .. } => {
                 // a phone that went while it was asked has nobody to be answered
                 if self.asked.as_ref().is_some_and(|a| a.peer == peer) {
@@ -438,7 +481,8 @@ impl Glue {
             HostEvent::OpenFile { peer, request_id, .. } | HostEvent::ButtonPressed { peer, request_id, .. } => {
                 host.reply(now, &peer, request_id, ReplyStatus::Failed);
             }
-            HostEvent::Viewport { .. } | HostEvent::ButtonsChanged { .. } | HostEvent::ContinueReviewing { .. } => {}
+            HostEvent::Viewport { op, .. } => out.commands.push(Command::Viewport(op)),
+            HostEvent::ButtonsChanged { .. } | HostEvent::ContinueReviewing { .. } => {}
             HostEvent::Diagnostic(text) => self.note(&text),
         }
     }
@@ -504,12 +548,17 @@ impl Glue {
         let Some(asked) = self.asked.clone() else {
             return Err(ConfirmError::NobodyWaiting);
         };
-        let Some(host) = self.host.as_mut() else {
-            return Err(ConfirmError::NobodyWaiting);
+        let result = match self.host.as_mut() {
+            Some(host) => {
+                let result = host.accept_pairing(now, &asked.peer);
+                if result.is_ok() {
+                    self.stored.set_phones(host.paired());
+                }
+                result
+            }
+            None => Err(ConfirmError::NobodyWaiting),
         };
-        let result = host.accept_pairing(now, &asked.peer);
         if result.is_ok() {
-            self.stored.set_phones(host.paired());
             self.offer = None;
             self.note("a phone was paired");
         }
@@ -519,10 +568,13 @@ impl Glue {
 
     /// The person said that the six digits are not the same: the phone is told no and nothing is paired.
     pub fn decline(&mut self, now: Millis) {
-        if let (Some(asked), Some(host)) = (self.asked.take(), self.host.as_mut()) {
+        let Some(asked) = self.asked.take() else {
+            return;
+        };
+        if let Some(host) = self.host.as_mut() {
             host.reject_pairing(now, &asked.peer);
-            self.note("a phone was declined");
         }
+        self.note("a phone was declined");
     }
 
     /// Forgets a paired phone: it is disconnected and refused from now on (kept at once: the caller writes it). `true` when it was paired.
@@ -695,7 +747,7 @@ fn ensure_poll_timer(app: &RefAny, info: &mut CallbackInfo) {
 
 extern "C" fn on_poll(data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
     let polled = with_companion(&data, |g, s| (g.poll(), g.is_listening(), kit::settings_open(&s.kit)));
-    let Some((polled, alive, settings_open)) = polled else {
+    let Some((mut polled, alive, settings_open)) = polled else {
         return TimerCallbackReturn::continue_unchanged();
     };
     if !alive {
@@ -706,7 +758,18 @@ extern "C" fn on_poll(data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbac
     if polled.save {
         save(&data, &mut info.callback_info);
     }
-    let update = if polled.attention || (polled.changed && settings_open) { Update::RefreshDom } else { Update::DoNothing };
+    // what the phones asked of the window
+    let mut moved = false;
+    for command in std::mem::take(&mut polled.commands) {
+        moved |= match command {
+            Command::Viewport(op) => crate::companion_cmd::viewport(&data, &mut info.callback_info, op),
+        };
+    }
+    // what the phones are told: the window as it is now
+    if with_companion(&data, |g, _| g.take_dirty()).unwrap_or(false) {
+        crate::companion_cmd::publish(&data, &info.callback_info);
+    }
+    let update = if polled.attention || moved || (polled.changed && settings_open) { Update::RefreshDom } else { Update::DoNothing };
     if let Some(ms) = polled.rate {
         // the same look at the clock at another pace: a new timer takes over from this one
         let id = TimerId::unique();

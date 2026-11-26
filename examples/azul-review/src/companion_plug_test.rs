@@ -5,6 +5,7 @@
 use azul_review_link::{
     access::TrustRecord,
     client::{ClientConfig, PhoneClient},
+    frame::{Focus, Phase},
     limits::{CONFIRM_TIMEOUT_MS, PAIRING_WINDOW_MS},
     mock::{Knobs, MockLink, MockNet},
     pairing::{PairingOffer, SeededEntropy},
@@ -291,6 +292,7 @@ fn pump(g: &mut Glue, phone: &mut PhoneClient<MockLink>, from: Millis, ms: u64) 
         all.changed |= polled.changed;
         all.attention |= polled.attention;
         all.save |= polled.save;
+        all.commands.extend(polled.commands);
         phone.poll(now);
     }
     (all, from + ms)
@@ -476,4 +478,54 @@ fn turning_the_companion_off_closes_the_window_and_drops_the_question() {
     g.begin_pairing(now).expect("a code");
     assert!(g.set_enabled(false));
     assert!(g.offer().is_none() && g.asked().is_none());
+}
+
+// ---- what the phones ask of the window
+
+#[test]
+fn the_viewport_commands_of_a_paired_phone_are_handed_to_the_window_in_the_order_they_came() {
+    let net = net();
+    let mut stored = on();
+    stored.phones = vec![TrustRecord::phone(&MockNet::key("phone"), "Test phone")];
+    let (mut g, now) = listening(&net, &stored);
+    let mut phone = phone_of(&net, "phone");
+    let (_, now) = pump(&mut g, &mut phone, now, 400);
+    assert_eq!(g.status(), Status::Listening { paired: 1, here: 1 }, "log: {:?}", g.log());
+    phone.gesture(now, 1, Phase::Begin, (0.0, 0.0), 1.0, Focus::Pen);
+    let (first, now) = pump(&mut g, &mut phone, now, 80);
+    phone.fit(now);
+    let (second, now) = pump(&mut g, &mut phone, now, 80);
+    phone.page_step(now, 1);
+    let (third, _) = pump(&mut g, &mut phone, now, 80);
+    let mut all = first.commands;
+    all.extend(second.commands);
+    all.extend(third.commands);
+    assert!(matches!(all.first(), Some(Command::Viewport(ViewportOp::Gesture { id: 1, phase: Phase::Begin, .. }))), "{all:?}");
+    let fit = all.iter().position(|c| *c == Command::Viewport(ViewportOp::Fit)).expect("the fit came");
+    let step = all.iter().position(|c| *c == Command::Viewport(ViewportOp::PageStep(1))).expect("the page key came");
+    assert!(fit < step, "in the order they were made: {all:?}");
+}
+
+#[test]
+fn the_phone_is_told_again_when_something_moved_and_only_while_one_is_here() {
+    let net = net();
+    let mut stored = on();
+    stored.phones = vec![TrustRecord::phone(&MockNet::key("phone"), "Test phone")];
+    let (mut g, now) = listening(&net, &stored);
+    g.touch();
+    assert!(!g.take_dirty(), "nobody is here to be told");
+    let mut phone = phone_of(&net, "phone");
+    pump(&mut g, &mut phone, now, 400);
+    assert!(g.take_dirty(), "a phone that came is told the window as it is");
+    assert!(!g.take_dirty(), "once");
+    g.touch();
+    assert!(g.take_dirty(), "and again when something moved");
+}
+
+#[test]
+fn what_the_user_settled_that_the_phones_obey_is_the_default_until_a_setting_changes_it() {
+    let net = net();
+    let (g, _) = listening(&net, &on());
+    assert_eq!(g.host_settings(), HostSettings::default());
+    assert_eq!(glue(&Stored::default()).host_settings(), HostSettings::default(), "nothing is bound");
 }

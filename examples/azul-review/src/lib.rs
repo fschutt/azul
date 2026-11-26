@@ -69,7 +69,9 @@ pub mod chips_op;
 pub mod code;
 pub mod agent_window;
 pub mod column;
+pub mod companion_cmd;
 pub mod companion_io;
+pub mod companion_pen;
 pub mod companion_plug;
 pub mod companion_store;
 pub mod companion_ui;
@@ -361,6 +363,11 @@ pub struct AppState {
     /// The level of the last packet of voice, 0 to 1 (the recording's meter).
     pub level: f32,
     pub visible_page: usize,
+    /// The factor the pages are drawn at (the phone's pad zooms them; the pages have always been drawn at 1.0): between
+    /// `page_view::Z_MIN` and `Z_MAX`, read through [`Self::page_zoom`].
+    pub zoom: f32,
+    /// Where the pen (or the cursor) was last seen on the pages, and when: what the phone is told of it.
+    pub pen_seen: Option<(companion_pen::PenAt, std::time::Instant)>,
     pub epoch: u64,
     pub idle_timer: TimerId,
     pub root: PathBuf,
@@ -490,6 +497,8 @@ impl AppState {
             level_samples: 0,
             level: 0.0,
             visible_page: 0,
+            zoom: 1.0,
+            pen_seen: None,
             epoch: 0,
             idle_timer: TimerId::unique(),
             root,
@@ -709,8 +718,18 @@ impl AppState {
         }
     }
 
-    /// Time passes (`elapsed_ms`) with the strip of pages scrolled `scroll_x` in a viewport `view_w` wide: the pages in
-    /// view long enough are seen. Whether a page became seen.
+    /// The factor the pages are drawn at now, held between the limits (1.0 where the field holds no number).
+    #[must_use]
+    pub fn page_zoom(&self) -> f32 {
+        if self.zoom.is_finite() && self.zoom > 0.0 {
+            self.zoom.clamp(page_view::Z_MIN, page_view::Z_MAX)
+        } else {
+            1.0
+        }
+    }
+
+    /// Time passes (`elapsed_ms`) with the strip of pages scrolled `scroll_x` in a viewport `view_w` wide (both in the px of the screen,
+    /// whatever the zoom): the pages in view long enough are seen. Whether a page became seen.
     pub fn watch_pages(&mut self, scroll_x: f32, view_w: f32, elapsed_ms: u32) -> bool {
         if !self.window_active {
             return false;
@@ -719,7 +738,8 @@ impl AppState {
             return false;
         };
         let (path, total) = (file.display.clone(), file.page_count());
-        let in_view = progress::pages_in_view(scroll_x, view_w, ui::PAGE_W, ui::page_stride(), total);
+        let zoom = self.page_zoom();
+        let in_view = progress::pages_in_view(scroll_x / zoom, view_w / zoom, ui::PAGE_W, ui::page_stride(), total);
         let Some(entry) = self.progress.entry(&path) else {
             return false;
         };
@@ -958,6 +978,14 @@ impl AppState {
         self.live_clock = None;
         self.ink.open();
         self.visible_page = 0;
+        self.touch_companion();
+    }
+
+    /// Something the phone is told of moved (the file, the page, the pen): its state is sent again at the next look at the host.
+    pub fn touch_companion(&self) {
+        if let Ok(mut companion) = self.companion.try_borrow_mut() {
+            companion.touch();
+        }
     }
 
     /// Tells the recorder (one call, the recorder's vocabulary).
@@ -1462,6 +1490,7 @@ pub fn run() {
         pointer::register_ops(&mut config);
         chips_op::register_ops(&mut config);
         notes_op::register_ops(&mut config);
+        companion_cmd::register_ops(&mut config);
         state_op::register_ops(&mut config);
     }
     // The session recorder: its settings from the settings file (what was capped is said), the machine's facts once.
@@ -2353,6 +2382,11 @@ fn log_pointer(
             pen: sampled.pen,
             live,
         });
+        // where the pen is on the pages is what the phone's zoom is about (and what its buttons act on)
+        if let Some(page) = page {
+            s.pen_seen = Some((companion_pen::PenAt { page, x: sampled.point.x, y: sampled.point.y, down: sampled.pressed }, std::time::Instant::now()));
+            s.touch_companion();
+        }
     }
 }
 
@@ -2493,6 +2527,10 @@ pub extern "C" fn on_strip_scroll(mut data: RefAny, mut info: CallbackInfo) -> U
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
+    // the window moved over the pages: the phone is told
+    s.touch_companion();
+    // (the strip scrolls in the px of the screen: the pages are drawn at the zoom)
+    let x = x / s.page_zoom();
     // The pages are scrolled: the symbol index keeps to the neighbourhood of the file until it is quiet again.
     s.symbols.touch();
     let Some(pages) = s.file().map(code::SourceFile::page_count) else {
@@ -2516,7 +2554,7 @@ pub extern "C" fn on_jump_to_page(mut data: RefAny, mut info: CallbackInfo) -> U
     let Some(page) = ui::index_of(&mut info) else {
         return Update::DoNothing;
     };
-    ui::scroll_to_page(&mut info, page);
+    ui::scroll_to_page(&mut info, page, ui::zoom_of(&data));
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
@@ -2549,7 +2587,7 @@ pub extern "C" fn on_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
         s.visible_page = place.page;
         place
     };
-    ui::scroll_to_page(&mut info, place.page);
+    ui::scroll_to_page(&mut info, place.page, ui::zoom_of(&data));
     info.trigger_all_virtual_view_rerender();
     Update::RefreshDom
 }
@@ -2575,7 +2613,7 @@ pub extern "C" fn on_chip_click(mut data: RefAny, mut info: CallbackInfo) -> Upd
         let _ = s.progress.jumped_from(here);
     }
     drop(s);
-    ui::scroll_to_page(&mut info, page);
+    ui::scroll_to_page(&mut info, page, ui::zoom_of(&data));
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };

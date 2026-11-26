@@ -120,7 +120,7 @@ fn a_scroll_that_is_no_scroll_is_the_top_of_the_first_page_and_one_past_the_end_
 #[test]
 fn a_view_survives_the_way_to_the_pages_and_back_at_every_zoom_and_page() {
     let g = geometry();
-    for zoom in [0.5_f32, 0.8, 1.0, 1.7, 3.0] {
+    for zoom in [0.5_f32, 0.8, 1.0, 1.7, 2.0] {
         for page in [0_usize, 2, 4] {
             let at = (g.max_across(zoom) * 0.5, g.max_down(zoom) * 0.5);
             let looking = Looking { zoom, page, at };
@@ -290,7 +290,7 @@ fn the_snap_after_a_drag_puts_the_nearest_page_top_at_the_top_of_the_window_only
 #[test]
 fn fit_makes_the_width_of_a_sheet_the_width_of_the_window() {
     let g = geometry();
-    let zoomed = Looking { zoom: 2.4, page: 1, at: (50.0, 300.0) };
+    let zoomed = Looking { zoom: 1.9, page: 1, at: (50.0, 300.0) };
     let mut held = Held::default();
     let fit = apply(&g, zoomed, &mut held, ViewportOp::Fit, Context::default());
     assert_near(fit.looking.zoom, g.fit_zoom(), "the zoom");
@@ -320,7 +320,7 @@ fn the_page_keys_go_to_the_head_of_the_next_and_the_previous_page_and_stop_at_th
 #[test]
 fn reset_is_the_fitted_zoom_at_the_head_of_the_page_the_window_is_on() {
     let g = geometry();
-    let zoomed = Looking { zoom: 2.4, page: 3, at: (80.0, 300.0) };
+    let zoomed = Looking { zoom: 1.9, page: 3, at: (80.0, 300.0) };
     let mut held = Held::default();
     let reset = apply(&g, zoomed, &mut held, ViewportOp::Reset, Context::default());
     assert_eq!(reset.looking.page, 3);
