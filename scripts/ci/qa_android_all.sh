@@ -8,6 +8,7 @@ set -uo pipefail
 apk="${1:?primary apk}"
 export AZ_QA_SERIES=10
 export AZ_FLOOR=1
+export AZ_QA_STARTUP=1   # the engine's own startup timeline of every start of the series (master from d35a2a4b6f on; harmless on an older build)
 export AZ_QA_SCENARIOS="examples/azul-widgets/e2e/building_blocks.json examples/azul-widgets/e2e/every_input_form.json examples/azul-widgets/e2e/tab_looks.json"
 export AZ_QA_TAPS="AzCompanion-android-x86_64=Try it without a Mac"
 export AZ_QA_ONLY_EXTRA=03,08,09,12,13

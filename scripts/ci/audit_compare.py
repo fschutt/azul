@@ -18,7 +18,8 @@ LISTS = (("edge_right", "boxes over the right edge (outermost)", lambda a: a["ed
          ("bars_text", "text boxes under a bar", lambda a: a["under_bars"]["text"]["count"], lambda a: a["under_bars"]["text"]["top"]),
          ("small", "tappable nodes under 48 dp", lambda a: a["small_targets"]["small"], lambda a: a["small_targets"]["top"]),
          ("cut_text", "text boxes crossing an edge", lambda a: a["cut_text"]["count"], lambda a: a["cut_text"]["top"]),
-         ("sideways", "scroll containers wider than they are", lambda a: a["sideways_scroll"]["count"], lambda a: a["sideways_scroll"]["top"]))
+         ("sideways", "scroll containers wider than they are", lambda a: a["sideways_scroll"]["count"], lambda a: a["sideways_scroll"]["top"]),
+         ("raw_keys", "texts that are raw localisation keys", lambda a: a.get("raw_keys", {}).get("count", 0), lambda a: a.get("raw_keys", {}).get("top", [])))
 
 
 def app_name(path):
