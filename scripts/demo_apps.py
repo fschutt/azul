@@ -6,6 +6,7 @@
     demo_apps.py plan [--e2e]          the build matrices of a `demos` run, as GITHUB_OUTPUT lines (--e2e: also the
                                        artifact-only QA variant of the phone libazul and the apps that ask for it)
     demo_apps.py features <leg> <variant>   the cargo features of one phone library of the plan (android-x86_64 mobile-e2e, ...)
+    demo_apps.py mobile-lib <package>       the library variant a phone app links (mobile, mobile-iroh)
     demo_apps.py assets [<package>]    the file names every app is built as, one per line
     demo_apps.py weights <status.json> the weight the measured build seconds of a run suggest for each app
     demo_apps.py status <dir> ...      merge the result files of a run into demo-status.json / .md
@@ -692,6 +693,17 @@ def main(argv):
                     print(entry["features"])
                     return 0
         print(f"demo_apps: the plan builds no library {rest[1]} for {rest[0]}", file=sys.stderr)
+        return 1
+    if cmd == "mobile-lib":
+        # demo_apps.py mobile-lib <package>: the library variant a phone app links ([[app]] mobile_lib), for the scripts that build by hand
+        if len(rest) != 1:
+            print("usage: demo_apps.py mobile-lib <package>", file=sys.stderr)
+            return 2
+        for a in load()["app"]:
+            if a["package"] == rest[0] and any(p in MOBILE for p in a["platforms"]):
+                print(a["mobile_lib"])
+                return 0
+        print(f"demo_apps: {rest[0]} is no phone app of scripts/demo_apps.toml", file=sys.stderr)
         return 1
     if cmd == "assets":
         m = load()

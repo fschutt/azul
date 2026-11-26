@@ -574,6 +574,47 @@ class IosBuildQaScriptTest(unittest.TestCase):
         self.assertNotRegex(code, r"\brm\b")
 
 
+class MobileLibCommandTest(unittest.TestCase):
+    """`demo_apps.py mobile-lib <package>`: which library variant a phone app links (the manifest's mobile_lib)."""
+
+    def mobile_lib(self, *argv):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+            code = demo_apps.main(["mobile-lib", *argv])
+        return code, buf.getvalue().strip()
+
+    def test_a_phone_app_names_its_library(self):
+        self.assertEqual(self.mobile_lib("AzWidgets"), (0, "mobile"))
+        self.assertEqual(self.mobile_lib("AzCompanion"), (0, "mobile-iroh"))
+
+    def test_an_app_that_has_no_phone_build_or_is_unknown_is_an_error(self):
+        self.assertEqual(self.mobile_lib("AzMail")[0], 1)
+        self.assertEqual(self.mobile_lib("AzNoSuchApp")[0], 1)
+        self.assertEqual(self.mobile_lib()[0], 2)
+
+
+class AndroidBuildSmokeScriptTest(unittest.TestCase):
+    """scripts/ci/android_build_smoke.sh: build the named phone apps for Android x86_64 and boot-test them on the emulator, in ONE job."""
+
+    def setUp(self):
+        self.path = HERE / "ci" / "android_build_smoke.sh"
+        self.text = self.path.read_text(encoding="utf-8")
+
+    def test_the_script_builds_the_libraries_the_apps_name_then_the_apps_then_runs_the_boot_test_with_the_manifests_expectations(self):
+        self.assertEqual(subprocess.run(["bash", "-n", str(self.path)]).returncode, 0)
+        order = [self.text.index(n) for n in ("python3 scripts/demo_apps.py mobile-lib", "bash scripts/demo_lib.sh android",
+                                              "python3 scripts/demo_build.py android", "bash scripts/ci/android_smoke.sh")]
+        self.assertEqual(order, sorted(order))
+        for var in ("AZ_SMOKE_TAPS", "AZ_SMOKE_EXPECTS", "AZ_SMOKE_AFTER"):
+            self.assertIn(var, self.text)
+
+    def test_it_deletes_only_on_a_runner(self):
+        lines = self.text.splitlines()
+        for i, line in enumerate(lines):
+            if re.search(r"\brm\b", line) and not line.lstrip().startswith("#"):
+                self.assertTrue(any('GITHUB_ACTIONS' in l for l in lines[max(0, i - 2):i]), line)
+
+
 class AndroidBuildAllScriptTest(unittest.TestCase):
     """scripts/ci/android_build_all.sh: every phone app and the QA variant of AzWidgets for Android x86_64 in ONE runner job."""
 
