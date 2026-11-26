@@ -551,6 +551,59 @@ def android_scenarios(args):
 
     run.step("03b-render-modes", "AZ_BACKEND=cpu, gpu, auto through debug.az.env (the shell has only the CPU renderer: all three alike)", s_modes, needs_app=True)
 
+    def s_series(s):
+        """N cold starts of the app (and of the floor APK, an empty Java Activity, when one is given), each from the
+        launcher with the process gone: `am start -W` TotalTime / ThisTime / WaitTime, and the system's own events
+        (am_proc_start, am_create_activity, wm_activity_launch_time) kept for the startup timeline work."""
+        def stats(values):
+            v = sorted(values)
+            return {"min": v[0], "median": v[len(v) // 2], "max": v[-1], "n": len(v)}
+
+        def series(pkg, act, label):
+            times = []
+            dev.adb("logcat", "-b", "events", "-c")
+            for i in range(args.series + 1):            # the first run only warms the page cache: not counted
+                dev.sh(f"am force-stop {pkg}")
+                dev.home()
+                time.sleep(2.5)
+                out = dev.sh(f"am start -W -n {pkg}/{act}", timeout=120)
+                total = re.search(r"TotalTime: (\d+)", out)
+                this = re.search(r"ThisTime: (\d+)", out)
+                wait = re.search(r"WaitTime: (\d+)", out)
+                if i > 0 and total:
+                    times.append({"total": int(total.group(1)), "this": int(this.group(1)) if this else None,
+                                  "wait": int(wait.group(1)) if wait else None})
+                time.sleep(3.0)
+            events = dev.adb("logcat", "-b", "events", "-d", "-v", "threadtime", timeout=60)
+            dev.save_log(f"events-{label}.txt", "\n".join(l for l in events.splitlines() if pkg in l))
+            dev.sh(f"am force-stop {pkg}")
+            return times
+
+        mine = series(args.package, dev.resolve_activity(), "app")
+        if mine:
+            st = stats([t["total"] for t in mine])
+            run.meta["cold_start_series_ms"] = f"median {st['median']} min {st['min']} max {st['max']} (n={st['n']})"
+            s.note(f"{args.package}: TotalTime ms {[t['total'] for t in mine]}; median {st['median']}")
+        s.check(f"{args.series} cold starts of the app were measured", len(mine) == args.series, f"{len(mine)} measured")
+        if args.floor_apk:
+            out = dev.adb("install", "-r", "-t", args.floor_apk, timeout=120)
+            s.check("the floor APK installs", "Success" in out, out.strip()[-120:], required=False)
+            floor = series("com.azul.floor", ".FloorActivity", "floor")
+            if floor:
+                fs = stats([t["total"] for t in floor])
+                run.meta["floor_start_series_ms"] = f"median {fs['median']} min {fs['min']} max {fs['max']} (n={fs['n']})"
+                s.note(f"floor (an empty Java Activity): TotalTime ms {[t['total'] for t in floor]}; median {fs['median']}")
+                if mine:
+                    s.note(f"the app costs {st['median'] - fs['median']} ms more than the floor at the median")
+            dev.sh("pm uninstall com.azul.floor")
+        dev.launch(cold=True)
+        dev.wait_for_front(timeout=args.first_frame_timeout)
+        dev.settle(2.5)
+        state["portrait"] = dev.look(s, "after-series")
+
+    if args.series:
+        run.step("03c-cold-start-series", "N cold starts from the launcher: the app against the floor (an empty Java Activity)", s_series, needs_app=True)
+
     def s_ui_dump(s):
         dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
         xml = dev.sh("cat /sdcard/qa-ui.xml")
@@ -1245,6 +1298,8 @@ def main(argv):
     a.add_argument("--serial", default="")
     a.add_argument("--points", default="", help="JSON {name: [fx, fy]} overriding the tap points (fractions of the screen)")
     a.add_argument("--first-frame-timeout", type=int, default=45)
+    a.add_argument("--series", type=int, default=0, help="N cold starts to measure (0: none)")
+    a.add_argument("--floor-apk", default="", help="the floor APK (an empty Java Activity) measured the same way")
     i = sub.add_parser("ios")
     i.add_argument("--out", required=True)
     i.add_argument("--udid", required=True)

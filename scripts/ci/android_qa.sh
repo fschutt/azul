@@ -52,6 +52,18 @@ act="$(echo "$badging" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p
 echo "apk: $apk package=$pkg activity=${act:-?}"
 printf '%s\n' "$badging" >"$out/badging.txt"
 
+# AZ_QA_SERIES=10: ten cold starts of the app measured with `am start -W`; AZ_FLOOR=1 also builds the floor APK (an empty Java
+# Activity, scripts/floor-apk/build.sh) and measures it the same way on the same emulator
+floor_apk=""
+if [ "${AZ_FLOOR:-}" = 1 ]; then
+  yes | sdkmanager --install "platforms;android-34" >>"$out/sdkmanager.log" 2>&1 || true
+  if JAVA_HOME="${JAVA_HOME_17_X64:-${JAVA_HOME:-}}" bash "$here/../floor-apk/build.sh" "$out/AzFloor-android.apk" >"$out/floor-build.log" 2>&1; then
+    floor_apk="$out/AzFloor-android.apk"
+  else
+    echo "the floor APK did not build:"; tail -n 8 "$out/floor-build.log"
+  fi
+fi
+
 IFS=',' read -r -a mode_list <<<"$modes"
 for mode in "${mode_list[@]}"; do
   d="$out/$mode"; mkdir -p "$d"
@@ -86,7 +98,8 @@ for mode in "${mode_list[@]}"; do
   sleep 20   # the launcher and system UI settle (a first screenshot of a booting system shows an ANR dialog)
   if [ "$session" = qa ] || [ "$session" = both ]; then
     python3 "$here/mobile_qa.py" android --out "$d" --apk "$apk" --package "$pkg" --activity "${act:-}" \
-      --label "$label" --gpu "$mode" ${AZ_QA_POINTS:+--points "$AZ_QA_POINTS"} 2>&1 | tee "$d/qa.log"
+      --label "$label" --gpu "$mode" ${AZ_QA_POINTS:+--points "$AZ_QA_POINTS"} \
+      ${AZ_QA_SERIES:+--series "$AZ_QA_SERIES"} ${floor_apk:+--floor-apk "$floor_apk"} 2>&1 | tee "$d/qa.log"
   fi
   if [ "$session" = e2e ] || [ "$session" = both ]; then
     scen=()
