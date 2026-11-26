@@ -294,6 +294,20 @@ def lib_file(libs_dir, artifact, kind):
     return f if f.is_file() else None
 
 
+def ios_plist_env(app):
+    """The Info.plist texts of an app as the environment build-ios.sh reads them: AZ_IOS_LOCAL_NETWORK (the Local Network prompt, with
+    NSBonjourServices _irohv1._udp), AZ_IOS_USAGE (one NS...UsageDescription=text per line) and AZ_IOS_BONJOUR_SERVICES."""
+    env = {}
+    ios = app.get("ios") or {}
+    if ios.get("local_network"):
+        env["AZ_IOS_LOCAL_NETWORK"] = ios["local_network"]
+    if ios.get("usage"):
+        env["AZ_IOS_USAGE"] = "\n".join(f"{k}={v}" for k, v in sorted(ios["usage"].items()))
+    if ios.get("bonjour_services"):
+        env["AZ_IOS_BONJOUR_SERVICES"] = ",".join(ios["bonjour_services"])
+    return env
+
+
 def strings_dir(app, work):
     """<work>/<lang>.lproj/InfoPlist.strings from the manifest's [app.ios.strings.<lang>]."""
     strings = (app.get("ios") or {}).get("strings") or {}
@@ -349,13 +363,7 @@ def phone(args, job, kind):
                        AZ_IOS_SYMBOL_JSON=str(job.results / f"{pkg}.{column}{'-e2e' if variant else ''}.symbols.json"),
                        BUNDLE_ID=app["bundle_id"], DISPLAY_NAME=app["name"] + (" e2e" if variant else ""), VERSION="0.2.0",
                        BUILD=ver["build"])
-            ios = app.get("ios") or {}
-            if ios.get("local_network"):
-                env["AZ_IOS_LOCAL_NETWORK"] = ios["local_network"]
-            if ios.get("usage"):
-                env["AZ_IOS_USAGE"] = "\n".join(f"{k}={v}" for k, v in sorted(ios["usage"].items()))
-            if ios.get("bonjour_services"):
-                env["AZ_IOS_BONJOUR_SERVICES"] = ",".join(ios["bonjour_services"])
+            env.update(ios_plist_env(app))
             sd = strings_dir(app, work / "strings")
             if sd:
                 env["AZ_IOS_STRINGS_DIR"] = str(sd)

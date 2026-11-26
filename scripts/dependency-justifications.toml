@@ -215,6 +215,8 @@ twox-hash = "xxHash checksums for turso_core's cache keys and page integrity."
 # === HTTP client & URL ===
 ureq = "Blocking HTTP client — image/font/asset fetch and azul-layout network loads."
 ureq-proto = "HTTP/1.1 protocol state machine backing ureq."
+socks = "SOCKS4/SOCKS5 client that ureq's socks-proxy feature uses to go through a SOCKS proxy (azul-layout's http: the updater, telemetry, map tiles and http_get behind a proxy named by ALL_PROXY or http_proxy as socks5://...)."
+winreg = "Windows registry bindings, read-only: ureq's win-system-proxy feature reads the proxy that Internet Options names (HKCU, Windows builds only), for a machine whose proxy is set there and not in the environment."
 http = "Standard HTTP request/response types used by ureq."
 httparse = "Fast HTTP/1.x header parser used by ureq-proto."
 url = "URL parsing/normalization for fetching remote resources."
