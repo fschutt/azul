@@ -1131,7 +1131,7 @@ fn begin(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor, script: Opt
         let language = language_of(&s.kit);
         let id = s.next_note_id;
         s.next_note_id += 1;
-        s.notes.push(Note::listening(id, anchor.page, anchor.x, anchor.y, &language));
+        s.start_conversation(Note::listening(id, anchor.page, anchor.x, anchor.y, &language));
         let session = s.voice.next_session;
         s.voice.next_session += 1;
         let stop = Arc::new(AtomicBool::new(false));

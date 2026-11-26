@@ -69,6 +69,8 @@ static AzCssPropertyWithConditionsVec style_text(void) {
             AzCssPropertyWithConditions_simple(AzCssProperty_direction((AzStyleDirectionValue){ .Exact = { .tag = AzStyleDirectionValue_Tag_Exact, .payload = AzStyleDirection_Rtl } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_userSelect(AzStyleUserSelect_None)),
             AzCssPropertyWithConditions_simple(AzCssProperty_textDecoration(AzStyleTextDecoration_Underline)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textDecorationColor((AzStyleTextDecorationColorValue){ .Exact = { .tag = AzStyleTextDecorationColorValue_Tag_Exact, .payload = AzStyleTextDecorationColor_color((AzColorU){ .r = 204, .g = 51, .b = 0, .a = 255 }) } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textDecorationThickness((AzStyleTextDecorationThicknessValue){ .Exact = { .tag = AzStyleTextDecorationThicknessValue_Tag_Exact, .payload = AzStyleTextDecorationThickness_length(AzPixelValue_px(2.0f)) } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_hyphenationLanguage((AzStyleHyphenationLanguageValue){ .Exact = { .tag = AzStyleHyphenationLanguageValue_Tag_Exact, .payload = (AzStyleHyphenationLanguage){ .inner = AzString_copyFromBytes((const uint8_t*)"en-US", 0, 5) } } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_exclusionMargin((AzStyleExclusionMarginValue){ .Exact = { .tag = AzStyleExclusionMarginValue_Tag_Exact, .payload = (AzStyleExclusionMargin){ .inner = AzFloatValue_create(10.5f) } } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_caretColor((AzCaretColor){ .inner = (AzColorU){ .r = 255, .g = 0, .b = 0, .a = 255 } })),
@@ -79,7 +81,7 @@ static AzCssPropertyWithConditionsVec style_text(void) {
             AzCssPropertyWithConditions_simple(AzCssProperty_selectionRadius((AzSelectionRadiusValue){ .Exact = { .tag = AzSelectionRadiusValue_Tag_Exact, .payload = (AzSelectionRadius){ .inner = AzPixelValue_px(3.0f) } } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_font(AzStyleFontFamilyVec_copyFromPtr((AzStyleFontFamily[]){ AzStyleFontFamily_system(AzString_copyFromBytes((const uint8_t*)"caption", 0, 7)) }, 1))),
         },
-        63
+        65
     );
 }
 

@@ -732,6 +732,7 @@ impl FormatAsRustCode for StyleTextDecorationColor {
 /// size of the box that sets the line, whatever the font size of the text under it.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C, u8)]
+#[allow(variant_size_differences)]
 pub enum StyleTextDecorationThickness {
     /// `auto`: the thickness the font size suggests
     #[default]
@@ -2627,7 +2628,7 @@ pub fn parse_style_text_decoration_color(
     if input.eq_ignore_ascii_case("currentcolor") {
         return Ok(StyleTextDecorationColor::CurrentColor);
     }
-    crate::props::basic::color::parse_color_or_system_token(input)
+    parse_color_or_system_token(input)
         .map(StyleTextDecorationColor::Color)
         .map_err(|_| InvalidValueErr(input))
 }

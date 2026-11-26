@@ -348,8 +348,20 @@ impl DesktopWallpapers {
     /// the app was in the background). Returns whether they changed: the
     /// window's material frames then render again (their inputs carry
     /// [`Self::generation`]).
+    ///
+    /// A desktop that was never read has nothing to read again: no metal has been
+    /// drawn, and the first one reads them ([`Self::environment`]). The shells call
+    /// this at every window activation, the first of them at the window's start,
+    /// and reading the wallpaper then (120 ms on a Mac, on the window's own thread)
+    /// is work for an app that draws no metal at all.
     pub fn refresh(&self) -> bool {
-        let loader = self.state().loader;
+        let loader = {
+            let d = self.state();
+            if !d.loaded && d.generation == 0 {
+                return false;
+            }
+            d.loader
+        };
         let Some(load) = loader else {
             return false;
         };

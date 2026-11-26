@@ -65,6 +65,8 @@ public func styleText() -> [CssPropertyWithConditions] {
         CssPropertyWithConditions.simple(CssProperty.direction(StyleDirectionValue.exact(StyleDirection.rtl))),
         CssPropertyWithConditions.simple(CssProperty.userSelect(StyleUserSelect.none)),
         CssPropertyWithConditions.simple(CssProperty.textDecoration(StyleTextDecoration.underline)),
+        CssPropertyWithConditions.simple(CssProperty.textDecorationColor(StyleTextDecorationColorValue.exact(StyleTextDecorationColor.color(ColorU(r: 204, g: 51, b: 0, a: 255))))),
+        CssPropertyWithConditions.simple(CssProperty.textDecorationThickness(StyleTextDecorationThicknessValue.exact(StyleTextDecorationThickness.length(PixelValue.px(2.0))))),
         CssPropertyWithConditions.simple(CssProperty.hyphenationLanguage(StyleHyphenationLanguageValue.exact(StyleHyphenationLanguage(inner: "en-US")))),
         CssPropertyWithConditions.simple(CssProperty.exclusionMargin(StyleExclusionMarginValue.exact(StyleExclusionMargin(inner: FloatValue(10.5))))),
         CssPropertyWithConditions.simple(CssProperty.caretColor(CaretColor(inner: ColorU(r: 255, g: 0, b: 0, a: 255)))),

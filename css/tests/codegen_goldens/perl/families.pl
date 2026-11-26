@@ -52,6 +52,8 @@ sub css_str {
 # dropped a value these bindings cannot build: `StyleTextAlignLastValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleTextTransformValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleDirectionValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleTextDecorationColorValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleTextDecorationThicknessValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleHyphenationLanguageValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleExclusionMarginValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `CaretWidthValue` is a fake-layout record in the Perl bindings (tag + byte blob)

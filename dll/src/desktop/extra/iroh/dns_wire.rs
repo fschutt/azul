@@ -158,6 +158,28 @@ pub(super) fn describe_error(code: i32) -> String {
     }
 }
 
+/// The value of the attribute `key` in the data of a TXT record (RFC 6763, section 6): strings of
+/// at most 255 bytes, each behind a length byte, `key=value` (a string without `=` is an attribute
+/// without a value, and has none). Keys are case-insensitive, the first one of a key counts, a
+/// value may hold `=` or be empty. `None` when the key is absent, has no value, or the value is not
+/// UTF-8, and when the data runs out in the middle of a string: never a panic.
+pub(super) fn txt_value(rdata: &[u8], key: &str) -> Option<String> {
+    let mut at = 0usize;
+    while at < rdata.len() {
+        let length = usize::from(rdata[at]);
+        at += 1;
+        let string = rdata.get(at..at + length)?;
+        at += length;
+        let Some(equals) = string.iter().position(|byte| *byte == b'=') else {
+            continue;
+        };
+        if string[..equals].eq_ignore_ascii_case(key.as_bytes()) {
+            return String::from_utf8(string[equals + 1..].to_vec()).ok();
+        }
+    }
+    None
+}
+
 /// The key a host name is filed under while a lookup collects the SRV targets and the addresses of
 /// their hosts: lower case with one trailing dot. DNS names are case-insensitive, and the system may
 /// hand a name back in another case or without its root dot than the SRV record carried it in; two

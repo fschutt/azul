@@ -118,6 +118,8 @@ mod text_rig;
 
 #[path = "a_bold_request_draws_the_bold_instance_of_a_variable_font.rs"]
 mod a_bold_request_draws_the_bold_instance_of_a_variable_font;
+#[path = "a_callback_that_asks_for_hid_is_the_first_use_of_hid.rs"]
+mod a_callback_that_asks_for_hid_is_the_first_use_of_hid;
 #[path = "a_caret_counts_bytes_in_its_own_block.rs"]
 mod a_caret_counts_bytes_in_its_own_block;
 #[path = "a_classic_thumb_stops_above_its_bottom_button.rs"]
@@ -164,6 +166,8 @@ mod app_caret_moves;
 mod app_target;
 #[path = "azul_widgets_demo_follows_the_theme.rs"]
 mod azul_widgets_demo_follows_the_theme;
+#[path = "azul_widgets_toolbar_wraps_on_a_narrow_screen.rs"]
+mod azul_widgets_toolbar_wraps_on_a_narrow_screen;
 #[path = "block_edge_keys.rs"]
 mod block_edge_keys;
 #[path = "block_merge_filter.rs"]
@@ -198,6 +202,8 @@ mod cpurender_image_probe;
 mod cross_block_selection;
 #[path = "css_zoom_scales_flex_items_grid_items_and_blocks_alike.rs"]
 mod css_zoom_scales_flex_items_grid_items_and_blocks_alike;
+#[path = "css_zoom_scales_the_fixed_tracks_of_a_grid.rs"]
+mod css_zoom_scales_the_fixed_tracks_of_a_grid;
 #[path = "delete_keyed_to_caret_owner.rs"]
 mod delete_keyed_to_caret_owner;
 #[path = "damage_raster_reports_what_it_painted.rs"]
@@ -494,6 +500,8 @@ mod text_rendering_optimize_speed_turns_the_kerning_and_the_ligatures_off;
 mod text_shadow_wraps_the_text_it_shadows_in_the_display_list;
 #[path = "text_transform_changes_the_letters_that_are_drawn.rs"]
 mod text_transform_changes_the_letters_that_are_drawn;
+#[path = "text_underline_offset_and_position_place_the_underline_of_a_box.rs"]
+mod text_underline_offset_and_position_place_the_underline_of_a_box;
 #[path = "text_wrap_balances_and_pretty_breaks_a_paragraph_and_nowrap_keeps_it_on_one_line.rs"]
 mod text_wrap_balances_and_pretty_breaks_a_paragraph_and_nowrap_keeps_it_on_one_line;
 #[path = "text3_baseline_exact.rs"]

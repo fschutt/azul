@@ -855,3 +855,37 @@ fn the_agent_is_told_of_the_ink_near_the_note_it_is_asked_about_and_of_none_for_
     assert_eq!(told[0].samples.len(), 2);
     assert!(s.strokes_for_request(404).is_empty());
 }
+
+// ---- the revision a conversation begins at ----
+
+#[test]
+fn a_conversation_that_begins_keeps_the_revision_the_workspace_is_at_then_and_none_where_there_is_no_repository() {
+    let dir = std::env::temp_dir().join(format!("azreview-start-{}-{:?}", std::process::id(), std::thread::current().id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join(".git/refs/heads")).expect("a repository");
+    std::fs::write(dir.join(".git/HEAD"), "ref: refs/heads/main\n").expect("HEAD");
+    std::fs::write(dir.join(".git/refs/heads/main"), "0123456789abcdef0123456789abcdef01234567\n").expect("a ref");
+    let mut s = AppState::create(dir.clone(), vec![file()], RefAny::new(0u8), PathBuf::new());
+    let note = |id| Note {
+        id,
+        page: 0,
+        x: 0.0,
+        y: 0.0,
+        text: "this".to_string(),
+        language: String::new(),
+        state: model::NoteState::Done,
+        talk: conversation::Conversation::default(),
+    };
+    s.start_conversation(note(1));
+    assert_eq!(s.notes[0].talk.base.as_deref(), Some("0123456789abcdef0123456789abcdef01234567"));
+    // the branch moves on: the one that began keeps the revision it began at, the next one has the new one
+    std::fs::write(dir.join(".git/refs/heads/main"), "fedcba9876543210fedcba9876543210fedcba98\n").expect("a ref");
+    s.start_conversation(note(2));
+    assert_eq!(s.notes[0].talk.base.as_deref(), Some("0123456789abcdef0123456789abcdef01234567"));
+    assert_eq!(s.notes[1].talk.base.as_deref(), Some("fedcba9876543210fedcba9876543210fedcba98"));
+    let _ = std::fs::remove_dir_all(&dir);
+    // a workspace with no root (the tests'): no repository, no revision
+    let mut plain = AppState::create(PathBuf::new(), vec![file()], RefAny::new(0u8), PathBuf::new());
+    plain.start_conversation(note(3));
+    assert_eq!(plain.notes[0].talk.base, None);
+}

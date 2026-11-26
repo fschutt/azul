@@ -3519,19 +3519,6 @@ pub mod text_bridge {
         }
     }
 
-    /// `InputConnection.getTextBeforeCursor` — the `n` bytes before the caret.
-    ///
-    /// This and its two siblings are what make an IME useful rather than merely
-    /// functional: autocorrect, the suggestion strip, swipe typing and
-    /// double-space-inserts-a-period all interrogate the text around the
-    /// cursor. `BaseInputConnection`'s default answers come from its own local
-    /// Editable, which for us is an empty scratch buffer — so the IME saw a
-    /// permanently blank document and offered nothing.
-    ///
-    /// Byte-clamped to a char boundary: slicing a UTF-8 string at an arbitrary
-    /// byte panics, and `n` is a count the IME chose with no idea of our
-    /// encoding.
-    #[no_mangle]
     /// The focused control's IME hints, packed into one int.
     ///
     /// `purpose | (multiline << 8)`. Packed rather than two JNI calls because
@@ -3561,6 +3548,19 @@ pub mod text_bridge {
         packed
     }
 
+    /// `InputConnection.getTextBeforeCursor` — the `n` bytes before the caret.
+    ///
+    /// This and its two siblings are what make an IME useful rather than merely
+    /// functional: autocorrect, the suggestion strip, swipe typing and
+    /// double-space-inserts-a-period all interrogate the text around the
+    /// cursor. `BaseInputConnection`'s default answers come from its own local
+    /// Editable, which for us is an empty scratch buffer — so the IME saw a
+    /// permanently blank document and offered nothing.
+    ///
+    /// Byte-clamped to a char boundary: slicing a UTF-8 string at an arbitrary
+    /// byte panics, and `n` is a count the IME chose with no idea of our
+    /// encoding.
+    #[no_mangle]
     pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeGetTextBeforeCursor(
         env: *mut jni::sys::JNIEnv,
         _class: jni::sys::jclass,

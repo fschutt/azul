@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# android_qa.sh: the lifecycle QA of ONE APK on an x86_64 emulator, once per GPU mode of the emulator.
+#
+#   scripts/ci/android_qa.sh <out-dir> <apk> [<gpu-modes: comma list, default swiftshader_indirect,guest>] [<label>] [<session>]
+#
+#   session  qa (default): scripts/ci/mobile_qa.py, the lifecycle of the plain APK;
+#            e2e: scripts/ci/mobile_e2e.py, the debug server of a `mobile-e2e` APK driven from the runner (the scenario
+#                 files named in AZ_QA_SCENARIOS, space separated);
+#            both: qa, then e2e on the same boot.
+#
+# For an Ubuntu runner with KVM (without it the emulator is unusable) and the runner's Android SDK. Per GPU
+# mode <out-dir>/<mode>/ holds what scripts/ci/mobile_qa.py writes (qa.json, qa.md, shots/, logs/) and the
+# emulator's own log. Exit 0 when the emulators ran (the verdicts are in the qa.json files: a failing app is a
+# RESULT of this job, not a failure of it); 2 when the SDK could not be set up.
+#
+# What the emulator's GPU modes are (emulator -help-gpu): `swiftshader_indirect` = OpenGL ES 3 in software on the
+# host, so the guest's compositor (SurfaceFlinger) has a GL ES it can use; `guest` = the guest renders with its
+# own software GL ES and the host only shows the pixels; `off` = no GL ES emulation at all. The azul app draws
+# with its own CPU renderer into the window's buffer in every mode (dll/src/desktop/shell2/android: ANativeWindow_lock),
+# so the modes differ in how the SYSTEM composes that buffer, not in how the app renders.
+set -uo pipefail
+
+out="${1:?out-dir}"; apk="${2:?apk}"; modes="${3:-swiftshader_indirect,guest}"; label="${4:-AzWidgets}"; session="${5:-qa}"
+here="$(cd "$(dirname "$0")" && pwd)"
+mkdir -p "$out"
+
+: "${ANDROID_HOME:=${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+export ANDROID_HOME ANDROID_SDK_ROOT="$ANDROID_HOME"
+sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
+[ -x "$sdk/sdkmanager" ] || sdk="$(dirname "$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | tail -n 1)")"
+export PATH="$sdk:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+image="${AZ_ANDROID_IMAGE:-system-images;android-34;default;x86_64}"
+# The package the APK declares (aapt2 of build-tools 34)
+aapt2="$ANDROID_HOME/build-tools/34.0.0/aapt2"
+
+if [ -e /dev/kvm ]; then
+  echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+  sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
+else
+  echo "::warning::no /dev/kvm on this runner: the emulator will be very slow or refuse to start"
+fi
+
+yes | sdkmanager --licenses >/dev/null 2>&1 || true
+sdkmanager --install "emulator" "platform-tools" "build-tools;34.0.0" "$image" >"$out/sdkmanager.log" 2>&1 \
+  || { echo "sdkmanager failed:"; tail -n 20 "$out/sdkmanager.log"; exit 2; }
+emulator -version 2>&1 | head -n 3 | tee "$out/emulator-version.txt"
+
+badging="$("$aapt2" dump badging "$apk" 2>/dev/null || true)"
+pkg="$(echo "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+act="$(echo "$badging" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" | head -n 1)"
+[ -n "$pkg" ] || { echo "no package in the APK's badging"; exit 2; }
+echo "apk: $apk package=$pkg activity=${act:-?}"
+printf '%s\n' "$badging" >"$out/badging.txt"
+
+IFS=',' read -r -a mode_list <<<"$modes"
+for mode in "${mode_list[@]}"; do
+  d="$out/$mode"; mkdir -p "$d"
+  echo "================ emulator GPU mode: $mode ================"
+  adb kill-server >/dev/null 2>&1 || true
+  echo no | avdmanager create avd --force -n "qa_$mode" -k "$image" -d pixel_6 >"$d/avd.log" 2>&1 \
+    || { cat "$d/avd.log"; echo '{"booted": false, "reason": "avdmanager failed"}' >"$d/boot.json"; continue; }
+  # a soft keyboard on the screen (an emulator with a hardware keyboard shows none)
+  cfg="$HOME/.android/avd/qa_$mode.avd/config.ini"
+  { echo "hw.keyboard=no"; echo "hw.ramSize=3072"; echo "disk.dataPartition.size=4G"; } >>"$cfg" 2>/dev/null || true
+  boot_start=$(date +%s)
+  nohup emulator -avd "qa_$mode" -no-window -no-audio -no-boot-anim -no-snapshot -gpu "$mode" -accel on \
+    -memory 3072 -cores 3 -no-metrics >"$d/emulator.log" 2>&1 &
+  emu=$!
+  adb start-server >/dev/null 2>&1
+  adb wait-for-device
+  booted=0
+  for _ in $(seq 1 150); do   # 12.5 minutes
+    if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then booted=1; break; fi
+    kill -0 "$emu" 2>/dev/null || break
+    sleep 5
+  done
+  if [ "$booted" != "1" ]; then
+    echo "the emulator did not finish booting in mode $mode"; tail -n 30 "$d/emulator.log"
+    printf '{"booted": false, "mode": "%s", "reason": "no sys.boot_completed"}\n' "$mode" >"$d/boot.json"
+    adb emu kill >/dev/null 2>&1 || true; kill "$emu" 2>/dev/null || true; wait "$emu" 2>/dev/null || true
+    continue
+  fi
+  boot_s=$(( $(date +%s) - boot_start ))
+  printf '{"booted": true, "mode": "%s", "boot_seconds": %d}\n' "$mode" "$boot_s" >"$d/boot.json"
+  echo "emulator booted in ${boot_s}s: $(adb shell getprop ro.product.cpu.abi | tr -d '\r'), API $(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+  sleep 20   # the launcher and system UI settle (a first screenshot of a booting system shows an ANR dialog)
+  if [ "$session" = qa ] || [ "$session" = both ]; then
+    python3 "$here/mobile_qa.py" android --out "$d" --apk "$apk" --package "$pkg" --activity "${act:-}" \
+      --label "$label" --gpu "$mode" ${AZ_QA_POINTS:+--points "$AZ_QA_POINTS"} 2>&1 | tee "$d/qa.log"
+  fi
+  if [ "$session" = e2e ] || [ "$session" = both ]; then
+    scen=()
+    for f in ${AZ_QA_SCENARIOS:-}; do scen+=(--scenario "$f"); done
+    python3 "$here/mobile_e2e.py" android --out "$d/e2e" --apk "$apk" --package "$pkg" --activity "${act:-}" \
+      --label "$label e2e" ${scen[@]+"${scen[@]}"} 2>&1 | tee "$d/e2e.log"
+  fi
+  adb emu kill >/dev/null 2>&1 || true
+  sleep 3
+  kill "$emu" 2>/dev/null || true
+  wait "$emu" 2>/dev/null || true
+done
+
+python3 - "$out" <<'PY'
+import json, pathlib, sys
+out = pathlib.Path(sys.argv[1])
+rows = []
+for q in sorted(list(out.glob("*/qa.json")) + list(out.glob("*/e2e/qa.json"))):
+    d = json.loads(q.read_text())
+    failed = [s["name"] for s in d["steps"] if not s["ok"]]
+    rows.append({"mode": str(q.parent.relative_to(out)), "ok": d["ok"], "steps": len(d["steps"]), "failed": failed})
+(out / "summary.json").write_text(json.dumps(rows, indent=2))
+for r in rows:
+    print(f"[{'PASS' if r['ok'] else 'FAIL'}] gpu mode {r['mode']}: {r['steps'] - len(r['failed'])}/{r['steps']} steps" + (f"; failed: {', '.join(r['failed'])}" if r['failed'] else ""))
+PY
+exit 0

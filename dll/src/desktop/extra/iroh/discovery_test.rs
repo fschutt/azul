@@ -185,12 +185,14 @@ fn the_lookup_hands_the_endpoint_what_its_inner_lookup_found_cut_down() {
         relay(),
     ]);
     let ignored = Arc::new(AtomicU64::new(0));
+    let nearby = Arc::new(Nearby::new(id(1)));
     let lookup = LocalLookup::new(
         Fixed {
             item,
             published: Mutex::default(),
         },
         ignored.clone(),
+        nearby.clone(),
     );
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -208,6 +210,14 @@ fn the_lookup_hands_the_endpoint_what_its_inner_lookup_found_cut_down() {
     );
     assert_eq!(found.relay_urls().count(), 0);
     assert_eq!(ignored.load(Ordering::Relaxed), 1);
+
+    // what a dial finds, the list of the network hears too: that endpoint is nearby, with the
+    // text it advertised and the addresses a dial can use
+    let listed = nearby.list();
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0].id, id(7));
+    assert_eq!(listed[0].advertised, "user data");
+    assert_eq!(listed[0].addresses, vec![ip("192.168.1.8:4000")]);
 
     // what the endpoint publishes goes through to the inner lookup unchanged
     let data = EndpointData::new(vec![TransportAddr::Ip(ip("192.168.1.8:4000")), relay()]);
