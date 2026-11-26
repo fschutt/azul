@@ -15,8 +15,20 @@
 pub mod compositor;
 pub mod cpu_compositor;
 pub mod dlopen;
+/// EGL for OpenGL ES, loaded at run time: the GPU path of the phone shells (Android), and the host test of it (Linux).
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub mod egl_gles;
+/// The pure tables of the EGL binding: constants, extension caps, config requests, damage rectangles, swap errors.
+pub mod egl_pure;
 pub mod error;
 pub mod gl_loader;
+/// What an OpenGL ES context says about itself, read as a decision: version, software or emulated, WebRender's minimum.
+pub mod gles_probe;
+/// The shared WebRender bring-up of the phone shells' GPU paths and the steps of a GPU frame.
+pub mod gpu_renderer;
+/// The GPU renderer on OpenGL ES against the CPU renderer, on a host with Mesa (test only).
+#[cfg(all(test, target_os = "linux"))]
+mod gles_host_test;
 
 // Unified cross-platform modules
 pub mod accessibility;

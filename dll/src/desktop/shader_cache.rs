@@ -27,11 +27,75 @@ use std::{
 
 use webrender::{ProgramBinary, ProgramCache, ProgramCacheObserver, ProgramSourceDigest};
 
+/// The most program binaries one renderer's cache directory keeps. WebRender has a few hundred shader variants and an app
+/// uses a few dozen of them; a directory with more files than this is not ours any more (or a driver that writes a new
+/// binary per run), and it is emptied.
+pub const MAX_CACHED_PROGRAMS: usize = 512;
+
+/// The most bytes one renderer's cache directory keeps (program binaries are 20 to 300 KB).
+pub const MAX_CACHE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Whether a cache directory of `files` files and `bytes` bytes is over the caps: it is emptied, the programs compile
+/// again, and the cache fills up once more.
+#[must_use]
+pub const fn over_cap(files: usize, bytes: u64) -> bool {
+    files > MAX_CACHED_PROGRAMS || bytes > MAX_CACHE_BYTES
+}
+
+/// Checks a directory the platform hands the cache (an app's private cache directory): absolute, no `..`, a sane
+/// length. A relative path would put the cache wherever the process happens to run.
+///
+/// # Errors
+///
+/// What is wrong with it, in a word the diagnostic line shows.
+pub fn validate_base_dir(dir: &Path) -> Result<(), String> {
+    if !dir.is_absolute() {
+        return Err(format!("{} is not an absolute path", dir.display()));
+    }
+    if dir
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(format!("{} contains ..", dir.display()));
+    }
+    if dir.as_os_str().len() > 1024 {
+        return Err("the path is longer than 1024 bytes".to_owned());
+    }
+    Ok(())
+}
+
+/// Where an Android app keeps the compiled programs, best first, from the app's private files directory
+/// (`AndroidApp::internal_data_path`, `/data/user/0/<package>/files`): the app's `cache` directory beside it (the
+/// system empties it when storage runs low, which is what a cache wants), else a directory of its own in `files`.
+#[must_use]
+pub fn android_cache_candidates(internal_data_path: &Path) -> Vec<PathBuf> {
+    let mut candidates = Vec::with_capacity(2);
+    if let Some(app_dir) = internal_data_path.parent() {
+        candidates.push(app_dir.join("cache").join("azul").join("shaders"));
+    }
+    candidates.push(internal_data_path.join("azul-shaders"));
+    candidates
+}
+
+/// What opening a program cache did: the cache WebRender takes, how many program binaries were read from disk
+/// (0 is a cold start, more a warm one), where, and why there is none.
+#[derive(Debug, Clone, Default)]
+pub struct ProgramCacheStatus {
+    /// The directory in use.
+    pub dir: Option<PathBuf>,
+    /// The program binaries read from disk.
+    pub loaded: usize,
+    /// Why no cache is kept (a directory that cannot be made, a platform without one), when it is not.
+    pub problem: Option<String>,
+}
+
 /// Disk-backed shader cache that implements WebRender's ProgramCacheObserver trait.
 pub struct ShaderDiskCache {
     /// Directory where this cache stores shader binaries.
     /// Includes the renderer hash subdirectory.
     cache_dir: PathBuf,
+    /// A failed write was reported once: a read-only or full disk is one diagnostic, not one per program.
+    write_failure_reported: std::sync::atomic::AtomicBool,
 }
 
 impl ShaderDiskCache {
@@ -42,7 +106,28 @@ impl ShaderDiskCache {
     ///
     /// Returns `None` if the cache directory cannot be determined.
     pub fn new(gl_renderer: &str, gl_version: &str) -> Option<Self> {
-        let base = get_shader_cache_base_dir()?;
+        Self::open(None, gl_renderer, gl_version).ok()
+    }
+
+    /// Like [`Self::new`] under `base_dir` (an app's private cache directory) when one is given, and with the reason
+    /// when there is no cache. A directory over the caps ([`over_cap`]) is emptied.
+    ///
+    /// # Errors
+    ///
+    /// The directory is not valid, cannot be made, or the platform has none.
+    pub fn open(
+        base_dir: Option<&Path>,
+        gl_renderer: &str,
+        gl_version: &str,
+    ) -> Result<Self, String> {
+        let base = match base_dir {
+            Some(dir) => {
+                validate_base_dir(dir)?;
+                dir.to_path_buf()
+            }
+            None => get_shader_cache_base_dir()
+                .ok_or_else(|| "this platform keeps no shader cache".to_owned())?,
+        };
 
         // Hash renderer + version to create a unique subdirectory
         let mut hasher = DefaultHasher::new();
@@ -53,11 +138,49 @@ impl ShaderDiskCache {
         let cache_dir = base.join(format!("{:016x}", renderer_hash));
 
         // Ensure directory exists
-        if std::fs::create_dir_all(&cache_dir).is_err() {
-            return None;
-        }
+        std::fs::create_dir_all(&cache_dir)
+            .map_err(|e| format!("cannot make {}: {e}", cache_dir.display()))?;
 
-        Some(ShaderDiskCache { cache_dir })
+        let cache = ShaderDiskCache {
+            cache_dir,
+            write_failure_reported: std::sync::atomic::AtomicBool::new(false),
+        };
+        // The caps are for the directory an app was handed (a phone's cache directory); the desktop's own directory is
+        // as it was (it grows with every WebRender build: a ledger row, not a change of this commit).
+        if base_dir.is_some() {
+            cache.empty_when_over_cap();
+        }
+        Ok(cache)
+    }
+
+    /// The directory of this renderer's binaries.
+    pub fn dir(&self) -> &Path {
+        &self.cache_dir
+    }
+
+    /// Empties the directory when it is over the caps.
+    fn empty_when_over_cap(&self) {
+        let Ok(entries) = std::fs::read_dir(&self.cache_dir) else {
+            return;
+        };
+        let (mut files, mut bytes) = (0_usize, 0_u64);
+        let mut paths = Vec::new();
+        for entry in entries.flatten() {
+            files += 1;
+            bytes += entry.metadata().map_or(0, |m| m.len());
+            paths.push(entry.path());
+        }
+        if over_cap(files, bytes) {
+            crate::plog_warn!(
+                "[Shader Cache] {} holds {} files, {} bytes: over the caps, emptied",
+                self.cache_dir.display(),
+                files,
+                bytes
+            );
+            for path in paths {
+                let _ = std::fs::remove_file(path);
+            }
+        }
     }
 
     /// Try to load all cached shader binaries from disk into the ProgramCache.
@@ -117,7 +240,8 @@ impl ShaderDiskCache {
         }
 
         // Write binary data
-        if std::fs::write(&bin_path, &binary.bytes).is_err() {
+        if let Err(e) = std::fs::write(&bin_path, &binary.bytes) {
+            self.report_write_failure(&e);
             return;
         }
 
@@ -125,9 +249,24 @@ impl ShaderDiskCache {
         let mut meta = Vec::with_capacity(12);
         meta.extend_from_slice(&binary.format.to_le_bytes());
         meta.extend_from_slice(&binary.source_digest.0.to_le_bytes());
-        if std::fs::write(&meta_path, &meta).is_err() {
+        if let Err(e) = std::fs::write(&meta_path, &meta) {
+            self.report_write_failure(&e);
             // Remove orphaned .bin file to keep cache consistent
             let _ = std::fs::remove_file(&bin_path);
+        }
+    }
+
+    /// A write that failed (a full or read-only disk) is a diagnostic, once, never a crash: the programs compile
+    /// again next start.
+    fn report_write_failure(&self, error: &std::io::Error) {
+        if !self
+            .write_failure_reported
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            crate::plog_warn!(
+                "[Shader Cache] cannot write to {}: {error}; the programs compile again at the next start",
+                self.cache_dir.display()
+            );
         }
     }
 }
@@ -206,3 +345,7 @@ fn get_shader_cache_base_dir() -> Option<PathBuf> {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "shader_cache_test.rs"]
+mod tests;
