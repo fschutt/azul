@@ -1545,7 +1545,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                              logical={}x{}",
                             nw.width(),
                             nw.height(),
-                            density,
+                            app.config().density().unwrap_or(0),
                             dpi,
                             logical_w,
                             logical_h,
