@@ -525,6 +525,49 @@ class PurposeStringsTest(unittest.TestCase):
         self.assertIn("AZ_IOS_SYMBOL_JSON", (HERE / "demo_build.py").read_text(encoding="utf-8"))
 
 
+class AbiGuardInitializerTest(unittest.TestCase):
+    """`xcrun dyld_info -inits` of an Apple binary lists its initializers (the entries of __init_offsets on iOS, __mod_init_func on macOS).
+    The generated ABI guard's load-time entry is ONE of them: dyld_info prints a Rust function pointer anonymously, so ONE entry is the
+    expected evidence and none is the failure to look for (the iOS shell agent, from a miniature of the guard)."""
+
+    ONE = "demo-out/apps/AzWidgets-macos [arm64]:\n    -inits:\n        0x00024068  <anon-00024068>\n"
+    TWO = ONE + "        0x00031010  _some_c_constructor\n"
+    NONE = "demo-out/apps/AzWidgets-macos [arm64]:\n    -inits:\n"
+
+    def test_the_entries_of_the_listing_are_counted(self):
+        self.assertEqual(demo_build.count_initializers(self.ONE), 1)
+        self.assertEqual(demo_build.count_initializers(self.TWO), 2)
+        self.assertEqual(demo_build.count_initializers(self.NONE), 0)
+        self.assertEqual(demo_build.count_initializers(""), 0)
+
+    def test_a_machine_without_the_tool_says_nothing(self):
+        self.assertIsNone(demo_build.apple_initializers("/no/such/binary", which=lambda name: None))
+
+    def test_the_count_travels_in_the_result_and_the_status_says_one_initializer(self):
+        m = demo_apps.load()
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "AzWidgets.ios-sim.result.json").write_text(json.dumps({
+                "app": "AzWidgets", "column": "ios-sim", "status": "built", "size": 2048, "shipped_size": 2048, "seconds": 60,
+                "engine_crates": [], "artifact": "AzWidgets-ios-sim.app.zip", "initializers": 1}))
+            (root / "AzMaps.ios-sim.result.json").write_text(json.dumps({
+                "app": "AzMaps", "column": "ios-sim", "status": "built", "size": 2048, "shipped_size": 2048, "seconds": 60,
+                "engine_crates": [], "artifact": "AzMaps-ios-sim.app.zip", "initializers": 0}))
+            data, md = demo_apps.status([root], m=m)
+        cell = next(r for r in data["apps"] if r["app"] == "AzWidgets")["cells"]["ios-sim"]
+        self.assertEqual(cell["initializers"], 1)
+        self.assertIn("1 initializer", md)
+        self.assertNotIn("1 initializers", md)
+        # none is the failure to look for
+        self.assertEqual(data["summary"]["abi_guard_missing"], ["AzMaps/ios-sim"])
+        self.assertIn("0 initializers", md)
+
+    def test_the_build_driver_counts_them_for_the_apple_binaries_only(self):
+        text = (HERE / "demo_build.py").read_text(encoding="utf-8")
+        self.assertIn("apple_initializers(", text)
+        self.assertIn('startswith("macos")', text)
+
+
 class SymbolGateStatusTest(unittest.TestCase):
     """The numbers of scripts/ci/ios_symbol_gate.py (min_os, imports, unchecked, violations[...]) travel in the small results artifact as
     <App>.<column>.symbols.json (AZ_IOS_SYMBOL_JSON) and the status table shows them next to the iOS files, as information."""

@@ -373,6 +373,15 @@ that the store delivers the updates. The HTTP client itself (map tiles, `http_ge
 requests) is part of every build except wasm32. A desktop app that is sold through the Mac App
 Store or the Microsoft Store gets the same build with azul-layout's `store_app` feature.
 
+A store build downloads data only. The one thing azul fetches on its own is the model of the
+built-in speech recognizer (a file of 16.9 MB that an engine already in the app reads): it comes
+into the app's cache folder the first time the recognizer needs it, only after the app has asked
+its user (the default is `SpeechModelDownload::Ask`; `SpeechSession.set_model_download` sets the
+policy to `Never` or `Automatic`, and `model_state` and `allow_model_download` are the state, the
+progress and the user's yes), over https, with the size and the SHA-256 of the file checked against
+the pin before it is used. Nothing that was downloaded is executed or loaded as code, and an app
+that is offline (`set_offline`) fetches nothing.
+
 ## Installing & debugging the built app
 
 You don't have to build anything to try the demos — every example is published

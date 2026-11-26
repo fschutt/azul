@@ -463,6 +463,7 @@ fn run_headless(
 fn setup_debug_and_e2e(
     config: &AppConfig,
     settings: &crate::desktop::app_settings::AppSettings,
+    startup: Arc<crate::desktop::startup_timeline::StartupTimeline>,
 ) -> (
     Option<spmc::Receiver<debug_server::DebugRequest>>,
     Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
@@ -470,7 +471,7 @@ fn setup_debug_and_e2e(
     // Lean build: no debug server, no E2E runner — AZ_DEBUG/AZ_E2E are no-ops.
     #[cfg(not(any(feature = "debug-server", feature = "e2e-scripting")))]
     {
-        let _ = (config, settings);
+        let _ = (config, settings, startup);
         (None, None)
     }
 
@@ -510,7 +511,7 @@ fn setup_debug_and_e2e(
             // identical either way.
             #[cfg(feature = "debug-server")]
             let rx = if let Some(port) = debug_port {
-                let (_handle, rx) = debug_server::start_debug_server(port);
+                let (_handle, rx) = debug_server::start_debug_server_with_startup(port, startup);
                 rx
             } else {
                 let (_handle, rx) = debug_server::create_debug_channel();
@@ -518,7 +519,7 @@ fn setup_debug_and_e2e(
             };
             #[cfg(not(feature = "debug-server"))]
             let rx = {
-                let _ = debug_port;
+                let _ = (debug_port, &startup);
                 let (_handle, rx) = debug_server::create_debug_channel();
                 rx
             };
@@ -590,13 +591,16 @@ pub fn run(
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
+    app_shared.startup().mark("run:entered");
     crate::plog_info!(
         "[macOS] run() entry — AZ_BACKEND={:?} (errors only unless AZ_LOG says more: AZ_LOG=debug, \
          AZ_LOG=trace for everything, AZ_LOG=off to silence)",
         app_shared.settings().shell.backend
     );
 
-    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config, app_shared.settings());
+    let (debug_request_rx, component_map) =
+        setup_debug_and_e2e(&config, app_shared.settings(), app_shared.startup_handle());
+    app_shared.startup().mark("run:debug_and_e2e_ready");
 
     // AZ_E2E_TEST: deterministic resize/tick scenario runner. Takes over the
     // main loop entirely (bypasses NSApplication) and exits the process after
@@ -757,6 +761,7 @@ pub fn run(
             app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
             crate::desktop::shell2::macos::setup_main_menu(&app, mtm);
         }
+        app_shared.startup().mark("run:nsapp_and_menu");
         // Application delegate: activation + dock-reopen bring the registered
         // windows to the front. Leaked on purpose - one per process, lives as
         // long as NSApp itself (releasing it would leave NSApp with a dangling
@@ -773,6 +778,7 @@ pub fn run(
         // - where it used to happen - lost exactly that click. A no-op for an
         // unbundled binary, which UN would abort.
         crate::desktop::notifications::install_launch_hooks();
+        app_shared.startup().mark("run:launch_hooks");
 
         // Create the root window with fc_cache and app_data
         // The window is automatically made visible after the first frame is ready
@@ -796,6 +802,7 @@ pub fn run(
             mtm,
         )?;
         queue_extra_windows(&mut window, extra_windows);
+        app_shared.startup().mark("run:window_created");
         debug_server::log(
             debug_server::LogLevel::Info,
             LogCategory::Window,
@@ -914,6 +921,7 @@ pub fn run(
         unsafe {
             (*window_ptr).request_redraw();
         }
+        app_shared.startup().mark("run:window_registered");
 
         unsafe {
             // finishLaunching posts NSApplicationDidFinishLaunchingNotification,
@@ -927,6 +935,7 @@ pub fn run(
                 "[macOS] finishLaunching took {} us",
                 launching.elapsed().as_micros()
             );
+            app_shared.startup().mark("run:finish_launching");
             let activating = std::time::Instant::now();
             #[allow(deprecated)]
             app.activateIgnoringOtherApps(true);
@@ -935,9 +944,11 @@ pub fn run(
                 "[macOS] activateIgnoringOtherApps took {} us",
                 activating.elapsed().as_micros()
             );
+            app_shared.startup().mark("run:activated");
         }
 
         // Choose event loop based on termination behavior
+        app_shared.startup().mark("run:event_loop_entered");
         match config.termination_behavior {
             AppTerminationBehavior::RunForever => {
                 // Standard macOS behavior: Use NSApplication.run()
@@ -1289,6 +1300,7 @@ pub fn run(
                         if crate::desktop::loop_waker::loop_may_park() {
                             if passes < FIRST_PASSES_TOLD {
                                 log_debug!(LogCategory::EventLoop, "[macOS] loop pass {}: parks", passes);
+                                app_shared.startup().mark_with("run:loop_parks", || format!("pass {passes}"));
                             }
                             let distant_future = objc2_foundation::NSDate::distantFuture();
                             let run_loop = objc2_foundation::NSRunLoop::currentRunLoop();
@@ -1300,6 +1312,7 @@ pub fn run(
                             }
                             if passes < FIRST_PASSES_TOLD {
                                 log_debug!(LogCategory::EventLoop, "[macOS] loop pass {}: woke", passes);
+                                app_shared.startup().mark_with("run:loop_woke", || format!("pass {passes}"));
                             }
                         } else if passes < FIRST_PASSES_TOLD {
                             log_debug!(LogCategory::EventLoop, "[macOS] loop pass {}: owed a wake, does not park", passes);
@@ -1506,7 +1519,8 @@ pub fn run(
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
-    let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config, app_shared.settings());
+    let (_debug_request_rx, _component_map) =
+        setup_debug_and_e2e(&config, app_shared.settings(), app_shared.startup_handle());
     #[cfg(feature = "web")]
     if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window, &app_shared.settings().shell) {
         return crate::web::run_web(
@@ -1622,7 +1636,8 @@ pub fn run(
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
-    let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config, app_shared.settings());
+    let (_debug_request_rx, _component_map) =
+        setup_debug_and_e2e(&config, app_shared.settings(), app_shared.startup_handle());
     if resolve_backend(&root_window, &app_shared.settings().shell) == super::AzBackend::Headless {
         return run_headless(
             app_data,
@@ -1698,7 +1713,8 @@ pub fn run(
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
-    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config, app_shared.settings());
+    let (debug_request_rx, component_map) =
+        setup_debug_and_e2e(&config, app_shared.settings(), app_shared.startup_handle());
     #[cfg(feature = "web")]
     if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window, &app_shared.settings().shell) {
         return crate::web::run_web(
@@ -2253,7 +2269,8 @@ pub fn run(
         app_shared.settings().platform.display,
         app_shared.settings().platform.xdg_session_type,
     );
-    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config, app_shared.settings());
+    let (debug_request_rx, component_map) =
+        setup_debug_and_e2e(&config, app_shared.settings(), app_shared.startup_handle());
 
     // AZ_E2E_TEST: deterministic headless resize/tick scenario runner — takes
     // over the run entirely and exits after the scenario. This hook existed in
