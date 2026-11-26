@@ -4,6 +4,7 @@
 //! `ui/mod.rs` and tested there.
 
 use azul::{
+    app::AppLogLevel,
     callbacks::{TextAreaOnTextInputCallbackType, TextInputOnTextInputCallbackType},
     dom::DomNodeId,
     gesture::{HapticPattern, HapticTarget},
@@ -42,9 +43,16 @@ pub struct FieldCtx {
 }
 
 /// A tap (a click, a press of Enter or Space on a focused key): does what the key says.
-pub extern "C" fn on_act(mut data: RefAny, _info: CallbackInfo) -> Update {
+pub extern "C" fn on_act(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut root_ref, action)) = data.downcast_ref::<ActCtx>().map(|c| (c.root.clone(), c.action.clone())) else {
         return Update::DoNothing;
+    };
+    // a line for a trace (AZ_LOG=info): did the tap reach the key, and which key
+    info.log(AppLogLevel::Info, AzString::from(format!("AzCompanion: tap {action:?}").as_str()));
+    // "Paste pairing code": the text is on the system clipboard now
+    let action = match action {
+        Action::PairPaste(_) => Action::PairPaste(clipboard_text(&info)),
+        other => other,
     };
     let Some(mut root) = root_ref.downcast_mut::<Root>() else {
         return Update::DoNothing;
@@ -55,6 +63,11 @@ pub extern "C" fn on_act(mut data: RefAny, _info: CallbackInfo) -> Update {
     } else {
         Update::DoNothing
     }
+}
+
+/// The text the system clipboard holds (empty when it holds none).
+fn clipboard_text(info: &CallbackInfo) -> String {
+    info.get_system_clipboard().into_option().map(|content| content.plain_text.as_str().to_string()).unwrap_or_default()
 }
 
 /// A callback that carries the app and an action, for a node that is no key (a long press on one).
@@ -212,7 +225,8 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let phone = chrome::phone(&cx);
     match &root.sim {
         Some(sim) => crate::sim::wrap(&cx, sim, phone),
-        None => phone,
+        // the phone's own app: the same tree the layout study lays out (a body round the phone), not a bare block as the root
+        None => chrome::body(phone),
     }
 }
 
@@ -246,30 +260,48 @@ pub extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCa
 /// How often the timer runs.
 pub const TICK_MS: u64 = 33;
 
-/// The window is created: the timer starts.
-pub extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Update {
+/// The window is ready: the timer starts and the phone's own app makes its connection. Two things say so, and whichever comes first
+/// does it (the second finds it done): the window's creation callback (the desktop shells call it) and the first mount of the screens
+/// (`chrome::phone` asks for it; every shell reports a mount). The phones' shells (Android, iOS) never call the creation callback, so
+/// an app that waited for it alone would never start its timer: no tick, no connection, a demo that does not walk.
+pub extern "C" fn on_window_ready(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if !data.downcast_mut::<Root>().is_some_and(|mut root| root.first_window_ready()) {
+        return Update::DoNothing;
+    }
     let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
         .with_interval(Duration::System(SystemTimeDiff::from_millis(TICK_MS)));
     info.add_timer(TimerId::unique(), timer);
-    Update::DoNothing
+    // the phone's own app connects now, not when the library loaded: the window (on Android: the activity) exists
+    let Some(mut root) = data.downcast_mut::<Root>() else {
+        return Update::DoNothing;
+    };
+    if !root.connect_later {
+        return Update::DoNothing;
+    }
+    let net = crate::net::connect();
+    for note in &net.notes {
+        info.log(AppLogLevel::Info, AzString::from(format!("AzCompanion: {note}").as_str()));
+    }
+    root.connect_now(net.api);
+    Update::RefreshDom
 }
 
-/// The window of the phone's own app: the title and the timer on creation; the size is the screen's.
+/// The window of the phone's own app: the title and the setup on creation; the size is the screen's.
 #[must_use]
 pub fn phone_window_options(title: &str) -> WindowCreateOptions {
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = AzString::from(title);
-    window.create_callback = Some(Callback::create(on_window_created)).into();
+    window.create_callback = Some(Callback::create(on_window_ready)).into();
     window
 }
 
-/// The window of the app: the title, the size (a phone's own, or the simulator's), the timer on creation.
+/// The window of the app: the title, the size (a phone's own, or the simulator's), the setup on creation.
 #[must_use]
 pub fn window_options(title: &str, size: (f32, f32), dpi: u32) -> WindowCreateOptions {
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = AzString::from(title);
     window.window_state.size.dimensions = LogicalSize::create(size.0, size.1);
     window.window_state.size.dpi = dpi;
-    window.create_callback = Some(Callback::create(on_window_created)).into();
+    window.create_callback = Some(Callback::create(on_window_ready)).into();
     window
 }
