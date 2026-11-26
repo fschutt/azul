@@ -59,6 +59,7 @@
 //! | a word said to the `Partial` that shows it | 71-235 ms (a partial every ~500 ms of audio) | 438-860 ms (median ~600) |
 //! | end of speech to the `Final`, end-point 800 / 600 ms | 946 ms / about 750 ms | 2046-2241 ms at 1500 ms, 1240 ms at 500, 1319 ms at 700 |
 //! | CPU while an utterance goes on | 9-15 % of one core (one partial decode of 1-3 s of speech about 80 ms) | 1 % here (the work is the system's speech service's) |
+//! | an armed microphone while nothing is said (the thread that keeps the last 2 s) | 0.36-0.42 % of one core, +3.3-4.6 MB of memory | the same microphone |
 //! | `wait_events`: event produced to returned | at most 1 ms | at most 1 ms |
 //! | a sentence that begins 1100 ms before the call, microphone not kept / kept | "Session is closed twice." / complete | "Is closed twice" / complete |
 //!
