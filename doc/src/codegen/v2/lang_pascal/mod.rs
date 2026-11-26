@@ -35,9 +35,10 @@
 //! fpc 3.2) and neither does `-CX- -XX-`; without its 22,000 value-layer forwarders the unit still has
 //! ~67,000 sections, and the wrapper classes refer to each other and cannot be spread over units, so
 //! the unit is not split. A Linux user compiles with `-Aas` (GNU `as` writes the object file, with the
-//! extended section numbering), and the header of the unit, the guide, the install steps in api.json
-//! and the Pascal leg of the language board all say so. The tests of this module (`unit_test.rs`)
-//! fail when the unit is past the limit and one of them does not.
+//! extended section numbering), and the header of the unit, the guide, the install steps in api.json,
+//! the Lazarus project, the Pascal leg of the language board and the programs azul-css writes for the
+//! unit all say so. The tests of this module (`unit_test.rs`) fail when the unit is past the limit and
+//! one of them does not.
 //!
 //! # Output structure (high-level)
 //!
