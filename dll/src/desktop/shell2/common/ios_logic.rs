@@ -79,6 +79,47 @@ pub fn keyboard_inset(cover: f64) -> OptionPixelValue {
     edge_inset(cover)
 }
 
+/// Whether a `UIKeyboardWillChangeFrameNotification` is about THIS app's keyboard.
+///
+/// `is_local` is the notification's `UIKeyboardIsLocalUserInfoKey`: "With Multitasking in iPadOS,
+/// the system notifies all visible apps when the keyboard appears and disappears. The value is
+/// true for the app that caused the keyboard to appear and false for the other apps." A keyboard
+/// another app raised must not inset this app's layout. A notification without the key (older
+/// systems) counts as ours.
+#[must_use]
+pub const fn keyboard_event_is_ours(is_local: Option<bool>) -> bool {
+    !matches!(is_local, Some(false))
+}
+
+/// The one character before `base` (`toward_start`) or after it in `text`, as a `(start, end)`
+/// byte range, for `characterRangeByExtendingPosition:inDirection:`.
+///
+/// `base` arrives from UIKit, computed from positions this shell handed out earlier: after the
+/// text changed it can be past the end or inside a multi-byte character, and slicing there is a
+/// panic - inside an `extern "C"` callback, an abort. It is clamped to the text and snapped down
+/// to a character boundary first. At either end of the text the range is empty (`start == end`),
+/// never inverted.
+#[must_use]
+pub fn one_character_around(text: &str, base: usize, toward_start: bool) -> (usize, usize) {
+    let mut base = base.min(text.len());
+    while base > 0 && !text.is_char_boundary(base) {
+        base -= 1;
+    }
+    if toward_start {
+        let start = text[..base]
+            .char_indices()
+            .next_back()
+            .map_or(base, |(index, _)| index);
+        (start, base)
+    } else {
+        let end = text[base..]
+            .chars()
+            .next()
+            .map_or(base, |c| base + c.len_utf8());
+        (base, end)
+    }
+}
+
 /// The name an Objective-C class is declared under on attempt `attempt`: the plain name first,
 /// then `<name>_1`, `<name>_2`, ...
 ///

@@ -291,3 +291,58 @@ fn no_uti_identifier_carries_a_nul_or_a_space() {
         assert!(!id.contains('\0') && !id.contains(' ') && id.contains('.'), "{id}");
     }
 }
+
+/// iPad multitasking tells EVERY visible app when any app's keyboard comes or goes; only the app
+/// that raised it has a keyboard over its layout.
+#[test]
+fn another_apps_keyboard_does_not_inset_this_apps_layout() {
+    assert!(keyboard_event_is_ours(Some(true)));
+    assert!(!keyboard_event_is_ours(Some(false)));
+    assert!(
+        keyboard_event_is_ours(None),
+        "no key (an older system) is the old behaviour: the keyboard is ours"
+    );
+}
+
+/// What the old arithmetic did: `text[..base.min(len)]` with whatever offset UIKit sent.
+fn the_slice_before_the_fix(text: &str, base: usize) -> std::thread::Result<(usize, usize)> {
+    std::panic::catch_unwind(|| {
+        let start = text[..base.min(text.len())]
+            .char_indices()
+            .next_back()
+            .map_or(0, |(i, _)| i);
+        (start, base)
+    })
+}
+
+/// A position UIKit hands back after the text changed can sit inside a multi-byte character; the
+/// slice there is a panic (an abort in a callback).
+#[test]
+fn extending_a_position_that_sits_inside_a_character_does_not_panic_and_never_inverts() {
+    let text = "a\u{fc}\u{20ac}\u{1f600}b"; // 1 + 2 + 3 + 4 + 1 bytes: boundaries 0 1 3 6 10 11
+    // byte 2 is inside the u-umlaut (bytes 1..3)
+    assert!(
+        the_slice_before_the_fix(text, 2).is_err(),
+        "the old slice panicked at a byte inside a character (this is the bug)"
+    );
+
+    // Towards the start: from inside the u-umlaut the position snaps down to its start (1), and
+    // the one character before that is 'a'.
+    assert_eq!(one_character_around(text, 2, true), (0, 1));
+    // Towards the end: from inside the u-umlaut the position snaps to 1 and the character after
+    // it is the u-umlaut itself.
+    assert_eq!(one_character_around(text, 2, false), (1, 3));
+    // Whole characters, every width.
+    assert_eq!(one_character_around(text, 3, true), (1, 3), "u-umlaut");
+    assert_eq!(one_character_around(text, 6, true), (3, 6), "euro sign");
+    assert_eq!(one_character_around(text, 10, true), (6, 10), "emoji");
+    assert_eq!(one_character_around(text, 6, false), (6, 10), "emoji after the euro sign");
+    // The ends: empty, never inverted, and an offset past the end is the end.
+    assert_eq!(one_character_around(text, 0, true), (0, 0));
+    assert_eq!(one_character_around(text, text.len(), false), (text.len(), text.len()));
+    assert_eq!(
+        one_character_around(text, text.len() + 50, false),
+        (text.len(), text.len())
+    );
+    assert_eq!(one_character_around("", 7, true), (0, 0));
+}

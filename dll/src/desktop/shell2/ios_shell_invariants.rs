@@ -332,3 +332,63 @@ fn the_ios_file_picker_asks_uttype_only_for_selectors_that_exist() {
     // A folder opened in place is security-scoped; the caller only receives a path.
     at(&code, "startAccessingSecurityScopedResource", "the picker's delegate");
 }
+
+/// UIKit's documented shapes of the view's overrides and of the display link: `layoutSubviews`
+/// calls super (the default implementation applies constraints and autoresizing to the subviews,
+/// and the `<webview>` containers are subviews), super is `UIView` itself and not `[self
+/// superclass]` (a KVO subclass of the view would send it back into the same override), the
+/// press sequence's cancellation is handled (a stuck key after an app switch), and the display
+/// link runs in the COMMON run-loop modes (in the default mode alone it stops while UIKit
+/// tracks a scroll, a menu or a keyboard drag).
+#[test]
+fn the_ios_view_follows_uikits_documented_override_and_run_loop_rules() {
+    let layout = body(IOS_MOD_RS, "extern \"C\" fn layout_subviews(");
+    at(layout, "super(this_mut, class!(UIView)), layoutSubviews", "layout_subviews");
+
+    let forward = body(IOS_MOD_RS, "unsafe fn forward_presses_to_super(");
+    assert!(
+        !code_of(forward).contains("superclass]"),
+        "the superclass is the UIView constant, not [self superclass]"
+    );
+    assert_eq!(forward.matches("super(this_mut, class!(UIView))").count(), 3);
+    at(IOS_MOD_RS, "sel!(pressesCancelled:withEvent:)", "the view class");
+    at(IOS_MOD_RS, "fn release_pressed_keys(", "the shell");
+    let resign = body(IOS_MOD_RS, "extern \"C\" fn app_will_resign_active(");
+    at(resign, "release_pressed_keys(window)", "applicationWillResignActive:");
+
+    let link = body(IOS_MOD_RS, "unsafe fn install_display_link(");
+    at(link, "NSRunLoopCommonModes", "install_display_link");
+    assert!(
+        !link.contains("kCFRunLoopDefaultMode"),
+        "a display link in the default mode alone stops during tracking"
+    );
+
+    // The iOS 17.5 spelling of the pencil tap is handled next to the deprecated one.
+    at(IOS_MOD_RS, "sel!(pencilInteraction:didReceiveTap:)", "the view class");
+    at(IOS_MOD_RS, "sel!(pencilInteractionDidTap:)", "the view class");
+}
+
+/// An editable `UITextInteraction` brings tap, double-tap and long-press recognizers of its own;
+/// on a view that fills the window they would turn a tap on a plain button into a request for the
+/// keyboard and a system caret. It is added while an editable node has the focus and removed when
+/// it does not (UIKit: "add the interaction that matches the state of text to the view while
+/// removing the other").
+#[test]
+fn the_ios_text_interaction_belongs_to_the_view_only_while_text_is_being_edited() {
+    let create = body(IOS_MOD_RS, "pub fn new(\n        mut options: WindowCreateOptions,");
+    assert!(
+        !create.contains("addInteraction: interaction];\n                    text_interaction"),
+        "the text interaction is created in new(), not added"
+    );
+    let keyboard = body(IOS_MOD_RS, "pub fn set_soft_keyboard_visible(visible: bool)");
+    in_order(keyboard, "addInteraction: interaction", "becomeFirstResponder", "set_soft_keyboard_visible");
+    in_order(keyboard, "resignFirstResponder", "removeInteraction: interaction", "set_soft_keyboard_visible");
+}
+
+/// A keyboard another app raised (iPad multitasking tells every visible app) is not this app's.
+#[test]
+fn the_ios_keyboard_notification_ignores_another_apps_keyboard() {
+    let frame = body(IOS_MOD_RS, "extern \"C\" fn ui_keyboard_frame_changed(");
+    at(frame, "UIKeyboardIsLocalUserInfoKey", "ui_keyboard_frame_changed");
+    at(frame, "keyboard_event_is_ours(is_local)", "ui_keyboard_frame_changed");
+}

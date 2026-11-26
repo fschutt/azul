@@ -118,6 +118,9 @@ unsafe impl Encode for CGRect {
 extern "C" {
     fn objc_autoreleasePoolPush() -> *mut c_void;
     fn objc_autoreleasePoolPop(pool: *mut c_void);
+    /// `NSRunLoopCommonModes`: the default mode AND the tracking mode (and every other mode a
+    /// run loop owner has put in the common set).
+    static NSRunLoopCommonModes: *mut Object;
 }
 
 #[link(name = "UIKit", kind = "framework")]
@@ -847,10 +850,14 @@ extern "C" fn touches_cancelled(
 /// tick and call `present()` → `displayLayer:` → `regenerate_layout`.
 extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
     use objc::sel;
-    // Call super so UIView's own layout (autoresizing masks, constraints)
-    // still runs. `objc_msgSendSuper` is fiddly via the objc 0.2 macro,
-    // so we rely on the fact that `super.layoutSubviews` for `UIView` is
-    // a no-op once we own the geometry — which we do.
+    // Call super so UIView's own layout (autoresizing masks, constraints) still runs: "the
+    // default implementation uses any constraints you have set to determine the size and
+    // position of any subviews", and the `<webview>` containers are subviews of this view. The
+    // superclass is UIView itself (a constant), not `[self superclass]`, which names the
+    // superclass of the DYNAMIC class: a KVO subclass of this view would send `super` back into
+    // this very override.
+    let this_mut = this as *const Object as *mut Object;
+    let _: () = unsafe { msg_send![super(this_mut, class!(UIView)), layoutSubviews] };
     let _: () = unsafe { msg_send![this as *const Object as *mut Object, setNeedsDisplay] };
     if let Some(window) = unsafe { azul_ios_window() } {
         let bounds: CGRect = unsafe { msg_send![this as *const Object as *mut Object, bounds] };
@@ -1387,8 +1394,12 @@ unsafe fn install_display_link(_view: *mut Object) {
                       selector: sel!(displayTick:)
     ];
     let main_loop: *mut Object = msg_send![class!(NSRunLoop), mainRunLoop];
-    let default_mode_cstr = b"kCFRunLoopDefaultMode\0".as_ptr() as *const i8;
-    let mode: *mut Object = msg_send![class!(NSString), stringWithUTF8String: default_mode_cstr];
+    // The COMMON modes, as the sample on the `CADisplayLink` page does (`forMode:
+    // NSRunLoopCommonModes`): in the default mode alone the tick stops whenever UIKit runs the
+    // run loop in `UITrackingRunLoopMode` - a `<webview>` or a scroll view being scrolled, a menu,
+    // a keyboard drag - and with it every timer, animation, writeback and the web views' pump.
+    // The constant is the exported one, not a string rebuilt from its guessed value.
+    let mode: *mut Object = NSRunLoopCommonModes;
     let _: () = msg_send![link, addToRunLoop: main_loop forMode: mode];
 
     // Keep a (retained) handle so the background/foreground lifecycle hooks
@@ -1543,6 +1554,10 @@ fn get_or_create_view_class() -> Option<&'static Class> {
             ui_presses_ended as extern "C" fn(&Object, Sel, *mut Object, *mut Object),
         );
         decl.add_method(
+            sel!(pressesCancelled:withEvent:),
+            ui_presses_cancelled as extern "C" fn(&Object, Sel, *mut Object, *mut Object),
+        );
+        decl.add_method(
             sel!(layoutSubviews),
             layout_subviews as extern "C" fn(&Object, Sel),
         );
@@ -1589,6 +1604,10 @@ fn get_or_create_view_class() -> Option<&'static Class> {
         decl.add_method(
             sel!(pencilInteractionDidTap:),
             pencil_did_tap as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(pencilInteraction:didReceiveTap:),
+            pencil_did_receive_tap as extern "C" fn(&Object, Sel, *mut Object, *mut Object),
         );
         decl.add_method(
             sel!(pencilInteraction:didReceiveSqueeze:),
@@ -1705,6 +1724,13 @@ extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object
 
 extern "C" fn app_will_resign_active(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationWillResignActive:");
+    // A key held down when the app goes inactive never reports its release (UIKit sends
+    // `pressesCancelled:` for the sequence it interrupts, and nothing for a key that was already
+    // down): the pressed set is emptied here, with the pass that delivers the releases, or an
+    // arrow or a Cmd stays "down" in every callback until the same key is pressed again.
+    if let Some(window) = unsafe { azul_ios_window() } {
+        release_pressed_keys(window);
+    }
     // Deliberately does NOT pause the display link: resign-active also fires
     // for transient overlays (control center, incoming-call banner, app
     // switcher) where the app remains visible and animations should keep
@@ -1939,6 +1965,11 @@ pub struct IOSWindow {
     /// The window's `<webview>`s (`webview::IosWebViews`), made at the
     /// first one: an app without a web view never loads WebKit.
     webviews: Option<webview::IosWebViews>,
+    /// The editable `UITextInteraction` (retained; null where UIKit has none, before iOS 13).
+    /// Attached to the view only while an editable node has the focus.
+    text_interaction: *mut Object,
+    /// Whether [`Self::text_interaction`] is added to the view right now.
+    text_interaction_attached: bool,
 }
 
 impl IOSWindow {
@@ -1975,6 +2006,9 @@ impl IOSWindow {
         layout_window
             .webviews
             .set_platform(azul_layout::managers::webview::WebViewPlatform::Backend);
+
+        // The editable `UITextInteraction`, made below and attached while a node is being edited.
+        let mut text_interaction: *mut Object = ptr::null_mut();
 
         // Build the native UI tree. Bounds come from `[[UIScreen mainScreen] bounds]`.
         let (ui_window, ui_view_controller, ui_view) = unsafe {
@@ -2061,17 +2095,23 @@ impl IOSWindow {
             //
             // `UITextInteractionModeEditable` is 0. Gated on the class
             // existing, like the pencil interaction above.
+            //
+            // CREATED here, ATTACHED only while an editable node has the focus
+            // (`set_soft_keyboard_visible`): an editable interaction brings its own tap,
+            // double-tap and long-press recognizers (not the observe-only ones above), and on a
+            // view that fills the window they would make a tap on a plain button a request to
+            // become first responder (the keyboard) and to place a system caret. UIKit's
+            // `UITextInteraction` page: with editable and non-editable content, "add the
+            // interaction that matches the state of text to the view while removing the other".
             if let Some(interaction_cls) = Class::get("UITextInteraction") {
                 let mode_editable: isize = 0;
                 let interaction: *mut Object =
                     msg_send![interaction_cls, textInteractionForMode: mode_editable];
                 if !interaction.is_null() {
                     let _: () = msg_send![interaction, setTextInput: view];
-                    let _: () = msg_send![view, addInteraction: interaction];
-                    log_info!(
-                        LogCategory::Input,
-                        "[iOS] UITextInteraction attached (selection handles + loupe)"
-                    );
+                    // The factory returns an autoreleased object: this window keeps it.
+                    let _: *mut Object = msg_send![interaction, retain];
+                    text_interaction = interaction;
                 }
             }
 
@@ -2144,6 +2184,8 @@ impl IOSWindow {
             primary_touch_id: None,
             pan_touch_id: None,
             webviews: None,
+            text_interaction,
+            text_interaction_attached: false,
         })
     }
 
@@ -2827,6 +2869,22 @@ extern "C" fn ui_keyboard_frame_changed(this: &Object, _cmd: Sel, notification: 
         if value.is_null() {
             return;
         }
+        // iPad multitasking notifies EVERY visible app when any app's keyboard comes or goes;
+        // `UIKeyboardIsLocalUserInfoKey` is true only for the app that raised it. Another app's
+        // keyboard must not inset this app's layout.
+        let local_key_cstr = b"UIKeyboardIsLocalUserInfoKey\0".as_ptr() as *const i8;
+        let local_key: *mut Object =
+            msg_send![class!(NSString), stringWithUTF8String: local_key_cstr];
+        let local_value: *mut Object = msg_send![info, objectForKey: local_key];
+        let is_local: Option<bool> = if local_value.is_null() {
+            None
+        } else {
+            let flag: bool = msg_send![local_value, boolValue];
+            Some(flag)
+        };
+        if !crate::desktop::shell2::common::ios_logic::keyboard_event_is_ours(is_local) {
+            return;
+        }
         let frame_screen: CGRect = msg_send![value, CGRectValue];
 
         // The raw frame is in SCREEN coordinates and can be wider or taller
@@ -2909,6 +2967,18 @@ pub fn set_soft_keyboard_visible(visible: bool) {
     };
     let view = (&*window.ui_view as *const Object) as *mut Object;
     unsafe {
+        // The editable text interaction (grab handles, loupe, caret placement) belongs to the
+        // view only while text is being edited: added BEFORE the view becomes first responder,
+        // removed after it resigns.
+        let interaction = window.text_interaction;
+        if visible && !interaction.is_null() && !window.text_interaction_attached {
+            let _: () = msg_send![view, addInteraction: interaction];
+            window.text_interaction_attached = true;
+            log_info!(
+                LogCategory::Input,
+                "[iOS] UITextInteraction attached (selection handles + loupe)"
+            );
+        }
         // Both return BOOL: the responder chain can REFUSE, e.g. while a
         // system alert holds first responder. Nothing to do about it here -
         // the request is advisory, exactly as on Android - but the value is
@@ -2918,6 +2988,10 @@ pub fn set_soft_keyboard_visible(visible: bool) {
         } else {
             msg_send![view, resignFirstResponder]
         };
+        if !visible && !interaction.is_null() && window.text_interaction_attached {
+            let _: () = msg_send![view, removeInteraction: interaction];
+            window.text_interaction_attached = false;
+        }
         if !accepted {
             log_debug!(
                 LogCategory::Input,
@@ -2944,12 +3018,27 @@ extern "C" fn ui_presses_began(this: &Object, _cmd: Sel, presses: *mut Object, e
     handle_presses(this, presses, true);
     // Still call super: UIKit routes unhandled presses up the responder chain
     // to the system, and swallowing them breaks the remote's Menu button.
-    unsafe { forward_presses_to_super(this, true, presses, event) };
+    unsafe { forward_presses_to_super(this, PressPhase::Began, presses, event) };
 }
 
 extern "C" fn ui_presses_ended(this: &Object, _cmd: Sel, presses: *mut Object, event: *mut Object) {
     handle_presses(this, presses, false);
-    unsafe { forward_presses_to_super(this, false, presses, event) };
+    unsafe { forward_presses_to_super(this, PressPhase::Ended, presses, event) };
+}
+
+/// `pressesCancelled:withEvent:` - the system interrupted the press sequence (the app went
+/// inactive, the view left its window). UIKit's words: "Your implementation of this method should
+/// clean up any state associated with handling the press sequence. Failure to handle
+/// cancellation is likely to lead to incorrect behavior or crashes." Without it the key stayed in
+/// the pressed set (a stuck arrow, a stuck Cmd) after an app switch: the release never came.
+extern "C" fn ui_presses_cancelled(
+    this: &Object,
+    _cmd: Sel,
+    presses: *mut Object,
+    event: *mut Object,
+) {
+    handle_presses(this, presses, false);
+    unsafe { forward_presses_to_super(this, PressPhase::Cancelled, presses, event) };
 }
 
 /// Copy an `NSString` into a Rust `String`.
@@ -3091,28 +3180,64 @@ fn settle(window: &mut IOSWindow, result: azul_core::events::ProcessEventResult)
     window.apply_event_result(result);
 }
 
+/// Release every key the shell holds down (the app went inactive): snapshot, empty the pressed
+/// set, one pass so the callbacks see the key-ups.
+fn release_pressed_keys(window: &mut IOSWindow) {
+    let held = {
+        let ks = window.common.keyboard_state_mut();
+        !ks.pressed_virtual_keycodes.is_empty()
+    };
+    if !held {
+        return;
+    }
+    window.snapshot_window_state_baseline("ios.release_pressed_keys");
+    {
+        let ks = window.common.keyboard_state_mut();
+        ks.current_virtual_keycode = azul_core::window::OptionVirtualKeyCode::None;
+        ks.pressed_virtual_keycodes = Vec::<azul_core::window::VirtualKeyCode>::new().into();
+        ks.sync_modifiers();
+    }
+    let result = window.process_window_events(0);
+    settle(window, result);
+}
+
 /// Pass a press set on to `super`, so unhandled keys still reach the system.
 ///
 /// Without this the responder chain stops here and the Apple TV remote's Menu
 /// button — which UIKit expects to bubble up to the system — does nothing.
 unsafe fn forward_presses_to_super(
     this: &Object,
-    is_began: bool,
+    phase: PressPhase,
     presses: *mut Object,
     event: *mut Object,
 ) {
-    let superclass: *const objc::runtime::Class = msg_send![this, superclass];
-    if superclass.is_null() {
-        return;
-    }
+    // UIView itself (a constant), not `[self superclass]`: see `layout_subviews`.
     let this_mut = this as *const Object as *mut Object;
-    if is_began {
-        let _: () =
-            msg_send![super(this_mut, &*superclass), pressesBegan: presses withEvent: event];
-    } else {
-        let _: () =
-            msg_send![super(this_mut, &*superclass), pressesEnded: presses withEvent: event];
+    match phase {
+        PressPhase::Began => {
+            let _: () =
+                msg_send![super(this_mut, class!(UIView)), pressesBegan: presses withEvent: event];
+        }
+        PressPhase::Ended => {
+            let _: () =
+                msg_send![super(this_mut, class!(UIView)), pressesEnded: presses withEvent: event];
+        }
+        PressPhase::Cancelled => {
+            let _: () = msg_send![
+                super(this_mut, class!(UIView)),
+                pressesCancelled: presses
+                       withEvent: event
+            ];
+        }
     }
+}
+
+/// Which `UIResponder` press method is being forwarded to `super`.
+#[derive(Clone, Copy)]
+enum PressPhase {
+    Began,
+    Ended,
+    Cancelled,
 }
 
 // ===== Apple Pencil interactions =====
@@ -3126,6 +3251,19 @@ unsafe fn forward_presses_to_super(
 /// `UIPencilInteractionDelegate.pencilInteractionDidTap:` — Pencil 2 and
 /// later, a double-tap on the barrel.
 extern "C" fn pencil_did_tap(_this: &Object, _cmd: Sel, _interaction: *mut Object) {
+    inject_pen_gesture(false);
+}
+
+/// `UIPencilInteractionDelegate.pencilInteraction:didReceiveTap:` - the iOS 17.5+ spelling of
+/// the tap, which replaces the deprecated `pencilInteractionDidTap:` (Apple: "Use
+/// pencilInteraction(_:didReceiveTap:) instead"). Both are registered: the old one serves
+/// iOS 16 and 17.0-17.4, and a delegate that implements the new one is sent that.
+extern "C" fn pencil_did_receive_tap(
+    _this: &Object,
+    _cmd: Sel,
+    _interaction: *mut Object,
+    _tap: *mut Object,
+) {
     inject_pen_gesture(false);
 }
 

@@ -638,24 +638,17 @@ extern "C" fn character_range_by_extending_position_in_direction(
         return core::ptr::null_mut();
     };
     let (text, _) = document(window);
-    // One CHARACTER, not one byte: extending by a byte would split a
-    // multi-byte scalar and every subsequent slice would panic.
-    match direction {
-        DIRECTION_LEFT | DIRECTION_UP => {
-            let start = text[..base.min(text.len())]
-                .char_indices()
-                .next_back()
-                .map_or(0, |(i, _)| i);
-            make_range(start, base)
-        }
-        _ => {
-            let end = text[base.min(text.len())..]
-                .chars()
-                .next()
-                .map_or(base, |c| base + c.len_utf8());
-            make_range(base, end.min(text.len()))
-        }
-    }
+    // One CHARACTER, not one byte: extending by a byte would split a multi-byte scalar and every
+    // subsequent slice would panic. `base` came from UIKit, from a position handed out before the
+    // text last changed, so it is clamped and snapped to a character boundary first (a slice
+    // inside a character is a panic, in an `extern "C"` callback an abort).
+    let toward_start = matches!(direction, DIRECTION_LEFT | DIRECTION_UP);
+    let (start, end) = crate::desktop::shell2::common::ios_logic::one_character_around(
+        &text,
+        base,
+        toward_start,
+    );
+    make_range(start, end)
 }
 
 // ─── Writing direction ────────────────────────────────────────────────
