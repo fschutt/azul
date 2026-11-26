@@ -221,6 +221,15 @@ impl PhoneApi for SimPhone {
         }
     }
 
+    fn continue_reviewing(&mut self, now: Millis) {
+        self.take_commands(now);
+        if self.connected() {
+            if let Ok(mut mac) = self.mac.lock() {
+                mac.continue_reviewing(now);
+            }
+        }
+    }
+
     fn list_dir(&mut self, now: Millis, path: &str, offset: u32) {
         self.take_commands(now);
         self.view.begin_listing(path);

@@ -128,7 +128,7 @@ fn entry_row(cx: &Cx, entry: &Entry, height: f32) -> Dom {
     let view = cx.view();
     let path = path_of(&view.files.dir, &entry.name);
     let is_dir = entry.kind == EntryKind::Dir;
-    let under_review = view.pen.as_ref().is_some_and(|p| !is_dir && p.file == path);
+    let under_review = view.pen.as_ref().is_some_and(|p| !is_dir && p.file() == path);
     let just_opened = cx.root.ui.opened.as_ref().is_some_and(|(p, _)| *p == path);
     let (glyph, glyph_colour) = if is_dir { ("folder", th::ACCENT) } else { ("description", th::TEXT_DIM) };
     let background = if just_opened {

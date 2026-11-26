@@ -92,6 +92,17 @@ pub fn dom(cx: &Cx) -> Dom {
                         ),
                 ),
         );
+    } else if cx.root.demo {
+        mac.add_child(hairline("height: 1px; width: 100%;"));
+        mac.add_child(
+            column("width: 100%; padding: 12px 16px 4px 16px; gap: 2px;")
+                .with_child(text(&cx.t("settings-demo-note"), &format!("font-size: 13px; color: {}; line-height: 1.3;", th::TEXT_DIM))),
+        );
+        mac.add_child(
+            tap(&cx.t("settings-leave-demo"), "width: 100%; height: 56px; flex-direction: row; justify-content: flex-start; gap: 14px; padding: 0px 16px;", cx, Action::LeaveDemo)
+                .with_child(icon("logout", 24.0, th::ACCENT))
+                .with_child(text(&cx.t("settings-leave-demo"), &format!("flex-grow: 1; text-align: left; font-size: 17px; color: {};", th::ACCENT))),
+        );
     } else if !matches!(view.session, Session::Unpaired) {
         mac.add_child(hairline("height: 1px; width: 100%;"));
         mac.add_child(

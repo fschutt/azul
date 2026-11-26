@@ -73,6 +73,7 @@ version = "0.1.0"
 dependencies = [
  "azul-dll",
  "azul-review-link",
+ "ctor",
 ]
 
 [[package]]
