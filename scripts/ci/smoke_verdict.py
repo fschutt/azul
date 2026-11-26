@@ -111,6 +111,9 @@ def judge(facts):
     tap = facts.get("tap")
     if tap and (not tap.get("alive") or tap.get("fatal")):
         return False, f"after pressing \"{tap.get('label')}\": {tap.get('fatal') or 'the app is gone'}"
+    for text, found in ((tap or {}).get("probe_found") or {}).items():       # a first press with a short effect ([app.smoke] probe_tap)
+        if not found:
+            return False, f"1 s after pressing \"{tap.get('probe_label')}\" the screen does not show \"{text}\""
     if tap and tap.get("changed_screen") is False:
         return False, (f"pressing \"{tap.get('label')}\" changed nothing on the screen ({tap['screen_similarity'] * 100:.1f}% of the "
                        f"pixels are the same as before): the app ignored the tap or its action did nothing")
