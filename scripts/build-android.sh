@@ -71,6 +71,15 @@ for tool in "CC:${CLANG_TARGET}24-clang" "CXX:${CLANG_TARGET}24-clang++" "AR:llv
         export "$var=$NDKBIN/${tool#*:}"
     fi
 done
+# The LINKER of the app's own library: cargo takes it from CARGO_TARGET_<TRIPLE>_LINKER, else from the workspace's
+# .cargo/config.toml, which names the Homebrew layout of the maintainer's Mac ("linker ... not found" on a runner).
+TARGET_UPPER="$(echo "$TARGET_ENV" | tr '[:lower:]' '[:upper:]')"
+for tool in "LINKER:${CLANG_TARGET}24-clang" "AR:llvm-ar"; do
+    var="CARGO_TARGET_${TARGET_UPPER}_${tool%%:*}"
+    if [[ -z "${!var:-}" ]]; then
+        export "$var=$NDKBIN/${tool#*:}"
+    fi
+done
 
 BT="$ANDROID_HOME/build-tools/34.0.0"
 PLATFORM="$ANDROID_HOME/platforms/android-34"

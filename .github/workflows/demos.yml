@@ -515,14 +515,9 @@ jobs:
       - name: Build ${{ matrix.apps }}
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
-        run: |
-          NDKBIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDKBIN/aarch64-linux-android24-clang"
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
-          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$NDKBIN/x86_64-linux-android24-clang"
-          export CARGO_TARGET_X86_64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
-          python3 scripts/demo_build.py android --target ${{ matrix.target }} --apps "${{ matrix.apps }}" \
-            --libs demo-libs --out demos-out --results demos-results
+        run: >-
+          python3 scripts/demo_build.py android --target ${{ matrix.target }} --apps "${{ matrix.apps }}"
+          --libs demo-libs --out demos-out --results demos-results
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
