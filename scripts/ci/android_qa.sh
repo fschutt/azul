@@ -131,6 +131,7 @@ for mode in "${mode_list[@]}"; do
     done
   fi
   if [ "$session" = audit ] && [ "$mode" = "${mode_list[0]}" ]; then
+    aport=8795
     for aapk in "$apk" ${AZ_QA_AUDIT_APKS:-}; do
       ab="$("$aapt2" dump badging "$aapk" 2>/dev/null || true)"
       apkg="$(echo "$ab" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
@@ -141,8 +142,12 @@ for mode in "${mode_list[@]}"; do
       case "$an" in AzPaint-*) ascript=paint ;; AzWriter-*) ascript=writer ;; AzMaps-*) ascript=maps ;; AzMeet-*) ascript=meet ;; esac
       echo "---- phone-fit audit of $an ($apkg)${ascript:+, script $ascript}"
       mkdir -p "$d/audit"
-      python3 "$here/mobile_e2e.py" android --out "$d/audit/$an" --apk "$aapk" --package "$apkg" --activity "${aact:-}" \
+      # one port per app, and the app of the session before is stopped: a debug server of the app before that still held the port
+      # would answer for the app in front of it (the audit of the wrong DOM)
+      python3 "$here/mobile_e2e.py" android --out "$d/audit/$an" --apk "$aapk" --package "$apkg" --activity "${aact:-}" --port "$aport" \
         --label "$an" --audit-only ${ascript:+--script "$ascript"} 2>&1 | tee "$d/audit/$an.log"
+      adb shell am force-stop "$apkg" >/dev/null 2>&1 || true
+      aport=$((aport + 1))
     done
   fi
   adb emu kill >/dev/null 2>&1 || true
