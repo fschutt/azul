@@ -33,8 +33,9 @@ pub const MAX_KEEP_MS: u32 = 60_000;
 /// How long a session keeps its microphone open after a call unless the app says otherwise, ms.
 pub const DEFAULT_KEEP_MS: u32 = 5_000;
 
-/// How long one read of the kept microphone waits for sound, ms.
-const PUMP_WAIT_MS: u32 = 20;
+/// How long one read of the kept microphone waits for sound, ms: the longest a call that wants the
+/// microphone can wait for the thread that reads it.
+const PUMP_WAIT_MS: u32 = 10;
 
 /// The least one turn of the thread takes: a microphone that does not block must not make it spin.
 const PACE: Duration = Duration::from_millis(5);
@@ -69,10 +70,22 @@ struct Shared {
     keep_ms: AtomicU32,
     /// The thread that reads the kept microphone was started.
     started: AtomicBool,
+    /// How many calls wait for the lock of the kept microphone: the thread that reads it lets them
+    /// in (a lock is not fair, and a thread that takes it again at once starved a call for seconds).
+    waiting: AtomicU32,
 }
 
 impl Shared {
+    /// The kept microphone, for a call: it goes before the thread that reads it.
     fn held(&self) -> MutexGuard<'_, Option<Held>> {
+        self.waiting.fetch_add(1, Ordering::SeqCst);
+        let guard = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        self.waiting.fetch_sub(1, Ordering::SeqCst);
+        guard
+    }
+
+    /// The kept microphone, for the thread that reads it.
+    fn held_by_thread(&self) -> MutexGuard<'_, Option<Held>> {
         self.held.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -111,7 +124,7 @@ fn keep_loop(weak: &Weak<Shared>) {
             return;
         };
         let keep = Duration::from_millis(u64::from(shared.keep_ms.load(Ordering::SeqCst)));
-        let mut held = shared.held();
+        let mut held = shared.held_by_thread();
         let Some(kept) = held.as_mut() else {
             // Nothing to keep: wait for a call to give a microphone back (or for the keeper to go).
             let _ = shared.changed.wait_timeout(held, IDLE_CHECK).unwrap_or_else(PoisonError::into_inner);
@@ -136,8 +149,14 @@ fn keep_loop(weak: &Weak<Shared>) {
             }
         }
         drop(held);
+        // Out of the lock for a moment, longer when a call is waiting for it: a thread that locks
+        // again at once keeps it from the call that wants it.
+        let mut rest = PACE.saturating_sub(began.elapsed());
+        if shared.waiting.load(Ordering::SeqCst) > 0 {
+            rest = rest.max(PACE);
+        }
         drop(shared);
-        if let Some(rest) = PACE.checked_sub(began.elapsed()) {
+        if !rest.is_zero() {
             std::thread::sleep(rest);
         }
     }
@@ -160,6 +179,7 @@ impl MicKeeper {
                 changed: Condvar::new(),
                 keep_ms: AtomicU32::new(0),
                 started: AtomicBool::new(false),
+                waiting: AtomicU32::new(0),
             }),
         }
     }

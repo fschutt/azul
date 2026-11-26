@@ -232,7 +232,7 @@ unsafe fn authorization(recognizer_cls: &AnyClass) -> isize {
 
 /// The words of a transcription (`SFTranscription`): each segment's text, when it began and how
 /// long it lasted in seconds from the start of the audio, and how sure the recognizer is.
-unsafe fn read_segments(transcription: *mut AnyObject) -> Vec<(String, f64, f64, f32)> {
+unsafe fn read_segments(transcription: *mut AnyObject) -> Vec<Segment> {
     let segments: *mut AnyObject = unsafe { msg_send![transcription, segments] };
     if segments.is_null() {
         return Vec::new();
@@ -257,7 +257,7 @@ unsafe fn read_segments(transcription: *mut AnyObject) -> Vec<(String, f64, f64,
 
 /// The words of the segments: a segment that holds several words (the recognizer joins "is a")
 /// is cut into them, each with an equal share of its time.
-fn words_of_segments(segments: &[(String, f64, f64, f32)]) -> Vec<Word> {
+fn words_of_segments(segments: &[Segment]) -> Vec<Word> {
     let ms = |seconds: f64| -> u32 {
         if seconds.is_finite() && seconds > 0.0 {
             (seconds * 1000.0).round().min(f64::from(u32::MAX)) as u32
@@ -277,6 +277,10 @@ fn words_of_segments(segments: &[(String, f64, f64, f32)]) -> Vec<Word> {
     words
 }
 
+/// The words of a transcription as the recognizer gives them: text, seconds from the start of the
+/// audio, seconds long, how sure.
+type Segment = (String, f64, f64, f32);
+
 /// What the recognition task reported so far.
 #[derive(Debug, Default, Clone)]
 struct Hearing {
@@ -287,9 +291,31 @@ struct Hearing {
     /// The task gave its final answer (or failed).
     done: bool,
     error: Option<String>,
-    /// The words of the best transcription: text, seconds from the start of the audio, seconds
-    /// long, how sure.
-    segments: Vec<(String, f64, f64, f32)>,
+    /// The words of the best transcription.
+    segments: Vec<Segment>,
+}
+
+impl Hearing {
+    /// What one report of the task changes: a changed text (with its words, and the moment it
+    /// changed), the words of the FINAL report even when its text is the one already known (the
+    /// times and the confidences come only with it: before, they are zero), the end of the task,
+    /// a failure.
+    fn update(&mut self, text: Option<String>, is_final: bool, segments: Vec<Segment>, failure: Option<String>, now: Instant) {
+        let changed = text.as_ref().is_some_and(|text| *text != self.text);
+        if let Some(text) = text.filter(|_| changed) {
+            self.text = text;
+            self.changed_at = Some(now);
+            self.segments = segments;
+        } else if is_final && !segments.is_empty() {
+            self.segments = segments;
+        }
+        if is_final || failure.is_some() {
+            self.done = true;
+        }
+        if failure.is_some() {
+            self.error = failure;
+        }
+    }
 }
 
 /// `AVMediaTypeAudio`: an `NSString` holding the four-character code of the media type.
@@ -665,17 +691,7 @@ unsafe fn listen_with_recognizer(
         };
         let failure = (!error.is_null()).then(|| unsafe { describe(error) });
         let mut hearing = reply.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(text) = text.filter(|t| *t != hearing.text) {
-            hearing.text = text;
-            hearing.segments = segments;
-            hearing.changed_at = Some(Instant::now());
-        }
-        if is_final || failure.is_some() {
-            hearing.done = true;
-        }
-        if failure.is_some() {
-            hearing.error = failure;
-        }
+        hearing.update(text, is_final, segments, failure, Instant::now());
         reply.1.notify_all();
     });
     let task: *mut AnyObject =
@@ -929,3 +945,7 @@ impl Drop for AppleMicrophone {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "apple_test.rs"]
+mod apple_test;

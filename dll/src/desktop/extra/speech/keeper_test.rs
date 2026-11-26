@@ -250,6 +250,57 @@ fn when_the_keeper_goes_the_kept_microphone_closes() {
     assert!(room.wait_closed(1), "the last handle went and the microphone stayed open");
 }
 
+/// A microphone that waits for sound the way a device does: a read takes its time when there is none.
+struct SlowMicrophone(Room);
+
+impl Microphone for SlowMicrophone {
+    fn rate(&self) -> u32 {
+        RATE
+    }
+
+    fn read(&mut self, out: &mut Vec<f32>, wait_ms: u32) -> Result<(), String> {
+        std::thread::sleep(Duration::from_millis(u64::from(wait_ms)));
+        out.extend(samples(0, 16));
+        Ok(())
+    }
+}
+
+impl Drop for SlowMicrophone {
+    fn drop(&mut self) {
+        self.0.closed.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+struct SlowSource(Room);
+
+impl MicrophoneSource for SlowSource {
+    fn open(&mut self) -> Result<Box<dyn Microphone>, (Outcome, String)> {
+        self.0.opened.fetch_add(1, Ordering::SeqCst);
+        Ok(Box::new(SlowMicrophone(self.0.clone())))
+    }
+}
+
+/// The thread that reads the kept microphone must not keep a call that wants it waiting: with a
+/// microphone whose reads take their time, a call got it only after hundreds of milliseconds.
+#[test]
+fn a_call_that_wants_the_kept_microphone_is_not_kept_waiting_by_the_thread_that_reads_it() {
+    let room = Room::default();
+    let keeper = MicKeeper::new(Box::new(SlowSource(room.clone())));
+    keeper.set_keep_ms(10_000);
+    let mut slowest = Duration::ZERO;
+    let mut lease = keeper.acquire().expect("a microphone");
+    for _ in 0..25 {
+        lease.finish(true);
+        std::thread::sleep(Duration::from_millis(37));
+        let asked = Instant::now();
+        lease = keeper.acquire().expect("the kept microphone");
+        slowest = slowest.max(asked.elapsed());
+        assert!(lease.warm);
+    }
+    assert!(slowest < Duration::from_millis(40), "a call waited {slowest:?} for the kept microphone");
+    assert_eq!(room.opened(), 1);
+}
+
 #[test]
 fn the_time_is_kept_to_a_minute() {
     let room = Room::default();

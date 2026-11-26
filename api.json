@@ -218538,6 +218538,9 @@
                                 },
                                 "probability": {
                                     "type": "f32"
+                                },
+                                "biased": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -218592,6 +218595,9 @@
                                     "type": "u32"
                                 },
                                 "max_model_mb": {
+                                    "type": "u32"
+                                },
+                                "mic_keep_ms": {
                                     "type": "u32"
                                 }
                             }
@@ -218770,6 +218776,39 @@
                                     }
                                 ],
                                 "fn_body": "object.reset()"
+                            },
+                            "audio_flowing": {
+                                "doc": [
+                                    "Whether sound is reaching the recognizer in the call that runs: false until the",
+                                    "microphone delivers its first sound (it takes a moment to start: about 270 ms on a Mac),",
+                                    "true from then until the call ends. A window shows \"speak now\" from the moment it turns",
+                                    "true: what is said before is lost. Poll it from another thread while `listen_blocking`",
+                                    "runs on a worker thread. A recognizer that cannot tell (Windows, Android) makes it true",
+                                    "when it begins to listen."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.audio_flowing()"
+                            },
+                            "set_preference": {
+                                "doc": [
+                                    "Who is asked first: [`SpeechPreference::Automatic`] by default."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "preference": "SpeechPreference"
+                                    }
+                                ],
+                                "fn_body": "object.set_preference(preference)"
                             }
                         },
                         "repr": "C"
@@ -218796,6 +218835,28 @@
                                         "Number of elements in the slice"
                                     ]
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechPreference": {
+                        "external": "azul_dll::unified::speech::SpeechPreference",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Automatic": {},
+                                "NativeFirst": {},
+                                "BuiltinFirst": {}
                             }
                         ],
                         "repr": "C"
