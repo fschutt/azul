@@ -6906,6 +6906,18 @@ jobs:
           set -o pipefail
           cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets -- -D warnings 2>&1 | tee clippy.txt
 
+      # The engine's HTTP client (layout/src/http.rs, http_retry.rs: the connector every agent the engine builds uses)
+      # is behind the `http` feature, which the step above does not turn on: its code was never linted here, and two
+      # findings in http.rs (unused_qualifications, let_underscore_drop) and two in http_retry.rs were found only by a
+      # runner of the AzReview work. NOT linted by any step yet: the rest of the feature set the tests compile
+      # (azul-layout `e2e-server`, `json`, `updater`; azul-css / azul-core `codegen`): about 1,200 findings on
+      # 2026-11-26 (layout/src/e2e 775, css/src/codegen 420, core/src/codegen 45), mostly format!/doc-backtick style.
+      - name: clippy (azul-layout with the http feature)
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo clippy -p azul-layout --features azul-layout/http --all-targets -- -D warnings 2>&1 | tee clippy-http.txt
+
       # azul-storage, azlin-compress and azlin-preflate deny the panic family outside tests
       # (`#![cfg_attr(not(test), deny(clippy::unwrap_used, ..))]`, kept in place by the source gate
       # lint_gate) and azcloud-kit reads what the token server and the nodes answer. The deny is
