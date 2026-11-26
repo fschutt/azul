@@ -31,7 +31,7 @@ use core::fmt::Write;
 use super::linear::{item_blocker, linear_comments, lower_to_statements, LinearSyntax};
 use crate::codegen::{
     doc::{render, Doc},
-    ir::{capitalize, snake_to_upper_camel, EnumShape, Expr, Ident, Item, LibrarySpec, Module, Prim},
+    ir::{capitalize, snake_to_upper_camel, ComponentSpec, EnumShape, Expr, Ident, Item, LibrarySpec, Module, Prim},
     lang::{
         dom::{is_dom_item, one_line, wrapper_dom_limitation},
         doubled_quote, item_comments, item_doc, uses_nonfinite_float, variant_ctor_method,
@@ -155,30 +155,31 @@ fn item_fn(item: &Item) -> (String, String) {
     let decl = format!("function {name}: {ty};");
     let mut out = String::new();
     if let Some(reason) = item_blocker(&Pascal, item) {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "{{ not expressible with the Pascal bindings: {} }}\n{decl}\nbegin\n  \
              FillChar(Result, SizeOf(Result), 0);\nend;\n",
             reason.replace('}', ")")
-        ));
+        );
         return (decl, out);
     }
     let st = lower_to_statements(&Pascal, &item.value);
     for line in linear_comments(item, &st) {
-        out.push_str(&format!("{{ {} }}\n", line.replace('}', ")")));
+        let _ = writeln!(out, "{{ {} }}", line.replace('}', ")"));
     }
     out.push_str(&decl);
     out.push('\n');
     if !st.decls.is_empty() {
         out.push_str("var\n");
         for (n, t) in &st.decls {
-            out.push_str(&format!("  {n}: {t};\n"));
+            let _ = writeln!(out, "  {n}: {t};");
         }
     }
     out.push_str("begin\n");
     for s in &st.body {
-        out.push_str(&format!("  {s}\n"));
+        let _ = writeln!(out, "  {s}");
     }
-    out.push_str(&format!("  Result := {};\nend;\n", st.result));
+    let _ = write!(out, "  Result := {};\nend;\n", st.result);
     (decl, out)
 }
 
@@ -245,7 +246,7 @@ fn pas_ctor(method: &str) -> String {
 }
 
 /// The wrapper-class method of api.json `method` (`idiomatic_method_name`
-/// in `lang_pascal/wrappers.rs`): PascalCase, `_X` after a `TObject`
+/// in `lang_pascal/wrappers.rs`): `PascalCase`, `_X` after a `TObject`
 /// member, `_` after a reserved word (`with_child` -> `WithChild`).
 fn pas_method(method: &str) -> String {
     let name = snake_to_upper_camel(method);
@@ -283,7 +284,7 @@ fn pas_str(s: &str) -> String {
                 out.push('\'');
                 quoted = false;
             }
-            out.push_str(&format!("#${b:02X}"));
+            let _ = write!(out, "#${b:02X}");
         }
     }
     if quoted {
@@ -475,18 +476,20 @@ fn dom_item_fn(item: &Item) -> (String, String) {
     };
     let mut out = String::new();
     for line in &item_comments(&syntax, item) {
-        out.push_str(&format!("{{ {} }}\n", pas_comment(line)));
+        let _ = writeln!(out, "{{ {} }}", pas_comment(line));
     }
     match item_doc(&syntax, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "{decl}\nbegin\n  Result := {};\nend;\n",
             render(&doc, "  ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "{{ not expressible with the Pascal bindings: {} }}\n{decl}\nbegin\n  Result := \
              nil;\nend;\n",
             pas_comment(&reason)
-        )),
+        ); },
     }
     (decl, out)
 }
@@ -532,6 +535,111 @@ begin
 end;
 ";
 
+/// One component of the library: what is written for it, and the call that makes its
+/// `ComponentDef`.
+fn pascal_component(s: &mut String, lib: &LibrarySpec, c: &ComponentSpec, item: &Item) -> String {
+    let item_fn = pas_item_name(&item.name);
+    let cn = Ident::from_text(&c.name).upper_camel();
+    let call = |args: Vec<String>, sep: &str| {
+        if args.is_empty() {
+            item_fn.clone()
+        } else {
+            format!("{item_fn}({})", args.join(sep))
+        }
+    };
+    // The render function's own names must not hide the item's function.
+    let local = |n: &str| {
+        if n.eq_ignore_ascii_case(&item_fn) {
+            format!("{n}_")
+        } else {
+            n.to_string()
+        }
+    };
+    let (def, model, map, dom) = (local("Def"), local("Model"), local("Map"), local("Dom"));
+    let defaults: Vec<String> = item.params.iter().map(|p| pas_str(p.default_text())).collect();
+    let _ = write!(
+        s,
+        "\n{{ `{}` with its default arguments. }}\nfunction {item_fn}Default: TDom;\nbegin\n  \
+         Result := {};\nend;\n",
+        pas_comment(&one_line(&format!("{}:{}", lib.name, c.name))),
+        call(defaults, ", ")
+    );
+    let reads: Vec<String> = item
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "\n    AzModelString({model}, {}, {})",
+                pas_str(&p.name.snake()),
+                pas_str(p.default_text())
+            )
+        })
+        .collect();
+    let _ = write!(
+        s,
+        "\nfunction {cn}RenderFn({def}: PAzComponentDef; {model}: PAzComponentDataModel; {map}: \
+         PAzComponentMap): TAzResultStyledDomRenderDomError; cdecl;\nvar\n  {dom}: \
+         TDom;\nbegin\n  {dom} := {};\n  Result := \
+         AzResultStyledDomRenderDomError_ok(AzStyledDom_createFromDom({dom}.Release));\n  \
+         {dom}.Free;\nend;\n",
+        call(reads, ",")
+    );
+    let n = item.params.len();
+    let _ = writeln!(s, "\nfunction {cn}Def: TAzComponentDef;");
+    if n > 0 {
+        let _ = write!(
+            s,
+            "var\n  Fields: array[0..{}] of TAzComponentDataField;\n  Index: Integer;\n",
+            n - 1
+        );
+    }
+    s.push_str("begin\n");
+    let _ = writeln!(
+        s,
+        "  Result.id_ := AzComponentId_create(azul_string_from({}), azul_string_from({}));",
+        pas_str(&lib.name),
+        pas_str(&c.name)
+    );
+    let _ = writeln!(s, "  Result.display_name := azul_string_from({});", pas_str(&c.display_name));
+    let _ = writeln!(s, "  Result.description := azul_string_from({});", pas_str(&c.description));
+    let _ = writeln!(s, "  {{ The CSS is applied per node by {item_fn}. }}");
+    s.push_str("  Result.css := azul_string_from('');\n");
+    s.push_str("  Result.source := TAzComponentSource.UserDefined;\n");
+    let _ = writeln!(s, "  Result.data_model.name := azul_string_from({});", pas_str(&c.data_model));
+    let _ = writeln!(
+        s,
+        "  Result.data_model.description := azul_string_from({});",
+        pas_str(&c.data_model_description)
+    );
+    if n == 0 {
+        s.push_str("  Result.data_model.fields := AzComponentDataFieldVec_create;\n");
+    } else {
+        for (i, p) in item.params.iter().enumerate() {
+            let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+            let _ = writeln!(
+                s,
+                "  Fields[{i}] := AzStringField({}, {}, {});",
+                pas_str(&p.name.snake()),
+                pas_str(p.default_text()),
+                pas_str(desc)
+            );
+        }
+        let _ = writeln!(
+            s,
+            "  Result.data_model.fields := AzComponentDataFieldVec_copyFromPtr(@Fields[0], \
+             {n});\n  {{ copyFromPtr cloned them. }}\n  for Index := 0 to {} do\n    \
+             AzComponentDataField_delete(@Fields[Index]);",
+            n - 1
+        );
+    }
+    let _ = writeln!(s, "  Result.render_fn := @{cn}RenderFn;");
+    s.push_str(
+        "  Result.codegen := AzComponentCodegen_renderFunction;\n  Result.render_fn_source := \
+         AzOptionString_none;\nend;\n",
+    );
+    format!("{cn}Def")
+}
+
 /// The registration of component library `lib`, what
 /// `dom::c_family_registration` writes for C: per component a
 /// default-arguments wrapper, a `cdecl` render function that reads the data
@@ -555,106 +663,7 @@ fn registration(m: &Module, lib: &LibrarySpec) -> (String, String) {
     }
     let mut defs: Vec<String> = Vec::new();
     for (c, item) in &comps {
-        let item_fn = pas_item_name(&item.name);
-        let cn = Ident::from_text(&c.name).upper_camel();
-        let call = |args: Vec<String>, sep: &str| {
-            if args.is_empty() {
-                item_fn.clone()
-            } else {
-                format!("{item_fn}({})", args.join(sep))
-            }
-        };
-        // The render function's own names must not hide the item's function.
-        let local = |n: &str| {
-            if n.eq_ignore_ascii_case(&item_fn) {
-                format!("{n}_")
-            } else {
-                n.to_string()
-            }
-        };
-        let (def, model, map, dom) = (local("Def"), local("Model"), local("Map"), local("Dom"));
-        let defaults: Vec<String> = item.params.iter().map(|p| pas_str(p.default_text())).collect();
-        let _ = write!(
-            s,
-            "\n{{ `{}` with its default arguments. }}\nfunction {item_fn}Default: TDom;\nbegin\n  \
-             Result := {};\nend;\n",
-            pas_comment(&one_line(&format!("{}:{}", lib.name, c.name))),
-            call(defaults, ", ")
-        );
-        let reads: Vec<String> = item
-            .params
-            .iter()
-            .map(|p| {
-                format!(
-                    "\n    AzModelString({model}, {}, {})",
-                    pas_str(&p.name.snake()),
-                    pas_str(p.default_text())
-                )
-            })
-            .collect();
-        let _ = write!(
-            s,
-            "\nfunction {cn}RenderFn({def}: PAzComponentDef; {model}: PAzComponentDataModel; {map}: \
-             PAzComponentMap): TAzResultStyledDomRenderDomError; cdecl;\nvar\n  {dom}: \
-             TDom;\nbegin\n  {dom} := {};\n  Result := \
-             AzResultStyledDomRenderDomError_ok(AzStyledDom_createFromDom({dom}.Release));\n  \
-             {dom}.Free;\nend;\n",
-            call(reads, ",")
-        );
-        let n = item.params.len();
-        let _ = writeln!(s, "\nfunction {cn}Def: TAzComponentDef;");
-        if n > 0 {
-            let _ = write!(
-                s,
-                "var\n  Fields: array[0..{}] of TAzComponentDataField;\n  Index: Integer;\n",
-                n - 1
-            );
-        }
-        s.push_str("begin\n");
-        let _ = writeln!(
-            s,
-            "  Result.id_ := AzComponentId_create(azul_string_from({}), azul_string_from({}));",
-            pas_str(&lib.name),
-            pas_str(&c.name)
-        );
-        let _ = writeln!(s, "  Result.display_name := azul_string_from({});", pas_str(&c.display_name));
-        let _ = writeln!(s, "  Result.description := azul_string_from({});", pas_str(&c.description));
-        let _ = writeln!(s, "  {{ The CSS is applied per node by {item_fn}. }}");
-        s.push_str("  Result.css := azul_string_from('');\n");
-        s.push_str("  Result.source := TAzComponentSource.UserDefined;\n");
-        let _ = writeln!(s, "  Result.data_model.name := azul_string_from({});", pas_str(&c.data_model));
-        let _ = writeln!(
-            s,
-            "  Result.data_model.description := azul_string_from({});",
-            pas_str(&c.data_model_description)
-        );
-        if n == 0 {
-            s.push_str("  Result.data_model.fields := AzComponentDataFieldVec_create;\n");
-        } else {
-            for (i, p) in item.params.iter().enumerate() {
-                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
-                let _ = writeln!(
-                    s,
-                    "  Fields[{i}] := AzStringField({}, {}, {});",
-                    pas_str(&p.name.snake()),
-                    pas_str(p.default_text()),
-                    pas_str(desc)
-                );
-            }
-            let _ = writeln!(
-                s,
-                "  Result.data_model.fields := AzComponentDataFieldVec_copyFromPtr(@Fields[0], \
-                 {n});\n  {{ copyFromPtr cloned them. }}\n  for Index := 0 to {} do\n    \
-                 AzComponentDataField_delete(@Fields[Index]);",
-                n - 1
-            );
-        }
-        let _ = writeln!(s, "  Result.render_fn := @{cn}RenderFn;");
-        s.push_str(
-            "  Result.codegen := AzComponentCodegen_renderFunction;\n  Result.render_fn_source := \
-             AzOptionString_none;\nend;\n",
-        );
-        defs.push(format!("{cn}Def"));
+        defs.push(pascal_component(&mut s, lib, c, item));
     }
     let n = defs.len();
     let _ = writeln!(
@@ -812,14 +821,15 @@ impl CodegenBackend for Pascal {
              }}\nprogram Main;\n\n{{$mode delphi}}\n\nuses Azul, Styles;\n\nvar\n"
         );
         for item in &m.items {
-            main.push_str(&format!("  {}Value: TAz{};\n", item.name.upper_camel(), item.ty));
+            let _ = writeln!(main, "  {}Value: TAz{};", item.name.upper_camel(), item.ty);
         }
         main.push_str("begin\n");
         for item in &m.items {
             let name = item.name.upper_camel();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "  {name}Value := {name};\n  WriteLn('{name}: ', {name}Value.len, ' properties');\n"
-            ));
+            );
         }
         main.push_str("end.\n");
         vec![

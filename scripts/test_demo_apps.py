@@ -27,6 +27,7 @@ import demo_publish  # noqa: E402
 sys.path.insert(0, str(HERE / "ci"))
 import png_compare  # noqa: E402
 import smoke_verdict  # noqa: E402
+import ui_find  # noqa: E402
 
 
 def cargo_json(*artifacts):
@@ -574,6 +575,121 @@ class IosPlistTest(unittest.TestCase):
         self.assertEqual(env["AZ_IOS_USAGE"], 'NSCameraUsageDescription=Tom & "Jerry" <b>look</b>.')
 
 
+ANDROID_DUMP = """<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<hierarchy rotation="0">
+  <node index="0" text="" class="android.widget.FrameLayout" bounds="[0,0][1080,2400]">
+    <node index="0" text="Demo Mac" content-desc="" class="android.view.View" bounds="[40,100][600,180]" />
+    <node index="1" text="" content-desc="Remote" class="android.view.View" bounds="[0,2200][540,2400]" />
+    <node index="2" text="Tone" content-desc="Quick button: Tone" class="android.view.View" bounds="[0,1800][270,1900]" />
+  </node>
+</hierarchy>
+"""
+IDB_DUMP = json.dumps([{"AXLabel": "Demo Mac", "type": "StaticText", "frame": {"x": 10, "y": 50, "width": 200, "height": 30}},
+                       {"AXLabel": None, "AXValue": "Remote", "title": None, "frame": {"x": 0, "y": 800, "width": 100, "height": 40}}])
+
+
+class UiFindTest(unittest.TestCase):
+    """scripts/ci/ui_find.py: is a text on the screen, by the accessibility dump of uiautomator (Android) or idb (iOS)?"""
+
+    def find(self, text, *words):
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "dump"
+            path.write_text(text, encoding="utf-8")
+            return ui_find.find(str(path), list(words))
+
+    def test_a_text_or_a_content_description_of_the_android_dump_is_found_whatever_its_case(self):
+        got = self.find(ANDROID_DUMP, "Demo Mac", "remote", "Quick button", "Connect to AzReview")
+        self.assertEqual(got, {"Demo Mac": True, "remote": True, "Quick button": True, "Connect to AzReview": False})
+
+    def test_a_label_or_a_value_of_the_idb_dump_is_found(self):
+        got = self.find(IDB_DUMP, "demo mac", "Remote", "Files")
+        self.assertEqual(got, {"demo mac": True, "Remote": True, "Files": False})
+
+    def test_a_dump_that_cannot_be_read_finds_nothing(self):
+        self.assertEqual(self.find("<hierarchy><node text='Demo Mac'", "Demo Mac"), {"Demo Mac": False})
+        self.assertEqual(self.find("", "Demo Mac"), {"Demo Mac": False})
+        self.assertEqual(ui_find.find("/no/such/dump", ["Demo Mac"]), {"Demo Mac": False})
+
+    def test_the_command_prints_the_answer_as_json(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "dump.xml"
+            path.write_text(ANDROID_DUMP, encoding="utf-8")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(ui_find.main([str(path), "Demo Mac", "Settings"]), 0)
+            self.assertEqual(json.loads(buf.getvalue()), {"Demo Mac": True, "Settings": False})
+            self.assertEqual(ui_find.main([]), 2)
+
+
+class AfterTapTest(unittest.TestCase):
+    """What must be on the screen once the button the manifest names was pressed (AzCompanion: the remote with its pretend Mac, and
+    the pairing screen gone): the texts come from [app.smoke] after_tap and after_tap_gone."""
+
+    BASE = {"alive": True, "alive_after": True, "screen_nonblank": True, "home_similarity": 0.2, "differs_from_home": True}
+
+    def tap(self, **kw):
+        return {**self.BASE, "tap": {"label": "Try it without a Mac", "alive": True, "fatal": None, "changed_screen": True, **kw}}
+
+    def test_the_remote_is_there_and_the_pairing_screen_is_gone(self):
+        facts = self.tap(after_found={"Demo Mac": True}, after_present={"Connect to AzReview": False})
+        self.assertEqual(smoke_verdict.judge(facts), (True, "alive twice, on the screen, drawn, no fatal line"))
+
+    def test_a_text_that_does_not_come_up_fails_the_app_and_says_which(self):
+        passed, reason = smoke_verdict.judge(self.tap(after_found={"Demo Mac": False}, after_present={"Connect to AzReview": False}))
+        self.assertFalse(passed)
+        self.assertIn('"Try it without a Mac"', reason)
+        self.assertIn('"Demo Mac"', reason)
+        self.assertIn("does not show", reason)
+
+    def test_a_text_that_must_be_gone_but_is_still_there_fails_the_app(self):
+        passed, reason = smoke_verdict.judge(self.tap(after_found={"Demo Mac": True}, after_present={"Connect to AzReview": True}))
+        self.assertFalse(passed)
+        self.assertIn('"Connect to AzReview"', reason)
+        self.assertIn("still shows", reason)
+
+    def test_a_screen_that_did_not_change_is_the_first_thing_said(self):
+        passed, reason = smoke_verdict.judge(self.tap(changed_screen=False, screen_similarity=1.0, after_found={"Demo Mac": False}))
+        self.assertFalse(passed)
+        self.assertIn("changed nothing", reason)
+
+    def test_the_result_file_carries_the_questions_and_the_answers(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "home.png").write_bytes(synthetic_png(96, 160, home_screen))
+            (root / "before.png").write_bytes(synthetic_png(96, 160, app_screen))
+            (root / "after.png").write_bytes(synthetic_png(96, 160, lambda x, y: (30, 90, 200, 255) if (x + y) % 5 else (250, 250, 250, 255)))
+            (root / "tap.json").write_text(json.dumps({"label": "Try", "found": "by its name", "alive": True, "fatal": None,
+                                                       "after_found": {"Demo Mac": True}, "after_present": {"Connect to AzReview": False}}))
+            argv = ["--out", str(root / "r.json"), "--app", "AzX", "--id", "x", "--alive", "1", "--alive-after", "1",
+                    "--baseline", str(root / "home.png"), "--after", str(root / "before.png"), "--tap", str(root / "tap.json"),
+                    "--tap-before", str(root / "before.png"), "--tap-after", str(root / "after.png")]
+            self.assertEqual(smoke_verdict.main(argv), 0)
+            tap = json.loads((root / "r.json").read_text())["tap"]
+            self.assertEqual((tap["after_found"], tap["after_present"]), ({"Demo Mac": True}, {"Connect to AzReview": False}))
+
+    def test_the_manifest_names_them_for_the_companion_and_the_plan_hands_them_on(self):
+        m = demo_apps.load()
+        smoke = next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]
+        self.assertEqual(smoke["after_tap"], ["Demo Mac"])
+        self.assertEqual(smoke["after_tap_gone"], ["Connect to AzReview"])
+        self.assertEqual(json.loads(demo_apps.plan(m)["smoke_after"]), {"AzCompanion": {"found": ["Demo Mac"], "gone": ["Connect to AzReview"]}})
+
+    def test_a_text_after_a_tap_needs_a_tap_and_is_a_list_of_texts(self):
+        m = demo_apps.load()
+        app = next(a for a in m["app"] if a["package"] == "AzWidgets")
+        app["smoke"] = {"after_tap": ["Demo Mac"]}
+        self.assertTrue(any("AzWidgets" in e and "after_tap" in e and "tap" in e for e in demo_apps.check(m)))
+        m = demo_apps.load()
+        next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]["after_tap"] = "Demo Mac"
+        self.assertTrue(any("AzCompanion" in e and "after_tap" in e and "list" in e for e in demo_apps.check(m)))
+
+    def test_both_boot_tests_look_at_the_screen_after_the_press(self):
+        for name in ("android_smoke.sh", "ios_smoke.sh"):
+            text = (HERE / "ci" / name).read_text(encoding="utf-8")
+            self.assertIn("AZ_SMOKE_AFTER", text, name)
+            self.assertIn("ui_find.py", text, name)
+
+
 class ApkGateTest(unittest.TestCase):
     """verify_apk is the gate of a built APK: what the phone checks before it runs anything, and that every library of it can be
     loaded on a device with 16 KiB pages (scripts/android_elf_check.py)."""
@@ -1006,6 +1122,73 @@ class VerdictTest(unittest.TestCase):
             # the default band is the conservative one and holds for both
             self.assertEqual(self.verdict(d, black_under(6, 152))[0], 1)
             self.assertEqual(self.verdict(d, black_under(11, 155))[0], 1)
+
+    def test_a_button_that_changed_nothing_on_the_screen_fails_the_app_that_was_asked_to_press_it(self):
+        # AzCompanion on the emulator, 2026-11-26: "Try it without a Mac" was found by its name and pressed, the app lived, and the
+        # three screenshots before and after were the same picture: the remote did not come up, which the manifest says it must
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "home.png").write_bytes(synthetic_png(96, 160, home_screen))
+            (root / "before.png").write_bytes(synthetic_png(96, 160, app_screen))
+            (root / "same.png").write_bytes(synthetic_png(96, 160, app_screen))
+            (root / "other.png").write_bytes(synthetic_png(96, 160, lambda x, y: (30, 90, 200, 255) if (x + y) % 5 else (250, 250, 250, 255)))
+            (root / "tap.json").write_text(json.dumps({"label": "Try it", "found": "by its name", "alive": True, "fatal": None}))
+            base = ["--out", str(root / "r.json"), "--app", "AzX", "--id", "com.azul.AzX", "--alive", "1", "--alive-after", "1",
+                    "--baseline", str(root / "home.png"), "--after", str(root / "before.png"), "--tap", str(root / "tap.json")]
+            self.assertEqual(smoke_verdict.main(base + ["--tap-before", str(root / "before.png"), "--tap-after", str(root / "same.png")]), 1)
+            r = json.loads((root / "r.json").read_text())
+            self.assertIn('"Try it"', r["reason"])
+            self.assertIn("changed nothing", r["reason"])
+            self.assertFalse(r["tap"]["changed_screen"])
+            self.assertEqual(smoke_verdict.main(base + ["--tap-before", str(root / "before.png"), "--tap-after", str(root / "other.png")]), 0)
+            self.assertTrue(json.loads((root / "r.json").read_text())["tap"]["changed_screen"])
+            # without the two pictures the question is not asked
+            self.assertEqual(smoke_verdict.main(base), 0)
+            self.assertNotIn("changed_screen", json.loads((root / "r.json").read_text())["tap"])
+
+    def test_the_engines_first_present_is_read_from_the_startup_line_and_never_decides(self):
+        # AZ_STARTUP=1: the app writes `[startup] ...` lines and ONE `[startup-json] {...}` line to stderr (Android: logcat tag
+        # RustStdoutStderr, iOS: the console of the process); first_present_ms is counted from the process creation
+        json_line = ('[startup-json] {"first_present_ms": 412.345, "before_library_ms": 118.5, "layout_passes": 3, '
+                     '"marks": [["window", 130.1]], "render_backend": "backend=gpu requested=auto device=SwiftShader"}')
+        logcat = ("11-26 07:42:03.529  2387  2387 I RustStdoutStderr: [startup] window 130.1 ms\\n"
+                  "11-26 07:42:03.530  2387  2387 I RustStdoutStderr: " + json_line + "\\n")
+        got = smoke_verdict.parse_startup(logcat)
+        self.assertEqual((got["first_present_ms"], got["before_library_ms"], got["layout_passes"]), (412.345, 118.5, 3))
+        self.assertEqual(got["render_backend"], "backend=gpu requested=auto device=SwiftShader")
+        self.assertEqual(smoke_verdict.parse_startup(json_line + "\\n")["first_present_ms"], 412.345)       # the iOS console: the line as it is
+        self.assertEqual(smoke_verdict.parse_startup(logcat + "[startup-json] " + json_line[len("[startup-json] "):].replace("412.345", "500.5"))["first_present_ms"], 500.5)   # the last one
+        # a line the log cut off (logcat splits what is longer than 4 KB) still gives the numbers that come first
+        cut = '11-26 07:42:03.530  2387  2387 I RustStdoutStderr: [startup-json] {"first_present_ms": 99.001, "before_library_ms": 20.0, "layout_pa'
+        self.assertEqual(smoke_verdict.parse_startup(cut)["first_present_ms"], 99.001)
+        # a run without the switch prints no such line: nothing is said
+        self.assertIsNone(smoke_verdict.parse_startup("11-26 07:42:03.529 I azul: NativeTextBridge: input view installed\\n"))
+        self.assertIsNone(smoke_verdict.parse_startup(""))
+        self.assertIsNone(smoke_verdict.parse_startup("[startup-json] {not json at all"))
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "home.png").write_bytes(synthetic_png(96, 160, home_screen))
+            (root / "after.png").write_bytes(synthetic_png(96, 160, app_screen))
+            (root / "logcat.txt").write_text(logcat)
+            argv = ["--out", str(root / "r.json"), "--app", "AzX", "--id", "com.azul.AzX", "--alive", "1", "--alive-after", "1",
+                    "--baseline", str(root / "home.png"), "--after", str(root / "after.png")]
+            self.assertEqual(smoke_verdict.main(argv + ["--startup-log", str(root / "logcat.txt"), "--startup-log", str(root / "none.txt")]), 0)
+            r = json.loads((root / "r.json").read_text())
+            self.assertEqual((r["first_present_ms"], r["before_library_ms"], r["layout_passes"]), (412.345, 118.5, 3))
+            self.assertEqual(smoke_verdict.main(argv), 0)
+            self.assertNotIn("first_present_ms", json.loads((root / "r.json").read_text()))
+        both = demo_apps.boot_text({"pass": True, "displayed_ms": 1233, "first_present_ms": 412.345, "render_backend": "backend=gpu requested=auto device=x"})
+        self.assertEqual(both, "boots, first window 1233 ms (the platform's own number), first present 412 ms (the engine's mark), gpu renderer")
+        self.assertEqual(demo_apps.boot_text({"pass": True, "first_present_ms": 99.4}), "boots, first present 99 ms (the engine's mark)")
+        self.assertEqual(demo_apps.boot_text({"pass": False, "reason": "x", "first_present_ms": 5}), "BOOT FAILED: x")
+
+    def test_the_boot_tests_switch_the_startup_table_on_before_they_launch(self):
+        android = (HERE / "ci" / "android_smoke.sh").read_text(encoding="utf-8")
+        self.assertLess(android.index("setprop debug.az.startup 1"), android.index("am start -W"))
+        ios = (HERE / "ci" / "ios_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("SIMCTL_CHILD_AZ_STARTUP=1", ios)
+        self.assertIn("--startup-log", android)
+        self.assertIn("--startup-log", ios)
 
     def test_a_band_that_is_no_two_fractions_is_refused(self):
         with tempfile.TemporaryDirectory() as d:

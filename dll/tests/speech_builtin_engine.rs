@@ -8,6 +8,12 @@
 //! that the unit tests cannot: the library loads through `dlopen`, the ABI's calls take the arguments
 //! the header says, the model is accepted, the engine's JSON reads back, and a spoken sentence comes
 //! out as words with times.
+//!
+//! The same test runs on the engine LINKED into the program: `scripts/fetch_whistle.sh --static
+//! target/speech-engine` (the archive goes to `target/speech-engine/static`), then `cargo test -p azul-dll
+//! --features speech-engine-static --test speech_builtin_engine -- --ignored` (on Linux with the
+//! packages `libc++-dev` and `libc++abi-dev`, and `AZUL_CACTUS_CXX_DIR` when libc++ is not on the
+//! linker's path). Nothing is opened at run time then, only the model is read.
 
 use std::{collections::VecDeque, path::PathBuf};
 
@@ -29,6 +35,16 @@ fn engine_file() -> PathBuf {
         "libcactus.so"
     };
     folder().join(name)
+}
+
+/// The engine the test names: the shared library fetched into `target/speech-engine`, or, in a build with
+/// the feature `speech-engine-static`, none: an empty path is the engine the program linked.
+fn engine_path() -> String {
+    if cfg!(feature = "speech-engine-static") {
+        String::new()
+    } else {
+        engine_file().to_str().unwrap().to_string()
+    }
 }
 
 /// A mono 16-bit PCM WAV as floats and its rate.
@@ -94,7 +110,7 @@ impl MicrophoneSource for RecordingSource {
 
 fn transcribe(wav: &str, language: &str) -> azul::desktop::extra::speech::recognizer::Answer {
     let mut builtin = Builtin::from_files(
-        engine_file().to_str().unwrap(),
+        &engine_path(),
         folder().join("whistle.cact").to_str().unwrap(),
         None,
         Box::new(RecordingSource { wav: folder().join(wav) }),
@@ -115,7 +131,7 @@ fn transcribe(wav: &str, language: &str) -> azul::desktop::extra::speech::recogn
 /// The same recording as a stream: what the events were, in order, with the text each carried.
 fn stream(wav: &str, language: &str) -> Vec<(EventKind, String)> {
     let mut builtin = Builtin::from_files(
-        engine_file().to_str().unwrap(),
+        &engine_path(),
         folder().join("whistle.cact").to_str().unwrap(),
         None,
         Box::new(RecordingSource { wav: folder().join(wav) }),

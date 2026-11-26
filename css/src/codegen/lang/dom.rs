@@ -1,10 +1,11 @@
 //! What the DOM-exporting printers share (see the DOM section of
-//! [`crate::codegen::ir`]): which parameters an item never reads, the C
-//! string joiner, the component-library registration of the two printers
-//! that write C API code (C and C++), the DOM syntax of the printers that
-//! build a DOM through their binding's wrapper layer ([`WrapperDom`]), and
-//! the note of a printer that cannot register a library
-//! ([`registration_note`]).
+//! [`crate::codegen::ir`]).
+//!
+//! Which parameters an item never reads, the C string joiner, the
+//! component-library registration of the two printers that write C API code (C
+//! and C++), the DOM syntax of the printers that build a DOM through their
+//! binding's wrapper layer ([`WrapperDom`]), and the note of a printer that
+//! cannot register a library ([`registration_note`]).
 //!
 //! Everything language-specific stays in the printer files; this module only
 //! holds text that is identical for the languages that use it.
@@ -19,7 +20,7 @@ use core::fmt::Write;
 
 use crate::codegen::{
     doc::Doc,
-    ir::{EnumShape, Expr, Ident, Item, ItemParam, LibrarySpec, Module, Prim},
+    ir::{ComponentSpec, EnumShape, Expr, Ident, Item, ItemParam, LibrarySpec, Module, Prim},
     lang::{block_comment_safe, ConcatPart, ExprSyntax, MethodLayout},
 };
 
@@ -52,10 +53,12 @@ pub fn uses_params(m: &Module) -> bool {
     m.items.iter().any(|i| !i.params.is_empty())
 }
 
-/// C: the helper an [`Expr::Concat`] calls (C has no string formatting in
-/// the azul API). Needs `<stdarg.h>`, `<stdlib.h>`, `<string.h>`. Guarded:
-/// an export writes several headers (the app, one per component library)
-/// that may be included together.
+/// C: the helper an [`Expr::Concat`] calls (C has no string formatting in the
+/// azul API).
+///
+/// Needs `<stdarg.h>`, `<stdlib.h>`, `<string.h>`. Guarded: an export writes
+/// several headers (the app, one per component library) that may be included
+/// together.
 pub const C_CONCAT_HELPER: &str = "
 #ifndef AZ_CODEGEN_CONCAT
 #define AZ_CODEGEN_CONCAT
@@ -129,11 +132,111 @@ fn c_lit(s: &str) -> String {
     format!("\"{}\"", super::c_escape(s))
 }
 
-/// The C / C++ registration of a component library: per component a
-/// default-arguments wrapper, a render function reading the data model and
-/// its `ComponentDef` (code calls it through its render function:
-/// `ComponentCodegen::RenderFunction`); then `register_<library>_library()`. `az_str` spells an `AzString` from a
-/// literal in the language. Items the module does not have are skipped.
+/// One component of the library: what is written for it, and the call that makes its
+/// `ComponentDef`.
+fn c_family_component(
+    s: &mut String,
+    lib: &LibrarySpec,
+    c: &ComponentSpec,
+    item: &Item,
+    param_ident: &dyn Fn(&Ident) -> String,
+    az_str: &dyn Fn(&str) -> String,
+) -> String {
+    let item_fn = item.name.snake();
+    let sn = Ident::from_text(&c.name).snake();
+    let qn = format!("{}:{}", lib.name, c.name);
+    let defaults: Vec<String> = item.params.iter().map(|p| c_lit(p.default_text())).collect();
+    let _ = write!(
+        s,
+        "\n/* `{}` with its default arguments. */\nstatic AzDom {item_fn}_default(void) {{\n    \
+         return {item_fn}({});\n}}\n",
+        block_comment_safe(&qn),
+        defaults.join(", ")
+    );
+    let _ = writeln!(
+        s,
+        "\nstatic AzResultStyledDomRenderDomError {sn}_render_fn(const AzComponentDef* def, \
+         const AzComponentDataModel* model, const AzComponentMap* map) {{"
+    );
+    s.push_str("    (void)def;\n    (void)map;\n");
+    let mut args: Vec<String> = Vec::new();
+    if item.params.is_empty() {
+        s.push_str("    (void)model;\n");
+    }
+    for p in &item.params {
+        let local = format!("arg_{}", param_ident(&p.name));
+        let _ = writeln!(
+            s,
+            "    char* {local} = az_model_string(model, {}, {});",
+            c_lit(&p.name.snake()),
+            c_lit(p.default_text())
+        );
+        args.push(local);
+    }
+    let _ = writeln!(s, "    AzDom dom = {item_fn}({});", args.join(", "));
+    for a in &args {
+        let _ = writeln!(s, "    free({a});");
+    }
+    s.push_str(
+        "    return AzResultStyledDomRenderDomError_ok(AzStyledDom_createFromDom(dom));\n}\n",
+    );
+    let _ = writeln!(s, "\nstatic AzComponentDef {sn}_def(void) {{");
+    s.push_str("    AzComponentDef def;\n");
+    let _ = writeln!(
+        s,
+        "    def.id = AzComponentId_create({}, {});",
+        az_str(&lib.name),
+        az_str(&c.name)
+    );
+    let _ = writeln!(s, "    def.display_name = {};", az_str(&c.display_name));
+    let _ = writeln!(s, "    def.description = {};", az_str(&c.description));
+    let _ = writeln!(s, "    /* The CSS is applied per node by {item_fn}. */");
+    let _ = writeln!(s, "    def.css = {};", az_str(""));
+    s.push_str("    def.source = AzComponentSource_UserDefined;\n");
+    let _ = writeln!(s, "    def.data_model.name = {};", az_str(&c.data_model));
+    let _ = writeln!(
+        s,
+        "    def.data_model.description = {};",
+        az_str(&c.data_model_description)
+    );
+    if item.params.is_empty() {
+        s.push_str("    def.data_model.fields = AzComponentDataFieldVec_create();\n");
+    } else {
+        let n = item.params.len();
+        let _ = writeln!(s, "    AzComponentDataField fields[{n}];");
+        for (i, p) in item.params.iter().enumerate() {
+            let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+            let _ = writeln!(
+                s,
+                "    fields[{i}] = az_string_field({}, {}, {});",
+                c_lit(&p.name.snake()),
+                c_lit(p.default_text()),
+                c_lit(desc)
+            );
+        }
+        let _ = writeln!(
+            s,
+            "    def.data_model.fields = AzComponentDataFieldVec_copyFromPtr(fields, {n});"
+        );
+        let _ = writeln!(
+            s,
+            "    /* copyFromPtr cloned them. */\n    for (size_t i = 0; i < {n}; i++) \
+             AzComponentDataField_delete(&fields[i]);"
+        );
+    }
+    let _ = writeln!(s, "    def.render_fn = {sn}_render_fn;");
+    s.push_str("    def.codegen = AzComponentCodegen_renderFunction();\n");
+    s.push_str("    def.render_fn_source = AzOptionString_none();\n    return def;\n}\n");
+    format!("{sn}_def()")
+}
+
+/// The C / C++ registration of a component library.
+///
+/// Per component a default-arguments wrapper, a render function reading the
+/// data model and its `ComponentDef` (code calls it through its render
+/// function: `ComponentCodegen::RenderFunction`); then
+/// `register_<library>_library()`. `az_str` spells an `AzString` from a literal
+/// in the language. Items the module does not have are skipped.
 #[must_use]
 pub fn c_family_registration(
     m: &Module,
@@ -157,92 +260,7 @@ pub fn c_family_registration(
         let Some(item) = m.item(&c.item) else {
             continue;
         };
-        let item_fn = item.name.snake();
-        let sn = Ident::from_text(&c.name).snake();
-        let qn = format!("{}:{}", lib.name, c.name);
-        let defaults: Vec<String> = item.params.iter().map(|p| c_lit(p.default_text())).collect();
-        let _ = write!(
-            s,
-            "\n/* `{}` with its default arguments. */\nstatic AzDom {item_fn}_default(void) {{\n    \
-             return {item_fn}({});\n}}\n",
-            block_comment_safe(&qn),
-            defaults.join(", ")
-        );
-        let _ = writeln!(
-            s,
-            "\nstatic AzResultStyledDomRenderDomError {sn}_render_fn(const AzComponentDef* def, \
-             const AzComponentDataModel* model, const AzComponentMap* map) {{"
-        );
-        s.push_str("    (void)def;\n    (void)map;\n");
-        let mut args: Vec<String> = Vec::new();
-        if item.params.is_empty() {
-            s.push_str("    (void)model;\n");
-        }
-        for p in &item.params {
-            let local = format!("arg_{}", param_ident(&p.name));
-            let _ = writeln!(
-                s,
-                "    char* {local} = az_model_string(model, {}, {});",
-                c_lit(&p.name.snake()),
-                c_lit(p.default_text())
-            );
-            args.push(local);
-        }
-        let _ = writeln!(s, "    AzDom dom = {item_fn}({});", args.join(", "));
-        for a in &args {
-            let _ = writeln!(s, "    free({a});");
-        }
-        s.push_str(
-            "    return AzResultStyledDomRenderDomError_ok(AzStyledDom_createFromDom(dom));\n}\n",
-        );
-        let _ = writeln!(s, "\nstatic AzComponentDef {sn}_def(void) {{");
-        s.push_str("    AzComponentDef def;\n");
-        let _ = writeln!(
-            s,
-            "    def.id = AzComponentId_create({}, {});",
-            az_str(&lib.name),
-            az_str(&c.name)
-        );
-        let _ = writeln!(s, "    def.display_name = {};", az_str(&c.display_name));
-        let _ = writeln!(s, "    def.description = {};", az_str(&c.description));
-        let _ = writeln!(s, "    /* The CSS is applied per node by {item_fn}. */");
-        let _ = writeln!(s, "    def.css = {};", az_str(""));
-        s.push_str("    def.source = AzComponentSource_UserDefined;\n");
-        let _ = writeln!(s, "    def.data_model.name = {};", az_str(&c.data_model));
-        let _ = writeln!(
-            s,
-            "    def.data_model.description = {};",
-            az_str(&c.data_model_description)
-        );
-        if item.params.is_empty() {
-            s.push_str("    def.data_model.fields = AzComponentDataFieldVec_create();\n");
-        } else {
-            let n = item.params.len();
-            let _ = writeln!(s, "    AzComponentDataField fields[{n}];");
-            for (i, p) in item.params.iter().enumerate() {
-                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
-                let _ = writeln!(
-                    s,
-                    "    fields[{i}] = az_string_field({}, {}, {});",
-                    c_lit(&p.name.snake()),
-                    c_lit(p.default_text()),
-                    c_lit(desc)
-                );
-            }
-            let _ = writeln!(
-                s,
-                "    def.data_model.fields = AzComponentDataFieldVec_copyFromPtr(fields, {n});"
-            );
-            let _ = writeln!(
-                s,
-                "    /* copyFromPtr cloned them. */\n    for (size_t i = 0; i < {n}; i++) \
-                 AzComponentDataField_delete(&fields[i]);"
-            );
-        }
-        let _ = writeln!(s, "    def.render_fn = {sn}_render_fn;");
-        s.push_str("    def.codegen = AzComponentCodegen_renderFunction();\n");
-        s.push_str("    def.render_fn_source = AzOptionString_none();\n    return def;\n}\n");
-        defs.push(format!("{sn}_def()"));
+        defs.push(c_family_component(&mut s, lib, c, item, param_ident, az_str));
     }
     let n = defs.len();
     let _ = write!(
@@ -252,15 +270,13 @@ pub fn c_family_registration(
         block_comment_safe(&lib.name),
         block_comment_safe(&az_str(&lib.name))
     );
-    if n == 0 {
-        s.push_str("    AzComponentLibrary lib;\n");
-    } else {
+    if n != 0 {
         let _ = writeln!(s, "    AzComponentDef defs[{n}];");
         for (i, d) in defs.iter().enumerate() {
             let _ = writeln!(s, "    defs[{i}] = {d};");
         }
-        s.push_str("    AzComponentLibrary lib;\n");
     }
+    s.push_str("    AzComponentLibrary lib;\n");
     let _ = writeln!(s, "    lib.name = {};", az_str(&lib.name));
     let _ = writeln!(s, "    lib.version = {};", az_str(&lib.version));
     let _ = writeln!(s, "    lib.description = {};", az_str("Exported from AzBuilder"));
@@ -281,9 +297,11 @@ pub fn c_family_registration(
 
 // ── DOM items through a binding's wrapper layer ──
 
-/// `true` if `item` is DOM construction (it takes parameters or builds a
-/// `Dom`) rather than a CSS value. A printer whose binding builds a DOM
-/// through another layer than CSS values picks its DOM syntax by it.
+/// `true` if `item` is DOM construction (it takes parameters or builds a `Dom`)
+/// rather than a CSS value.
+///
+/// A printer whose binding builds a DOM through another layer than CSS values
+/// picks its DOM syntax by it.
 #[must_use]
 pub fn is_dom_item(item: &Item) -> bool {
     !item.params.is_empty() || item.ty == "Dom"
@@ -293,10 +311,11 @@ pub fn is_dom_item(item: &Item) -> bool {
 pub static DOM_CLASSES: &[&str] = &["Dom", "SmallAriaInfo"];
 
 /// How a printer spells DOM items through its binding's WRAPPER layer (the
-/// managed classes: native strings, `dom.withChild(..)` chains) when its
-/// CSS values go through the raw C layer (`AzulNativeCss.Az..`, `azul.C`,
-/// ...). [`WrapperDom`] makes it the [`ExprSyntax`] of the printer's DOM
-/// items.
+/// managed classes: native strings, `dom.withChild(..)` chains).
+///
+/// For a printer whose CSS values go through the raw C layer
+/// (`AzulNativeCss.Az..`, `azul.C`, ...). [`WrapperDom`] makes it the
+/// [`ExprSyntax`] of the printer's DOM items.
 pub trait WrapperDomSyntax {
     /// The printer's own syntax (number and boolean literals).
     fn base(&self) -> &dyn ExprSyntax;
@@ -441,11 +460,13 @@ pub fn wrapper_dom_limitation(e: &Expr) -> Option<String> {
     }
 }
 
-/// `recv.link` in a method chain whose links break with the dot at the END
-/// of a line (`AzDom_createDiv().\n    withCss(..)`), for languages where a
-/// line may not START with `.`: Go ends a statement at a line that ends in
-/// `)`, and Nim continues an expression only after the `.` (`'.' optInd`).
-/// Flat, it reads like [`Doc::chained`]'s chain.
+/// `recv.link` in a method chain whose links break with the dot at the END of a
+/// line (`AzDom_createDiv().\n    withCss(..)`), for languages where a line may
+/// not START with `.`.
+///
+/// Go ends a statement at a line that ends in `)`, and Nim continues an
+/// expression only after the `.` (`'.' optInd`). Flat, it reads like
+/// [`Doc::chained`]'s chain.
 #[must_use]
 pub fn chained_dot_at_line_end(recv: Doc, link: Doc) -> Doc {
     match recv {
@@ -464,7 +485,7 @@ pub fn chained_dot_at_line_end(recv: Doc, link: Doc) -> Doc {
             }
         }
         other => Doc::Chain {
-            head: alloc::boxed::Box::new(Doc::cat(vec![other, Doc::text(".")])),
+            head: Box::new(Doc::cat(vec![other, Doc::text(".")])),
             links: vec![link],
             broken: false,
         },
@@ -494,7 +515,7 @@ pub fn chained_infix(recv: Doc, link: Doc) -> Doc {
             }
         }
         other => Doc::Chain {
-            head: alloc::boxed::Box::new(other),
+            head: Box::new(other),
             links: vec![Doc::cat(vec![Doc::text(" "), link])],
             broken: false,
         },
@@ -504,7 +525,7 @@ pub fn chained_infix(recv: Doc, link: Doc) -> Doc {
 /// `s` on one line (a window title or a library name in a comment).
 #[must_use]
 pub fn one_line(s: &str) -> String {
-    s.replace(|c: char| c == '\n' || c == '\r', " ")
+    s.replace(['\n', '\r'], " ")
 }
 
 /// The comment lines (without comment markers) a printer writes instead of

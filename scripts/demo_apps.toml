@@ -164,6 +164,11 @@ permissions = [
 [app.smoke]
 expect = "Connect to AzReview"
 tap = "Try it without a Mac"
+# After the press the REMOTE is on: its header names the pretend Mac ("Demo Mac", with its latency), and the pairing screen is gone.
+# (The names of the keys, from the companion's own screens: "Remote" and "Files" in the tab bar, "Settings", the quick buttons "Tone",
+# "Explain", "Shorter" and "Doc"; "Demo Mac" is the safest single text.)
+after_tap = ["Demo Mac"]
+after_tap_gone = ["Connect to AzReview"]
 [app.ios]
 # build-ios.sh writes NSLocalNetworkUsageDescription and NSBonjourServices = [_irohv1._udp] from this text
 local_network = "AzReview Companion finds AzReview on your Mac over your Wi-Fi to use your phone as its remote control."

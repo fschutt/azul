@@ -53,12 +53,40 @@ fn nothing_waits_on_the_clock_until_a_loop_is_armed_a_press_is_followed_a_board_
 fn a_loop_is_armed_until_its_time_is_up_and_then_the_clock_has_nothing_to_wait_for() {
     let mut g = glue();
     arm(&mut g, 1_000);
-    let early = tick_at(&mut g, 2_000);
+    // the first look: a loop is armed, the pages are built for it
+    let first = tick_at(&mut g, 2_000);
+    assert!(first.more && first.redraw && first.pages_changed, "{first:?}");
+    // the next: the same loop, only its ring is drawn again
+    let early = tick_at(&mut g, 2_300);
     assert!(early.more && early.redraw && !early.pages_changed, "{early:?}");
     let late = tick_at(&mut g, 1_000 + ARM_MS_DEFAULT + 1);
     assert!(late.pages_changed, "the loop is gone from the page: its layer and its words go");
     assert!(!late.more, "nothing is left to wait for");
     assert!(g.panel.wb.armed.is_empty());
+}
+
+#[test]
+fn a_loop_that_is_let_go_of_before_its_time_is_up_takes_its_words_with_it_at_the_next_look() {
+    let mut g = glue();
+    let id = arm(&mut g, 0);
+    let _ = tick_at(&mut g, 500);
+    assert!(!tick_at(&mut g, 800).pages_changed, "nothing changed on the page");
+    // what armed it was erased or taken back
+    g.panel.wb.armed.disarm(id);
+    let after = tick_at(&mut g, 1_100);
+    assert!(after.pages_changed && !after.more, "the pages are built again, nothing waits: {after:?}");
+}
+
+#[test]
+fn the_ring_of_a_loop_is_drawn_again_four_times_a_second_and_not_at_every_look_at_the_clock() {
+    let mut g = glue();
+    arm(&mut g, 0);
+    assert!(tick_at(&mut g, 2_000).redraw, "the first look draws");
+    assert!(!tick_at(&mut g, 2_100).redraw, "the same quarter of a second");
+    assert!(!tick_at(&mut g, 2_249).redraw);
+    assert!(tick_at(&mut g, 2_250).redraw, "the next quarter of a second");
+    g.panel.wb.armed.clear();
+    assert!(!tick_at(&mut g, 3_000).redraw, "nothing waits: nothing is drawn");
 }
 
 #[test]
@@ -96,6 +124,31 @@ fn a_loop_that_is_held_in_the_hand_is_not_taken_away_under_it() {
     assert!(matches!(press, crate::whiteboard_drag::Press::Grip(_)), "{press:?}");
     let way_past = tick_at(&mut g, ARM_MS_DEFAULT * 3);
     assert!(g.panel.wb.armed.get(id).is_some(), "the owner keeps what the pointer holds: {way_past:?}");
+}
+
+#[test]
+fn what_was_done_is_kept_oldest_first_not_twice_and_never_more_than_the_most() {
+    let mut g = glue();
+    g.note_patch(200, "b".to_string());
+    g.note_patch(100, "a".to_string());
+    g.note_patch(200, "b".to_string());
+    assert_eq!(g.patches, vec![(100, "a".to_string()), (200, "b".to_string())]);
+    for i in 0..(MAX_PATCH_LINES as u64 + 20) {
+        g.note_patch(1_000 + i, format!("line {i}"));
+    }
+    assert_eq!(g.patches.len(), MAX_PATCH_LINES);
+    assert_eq!(g.patches.last().map(|(_, l)| l.as_str()), Some(format!("line {}", MAX_PATCH_LINES + 19).as_str()), "the newest are kept");
+}
+
+#[test]
+fn the_panel_is_offered_what_was_done_since_the_last_snapshot() {
+    let mut g = glue();
+    assert!(g.panel.history_ui.material.is_empty());
+    g.note_patch(300, "later".to_string());
+    g.note_patch(100, "earlier".to_string());
+    g.refresh_material();
+    // no snapshot was taken yet: everything is offered, by the time
+    assert_eq!(g.panel.history_ui.material, vec!["earlier".to_string(), "later".to_string()]);
 }
 
 #[test]
