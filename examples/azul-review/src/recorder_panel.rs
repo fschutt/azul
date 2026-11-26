@@ -9,7 +9,7 @@
 use azul_appkit::phrase::{Arg, Phrase, Text};
 
 use crate::{
-    recorder::{Indicator, PauseReason, State, TrackName},
+    recorder::{Indicator, PauseReason, Perm, State, TrackName},
     recorder_fs::RecordingInfo,
     recorder_manifest::SessionState,
     recorder_policy::DiskState,
@@ -268,6 +268,50 @@ pub fn attribution(exe: &str, term_program: Option<&str>) -> Arg {
         Some("vscode") => Arg::from("Visual Studio Code"),
         Some(other) => Arg::from(other),
         None => Arg::word("azreview-rec-who-unknown", "the program that started AzReview"),
+    }
+}
+
+/// What the system says of a device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Access {
+    /// Allowed.
+    Allowed,
+    /// Not asked yet: the system asks when the device opens.
+    NotAsked,
+    /// The person refused it.
+    Denied,
+    /// A profile or parental controls forbid it: the person cannot switch it on.
+    Restricted,
+}
+
+/// What the panel says of a device before a recording starts.
+#[must_use]
+pub fn access_phrase(track: TrackName, access: Access, who: &Arg) -> Phrase {
+    let name = track_word(track);
+    let track = Arg::word(&format!("azreview-rec-track-{name}"), name);
+    match access {
+        Access::Allowed => Phrase::new("azreview-rec-access-allowed").arg("track", track),
+        Access::NotAsked => Phrase::new("azreview-rec-access-not-asked").arg("track", track),
+        Access::Denied => Phrase::new("azreview-rec-access-denied").arg("track", track).arg("who", who.clone()),
+        Access::Restricted => Phrase::new("azreview-rec-access-restricted").arg("track", track),
+    }
+}
+
+/// What the recorder is told of a device: allowed (or not yet asked) is no refusal; a refusal is the words the
+/// manifest keeps (in English: they are data of the recording), naming the track and the program `who`.
+#[must_use]
+pub fn access_perm(track: TrackName, access: Access, who: &str) -> Perm {
+    let (what, pane) = match track {
+        TrackName::Screen => ("Screen Recording", "Screen Recording"),
+        TrackName::Camera => ("Camera access", "Camera"),
+        TrackName::Microphone => ("Microphone access", "Microphone"),
+    };
+    match access {
+        Access::Allowed | Access::NotAsked => Perm::Granted,
+        Access::Denied => Perm::Denied(format!(
+            "{what} is off for {who}: switch {who} on in the system's privacy settings (a Mac: System Settings > Privacy & Security > {pane}), then start again"
+        )),
+        Access::Restricted => Perm::Denied(format!("{what} is restricted on this computer (a profile or parental controls): whoever manages the computer has to allow it")),
     }
 }
 

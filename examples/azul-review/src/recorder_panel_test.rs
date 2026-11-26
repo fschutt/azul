@@ -285,6 +285,37 @@ fn the_system_holds_the_app_responsible_in_a_bundle_and_the_terminal_otherwise()
     assert_eq!(attribution(bare, Some("")), unknown);
 }
 
+/// What the system allows is said for each track before a recording starts, and a refused one names whom to ask.
+///
+/// Mutation: a refusal that does not name the program; a restricted device said as refused.
+#[test]
+fn what_the_system_allows_is_said_for_each_track_and_a_refusal_names_the_program() {
+    let who = Arg::from("Terminal");
+    let screen = Arg::word("azreview-rec-track-screen", "screen");
+    assert_eq!(access_phrase(TrackName::Screen, Access::Allowed, &who), Phrase::new("azreview-rec-access-allowed").arg("track", screen.clone()));
+    assert_eq!(access_phrase(TrackName::Screen, Access::NotAsked, &who), Phrase::new("azreview-rec-access-not-asked").arg("track", screen.clone()));
+    assert_eq!(access_phrase(TrackName::Screen, Access::Denied, &who), Phrase::new("azreview-rec-access-denied").arg("track", screen.clone()).arg("who", who.clone()));
+    assert_eq!(access_phrase(TrackName::Screen, Access::Restricted, &who), Phrase::new("azreview-rec-access-restricted").arg("track", screen));
+    assert_eq!(access_phrase(TrackName::Microphone, Access::Allowed, &who).get("track"), Some(&Arg::word("azreview-rec-track-audio", "audio")));
+}
+
+/// What the recorder is told of a permission: allowed, or not yet asked (the system asks when the device opens),
+/// is no refusal; a refusal is the words the manifest and the panel keep, naming the track and the program.
+///
+/// Mutation: a device that was never asked is refused; a refusal without its words.
+#[test]
+fn a_refusal_goes_to_the_recorder_in_words_and_anything_else_is_allowed() {
+    use crate::recorder::Perm;
+    assert_eq!(access_perm(TrackName::Screen, Access::Allowed, "Terminal"), Perm::Granted);
+    assert_eq!(access_perm(TrackName::Camera, Access::NotAsked, "Terminal"), Perm::Granted);
+    for (track, name, pane) in [(TrackName::Screen, "Screen Recording", "Screen Recording"), (TrackName::Camera, "Camera access", "Camera"), (TrackName::Microphone, "Microphone access", "Microphone")] {
+        let Perm::Denied(why) = access_perm(track, Access::Denied, "Terminal") else { panic!("{track:?} refused") };
+        assert!(why.contains(name) && why.contains("Terminal") && why.contains(&format!("Privacy & Security > {pane}")), "{why}");
+    }
+    let Perm::Denied(why) = access_perm(TrackName::Camera, Access::Restricted, "AzReview") else { panic!("restricted is a refusal") };
+    assert!(why.contains("restricted") && !why.contains("switch"), "a restriction is not the person's to switch off: {why}");
+}
+
 // ---- the list of recordings ----
 
 fn info(name: &str, state: Option<SessionState>, recorded_us: u64, bytes: u64, tracks: &[&'static str], problem: Option<&str>) -> RecordingInfo {
