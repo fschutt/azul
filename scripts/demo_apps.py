@@ -475,6 +475,11 @@ def boot_text(r):
         if not r["pass"]:
             return "BOOT FAILED: " + str(r.get("reason") or "no reason given")[:110]
         text = "boots"
+        # the platform's own launch number: informational, never part of the verdict
+        if r.get("displayed_ms") is not None:
+            text += f", first window {r['displayed_ms']} ms (the platform's own number)"
+        elif r.get("launch_ms") is not None:
+            text += f", launched in {r['launch_ms']} ms (the platform's own number)"
     elif r.get("alive") and not r.get("fatal"):
         text = "boots" + ("" if r.get("screen_nonblank") else " (blank screen)")
     else:

@@ -810,6 +810,38 @@ class VerdictTest(unittest.TestCase):
             self.assertEqual(smoke_verdict.main(base + ["--baseline", str(root / "home.png"), "--after", str(root / "torn.png")]), 1)
             self.assertIn("cannot be read", json.loads((root / "r.json").read_text())["reason"])
 
+    def test_the_platforms_own_launch_numbers_are_read_from_the_logs_and_never_decide(self):
+        # `am start -W` prints TotalTime, the activity manager logs "Displayed <pkg>/<activity>: +1s234ms": informational only
+        start = "Starting: Intent { cmp=com.azul.AzWidgets/com.azul.app.AzulActivity }\nStatus: ok\nLaunchState: COLD\nTotalTime: 1311\nWaitTime: 1325\n"
+        log = ("11-26 07:01:02.123  1234  1260 I ActivityTaskManager: Displayed com.android.launcher/.Launcher: +300ms\n"
+               "11-26 07:01:04.456  1234  1260 I ActivityTaskManager: Displayed com.azul.AzWidgets/com.azul.app.AzulActivity: +1s234ms\n")
+        self.assertEqual(smoke_verdict.parse_total_time(start), 1311)
+        self.assertEqual(smoke_verdict.parse_displayed(log, "com.azul.AzWidgets"), 1234)
+        self.assertEqual(smoke_verdict.parse_displayed(log.replace("+1s234ms", "+842ms"), "com.azul.AzWidgets"), 842)
+        self.assertEqual(smoke_verdict.parse_displayed(log.replace("+1s234ms", "+2s0ms"), "com.azul.AzWidgets"), 2000)
+        self.assertIsNone(smoke_verdict.parse_displayed(log, "com.azul.AzMaps"))
+        self.assertIsNone(smoke_verdict.parse_total_time("Error: Activity class does not exist."))
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "start.log").write_text(start)
+            (root / "logcat.txt").write_text(log)
+            home = root / "home.png"
+            home.write_bytes(synthetic_png(96, 160, home_screen))
+            shot = root / "after.png"
+            shot.write_bytes(synthetic_png(96, 160, app_screen))
+            argv = ["--out", str(root / "r.json"), "--app", "AzX", "--id", "com.azul.AzWidgets", "--alive", "1", "--alive-after", "1",
+                    "--baseline", str(home), "--after", str(shot)]
+            self.assertEqual(smoke_verdict.main(argv + ["--start-log", str(root / "start.log"), "--logcat", str(root / "logcat.txt")]), 0)
+            r = json.loads((root / "r.json").read_text())
+            self.assertEqual((r["launch_ms"], r["displayed_ms"]), (1311, 1234))
+            # a log without the numbers costs nothing: the verdict is the same
+            self.assertEqual(smoke_verdict.main(argv + ["--start-log", str(root / "missing.log")]), 0)
+            self.assertNotIn("launch_ms", json.loads((root / "r.json").read_text()))
+        text = demo_apps.boot_text({"pass": True, "launch_ms": 1311, "displayed_ms": 1234})
+        self.assertEqual(text, "boots, first window 1234 ms (the platform's own number)")
+        self.assertEqual(demo_apps.boot_text({"pass": True, "launch_ms": 1311}), "boots, launched in 1311 ms (the platform's own number)")
+        self.assertEqual(demo_apps.boot_text({"pass": False, "reason": "x", "displayed_ms": 1}), "BOOT FAILED: x")
+
     def test_the_status_text_of_a_failed_boot_carries_the_reason(self):
         text = demo_apps.boot_text({"pass": False, "reason": "the home screen is still showing (99.8% of the pixels are the same)"})
         self.assertTrue(text.startswith("BOOT FAILED: the home screen"))
