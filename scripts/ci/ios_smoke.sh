@@ -65,8 +65,14 @@ for app in "$@"; do
     fatal="simctl install failed: $(tail -n 1 "$dir/install.log")"
   else
     started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    launch="$(xcrun simctl launch "$udid" "$bid" 2>&1)"; echo "$launch"
-    case "$launch" in *"$bid: "*) launched=1;; esac
+    marker="$work/marker-$name"; touch "$marker"
+    # Launch with the app's console attached (its stdout and stderr: a Rust panic, the engine's own log lines): the launch
+    # command stays until the app ends, so it runs in the background and its being gone is a verdict of its own.
+    SIMCTL_CHILD_RUST_BACKTRACE=1 xcrun simctl launch --console "$udid" "$bid" >"$dir/console.log" 2>&1 &
+    launch_pid=$!
+    sleep 3
+    cat "$dir/console.log"
+    grep -q "$bid: [0-9]" "$dir/console.log" && launched=1
     sleep "$wait_s"
     xcrun simctl io "$udid" screenshot "$dir/screenshot.png" >/dev/null 2>&1 || true
     # alive: the app's job in the simulator's launchd lists a pid (a dead one shows "-")
@@ -74,11 +80,31 @@ for app in "$@"; do
     echo "launchctl: ${state:-<no job>}"
     pid="$(echo "$state" | awk '{print $1}')"
     case "$pid" in ''|-) ;; *) alive=1;; esac
-    xcrun simctl spawn "$udid" log show --last 3m --style compact --predicate "process == \"$exe\"" >"$dir/log.txt" 2>&1 || true
-    find "$HOME/Library/Logs/DiagnosticReports" -name "$exe*.ips" -newermt "$started" -exec cp {} "$dir/crash/" \; 2>/dev/null || true
-    crash="$(ls "$dir/crash" 2>/dev/null | head -n 1)"
+    # the app ended on its own when the launch command is gone
+    kill -0 "$launch_pid" 2>/dev/null || { echo "the app's console closed: the app ended"; alive=0; }
+    xcrun simctl spawn "$udid" log show --last 3m --info --debug --style compact --predicate "process == \"$exe\"" >"$dir/log.txt" 2>&1 || true
+    xcrun simctl spawn "$udid" log show --last 3m --info --debug --style compact >"$dir/log-all.txt" 2>&1 || true
+    # a crash report is written a few seconds after the crash: look for up to 20 s when the app is gone
+    if [ "$alive" != "1" ]; then
+      for _ in 1 2 3 4 5 6 7 8 9 10; do
+        [ -n "$(find "$HOME/Library/Logs/DiagnosticReports" "/Library/Logs/DiagnosticReports" -type f -newer "$marker" 2>/dev/null | head -n 1)" ] && break
+        sleep 2
+      done
+    fi
+    find "$HOME/Library/Logs/DiagnosticReports" "/Library/Logs/DiagnosticReports" -type f -newer "$marker" -exec cp {} "$dir/crash/" \; 2>/dev/null || true
+    ls -la "$HOME/Library/Logs/DiagnosticReports" >"$dir/crash/_ls.txt" 2>&1 || true
+    kill "$launch_pid" 2>/dev/null || true
+    crash="$(ls "$dir/crash" 2>/dev/null | grep -v '^_ls.txt$' | head -n 1)"
     [ -n "$crash" ] && fatal="crash report: $crash"
-    [ -z "$fatal" ] && fatal="$(grep -m1 -E 'Terminating app|SIGABRT|SIGSEGV|Fatal error|panicked at' "$dir/log.txt" || true)"
+    [ -z "$fatal" ] && fatal="$(grep -m1 -E 'panicked at|[Ff]atal error|SIGABRT|SIGSEGV|abort\(\)|Terminating app' "$dir/console.log" "$dir/log.txt" 2>/dev/null | head -n 1 | cut -d: -f2-)"
+    if [ "$alive" != "1" ]; then
+      echo "--- the app's console:"; tail -n 60 "$dir/console.log"
+      echo "--- the app's log lines:"; tail -n 40 "$dir/log.txt"
+      echo "--- crash reports:"; ls "$dir/crash"
+      for f in "$dir"/crash/*.ips "$dir"/crash/*.crash; do [ -f "$f" ] && { echo "== $f"; head -c 4000 "$f"; echo; }; done
+      echo "--- the simulator's log around the launch (lines naming the app or its job):"
+      grep -i -E "$exe|$bid" "$dir/log-all.txt" | tail -n 40 | cut -c1-260
+    fi
     rust_lines="$(grep -c -v '^$' "$dir/log.txt" 2>/dev/null || true)"
     python3 "$(dirname "$0")/png_nonblank.py" "$dir/screenshot.png" >/dev/null && nonblank=1
     # A button the manifest names ([app.smoke] tap): press it with idb (a simulator has no tap of its own in simctl),
