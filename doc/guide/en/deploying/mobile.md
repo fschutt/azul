@@ -223,7 +223,7 @@ That is the *entire* difference from a desktop app.
   `getFilesDir()`, `XDG_CONFIG_HOME` to `files/config`, and `XDG_CACHE_HOME` and `TMPDIR` to `getCacheDir()` before the
   library loads (what the caller set is kept), so `FilePath::get_data_dir()`, `get_config_dir()` and
   `get_cache_dir()` answer, and `std::env::temp_dir()` is writable. `libazul` logs one line
-  `[Android] app dirs: HOME=... (writable)` at `AZ_LOG=info` (an error line when one is not writable).
+  `[Android] app dirs: home=... (writable) data=... cache=... temp=...` at `AZ_LOG=info` (an error line when one is missing or not writable).
 - `WindowCreateOptions::create_callback` runs once per window, when the window's surface first exists (Android's first
   `InitWindow`: the real size and density are in the window state) and before its first layout, as on the desktop
   shells. Start the timers and workers that live as long as the window there.

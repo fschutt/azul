@@ -999,36 +999,39 @@ fn trim_memory(window: &mut AndroidWindow, level: i32) {
     }
 }
 
-/// One log line with the app's private folders as the environment names them and whether each can be written
-/// (`AzulActivity.prepareAppDirs` sets them before the library loads): `FilePath::get_data_dir()` and the cache
-/// and temp folders of an app resolve through them. An error line (visible at the default log level) when one
-/// is not writable: an app that keeps a pairing or a cache through it keeps nothing.
+/// One log line with the app's private folders as the app sees them (`FilePath::get_home_dir()`, `get_data_dir()`,
+/// `get_cache_dir()` and `get_temp_dir()`: what `AzulActivity.prepareAppDirs` set in the environment before the library
+/// loaded) and whether each can be written. An error line (visible at the default log level) when one is missing or not
+/// writable: an app that keeps a pairing or a cache through it keeps nothing. The shell reads no environment itself: the
+/// folders come from the facade every app uses (`azul_layout::file`), the one place that knows where they are.
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn log_app_dirs() {
+    use azul_layout::file::FilePath;
+
     let mut all_ok = true;
-    let mut probe = |name: &str| -> String {
-        let Some(value) = std::env::var_os(name) else {
+    let mut probe = |label: &str, dir: Option<FilePath>| -> String {
+        let Some(dir) = dir else {
             all_ok = false;
-            return format!("{name}=<unset>");
+            return format!("{label}=<none>");
         };
-        let dir = std::path::PathBuf::from(&value);
+        let dir = std::path::PathBuf::from(dir.as_str());
         let file = dir.join(".azul-write-probe");
         let writable = std::fs::create_dir_all(&dir).is_ok()
             && std::fs::write(&file, b"x").is_ok()
             && std::fs::remove_file(&file).is_ok();
         all_ok &= writable;
         format!(
-            "{name}={} ({})",
+            "{label}={} ({})",
             dir.display(),
             if writable { "writable" } else { "NOT writable" }
         )
     };
     let line = format!(
         "[Android] app dirs: {} {} {} {}",
-        probe("HOME"),
-        probe("XDG_DATA_HOME"),
-        probe("XDG_CACHE_HOME"),
-        probe("TMPDIR"),
+        probe("home", FilePath::get_home_dir()),
+        probe("data", FilePath::get_data_dir()),
+        probe("cache", FilePath::get_cache_dir()),
+        probe("temp", Some(FilePath::get_temp_dir())),
     );
     if all_ok {
         log_info!(LogCategory::EventLoop, "{}", line);
