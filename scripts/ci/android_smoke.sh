@@ -137,7 +137,7 @@ import json, sys
 path, label, how, xy, alive, fatal = sys.argv[1:]
 json.dump({"label": label, "found": how, "at": xy, "alive": alive == "1", "fatal": fatal or None}, open(path, "w"), indent=2)
 PY
-        verdict_args+=(--tap "$dir/tap.json")
+        verdict_args+=(--tap "$dir/tap.json" --tap-before "$dir/screenshot.png" --tap-after "$dir/screenshot-after-tap.png")
       fi
       # The second look, a few seconds after the last thing the app was asked to do: still there, still on the screen.
       sleep 3
