@@ -509,6 +509,8 @@ def android_scenarios(args):
         start = dev.launch(cold=True)
         total = re.search(r"TotalTime: (\d+)", start)
         s.note(f"am start -W: TotalTime {total.group(1) if total else '?'} ms")
+        if total:
+            run.meta["cold_start_ms"] = int(total.group(1))      # the number that has a history across re-runs
         t = dev.wait_for_front(timeout=args.first_frame_timeout)
         s.check("a first frame appears (alive, focus, not flat, not the launcher)", t is not None,
                 f"after {t:.1f} s" if t is not None else f"nothing after {args.first_frame_timeout} s")
@@ -527,6 +529,27 @@ def android_scenarios(args):
             s.note("meminfo: " + " | ".join(l.strip() for l in mem.splitlines()))
 
     run.step("03-cold-start", "start the app from nothing: first frame, portrait picture, cost at rest", s_cold)
+
+    def s_modes(s):
+        """AZ_BACKEND=cpu / gpu / auto through the system property the engine reads: the phone shell has ONE renderer
+        (the CPU one), so all three must draw the same page (run.rs consults AZ_BACKEND on a phone only for `headless`)."""
+        base = state["portrait"]
+        for mode in ("cpu", "gpu", "auto"):
+            dev.sh(f"setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1;AZ_BACKEND={mode}'")
+            dev.launch(cold=True)
+            t = dev.wait_for_front(timeout=args.first_frame_timeout)
+            dev.settle(2.5)
+            sig = dev.look(s, f"AZ_BACKEND-{mode}")
+            s.check(f"AZ_BACKEND={mode}: the app draws", t is not None and not is_flat(sig), f"first frame after {t:.1f} s" if t is not None else "no frame")
+            if base is not None:
+                s.note(f"AZ_BACKEND={mode} differs {sig_diff(sig, base):.4f} from the default start (the phone shell has one renderer, the CPU one)")
+        dev.sh("setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1'")
+        dev.launch(cold=True)       # the default start again: what the later steps compare with
+        dev.wait_for_front(timeout=args.first_frame_timeout)
+        dev.settle(2.5)
+        state["portrait"] = dev.look(s, "default-again")
+
+    run.step("03b-render-modes", "AZ_BACKEND=cpu, gpu, auto through debug.az.env (the shell has only the CPU renderer: all three alike)", s_modes, needs_app=True)
 
     def s_ui_dump(s):
         dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
