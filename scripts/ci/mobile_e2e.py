@@ -403,9 +403,9 @@ def e2e_session(args):
         return x, y
 
     def s_script_paint(s):
-        w, h = dev.dims
         mark = dev.now_mark()
         before = device_shot(s, "paint-before")
+        w, h = dev.dims                                  # read after a picture: the one before this step may have been a landscape one
         x0, y0, x1, y1 = (int(w * 200 / 1080), int(h * 900 / 2400), int(w * 800 / 1080), int(h * 1400 / 2400))
         dev.swipe(x0, y0, x1, y1, 300)
         dev.settle(1.5)
@@ -429,8 +429,8 @@ def e2e_session(args):
         s.check("the picture is the empty canvas again", q.sig_diff(undone, before) <= q.SAME_BELOW * 2, f"differs from before {q.sig_diff(undone, before):.3f}", required=False)
 
     def s_script_writer(s):
-        w, h = dev.dims
         before = device_shot(s, "writer-before")
+        w, h = dev.dims
         height0 = (find_key(srv.op("get_state"), "logical_height") or 0)
         dev.tap(int(w * 0.5), int(h * 0.45))          # into the page
         dev.settle(1.5)
