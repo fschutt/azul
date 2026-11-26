@@ -311,7 +311,7 @@ fn desugar_call(class: &str, method: &str, args: &[Expr]) -> Expr {
     let metric = |m: &str| Expr::unit("SizeMetric", EnumShape::CLike, m);
     match (class, method, args.as_slice()) {
         ("CssProperty", "auto" | "none" | "initial" | "inherit", [Expr::Variant { variant, .. }]) => {
-            let kw = match method.as_str() {
+            let kw = match method {
                 "auto" => "Auto",
                 "none" => "None",
                 "initial" => "Initial",
