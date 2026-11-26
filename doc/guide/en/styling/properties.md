@@ -221,7 +221,7 @@ text-decoration: underline;
 - `line-break` accepts `auto`, `loose`, `normal`, `strict`, or `anywhere`. Type `StyleLineBreak`. `anywhere` allows a break between any two characters; the others break Latin text alike.
 - `hyphens` accepts `none`, `manual`, or `auto`. Type `StyleHyphens`.
 - `initial-letter` accepts a number of lines (`3`, with an optional sink). Type `StyleInitialLetter`. Makes room for the first letter; the letter is not drawn bigger yet.
-- `hanging-punctuation` is parsed and not applied yet. Type `StyleHangingPunctuation`.
+- `hanging-punctuation` accepts `none`, or `first`, `force-end` or `allow-end`, and `last`, in any order. Type `StyleHangingPunctuation`. Inherited. A mark that hangs takes no room on its line: the line is broken, aligned and justified without it, and it stands beyond the line's edge. `first` hangs the opening bracket or quote of the first line, `last` the closing bracket or quote of the last line, `force-end` a stop or comma that ends a line, `allow-end` one that ends a line only if it does not otherwise fit.
 - `hyphenation-language` (Azul) accepts a BCP 47 tag. Type `StyleHyphenationLanguage`.
 
 System font keywords resolve to platform defaults (`SF Pro`, `Segoe UI`,
