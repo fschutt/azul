@@ -13,7 +13,7 @@ use std::{collections::VecDeque, path::PathBuf};
 
 use azul::desktop::extra::speech::{
     builtin::{Builtin, Microphone, MicrophoneSource, Tuning},
-    recognizer::{Listen, Outcome, Recognizer, SystemClock},
+    recognizer::{EventKind, Listen, Outcome, Recognizer, StreamOptions, SystemClock},
 };
 
 fn folder() -> PathBuf {
@@ -112,6 +112,41 @@ fn transcribe(wav: &str, language: &str) -> azul::desktop::extra::speech::recogn
     })
 }
 
+/// The same recording as a stream: what the events were, in order, with the text each carried.
+fn stream(wav: &str, language: &str) -> Vec<(EventKind, String)> {
+    let mut builtin = Builtin::from_files(
+        engine_file().to_str().unwrap(),
+        folder().join("whistle.cact").to_str().unwrap(),
+        None,
+        Box::new(RecordingSource { wav: folder().join(wav) }),
+        Tuning::default(),
+    )
+    .unwrap_or_else(|failure| panic!("{:?}: {}", failure.status, failure.message));
+    let clock = SystemClock::new();
+    let never = || false;
+    let events = std::cell::RefCell::new(Vec::new());
+    let ended = builtin.listen_stream(
+        &Listen {
+            language,
+            timeout_ms: 30_000,
+            clock: &clock,
+            cancel: &never,
+            flowing: &|| {},
+        },
+        &StreamOptions {
+            partials: true,
+            endpoint_ms: 0,
+            max_ms: 0,
+            max_utterances: 1,
+            pre_roll_ms: 1_000,
+        },
+        &never,
+        &|kind, answer| events.borrow_mut().push((kind, answer.text)),
+    );
+    assert_eq!(ended.outcome, Outcome::Heard, "{}", ended.message);
+    events.into_inner()
+}
+
 /// One test for both sentences: the engine owns ONE process-global model and is not thread-safe
 /// (two recognizers calling it from two test threads at once crashed it with a SIGSEGV on the
 /// runner), so what uses it runs one after the other.
@@ -140,4 +175,15 @@ fn the_real_engine_turns_a_recorded_english_and_german_sentence_into_timed_words
     assert_eq!(answer.outcome, Outcome::Heard, "{}", answer.message);
     assert_eq!(answer.language, "de", "the language is detected when none is asked for");
     assert!(!answer.words.is_empty());
+
+    // The English sentence as a stream: partials while it goes on, then its final.
+    let events = stream("en.wav", "en-US");
+    println!("stream: {events:#?}");
+    let partials = events.iter().filter(|(kind, _)| *kind == EventKind::Partial).count();
+    assert!(partials >= 2, "a sentence of several seconds gives partials: {events:?}");
+    assert!(events.iter().filter(|(_, text)| !text.is_empty()).count() >= 3);
+    let last = events.last().expect("events");
+    assert_eq!(last.0, EventKind::Final, "{events:?}");
+    let text = last.1.to_lowercase();
+    assert!(text.contains("label") || text.contains("river"), "the final came out as {text:?}");
 }
