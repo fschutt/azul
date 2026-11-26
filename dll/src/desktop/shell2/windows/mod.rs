@@ -1953,6 +1953,7 @@ impl Win32Window {
             &mut debug_messages,
             relayout_reason,
             borrows.settings,
+            borrows.startup,
         )?;
 
         // Forward layout debug messages to the debug server's log queue

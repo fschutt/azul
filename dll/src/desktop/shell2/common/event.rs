@@ -1636,6 +1636,8 @@ pub struct LayoutPassBorrows<'a> {
     pub app_data: &'a Arc<RefCell<RefAny>>,
     /// What the environment asked of the app, read once at its start
     pub settings: &'a crate::desktop::app_settings::AppSettings,
+    /// The marks of the app's start (`AZ_STARTUP=1`): the pass reports its phases on it
+    pub startup: &'a crate::desktop::startup_timeline::StartupTimeline,
 }
 
 /// Common window state shared across all platform window implementations.
@@ -3895,6 +3897,7 @@ impl CommonWindowState {
             system_style: &self.system_style,
             app_data: &self.app_data,
             settings: self.app.settings(),
+            startup: self.app.startup(),
         }
     }
 
@@ -5196,6 +5199,16 @@ pub trait PlatformWindow {
         );
         let started = std::time::Instant::now();
 
+        // The startup timeline (`AZ_STARTUP=1`) counts every layout of the app and says why each ran:
+        // the reason the pending request carries is the one this pass consumes.
+        let startup = self.get_app_shared().startup_handle();
+        let layout_no = if startup.enabled() {
+            let reason = format!("{:?}", self.get_common_mut().regeneration_reason());
+            startup.layout_begin(&reason)
+        } else {
+            0
+        };
+
         self.poll_transient_mailbox();
         // Every layout pass ends with the accessibility pass; the refill below
         // only runs when none did (`refill_a11y_tree_unless_refreshed`).
@@ -5230,6 +5243,7 @@ pub trait PlatformWindow {
                     "{passes} pass(es) in {:.2}ms",
                     started.elapsed().as_secs_f64() * 1000.0
                 ));
+                startup.layout_end(layout_no, passes, "");
                 return Ok(result);
             }
             result = self.regenerate_layout_once()?;
@@ -5261,6 +5275,7 @@ pub trait PlatformWindow {
              without converging",
             started.elapsed().as_secs_f64() * 1000.0
         );
+        startup.layout_end(layout_no, passes, "hit the lifecycle cap");
         Ok(result)
     }
 
@@ -7043,7 +7058,10 @@ pub trait PlatformWindow {
                     azul_core::xml::ComponentMap::default(),
                 ));
                 let (_handle, rx) =
-                    crate::desktop::shell2::common::debug_server::start_debug_server(*port);
+                    crate::desktop::shell2::common::debug_server::start_debug_server_with_startup(
+                        *port,
+                        self.get_app_shared().startup_handle(),
+                    );
                 let app_data = self.get_app_data().borrow().clone();
                 let window_id = self
                     .get_current_window_state()

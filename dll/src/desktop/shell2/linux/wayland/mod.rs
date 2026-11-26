@@ -6960,6 +6960,7 @@ impl WaylandWindow {
             &mut debug_messages,
             relayout_reason,
             borrows.settings,
+            borrows.startup,
         )?;
 
         // Forward layout debug messages to the debug server's log queue
@@ -10885,6 +10886,7 @@ impl PlatformWindow for WaylandPopup {
             &mut debug_messages,
             relayout_reason,
             borrows.settings,
+            borrows.startup,
         )?;
         // The popup has no WebRender hit-tester; the CPU one answers clicks.
         if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
@@ -12072,6 +12074,7 @@ fn measure_popup_content(
         &mut debug_messages,
         relayout_reason,
         borrows.settings,
+        borrows.startup,
     )
     .ok()?;
     let natural = common

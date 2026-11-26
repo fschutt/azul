@@ -463,6 +463,7 @@ fn run_headless(
 fn setup_debug_and_e2e(
     config: &AppConfig,
     settings: &crate::desktop::app_settings::AppSettings,
+    startup: Arc<crate::desktop::startup_timeline::StartupTimeline>,
 ) -> (
     Option<spmc::Receiver<debug_server::DebugRequest>>,
     Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
@@ -470,7 +471,7 @@ fn setup_debug_and_e2e(
     // Lean build: no debug server, no E2E runner — AZ_DEBUG/AZ_E2E are no-ops.
     #[cfg(not(any(feature = "debug-server", feature = "e2e-scripting")))]
     {
-        let _ = (config, settings);
+        let _ = (config, settings, startup);
         (None, None)
     }
 
@@ -510,7 +511,7 @@ fn setup_debug_and_e2e(
             // identical either way.
             #[cfg(feature = "debug-server")]
             let rx = if let Some(port) = debug_port {
-                let (_handle, rx) = debug_server::start_debug_server(port);
+                let (_handle, rx) = debug_server::start_debug_server_with_startup(port, startup);
                 rx
             } else {
                 let (_handle, rx) = debug_server::create_debug_channel();
@@ -518,7 +519,7 @@ fn setup_debug_and_e2e(
             };
             #[cfg(not(feature = "debug-server"))]
             let rx = {
-                let _ = debug_port;
+                let _ = (debug_port, &startup);
                 let (_handle, rx) = debug_server::create_debug_channel();
                 rx
             };
@@ -592,7 +593,8 @@ pub fn run(
         app_shared.settings().shell.backend
     );
 
-    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config, app_shared.settings());
+    let (debug_request_rx, component_map) =
+        setup_debug_and_e2e(&config, app_shared.settings(), app_shared.startup_handle());
 
     // AZ_E2E_TEST: deterministic resize/tick scenario runner. Takes over the
     // main loop entirely (bypasses NSApplication) and exits the process after
@@ -1459,7 +1461,8 @@ pub fn run(
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
-    let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config, app_shared.settings());
+    let (_debug_request_rx, _component_map) =
+        setup_debug_and_e2e(&config, app_shared.settings(), app_shared.startup_handle());
     #[cfg(feature = "web")]
     if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window, &app_shared.settings().shell) {
         return crate::web::run_web(
@@ -1572,7 +1575,8 @@ pub fn run(
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
-    let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config, app_shared.settings());
+    let (_debug_request_rx, _component_map) =
+        setup_debug_and_e2e(&config, app_shared.settings(), app_shared.startup_handle());
     if resolve_backend(&root_window, &app_shared.settings().shell) == super::AzBackend::Headless {
         return run_headless(
             app_data,
@@ -1648,7 +1652,8 @@ pub fn run(
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
-    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config, app_shared.settings());
+    let (debug_request_rx, component_map) =
+        setup_debug_and_e2e(&config, app_shared.settings(), app_shared.startup_handle());
     #[cfg(feature = "web")]
     if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window, &app_shared.settings().shell) {
         return crate::web::run_web(
@@ -2203,7 +2208,8 @@ pub fn run(
         app_shared.settings().platform.display,
         app_shared.settings().platform.xdg_session_type,
     );
-    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config, app_shared.settings());
+    let (debug_request_rx, component_map) =
+        setup_debug_and_e2e(&config, app_shared.settings(), app_shared.startup_handle());
 
     // AZ_E2E_TEST: deterministic headless resize/tick scenario runner — takes
     // over the run entirely and exits after the scenario. This hook existed in

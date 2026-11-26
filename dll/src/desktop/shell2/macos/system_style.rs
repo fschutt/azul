@@ -266,10 +266,23 @@ fn nsstring_to_string(lib: &ObjcLib, nsstr: Id) -> Option<String> {
 /// Falls back to the hardcoded `defaults::macos_modern_light()` if the
 /// Objective-C runtime cannot be loaded or if any query panics.
 pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> SystemStyle {
+    discover_timed(
+        known_languages,
+        &crate::desktop::startup_timeline::StartupTimeline::disabled(),
+    )
+}
+
+/// [`discover`] for the start of the app: each step of it is a mark of the startup timeline
+/// (`AZ_STARTUP=1`).
+pub(crate) fn discover_timed(
+    known_languages: &[azul_css::system::SystemLanguage],
+    startup: &crate::desktop::startup_timeline::StartupTimeline,
+) -> SystemStyle {
     let lib = match ObjcLib::load() {
         Some(l) => l,
         None => return defaults::macos_modern_light(),
     };
+    startup.mark("style:objc_and_appkit_loaded");
 
     // Start with a sensible base (light or dark will be overridden below).
     let mut style = defaults::macos_modern_light();
@@ -320,6 +333,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
         }
 
         let nsc = lib.cls(b"NSColor\0");
+        startup.mark("style:appearance_read");
 
         macro_rules! q {
             ($field:ident, $sel:expr) => {
@@ -397,6 +411,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
             style.focus_visuals.focus_ring_color = OptionColorU::Some(c);
         }
 
+        startup.mark("style:colors_read");
         // ── 3. Fonts from NSFont ─────────────────────────────────────
         let nsfont = lib.cls(b"NSFont\0");
 
@@ -438,6 +453,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
             }
         }
 
+        startup.mark("style:fonts_read");
         // ── 4. Input metrics from NSEvent ────────────────────────────
         let nsevent = lib.cls(b"NSEvent\0");
         let dci = lib.send_f64(nsevent, lib.sel(b"doubleClickInterval\0"));
@@ -492,6 +508,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
             style.animation.animations_enabled = !reduce_motion;
         }
 
+        startup.mark("style:input_scrollbar_accessibility_read");
         // ── 7. OS version from NSProcessInfo ─────────────────────────
         let nspi = lib.cls(b"NSProcessInfo\0");
         let pi = lib.send_id(nspi, lib.sel(b"processInfo\0"));
@@ -539,6 +556,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
         }
     }
 
+    startup.mark("style:version_and_locale_read");
     style.platform = Platform::MacOs;
 
     // macOS HIG: fixed visual hints
@@ -553,6 +571,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     // ── CLI-based fallback discovery ────────────────────────────────────
     discover_macos_cli_extras(&mut style, known_languages, native_appearance);
 
+    startup.mark("style:cli_extras");
     // OS version: if native detection did not set it, try sw_vers
     if style.os_version == OsVersion::MACOS_SONOMA {
         // Native may have set it to SONOMA as default; try CLI for a better answer

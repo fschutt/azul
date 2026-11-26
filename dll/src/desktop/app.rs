@@ -10,7 +10,11 @@ use azul_core::{refany::RefAny, resources::AppConfig, window::MonitorVec};
 use azul_layout::window_state::{WindowCreateOptions, WindowCreateOptionsVec};
 use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
-use crate::desktop::{app_settings::AppSettings, shell2::common::debug_server};
+use crate::desktop::{
+    app_settings::AppSettings,
+    shell2::common::{debug_server, log_gate},
+    startup_timeline::StartupTimeline,
+};
 
 /// Wait (off the calling thread) for the font scan to finish, then write the
 /// on-disk font manifest.
@@ -53,6 +57,49 @@ fn spawn_font_cache_persist(registry: Arc<FcFontRegistry>) {
 
     // A machine that cannot spawn one more thread is not a reason to fail
     // startup; it just means this launch does not leave a cache behind.
+    let _ = spawned;
+}
+
+/// `AZ_STARTUP=1`: a thread that marks the moment the font scan is complete (`font_scan_complete`,
+/// with how many fonts it found and whether the disk cache was there), so the table shows what
+/// the first layout could have waited for. Polls every millisecond, gives up after a minute, and
+/// is never started when the timeline is off.
+#[cfg(all(not(miri), not(feature = "web")))]
+fn spawn_font_scan_watch(
+    registry: Arc<FcFontRegistry>,
+    startup: Arc<StartupTimeline>,
+    cache_loaded: bool,
+) {
+    use core::time::Duration;
+
+    if !startup.enabled() {
+        return;
+    }
+    let spawned = std::thread::Builder::new()
+        .name("azul-startup-fonts".to_string())
+        .spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(60);
+            let mut scan_marked = false;
+            loop {
+                if !scan_marked && registry.is_scan_complete() {
+                    scan_marked = true;
+                    startup.mark_once("font_dirs_scanned");
+                }
+                if registry.is_build_complete() {
+                    startup.mark_once_with("font_scan_complete", || {
+                        format!(
+                            "fonts={} disk_cache_loaded={cache_loaded}",
+                            registry.cache.len()
+                        )
+                    });
+                    return;
+                }
+                if std::time::Instant::now() >= deadline {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        });
     let _ = spawned;
 }
 
@@ -154,6 +201,9 @@ impl App {
         // The time of each step of this function, logged at debug level once the logger is there (`AZ_LOG=debug`): the
         // next number of the start is read from a run and not guessed. (The steps before the logger are told with it.)
         let began = std::time::Instant::now();
+        // The same instant for the startup timeline (`AZ_STARTUP=1`): its origin is the first line of the library, and the
+        // wall clock beside it is what the process creation time of the OS is measured against.
+        let entered_wall = std::time::SystemTime::now();
         let mut steps = crate::desktop::shell2::common::style_discovery::CreateSteps::at(0);
         let mut told: Vec<String> = Vec::new();
         let mut lap = |name: &str, told: &mut Vec<String>| {
@@ -174,6 +224,12 @@ impl App {
         // context-free code finds it, before the first log record and before the system style is
         // discovered. The first install of a process wins.
         settings.install_libraries();
+        // The startup timeline of this app: ONE, owned by the app and handed to every window and worker thread through its
+        // `AppShared`; off (a test of a bool at each mark) unless `AZ_STARTUP` asked.
+        let startup = Arc::new(
+            StartupTimeline::for_process(settings.shell.startup_timeline, began, entered_wall)
+                .with_sink(log_gate::startup_line),
+        );
         // The end user's rice (`~/.azul/css/<theme>/*.css` and the legacy per-app file,
         // `azul_css::rice`), in the `AZ_RICING` mode, with the real home directory: installed
         // HERE (a test or a tool that never creates an App never reads it), and before the system
@@ -184,6 +240,7 @@ impl App {
             settings.css.ricing,
         );
         lap("settings_and_rice", &mut told);
+        startup.mark("app_create:settings_and_rice");
 
         // `AZ_BACKEND=headless` is known before `App::run` starts the headless loop, for what an
         // app asks while it builds its state (`PlatformCapability::notifications()`).
@@ -219,6 +276,7 @@ impl App {
         #[cfg(feature = "logging")]
         crate::desktop::logging::init_default_logger(settings.shell.no_color);
         lap("e2e_services_logger", &mut told);
+        startup.mark("app_create:e2e_services_logger");
         // What was measured before the logger was there is said now.
         for line in told.drain(..) {
             crate::plog_debug!("{}", line);
@@ -249,12 +307,15 @@ impl App {
         }
 
         lap("identity_and_trust", &mut told);
+        startup.mark("app_create:identity_and_trust");
         // Discover the real system style (replaces the hard-coded default from AppConfig::create)
-        app_config.system_style = discover_system_style(
+        app_config.system_style = discover_system_style_timed(
             app_config.localization.known_languages.as_slice(),
             &settings.platform,
+            &startup,
         );
         lap("system_style", &mut told);
+        startup.mark("app_create:system_style");
 
         // The desktop's OWN icons, into the "system" pack: a submenu arrow, a
         // drop-down chevron and a tree expander are shapes the platform already
@@ -304,6 +365,7 @@ impl App {
         // started a portal handshake) even for a CI run. `run()` chooses it.
 
         lap("theme_light_rice_watcher", &mut told);
+        startup.mark("app_create:theme_light_rice_watcher");
         // Set the icon resolver from the layout crate (the default resolver in core is a no-op)
         app_config
             .icon_provider
@@ -338,13 +400,21 @@ impl App {
         }
 
         lap("icons", &mut told);
-        let app_internal = AppInternal::create_with_settings(initial_data, app_config, settings);
+        startup.mark("app_create:icons");
+        let app_internal = AppInternal::create_with_startup(
+            initial_data,
+            app_config,
+            settings,
+            Arc::clone(&startup),
+        );
         lap("app_internal", &mut told);
+        startup.mark("app_create:app_internal");
         let boxed = Box::new(app_internal);
         for line in told.drain(..) {
             crate::plog_debug!("{}", line);
         }
         crate::plog_debug!("[app] App::create: total {} us", steps.total_at(u64::try_from(began.elapsed().as_micros()).unwrap_or(u64::MAX)));
+        startup.mark("app_create:done");
 
         Self {
             ptr: boxed,
@@ -772,6 +842,26 @@ impl AppInternal {
         app_config: AppConfig,
         settings: AppSettings,
     ) -> Self {
+        let startup = Arc::new(
+            StartupTimeline::new(
+                settings.shell.startup_timeline,
+                std::time::Instant::now(),
+                None,
+            )
+            .with_sink(log_gate::startup_line),
+        );
+        Self::create_with_startup(initial_data, app_config, settings, startup)
+    }
+
+    /// [`Self::create_with_settings`] for an app whose start is timed: `startup` is the timeline
+    /// `App::create` made at its first line, kept by the app's `AppShared` and marked by every
+    /// window and worker thread after it.
+    pub fn create_with_startup(
+        initial_data: RefAny,
+        app_config: AppConfig,
+        settings: AppSettings,
+        startup: Arc<StartupTimeline>,
+    ) -> Self {
         debug_server::log(
             debug_server::LogLevel::Info,
             debug_server::LogCategory::General,
@@ -804,6 +894,7 @@ impl AppInternal {
             // this point today; the first-layout `request_fonts` warmup in
             // shell2/common/layout.rs already front-loads the detected fonts).
             let registry = FcFontRegistry::new();
+            startup.mark("fonts:registry_created");
             // The generic families as Chrome resolves them (macOS
             // `sans-serif` = Helvetica; user ruling 2026-10-03). Chain
             // resolution goes through the registry's own cache, and every
@@ -812,6 +903,9 @@ impl AppInternal {
 
             // Try to load on-disk font cache (~10-20ms if cache exists, 0ms otherwise)
             let had_cache = registry.load_from_disk_cache();
+            startup.mark_with("fonts:disk_cache_read", || {
+                format!("loaded={}", had_cache.is_some())
+            });
             if had_cache.is_some() {
                 debug_server::log(
                     debug_server::LogLevel::Info,
@@ -823,6 +917,8 @@ impl AppInternal {
 
             // Spawn Scout + Builder threads (returns immediately)
             registry.spawn_scout_and_builders();
+            startup.mark("fonts:scan_threads_spawned");
+            spawn_font_scan_watch(Arc::clone(&registry), Arc::clone(&startup), had_cache.is_some());
 
             // Persist the scan so the NEXT launch can take the ~10-20ms
             // `load_from_disk_cache()` path above instead of re-scanning every
@@ -866,6 +962,7 @@ impl AppInternal {
         // registered through one is seen by all.
         let registered_fonts = Arc::new(azul_layout::text3::fontreg::RegisteredFonts::default());
         registered_fonts.set_app_fonts(app_config.bundled_fonts.as_ref());
+        startup.mark("app_internal:fonts_registered");
 
         #[cfg(all(
             feature = "logging",
@@ -906,10 +1003,14 @@ impl AppInternal {
         let global_hotkeys = undo_manager.services().hotkeys.clone();
         // The app's mode, its language and the platform's natural-scrolling preference (read once
         // here, for `NaturalScroll::System`), from the config before it moves into the app.
-        let app_shared = Arc::new(crate::desktop::shell2::common::app_shared::AppShared::for_app(
-            &app_config,
-            settings,
-        ));
+        let app_shared = Arc::new(
+            crate::desktop::shell2::common::app_shared::AppShared::for_app_with_startup(
+                &app_config,
+                settings,
+                Arc::clone(&startup),
+            ),
+        );
+        startup.mark("app_internal:app_shared");
 
         Self {
             windows: WindowCreateOptionsVec::from_const_slice(&[]),
@@ -960,10 +1061,21 @@ pub(crate) fn discover_system_style(
     known_languages: &[azul_css::system::SystemLanguage],
     env: &crate::desktop::platform_settings::PlatformEnv,
 ) -> azul_css::system::SystemStyle {
+    discover_system_style_timed(known_languages, env, &StartupTimeline::disabled())
+}
+
+/// [`discover_system_style`] for the discovery of the app's start, which marks its steps on the
+/// app's startup timeline (`AZ_STARTUP=1`).
+pub(crate) fn discover_system_style_timed(
+    known_languages: &[azul_css::system::SystemLanguage],
+    env: &crate::desktop::platform_settings::PlatformEnv,
+    startup: &StartupTimeline,
+) -> azul_css::system::SystemStyle {
     // Read only by the three desktop branches below; the Miri and
     // other-OS fallbacks resolve no OS locale. The Linux discovery asks `env` (the platform
     // lookups `App::create` read once) for the session, the desktop and the user's directories.
-    let _ = (known_languages, env);
+    // `startup` is marked inside the platform discovery (the macOS one has its steps).
+    let _ = (known_languages, env, startup);
     // Under Miri the platform `discover()` paths spawn external tools
     // (gsettings / dlopen AppKit / LoadLibrary), which Miri cannot emulate
     // ("can't call foreign function ..."). Fall back to the pure-Rust default
@@ -974,7 +1086,7 @@ pub(crate) fn discover_system_style(
     }
     #[cfg(all(not(miri), target_os = "macos"))]
     {
-        crate::desktop::shell2::macos::system_style::discover(known_languages)
+        crate::desktop::shell2::macos::system_style::discover_timed(known_languages, startup)
     }
     #[cfg(all(not(miri), target_os = "windows"))]
     {

@@ -9,6 +9,7 @@ fn an_empty_environment_asks_for_nothing_and_default_is_that() {
     assert_eq!(none.backend, None);
     assert_eq!(none.window, None);
     assert!(!none.exit_after_first_frame);
+    assert!(!none.startup_timeline, "the startup timeline is OFF by default");
     assert!(!none.hit_debug);
     assert_eq!(none.telemetry_channel, "default");
     assert!(!none.dump_system_style);
@@ -287,4 +288,21 @@ fn the_log_gate_asks_for_a_file_and_can_switch_its_stderr_copy_off() {
     }
     let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_LOG_FILE", "/tmp/azul.log"));
     assert_eq!(settings.log_file.as_deref(), Some("/tmp/azul.log"));
+}
+
+/// `AZ_STARTUP=1` turns the startup timeline on; unset, empty and the negative words keep it off.
+///
+/// Mutation: the variable read under another name; an empty value that turns it on; `0` that turns it on.
+#[test]
+fn az_startup_turns_the_startup_timeline_on() {
+    for value in ["1", "true", "on", "yes", "table"] {
+        let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_STARTUP", value));
+        assert!(settings.startup_timeline, "AZ_STARTUP={value:?}");
+    }
+    for value in ["", "0", "off", "False", "no", "none", " 0 "] {
+        let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_STARTUP", value));
+        assert!(!settings.startup_timeline, "AZ_STARTUP={value:?}");
+    }
+    assert!(!ShellSettings::from_lookup(&MapEnv::new()).startup_timeline);
+    assert!(startup_from_value(Some("1")) && !startup_from_value(None));
 }
