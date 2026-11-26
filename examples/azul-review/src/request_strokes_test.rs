@@ -243,6 +243,65 @@ fn a_sample_that_is_no_number_and_a_page_that_is_no_grid_are_never_a_panic() {
     assert!(words_under(&[input(1, &[(1.0, 1.0)])], &grid(), &[]).is_empty());
 }
 
+// ---- the lines a loop goes round
+
+/// The page of the stroke fixtures: line 12 has its word where the fixtures' loop goes round it (columns 33 to 43), and lines 18 to 23
+/// have text that reaches the middle of the page, where the loop round a block goes.
+fn page_of_the_fixtures() -> Vec<String> {
+    let mut lines: Vec<String> = (0..46).map(|i| format!("fn f{i}() {{}}")).collect();
+    lines[11] = format!("{}abcdefghij klm = 1;", " ".repeat(33));
+    for line in &mut lines[17..23] {
+        *line = format!("{}abcdefghijklmnopqrstuvwxyz0123456789", " ".repeat(33));
+    }
+    lines
+}
+
+fn from_fixture(id: u64, fixture: &crate::stroke_fixtures::Fixture) -> Stroke {
+    Stroke {
+        page: 0,
+        semantic: Semantic::Scope,
+        points: fixture.samples.iter().map(|s| InkPoint { x: s.x, y: s.y, pressure: s.pressure, tilt_x: 0.0, tilt_y: 0.0, t_ms: s.t_ms }).collect(),
+        id,
+        epoch: 0,
+        started_unix_ms: 0,
+    }
+}
+
+#[test]
+fn the_lines_a_loop_goes_round_are_what_the_reviewer_is_talking_about() {
+    let picked = pick(&note(0, 333.0, 204.0), &[from_fixture(1, &crate::stroke_fixtures::closed_loop())]);
+    assert_eq!(circled_lines(&picked, 1, &page_of_the_fixtures()), Some((12, 12)));
+}
+
+#[test]
+fn a_loop_on_a_later_page_is_numbered_by_the_lines_of_that_page() {
+    let picked = pick(&note(0, 333.0, 204.0), &[from_fixture(1, &crate::stroke_fixtures::closed_loop())]);
+    // the page that begins at line 47: its twelfth line is line 58
+    assert_eq!(circled_lines(&picked, 47, &page_of_the_fixtures()), Some((58, 58)));
+}
+
+#[test]
+fn strokes_that_are_no_loop_go_round_nothing() {
+    use crate::stroke_fixtures as f;
+    for fixture in [f::underline(), f::slash(), f::scribble(), f::open_c(), f::vertical_bar(), f::tap()] {
+        let picked = pick(&note(0, 333.0, 204.0), &[from_fixture(1, &fixture)]);
+        assert_eq!(circled_lines(&picked, 1, &page_of_the_fixtures()), None, "{} is no loop", fixture.name);
+    }
+    assert_eq!(circled_lines(&[], 1, &page_of_the_fixtures()), None, "no strokes");
+    let picked = pick(&note(0, 333.0, 204.0), &[from_fixture(1, &crate::stroke_fixtures::closed_loop())]);
+    assert_eq!(circled_lines(&picked, 1, &[]), None, "a page with no lines");
+}
+
+#[test]
+fn two_loops_make_the_range_from_the_first_line_of_the_one_to_the_last_line_of_the_other() {
+    let strokes = [from_fixture(1, &crate::stroke_fixtures::closed_loop()), from_fixture(2, &crate::stroke_fixtures::loop_around_a_block())];
+    let picked = pick(&note(0, 333.0, 204.0), &strokes);
+    assert_eq!(picked.len(), 2, "both are about the conversation");
+    let (first, last) = circled_lines(&picked, 1, &page_of_the_fixtures()).expect("two loops");
+    assert_eq!(first, 12, "the first line of the nearer loop");
+    assert!(last >= 20 && last <= 24, "the last line of the loop round the block: {last}");
+}
+
 #[test]
 fn no_more_words_than_a_request_lists_however_many_a_stroke_crosses() {
     let line: Vec<String> = vec!["a ".repeat(200)];

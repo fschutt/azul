@@ -324,6 +324,76 @@ class ModeComparisonTests(unittest.TestCase):
         self.assertTrue(q.device_is_software("ANGLE (Apple, Apple Software Renderer)") and q.device_is_software("llvmpipe (LLVM 15)"))
         self.assertFalse(q.device_is_software("Mali-G78") or q.device_is_software(None))
 
+    def test_a_gpu_request_waits_long_for_its_first_frame(self):
+        # the first GL frame on a software renderer compiles every shader: two minutes are normal there, not a missing picture
+        self.assertEqual(q.first_frame_timeout_for("gpu", 45), 120)
+        self.assertEqual(q.first_frame_timeout_for("gpu", 300), 300)       # a longer wish stays
+        self.assertEqual(q.first_frame_timeout_for("cpu", 45), 45)
+        self.assertEqual(q.first_frame_timeout_for("auto", 45), 45)
+
+
+LOGCAT_START = """\
+11-26 07:41:11.070   517   886 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.azul.AzWidgets/com.azul.app.AzulActivity} with LAUNCH_SINGLE_TOP from uid 2000 (BAL_ALLOW_PERMISSION) result code=0
+11-26 07:41:11.083   517   546 I ActivityManager: Start proc 2878:com.azul.AzWidgets/u0a141 for next-top-activity {com.azul.AzWidgets/com.azul.app.AzulActivity}
+11-26 07:41:11.426  2878  2904 I RustStdoutStderr: [           0us][Info][EventLoop] [Android] android_main entered
+11-26 07:41:11.933   517   534 I ActivityTaskManager: Displayed com.azul.AzWidgets/com.azul.app.AzulActivity for user 0: +872ms
+11-26 07:41:12.224  2878  2904 I RustStdoutStderr: [      798868us][Info][Rendering] [Android] present full - 2400 of 2400 rows
+11-26 07:41:12.342  2878  2904 I RustStdoutStderr: [      916085us][Info][Rendering] [Android] present full - 2400 of 2400 rows
+11-26 07:41:20.043   517   576 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.azul.AzWidgets/com.azul.app.AzulActivity} with LAUNCH_SINGLE_TOP from uid 2000 (BAL_ALLOW_PERMISSION) result code=0
+11-26 07:41:20.055   517   546 I ActivityManager: Start proc 2984:com.azul.AzWidgets/u0a141 for next-top-activity {com.azul.AzWidgets/com.azul.app.AzulActivity}
+11-26 07:41:20.378  2984  3010 I RustStdoutStderr: [           0us][Info][EventLoop] [Android] android_main entered
+11-26 07:41:20.930   517   534 I ActivityTaskManager: Displayed com.azul.AzWidgets/com.azul.app.AzulActivity for user 0: +1s897ms
+11-26 07:41:21.204  2984  3010 I RustStdoutStderr: [      826074us][Info][Rendering] [Android] present full - 2400 of 2400 rows
+11-26 07:41:25.000   517   576 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.azul.floor/.FloorActivity} with LAUNCH_SINGLE_TOP
+11-26 07:41:25.030   517   546 I ActivityManager: Start proc 3999:com.azul.floor/u0a150 for next-top-activity {com.azul.floor/.FloorActivity}
+11-26 07:41:25.400   517   534 I ActivityTaskManager: Displayed com.azul.floor/.FloorActivity for user 0: +402ms
+"""
+
+
+class StartTimelineTests(unittest.TestCase):
+    def test_a_start_is_followed_from_the_system_to_the_first_picture(self):
+        recs = q.start_timelines(LOGCAT_START, "com.azul.AzWidgets")
+        self.assertEqual(len(recs), 2)                       # the floor app's start is another package
+        self.assertEqual(recs[0], {"proc": 13, "main": 356, "displayed": 872, "present": 1154})
+        # the second start: 1 s 897 ms is one second and 897 ms; its engine lines belong to its own process
+        self.assertEqual(recs[1], {"proc": 12, "main": 335, "displayed": 1897, "present": 1161})
+
+    def test_the_floor_app_has_no_engine_lines(self):
+        recs = q.start_timelines(LOGCAT_START, "com.azul.floor")
+        self.assertEqual(recs, [{"proc": 30, "displayed": 402}])
+
+    def test_the_summary_is_a_median_per_mark_and_the_engine_share(self):
+        out = q.summarize_timelines([{"proc": 10, "main": 300, "displayed": 800, "present": 1000},
+                                     {"proc": 12, "main": 340, "displayed": 900, "present": 1100},
+                                     {"proc": 14, "main": 320, "present": 1040}])
+        self.assertEqual(out["main"], {"median": 320, "min": 300, "max": 340, "n": 3})
+        self.assertEqual(out["displayed"]["n"], 2)
+        self.assertEqual(out["main_to_present"]["median"], 720)      # 700, 760, 720
+        self.assertEqual(q.summarize_timelines([]), {})
+
+
+class MarkerTests(unittest.TestCase):
+    LOG = """\
+11-26 08:10:01.100  3000  3020 I RustStdoutStderr: AZPAINT_STROKES 0
+11-26 08:10:05.200  3000  3020 I RustStdoutStderr: [      900000us][Info][Rendering] [Android] present full - 2400 of 2400 rows
+11-26 08:10:06.300  3000  3020 I RustStdoutStderr: AZPAINT_STROKES 1
+11-26 08:10:07.400  3000  3020 I RustStdoutStderr: AZMAPS_VIEW 48.5216 9.0576 14
+11-26 08:10:08.500  3000  3020 I RustStdoutStderr: AZMAPS_SIDEBAR open
+11-26 08:10:09.600  3000  3020 I RustStdoutStderr: AZWRITER_READY
+11-26 08:10:10.700  3000  3020 I RustStdoutStderr: AZPAINT_STROKES 0
+"""
+
+    def test_the_values_come_in_the_order_the_app_printed_them(self):
+        self.assertEqual(q.marker_values(self.LOG, "AZPAINT_STROKES"), ["0", "1", "0"])
+        self.assertEqual(q.marker_values(self.LOG, "AZMAPS_VIEW"), ["48.5216 9.0576 14"])
+        self.assertEqual(q.marker_values(self.LOG, "AZMAPS_SIDEBAR"), ["open"])
+        self.assertEqual(q.marker_values(self.LOG, "AZWRITER_READY"), [""])         # a marker without a value
+        self.assertEqual(q.marker_values(self.LOG, "AZPAINT_STROKE"), [])           # a longer name is another marker
+
+    def test_since_keeps_only_the_lines_of_this_step(self):
+        self.assertEqual(q.marker_values(self.LOG, "AZPAINT_STROKES", since="11-26 08:10:06"), ["1", "0"])
+        self.assertEqual(q.marker_values(self.LOG, "AZPAINT_STROKES", since="11-26 08:10:10"), ["0"])
+
 
 class ImeAndTableTests(unittest.TestCase):
     def test_the_ime_inset_says_whether_the_keyboard_is_up(self):

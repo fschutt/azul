@@ -260,7 +260,7 @@ class E2eVariantTest(unittest.TestCase):
         entries = {e["leg"]: e for k in ("apps_android", "apps_ios") for e in plan[k] if e.get("variant") == "mobile-e2e"}
         self.assertEqual(sorted(entries), ["android-x86_64", "ios-sim"])
         for leg, e in entries.items():
-            self.assertEqual(e["apps"], "AzWidgets")
+            self.assertEqual(sorted(e["apps"].split()), sorted(a["package"] for a in self.m["app"] if a.get("e2e")))
             self.assertEqual(e["lib_artifacts"], f"demolib-{leg}-mobile-e2e")
             self.assertTrue(e["artifact"].startswith("demoe2e-"), e["artifact"])   # a name the shipped-files patterns never match
             self.assertTrue(e["results_artifact"].startswith("demoresults-"))
@@ -315,7 +315,8 @@ class E2eVariantTest(unittest.TestCase):
 
     def test_the_real_manifest_passes_its_own_check_with_the_variant_in_it(self):
         self.assertTrue(self.m["lib"]["mobile-e2e"]["artifact_only"])
-        self.assertEqual([a["package"] for a in self.m["app"] if a.get("e2e")], ["AzWidgets"])
+        # the phone apps whose QA variant the layout audit and the scripted checks of the phone QA drive
+        self.assertEqual([a["package"] for a in self.m["app"] if a.get("e2e")], ["AzWidgets", "AzMaps", "AzPaint", "AzMeet", "AzWriter"])
         self.assertEqual([e for e in demo_apps.check(self.m) if "e2e" in e], [])
 
     def test_a_qa_file_never_becomes_a_release_asset_or_a_page_link(self):
@@ -656,8 +657,10 @@ class AndroidBuildAllScriptTest(unittest.TestCase):
         shipped = next(e["apps"] for e in plan["apps_android"] if e["leg"] == "android-x86_64" and e["variant"] == "")
         self.assertEqual(sorted(shipped.split()), ["AzCompanion", "AzMaps", "AzMeet", "AzPaint", "AzWidgets", "AzWriter"])
         qa = next(e["apps"] for e in plan["apps_android"] if e["leg"] == "android-x86_64" and e["variant"] == "mobile-e2e")
-        self.assertEqual(qa, "AzWidgets")
-        self.assertIn("--apps AzWidgets", self.text.split("--variant mobile-e2e")[0].rsplit("demo_build.py", 1)[1])
+        self.assertEqual(sorted(qa.split()), sorted(a["package"] for a in m["app"] if a.get("e2e")))
+        # the script asks the plan which apps the QA variant has, it does not name them
+        self.assertIn('--apps "$e2e_apps"', self.text.split("--variant mobile-e2e")[0].rsplit("demo_build.py", 1)[1])
+        self.assertIn('e["variant"] == "mobile-e2e"', self.text)
 
     def test_it_deletes_only_on_a_runner(self):
         lines = self.text.splitlines()

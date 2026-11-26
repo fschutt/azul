@@ -109,7 +109,7 @@ impl Panel {
 
     /// Does what a click on the header asks for, or says why not.
     pub fn board_action(&mut self, action: BoardAction) -> BoardOutcome {
-        let now = self.now_ms();
+        let now = self.unix_ms();
         let fresh = default_name(self.wb.boards().next_number());
         let result = match &action {
             BoardAction::Switch(id) => self.wb.switch_board(id, now),
@@ -125,7 +125,7 @@ impl Panel {
                     self.switcher.toast = Some(Toast {
                         text: t_args("azreview-whiteboard-board-deleted", &[("name", Arg::from(name))]),
                         undo: Some(id.clone()),
-                        until_ms: now + TOAST_MS,
+                        until_ms: self.now_ms() + TOAST_MS,
                     });
                 }
                 plan
@@ -211,7 +211,7 @@ impl Panel {
             self.switcher.pending_import = Some(Box::new(loaded));
             return BoardOutcome::Wait;
         }
-        let now = self.now_ms();
+        let now = self.unix_ms();
         let fallback = t("azreview-whiteboard-board-imported");
         let result = self.wb.import_board(loaded, &fallback, now);
         self.collect_notices();
