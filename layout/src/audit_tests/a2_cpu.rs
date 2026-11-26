@@ -1042,6 +1042,7 @@ fn label(y: f32, halo: [u8; 3]) -> Vec<DisplayListItem> {
             font_hash: FontHash {
                 font_hash: 1,
                 synthetic_bold: false,
+                synthetic_italic: false,
             },
             font_size_px: 24.0,
             color: ColorU {
@@ -1759,6 +1760,7 @@ fn run(pens: &[f32], y: f32) -> DisplayListItem {
         FontHash {
             font_hash: 1,
             synthetic_bold: false,
+            synthetic_italic: false,
         },
     )
 }

@@ -197,6 +197,11 @@ pub struct FontHash {
     /// `font_hash` alone, so a reader that cannot thicken draws the face as
     /// it is. Part of the run's identity, so a run that turns bold repaints.
     pub synthetic_bold: bool,
+    /// Draw the face slanted (synthetic italic): the text asks for an italic or oblique style
+    /// and the face it matched has no such design. Read by the renderers like `synthetic_bold`;
+    /// lookups by face use `font_hash` alone, so a reader that cannot slant draws the face
+    /// upright. Part of the run's identity, so a run that turns italic repaints.
+    pub synthetic_italic: bool,
 }
 
 impl FontHash {
@@ -205,6 +210,7 @@ impl FontHash {
         Self {
             font_hash: 0,
             synthetic_bold: false,
+            synthetic_italic: false,
         }
     }
 
@@ -213,6 +219,7 @@ impl FontHash {
         Self {
             font_hash,
             synthetic_bold: false,
+            synthetic_italic: false,
         }
     }
 
@@ -220,8 +227,17 @@ impl FontHash {
     #[must_use]
     pub const fn with_synthetic_bold(self, on: bool) -> Self {
         Self {
-            font_hash: self.font_hash,
             synthetic_bold: on,
+            ..self
+        }
+    }
+
+    /// This face, drawn slanted when `on` ([`Self::synthetic_italic`]).
+    #[must_use]
+    pub const fn with_synthetic_italic(self, on: bool) -> Self {
+        Self {
+            synthetic_italic: on,
+            ..self
         }
     }
 }
@@ -234,6 +250,15 @@ impl FontHash {
 #[must_use]
 pub fn needs_synthetic_bold(asks_for_bold: bool, face_weight: Option<u16>) -> bool {
     asks_for_bold && face_weight.is_some_and(|w| w > 0 && w < 600)
+}
+
+/// Whether text is drawn slanted (synthetic italic): it asks for an italic or oblique style
+/// ([`StyleProperties::asks_for_synthetic_italic`]) and the face it matched says it has no italic
+/// design (`Some(false)`). A face that does not say is never slanted.
+#[must_use]
+pub fn needs_synthetic_italic(asks_for_italic: bool, face_has_italic: Option<bool>) -> bool {
+    let _ = (asks_for_italic, face_has_italic);
+    false
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

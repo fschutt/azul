@@ -164,6 +164,8 @@ pub struct Painted {
     pub face: u64,
     /// The run is drawn thickened (the face has no bold cut).
     pub synthetic_bold: bool,
+    /// The run is drawn slanted (the face has no italic design).
+    pub synthetic_italic: bool,
 }
 
 /// Every glyph the display list paints, in painting order.
@@ -185,6 +187,7 @@ pub fn painted(dl: &DisplayList) -> Vec<Painted> {
                     size: *font_size_px,
                     face: font_hash.font_hash,
                     synthetic_bold: font_hash.synthetic_bold,
+                    synthetic_italic: font_hash.synthetic_italic,
                 })
                 .collect(),
             _ => Vec::new(),

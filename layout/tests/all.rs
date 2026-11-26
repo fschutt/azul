@@ -496,6 +496,8 @@ mod test_text_layout;
 mod text_align_last_text_justify_and_text_indent_place_the_words_of_a_line;
 #[path = "a_decorating_box_draws_its_line_on_its_own_baseline_and_in_its_own_size.rs"]
 mod a_decorating_box_draws_its_line_on_its_own_baseline_and_in_its_own_size;
+#[path = "an_italic_run_in_a_family_without_an_italic_face_is_marked_for_slanting.rs"]
+mod an_italic_run_in_a_family_without_an_italic_face_is_marked_for_slanting;
 #[path = "text_decoration_color_and_thickness_paint_the_lines_they_are_set_on.rs"]
 mod text_decoration_color_and_thickness_paint_the_lines_they_are_set_on;
 #[path = "text_rendering_optimize_speed_turns_the_kerning_and_the_ligatures_off.rs"]
