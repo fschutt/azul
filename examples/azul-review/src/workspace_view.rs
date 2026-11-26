@@ -54,13 +54,20 @@ fn fold(mut h: u64, line: &str) -> u64 {
     h
 }
 
+/// What a file hashes to as the whiteboard keeps it (`whiteboard::lines_hash` of its lines; of its text a line at a time when
+/// it is too big to be held as lines): what a cutout says of the file it comes from, and what a jump compares the file to.
+#[must_use]
+pub fn hash_of_file(f: &SourceFile) -> u64 {
+    match &f.big {
+        None => crate::whiteboard::lines_hash(&f.lines),
+        Some(text) => (0..text.line_count()).fold(0xcbf2_9ce4_8422_2325, |h, i| fold(h, &text.line(i))),
+    }
+}
+
 impl FileView for WorkspaceView {
     fn file_hash(&self, file: &str) -> Option<u64> {
         let f = self.read(file)?;
-        Some(match &f.big {
-            None => crate::whiteboard::lines_hash(&f.lines),
-            Some(text) => (0..text.line_count()).fold(0xcbf2_9ce4_8422_2325, |h, i| fold(h, &text.line(i))),
-        })
+        Some(hash_of_file(&f))
     }
 
     fn line_count(&self, file: &str) -> Option<u32> {

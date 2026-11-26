@@ -145,7 +145,7 @@ fn sources() -> String {
 }
 
 /// The families of keys a source builds with `format!` (their members are written out in the resources only).
-const BUILT_KEYS: [&str; 3] = ["fail-", "button-state-", "files-state-"];
+const BUILT_KEYS: [&str; 4] = ["fail-", "button-state-", "files-state-", "files-why-"];
 
 /// The first words of the keys.
 const FAMILIES: [&str; 10] = ["nav-", "tab-", "conn-", "pair-", "fail-", "remote-", "button-", "files-", "editor-", "settings-"];
@@ -214,6 +214,11 @@ fn the_failure_words_are_there_for_every_kind() {
     }
     for state in ["clean", "unresolved", "working"] {
         let key = format!("files-state-{state}");
+        assert!(s.template(Lang::En, &key).is_some() && s.template(Lang::De, &key).is_some(), "{key}");
+    }
+    // what the connection says went wrong with a folder (the codes `PhoneClient` and the stand-ins use)
+    for why in ["not-connected", "no-answer", "connection-lost", "outside-workspace"] {
+        let key = format!("files-why-{why}");
         assert!(s.template(Lang::En, &key).is_some() && s.template(Lang::De, &key).is_some(), "{key}");
     }
 }

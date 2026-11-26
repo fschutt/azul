@@ -67,7 +67,7 @@ impl PhoneApi for OfflinePhone {
 
     fn list_dir(&mut self, _now: Millis, path: &str, _offset: u32) {
         self.view.begin_listing(path);
-        self.view.files_failed("not connected");
+        self.view.files_failed("not-connected");
     }
 
     fn open_file(&mut self, _now: Millis, _path: &str, _line: Option<u32>) {}
@@ -86,6 +86,12 @@ impl PhoneApi for OfflinePhone {
 
     fn retry(&mut self, now: Millis) {
         self.search(now);
+    }
+
+    fn cancel(&mut self, _now: Millis) {
+        // no Mac is ever kept here: stopping the search is going back to the start
+        self.view.session = Session::Unpaired;
+        self.searching_until = None;
     }
 
     fn forget_mac(&mut self, _now: Millis) {

@@ -85,6 +85,13 @@ class PruneTest(unittest.TestCase):
         self.assertIn("<span class='release-link-missing is-missing'>gone &mdash; not available</span>", out)
         self.assertIn("<a href='https://example.org/x'>elsewhere</a>", out)
 
+    def test_only_a_reason_gives_the_span_a_title(self):
+        out, _ = self.run_prune(link("AzFoo-linux.tar.gz"), assets=["x"])
+        self.assertNotIn("title=", out)
+        status = status_file([("AzFoo", {"linux": cell("failed", "boom")})])
+        out, _ = self.run_prune(link("AzFoo-linux.tar.gz"), assets=["x"], status=status)
+        self.assertIn("<span class='release-link-missing is-missing' title='not available: build failed: boom'>", out)
+
     def test_a_dead_card_keeps_its_tile_and_loses_the_file_line(self):
         html = (f"<a class='docs-card' href='{RELEASE}/guide.pdf'><h4>Guide</h4>"
                 f"<p class='docs-card-file'>guide.pdf</p></a>")
@@ -96,10 +103,10 @@ class PruneTest(unittest.TestCase):
     def test_a_dead_link_of_a_failed_desktop_build_says_why(self):
         status = status_file([("AzFoo", {"linux": cell("failed", "AzFoo: cannot find value `x` (src/a.rs:7)")})])
         out, log = self.run_prune(f"<td>{link('AzFoo-linux.tar.gz')}</td>", assets=["x"], status=status)
+        why = "not available: build failed: AzFoo: cannot find value `x` (src/a.rs:7)"
         self.assertEqual(
             out,
-            "<td><span class='release-link-missing is-missing'>.tar.gz &mdash; "
-            "not available: build failed: AzFoo: cannot find value `x` (src/a.rs:7)</span></td>")
+            f"<td><span class='release-link-missing is-missing' title='{why}'>.tar.gz &mdash; {why}</span></td>")
         self.assertIn("build failed: AzFoo: cannot find value", log)
         self.assertIn("1 file names of failed demo builds", log)
 
@@ -161,8 +168,12 @@ class PruneTest(unittest.TestCase):
         self.assertIn("expected `&lt;T&gt;` &amp; found &#x27;x&#x27; --&gt; src/lib.rs:3 ", out)
         self.assertNotIn("\n", out)
         self.assertNotIn("<T>", out)
-        reason = out.split("build failed: ")[1].split("</span>")[0]
+        reason = out.split("build failed: ")[-1].split("</span>")[0]  # the text of the span, not its title
         self.assertTrue(reason.endswith("..."), reason)
+        # the title is the same reason, escaped for an attribute
+        title = out.split("title='")[1].split("'")[0]
+        self.assertTrue(title.startswith("not available: build failed: AzFoo: expected `&lt;T&gt;`"), title)
+        self.assertTrue(title.endswith("..."), title)
         self.assertLessEqual(len(prune.reason_text(cell("failed", err))), prune.MAX_REASON)
 
     def test_a_failed_cell_without_an_error_gives_its_reason_and_then_a_plain_statement(self):
@@ -209,8 +220,10 @@ class PruneTest(unittest.TestCase):
         out, log = self.run_prune(f"<tr>{row}</tr>", assets=published, status=status)
         self.assertEqual(out.count("<a "), 1, out)
         self.assertIn(f"href='{RELEASE}/AzFoo-windows.exe.tar.gz'", out)
-        self.assertEqual(out.count("build failed: link error"), 1)
-        self.assertEqual(out.count("build failed: no cdylib"), 1)
+        # (the reason is in the text of the span and in its title)
+        self.assertEqual(out.count("&mdash; not available: build failed: link error</span>"), 1)
+        self.assertEqual(out.count("&mdash; not available: build failed: no cdylib</span>"), 1)
+        self.assertEqual(out.count("title='not available: build failed:"), 2)
         self.assertEqual(out.count("&mdash; not available</span>"), 1)  # AzBar-linux: dead, not a failed cell
         self.assertIn("artifact links pruned:  3", log)
 

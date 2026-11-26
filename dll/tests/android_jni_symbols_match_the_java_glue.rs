@@ -35,6 +35,10 @@ struct JavaNative {
     symbol: String,
     /// The number of Java parameters.
     params: usize,
+    /// The Java type of each parameter (`long`, `String`, ...).
+    param_types: Vec<String>,
+    /// The Java return type (`void`, `int`, `String`, ...).
+    returns: String,
 }
 
 /// `_` in a Java name is `_1` in the symbol, and a nested class `Outer$Inner` is `Outer_00024Inner`.
@@ -71,6 +75,47 @@ fn count_params(list: &str) -> usize {
         commas
     } else {
         commas + 1
+    }
+}
+
+/// The top-level parameters of a parameter list text, each trimmed.
+fn split_params(list: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut current = String::new();
+    for c in list.chars() {
+        match c {
+            '<' | '(' | '[' => depth += 1,
+            '>' | ')' | ']' => depth -= 1,
+            _ => {}
+        }
+        if c == ',' && depth == 0 {
+            out.push(current.trim().to_string());
+            current.clear();
+        } else {
+            current.push(c);
+        }
+    }
+    if !current.trim().is_empty() {
+        out.push(current.trim().to_string());
+    }
+    out
+}
+
+/// The Rust spellings a Java type may have in a `Java_*` function: what the JNI specification maps it to.
+/// A Java reference type (a `String`, an array, an object) is a pointer-sized handle.
+fn rust_spellings(java: &str) -> &'static [&'static str] {
+    match java {
+        "long" => &["i64", "jlong"],
+        "int" => &["i32", "jint"],
+        "float" => &["f32", "jfloat"],
+        "double" => &["f64", "jdouble"],
+        "boolean" => &["u8", "jboolean"],
+        "short" => &["i16", "jshort"],
+        "byte" => &["i8", "jbyte"],
+        "char" => &["u16", "jchar"],
+        "String" => &["jstring"],
+        _ => &["jobject", "jclass", "jarray", "jbyteArray", "jobjectArray", "jstring", "c_void", "*mut"],
     }
 }
 
@@ -140,8 +185,17 @@ fn java_natives() -> Vec<JavaNative> {
                 let decl = token.trim().trim_end_matches(';');
                 let open = decl.find('(').expect("a native method has parameters");
                 let close = decl.rfind(')').expect("and a closing parenthesis");
-                let name = decl[..open].split_whitespace().last().unwrap().to_string();
+                let head: Vec<&str> = decl[..open].split_whitespace().collect();
+                let name = head.last().unwrap().to_string();
+                let returns = head[head.len() - 2].to_string();
                 let params = count_params(&decl[open + 1..close]);
+                let param_types: Vec<String> = split_params(&decl[open + 1..close])
+                    .iter()
+                    .map(|p| {
+                        let words: Vec<&str> = p.split_whitespace().collect();
+                        words[..words.len() - 1].join(" ")
+                    })
+                    .collect();
                 let class = if classes.is_empty() {
                     file_class.clone()
                 } else {
@@ -157,6 +211,8 @@ fn java_natives() -> Vec<JavaNative> {
                     name: format!("{package}.{class}.{name}"),
                     symbol,
                     params,
+                    param_types,
+                    returns,
                 });
             }
         }
@@ -169,6 +225,8 @@ fn java_natives() -> Vec<JavaNative> {
 struct RustEntry {
     file: String,
     params: usize,
+    param_types: Vec<String>,
+    returns: String,
     no_mangle: bool,
     extern_system: bool,
 }
@@ -246,9 +304,25 @@ fn rust_entries() -> BTreeMap<String, Vec<RustEntry>> {
                     _ => {}
                 }
             }
+            // what follows the parameter list up to the body: `-> jstring`
+            let after = &text[close + 1..];
+            let returns = after
+                .split('{')
+                .next()
+                .unwrap_or("")
+                .split("->")
+                .nth(1)
+                .map(|r| r.trim().to_string())
+                .unwrap_or_default();
+            let param_types: Vec<String> = split_params(&text[open + 1..close])
+                .iter()
+                .map(|p| p.split_once(':').map_or(String::new(), |(_, ty)| ty.trim().to_string()))
+                .collect();
             entries.entry(name).or_default().push(RustEntry {
                 file: file.strip_prefix(root()).unwrap_or(&file).display().to_string(),
                 params: count_params(&text[open + 1..close]),
+                param_types,
+                returns,
                 no_mangle,
                 extern_system: text[..open].contains("extern \"system\""),
             });
@@ -279,6 +353,40 @@ fn every_native_method_of_the_java_glue_has_an_exported_rust_symbol_with_the_rig
                         "{}: {} in {} is not `#[no_mangle] pub unsafe extern \"system\"`: its name is mangled and the JNI cannot find it",
                         native.name, native.symbol, found[0].file
                     ));
+                }
+                // the types: each Java parameter and the return value has the JNI mapping of its type
+                if let Some(entry) = found.iter().find(|e| e.params == native.params + 2) {
+                    for (i, java) in native.param_types.iter().enumerate() {
+                        let rust = &entry.param_types[i + 2];
+                        if !rust_spellings(java).iter().any(|spelling| rust.contains(spelling)) {
+                            problems.push(format!(
+                                "{}: Java parameter {} is `{}`, {} takes `{}` there (JNI: {:?})",
+                                native.name,
+                                i + 1,
+                                java,
+                                native.symbol,
+                                rust,
+                                rust_spellings(java)
+                            ));
+                        }
+                    }
+                    let expected: &[&str] = if native.returns == "void" {
+                        &[""]
+                    } else {
+                        rust_spellings(&native.returns)
+                    };
+                    if !expected.iter().any(|spelling| {
+                        if spelling.is_empty() {
+                            entry.returns.is_empty()
+                        } else {
+                            entry.returns.contains(spelling)
+                        }
+                    }) {
+                        problems.push(format!(
+                            "{}: Java returns `{}`, {} returns `{}` (JNI: {:?}): the caller reads the wrong width",
+                            native.name, native.returns, native.symbol, entry.returns, expected
+                        ));
+                    }
                 }
                 if !found.iter().any(|e| e.params == native.params + 2) {
                     problems.push(format!(

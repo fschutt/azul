@@ -234,7 +234,7 @@ impl PhoneApi for SimPhone {
         self.take_commands(now);
         self.view.begin_listing(path);
         if !self.connected() {
-            self.view.files_failed("not connected");
+            self.view.files_failed("not-connected");
             return;
         }
         let id = self.request();
@@ -289,6 +289,11 @@ impl PhoneApi for SimPhone {
             _ => 1,
         };
         self.start_search(now, attempt);
+    }
+
+    fn cancel(&mut self, now: Millis) {
+        // the simulator keeps no pairing between runs: stopping is going back to the start, as forgetting is
+        self.forget_mac(now);
     }
 
     fn forget_mac(&mut self, _now: Millis) {
