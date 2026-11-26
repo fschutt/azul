@@ -66,6 +66,8 @@ pub mod x11;
 pub mod webview;
 #[cfg(test)]
 mod webview_test;
+#[cfg(test)]
+mod x11_libs_test;
 /// WPE WebKit's libraries and functions, loaded with dlopen.
 pub mod wpe;
 /// The thread WPE WebKit runs on.
