@@ -1,6 +1,7 @@
 //! The owner of a workspace's whiteboard: what the app holds and does with it. The page's pointer
 //! reaches it through [`Whiteboard::arm_stroke`] (a pen lifted: a loop arms its region) and
-//! `page_*` (the press, the hold, the motion and the release of the drag to the bar); the bar's own
+//! `page_*` (the press, the hold, the motion and the release of the drag to the bar, then [`Whiteboard::drop_region`]; or a
+//! button on the armed region, [`Whiteboard::send_region_now`], with no drag at all); the bar's own
 //! pointer goes to [`BoardInput`] (`self.input`); a picture drawn on a Thread comes back through
 //! [`Whiteboard::image_ready`]; the file is kept and read through [`Whiteboard::save_job`] /
 //! [`Whiteboard::save_done`] and [`Whiteboard::loaded`]. The clock, the files and the page's lines are
@@ -15,11 +16,12 @@ use crate::{
     whiteboard_cutout::{plan, CapturePlan},
     whiteboard_drag::{Armed, ArmedRegion, ArmedRegions, Bar, Drag, Motion, Pointer, Press, RegionId, Release, Tick},
     whiteboard_export::{self as export, ExportPictures, ExportRequest},
-    whiteboard_geom::{Pt, Rect, Size},
+    whiteboard_geom::{Pt, Rect, Size, View},
     whiteboard_git::RepoFacts,
     whiteboard_hash,
     whiteboard_input::BoardInput,
     whiteboard_lasso::{covered_lines, recognize, PageLines},
+    whiteboard_place::{self, Spot},
     whiteboard_settings::Settings,
     whiteboard_store::{self as store, Entry, Loaded, SaveGate, StoreError},
 };
@@ -33,6 +35,8 @@ pub const EDGE_PX: f32 = 12.0;
 /// The height of the header of the bar, px: the board's name and the list of boards. The board lies under it, so a
 /// point of the bar is a point of the board that much higher.
 pub const HEADER_PX: f32 = 30.0;
+/// The least height of the board's view a cutout is sent into, px (a bar of no height has no view to look for room in).
+const SEND_MIN_AREA_H: f32 = 120.0;
 
 /// Whether the right bar is open and how wide: kept in the settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -230,7 +234,9 @@ impl Whiteboard {
         &self.settings
     }
 
+    /// The settings were read: how long a loop stays armed is the one the settings say from now on.
     pub fn set_settings(&mut self, settings: Settings) {
+        self.armed.set_lifetime_ms(settings.armed_ms);
         self.settings = settings;
     }
 
@@ -310,9 +316,10 @@ impl Whiteboard {
         self.armed.armed_region_at(page, p, now_ms)
     }
 
-    /// Lets go of the regions whose time is up; whether any went.
+    /// Lets go of the regions whose time is up; whether any went. The region the pointer holds or carries stays until it is
+    /// let go of: it is not taken from under the hand.
     pub fn expire(&mut self, now_ms: u64) -> bool {
-        self.armed.expire(now_ms)
+        self.armed.expire_except(now_ms, self.drag.region())
     }
 
     /// The pointer pressed on a page: what it is over.
@@ -361,6 +368,59 @@ impl Whiteboard {
         dpr: f32,
         page: Size,
     ) -> Result<CutoutJob, Notice> {
+        self.put_region(region, facts, dpr, page, |board, logical| {
+            // A drop on the header lands at the top of the board, the whole cutout in view.
+            let view = board.view();
+            let y = (at_bar.y - HEADER_PX).max(logical.h * 0.5 * view.zoom);
+            let centre = view.to_board(Pt::new(at_bar.x, y));
+            (Pt::new(centre.x - logical.w * 0.5, centre.y - logical.h * 0.5), None)
+        })
+    }
+
+    /// Region `region` is sent to the whiteboard by a button, with no drag: the same cutout as a drop makes (the same
+    /// picture to draw, the same source: file, lines, hashes, revision), put at the first free place of the board's view
+    /// (the top row first, a gap away from what is there; when the view has no room, under everything, and the view moves
+    /// to show it), and selected. The bar is opened when it was closed, so that the cutout is seen. `bar` is the bar as the
+    /// window has it ([`Self::bar_geometry`]): its height is the view's.
+    ///
+    /// # Errors
+    /// As [`Self::drop_region`].
+    pub fn send_region_now(
+        &mut self,
+        region: RegionId,
+        bar: &Bar,
+        facts: SourceFacts,
+        dpr: f32,
+        page: Size,
+    ) -> Result<CutoutJob, Notice> {
+        let width = if bar.open { bar.rect.w } else { self.bar.width };
+        let area = Size::new(width.max(BAR_MIN_PX), (bar.rect.h - HEADER_PX).max(SEND_MIN_AREA_H));
+        let job = self.put_region(region, facts, dpr, page, |board, logical| {
+            let view = board.view();
+            let zoom = if view.zoom.is_finite() && view.zoom > 0.0 { view.zoom } else { 1.0 };
+            let seen = Rect::new(view.pan.x, view.pan.y, area.w / zoom, area.h / zoom);
+            let taken: Vec<Rect> = board.cutouts().map(|c| c.rect).collect();
+            let gap = whiteboard_place::GAP / zoom;
+            match whiteboard_place::free_spot(&taken, seen, logical, gap) {
+                Spot::InView(at) => (at, None),
+                // No room in view: it goes under everything, and the view moves so that it is the first thing seen.
+                Spot::Below(at) => (at, Some(View { pan: Pt::new(at.x - gap, at.y - gap), zoom })),
+            }
+        })?;
+        self.bar.open = true;
+        Ok(job)
+    }
+
+    /// What a drop and a send have in common: the region's cutout is planned, its source made, `place` says where it goes
+    /// (and perhaps a view to show it in), it is put on the board and selected, and the region is used up.
+    fn put_region(
+        &mut self,
+        region: RegionId,
+        facts: SourceFacts,
+        dpr: f32,
+        page: Size,
+        place: impl FnOnce(&Board, Size) -> (Pt, Option<View>),
+    ) -> Result<CutoutJob, Notice> {
         if self.loading {
             return Err(Notice::BoardBusy);
         }
@@ -382,12 +442,11 @@ impl Whiteboard {
             range_hash: lines_hash(&lines),
             lines,
         };
-        // A drop on the header lands at the top of the board, the whole cutout in view.
-        let view = self.board.view();
-        let y = (at_bar.y - HEADER_PX).max(made.logical.h * 0.5 * view.zoom);
-        let centre = view.to_board(Pt::new(at_bar.x, y));
-        let at = Pt::new(centre.x - made.logical.w * 0.5, centre.y - made.logical.h * 0.5);
+        let (at, reveal) = place(&self.board, made.logical);
         let id = self.board.add_cutout(CutoutDraft::pending(at, made.logical, source))?;
+        if let Some(view) = reveal {
+            self.board.set_view(view);
+        }
         self.armed.disarm(region);
         if let Some(n) = made.notice.clone() {
             self.notices.push(n);

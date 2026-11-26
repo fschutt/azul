@@ -1,5 +1,5 @@
-//! The whiteboard's two settings: who a published board names as its author, and the template of a link to code for a
-//! host of no known form. No window, no azul.
+//! The whiteboard's settings: who a published board names as its author, the template of a link to code for a host of no
+//! known form, and how long a circled part of the page stays armed. No window, no azul.
 
 use super::*;
 
@@ -10,7 +10,7 @@ fn parse(pairs: &[(&str, &str)]) -> (Settings, Vec<String>) {
 #[test]
 fn nothing_set_is_git_s_name_and_the_github_form() {
     let (s, notes) = parse(&[]);
-    assert_eq!(s, Settings { author: Author::Git, permalink_template: None });
+    assert_eq!(s, Settings { author: Author::Git, permalink_template: None, armed_ms: 8_000 });
     assert!(notes.is_empty());
     assert_eq!(s.author_name(Some("Grace Hopper")).as_deref(), Some("Grace Hopper"));
     assert_eq!(s.author_name(None), None, "git has no name: none is written");
@@ -60,5 +60,35 @@ fn a_template_for_a_link_needs_a_host_a_revision_and_a_path() {
         assert_eq!(s.permalink_template, None, "{bad:?}");
         assert_eq!(notes.len(), 1, "{bad:?}");
         assert!(notes[0].contains(KEY_PERMALINK));
+    }
+}
+
+#[test]
+fn a_circled_part_stays_armed_eight_seconds_unless_the_setting_says_otherwise() {
+    assert_eq!(parse(&[]).0.armed_ms, 8_000);
+    for (value, ms) in [("8", 8_000), ("12", 12_000), (" 5 ", 5_000), ("2.5", 2_500), ("0.0025e3", 2_500), ("60", 60_000), ("2", 2_000), ("", 8_000)] {
+        let (s, notes) = parse(&[(KEY_ARMED_SECONDS, value)]);
+        assert_eq!(s.armed_ms, ms, "{value:?}");
+        assert!(notes.is_empty(), "{value:?}: {notes:?}");
+    }
+}
+
+#[test]
+fn a_time_out_of_range_is_held_to_the_range_and_told() {
+    for (value, ms) in [("0", 2_000), ("0.5", 2_000), ("-3", 2_000), ("61", 60_000), ("100000", 60_000), ("1e9", 60_000)] {
+        let (s, notes) = parse(&[(KEY_ARMED_SECONDS, value)]);
+        assert_eq!(s.armed_ms, ms, "{value:?}");
+        assert_eq!(notes.len(), 1, "{value:?}");
+        assert!(notes[0].contains(KEY_ARMED_SECONDS) && notes[0].contains("2 to 60"), "{}", notes[0]);
+    }
+}
+
+#[test]
+fn a_time_that_is_no_number_is_told_and_the_default_is_used() {
+    for value in ["soon", "8 s", "NaN", "inf", "-inf", "1,5", "0x10"] {
+        let (s, notes) = parse(&[(KEY_ARMED_SECONDS, value)]);
+        assert_eq!(s.armed_ms, 8_000, "{value:?}");
+        assert_eq!(notes.len(), 1, "{value:?}");
+        assert!(notes[0].contains(KEY_ARMED_SECONDS), "{}", notes[0]);
     }
 }
