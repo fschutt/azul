@@ -7,6 +7,7 @@ The inputs are the dumps of ONE moment of ONE orientation (mobile_e2e.py writes 
     nodes-layout-<o>.json     `get_all_nodes_layout`: every DOM node's box in logical pixels (dp on Android)
     a11y-tree-<o>.json        `get_accessibility_tree`: role, name, clickable, bounds in DEVICE pixels, parent chain
     get_state-<o>.json        `get_state`: the window's logical size, its physical size, the pixel ratio
+    scroll-states-<o>.json    `get_scroll_states`: every scroll container's offset, content size and container size (optional)
     dumpsys-window-<o>.txt    Android's `dumpsys window`: the status and navigation bars' frames, the app's bounds
 
 What it lists, per orientation (every list names the node: tag#id.class, the role and the text the accessibility tree gives it, the box in dp):
@@ -15,6 +16,8 @@ What it lists, per orientation (every list names the node: tag#id.class, the rol
     small         tappable nodes smaller than 48 dp in either direction (Android's touch target guideline), without those inside a
                   large enough tappable parent (the finger lands on the parent anyway)
     cut text      text-bearing boxes that cross the window's edge or the edge of an ancestor that clips its children
+    sideways      scroll containers whose content is wider than they are (`get_scroll_states`: the engine's own measure of a page
+                  that does not fit the width), and the scroll offsets of the moment the boxes were read
 What it can NOT say: a text clipped inside its own box. The debug server reports boxes, not glyph extents; it is listed under
 `not_measured` in every report so nobody reads an empty list as "nothing is clipped".
 """
@@ -96,6 +99,12 @@ def window_state(answer):
     return (answer or {}).get("window_state") or {}
 
 
+def scroll_states(answer):
+    data = (answer or {}).get("data") or {}
+    value = data.get("value") if isinstance(data, dict) else None
+    return (value or {}).get("scroll_states") or []
+
+
 def _name(node):
     tag = node.get("tag") or "?"
     ident = f"#{node['id']}" if node.get("id") else ""
@@ -113,7 +122,7 @@ def _inside(inner, outer, slack=SLACK_DP):
 
 def _entry(layout, a11y, rect, why):
     l, t, r, b = rect
-    out = {"node": _name(layout) if layout else (a11y or {}).get("html_tag") or "?",
+    out = {"node": _name(layout) if layout else (a11y or {}).get("html_tag") or (a11y or {}).get("role") or "?",
            "x": round(l, 1), "y": round(t, 1), "w": round(r - l, 1), "h": round(b - t, 1), "why": why}
     if a11y:
         out["role"] = a11y.get("role")
@@ -136,7 +145,7 @@ def _outer(entries):
 
 # ---- the audit --------------------------------------------------------------------------------------------------------------------
 
-def audit(layout_answer, a11y_answer, state_answer, bars, orientation):
+def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_answer=None):
     """The lists described in the module's docstring for one moment. `bars` is parse_system_bars()'s answer (or None)."""
     nodes = layout_nodes(layout_answer)
     a11y = a11y_nodes(a11y_answer)
@@ -242,6 +251,20 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation):
     result["small_targets"] = {"tappable": tappable_count, "no_bounds": unknown, "small": len(small), "inside_a_large_parent": covered,
                                "by_role": roles, "top": small[:LIST_LIMIT]}
 
+    # -- scroll containers wider than they are, and where every scroller stood when the boxes were read
+    sideways, offsets = [], []
+    for st in scroll_states(scroll_answer):
+        lay = layout_by_id.get(st.get("node_id"))
+        if abs(st.get("scroll_x", 0.0)) > 0.5 or abs(st.get("scroll_y", 0.0)) > 0.5:
+            offsets.append({"node": _name(lay) if lay else f"node {st.get('node_id')}", "scroll_x": round(st.get("scroll_x", 0.0), 1),
+                            "scroll_y": round(st.get("scroll_y", 0.0), 1)})
+        if st.get("max_scroll_x", 0.0) > SLACK_DP:
+            sideways.append({"node": _name(lay) if lay else f"node {st.get('node_id')}", "container_w": round(st.get("container_width", 0.0), 1),
+                             "container_h": round(st.get("container_height", 0.0), 1), "content_w": round(st.get("content_width", 0.0), 1),
+                             "max_scroll_x": round(st["max_scroll_x"], 1)})
+    sideways.sort(key=lambda e: -e["max_scroll_x"])
+    result["sideways_scroll"] = {"count": len(sideways), "top": sideways[:LIST_LIMIT], "scrollers": len(scroll_states(scroll_answer)), "offset_at_reading": offsets}
+
     # -- text-bearing boxes that cross the window or a clipping ancestor
     cut = []
     for a in a11y:
@@ -313,6 +336,15 @@ def report_markdown(audits, label=""):
         c = a["cut_text"]
         out += [f"### Text-bearing boxes that cross an edge: {c['count']}", ""]
         out += _table(c["top"], ["node", "role", "text", "x", "y", "w", "h", "why"])
+        sw = a["sideways_scroll"]
+        out += [f"### Scroll containers whose content is wider than the container: {sw['count']} of {sw['scrollers']} (the page scrolls sideways)", ""]
+        if sw["top"]:
+            out += ["| node | container w x h (dp) | content w | scrolls sideways by |", "|---|---|---|---|"]
+            out += [f"| {e['node']} | {e['container_w']} x {e['container_h']} | {e['content_w']} | {e['max_scroll_x']} |" for e in sw["top"]] + [""]
+        else:
+            out += ["(none)", ""]
+        out += ["Scroll offsets when the boxes were read: " + (", ".join(f"{o['node']} ({o['scroll_x']}, {o['scroll_y']})" for o in sw["offset_at_reading"]) or "all at the top"), "",
+                "A box of a scrolling page passes under a bar while it scrolls; boxes of fixed parts (title, toolbars, bottom keys) must not lie under one.", ""]
         out += ["Not measured: " + "; ".join(a["not_measured"]), ""]
     return "\n".join(out) + "\n"
 
@@ -325,7 +357,7 @@ def summary_line(a):
     return (f"{a['orientation']} {a['window_dp'][0]:.0f}x{a['window_dp'][1]:.0f} dp: {a['edge_right']['count']} boxes cross the right edge "
             f"({a['edge_right']['outer']} outermost), {a['edge_left']['count']} the left, {u['tappable']['count']} tappable and {u['text']['count']} text boxes "
             f"under a bar, {a['small_targets']['small']} of {a['small_targets']['tappable']} tappable nodes under {MIN_TARGET_DP:.0f} dp, "
-            f"{a['cut_text']['count']} text boxes cross an edge")
+            f"{a['cut_text']['count']} text boxes cross an edge, {a['sideways_scroll']['count']} scroll containers are wider than they are")
 
 
 def load_dir(logs_dir, orientation):
@@ -341,7 +373,7 @@ def load_dir(logs_dir, orientation):
         return None
     dump = logs / f"dumpsys-window-{orientation}.txt"
     bars = parse_system_bars(dump.read_text(encoding="utf-8", errors="replace")) if dump.exists() else None
-    return audit(layout, js("a11y-tree"), js("get_state"), bars, orientation)
+    return audit(layout, js("a11y-tree"), js("get_state"), bars, orientation, js("scroll-states"))
 
 
 def main(argv):
