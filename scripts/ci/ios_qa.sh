@@ -76,7 +76,10 @@ fi
 if [ "$session" = e2e ] || [ "$session" = both ]; then
   scen=()
   for f in ${AZ_QA_SCENARIOS:-}; do scen+=(--scenario "$f"); done
+  # AZ_QA_E2E_ARGS: more options for mobile_e2e.py (a GPU run on the Simulator needs `--first-frame-timeout 240 --server-timeout 300`:
+  # the first frame compiles every shader on Apple's software GL)
+  # shellcheck disable=SC2086
   python3 "$here/mobile_e2e.py" ios --out "$out/e2e" --udid "$udid" --bundle "$bid" --exe "$exe" --apk "$appdir" \
-    --label "$label e2e" ${scen[@]+"${scen[@]}"} 2>&1 | tee "$out/e2e.log"
+    --label "$label e2e" ${scen[@]+"${scen[@]}"} ${AZ_QA_E2E_ARGS:-} 2>&1 | tee "$out/e2e.log"
 fi
 exit 0
