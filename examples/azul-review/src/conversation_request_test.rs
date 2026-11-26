@@ -29,7 +29,7 @@ fn note(text: &str) -> Note {
 }
 
 fn word(text: &str, from: u32, to: u32, p: f32) -> HeardWord {
-    HeardWord { text: text.to_string(), start_ms: from, end_ms: to, probability: p }
+    HeardWord { text: text.to_string(), start_ms: from, end_ms: to, probability: p, biased: false }
 }
 
 fn request(n: &Note) -> ReviewRequest {
@@ -201,4 +201,13 @@ fn a_follow_up_is_read_alone() {
     n.talk.receive(&crate::agent_review::Reply { answer: "At n.".to_string(), ..Default::default() }, 1);
     assert!(n.talk.say("and compute stale flag?", 5));
     assert_eq!(spoken_of(&n).text, "and compute stale flag?");
+}
+
+#[test]
+fn the_agent_is_told_which_words_were_favoured_by_the_recogniser_so_that_a_low_probability_on_them_is_no_doubt() {
+    let mut favoured = word("compute_stale_flag", 100, 300, 0.2);
+    favoured.biased = true;
+    let said = Said { text: "compute_stale_flag now".to_string(), started_unix_ms: 1_000, words: vec![favoured, word("now", 320, 500, 0.9)] };
+    let utterance = heard(&said);
+    assert!(utterance.words[0].biased && !utterance.words[1].biased, "{:?}", utterance.words);
 }

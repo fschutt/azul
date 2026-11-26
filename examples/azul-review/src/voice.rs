@@ -22,9 +22,12 @@ use std::{
 };
 
 use azul::{
-    option::OptionSpeechWord,
+    option::{OptionSpeechEvent, OptionSpeechWord},
     prelude::*,
-    speech::{BuiltinSpeechStatus, HeardStatus, Speech, SpeechHeard, SpeechRecognizer, SpeechSession},
+    speech::{
+        BuiltinSpeechStatus, HeardStatus, Speech, SpeechEventKind, SpeechHeard, SpeechRecognizer, SpeechSession, SpeechStandby,
+        SpeechState, SpeechStreamOptions,
+    },
     str::String as AzString,
     vec::StringVec,
     task::TerminateTimer,
@@ -37,7 +40,7 @@ use azul_appkit::{
 };
 
 use crate::{
-    dictation::{self, Cause, Clock, End, Heard, HeardWord, Listener, Mic, Out, Plan, Recognizer, Status},
+    dictation::{self, Cause, Clock, End, Event, Heard, HeardWord, Listener, Mic, Out, Plan, Recognizer, Status},
     dwell::{Allow, Anchor, Config, Dwell, Reaction, Sample},
     model::{Note, NoteState},
     speech_gate::{Asked, Gate},
@@ -87,6 +90,8 @@ pub struct Voice {
     pub dwell: Dwell,
     /// How long without words ends a dictation, ms.
     pub silence_ms: u64,
+    /// How long a pause ends an utterance, ms (0: the engine's own).
+    pub endpoint_ms: u32,
     clock: Instant,
     /// The tick timer is armed.
     pub ticking: bool,
@@ -119,6 +124,9 @@ pub struct Voice {
     /// How often the policy asked to open the microphone, and to close it.
     pub arms: u32,
     pub disarms: u32,
+    /// The thread that opens and closes the session's microphone, in the order it is asked (a real run once the session is
+    /// there; under the e2e server none: what the policy asks is only counted and no test opens a microphone).
+    pub mic_thread: Option<MicThread>,
 }
 
 impl Voice {
@@ -127,6 +135,7 @@ impl Voice {
         Self {
             dwell: Dwell::new(dwell),
             silence_ms,
+            endpoint_ms: 0,
             clock: Instant::now(),
             ticking: false,
             running: None,
@@ -142,6 +151,7 @@ impl Voice {
             standby_ticking: false,
             arms: 0,
             disarms: 0,
+            mic_thread: None,
         }
     }
 
@@ -240,6 +250,12 @@ impl Voice {
             }
         }
         println!("AZREVIEW_STANDBY {}", action.name());
+        if let Some(thread) = &self.mic_thread {
+            thread.ask(match action {
+                Action::Arm => MicCmd::Arm,
+                Action::Disarm => MicCmd::Disarm,
+            });
+        }
         Some(action)
     }
 
@@ -299,6 +315,9 @@ impl Voice {
 
     /// The user chose another standby or idle time.
     pub fn set_standby(&mut self, cfg: standby::Config) -> Option<Action> {
+        if let Some(thread) = &self.mic_thread {
+            thread.ask(MicCmd::Standby(engine_standby(cfg.standby)));
+        }
         if !self.can_arm {
             self.arming = Arming::new(cfg);
             return None;
@@ -371,10 +390,12 @@ pub fn pointer(data: &mut RefAny, info: &mut CallbackInfo, down: Option<bool>) -
         return Update::DoNothing;
     }
     let now = s.voice.now_ms();
+    // a rest is anchored where the page was first drawn: lines put in above it are not in it
+    let kept_y = s.page_map(page).to_original(at.y);
     let sample = Sample {
         page,
         x: at.x,
-        y: at.y,
+        y: kept_y,
         pen: pen.is_some(),
         contact,
     };
@@ -562,7 +583,19 @@ extern "C" fn on_speech_ready(mut app: RefAny, mut msg: RefAny, mut info: Callba
             Ok((session, builtin)) => {
                 eprintln!("[AzReview] speech: the built-in recogniser is {}", builtin_word(builtin));
                 println!("AZREVIEW_SPEECH ready");
+                // A real run keeps the microphone ready for a dictation while the pen is near (the standby policy asks, this
+                // thread opens and closes it); the e2e server only counts what the policy asks, and no test opens one.
+                if std::env::var_os("AZ_E2E").is_none() {
+                    s.voice.mic_thread = MicThread::start(session.clone());
+                    s.voice.can_arm = s.voice.mic_thread.is_some();
+                    if let Some(thread) = &s.voice.mic_thread {
+                        thread.ask(MicCmd::Standby(engine_standby(s.voice.arming.config().standby)));
+                    }
+                }
                 s.voice.speech = Some(session);
+                if s.voice.can_arm {
+                    s.voice.start_standby();
+                }
                 Ok(())
             }
             Err(why) => Err(why),
@@ -579,6 +612,106 @@ extern "C" fn on_speech_ready(mut app: RefAny, mut msg: RefAny, mut info: Callba
     }
     // The settings page lists the recognisers of the session that is there now.
     Update::RefreshDom
+}
+
+// ==== The microphone's thread ====
+
+/// What the session's microphone is asked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MicCmd {
+    /// Open it now and keep it open (the pen is near).
+    Arm,
+    /// Close it.
+    Disarm,
+    /// What stays open between calls.
+    Standby(EngineStandby),
+}
+
+/// What the engine keeps open between calls, as AzReview's standby chooses it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineStandby {
+    /// Closed at the end of every call.
+    Off,
+    /// Opened by an arm and kept until a disarm (or the engine's idle limit).
+    WhileArmed,
+    /// Opened by the first call or arm and kept.
+    Always,
+}
+
+/// The engine's mode for AzReview's: "off" keeps nothing, "near" is the engine's armed-while-the-pen-is-near, "always" keeps
+/// the microphone for the whole run.
+#[must_use]
+pub const fn engine_standby(mode: Standby) -> EngineStandby {
+    match mode {
+        Standby::Off => EngineStandby::Off,
+        Standby::Near => EngineStandby::WhileArmed,
+        Standby::Always => EngineStandby::Always,
+    }
+}
+
+/// The thread that opens and closes the session's microphone in the order the window asks: opening takes about 270 ms and
+/// never happens on the window's thread, and a close asked after an open is not run before it.
+pub struct MicThread {
+    commands: std::sync::mpsc::Sender<MicCmd>,
+}
+
+/// A handle on the window's speech session for the microphone's thread.
+///
+/// The engine's session is shared between threads by design: "a clone is another handle on the same session, so a worker thread
+/// can listen while the window asks `cancel` or `recognizers`" (its chain, its microphone and its state are behind locks). The
+/// generated binding does not say so (its handle holds a raw pointer, so it is not `Send`), which is what this says.
+struct SharedSession(SpeechSession);
+
+// SAFETY: a handle is one reference to a session that the engine made to be used from several threads at once (see above); the
+// thread uses only `arm`, `disarm` and `set_standby`, which the engine documents as safe to call at any time and from any
+// thread, and it drops its handle when it ends.
+unsafe impl Send for SharedSession {}
+
+impl SharedSession {
+    /// The handle, inside the thread. (A method and not the field: a closure that named the field would capture only the
+    /// field, which is not `Send`.)
+    fn into_inner(self) -> SpeechSession {
+        self.0
+    }
+}
+
+impl MicThread {
+    /// Starts the thread for `session` (a clone of the window's: the same session); `None` where no thread could be started.
+    #[must_use]
+    pub fn start(session: SpeechSession) -> Option<Self> {
+        let (commands, asked) = std::sync::mpsc::channel::<MicCmd>();
+        let session = SharedSession(session);
+        std::thread::Builder::new()
+            .name("mic-standby".to_string())
+            .spawn(move || {
+                let session = session.into_inner();
+                // the thread ends with the window: the sender is dropped and nothing is asked any more
+                while let Ok(command) = asked.recv() {
+                    match command {
+                        MicCmd::Arm => {
+                            let why = session.arm();
+                            if !why.as_str().is_empty() {
+                                eprintln!("[AzReview] the microphone could not be opened ahead of a dictation: {}", why.as_str());
+                                println!("AZREVIEW_STANDBY refused {}", why.as_str());
+                            }
+                        }
+                        MicCmd::Disarm => session.disarm(),
+                        MicCmd::Standby(mode) => session.set_standby(match mode {
+                            EngineStandby::Off => SpeechStandby::Off,
+                            EngineStandby::WhileArmed => SpeechStandby::WhileArmed,
+                            EngineStandby::Always => SpeechStandby::Always,
+                        }),
+                    }
+                }
+            })
+            .ok()?;
+        Some(Self { commands })
+    }
+
+    /// Asks the thread; what cannot be asked (the thread is gone) is dropped.
+    pub fn ask(&self, command: MicCmd) {
+        let _ = self.commands.send(command);
+    }
 }
 
 /// A session that could not be made, told once (the gate lets one word through): the log, and the line scripts read.
@@ -733,6 +866,8 @@ struct WorkerInit {
     script: Option<(Vec<String>, u64)>,
     /// The window's speech session (a clone: the same session): without one the engine's static recogniser is asked.
     speech: Option<SpeechSession>,
+    /// How long a pause ends an utterance, ms (0: the engine's own).
+    endpoint_ms: u32,
 }
 
 /// What the worker hands to the window.
@@ -752,6 +887,7 @@ pub(crate) fn heard_of(heard: &SpeechHeard) -> Heard {
                 start_ms: w.start_ms,
                 end_ms: w.end_ms,
                 probability: w.probability,
+                biased: w.biased,
             });
         }
     }
@@ -776,10 +912,52 @@ pub(crate) fn heard_of(heard: &SpeechHeard) -> Heard {
     }
 }
 
+/// The microphone's state as the dictation tells it.
+fn mic_of(state: SpeechState) -> Mic {
+    match state {
+        SpeechState::Cold => Mic::Cold,
+        SpeechState::Warm => Mic::Warm,
+        SpeechState::Armed => Mic::Armed,
+        SpeechState::Listening => Mic::Listening,
+    }
+}
+
+/// The longest a stream runs, ms: the dictation ends it long before (a stop, or the quiet).
+const STREAM_MAX_MS: u32 = 10 * 60 * 1_000;
+/// How long the listener waits for an event before it asks whether the dictation is over, ms.
+const STREAM_POLL_MS: u32 = 100;
+/// How long a stream that was told to stop is given to hand over the last words, ms (the system's recogniser takes about
+/// 0.7 s to give a final): past it the stream is cancelled, so that a dictation always ends.
+const STOP_GRACE_MS: u128 = 4_000;
+/// How much the microphone heard before the stream began a dictation takes, ms: a pen rests for a while before it dictates.
+const PRE_ROLL_MS: u32 = 1_000;
+
 /// The engine's recogniser as a [`Listener`]: the window's session (the chain of recognisers, its vocabulary), or the
-/// engine's static call where there is none.
+/// engine's static call where there is none. With a session it streams: one stream for the dictation, utterance after
+/// utterance, the words so far as they come, ended by a stop or the quiet (`listen_stream_until`) with what was said so far
+/// as the last utterance.
 struct SpeechListener {
     session: Option<SpeechSession>,
+    /// How long a pause ends an utterance, ms (0: the engine's own, 600).
+    endpoint_ms: u32,
+}
+
+impl SpeechListener {
+    /// What one event of the stream says, told to the dictation; whether it was the end (then `answer` is what the stream came
+    /// to).
+    fn tell(event: &azul::speech::SpeechEvent, events: &mut dyn FnMut(Event), answer: &mut Option<Heard>) -> bool {
+        match event.kind {
+            SpeechEventKind::Ready => events(Event::Ready),
+            SpeechEventKind::Partial => events(Event::Partial(event.heard.text.as_str().to_string())),
+            SpeechEventKind::Final => events(Event::Final(heard_of(&event.heard))),
+            SpeechEventKind::Quiet => {}
+            SpeechEventKind::Ended => {
+                *answer = Some(heard_of(&event.heard));
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl Listener for SpeechListener {
@@ -788,6 +966,70 @@ impl Listener for SpeechListener {
             Some(session) => heard_of(&session.listen_blocking(language.to_string(), timeout_ms)),
             None => heard_of(&Speech::listen_blocking(language.to_string(), timeout_ms)),
         }
+    }
+
+    fn listen_stream_until(
+        &mut self,
+        language: &str,
+        timeout_ms: u32,
+        events: &mut dyn FnMut(Event),
+        should_stop: &mut dyn FnMut() -> bool,
+    ) -> Heard {
+        let Some(session) = self.session.clone() else {
+            events(Event::Ready);
+            return self.listen(language, timeout_ms);
+        };
+        let stream = session.start_stream(
+            language.to_string(),
+            SpeechStreamOptions {
+                partials: true,
+                endpoint_ms: self.endpoint_ms,
+                max_ms: STREAM_MAX_MS,
+                max_utterances: 0,
+                pre_roll_ms: PRE_ROLL_MS,
+            },
+        );
+        let mut mic = None;
+        let mut stopping: Option<Instant> = None;
+        let mut answer: Option<Heard> = None;
+        let mut over = false;
+        while !over {
+            let batch = stream.wait_events(STREAM_POLL_MS);
+            for i in 0..batch.len() {
+                if let OptionSpeechEvent::Some(event) = batch.c_get(i) {
+                    over |= Self::tell(&event, events, &mut answer);
+                }
+            }
+            // the microphone's state, told when it changes
+            let now = mic_of(session.state());
+            if mic != Some(now) {
+                mic = Some(now);
+                events(Event::State(now));
+            }
+            if !over && !stream.is_running() {
+                // the stream is over and what it left is waiting: the last events, and nothing more comes
+                let rest = stream.poll_events();
+                for i in 0..rest.len() {
+                    if let OptionSpeechEvent::Some(event) = rest.c_get(i) {
+                        over |= Self::tell(&event, events, &mut answer);
+                    }
+                }
+                over = true;
+            }
+            if over {
+                break;
+            }
+            match stopping {
+                None if should_stop() => {
+                    // the way that keeps what was said so far: the utterance that goes on comes as the last final
+                    stream.stop();
+                    stopping = Some(Instant::now());
+                }
+                Some(since) if since.elapsed().as_millis() > STOP_GRACE_MS => stream.cancel(),
+                _ => {}
+            }
+        }
+        answer.unwrap_or_else(|| Heard::new(Status::Nothing, "", ""))
     }
 }
 
@@ -806,15 +1048,15 @@ impl Clock for WallClock {
 
 /// The worker thread: listens until it is told to stop, then says so.
 extern "C" fn worker(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
-    let Some((plan, stop, session, speech, script)) = init
+    let Some((plan, stop, session, speech, script, endpoint_ms)) = init
         .downcast_ref::<WorkerInit>()
-        .map(|i| (i.plan.clone(), i.stop.clone(), i.session, i.speech.clone(), i.script.clone()))
+        .map(|i| (i.plan.clone(), i.stop.clone(), i.session, i.speech.clone(), i.script.clone(), i.endpoint_ms))
     else {
         return;
     };
     // A script stands in for the microphone: the debug op's dictation says its words and nothing opens a microphone.
     let mut scripted = script.map(|(words, gap_ms)| ScriptListener::new(words, gap_ms));
-    let mut spoken = SpeechListener { session: speech };
+    let mut spoken = SpeechListener { session: speech, endpoint_ms };
     let listener: &mut dyn Listener = match scripted.as_mut() {
         Some(script) => script,
         None => &mut spoken,
@@ -927,12 +1169,13 @@ fn begin(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor, script: Opt
             stop,
             session,
             s.voice.speech.clone(),
+            s.voice.endpoint_ms,
         )
     };
-    let (plan, stop, session, speech) = plan;
+    let (plan, stop, session, speech, endpoint_ms) = plan;
     info.add_thread(
         ThreadId::unique(),
-        Thread::create(RefAny::new(WorkerInit { plan, stop, session, script, speech }), data.clone(), worker),
+        Thread::create(RefAny::new(WorkerInit { plan, stop, session, script, speech, endpoint_ms }), data.clone(), worker),
     );
     info.trigger_all_virtual_view_rerender();
     Update::RefreshDom

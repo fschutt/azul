@@ -1,4 +1,4 @@
-//! AzReview's own switches (`--dwell-ms`, `--dwell-input`, `--silence-ms`, `--standby`, `--standby-idle-ms`) and the
+//! AzReview's own switches (`--dwell-ms`, `--dwell-input`, `--silence-ms`, `--endpoint-ms`, `--standby`, `--standby-idle-ms`) and the
 //! dictation settings they override, as pure functions: the settings file's values and the switches in, the numbers the
 //! window uses out, every value outside what a person can mean capped with a word about it.
 
@@ -20,6 +20,10 @@ pub const KEY_REST: &str = "dictation-rest-ms";
 /// The settings file's value: how long without words ends a dictation, ms.
 pub const KEY_SILENCE: &str = "dictation-silence-ms";
 
+/// The settings file's value: how long a pause ends an utterance, ms (0: the engine's own, 600; long German prose is better at
+/// 800 to 1000).
+pub const KEY_ENDPOINT: &str = "dictation-endpoint-ms";
+
 /// The settings file's value: whether the microphone is kept ready for a dictation (`off`, `near`, `always`).
 pub const KEY_STANDBY: &str = "dictation-standby";
 /// The settings file's value: how long the pen is away before the microphone is closed, ms.
@@ -39,6 +43,7 @@ pub const KEY_FOLDER: &str = "last-folder";
 pub const HELP: &str = "    --dwell-ms <MS>          How long the pen rests before it dictates (this run only)\n    \
                         --dwell-input <NAME>     off | pen | any: which pointers may start a dictation (this run only)\n    \
                         --silence-ms <MS>        How long without words ends a dictation (this run only)\n    \
+                        --endpoint-ms <MS>       How long a pause ends an utterance: 0 is the engine's own, 800 to 1000 suits long German (this run only)\n    \
                         --standby <NAME>         off | near | always: when the microphone is kept ready (this run only)\n    \
                         --standby-idle-ms <MS>   How long the pen is away before the microphone is closed (this run only)\n    \
                         --agent <NAME>           claude-print | anthropic-api | gemini-cli | gemini-api | mock: one backend for every task (this run only)\n    \
@@ -55,6 +60,8 @@ pub struct Switches {
     pub dwell_input: Option<Allow>,
     /// `--silence-ms`.
     pub silence_ms: Option<u64>,
+    /// `--endpoint-ms`.
+    pub endpoint_ms: Option<u64>,
     /// `--standby`.
     pub standby: Option<Standby>,
     /// `--standby-idle-ms`.
@@ -89,6 +96,7 @@ impl Switches {
                 "--dwell-ms"
                     | "--dwell-input"
                     | "--silence-ms"
+                    | "--endpoint-ms"
                     | "--standby"
                     | "--standby-idle-ms"
                     | "--agent"
@@ -106,6 +114,7 @@ impl Switches {
             match name.as_str() {
                 "--dwell-ms" => sw.dwell_ms = Some(millis(&name, &value)?),
                 "--silence-ms" => sw.silence_ms = Some(millis(&name, &value)?),
+                "--endpoint-ms" => sw.endpoint_ms = Some(millis(&name, &value)?),
                 "--standby-idle-ms" => sw.standby_idle_ms = Some(millis(&name, &value)?),
                 "--agent-delay-ms" => sw.agent_delay_ms = Some(millis(&name, &value)?),
                 "--agent" => {
@@ -164,6 +173,8 @@ pub struct Resolved {
     pub allow: Allow,
     pub rest_ms: u64,
     pub silence_ms: u64,
+    /// How long a pause ends an utterance, ms (0: the engine's own).
+    pub endpoint_ms: u32,
     /// When the microphone is kept ready for a dictation.
     pub standby: Standby,
     /// How long the pen is away before it is closed, ms.
@@ -216,6 +227,10 @@ pub fn resolve(values: &BTreeMap<String, String>, sw: &Switches) -> Resolved {
         .unwrap_or(dictation::DEFAULT_SILENCE_MS);
     let (silence_ms, why) = dictation::cap_silence_ms(silence);
     notes.extend(why);
+    let endpoint = sw.endpoint_ms.or_else(|| number(values, KEY_ENDPOINT, 0, &mut notes)).unwrap_or(0);
+    let (endpoint_ms, why) = dictation::cap_endpoint_ms(endpoint);
+    let endpoint_ms = u32::try_from(endpoint_ms).unwrap_or(0);
+    notes.extend(why);
     let keep_ready = match (sw.standby, values.get(KEY_STANDBY)) {
         (Some(s), _) => s,
         (None, Some(raw)) => Standby::parse(raw).unwrap_or_else(|| {
@@ -253,6 +268,7 @@ pub fn resolve(values: &BTreeMap<String, String>, sw: &Switches) -> Resolved {
         allow,
         rest_ms,
         silence_ms,
+        endpoint_ms,
         standby: keep_ready,
         standby_idle_ms,
         agent: sw.agent,

@@ -252,12 +252,35 @@ pub struct Book {
     files: std::collections::BTreeMap<String, Entry>,
     cap: usize,
     dirty: bool,
+    /// Where the reviewer comes back to after the conversations they were taken to.
+    back: Option<Back>,
+}
+
+/// The longest path of a place to come back to, bytes.
+pub const MAX_BACK_PATH: usize = 4_096;
+
+/// A place of the review: a page of a file, and the first line the page has.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Back {
+    pub file: String,
+    /// The page, the first being 0.
+    pub page: usize,
+    /// The line of the file in view, the first being 1.
+    pub line: u32,
+}
+
+impl Back {
+    /// The place in a few words, for a key: the file, the page counted from one, the line (`src/lib.rs p3 l93`).
+    #[must_use]
+    pub fn words(&self) -> String {
+        format!("{} p{} l{}", self.file, self.page + 1, self.line)
+    }
 }
 
 impl Book {
     #[must_use]
     pub fn with_cap(cap: usize) -> Self {
-        Self { files: std::collections::BTreeMap::new(), cap, dirty: false }
+        Self { files: std::collections::BTreeMap::new(), cap, dirty: false, back: None }
     }
 
     fn cap(&self) -> usize {
@@ -311,6 +334,37 @@ impl Book {
             }
             mine.held |= entry.held;
         }
+        // a place set since the file was read is the place; else the one that was kept
+        if self.back.is_none() {
+            self.back = other.back;
+        }
+    }
+
+    /// Where the reviewer comes back to, when they were taken to a conversation.
+    #[must_use]
+    pub const fn back(&self) -> Option<&Back> {
+        self.back.as_ref()
+    }
+
+    /// The reviewer jumped to a conversation from `here`: the first jump is the place they come back to, and a jump from
+    /// one conversation to another keeps it. `true` when it was set (a place with no file, or a file name longer than a
+    /// path can be, is none).
+    pub fn jumped_from(&mut self, here: Back) -> bool {
+        if self.back.is_some() || here.file.is_empty() || here.file.len() > MAX_BACK_PATH {
+            return false;
+        }
+        self.back = Some(here);
+        self.dirty = true;
+        true
+    }
+
+    /// The reviewer comes back: the place, and none any more.
+    pub fn come_back(&mut self) -> Option<Back> {
+        let back = self.back.take();
+        if back.is_some() {
+            self.dirty = true;
+        }
+        back
     }
 
     /// Something changed that is not kept yet.

@@ -175,7 +175,7 @@ pub fn spoken_words(said: &Said) -> Vec<SpokenWord> {
     }
     said.words
         .iter()
-        .map(|w| SpokenWord { text: w.text.clone(), probability: w.probability, biased: false })
+        .map(|w| SpokenWord { text: w.text.clone(), probability: w.probability, biased: w.biased })
         .collect()
 }
 

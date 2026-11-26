@@ -20,7 +20,7 @@ use crate::{
     agent_window,
     chips::{self, State},
     column::NoteTag,
-    conversation::{self, last_lines, Phase, Who},
+    conversation::{self, last_lines, Decision, Phase, Proposal, Suggestion, Who},
     ids,
     margin::{self, Slot},
     model::Note,
@@ -58,9 +58,11 @@ fn tag_of(info: &mut CallbackInfo) -> Option<u64> {
         .and_then(|mut d| d.downcast_ref::<ConvTag>().map(|t| t.id))
 }
 
-/// How tall the margin is: the page, less its padding above and below.
-fn margin_h() -> f32 {
-    ui::page_h() - 2.0 * ui::PAGE_PAD
+/// How tall the margin is: the page (`page_height`: it is taller where lines were put in), less its padding above and below,
+/// and no further than the window shows of the page (`visible_bottom` px from the page's top: a window shorter than the page
+/// cuts it).
+fn margin_h(page_height: f32, visible_bottom: f32) -> f32 {
+    (page_height - 2.0 * ui::PAGE_PAD).min(visible_bottom - ui::PAGE_PAD - 8.0).max(0.0)
 }
 
 /// What a chip says of its conversation for the screen reader and the tooltip: its number, its words and its state.
@@ -77,17 +79,19 @@ fn chip_name(number: usize, note: &Note) -> AzString {
 }
 
 /// The conversations of `page` with their numbers and where their chips stand.
-fn placed<'a>(s: &'a AppState, page: usize) -> (Vec<(usize, &'a Note)>, margin::Placement) {
+fn placed<'a>(s: &'a AppState, page: usize, visible_bottom: f32) -> (Vec<(usize, &'a Note)>, margin::Placement) {
     let here: Vec<(usize, &Note)> = s.notes.iter().enumerate().filter(|(_, n)| n.page == page).map(|(i, n)| (i + 1, n)).collect();
+    // a chip stands at the height of its anchor as the page shows it now: lines put in above push it down
+    let map = s.page_map(page);
     let slots: Vec<Slot> = here
         .iter()
         .map(|(_, n)| Slot {
             id: n.id,
-            want_y: n.y - ui::PAGE_PAD - CHIP_H / 2.0,
+            want_y: map.to_display(n.y) - ui::PAGE_PAD - CHIP_H / 2.0,
             keep: keep_of(s, n),
         })
         .collect();
-    let placement = margin::place(&slots, margin_h(), CHIP_H, CHIP_GAP);
+    let placement = margin::place(&slots, margin_h(map.grown_height(ui::page_h()), visible_bottom), CHIP_H, CHIP_GAP);
     (here, placement)
 }
 
@@ -150,16 +154,17 @@ fn chip(s: &AppState, data: &RefAny, number: usize, note: &Note, top: f32) -> Do
 
 /// The margin of `page`: its conversations as chips, and how many more there are than the margin holds.
 #[must_use]
-pub fn margin(s: &AppState, data: &RefAny, page: usize) -> Option<Dom> {
-    let (here, placement) = placed(s, page);
+pub fn margin(s: &AppState, data: &RefAny, page: usize, visible_bottom: f32) -> Option<Dom> {
+    let (here, placement) = placed(s, page, visible_bottom);
     if here.is_empty() {
         return None;
     }
+    let height = margin_h(s.page_map(page).grown_height(ui::page_h()), visible_bottom);
     let mut column = Dom::create_div().with_id(format!("__azreview_margin-{}", page + 1).as_str()).with_css(
         format!(
             "position: absolute; left: {MARGIN_X:.0}px; top: {:.0}px; width: {MARGIN_W:.0}px; height: {:.0}px;",
             ui::PAGE_PAD,
-            margin_h()
+            height
         )
         .as_str(),
     );
@@ -176,7 +181,7 @@ pub fn margin(s: &AppState, data: &RefAny, page: usize) -> Option<Dom> {
                 .with_css(
                     format!(
                         "position: absolute; left: 0px; top: {:.0}px; font-size: 11px; color: system:secondary-text;",
-                        margin_h() - 14.0
+                        height - 14.0
                     )
                     .as_str(),
                 ),
@@ -279,7 +284,7 @@ fn status_row(note: &Note) -> Option<Dom> {
         }
         Phase::Suggested => Some(
             Dom::create_p_with_text(
-                t_args("azreview-conv-suggestions", &[("n", Arg::from(note.talk.pending))]).as_str(),
+                t_args("azreview-conv-suggestions", &[("n", Arg::from(note.talk.pending()))]).as_str(),
             )
             .with_id(format!("__azreview_conv-suggestions-{}", note.id).as_str())
             .with_css("margin: 0px; font-size: 12px; color: #b07f00;"),
@@ -303,6 +308,14 @@ fn icon_key(icon: &str, name: AzString, id: String, tag: &RefAny, on_click: Butt
         .dom()
         .with_id(id.as_str())
         .with_accessibility_name(name)
+}
+
+/// Where the top of the open conversation stands on the page, px from the page's top: at its chip (which stands `chip_top` px
+/// down the margin), pushed up so that its foot (`height` below) is inside what the window shows of the page (`page_height`
+/// is the page's own, taller where lines were put in).
+#[must_use]
+pub fn popover_y(chip_top: f32, height: f32, page_height: f32, visible_bottom: f32) -> f32 {
+    ui::PAGE_PAD + margin::popover_top(chip_top, height, margin_h(page_height, visible_bottom))
 }
 
 /// How many lines `chars` letters take.
@@ -357,6 +370,17 @@ pub fn popover_height(note: &Note, running: bool, partial_chars: usize) -> f32 {
     for turn in &note.talk.turns[from..] {
         h += GAP + 14.0 + LINE * lines_of(turn.text.chars().count().min(SHOW_TURN_CHARS)) as f32 + 12.0;
     }
+    for p in &note.talk.proposals {
+        let rows = match &p.suggestion {
+            Suggestion::InsertLines { lines, .. } => lines.len().min(SHOW_INSERT_LINES) as f32 * 13.0,
+            Suggestion::ReplaceRange { .. } => 14.0,
+            Suggestion::RemoveRange { .. } => 0.0,
+        };
+        h += GAP + 14.0 + rows + 30.0;
+    }
+    if note.talk.pending() >= 2 {
+        h += GAP + 28.0;
+    }
     if note.talk.phase != Phase::Draft {
         h += GAP + 20.0;
     }
@@ -366,21 +390,26 @@ pub fn popover_height(note: &Note, running: bool, partial_chars: usize) -> f32 {
     h
 }
 
-/// The open conversation, at the height of its chip; `visible_right` is how far across the page the window shows (px from
-/// the page's left edge: the popover keeps inside it).
+/// The open conversation, at the height of its chip; `visible_right` and `visible_bottom` are how far across and down the page
+/// the window shows (px from the page's left and top edges: the popover keeps inside them).
 #[must_use]
-pub fn popover(s: &AppState, data: &RefAny, page: usize, visible_right: f32) -> Option<Dom> {
+pub fn popover(s: &AppState, data: &RefAny, page: usize, visible_right: f32, visible_bottom: f32) -> Option<Dom> {
     let id = s.open_conv?;
-    let (here, placement) = placed(s, page);
+    let (here, placement) = placed(s, page, visible_bottom);
     let (number, note) = here.iter().find(|(_, n)| n.id == id).copied()?;
+    let map = s.page_map(page);
     let chip_top = placement
         .tops
         .iter()
         .find(|(i, _)| *i == id)
-        .map_or_else(|| (note.y - ui::PAGE_PAD - CHIP_H / 2.0).max(0.0), |(_, t)| *t);
+        .map_or_else(|| (map.to_display(note.y) - ui::PAGE_PAD - CHIP_H / 2.0).max(0.0), |(_, t)| *t);
     let running = s.voice.running_note() == Some(id);
-    let top = ui::PAGE_PAD
-        + margin::popover_top(chip_top, popover_height(note, running, s.voice.partial().chars().count()), margin_h());
+    let top = popover_y(
+        chip_top,
+        popover_height(note, running, s.voice.partial().chars().count()),
+        map.grown_height(ui::page_h()),
+        visible_bottom,
+    );
     let tag = RefAny::new(NoteTag { app: data.clone(), id });
 
     let mut head = Dom::create_div().with_css("display: flex; flex-direction: row; align-items: center; gap: 8px;");
@@ -469,6 +498,16 @@ pub fn popover(s: &AppState, data: &RefAny, page: usize, visible_right: f32) -> 
                 ),
         );
     }
+    // What the agent suggested: a card for each, with the keys to take or refuse it, and one to take or refuse them all.
+    if note.talk.pending() >= 2 {
+        let mut all = Dom::create_div().with_css("display: flex; flex-direction: row; align-items: center; gap: 6px; justify-content: flex-end;");
+        all.add_child(text_key("check", label("azreview-sugg-accept-all"), format!("__azreview_sugg-accept-all-{id}"), &tag, on_sugg_accept_all));
+        all.add_child(text_key("close", label("azreview-sugg-reject-all"), format!("__azreview_sugg-reject-all-{id}"), &tag, on_sugg_reject_all));
+        body.add_child(all);
+    }
+    for (k, proposal) in note.talk.proposals.iter().enumerate() {
+        body.add_child(proposal_card(id, k, proposal, data));
+    }
     if let Some(status) = status_row(note) {
         body.add_child(status);
     }
@@ -523,7 +562,171 @@ pub fn popover(s: &AppState, data: &RefAny, page: usize, visible_right: f32) -> 
     ))
 }
 
+/// A key with a word beside its icon (the word is its name for the screen reader too).
+fn text_key(icon: &str, name: AzString, id: String, tag: &RefAny, on_click: ButtonOnClickCallbackType) -> Dom {
+    Button::create(name.clone())
+        .with_icon(icon)
+        .with_on_click(tag.clone(), on_click)
+        .dom()
+        .with_id(id.as_str())
+        .with_accessibility_name(name)
+}
+
+/// Which suggestion of which conversation a key decides.
+pub struct SuggTag {
+    pub app: RefAny,
+    pub id: u64,
+    pub index: usize,
+}
+
+/// What a suggestion says, in a line: where and what.
+fn summary(suggestion: &Suggestion) -> String {
+    match suggestion {
+        Suggestion::InsertLines { after_line, lines } => t_args(
+            "azreview-sugg-insert",
+            &[("n", Arg::from(lines.len())), ("line", Arg::from(*after_line))],
+        ),
+        Suggestion::ReplaceRange { start, old, text, .. } => t_args(
+            "azreview-sugg-replace",
+            &[("old", Arg::from(chips::short_title(old, 24))), ("new", Arg::from(chips::short_title(text, 24))), ("line", Arg::from(start.line))],
+        ),
+        Suggestion::RemoveRange { start, old, .. } => {
+            t_args("azreview-sugg-remove", &[("old", Arg::from(chips::short_title(old, 24))), ("line", Arg::from(start.line))])
+        }
+    }
+}
+
+/// The most lines of an insertion a card shows.
+const SHOW_INSERT_LINES: usize = 6;
+
+/// One suggestion of conversation `id`: what it says, the lines it would insert in the colour they will have on the page,
+/// and the keys to take or refuse it (or to decide again).
+fn proposal_card(id: u64, k: usize, proposal: &Proposal, data: &RefAny) -> Dom {
+    let tag = RefAny::new(SuggTag { app: data.clone(), id, index: k });
+    // tints that sit on a light or a dark popover alike
+    let (border, wash) = match proposal.decision {
+        Decision::Waiting => ("#e5a800", "rgba(229,168,0,0.18)"),
+        Decision::Accepted => ("#2fa84f", "rgba(47,168,79,0.18)"),
+        Decision::Rejected => ("#9a958c", "transparent"),
+    };
+    let mut card = Dom::create_div()
+        .with_id(format!("__azreview_sugg-{id}-{k}").as_str())
+        .with_css(
+            format!(
+                "display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border-radius: 6px; \
+                 border-left: 3px solid {border}; background: {wash};"
+            )
+            .as_str(),
+        );
+    let ink = if proposal.decision == Decision::Rejected { "system:secondary-text" } else { "system:text" };
+    card.add_child(
+        Dom::create_span_with_text(summary(&proposal.suggestion).as_str())
+            .with_css(format!("font-size: 11px; color: {ink}; overflow-wrap: anywhere;").as_str()),
+    );
+    if let Suggestion::InsertLines { lines, .. } = &proposal.suggestion {
+        for row in lines.iter().take(SHOW_INSERT_LINES) {
+            card.add_child(
+                Dom::create_p_with_text(row.as_str()).with_css(
+                    format!(
+                        "margin: 0px; font-family: monospace; font-size: 10px; line-height: 1.35; white-space: pre; overflow: hidden; \
+                         color: {ink};{}",
+                        if proposal.decision == Decision::Rejected { " text-decoration: line-through;" } else { "" }
+                    )
+                    .as_str(),
+                ),
+            );
+        }
+    }
+    if let Suggestion::ReplaceRange { text, .. } = &proposal.suggestion {
+        card.add_child(
+            Dom::create_p_with_text(chips::short_title(text, 80).as_str())
+                .with_css("margin: 0px; font-family: monospace; font-size: 10px; color: #2fa84f;"),
+        );
+    }
+    let mut keys = Dom::create_div().with_css("display: flex; flex-direction: row; align-items: center; gap: 6px; justify-content: flex-end;");
+    match proposal.decision {
+        Decision::Waiting => {
+            keys.add_child(icon_key("check", label("azreview-sugg-accept"), format!("__azreview_sugg-accept-{id}-{k}"), &tag, on_sugg_accept));
+            keys.add_child(icon_key("close", label("azreview-sugg-reject"), format!("__azreview_sugg-reject-{id}-{k}"), &tag, on_sugg_reject));
+        }
+        Decision::Accepted | Decision::Rejected => {
+            keys.add_child(
+                Dom::create_span_with_text(label(if proposal.decision == Decision::Accepted { "azreview-sugg-taken" } else { "azreview-sugg-refused" }).as_str())
+                    .with_id(format!("__azreview_sugg-decided-{id}-{k}").as_str())
+                    .with_css("font-size: 10px; color: system:secondary-text; flex-grow: 1;"),
+            );
+            keys.add_child(icon_key("undo", label("azreview-sugg-undo"), format!("__azreview_sugg-undo-{id}-{k}"), &tag, on_sugg_undo));
+        }
+    }
+    card.add_child(keys);
+    card
+}
+
 // ==== What the keys do ====
+
+/// A suggestion's key: its decision is made, the conversation's chip and the page's marks follow, and the session is kept.
+fn decide(tag: &mut RefAny, info: &mut CallbackInfo, decision: Decision) -> Update {
+    let Some((mut app, id, index)) = tag.downcast_ref::<SuggTag>().map(|t| (t.app.clone(), t.id, t.index)) else {
+        return Update::DoNothing;
+    };
+    let changed = {
+        let Some(mut s) = app.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        let changed = s.notes.iter_mut().find(|n| n.id == id).is_some_and(|n| n.talk.decide(index, decision));
+        if changed {
+            s.sync_chip(id);
+        }
+        changed
+    };
+    if changed {
+        crate::save_session(&app, info);
+    }
+    info.trigger_all_virtual_view_rerender();
+    Update::RefreshDom
+}
+
+extern "C" fn on_sugg_accept(mut tag: RefAny, mut info: CallbackInfo) -> Update {
+    decide(&mut tag, &mut info, Decision::Accepted)
+}
+
+extern "C" fn on_sugg_reject(mut tag: RefAny, mut info: CallbackInfo) -> Update {
+    decide(&mut tag, &mut info, Decision::Rejected)
+}
+
+extern "C" fn on_sugg_undo(mut tag: RefAny, mut info: CallbackInfo) -> Update {
+    decide(&mut tag, &mut info, Decision::Waiting)
+}
+
+/// Takes or refuses everything of a conversation that waits.
+fn decide_all(tag: &mut RefAny, info: &mut CallbackInfo, accept: bool) -> Update {
+    let Some((mut app, id)) = tag.downcast_ref::<NoteTag>().map(|t| (t.app.clone(), t.id)) else {
+        return Update::DoNothing;
+    };
+    let changed = {
+        let Some(mut s) = app.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        let count = s.notes.iter_mut().find(|n| n.id == id).map_or(0, |n| if accept { n.talk.accept_all() } else { n.talk.reject_all() });
+        if count > 0 {
+            s.sync_chip(id);
+        }
+        count > 0
+    };
+    if changed {
+        crate::save_session(&app, info);
+    }
+    info.trigger_all_virtual_view_rerender();
+    Update::RefreshDom
+}
+
+extern "C" fn on_sugg_accept_all(mut tag: RefAny, mut info: CallbackInfo) -> Update {
+    decide_all(&mut tag, &mut info, true)
+}
+
+extern "C" fn on_sugg_reject_all(mut tag: RefAny, mut info: CallbackInfo) -> Update {
+    decide_all(&mut tag, &mut info, false)
+}
 
 /// A click on a conversation's chip: it opens, or closes when it was open. Only one is open at a time.
 extern "C" fn on_conv_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
