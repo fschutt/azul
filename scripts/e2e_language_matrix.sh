@@ -1701,10 +1701,21 @@ lang_swift() {
       "${MODULE[@]}" -L. -lazul -o libAzulSwift.dylib || exit 1
       swiftc -I. hello-world.swift -L. -lAzulSwift -lazul -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -o hello-world-e2e || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
-      # Link the MSVC import libs directly; AzulSwift.dll sits next to the
-      # exe and azul.dll resolves from PATH.
+      # AzulSwift is a static library here, not a DLL, for two reasons.
+      #  * A DLL has an export table of at most 65,535 symbols, and the module's
+      #    objects carry 76,781 export directives (measured 2026-11-26, Swift
+      #    6.3.2): the link stopped with "LINK : fatal error LNK1189: library
+      #    limit of 65535 objects exceeded" (website run 45738701245). -static
+      #    makes the compiler stop exporting (0 directives); an archive has no
+      #    export table.
+      #  * The driver archives with `link /LIB`, found by name on PATH, which in
+      #    Git Bash is GNU coreutils' `link` ("/usr/bin/link: extra operand
+      #    '/OUT:AzulSwift.lib'"). -use-ld=lld-link makes it the LLVM linker of
+      #    the Swift toolchain, which acts as lib.exe for /LIB.
+      # azul.dll resolves from PATH through its import library, which only the
+      # final link names.
       BIN=./hello-world-e2e.exe
-      "${MODULE[@]}" "$RELEASE_DIR/azul.dll.lib" -o AzulSwift.dll || exit 1
+      "${MODULE[@]}" -static -use-ld=lld-link -o AzulSwift.lib || exit 1
       swiftc -I. hello-world.swift AzulSwift.lib "$RELEASE_DIR/azul.dll.lib" -o hello-world-e2e.exe || exit 1
     else
       "${MODULE[@]}" -L. -lazul -o libAzulSwift.so || exit 1
@@ -2348,10 +2359,11 @@ run_one() {  # per-lang worker: re-exec --single under a timeout.
     # clang (see lang_go for why gcc never finishes); 900 s leaves room for a
     # slow runner without hiding a return of that class.
     go) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
-    # swiftc compiles the generated Azul module (~170k lines, 44 files) before
-    # the example: 2m12s with -j4 on a 4-core laptop, 1.9 GB and 5m37s as the
-    # one file. The default 240 s is a coin toss on a CI runner.
-    swift) [ "$LANG_TIMEOUT" -lt 600 ] && LANG_TIMEOUT=600 ;;
+    # swiftc compiles the generated Azul module (~315k lines, 50 files) before
+    # the example: 2m53s for the whole leg on ubuntu-22.04, 1m25s on macos-15,
+    # and on windows-2022 4 to 7 minutes for the module alone (3m59s and 6m46s
+    # on two runners of one run, 45754551758) plus 10 s for the example.
+    swift) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
   esac
   # NB: capture the exit code via `&&` short-circuit, NOT `if …; then return; fi`.
   # A bare `if <cmd>; then return 0; fi` whose condition is FALSE leaves the `if`

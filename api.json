@@ -6220,7 +6220,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download the native library and the Swift bundle (the Azul module's sources in Azul/, azul.h, module.modulemap, hello-world.swift), build the Azul module the example imports, then the example",
+                            "description": "Download the native library and the Swift bundle (the Azul module's sources in Azul/, azul.h, module.modulemap, hello-world.swift), build the Azul module the example imports (as a static library: it has more symbols than the 65,535 one DLL can export), then the example",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6240,7 +6240,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "swiftc -emit-library -emit-module -module-name Azul -parse-as-library -j8 -I. Azul/*.swift azul.dll.lib -o AzulSwift.dll"
+                                    "content": "swiftc -emit-library -static -use-ld=lld-link -emit-module -module-name Azul -parse-as-library -j8 -I. Azul/*.swift -o AzulSwift.lib"
                                 },
                                 {
                                     "type": "command",
