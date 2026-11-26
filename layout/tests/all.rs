@@ -968,6 +968,8 @@ mod a_short_list_in_a_shell_pane_fills_its_pane_from_the_top;
 mod focusing_a_search_field_by_its_id_focuses_its_text;
 #[path = "a_button_fades_into_its_hover_face.rs"]
 mod a_button_fades_into_its_hover_face;
+#[path = "a_button_is_a_touch_target_on_a_phone.rs"]
+mod a_button_is_a_touch_target_on_a_phone;
 #[path = "a_hovered_button_passes_through_the_faces_in_between.rs"]
 mod a_hovered_button_passes_through_the_faces_in_between;
 #[path = "a_rebuild_under_the_pointer_starts_no_transition.rs"]
