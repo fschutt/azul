@@ -409,6 +409,7 @@ fn find_optimal_breakpoints(
     // inflated every candidate by one hyphen width per unused opportunity,
     // and the positioner then rendered a "-" at every opportunity mid-line.
     let n = nodes.len();
+    let balance_last_line = constraints.text_wrap == crate::text3::cache::TextWrap::Balance;
     let mut prefix_width = vec![0.0f32; n + 1];
     let mut prefix_stretch = vec![0.0f32; n + 1];
     let mut prefix_shrink = vec![0.0f32; n + 1];
@@ -528,7 +529,13 @@ fn find_optimal_breakpoints(
                 if *penalty >= 0.0 {
                     badness += penalty;
                 } else if *penalty <= -INFINITY_BADNESS {
-                    badness = -INFINITY_BADNESS; // Forced break
+                    // A forced break ends its line as long as its text is: the line costs
+                    // nothing. The break that ends a balanced paragraph is no exception to the
+                    // balance: its line is as long as the others (a one-word last line, which
+                    // cannot stretch, is as bad as any other that does not fill the measure).
+                    if !(balance_last_line && i + 1 == n) {
+                        badness = -INFINITY_BADNESS;
+                    }
                 }
             }
 

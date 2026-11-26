@@ -213,6 +213,8 @@ pub struct LineStyle {
     pub line_clamp: Option<std::num::NonZeroUsize>,
     /// `hanging-punctuation`: whether punctuation hangs outside the line.
     pub hanging_punctuation: bool,
+    /// `text-wrap`: how the paragraph is broken into lines.
+    pub text_wrap: azul_css::props::basic::font_variation::StyleTextWrap,
     /// `shape-inside`: the shape the lines flow within.
     pub shape_inside: Option<ShapeInside>,
     /// The root's `height` in an absolute unit, read only when it has a
@@ -275,7 +277,7 @@ impl LineStyle {
             DOM_HAS_HANGING_PUNCTUATION, DOM_HAS_HYPHENATION_LANGUAGE, DOM_HAS_HYPHENS,
             DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN, DOM_HAS_LINE_BREAK,
             DOM_HAS_LINE_CLAMP, DOM_HAS_OVERFLOW_WRAP, DOM_HAS_SHAPE_INSIDE,
-            DOM_HAS_TEXT_ALIGN_LAST, DOM_HAS_TEXT_JUSTIFY, DOM_HAS_UNICODE_BIDI,
+            DOM_HAS_TEXT_ALIGN_LAST, DOM_HAS_TEXT_JUSTIFY, DOM_HAS_TEXT_WRAP, DOM_HAS_UNICODE_BIDI,
             DOM_HAS_WORD_BREAK,
         };
         // DOM-level declared flags: if a bit is clear, no node in this DOM
@@ -430,6 +432,15 @@ impl LineStyle {
             None
         };
 
+        let text_wrap = if dom_declared & DOM_HAS_TEXT_WRAP != 0 {
+            cache
+                .get_text_wrap(node_data, &id, node_state)
+                .and_then(|s| s.get_property().copied())
+                .unwrap_or_default()
+        } else {
+            azul_css::props::basic::font_variation::StyleTextWrap::default()
+        };
+
         let hanging_punctuation = if dom_declared & DOM_HAS_HANGING_PUNCTUATION != 0 {
             cache
                 .get_hanging_punctuation(node_data, &id, node_state)
@@ -542,6 +553,7 @@ impl LineStyle {
             initial_letter,
             line_clamp,
             hanging_punctuation,
+            text_wrap,
             shape_inside,
             shape_box_height,
         }
@@ -862,13 +874,17 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     let column_gap = column_geometry.map_or(0.0, |g| g.gap);
 
     // +spec:line-breaking:b4928e - white-space values mapped to wrap/whitespace processing rules
-    // Map white-space CSS property to TextWrap
-    let text_wrap = match style.white_space {
-        StyleWhiteSpace::Normal
-        | StyleWhiteSpace::PreWrap
-        | StyleWhiteSpace::PreLine
-        | StyleWhiteSpace::BreakSpaces => text3::cache::TextWrap::Wrap,
-        StyleWhiteSpace::Nowrap | StyleWhiteSpace::Pre => text3::cache::TextWrap::NoWrap,
+    // Map white-space CSS property to TextWrap, then `text-wrap` over it: `nowrap` and a
+    // `white-space` that does not wrap give no line breaks, `balance` and `pretty` break the
+    // paragraph as a whole where the text may wrap.
+    use azul_css::props::basic::font_variation::StyleTextWrap;
+    let text_wrap = match (style.white_space, style.text_wrap) {
+        (StyleWhiteSpace::Nowrap | StyleWhiteSpace::Pre, _) | (_, StyleTextWrap::Nowrap) => {
+            text3::cache::TextWrap::NoWrap
+        }
+        (_, StyleTextWrap::Balance) => text3::cache::TextWrap::Balance,
+        (_, StyleTextWrap::Pretty) => text3::cache::TextWrap::Pretty,
+        (_, StyleTextWrap::Wrap | StyleTextWrap::Stable) => text3::cache::TextWrap::Wrap,
     };
     let white_space_mode = match style.white_space {
         StyleWhiteSpace::Normal => text3::cache::WhiteSpaceMode::Normal,

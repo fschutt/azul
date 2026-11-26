@@ -733,12 +733,20 @@ pub struct LineSegment {
     pub priority: u8,
 }
 
+/// How the lines of a paragraph are broken (`text-wrap`, with the wrapping of `white-space`).
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
 pub enum TextWrap {
+    /// Each line takes all the words that fit (the greedy breaker).
     #[default]
     Wrap,
+    /// The paragraph is broken as a whole (Knuth-Plass) so that its lines are as even in length
+    /// as the words allow: the last line counts as much as the others.
     Balance,
+    /// No line breaks except the forced ones.
     NoWrap,
+    /// The paragraph is broken as a whole (Knuth-Plass) to avoid a ragged edge; the last line is
+    /// as long as it falls.
+    Pretty,
 }
 
 /// CSS `overflow-wrap` (aka `word-wrap`) property.

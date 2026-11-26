@@ -2243,13 +2243,15 @@ pub(crate) const RARE_TEXT_FLAGS: u64 = azul_css::compact_cache::DOM_HAS_FONT_VA
     | azul_css::compact_cache::DOM_HAS_FONT_VARIANT_CAPS
     | azul_css::compact_cache::DOM_HAS_FONT_FEATURE_SETTINGS
     | azul_css::compact_cache::DOM_HAS_FONT_SYNTHESIS
+    | azul_css::compact_cache::DOM_HAS_FONT_VARIANT_POSITION
+    | azul_css::compact_cache::DOM_HAS_TEXT_RENDERING
     | azul_css::compact_cache::DOM_HAS_TEXT_COMBINE_UPRIGHT;
 
 /// A hash of what a node asks through the text properties that have no compact slot (the
 /// [`RARE_TEXT_FLAGS`]): the variation settings and the optical sizing
 /// ([`font_variation_inputs_hash`]), the kerning, the ligatures, the East Asian forms, the
-/// numeric and caps variants, the feature settings, the synthesis switches and the combining of
-/// digits. The cache of the collected inline content of a formatting
+/// numeric and caps variants, the feature settings, the synthesis switches, the position forms,
+/// the rendering hint and the combining of digits. The cache of the collected inline content of a formatting
 /// context folds it in for a document that declares one of them (it keys on the nodes and on the
 /// compact cache, which holds none of these), so that a restyle that moves only one - another
 /// stylesheet over the same nodes - collects the text in its new style. A property the document
@@ -2325,6 +2327,18 @@ pub(crate) fn rare_text_inputs_hash(
             .hash(&mut hasher);
         cache
             .get_font_synthesis_position(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_FONT_VARIANT_POSITION) {
+        cache
+            .get_font_variant_position(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_TEXT_RENDERING) {
+        cache
+            .get_text_rendering(node_data, &node_id, node_state)
             .and_then(|v| v.get_property())
             .hash(&mut hasher);
     }
@@ -4556,6 +4570,8 @@ fn style_inputs_of(
                 | compact::DOM_HAS_FONT_VARIANT_LIGATURES
                 | compact::DOM_HAS_FONT_VARIANT_EAST_ASIAN
                 | compact::DOM_HAS_FONT_SYNTHESIS
+                | compact::DOM_HAS_FONT_VARIANT_POSITION
+                | compact::DOM_HAS_TEXT_RENDERING
                 | compact::DOM_HAS_TEXT_COMBINE_UPRIGHT,
         )
     {
@@ -5401,25 +5417,54 @@ pub fn get_style_properties_for_state_with(
         Vec::new()
     };
 
+    // `text-rendering: optimizeSpeed` (inherited), read only on a DOM that declares it: the pair
+    // adjustments and the common ligatures are off where `font-kerning` and
+    // `font-variant-ligatures` say nothing (as Chrome draws it); every other value leaves the
+    // shaper as it is.
+    let optimize_speed = declared(azul_css::compact_cache::DOM_HAS_TEXT_RENDERING)
+        && cache
+            .get_text_rendering(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+            == Some(azul_css::props::basic::font_variation::StyleTextRendering::OptimizeSpeed);
+
     // `font-kerning` (inherited), read only on a DOM that declares it (`DOM_HAS_FONT_KERNING`):
     // `none` turns the pair adjustments off, `normal` asks for them. It is the FIRST of the
     // features, so a `font-feature-settings: "kern" 1` after it has the last word (the shaper
-    // reads `kern` as its kerning switch).
-    let font_features: Vec<String> = if declared(azul_css::compact_cache::DOM_HAS_FONT_KERNING) {
+    // reads `kern` as its kerning switch). The `subs` and `sups` features of
+    // `font-variant-position` follow it.
+    let kerning_feature = if declared(azul_css::compact_cache::DOM_HAS_FONT_KERNING) {
         use azul_css::props::basic::font_variation::StyleFontKerning;
         let kerning = cache
             .get_font_kerning(node_data, &dom_id, node_state)
             .and_then(|v| v.get_property().copied())
             .unwrap_or_default();
-        let first = match kerning {
-            StyleFontKerning::Auto => None,
+        match kerning {
+            StyleFontKerning::Auto => optimize_speed.then(|| "kern=0".to_string()),
             StyleFontKerning::Normal => Some("kern=1".to_string()),
             StyleFontKerning::None => Some("kern=0".to_string()),
-        };
-        first.into_iter().chain(font_features).collect()
+        }
     } else {
-        font_features
+        optimize_speed.then(|| "kern=0".to_string())
     };
+    let position_feature = if declared(azul_css::compact_cache::DOM_HAS_FONT_VARIANT_POSITION) {
+        use azul_css::props::basic::font_variation::StyleFontVariantPosition;
+        match cache
+            .get_font_variant_position(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+            .unwrap_or_default()
+        {
+            StyleFontVariantPosition::Normal => None,
+            StyleFontVariantPosition::Sub => Some("subs=1".to_string()),
+            StyleFontVariantPosition::Super => Some("sups=1".to_string()),
+        }
+    } else {
+        None
+    };
+    let font_features: Vec<String> = kerning_feature
+        .into_iter()
+        .chain(position_feature)
+        .chain(font_features)
+        .collect();
 
     // `font-variant-ligatures` and `font-variant-east-asian` (both inherited): the OpenType
     // features the shaper takes out of the script's own, or turns on. Rare, like the other
@@ -5432,6 +5477,11 @@ pub fn get_style_properties_for_state_with(
             .unwrap_or_default()
     } else {
         crate::text3::cache::FontVariantLigatures::NORMAL
+    };
+    let font_variant_ligatures = if optimize_speed && font_variant_ligatures.is_normal() {
+        crate::text3::cache::FontVariantLigatures::NONE
+    } else {
+        font_variant_ligatures
     };
     let font_variant_east_asian =
         if declared(azul_css::compact_cache::DOM_HAS_FONT_VARIANT_EAST_ASIAN) {
