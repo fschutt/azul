@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Does what the startup work changed COMPILE on the targets that no runner of this work builds natively: Windows (the
 # Win32 shell and the registry reads that replaced the reg.exe / PowerShell processes), Android (the bionic property
-# reader, the app's font cache path, the shell's marks) and iOS (the shell's call of the layout pass)? `cargo check`
-# links nothing, so one Ubuntu runner does all three, each in a target directory of its own so that they run side by
-# side (cargo locks a target directory).
+# reader, the app's font cache path, the shell's marks), iOS (the shell's call of the layout pass) and macOS (the
+# shell's marks and its exit at the first frame)? `cargo check` links nothing, so one Ubuntu runner does all four, each
+# in a target directory of its own so that they run side by side (cargo locks a target directory).
 #   scripts/remote.sh run <sha> ubuntu-22.04 'bash scripts/ci/startup_check_targets.sh' --codegen
 set +e
-# Which checks run: the names given (windows, ios, android), all three by default.
-wanted="${*:-windows ios android}"
+# Which checks run: the names given (windows, ios, android, macos), all four by default.
+wanted="${*:-windows ios android macos}"
 mkdir -p out
-rustup target add x86_64-pc-windows-gnu aarch64-apple-ios >/dev/null 2>&1
+rustup target add x86_64-pc-windows-gnu aarch64-apple-ios aarch64-apple-darwin >/dev/null 2>&1
 # ring's build script compiles C for the Windows target: the MinGW cross compiler (the runner image does not ship it)
 sudo apt-get install -y -qq gcc-mingw-w64-x86-64 >/dev/null 2>&1
 echo "=== runner: $(uname -a), cores $(nproc), checks: $wanted, mingw: $(command -v x86_64-w64-mingw32-gcc)"
@@ -30,6 +30,12 @@ check windows env CARGO_TARGET_DIR="$PWD/target-windows" \
 # The iOS shell, with the feature set scripts/mobile-check-all.sh checks it with
 check ios env CARGO_TARGET_DIR="$PWD/target-ios" \
     cargo check -p azul-dll --lib --release --target aarch64-apple-ios --no-default-features \
+    --features std,logging,link-static,a11y --message-format short
+# The macOS shell (the first-present marks, the exit at the first frame, the accessibility mode of the first layout), with the
+# same feature set: a Linux runner type-checks it for the Apple target (nothing is linked), so a change of the macOS shell is
+# compiled before the macOS runner's release build gets to it
+check macos env CARGO_TARGET_DIR="$PWD/target-macos" \
+    cargo check -p azul-dll --lib --release --target aarch64-apple-darwin --no-default-features \
     --features std,logging,link-static,a11y --message-format short
 # The Android shell, with the features an APK's libazul is built with (scripts/ci/android_check.sh)
 check android env CARGO_TARGET_DIR="$PWD/target-android" bash scripts/ci/android_check.sh aarch64-linux-android
