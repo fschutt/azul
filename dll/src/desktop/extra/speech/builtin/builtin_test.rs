@@ -1058,3 +1058,33 @@ fn a_stream_is_handed_only_the_pre_roll_it_asked_for() {
     // With a second the voice that was said just before the stream is in it.
     assert!(one_second > none + 16_000 / 2, "{one_second} against {none}");
 }
+
+/// The microphone goes away in the middle of a sentence: what was said comes as a last final, and the
+/// stream ends with the failure (an app that dictates keeps the words).
+#[test]
+fn a_microphone_that_fails_mid_stream_gives_what_was_said_and_then_the_failure() {
+    let mut script = takes(16_000, 300, 1_000, 0);
+    script.push(Take::Break("the device went away".to_string()));
+    let mut rig = rig(Ok(GERMAN_REPLY.to_string()), 16_000, script, None);
+    let events = std::cell::RefCell::new(Vec::new());
+    let never = || false;
+    let ended = rig.builtin.listen_stream(
+        &Listen {
+            language: "de",
+            timeout_ms: 30_000,
+            clock: &*rig.clock,
+            cancel: &never,
+            flowing: &|| {},
+        },
+        &stream_options(false, 0),
+        &never,
+        &|kind, answer| events.borrow_mut().push((kind, answer.text)),
+    );
+    assert_eq!(ended.outcome, Outcome::Failed);
+    assert!(ended.message.contains("device went away"), "{}", ended.message);
+    let events = events.into_inner();
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].0, EventKind::Final);
+    assert!(events[0].1.starts_with("Bitte verschiebe"), "{}", events[0].1);
+    assert_eq!(*rig.opened.lock().unwrap(), 1);
+}

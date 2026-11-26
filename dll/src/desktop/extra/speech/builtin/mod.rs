@@ -637,6 +637,7 @@ impl Builtin {
         let mut partial_cost_ms = 0u64;
         let mut quiet_since = 0u64;
         let mut cancelled = false;
+        let mut engine_failed = false;
         let mut failure: Option<Answer> = None;
         let mut final_answer = |this: &mut Self, segment: audio::Segment, note: &mut Option<String>| -> Result<(), Answer> {
             match this.decode(&segment, code, audio_began_unix_ms)? {
@@ -668,6 +669,7 @@ impl Builtin {
                         }
                     }
                     if let Err(answer) = final_answer(self, segment, &mut note) {
+                        engine_failed = true;
                         failure = Some(answer);
                         break 'stream;
                     }
@@ -694,6 +696,7 @@ impl Builtin {
                 if let Some(segment) = segment {
                     finals += 1;
                     if let Err(answer) = final_answer(self, segment, &mut note) {
+                        engine_failed = true;
                         failure = Some(answer);
                         break;
                     }
@@ -738,6 +741,7 @@ impl Builtin {
                         Ok(Some(answer)) => emit(EventKind::Partial, answer),
                         Ok(None) => {}
                         Err(answer) => {
+                            engine_failed = true;
                             failure = Some(answer);
                             break;
                         }
@@ -752,7 +756,10 @@ impl Builtin {
         // The end: what is said so far is the last utterance (unless the call was cancelled, or the
         // microphone failed), and the microphone is given back (kept for the next call, unless the
         // user cancelled: the indicator goes out).
-        let tail = if cancelled || failure.is_some() { None } else { endpointer.finish() };
+        // The words said before the microphone went away are still the user's: they come as the last
+        // final, then the stream ends with the failure. (Not after an engine failure: it would fail
+        // again.)
+        let tail = if cancelled || engine_failed { None } else { endpointer.finish() };
         self.floor = endpointer.noise_floor();
         if let Some(lease) = lease.take() {
             if failure.is_some() {
@@ -761,12 +768,10 @@ impl Builtin {
                 lease.finish(!cancelled && (keep_on_stop || !stop()));
             }
         }
-        if failure.is_none() {
-            if let Some(segment) = tail {
-                finals += 1;
-                if let Err(answer) = final_answer(self, segment, &mut note) {
-                    failure = Some(answer);
-                }
+        if let Some(segment) = tail {
+            finals += 1;
+            if let Err(answer) = final_answer(self, segment, &mut note) {
+                failure.get_or_insert(answer);
             }
         }
         failure.unwrap_or_else(|| Answer::none(if finals > 0 { Outcome::Heard } else { Outcome::NothingHeard }, ""))
