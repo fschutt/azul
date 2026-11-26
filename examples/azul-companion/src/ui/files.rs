@@ -179,6 +179,17 @@ fn note_row(cx: &Cx, height: f32) -> Dom {
     row(&format!("width: 100%; height: {}; padding: 0px {}; gap: 12px;", px(height), px(cx.z.gutter)))
 }
 
+/// What went wrong with a folder, in words: the connection names it with a short code (`not-connected`, `no-answer`, ...); a code this
+/// build has no words for is shown as it is.
+fn why_words(cx: &Cx, why: &str) -> String {
+    let key = format!("files-why-{why}");
+    if cx.root.strings.template(cx.env.lang, &key).is_some() {
+        cx.t(&key)
+    } else {
+        why.to_string()
+    }
+}
+
 /// The rows of the folder.
 fn list(cx: &Cx, zone: Zone) -> Dom {
     let files = &cx.view().files;
@@ -193,7 +204,7 @@ fn list(cx: &Cx, zone: Zone) -> Dom {
         rows.add_child(
             note_row(cx, 64.0)
                 .with_child(icon("warning", 22.0, th::WARN))
-                .with_child(text(&cx.tf("files-error", &[("why", why)]), &format!("flex-grow: 1; font-size: 14px; color: {};", th::WARN)))
+                .with_child(text(&cx.tf("files-error", &[("why", &why_words(cx, why))]), &format!("flex-grow: 1; font-size: 14px; color: {};", th::WARN)))
                 .with_child(tap(&cx.t("files-retry"), &format!("height: 44px; padding: 0px 12px; border-radius: 10px; background: {};", th::SURFACE), cx, Action::RetryFiles).with_child(text(
                     &cx.t("files-retry"),
                     &format!("font-size: 14px; font-weight: 600; color: {};", th::ACCENT),
