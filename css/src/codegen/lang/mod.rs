@@ -288,9 +288,11 @@ pub fn kept_items<'a>(s: &dyn ExprSyntax, ty: &str, items: &'a [Expr]) -> Vec<&'
     }
 }
 
-/// Why each item a LANGUAGE limitation dropped from a droppable list inside
-/// `e` was dropped (the language-independent `Unsupported` drops are already
-/// in the item's doc, from the lowering). Printers add these as comments.
+/// Why each item a LANGUAGE limitation dropped from a droppable list inside `e`
+/// was dropped (the language-independent `Unsupported` drops are already in the
+/// item's doc, from the lowering).
+///
+/// Printers add these as comments.
 #[must_use]
 pub fn limitation_notes(s: &dyn ExprSyntax, e: &Expr) -> Vec<String> {
     let mut out = Vec::new();
@@ -365,10 +367,11 @@ pub fn item_dom_blocker(s: &dyn ExprSyntax, item: &super::ir::Item) -> Option<St
 }
 
 /// For languages that return a style as a NATIVE list of
-/// `CssPropertyWithConditions` (their bindings cannot build the Vec type
-/// from many items, or take native lists anyway): the kept items of a
-/// top-level droppable `Vec`, one per line, in `open .. close`. `None` if
-/// the value is not such a Vec.
+/// `CssPropertyWithConditions` (their bindings cannot build the Vec type from
+/// many items, or take native lists anyway).
+///
+/// The kept items of a top-level droppable `Vec`, one per line, in `open ..
+/// close`. `None` if the value is not such a Vec.
 #[must_use]
 pub fn native_list(s: &dyn ExprSyntax, e: &Expr, open: &str, close: &str) -> Option<Doc> {
     match e {
@@ -515,11 +518,13 @@ fn expr_doc_inner(s: &dyn ExprSyntax, e: &Expr, broken: bool) -> Doc {
 
 // ------------------------------------------------------------------ naming
 
-/// The C-ABI variant-constructor method of `variant`: the variant with its
-/// first character lowered (`MinContent` -> `minContent`), plus `Variant`
-/// when that collides with a trait function every binding recognizes by name
-/// (`Default` -> `defaultVariant`, `Clone` -> `cloneVariant`). Mirrors
-/// `variant_constructor_method_name` in `doc/src/codegen/v2/ir_builder.rs`.
+/// The C-ABI variant-constructor method of `variant`.
+///
+/// The variant with its first character lowered (`MinContent` -> `minContent`),
+/// plus `Variant` when that collides with a trait function every binding
+/// recognizes by name (`Default` -> `defaultVariant`, `Clone` ->
+/// `cloneVariant`). Mirrors `variant_constructor_method_name` in
+/// `doc/src/codegen/v2/ir_builder.rs`.
 #[must_use]
 pub fn variant_ctor_method(variant: &str) -> String {
     let m = super::ir::lower_first(variant);
@@ -542,7 +547,8 @@ static RESERVED_VARIANT_CTORS: &[&str] = &[
     "toDbgString",
 ];
 
-/// Escape `s` as the body of a double-quoted C-family string literal:
+/// Escape `s` as the body of a double-quoted C-family string literal.
+///
 /// `\\`, `\"`, `\n`, `\r`, `\t`, other control / non-ASCII bytes as 3-digit
 /// octal escapes (never `\x`, which would swallow following hex digits).
 #[must_use]
@@ -562,10 +568,11 @@ pub fn c_escape(s: &str) -> String {
     out
 }
 
-/// Escape `s` for a double-quoted literal of a language with backslash
-/// escapes: `\\`, `\"`, `\n`, `\r`, `\t`, `extra` (e.g. `$` for Kotlin /
-/// Julia / V interpolation) backslashed, every other non-printable or
-/// non-ASCII char through `unicode(codepoint)` (e.g. U+00E9).
+/// Escape `s` for a double-quoted literal of a language with backslash escapes.
+///
+/// `\\`, `\"`, `\n`, `\r`, `\t`, `extra` (e.g. `$` for Kotlin / Julia / V
+/// interpolation) backslashed, every other non-printable or non-ASCII char
+/// through `unicode(codepoint)` (e.g. U+00E9).
 #[must_use]
 pub fn escape_quoted(s: &str, extra: &[char], unicode: &dyn Fn(u32) -> String) -> String {
     let mut out = String::new();
@@ -633,8 +640,9 @@ pub fn doubled_quote(s: &str, quote: char) -> String {
 }
 
 /// `AzCssProperty_textColor` -> `az_css_property_text_color`,
-/// `AzStyleTransform_matrix3D` -> `az_style_transform_matrix3_d`: an `_`
-/// before every capital that follows a lowercase letter or a digit (the
+/// `AzStyleTransform_matrix3D` -> `az_style_transform_matrix3_d`.
+///
+/// An `_` before every capital that follows a lowercase letter or a digit (the
 /// rule of the Ruby / Lisp-style generators; `asCSlice` -> `as_cslice`).
 #[must_use]
 pub fn simple_snake(s: &str) -> String {
@@ -656,10 +664,10 @@ pub fn simple_snake(s: &str) -> String {
 }
 
 /// The api.json parameter names of the multi-argument constructors the
-/// lowerings emit (for languages with argument labels / keywords): the CSS
-/// lowering's and the DOM lowering's (`azul_core::xml`'s semantic `Dom`
-/// constructors). Every other constructor they emit takes at most one
-/// argument.
+/// lowerings emit (for languages with argument labels / keywords).
+///
+/// The CSS lowering's and the DOM lowering's (`azul_core::xml`'s semantic `Dom`
+/// constructors). Every other constructor they emit takes at most one argument.
 #[must_use]
 pub fn call_param_names(class: &str, method: &str) -> &'static [&'static str] {
     match (class, method) {

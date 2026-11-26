@@ -1,7 +1,9 @@
-//! Statement-oriented printers: languages whose bindings cannot nest the
-//! construction of a struct, union or Vec inside an expression (Pascal
-//! records are only literal in typed constants, COBOL cannot nest calls at
-//! all, Fortran / Ada / BASIC need a declared array for a Vec, ...).
+//! Statement-oriented printers.
+//!
+//! Languages whose bindings cannot nest the construction of a struct, union or
+//! Vec inside an expression (Pascal records are only literal in typed
+//! constants, COBOL cannot nest calls at all, Fortran / Ada / BASIC need a
+//! declared array for a Vec, ...).
 //!
 //! [`lower_to_statements`] flattens an IR value into typed temporaries in
 //! evaluation order (children first): every constructor call, variant,

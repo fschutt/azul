@@ -1,8 +1,10 @@
 //! The project API: ONE function family that combines the two generators -
-//! the DOM ([`super::dom`]: markup and component instances → render
-//! functions and apps) and the CSS (`azul_css::codegen`'s `emit_css`: a
-//! stylesheet → named styles) - on top of the component API: a component
-//! library is one file of render functions plus the library's registration
+//! the DOM ([`super::dom`]) and the CSS (`azul_css::codegen`'s `emit_css`).
+//!
+//! The DOM generator turns markup and component instances into render
+//! functions and apps, the CSS generator a stylesheet into named styles; the
+//! project API sits on top of the component API: a component library is one
+//! file of render functions plus the library's registration
 //! (`register_<library>_library`, where the printer can spell it).
 //!
 //! - [`project_files`]: a whole project for one language ("Export > Code",
@@ -154,12 +156,13 @@ pub fn fragment_code(
     })
 }
 
-/// Pasted HTML / XHTML as code ("HTML → DOM (code)"): a document (`<html>`,
-/// a root `<body>` / `<head>`) is its `<body>`, a fragment is itself; every
-/// `<style>` block is the stylesheet (each node's `style` attribute its
-/// own). `fn_name` (default: `render_ui` for a document, else named after
-/// the single root like a subtree export). `with_styles`: the stylesheet
-/// also as named styles in a file of its own (the CSS generator).
+/// Pasted HTML / XHTML as code ("HTML → DOM (code)").
+///
+/// A document (`<html>`, a root `<body>` / `<head>`) is its `<body>`, a
+/// fragment is itself; every `<style>` block is the stylesheet (each node's
+/// `style` attribute its own). `fn_name` (default: `render_ui` for a document,
+/// else named after the single root like a subtree export). `with_styles`: the
+/// stylesheet also as named styles in a file of its own (the CSS generator).
 ///
 /// # Errors
 /// An unknown language; a document without a body.
@@ -203,8 +206,9 @@ pub fn html_code(
     Ok(out)
 }
 
-/// Components `defs` of library `library` as one source file: each
-/// component's render function once (with the functions of the components
+/// Components `defs` of library `library` as one source file.
+///
+/// Each component's render function once (with the functions of the components
 /// it uses) and the library's registration where the printer spells it.
 ///
 /// # Errors
@@ -233,14 +237,15 @@ pub fn library_code(
     })
 }
 
-/// Everything a project for `language` holds: the app (build file, the
-/// module with the app's markup and every component it calls, a `main`),
-/// each library of `spec.libraries` as a file of its own (Rust:
-/// `src/components/<lib>.rs` + `mod.rs`; else `components/<lib>.<ext>`), the
-/// app's stylesheet as named styles (Rust: `src/styles.rs`; else
-/// `styles.<ext>`) and a README with the build steps. The warnings: a
-/// language without DOM export, a component without a template, a library
-/// that does not exist.
+/// Everything a project for `language` holds.
+///
+/// The app (build file, the module with the app's markup and every component it
+/// calls, a `main`), each library of `spec.libraries` as a file of its own
+/// (Rust: `src/components/<lib>.rs` + `mod.rs`; else `components/<lib>.<ext>`),
+/// the app's stylesheet as named styles (Rust: `src/styles.rs`; else
+/// `styles.<ext>`) and a README with the build steps. The warnings: a language
+/// without DOM export, a component without a template, a library that does not
+/// exist.
 ///
 /// # Errors
 /// An unknown language; a page without a body.
@@ -319,10 +324,12 @@ pub fn project_files(
     Ok((files, warnings))
 }
 
-/// The files of an app module ([`Module::app`]): the printer's project
-/// (build file, the module, a `main` that opens the window). A printer that
-/// does not do DOM export has no app to write: its module alone (which says
-/// why, item by item), not the CSS harness `emit_project_files` would make.
+/// The files of an app module ([`Module::app`]): the printer's project (build
+/// file, the module, a `main` that opens the window).
+///
+/// A printer that does not do DOM export has no app to write: its module alone
+/// (which says why, item by item), not the CSS harness `emit_project_files`
+/// would make.
 #[must_use]
 pub fn app_files(b: &dyn CodegenBackend, m: &Module) -> Vec<GeneratedFile> {
     if b.exports_dom() {

@@ -208,14 +208,16 @@ fn fixed_point_of(text: &str) -> isize {
     text.parse::<f32>().map_or(0, |v| FloatValue::new(v).number)
 }
 
-/// The pure-data form of `e`: every api.json constructor call the lowering
-/// emits is replaced by the value it builds - `CssProperty::width(x)` by
-/// `CssProperty::Width(LayoutWidthValue::Exact(x))`, `CssProperty::auto(T)`
-/// by `CssProperty::T(<alias>::Auto)`, `PixelValue::px(1.5)` /
+/// The pure-data form of `e`.
+///
+/// Every api.json constructor call the lowering emits is replaced by the value
+/// it builds - `CssProperty::width(x)` by
+/// `CssProperty::Width(LayoutWidthValue::Exact(x))`, `CssProperty::auto(T)` by
+/// `CssProperty::T(<alias>::Auto)`, `PixelValue::px(1.5)` /
 /// `FloatValue::create(..)` by their structs (`FloatValue { number: 1500 }`).
-/// `CssPropertyWithConditions::*` calls stay (their `apply_if` is a Vec).
-/// For bindings that expose the Rust data types natively but not the
-/// constructor functions (Haskell's `Azul.Types`).
+/// `CssPropertyWithConditions::*` calls stay (their `apply_if` is a Vec). For
+/// bindings that expose the Rust data types natively but not the constructor
+/// functions (Haskell's `Azul.Types`).
 #[must_use]
 pub fn desugar_calls(e: &Expr) -> Expr {
     use super::lower_types::{css_property_alias, css_property_variant_of_ctor};
@@ -468,10 +470,11 @@ impl Lower for CssPropertyWithConditions {
 }
 
 /// Wrap a lowered `CssProperty` in the most idiomatic
-/// `CssPropertyWithConditions` constructor api.json has for `conditions`
-/// (`simple`, `on_hover`, `on_active`, `on_focus`, `when_disabled`,
-/// `dark_mode`, `light_mode`, `on_windows` / `on_macos` / `on_linux`,
-/// `on_os`, `with_condition`, `with_conditions`).
+/// `CssPropertyWithConditions` constructor api.json has for `conditions`.
+///
+/// They are `simple`, `on_hover`, `on_active`, `on_focus`, `when_disabled`,
+/// `dark_mode`, `light_mode`, `on_windows` / `on_macos` / `on_linux`, `on_os`,
+/// `with_condition` and `with_conditions`.
 #[must_use]
 pub fn lower_with_conditions(property: Expr, conditions: &[DynamicSelector]) -> Expr {
     if matches!(property, Expr::Unsupported { .. }) {
@@ -550,11 +553,13 @@ fn note_if_unsupported(e: &Expr, prop: &CssProperty, notes: &mut Vec<String>) {
 }
 
 /// A stylesheet as named styles: one `CssPropertyWithConditionsVec` per base
-/// selector, in first-appearance order. The trailing pseudo-states of a
-/// selector (`.btn:hover`) and the rule's `@media` / `@os` / `@theme` /
-/// `@lang` conditions become `apply_if` conditions; the rest of the selector
-/// names the style (`.btn-primary` -> `style_btn_primary`). `@keyframes` are
-/// not part of a flat style (see [`lower_stylesheet`]).
+/// selector, in first-appearance order.
+///
+/// The trailing pseudo-states of a selector (`.btn:hover`) and the rule's
+/// `@media` / `@os` / `@theme` / `@lang` conditions become `apply_if`
+/// conditions; the rest of the selector names the style (`.btn-primary` ->
+/// `style_btn_primary`). `@keyframes` are not part of a flat style (see
+/// [`lower_stylesheet`]).
 #[must_use]
 pub fn lower_styles(css: &Css) -> Module {
     struct Group {

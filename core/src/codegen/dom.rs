@@ -1,8 +1,10 @@
 //! Lower MARKUP — a subtree of the builder's document, a component's
 //! template, a page, pasted HTML — to the language-neutral codegen IR
-//! ([`azul_css::codegen::ir`]), which every binding language's printer
-//! ([`azul_css::codegen::lang`]) turns into source: `AzBuilder`'s
-//! "Subtree → code", "Component → code", "HTML → DOM (code)" and Export > Code.
+//! ([`azul_css::codegen::ir`]).
+//!
+//! Every binding language's printer ([`azul_css::codegen::lang`]) turns the IR
+//! into source: `AzBuilder`'s "Subtree → code", "Component → code",
+//! "HTML → DOM (code)" and Export > Code.
 //!
 //! This module only DECIDES; it prints nothing. The decisions: the semantic /
 //! accessibility-aware constructor of an element (`analyze_node_ctor`), the
@@ -113,8 +115,9 @@ impl FragmentParam {
 
 /// Lower `root_nodes` — a subtree or a component template, NOT a whole page
 /// — to one IR item `fn_name` that builds it as a `Dom`, every tag an
-/// element (see [`lower_components_fragment`] for markup with component
-/// instances).
+/// element.
+///
+/// See [`lower_components_fragment`] for markup with component instances.
 ///
 /// `stylesheet` is CSS source whose matching rules become each node's
 /// `with_css`. `params`: `Some` lowers a TEMPLATE (`{name}` placeholders
@@ -142,10 +145,10 @@ pub fn lower_xml_fragment(
     }
 }
 
-/// Lower `root_nodes` to an app ([`Module::app`]): one item `render_ui`,
-/// which a printer's `emit_project_files` puts in a window titled `title`.
-/// A single `<body>` root IS the window's body; anything else goes inside
-/// one.
+/// Lower `root_nodes` to an app ([`Module::app`]): one item `render_ui`, which
+/// a printer's `emit_project_files` puts in a window titled `title`.
+///
+/// A single `<body>` root IS the window's body; anything else goes inside one.
 #[must_use]
 pub fn lower_xml_fragment_app(root_nodes: &[XmlNodeChild], stylesheet: &str, title: &str) -> Module {
     let mut m = lower_xml_fragment(root_nodes, stylesheet, APP_ROOT, None, Vec::new());
@@ -193,10 +196,11 @@ pub fn document_style_text(root_nodes: &[XmlNodeChild]) -> String {
     out.join("\n")
 }
 
-/// Markup as what code builds: a whole document (an `<html>` root, or a
-/// root `<body>` / `<head>`) is its `<body>`, anything else the markup
-/// itself; with every `<style>` block's text as the stylesheet, and whether
-/// it was a document.
+/// Markup as what code builds.
+///
+/// A whole document (an `<html>` root, or a root `<body>` / `<head>`) is its
+/// `<body>`, anything else the markup itself; with every `<style>` block's text
+/// as the stylesheet, and whether it was a document.
 ///
 /// # Errors
 /// A document without a body.
@@ -218,7 +222,8 @@ pub fn markup_parts(
     Ok((vec![XmlNodeChild::Element(body)], css, true))
 }
 
-/// The name a render function of `root_nodes` gets:
+/// The name a render function of `root_nodes` gets.
+///
 /// `render_<first id | first class | tag>` of the only element root, else
 /// `render_ui` (also for a lone component instance, whose own function is
 /// `render_<name>`).
@@ -305,9 +310,11 @@ impl ComponentMarkup {
 
 /// What the lowering knows about components: the component map (a tag
 /// `<library:name>` is an instance of `map.get(library, name)`) and where a
-/// component's TEMPLATE comes from. Core has no XML parser: a caller that
-/// has templates (`AzBuilder`'s) parses them; `template` answers `None` for a
-/// component without one, which is then exported as what it renders.
+/// component's TEMPLATE comes from.
+///
+/// Core has no XML parser: a caller that has templates (`AzBuilder`'s) parses
+/// them; `template` answers `None` for a component without one, which is then
+/// exported as what it renders.
 pub struct Components<'a> {
     pub map: &'a ComponentMap,
     pub template: &'a dyn Fn(&ComponentDef) -> Option<Result<ComponentMarkup, String>>,
@@ -329,8 +336,10 @@ const fn no_template(_: &ComponentDef) -> Option<Result<ComponentMarkup, String>
 }
 
 /// Lower `root_nodes` (plain markup that may hold component instances) to a
-/// module: one item per component it uses (each lowered once, callees
-/// first), then item `fn_name` that builds the markup and calls them.
+/// module.
+///
+/// One item per component it uses (each lowered once, callees first), then item
+/// `fn_name` that builds the markup and calls them.
 #[must_use]
 pub fn lower_components_fragment(
     root_nodes: &[XmlNodeChild],
@@ -369,9 +378,10 @@ pub fn lower_components_app(
 }
 
 /// The component library `library`: one item per component of `defs` (its
-/// render function) plus the components they use, and the
-/// [`LibrarySpec`] the printers register `defs` from. `warnings`: a
-/// component without a template, one that fails to render.
+/// render function) plus the components they use, and the [`LibrarySpec`] the
+/// printers register `defs` from.
+///
+/// `warnings`: a component without a template, one that fails to render.
 #[must_use]
 pub fn lower_component_library(
     library: &str,
@@ -415,8 +425,10 @@ pub fn lower_component_library(
 
 /// A component's parameters: every data-model field that is a value (not a
 /// callback, not a child slot), with its default as text, and each field's
-/// description. A render function takes them as strings, in this order (the
-/// builder's templates substitute text).
+/// description.
+///
+/// A render function takes them as strings, in this order (the builder's
+/// templates substitute text).
 #[must_use]
 pub fn component_params(dm: &ComponentDataModel) -> (Vec<FragmentParam>, Vec<String>) {
     dm.fields
@@ -465,9 +477,11 @@ pub fn default_text(v: &OptionComponentDefaultValue) -> String {
 }
 
 /// A rendered `StyledDom` as markup, the code export's view of a DOM: every
-/// element with its tag, classes and ids, and its text (whitespace-only text
-/// is left out). What [`ComponentMarkup::rendered`] lowers; a caller with a
-/// DOM instead of markup lowers this.
+/// element with its tag, classes and ids, and its text (whitespace-only text is
+/// left out).
+///
+/// What [`ComponentMarkup::rendered`] lowers; a caller with a DOM instead of
+/// markup lowers this.
 #[must_use]
 pub fn styled_dom_markup(sd: &StyledDom) -> Vec<XmlNodeChild> {
     let mut budget = sd.node_data.as_ref().len();

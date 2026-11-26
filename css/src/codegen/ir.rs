@@ -485,8 +485,10 @@ impl Expr {
 }
 
 /// Lists whose items are independent (a style's properties, a rule's
-/// declarations, a stylesheet's rules): an item the bindings cannot build is
-/// dropped from them (with a note) instead of poisoning the whole list.
+/// declarations, a stylesheet's rules).
+///
+/// An item the bindings cannot build is dropped from them (with a note) instead
+/// of poisoning the whole list.
 pub static DROPPABLE_VECS: &[&str] = &[
     "CssPropertyWithConditionsVec",
     "CssDeclarationVec",
@@ -760,9 +762,11 @@ pub struct AppSpec {
     pub is_body: bool,
 }
 
-/// A module that is a component library: printers that can spell the
-/// registration append a `register_<library>_library()` that registers
-/// each component (a `ComponentDef` whose render function calls the item).
+/// A module that is a component library.
+///
+/// Printers that can spell the registration append a
+/// `register_<library>_library()` that registers each component (a
+/// `ComponentDef` whose render function calls the item).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LibrarySpec {
     /// The library name (`"user"`).
@@ -835,9 +839,10 @@ impl Module {
     }
 }
 
-/// Flatten `e` for languages that cannot nest constructor calls: every
-/// non-leaf child is hoisted into a temporary, in evaluation order. Returns
-/// the bindings (`(temp_index, shallow expr)`) and the final shallow
+/// Flatten `e` for languages that cannot nest constructor calls: every non-leaf
+/// child is hoisted into a temporary, in evaluation order.
+///
+/// Returns the bindings (`(temp_index, shallow expr)`) and the final shallow
 /// expression; shallow expressions reference temporaries through
 /// [`Operand::Temp`] slots.
 #[must_use]

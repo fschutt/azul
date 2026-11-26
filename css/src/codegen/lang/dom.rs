@@ -1,10 +1,11 @@
 //! What the DOM-exporting printers share (see the DOM section of
-//! [`crate::codegen::ir`]): which parameters an item never reads, the C
-//! string joiner, the component-library registration of the two printers
-//! that write C API code (C and C++), the DOM syntax of the printers that
-//! build a DOM through their binding's wrapper layer ([`WrapperDom`]), and
-//! the note of a printer that cannot register a library
-//! ([`registration_note`]).
+//! [`crate::codegen::ir`]).
+//!
+//! Which parameters an item never reads, the C string joiner, the
+//! component-library registration of the two printers that write C API code (C
+//! and C++), the DOM syntax of the printers that build a DOM through their
+//! binding's wrapper layer ([`WrapperDom`]), and the note of a printer that
+//! cannot register a library ([`registration_note`]).
 //!
 //! Everything language-specific stays in the printer files; this module only
 //! holds text that is identical for the languages that use it.
@@ -52,10 +53,12 @@ pub fn uses_params(m: &Module) -> bool {
     m.items.iter().any(|i| !i.params.is_empty())
 }
 
-/// C: the helper an [`Expr::Concat`] calls (C has no string formatting in
-/// the azul API). Needs `<stdarg.h>`, `<stdlib.h>`, `<string.h>`. Guarded:
-/// an export writes several headers (the app, one per component library)
-/// that may be included together.
+/// C: the helper an [`Expr::Concat`] calls (C has no string formatting in the
+/// azul API).
+///
+/// Needs `<stdarg.h>`, `<stdlib.h>`, `<string.h>`. Guarded: an export writes
+/// several headers (the app, one per component library) that may be included
+/// together.
 pub const C_CONCAT_HELPER: &str = "
 #ifndef AZ_CODEGEN_CONCAT
 #define AZ_CODEGEN_CONCAT
@@ -129,11 +132,13 @@ fn c_lit(s: &str) -> String {
     format!("\"{}\"", super::c_escape(s))
 }
 
-/// The C / C++ registration of a component library: per component a
-/// default-arguments wrapper, a render function reading the data model and
-/// its `ComponentDef` (code calls it through its render function:
-/// `ComponentCodegen::RenderFunction`); then `register_<library>_library()`. `az_str` spells an `AzString` from a
-/// literal in the language. Items the module does not have are skipped.
+/// The C / C++ registration of a component library.
+///
+/// Per component a default-arguments wrapper, a render function reading the
+/// data model and its `ComponentDef` (code calls it through its render
+/// function: `ComponentCodegen::RenderFunction`); then
+/// `register_<library>_library()`. `az_str` spells an `AzString` from a literal
+/// in the language. Items the module does not have are skipped.
 #[must_use]
 pub fn c_family_registration(
     m: &Module,
@@ -281,9 +286,11 @@ pub fn c_family_registration(
 
 // ── DOM items through a binding's wrapper layer ──
 
-/// `true` if `item` is DOM construction (it takes parameters or builds a
-/// `Dom`) rather than a CSS value. A printer whose binding builds a DOM
-/// through another layer than CSS values picks its DOM syntax by it.
+/// `true` if `item` is DOM construction (it takes parameters or builds a `Dom`)
+/// rather than a CSS value.
+///
+/// A printer whose binding builds a DOM through another layer than CSS values
+/// picks its DOM syntax by it.
 #[must_use]
 pub fn is_dom_item(item: &Item) -> bool {
     !item.params.is_empty() || item.ty == "Dom"
@@ -293,10 +300,11 @@ pub fn is_dom_item(item: &Item) -> bool {
 pub static DOM_CLASSES: &[&str] = &["Dom", "SmallAriaInfo"];
 
 /// How a printer spells DOM items through its binding's WRAPPER layer (the
-/// managed classes: native strings, `dom.withChild(..)` chains) when its
-/// CSS values go through the raw C layer (`AzulNativeCss.Az..`, `azul.C`,
-/// ...). [`WrapperDom`] makes it the [`ExprSyntax`] of the printer's DOM
-/// items.
+/// managed classes: native strings, `dom.withChild(..)` chains).
+///
+/// For a printer whose CSS values go through the raw C layer
+/// (`AzulNativeCss.Az..`, `azul.C`, ...). [`WrapperDom`] makes it the
+/// [`ExprSyntax`] of the printer's DOM items.
 pub trait WrapperDomSyntax {
     /// The printer's own syntax (number and boolean literals).
     fn base(&self) -> &dyn ExprSyntax;
@@ -441,11 +449,13 @@ pub fn wrapper_dom_limitation(e: &Expr) -> Option<String> {
     }
 }
 
-/// `recv.link` in a method chain whose links break with the dot at the END
-/// of a line (`AzDom_createDiv().\n    withCss(..)`), for languages where a
-/// line may not START with `.`: Go ends a statement at a line that ends in
-/// `)`, and Nim continues an expression only after the `.` (`'.' optInd`).
-/// Flat, it reads like [`Doc::chained`]'s chain.
+/// `recv.link` in a method chain whose links break with the dot at the END of a
+/// line (`AzDom_createDiv().\n    withCss(..)`), for languages where a line may
+/// not START with `.`.
+///
+/// Go ends a statement at a line that ends in `)`, and Nim continues an
+/// expression only after the `.` (`'.' optInd`). Flat, it reads like
+/// [`Doc::chained`]'s chain.
 #[must_use]
 pub fn chained_dot_at_line_end(recv: Doc, link: Doc) -> Doc {
     match recv {
