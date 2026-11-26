@@ -8,9 +8,11 @@
 //!
 //! The comparison uses the limits of the phone QA (`scripts/ci/mobile_qa.py`: a pixel differs when a channel is off by
 //! more than 24 of 255; the pictures agree below 3 % differing pixels and a mean difference below 2): the same
-//! words that judge the emulator's two pictures judge these. The reason they are not tighter is the one the QA states:
-//! the two renderers rasterise text and curves with different coverage, and WebRender draws grey-scale text where the
-//! GLES stack has no dual-source blending.
+//! words that judge the emulator's two pictures judge these. Both renderers draw grayscale text, as a phone's two
+//! renderers do (`gpu_renderer::webrender_text_aa`, `TextAaSettings::grayscale`). The reason the limits are not tighter is the one
+//! the QA states: the two renderers rasterise glyphs and curves with different coverage. A page that is mostly large text
+//! (`page`) cannot keep under 3 %: it is judged by [`assert_same_text_page`], which also holds everything above the text to
+//! almost no difference at all.
 //!
 //! With no OpenGL ES on the machine a test says so on stderr and returns; with `AZ_REQUIRE_GLES` set it fails instead.
 //! The runner script sets it: a run that skipped is not a pass.
@@ -25,12 +27,12 @@ use azul_core::{
     dom::{Dom, DomId},
     geom::LogicalSize,
     glconst,
-    resources::RendererResources,
+    resources::{RendererResources, TextAntialiasMode},
     styled_dom::StyledDom,
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
-    cpurender::{render, AzulPixmap, RenderOptions},
+    cpurender::{render, AzulPixmap, RenderOptions, TextAaSettings},
     glyph_cache::GlyphCache,
     window::LayoutWindow,
     window_state::{FullWindowState, WindowCreateOptions},
@@ -42,7 +44,7 @@ use webrender::render_api::Transaction;
 use super::{
     egl_gles::{DisplayKind, EglApi, EglSession, GlesFunctions},
     egl_pure::EGL_PBUFFER_BIT,
-    gpu_renderer::{init_webrender, GpuParts, InitParams},
+    gpu_renderer::{init_webrender, webrender_text_aa, GpuParts, InitParams, TextRendering},
     gpu_select::FailPlan,
 };
 use crate::desktop::wr_translate2::{generate_frame, wr_translate_document_id, Notifier};
@@ -53,6 +55,19 @@ const PIXEL_TOLERANCE: u8 = 24;
 const MAX_DIFFERING_SHARE: f64 = 0.03;
 /// ... and below this mean difference per channel (of 255): `MAX_MEAN_DIFF` of the phone QA.
 const MAX_MEAN_DIFF: f64 = 2.0;
+
+/// The limits for a page that is mostly large text: the share of differing pixels is the glyph edges of two rasterisers (FreeType
+/// against the CPU renderer's outlines), 3 to 6 % of such a page and nothing else.
+const TEXT_PAGE_MAX_SHARE: f64 = 0.08;
+/// ... and the mean difference per channel.
+const TEXT_PAGE_MAX_MEAN: f64 = 4.0;
+/// The rows above the text of such a page (the shapes: boxes, rounded corners, a gradient) differ in at most this share of their pixels.
+const SHAPES_MAX_SHARE: f64 = 0.003;
+
+/// The text of a phone: grayscale (the platform default there, and what the CPU picture of these tests is drawn with).
+pub(super) fn phone_text() -> TextRendering {
+    webrender_text_aa(TextAntialiasMode::Grayscale, true)
+}
 
 /// The variable that turns "no OpenGL ES here" from a skip into a failure.
 pub(super) const REQUIRE: &str = "AZ_REQUIRE_GLES";
@@ -209,6 +224,7 @@ impl<'a> GpuSession<'a> {
             damage: None,
             framebuffer_px: size_px,
             shader_cache_dir: None,
+            text: phone_text(),
         };
         let parts = init_webrender(&gl, &options, params, &mut FailPlan::default())
             .map_err(|e| format!("the bring-up failed at {}: {}", e.stage.name(), e.cause))?;
@@ -310,7 +326,7 @@ impl<'a> GpuSession<'a> {
                 height: self.height,
                 dpi_factor: self.dpi,
             },
-            &mut GlyphCache::new(),
+            &mut grayscale_glyph_cache(),
         )
         .map_err(|e| format!("the CPU render failed: {e:?}"))
     }
@@ -419,6 +435,53 @@ fn keep(name: &str, gpu: &AzulPixmap, cpu: &AzulPixmap) {
             );
         }
     }
+}
+
+/// The CPU renderer's glyph cache for a phone: grayscale text.
+pub(super) fn grayscale_glyph_cache() -> GlyphCache {
+    let mut cache = GlyphCache::new();
+    let _ = cache.set_text_aa(TextAaSettings::grayscale());
+    cache
+}
+
+/// The first `rows` rows of a picture.
+fn top_rows(picture: &AzulPixmap, rows: u32) -> AzulPixmap {
+    let rows = rows.clamp(1, picture.height);
+    let mut out = AzulPixmap::new(picture.width, rows).expect("a pixmap");
+    let bytes = (picture.width * rows * 4) as usize;
+    out.data_mut().copy_from_slice(&picture.data()[..bytes]);
+    out
+}
+
+/// Fails with the numbers when the two pictures of a page that is mostly text are not the same page: the whole picture within
+/// [`TEXT_PAGE_MAX_SHARE`] and [`TEXT_PAGE_MAX_MEAN`], and the `shapes_rows` rows above the text (device pixels) within
+/// [`SHAPES_MAX_SHARE`]. Says whether the QA's own limits would have passed it too.
+pub(super) fn assert_same_text_page(name: &str, gpu: &AzulPixmap, cpu: &AzulPixmap, shapes_rows: u32) {
+    keep(name, gpu, cpu);
+    let d = difference(gpu, cpu);
+    let shapes = difference(&top_rows(gpu, shapes_rows), &top_rows(cpu, shapes_rows));
+    let within_qa = d.share < MAX_DIFFERING_SHARE && d.mean_abs < MAX_MEAN_DIFF;
+    eprintln!(
+        "{name}: {:.3} % of the pixels differ by more than {PIXEL_TOLERANCE}/255, mean {:.3}/255, max {}, box {:?} (the QA's limits {} them); \
+         the {shapes_rows} rows above the text: {:.4} %, max {}",
+        d.share * 100.0,
+        d.mean_abs,
+        d.max_abs,
+        d.bbox,
+        if within_qa { "hold for" } else { "do not hold for" },
+        shapes.share * 100.0,
+        shapes.max_abs
+    );
+    assert!(
+        d.share < TEXT_PAGE_MAX_SHARE && d.mean_abs < TEXT_PAGE_MAX_MEAN,
+        "{name}: the OpenGL ES picture and the CPU picture differ: {d:?} (limits {} % and {TEXT_PAGE_MAX_MEAN})",
+        TEXT_PAGE_MAX_SHARE * 100.0
+    );
+    assert!(
+        shapes.share < SHAPES_MAX_SHARE,
+        "{name}: the shapes above the text differ between the renderers: {shapes:?} (limit {} %)",
+        SHAPES_MAX_SHARE * 100.0
+    );
 }
 
 /// Fails with the numbers when the two pictures are not the same page within the QA's limits.
@@ -584,7 +647,7 @@ fn webrender_over_gles_draws_the_page_the_cpu_renderer_draws() {
     session.lay_out(page()).expect("laid out");
     let gpu = session.present().expect("a frame");
     let cpu = session.cpu().expect("the CPU frame");
-    assert_same_picture("page", &gpu, &cpu);
+    assert_same_text_page("page", &gpu, &cpu, 2 * 80);
 
     // The page is not blank, and it is not the white canvas under it: the squares are where they were laid out.
     let at = |x: u32, y: u32| {
@@ -665,6 +728,7 @@ fn a_failure_at_each_stage_of_the_bring_up_names_it_and_leaves_the_context_usabl
             damage: None,
             framebuffer_px: (64, 64),
             shader_cache_dir: None,
+            text: phone_text(),
         };
         init_webrender(
             &gl,
@@ -698,11 +762,17 @@ fn the_bring_up_reports_the_driver_it_ran_on() {
         new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
         wake: None,
     };
+    // A cache directory of this test's own, new every run (the runner keeps programs of other runs in the platform's directory).
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let cache_base = std::env::temp_dir().join(format!("azul-gles-host-{}-{unique}", std::process::id()));
     let params = InitParams {
         notifier,
         damage: None,
         framebuffer_px: (64, 64),
-        shader_cache_dir: None,
+        shader_cache_dir: Some(&cache_base),
+        text: phone_text(),
     };
     let parts = init_webrender(
         &gl,
@@ -714,8 +784,10 @@ fn the_bring_up_reports_the_driver_it_ran_on() {
     eprintln!("driver: {:?}", parts.info);
     assert!(parts.gles.major >= 3, "{:?}", parts.gles);
     assert!(!parts.info.renderer.is_empty() && !parts.info.version.is_empty());
-    // No directory was given: no cache was kept and the status says why.
-    assert!(parts.shader_cache.dir.is_none() || parts.shader_cache.loaded == 0);
+    // The directory the shell gave is the one in use (one folder per renderer and version under it), and a cold start read nothing.
+    let used = parts.shader_cache.dir.as_ref().expect("the cache directory in use");
+    assert!(used.starts_with(&cache_base), "{used:?} is not under {cache_base:?}: {:?}", parts.shader_cache);
+    assert_eq!(parts.shader_cache.loaded, 0, "no program was cached yet");
     let GpuParts { renderer, render_api, gl_context_ptr, .. } = parts;
     drop(render_api);
     drop(gl_context_ptr);

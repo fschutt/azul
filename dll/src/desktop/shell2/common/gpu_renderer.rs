@@ -12,7 +12,7 @@ use std::{panic::AssertUnwindSafe, path::Path, rc::Rc};
 use azul_core::{
     gl::{GlContextPtr, OptionGlContextPtr},
     hit_test::DocumentId,
-    resources::{IdNamespace, RendererResources},
+    resources::{IdNamespace, RendererResources, TextAntialiasMode},
     window::RendererType,
 };
 use azul_layout::window_state::WindowCreateOptions;
@@ -30,6 +30,53 @@ use crate::desktop::{
     wr_translate2::{self, AsyncHitTester, Notifier, PartialPresentDamage, WrRenderApi},
 };
 
+/// Whether this target is a phone or a tablet: the platform default of text antialiasing is grayscale there (its panel turns and
+/// often has no RGB stripes), as `azul_layout::cpurender::TEXT_AA_DEFAULT` says for the CPU renderer.
+pub const PHONE: bool = cfg!(any(target_os = "android", target_os = "ios"));
+
+/// How WebRender draws text: what `AppConfig::text_antialiasing` asks for, decided as the CPU renderer decides it
+/// ([`webrender_text_aa`]), so that the two renderers show one kind of text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextRendering {
+    /// Antialiased text. Off: aliased text, coverage cut at one half.
+    pub aa: bool,
+    /// LCD (subpixel) text where the device can blend it. Off: grayscale text everywhere.
+    pub subpixel: bool,
+}
+
+impl Default for TextRendering {
+    /// What `TextAntialiasMode::PlatformDefault` is on this target: LCD text on a desktop, grayscale on a phone.
+    fn default() -> Self {
+        webrender_text_aa(TextAntialiasMode::PlatformDefault, PHONE)
+    }
+}
+
+/// The text WebRender draws for an app's `TextAntialiasMode`. `PlatformDefault` is what the platform's own text does, LCD on
+/// a desktop and grayscale on a `phone`; the other modes mean the same on every platform. Without this the renderer drew LCD
+/// text wherever the device had dual-source blending (a phone's GPU has it) whatever the app asked for, colour fringes on a
+/// panel that turns, while the CPU renderer drew grayscale text next to it.
+#[must_use]
+pub const fn webrender_text_aa(mode: TextAntialiasMode, phone: bool) -> TextRendering {
+    match mode {
+        TextAntialiasMode::PlatformDefault => TextRendering {
+            aa: true,
+            subpixel: !phone,
+        },
+        TextAntialiasMode::Lcd | TextAntialiasMode::LcdLegacy => TextRendering {
+            aa: true,
+            subpixel: true,
+        },
+        TextAntialiasMode::Grayscale => TextRendering {
+            aa: true,
+            subpixel: false,
+        },
+        TextAntialiasMode::Aliased => TextRendering {
+            aa: false,
+            subpixel: false,
+        },
+    }
+}
+
 /// What a shell gives the bring-up besides the context and the window's options.
 pub struct InitParams<'a> {
     /// The notifier WebRender calls from its backend thread when a frame is built (its `wake` is what wakes the loop).
@@ -41,6 +88,8 @@ pub struct InitParams<'a> {
     pub framebuffer_px: (u32, u32),
     /// Where the compiled programs are kept between runs (`None`: the platform's own directory, or none).
     pub shader_cache_dir: Option<&'a Path>,
+    /// How text is drawn (`AppConfig::text_antialiasing`).
+    pub text: TextRendering,
 }
 
 /// What a successful bring-up hands to the window: the renderer and its API, the document, the hit tester, the engine's
@@ -165,7 +214,13 @@ pub fn init_webrender(
         webrender::create_webrender_instance(
             gl.clone(),
             Box::new(params.notifier),
-            wr_translate2::default_renderer_options(options, program_cache, params.damage),
+            wr_translate2::default_renderer_options_with_text(
+                options,
+                program_cache,
+                params.damage,
+                params.text.aa,
+                params.text.subpixel,
+            ),
             None,
         )
     }));
@@ -190,10 +245,10 @@ pub fn init_webrender(
     let wr_document = render_api.add_document(device_size(params.framebuffer_px));
     let document_id = wr_translate2::translate_document_id_wr(wr_document);
     let id_namespace = wr_translate2::translate_id_namespace_wr(render_api.get_namespace_id());
-    let hit_tester = AsyncHitTester::Requested(render_api.request_hit_tester(wr_document));
 
     // The engine's own GL context: compiles its programs at once, so a driver that rejects them is found here and not in
-    // the middle of the first frame. A software stack skips them by construction.
+    // the middle of the first frame. A software stack skips them by construction. (Before the hit tester is asked for: a
+    // bring-up that ends here has asked nothing of WebRender's backend thread that nobody would be left to take.)
     let gl_ptr = GlContextPtr::new(renderer_type, gl.clone());
     let shaders_fail = plan.fails(GpuStage::Shaders);
     if shaders_fail
@@ -211,6 +266,8 @@ pub fn init_webrender(
             )
         });
     }
+
+    let hit_tester = AsyncHitTester::Requested(render_api.request_hit_tester(wr_document));
 
     Ok(GpuParts {
         renderer,
@@ -373,3 +430,7 @@ pub fn finish_frame(common: &CommonWindowState) {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "gpu_renderer_test.rs"]
+mod tests;

@@ -457,10 +457,11 @@ impl Document {
                     None => HitTestResult { items: Vec::new() },
                 };
 
-                tx.send(result).unwrap();
+                // The caller may have stopped waiting (its window closed, a bring-up that failed after the request): no answer is owed.
+                let _ = tx.send(result);
             }
             FrameMsg::RequestHitTester(tx) => {
-                tx.send(self.shared_hit_tester.clone()).unwrap();
+                let _ = tx.send(self.shared_hit_tester.clone());
             }
             FrameMsg::SetScrollOffsets(id, offset) => {
                 if self.set_scroll_offsets(id, offset) {
@@ -707,6 +708,9 @@ struct PlainRenderBackend {
 /// The render backend operates on its own thread.
 pub struct RenderBackend {
     api_rx: Receiver<ApiMsg>,
+    /// To the renderer. A renderer that is gone (its window closed, its GL context was lost or never got as far as a frame) has
+    /// nobody to take a message: every send ignores a closed channel. They were `unwrap`s, and a backend thread that panics
+    /// takes the process with it where panics abort (every shipped build): a window closed with a frame in flight ended the app.
     result_tx: Sender<ResultMsg>,
     scene_tx: Sender<SceneBuilderRequest>,
 
@@ -1000,7 +1004,7 @@ impl RenderBackend {
                     resource_updates,
                     memory_pressure: true,
                 };
-                self.result_tx.send(msg).unwrap();
+                let _ = self.result_tx.send(msg);
                 self.notifier.wake_up(false);
             }
             ApiMsg::ReportMemory(tx) => {
@@ -1129,7 +1133,7 @@ impl RenderBackend {
                     }
                     _ => ResultMsg::DebugCommand(option),
                 };
-                self.result_tx.send(msg).unwrap();
+                let _ = self.result_tx.send(msg);
                 self.notifier.wake_up(true);
             }
             ApiMsg::UpdateDocuments(transaction_msgs) => {
@@ -1189,7 +1193,7 @@ impl RenderBackend {
                         glyph_dimensions.push(glyph_dim);
                     }
                 }
-                request.sender.send(glyph_dimensions).unwrap();
+                let _ = request.sender.send(glyph_dimensions);
             }
             SceneBuilderResult::GetGlyphIndices(request) => {
                 let mut glyph_indices = Vec::with_capacity(request.text.len());
@@ -1198,7 +1202,7 @@ impl RenderBackend {
                     let index = self.resource_cache.get_glyph_index(font_key, ch);
                     glyph_indices.push(index);
                 }
-                request.sender.send(glyph_indices).unwrap();
+                let _ = request.sender.send(glyph_indices);
             }
             SceneBuilderResult::FlushComplete(tx) => {
                 tx.send(()).ok();
@@ -1414,7 +1418,7 @@ impl RenderBackend {
                 .should_redraw_on_invalidation()
             {
                 let msg = ResultMsg::ForceRedraw;
-                self.result_tx.send(msg).unwrap();
+                let _ = self.result_tx.send(msg);
             }
         }
 
@@ -1449,7 +1453,7 @@ impl RenderBackend {
                 );
 
                 let msg = ResultMsg::UpdateGpuCache(self.gpu_cache.extract_updates());
-                self.result_tx.send(msg).unwrap();
+                let _ = self.result_tx.send(msg);
 
                 Telemetry::stop_and_accumulate_framebuild_time(timer_id);
 
@@ -1519,7 +1523,7 @@ impl RenderBackend {
                 .set(profiler::UPDATE_DOCUMENT_TIME, update_doc_time);
 
             let msg = ResultMsg::PublishPipelineInfo(doc.updated_pipeline_info());
-            self.result_tx.send(msg).unwrap();
+            let _ = self.result_tx.send(msg);
 
             // Publish the frame
             self.frame_publish_id.advance();
@@ -1529,14 +1533,14 @@ impl RenderBackend {
                 rendered_document,
                 pending_update,
             );
-            self.result_tx.send(msg).unwrap();
+            let _ = self.result_tx.send(msg);
         } else if requested_frame {
             // WR-internal optimization to avoid doing a bunch of render work if
             // there's no pixels. We still want to pretend to render and request
             // a render to make sure that the callbacks (particularly the
             // new_frame_ready callback below) has the right flags.
             let msg = ResultMsg::PublishPipelineInfo(doc.updated_pipeline_info());
-            self.result_tx.send(msg).unwrap();
+            let _ = self.result_tx.send(msg);
         }
 
         drain_filter(
@@ -1548,9 +1552,9 @@ impl RenderBackend {
         );
 
         if !notifications.is_empty() {
-            self.result_tx
-                .send(ResultMsg::AppendNotificationRequests(notifications))
-                .unwrap();
+            let _ = self
+                .result_tx
+                .send(ResultMsg::AppendNotificationRequests(notifications));
         }
 
         // Always forward the transaction to the renderer if a frame was requested,
@@ -1599,7 +1603,7 @@ impl RenderBackend {
             if !deferred.is_empty() {
                 let msg =
                     ResultMsg::DebugOutput(DebugOutput::SaveCapture(config.clone(), deferred));
-                self.result_tx.send(msg).unwrap();
+                let _ = self.result_tx.send(msg);
             }
         }
     }
@@ -1648,7 +1652,7 @@ impl RenderBackend {
                 // they are applied on the `Renderer` side.
                 let msg_update_gpu_cache =
                     ResultMsg::UpdateGpuCache(self.gpu_cache.extract_updates());
-                self.result_tx.send(msg_update_gpu_cache).unwrap();
+                let _ = self.result_tx.send(msg_update_gpu_cache);
                 //TODO: write down doc's pipeline info?
                 // it has `pipeline_epoch_map`,
                 // which may capture necessary details for some cases.
@@ -1769,7 +1773,7 @@ impl RenderBackend {
                 resource_updates: self.resource_cache.pending_updates(),
                 memory_pressure: false,
             };
-            self.result_tx.send(msg_update_resources).unwrap();
+            let _ = self.result_tx.send(msg_update_resources);
             // Save the texture/glyph/image caches.
             info!("\tresource cache");
             let caches = self.resource_cache.save_caches(&config.root);
@@ -1837,7 +1841,7 @@ impl RenderBackend {
 
             let msg_load =
                 ResultMsg::DebugOutput(DebugOutput::LoadCapture(config.clone(), plain_externals));
-            self.result_tx.send(msg_load).unwrap();
+            let _ = self.result_tx.send(msg_load);
 
             self.gpu_cache = match config.deserialize_for_resource::<GpuCache, _>("gpu_cache") {
                 Some(gpu_cache) => gpu_cache,
@@ -1936,7 +1940,7 @@ impl RenderBackend {
                     info!("\tloaded a built frame with {} passes", frame.passes.len());
 
                     let msg_update = ResultMsg::UpdateGpuCache(self.gpu_cache.extract_updates());
-                    self.result_tx.send(msg_update).unwrap();
+                    let _ = self.result_tx.send(msg_update);
 
                     self.frame_publish_id.advance();
                     let msg_publish = ResultMsg::PublishDocument(
@@ -1950,7 +1954,7 @@ impl RenderBackend {
                         },
                         self.resource_cache.pending_updates(),
                     );
-                    self.result_tx.send(msg_publish).unwrap();
+                    let _ = self.result_tx.send(msg_publish);
 
                     self.notifier
                         .new_frame_ready(id, false, true, self.frame_publish_id);

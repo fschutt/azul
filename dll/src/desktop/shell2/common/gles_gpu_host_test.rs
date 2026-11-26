@@ -23,7 +23,6 @@ use azul_core::{
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     cpurender::{render, AzulPixmap, RenderOptions},
-    glyph_cache::GlyphCache,
     window_state::{FullWindowState, WindowCreateOptions},
 };
 use rust_fontconfig::FcFontCache;
@@ -31,7 +30,7 @@ use rust_fontconfig::FcFontCache;
 use super::{
     event::{CommonWindowState, SharedUndoManager},
     gles_gpu::{GlesGpu, GlesGpuConfig, GpuCtx, Outcome},
-    gles_host_test::{assert_same_picture, page, REQUIRE},
+    gles_host_test::{assert_same_text_page, grayscale_glyph_cache, page, REQUIRE},
     gpu_lifecycle::{Phase, Surface, TrimLevel},
     gpu_renderer,
     gpu_select::{FailPlan, GpuRequest, GpuStage, Ran},
@@ -65,14 +64,17 @@ fn options() -> WindowCreateOptions {
 }
 
 fn gpu(request: GpuRequest, plan: &str) -> GlesGpu {
-    GlesGpu::new(
+    let mut gpu = GlesGpu::new(
         GlesGpuConfig::host_offscreen(),
         request,
         FailPlan::parse(Some(plan)),
         options(),
         None,
         None,
-    )
+    );
+    // What a phone's window asks of its renderer: grayscale text, the CPU renderer's picture is drawn with it too.
+    gpu.set_text_antialiasing(azul_core::resources::TextAntialiasMode::Grayscale);
+    gpu
 }
 
 /// The surface of the window in device pixels.
@@ -114,7 +116,7 @@ fn cpu_picture(common: &CommonWindowState, scale: f32) -> AzulPixmap {
             height: HEIGHT,
             dpi_factor: scale,
         },
-        &mut GlyphCache::new(),
+        &mut grayscale_glyph_cache(),
     )
     .expect("the CPU frame")
 }
@@ -227,7 +229,7 @@ fn the_first_surface_brings_the_path_up_and_draws_the_cpu_page() {
     lay_out(&mut window.common, page(), DPI);
     let picture = draw(&mut gpu, &mut window, surface);
     assert!(gpu.has_frame(), "WebRender announced the frame that was drawn");
-    assert_same_picture("executor-page", &picture, &cpu_picture(&window.common, DPI));
+    assert_same_text_page("executor-page", &picture, &cpu_picture(&window.common, DPI), (80.0 * DPI) as u32);
 
     let mut ctx = GpuCtx { common: &mut window.common, native_window: None };
     assert_eq!(gpu.shutdown(&mut ctx), Outcome::Gpu);
@@ -260,7 +262,7 @@ fn a_new_surface_keeps_the_renderer_and_draws_at_the_new_size() {
     lay_out(&mut window.common, page(), 1.0);
     let picture = draw(&mut gpu, &mut window, second);
     assert_eq!((picture.width, picture.height), (second.width, second.height));
-    assert_same_picture("executor-rotated", &picture, &cpu_picture(&window.common, 1.0));
+    assert_same_text_page("executor-rotated", &picture, &cpu_picture(&window.common, 1.0), 80);
 }
 
 /// A lost context is rebuilt under the same window and the frame after it is right; a second loss with no frame between
@@ -283,7 +285,7 @@ fn a_lost_context_is_rebuilt_and_a_second_one_without_a_frame_falls_back() {
 
     // The window's keys named the old renderer: its registries were cleared and the next frame sends everything.
     let picture = draw(&mut gpu, &mut window, surface);
-    assert_same_picture("executor-rebuilt", &picture, &cpu_picture(&window.common, DPI));
+    assert_same_text_page("executor-rebuilt", &picture, &cpu_picture(&window.common, DPI), (80.0 * DPI) as u32);
 
     // A good frame forgave the first loss: one more is rebuilt again, two with no frame between are the end.
     let mut ctx = GpuCtx { common: &mut window.common, native_window: None };
@@ -368,7 +370,7 @@ fn a_heavy_trim_without_a_surface_gives_the_gpu_memory_back_and_the_next_surface
     assert_eq!(gpu.surface_created(&mut ctx, surface), Outcome::Gpu);
     assert_eq!(gpu.renderers_made(), 2);
     let picture = draw(&mut gpu, &mut window, surface);
-    assert_same_picture("executor-after-trim", &picture, &cpu_picture(&window.common, DPI));
+    assert_same_text_page("executor-after-trim", &picture, &cpu_picture(&window.common, DPI), (80.0 * DPI) as u32);
 }
 
 /// Closing the window leaves nothing: the surface, then the renderer, then the context.
@@ -396,7 +398,7 @@ fn shutdown_leaves_nothing_of_the_gpu_path() {
 fn gpu_forces_the_software_renderer_and_auto_refuses_it_with_the_diagnostic() {
     let test = "gpu_forces_the_software_renderer_and_auto_refuses_it";
     let mut window = headless();
-    let Some((gpu_forced, _)) = up(test, &mut window, GpuRequest::Gpu, "") else {
+    let Some((mut gpu_forced, _)) = up(test, &mut window, GpuRequest::Gpu, "") else {
         return;
     };
     let software = gpu_forced
@@ -406,6 +408,9 @@ fn gpu_forces_the_software_renderer_and_auto_refuses_it_with_the_diagnostic() {
         .renderer
         .to_lowercase()
         .contains("llvmpipe");
+    // A renderer that is dropped without its `deinit` panics in WebRender: the path is shut down, as a window's close does.
+    let mut ctx = GpuCtx { common: &mut window.common, native_window: None };
+    assert_eq!(gpu_forced.shutdown(&mut ctx), Outcome::Gpu);
     drop(gpu_forced);
     if !software {
         eprintln!("SKIPPED {test}: the renderer here is not a software one");

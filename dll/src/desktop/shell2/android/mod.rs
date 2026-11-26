@@ -277,7 +277,7 @@ impl AndroidWindow {
         };
         // What the window asks of the renderer (`AZ_BACKEND`, `hw_accel`): the CPU renderer writes its contract line here, a GPU request
         // builds the executor that brings the path up at `InitWindow`.
-        window.init_gpu(&gpu_options);
+        window.init_gpu(&gpu_options, config.text_antialiasing);
         Ok(window)
     }
 

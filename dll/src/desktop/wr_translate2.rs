@@ -345,6 +345,20 @@ pub fn default_renderer_options(
     cached_programs: Option<Rc<webrender::ProgramCache>>,
     partial_present: Option<PartialPresentDamage>,
 ) -> WrRendererOptions {
+    default_renderer_options_with_text(options, cached_programs, partial_present, true, true)
+}
+
+/// [`default_renderer_options`] with the text antialiasing the window asks for (`AppConfig::text_antialiasing`, resolved by
+/// `gpu_renderer::webrender_text_aa`): `enable_aa` off draws aliased text, `enable_subpixel_aa` off draws grayscale text where
+/// the renderer would draw LCD text (it does so wherever the device has dual-source blending, a phone's GPU included). The
+/// desktop shells keep calling [`default_renderer_options`], which is LCD text as it always was.
+pub fn default_renderer_options_with_text(
+    options: &azul_layout::window_state::WindowCreateOptions,
+    cached_programs: Option<Rc<webrender::ProgramCache>>,
+    partial_present: Option<PartialPresentDamage>,
+    enable_aa: bool,
+    enable_subpixel_aa: bool,
+) -> WrRendererOptions {
     use azul_core::window::WindowBackgroundMaterial;
     use webrender::ShaderPrecacheFlags;
 
@@ -369,8 +383,8 @@ pub fn default_renderer_options(
     WrRendererOptions {
         resource_override_path: None,
         use_optimized_shaders: true,
-        enable_aa: true,
-        enable_subpixel_aa: true,
+        enable_aa,
+        enable_subpixel_aa,
         clear_color: wr_translate_color_f(CssColorF::from(bg)),
         enable_multithreading: false,
         // AZ_OVERLAY is merged in, so the webrender verbs (overdraw, profiler,

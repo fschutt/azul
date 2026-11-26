@@ -326,6 +326,9 @@ The window's life is the activity's:
   when the system takes the window away (`TerminateWindow`), before the window is released. The context and the renderer
   stay, so coming back from the home screen or turning the phone does not compile the shaders again.
 - A new size or density resizes the frame; the swap interval is 1.
+- Text is grayscale on a phone in both renderers (`AppConfig::text_antialiasing`: the platform default there, as the CPU
+  renderer has always had it), so the two pictures of one window differ in the antialiasing of glyph edges and curves and
+  nowhere else; `AZ_TEXT_AA=lcd` asks for LCD text on the GPU path too.
 - `onTrimMemory` empties WebRender's caches at the `RUNNING_LOW` levels, and from `UI_HIDDEN` on, with no window on screen,
   gives the renderer and the context back as well; they are made again when a window returns.
 - A lost context (the driver reset, the GPU was taken away) is rebuilt once and the frame drawn again; a second loss without

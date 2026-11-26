@@ -10,6 +10,7 @@
 
 use std::{ffi::c_void, path::PathBuf, sync::Arc};
 
+use azul_core::resources::TextAntialiasing;
 use azul_layout::window_state::WindowCreateOptions;
 
 #[cfg(feature = "ndk")]
@@ -31,7 +32,7 @@ use crate::{
 impl AndroidWindow {
     /// `AndroidWindow::new`: what the window asks of the renderer. A CPU request writes the contract line at once and changes nothing
     /// else (the path is exactly today's); a GPU request builds the executor, which brings the path up at `InitWindow`.
-    pub(super) fn init_gpu(&mut self, options: &WindowCreateOptions) {
+    pub(super) fn init_gpu(&mut self, options: &WindowCreateOptions, text: TextAntialiasing) {
         let request = request_for(&self.common.app.settings().shell, options);
         if request == GpuRequest::Cpu {
             log_info!(LogCategory::Rendering, "{}", decide(GpuRequest::Cpu, None).render_line());
@@ -44,14 +45,17 @@ impl AndroidWindow {
         // WebRender's backend thread wakes the loop when a frame is built: the loop presents then.
         let bridge = Arc::clone(&self.bridge);
         let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(move || bridge.wake());
-        self.gpu = Some(GlesGpu::new(
+        let mut gpu = GlesGpu::new(
             GlesGpuConfig::android(),
             request,
             plan,
             options.clone(),
             None,
             Some(wake),
-        ));
+        );
+        // WebRender draws the text the app asked for, as the CPU renderer does (grayscale by default on a phone).
+        gpu.set_text_antialiasing(text.mode);
+        self.gpu = Some(gpu);
         self.backend = RenderBackend::Gpu;
     }
 

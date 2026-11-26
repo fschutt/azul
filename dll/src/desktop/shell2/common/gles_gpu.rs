@@ -44,7 +44,7 @@ use super::{
     event::CommonWindowState,
     frame_stats::FrameStats,
     gpu_lifecycle::{Action, Event, GpuLifecycle, Phase, Surface, TrimLevel},
-    gpu_renderer::{self, GpuDevice, InitParams},
+    gpu_renderer::{self, GpuDevice, InitParams, TextRendering},
     gpu_select::{decide, Decision, FailPlan, GpuFallback, GpuRequest, GpuStage, Ran},
 };
 use crate::{
@@ -190,6 +190,8 @@ pub struct GlesGpu {
     options: WindowCreateOptions,
     /// The cache directory of compiled programs (`None`: not kept).
     shader_cache_dir: Option<PathBuf>,
+    /// How WebRender draws text (what `AppConfig::text_antialiasing` asks for; the platform's default until told).
+    text: TextRendering,
     /// Wakes the loop from WebRender's backend thread when a frame is built.
     wake: Option<Arc<dyn Fn() + Send + Sync>>,
     mark: Option<Marker>,
@@ -256,6 +258,7 @@ impl GlesGpu {
             plan,
             options,
             shader_cache_dir,
+            text: TextRendering::default(),
             wake,
             mark: None,
             frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
@@ -283,6 +286,12 @@ impl GlesGpu {
     /// once the activity is, which is after the window).
     pub fn set_shader_cache_dir(&mut self, dir: Option<PathBuf>) {
         self.shader_cache_dir = dir;
+    }
+
+    /// How WebRender draws text: what the app's `AppConfig::text_antialiasing` asks for, decided as the CPU renderer decides it
+    /// (`gpu_renderer::webrender_text_aa`). Takes effect when the next renderer is made, so it is called before the first surface.
+    pub fn set_text_antialiasing(&mut self, mode: azul_core::resources::TextAntialiasMode) {
+        self.text = gpu_renderer::webrender_text_aa(mode, gpu_renderer::PHONE);
     }
 
     fn note(&self, name: &'static str, detail: &str) {
@@ -633,6 +642,7 @@ impl GlesGpu {
                 damage,
                 framebuffer_px: self.size_px,
                 shader_cache_dir: self.shader_cache_dir.as_deref(),
+                text: self.text,
             },
             &mut self.plan,
         )?;
