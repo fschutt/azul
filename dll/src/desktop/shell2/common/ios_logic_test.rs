@@ -246,3 +246,48 @@ fn a_heavier_result_never_asks_for_less_than_a_lighter_one() {
         );
     }
 }
+
+/// The picker asked `UTType` for `png`, `pdf` and `data` with `performSelector:`: those are
+/// global constants in Objective-C, not class methods (checked against the runtime: `UTType`
+/// answers `typeWithIdentifier:`, `typeWithFilenameExtension:` and `typeWithMIMEType:`, and
+/// nothing named `png`). The descriptors map onto the documented identifiers instead.
+#[test]
+fn a_file_filter_descriptor_becomes_a_uti_query_the_runtime_answers() {
+    use UtiQuery::{Extension, Identifier, MimeType};
+
+    assert_eq!(uti_query_for_descriptor("*.png"), Some(Identifier("public.png")));
+    assert_eq!(uti_query_for_descriptor(".PNG"), Some(Identifier("public.png")));
+    assert_eq!(uti_query_for_descriptor("jpg"), Some(Identifier("public.jpeg")));
+    assert_eq!(uti_query_for_descriptor("jpeg"), Some(Identifier("public.jpeg")));
+    assert_eq!(uti_query_for_descriptor("pdf"), Some(Identifier("com.adobe.pdf")));
+    assert_eq!(uti_query_for_descriptor("mp4"), Some(Identifier("public.mpeg-4")));
+    assert_eq!(uti_query_for_descriptor("svg"), Some(Identifier("public.svg-image")));
+    assert_eq!(
+        uti_query_for_descriptor("  *.Markdown "),
+        Some(Extension("markdown".to_string())),
+        "an extension without a well-known type is asked for by its extension"
+    );
+    assert_eq!(
+        uti_query_for_descriptor("image/png"),
+        Some(MimeType("image/png".to_string()))
+    );
+    assert_eq!(uti_query_for_descriptor(""), None);
+    assert_eq!(uti_query_for_descriptor("*."), None);
+    assert_eq!(UTI_DATA, "public.data");
+    assert_eq!(UTI_FOLDER, "public.folder");
+}
+
+/// No identifier of the table may be one a selector could be built from: the old code registered
+/// `"png\0"` as a selector (a NUL inside the name, which `CString` refuses: a panic).
+#[test]
+fn no_uti_identifier_carries_a_nul_or_a_space() {
+    for ext in [
+        "png", "jpg", "pdf", "gif", "txt", "json", "html", "xml", "zip", "mov", "mp4", "mp3",
+        "wav", "svg",
+    ] {
+        let Some(UtiQuery::Identifier(id)) = uti_query_for_descriptor(ext) else {
+            panic!("{ext} must be a well-known type");
+        };
+        assert!(!id.contains('\0') && !id.contains(' ') && id.contains('.'), "{id}");
+    }
+}

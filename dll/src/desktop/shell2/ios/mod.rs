@@ -1101,7 +1101,7 @@ const CLASS_NAME_ATTEMPTS: u32 = 16;
 /// declared with `.unwrap()`: in a phone app a panic is an abort at launch, with no window and
 /// nothing on screen. A copy that finds its name taken registers `Name_1` instead and reaches
 /// only the classes it made itself (its own `static` pointers hold them).
-fn declare_class(name: &str, superclass: &Class) -> Option<ClassDecl> {
+pub(crate) fn declare_class(name: &str, superclass: &Class) -> Option<ClassDecl> {
     use crate::desktop::shell2::common::ios_logic::class_name_attempt;
     for attempt in 0..CLASS_NAME_ATTEMPTS {
         if let Some(decl) = ClassDecl::new(&class_name_attempt(name, attempt), superclass) {

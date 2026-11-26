@@ -121,6 +121,65 @@ pub fn log_pieces(text: &str, max_bytes: usize) -> Vec<&str> {
     pieces
 }
 
+/// How to ask `UTType` for the type a file-picker filter descriptor names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UtiQuery {
+    /// `+[UTType typeWithIdentifier:]`, with this uniform type identifier.
+    Identifier(&'static str),
+    /// `+[UTType typeWithFilenameExtension:]`, with this extension (lower case, no dot).
+    Extension(String),
+    /// `+[UTType typeWithMIMEType:]`, with this MIME type.
+    MimeType(String),
+}
+
+/// `public.data`: what a picker with no usable filter offers (`UTTypeData`).
+pub const UTI_DATA: &str = "public.data";
+/// `public.folder`: what the directory picker opens (`UTTypeFolder`).
+pub const UTI_FOLDER: &str = "public.folder";
+
+/// The query a descriptor (`"*.png"`, `".png"`, `"png"`, `"image/png"`) stands for, or `None` for
+/// one that names nothing.
+///
+/// `UTType`'s well-known types (`png`, `pdf`, `data`, `folder`, ...) are Objective-C GLOBAL
+/// CONSTANTS (`UTTypePNG`, `UTTypeData`; `UTType.png` is only Swift's spelling), not class
+/// methods: `+[UTType png]` and `+[UTType data]` do not exist (the runtime answers "unrecognized
+/// selector", an Objective-C exception that aborts the process through Rust frames), and the
+/// picker called them with `performSelector:` through a selector built with a trailing NUL, which
+/// panics before the message is even sent. Every use of the picker died; the identifiers below
+/// are the documented values of those constants, asked for with `typeWithIdentifier:`.
+#[must_use]
+pub fn uti_query_for_descriptor(descriptor: &str) -> Option<UtiQuery> {
+    let trimmed = descriptor
+        .trim()
+        .trim_start_matches('*')
+        .trim_start_matches('.')
+        .to_ascii_lowercase();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.contains('/') {
+        return Some(UtiQuery::MimeType(trimmed));
+    }
+    let identifier = match trimmed.as_str() {
+        "png" => "public.png",
+        "jpg" | "jpeg" => "public.jpeg",
+        "pdf" => "com.adobe.pdf",
+        "gif" => "com.compuserve.gif",
+        "txt" | "text" => "public.plain-text",
+        "json" => "public.json",
+        "html" | "htm" => "public.html",
+        "xml" => "public.xml",
+        "zip" => "public.zip-archive",
+        "mov" => "public.movie",
+        "mp4" => "public.mpeg-4",
+        "mp3" => "public.mp3",
+        "wav" => "com.microsoft.waveform-audio",
+        "svg" => "public.svg-image",
+        _ => return Some(UtiQuery::Extension(trimmed)),
+    };
+    Some(UtiQuery::Identifier(identifier))
+}
+
 /// What the frame path owes after a pass of `process_window_events`, at the weight the pass
 /// classified it (`ProcessEventResult`'s own ladder, lightest first).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

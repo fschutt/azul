@@ -9,6 +9,7 @@ const IOS_A11Y_RS: &str = include_str!("ios/accessibility.rs");
 const IOS_TEXT_INPUT_RS: &str = include_str!("ios/text_input.rs");
 const IOS_CLIPBOARD_RS: &str = include_str!("ios/clipboard.rs");
 const IOS_WEBVIEW_RS: &str = include_str!("ios/webview.rs");
+const FILE_PICKER_RS: &str = include_str!("../extra/file_picker/ios.rs");
 const RUN_RS: &str = include_str!("run.rs");
 
 /// The body of the first fn declared by `decl`, from its opening brace to the matching closing one.
@@ -63,6 +64,7 @@ fn the_ios_shell_does_not_unwrap_what_the_objective_c_runtime_hands_it() {
         ("ios/text_input.rs", IOS_TEXT_INPUT_RS),
         ("ios/clipboard.rs", IOS_CLIPBOARD_RS),
         ("ios/webview.rs", IOS_WEBVIEW_RS),
+        ("extra/file_picker/ios.rs", FILE_PICKER_RS),
     ] {
         for (n, line) in code_of(source).lines().enumerate() {
             // The one documented exception: the trait's `prepare_callback_invocation` has no way
@@ -288,4 +290,45 @@ fn a_callback_of_an_ios_window_carries_the_real_window_handle() {
         !prepare.contains("null_mut()"),
         "prepare_callback_invocation must not hand out null handles"
     );
+}
+
+/// UIKit validates the edit menu's actions again and again; answering "is there something to
+/// paste" by READING the pasteboard's string copies the whole contents each time, and is the read
+/// iOS reports to the user as a paste (14+) and asks permission for (16+). `hasStrings` is the
+/// documented question ("Do not use the string or strings properties to determine whether a
+/// pasteboard contains string data, because doing so consumes resources needlessly").
+#[test]
+fn the_ios_edit_menu_asks_the_pasteboard_whether_it_has_strings_without_reading_them() {
+    let has_text = body(IOS_CLIPBOARD_RS, "pub fn has_text()");
+    at(has_text, "hasStrings", "has_text");
+    assert!(
+        !has_text.contains("get_clipboard_content") && !has_text.contains("string]"),
+        "has_text must not read the pasteboard's contents"
+    );
+}
+
+/// The picker asked `UTType` for its well-known types with `performSelector:` (`png`, `pdf`,
+/// `data`, `folder`): they are Objective-C global constants, not class methods, so the runtime
+/// answered "unrecognized selector" - an exception that aborts through Rust frames - and the
+/// selector itself was registered from a string with a NUL in it, which panics first. Every use of
+/// the picker died. The types are asked for by identifier, through the pure mapping.
+#[test]
+fn the_ios_file_picker_asks_uttype_only_for_selectors_that_exist() {
+    let code = code_of(FILE_PICKER_RS);
+    assert!(!code.contains("performSelector"), "no performSelector: on UTType");
+    assert!(
+        !code.contains("Sel::register("),
+        "no selector is built at run time (a NUL in the name is a panic)"
+    );
+    assert!(
+        !code.contains("class!(UTType)"),
+        "class! panics when UniformTypeIdentifiers is not loaded: Class::get"
+    );
+    for missing in ["UTType), data]", "UTType), folder]"] {
+        assert!(!code.contains(missing), "+[UTType ...] has no such class method: {missing}");
+    }
+    at(&code, "typeWithIdentifier:", "the picker");
+    at(&code, "uti_query_for_descriptor(descriptor)", "the picker");
+    // A folder opened in place is security-scoped; the caller only receives a path.
+    at(&code, "startAccessingSecurityScopedResource", "the picker's delegate");
 }
