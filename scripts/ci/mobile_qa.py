@@ -485,7 +485,15 @@ def displayed_ms(text, package=""):
     return found
 
 
-def report_modes(run, step, results, expect_gpu, platform):
+SOFTWARE_DEVICE = re.compile(r"swiftshader|llvmpipe|softpipe|swrast|software renderer|android emulator|apple software|angle.*(swiftshader|software)", re.I)
+
+
+def device_is_software(device):
+    """Does the contract line's `device=` text name a software GL renderer (SwiftShader, llvmpipe, 'Apple Software Renderer', ...)?"""
+    return bool(device and SOFTWARE_DEVICE.search(device))
+
+
+def report_modes(run, step, results, expect_gpu, platform, hardware=False):
     """The verdict of the AZ_BACKEND runs. `results[mode]` = {ran, requested, device, rgba, dims, first_frame_s,
     displayed_ms, frames: {median, p95, n} | None}. Says, per mode, WHICH backend ran: a request for the GPU that ran
     the CPU renderer is a FINDING (informational while the build has no GPU path, a FAILURE once `--expect-gpu` says it
@@ -509,18 +517,33 @@ def report_modes(run, step, results, expect_gpu, platform):
             bits.append(f"PSS {mem['pss_kb'] / 1024:.0f} MB" + (f", graphics {mem['graphics_kb'] / 1024:.0f} MB" if mem.get("graphics_kb") else ""))
         summary.append(f"{mode}: " + ", ".join(bits))
         step.note(f"AZ_BACKEND={mode}: " + ", ".join(bits))
+        software = (not hardware) or device_is_software(r.get("device"))
         if mode == "cpu":
             step.check("requested cpu: the CPU renderer ran", ran in ("cpu", "unknown"), f"ran {ran}", required=True)
-        elif mode in ("gpu", "auto"):
+        elif mode == "gpu":
+            # `gpu` FORCES the GL path on any renderer that works, a software GL included (SwiftShader, 'Apple Software Renderer')
             if ran == "gpu":
-                step.check(f"requested {mode}: the GPU renderer ran", True, r.get("device") or "")
+                step.check("requested gpu: the GL renderer ran", True, r.get("device") or "")
             elif ran == "cpu":
-                step.check(f"requested {mode}: the GPU renderer ran", False,
-                           f"requested {mode}, ran cpu: the CPU renderer drew the page (finding; the GPU path is not in this build)",
-                           required=expect_gpu and mode == "gpu")
+                step.check("requested gpu: the GL renderer ran", False,
+                           "requested gpu, ran cpu: the CPU renderer drew the page (finding while the build has no GL path; a failure with --expect-gpu)",
+                           required=expect_gpu)
             else:
-                step.check(f"requested {mode}: the engine says which renderer ran", False,
-                           "no `[render] backend=` line in the engine's log: it cannot be told which renderer drew", required=expect_gpu and mode == "gpu")
+                step.check("requested gpu: the engine says which renderer ran", False,
+                           "no `[render] backend=` line in the engine's log: it cannot be told which renderer drew", required=expect_gpu)
+        else:
+            # `auto` takes the GL path ONLY on a hardware renderer with ES >= 3.0; on a software GL (every CI emulator and
+            # Simulator) it runs the CPU renderer with one diagnostic line: 'requested auto, ran cpu' is then the DESIGN
+            if ran == "unknown":
+                step.check("requested auto: the engine says which renderer ran", False,
+                           "no `[render] backend=` line in the engine's log: it cannot be told which renderer drew", required=False)
+            elif software:
+                step.check("requested auto on a software GL: the CPU renderer runs (by design)", ran == "cpu",
+                           f"ran {ran}" + ("" if ran == "cpu" else ": auto took the GL path on a software renderer, it must wait for hardware"),
+                           required=True)
+            else:
+                step.check("requested auto on a hardware GPU: the GL renderer runs", ran == "gpu",
+                           f"ran {ran} on {r.get('device') or '?'}", required=expect_gpu)
     run.meta["render_modes"] = " | ".join(summary)
     run.render_table = []
     for mode in ("cpu", "gpu", "auto"):
@@ -913,7 +936,7 @@ def android_scenarios(args):
             dev.settle(1.0)
             results[mode] = {"ran": ran, "requested": requested, "device": device, "rgba": rgba, "dims": dims, "first_frame_s": t,
                              "displayed_ms": displayed_ms(text, args.package), "frames": frames, "mem": mem}
-        report_modes(run, s, results, args.expect_gpu, "android")
+        report_modes(run, s, results, args.expect_gpu, "android", hardware=args.hardware)
         dev.sh(f"setprop debug.az.env '{render_env(base_backend)}'")
         dev.launch(cold=True)       # the default start again: what the later steps compare with
         dev.wait_for_front(timeout=args.first_frame_timeout)
@@ -1730,7 +1753,7 @@ def ios_scenarios(args):
             s.check(f"AZ_BACKEND={mode}: the app draws", t is not None and not is_flat(sig), f"first frame after {t:.1f} s" if t is not None else "no frame")
             results[mode] = {"ran": ran, "requested": requested, "device": device, "rgba": full[0] if full else None,
                              "dims": (full[1], full[2]) if full else dev.dims, "first_frame_s": t, "displayed_ms": None, "frames": None}
-        report_modes(run, s, results, args.expect_gpu, "ios")
+        report_modes(run, s, results, args.expect_gpu, "ios", hardware=args.hardware)
         dev.launch(cold=True)       # the default start again: the picture the later steps compare with
         dev.wait_for_front(timeout=args.first_frame_timeout)
         dev.settle(2.0)
@@ -1890,6 +1913,7 @@ def main(argv):
                    help="AZ_BACKEND for every step of the run (the lifecycle of each renderer); with gpu every needs-app step also checks the engine still says gpu")
     a.add_argument("--expect-hooks", action="store_true",
                    help="the libazul has the failure hook (the mobile-e2e variant: cargo feature test-hooks): step 03c's AZ_GPU_FAIL runs MUST fall back")
+    a.add_argument("--hardware", action="store_true", help="the device has a real GPU (a phone, not a CI emulator): `auto` must then run the GL renderer")
     a.add_argument("--floor-apk", default="", help="the floor APK (an empty Java Activity) measured the same way")
     a.add_argument("--tap-label", default="", help="press the button the accessibility tree names this (step 03e)")
     i = sub.add_parser("ios")
@@ -1901,6 +1925,7 @@ def main(argv):
     i.add_argument("--label", default="AzWidgets")
     i.add_argument("--first-frame-timeout", type=int, default=45)
     i.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
+    i.add_argument("--hardware", action="store_true", help="the device has a real GPU (a phone, not a CI Simulator): `auto` must then run the GL renderer")
     i.add_argument("--only", default="", help="comma list of step numbers to run besides 00-02")
     args = ap.parse_args(argv)
     run = android_scenarios(args) if args.platform == "android" else ios_scenarios(args)
