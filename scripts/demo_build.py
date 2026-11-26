@@ -31,6 +31,7 @@ import time
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
+import android_elf_check  # noqa: E402
 import demo_apps  # noqa: E402
 import demo_gate  # noqa: E402
 
@@ -414,6 +415,11 @@ def verify_apk(apk, abi):
     for needle in (f"lib/{abi}/libazul.so", "classes.dex"):
         if needle not in listing:
             raise RuntimeError(f"the APK has no {needle}")
+    # a device with 16 KiB pages (Android 15 and later) cannot load a library whose segments are aligned to 4 KiB, NDK 27's default:
+    # every library of the APK has p_align >= 0x4000 (the rustflags of .cargo/config.toml), the failing file is named
+    problems = android_elf_check.check_apk(str(apk))
+    if problems:
+        raise RuntimeError("; ".join(problems))
     if (bt / "apksigner").exists():
         r = subprocess.run([str(bt / "apksigner"), "verify", str(apk)], capture_output=True, text=True)
         if r.returncode != 0:

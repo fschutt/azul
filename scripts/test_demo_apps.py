@@ -446,12 +446,73 @@ class BuildTest(unittest.TestCase):
             self.assertIsNone(demo_build.executable_of(j, "AzMaps"))
 
 
+class AndroidLevelsTest(unittest.TestCase):
+    """The SDK levels of every APK are recorded in the manifest and are the ones the template of the Android manifest says."""
+
+    def test_the_manifest_records_the_levels_and_the_template_agrees(self):
+        m = demo_apps.load()
+        self.assertEqual(m["android"], {"min_sdk": 24, "target_sdk": 34})
+        self.assertEqual([e for e in demo_apps.check(m) if "SdkVersion" in e or "min_sdk" in e or "target_sdk" in e], [])
+
+    def test_a_level_the_template_does_not_say_is_an_error(self):
+        m = demo_apps.load()
+        m["android"]["target_sdk"] = 35
+        self.assertTrue(any("targetSdkVersion" in e and "35" in e for e in demo_apps.check(m)))
+        m = demo_apps.load()
+        m["android"]["min_sdk"] = 26
+        self.assertTrue(any("minSdkVersion" in e and "26" in e for e in demo_apps.check(m)))
+
+    def test_levels_that_are_no_numbers_or_a_target_below_the_minimum_are_errors(self):
+        m = demo_apps.load()
+        m["android"] = {"min_sdk": "24", "target_sdk": 34}
+        self.assertTrue(any("min_sdk" in e for e in demo_apps.check(m)))
+        m["android"] = {"min_sdk": 34, "target_sdk": 24}
+        self.assertTrue(any("below" in e for e in demo_apps.check(m)))
+        m["android"] = {}
+        self.assertTrue(any("target_sdk" in e for e in demo_apps.check(m)))
+
+
+class ApkGateTest(unittest.TestCase):
+    """verify_apk is the gate of a built APK: what the phone checks before it runs anything, and that every library of it can be
+    loaded on a device with 16 KiB pages (scripts/android_elf_check.py)."""
+
+    def make_apk(self, root, aligns, name="AzX.apk"):
+        sys.path.insert(0, str(HERE))
+        import test_android_elf_check as t
+        path = pathlib.Path(root) / name
+        t.apk(path, [("classes.dex", b"dex\n035", False, 0),
+                     ("lib/arm64-v8a/libazul.so", t.elf(aligns), False, 0),
+                     ("lib/arm64-v8a/libazul_x.so", t.elf(aligns), False, 0)])
+        return path
+
+    def test_an_apk_with_4_kib_libraries_is_a_failed_app_that_names_the_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(RuntimeError) as caught:
+                demo_build.verify_apk(self.make_apk(d, [0x1000] * 3), "arm64-v8a")
+        self.assertIn("AzX.apk!lib/arm64-v8a/libazul.so", str(caught.exception))
+        self.assertIn("p_align 0x1000", str(caught.exception))
+
+    def test_an_apk_with_16_kib_libraries_passes(self):
+        with tempfile.TemporaryDirectory() as d:
+            demo_build.verify_apk(self.make_apk(d, [0x4000] * 3), "arm64-v8a")
+
+
 class StatusTest(unittest.TestCase):
     def test_a_missing_result_is_unexplained_and_a_known_failure_is_not(self):
         m = demo_apps.load()
         data, md = demo_apps.status([], m=m)
         self.assertIn("AzWidgets/linux", data["summary"]["unexplained_failures"])
         self.assertIn("MISSING", md)
+
+    def test_every_cell_names_the_file_it_stands_for_even_when_the_build_failed_or_never_reported(self):
+        # the page's link pruning needs the names of the failed cells too (their `artifact` is null): they are in the status
+        m = demo_apps.load()
+        data, _ = demo_apps.status([], m=m)
+        for row in data["apps"]:
+            app = next(a for a in m["app"] if a["package"] == row["app"])
+            for col, cell in row["cells"].items():
+                self.assertEqual(cell["staged"], demo_apps.staged_name(app, col), (row["app"], col))
+                self.assertEqual(cell["release"], demo_apps.release_name(app, col), (row["app"], col))
 
     def test_results_and_boot_tests_fill_the_cells(self):
         m = demo_apps.load()
