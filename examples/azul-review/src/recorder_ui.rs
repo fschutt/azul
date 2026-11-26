@@ -55,13 +55,15 @@ pub struct RecorderApp {
     shown: Shown,
     /// The ticks so far.
     ticks: u32,
+    /// The recorder's window is open (it is made once, and again after it was closed).
+    pub window_open: bool,
 }
 
 impl RecorderApp {
     /// An app side with no window yet.
     #[must_use]
     pub fn new(host: RecorderHost) -> Self {
-        Self { host, display: None, timer: None, shown: Shown::default(), ticks: 0 }
+        Self { host, display: None, timer: None, shown: Shown::default(), ticks: 0, window_open: false }
     }
 }
 
@@ -169,6 +171,14 @@ pub fn pause_hotkey_label() -> &'static str {
 }
 
 // ---- the window ----
+
+/// Opens the recorder's window when it is not open (`layout` is the app's layout callback for it).
+pub fn open(host: &Host, info: &mut CallbackInfo, layout: LayoutCallbackType) {
+    let fresh = host.run(|app| !std::mem::replace(&mut app.window_open, true)).unwrap_or(false);
+    if fresh {
+        info.create_window(window(layout));
+    }
+}
 
 /// The recorder's window: small, above the others, and out of the screen's own recording. `layout` is the app's
 /// layout callback for it (it calls [`hud`]).
@@ -453,7 +463,10 @@ extern "C" fn on_close(mut data: RefAny, _info: CallbackInfo) -> Update {
     let Some(p) = data.downcast_ref::<Press>() else { return Update::DoNothing };
     let host = p.host.clone();
     drop(p);
-    host.run(|app| app.host.stop());
+    host.run(|app| {
+        app.host.stop();
+        app.window_open = false;
+    });
     Update::DoNothing
 }
 

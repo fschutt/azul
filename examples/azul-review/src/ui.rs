@@ -409,6 +409,9 @@ fn menu_bar(data: &RefAny) -> Menu {
         StringMenuItem::create(label("azreview-reveal-archive"))
             .with_callback(data.clone(), crate::on_menu_reveal),
     ));
+    session = session.with_child(MenuItem::String(
+        StringMenuItem::create(label("azreview-menu-recorder")).with_callback(data.clone(), crate::on_menu_recorder),
+    ));
     items.push(MenuItem::String(session));
 
     Menu::create(MenuItemVec::copy_from_ptr(&items[0], items.len()))

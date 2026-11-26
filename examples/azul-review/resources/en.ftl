@@ -113,6 +113,7 @@ azreview-rec-list-title = Recordings
 azreview-rec-reveal = Show folder
 azreview-rec-delete = Delete
 azreview-rec-notice-display-missing = The display { $id } named in the settings is not there: the display of this window is recorded.
+azreview-menu-recorder = Recording...
 azreview-rec-who-unknown = the program that started AzReview
 azreview-rec-state-complete = Complete
 azreview-rec-state-recovered = Recovered after the app ended

@@ -13,12 +13,7 @@ use azul::prelude::*;
 use azul_appkit::{args::AppArgs, l10n::begin_layout, ui as kit};
 
 use crate::{
-    recorder::Deps,
-    recorder_azul::AzulFactory,
-    recorder_args::{own_arguments, parse_utc_offset},
-    recorder_clock::{Clock, SessionClock},
-    recorder_host::{Facts, RecorderHost},
-    recorder_manifest::{AppInfo, HostInfo, Workspace},
+    recorder_args::own_arguments,
     recorder_settings::RecorderSettings,
     recorder_ui::{self, Host, RecorderApp},
 };
@@ -51,33 +46,6 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
     Update::DoNothing
 }
 
-/// The real machine under the recorder: the wall clock, a session clock that starts at the session's own
-/// start, the free space of the disk, azul's encoders.
-fn real_deps() -> Deps {
-    Deps {
-        unix_ms: Box::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))),
-        make_clock: Box::new(|origin_unix_ms| std::sync::Arc::new(SessionClock::start(origin_unix_ms)) as std::sync::Arc<dyn Clock>),
-        free_bytes: Box::new(|path| {
-            // (The folder may not exist yet: the volume it would be made on.)
-            let probe = azul::file::FilePath::create(azul::str::String::from(path.to_string_lossy().as_ref()));
-            probe.disk_space_for_new().into_option().map(|space| space.free)
-        }),
-        factory: Box::new(AzulFactory),
-    }
-}
-
-/// The local time's offset from UTC in minutes: what `date +%z` says (`+0100`), once, at the start; 0 where there
-/// is no `date` (the sessions are then named by UTC).
-#[must_use]
-pub fn local_utc_offset_minutes() -> i32 {
-    std::process::Command::new("date")
-        .arg("+%z")
-        .output()
-        .ok()
-        .and_then(|out| parse_utc_offset(String::from_utf8_lossy(&out.stdout).trim()))
-        .unwrap_or(0)
-}
-
 /// Starts the demo window: `recorder_demo [--record screen,camera,mic] [--data-dir DIR] [--language en|de]`.
 pub fn run() {
     let (record, rest) = match own_arguments(std::env::args().skip(1).collect()) {
@@ -101,26 +69,13 @@ pub fn run() {
         let mut k = kit_ref.clone();
         k.downcast_ref::<kit::Kit>().map(|k| k.data_root.clone()).unwrap_or_default()
     };
-    // The environment is read once, here, and handed down.
-    let term = std::env::var("TERM_PROGRAM").ok();
-    let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
     let cwd = std::env::current_dir().unwrap_or_default();
-    let facts = Facts {
-        app: AppInfo { name: String::from(crate::ABOUT.name), version: String::from(crate::ABOUT.version) },
-        workspace: Workspace { root: cwd.to_string_lossy().into_owned(), name: cwd.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned()) },
-        host: HostInfo { os: String::from(std::env::consts::OS), arch: String::from(std::env::consts::ARCH) },
-        utc_offset_minutes: local_utc_offset_minutes(),
-        recordings_dir: data_root.join("review").join("recordings"),
-        who: crate::recorder_panel::attribution(&exe, term.as_deref()),
-        decimal: '.',
-        hotkey: String::from(recorder_ui::pause_hotkey_label()),
-    };
-    let dir = facts.recordings_dir.clone();
     let mut settings = RecorderSettings::default();
     if let Some((screen, camera, microphone)) = record {
         (settings.screen, settings.camera, settings.microphone) = (screen, camera, microphone);
     }
-    let mut host = RecorderHost::new(settings, facts, real_deps());
+    let dir = data_root.join("review").join("recordings");
+    let mut host = crate::recorder_app::host(settings, &dir, &cwd, '.');
     let recovered = host.recover();
     println!("RECDEMO_RECOVERED {recovered}");
     host.refresh();

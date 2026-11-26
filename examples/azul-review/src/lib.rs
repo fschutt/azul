@@ -75,6 +75,7 @@ mod l10n_tests;
 pub mod model;
 pub mod perf;
 pub mod recorder;
+pub mod recorder_app;
 pub mod recorder_args;
 pub mod recorder_azul;
 pub mod recorder_clock;
@@ -214,6 +215,8 @@ pub struct AppState {
     /// A session write is in flight; another one waits for it (one writer).
     pub saving: bool,
     pub save_pending: bool,
+    /// The session recorder (the screen, the camera, the voice and the review's events) and its window; made at the start.
+    pub recorder: Option<recorder_ui::RecorderApp>,
 }
 
 impl AppState {
@@ -254,6 +257,7 @@ impl AppState {
             data_root,
             saving: false,
             save_pending: false,
+            recorder: None,
         }
     }
 
@@ -561,10 +565,46 @@ pub fn run() {
     );
     state.switches = own;
     state.perf = perf::Perf::new(std::env::var_os("AZREVIEW_PROFILE").is_some());
+    // The session recorder: its settings from the settings file (what was capped is said), the machine's facts once.
+    let recorded = recorder_settings::resolve(&values);
+    for note in &recorded.notes {
+        eprintln!("[AzReview] {note}");
+    }
+    let recordings = state.data_root.join(ABOUT.app_folder).join("recordings");
+    let mut recorder = recorder_app::host(recorded.settings, &recordings, &state.root, '.');
+    let recovered = recorder.recover();
+    if recovered > 0 {
+        println!("AZREVIEW_RECORDINGS_RECOVERED {recovered}");
+    }
+    recorder.refresh();
+    state.recorder = Some(recorder_ui::RecorderApp::new(recorder));
     let app = App::create(RefAny::new(state), config);
     let window =
         kit::window_options(&kit_ref, ui::layout, (1280.0, 820.0), (800.0, 520.0), on_window_created);
     app.run(window);
+}
+
+/// Runs `f` on the session recorder in the app's state; whether the app has one.
+fn with_recorder(app: &mut RefAny, f: &mut dyn FnMut(&mut recorder_ui::RecorderApp)) -> bool {
+    let Some(mut state) = app.downcast_mut::<AppState>() else { return false };
+    match state.recorder.as_mut() {
+        Some(recorder) => {
+            f(recorder);
+            true
+        }
+        None => false,
+    }
+}
+
+/// The recorder's window: what the recorder says, the way the review's other windows are laid out.
+extern "C" fn layout_recorder(data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    recorder_ui::hud(&recorder_ui::Host { app: data, with: with_recorder }, &info)
+}
+
+/// Session > Recording...: the recorder's window.
+pub extern "C" fn on_menu_recorder(data: RefAny, mut info: CallbackInfo) -> Update {
+    recorder_ui::open(&recorder_ui::Host { app: data, with: with_recorder }, &mut info, layout_recorder);
+    Update::DoNothing
 }
 
 /// The kit's handle, out of the app's state.

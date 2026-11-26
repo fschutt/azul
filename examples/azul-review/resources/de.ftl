@@ -113,6 +113,7 @@ azreview-rec-list-title = Aufnahmen
 azreview-rec-reveal = Ordner zeigen
 azreview-rec-delete = Löschen
 azreview-rec-notice-display-missing = Der Bildschirm { $id } aus den Einstellungen ist nicht da: aufgenommen wird der Bildschirm dieses Fensters.
+azreview-menu-recorder = Aufnahme...
 azreview-rec-who-unknown = das Programm, das AzReview gestartet hat
 azreview-rec-state-complete = Vollständig
 azreview-rec-state-recovered = Nach dem Ende der App wiederhergestellt
