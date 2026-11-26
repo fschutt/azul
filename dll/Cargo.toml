@@ -779,6 +779,8 @@ dist = [
     "_internal_deps",
     "font_loading_multithreaded",
     "font_async_registry",
+    # `hyphens: auto` in every language, not English only.
+    "hyphenation-all",
     # Full functional surface for a complete libazul dylib - P4-P8 demos
     # consume these through api.json. New feature-gated subsystems
     # (db-sqlite, biometric, ...) MUST be added HERE as they land: `build-dll` includes this list.
@@ -1211,6 +1213,11 @@ icu_macos = ["azul-layout", "azul-layout/icu_macos"]
 # Windows NLS ICU backend (replaces ICU4X data blobs on Windows, ~3.3 MB savings).
 # On non-Windows platforms this feature is a no-op.
 icu_windows = ["azul-layout", "azul-layout/icu_windows"]
+
+# Hyphenation for every language the `hyphenation` crate has patterns for (82; +2.8 MB in the library,
+# about 4 %): `hyphens: auto` on a German, French or Spanish text finds its dictionary. Without it only
+# English (US) is embedded, and a text in another language is not hyphenated. In `dist`.
+hyphenation-all = ["azul-layout", "azul-layout/text_layout_hyphenation_all"]
 
 # Project Fluent localization support (FTL files, language packs)
 fluent = ["azul-layout", "azul-layout/fluent"]
