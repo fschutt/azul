@@ -417,6 +417,13 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
                     frames_now.saturating_add(1),
                     core::sync::atomic::Ordering::Relaxed,
                 );
+                // The first frame is handed to the layer: marks `first_present` once and prints the table
+                // when the timeline is on (AZ_STARTUP=1); a test of a bool otherwise.
+                window
+                    .common
+                    .app
+                    .startup()
+                    .mark_first_present(|| String::from("ios"));
             }
             CGDataProviderRelease(provider);
             CGColorSpaceRelease(cs);
@@ -1710,6 +1717,8 @@ extern "C" fn did_finish_launching(
             #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
             debug_channel,
         } = launch;
+        // The app's startup timeline (AZ_STARTUP=1; free when off): the first mark of the app's own code on the phone.
+        app_shared.startup().mark("ios:application_did_finish_launching");
 
         // The UNUserNotificationCenter delegate, BEFORE this method returns:
         // a tap on a notification of an app that was not running launches it,
@@ -1740,6 +1749,7 @@ extern "C" fn did_finish_launching(
                 return false;
             }
         };
+        window.common.app.startup().mark("ios:window_created");
         // The debug/E2E channel `run()` stashed: the timer that drains it is driven by the same
         // display tick that drives every other timer. Dropped on the floor before, so the e2e
         // runner of a phone queued its scenarios and waited for a receiver nobody read.
