@@ -13,9 +13,9 @@ use azul::{
     option::OptionString,
     str::String as AzString,
     widgets::{
-        DropDown, RichAlign, RichBlockKind, RichCheck, RichFormat, RichTableSize, RichTextCommand,
-        RichTextEditorState, Ribbon, RibbonAppButton, RibbonGallery, RibbonGalleryCell, RibbonItem,
-        RibbonTab,
+        Button, DropDown, RichAlign, RichBlockKind, RichCheck, RichFormat, RichTableSize,
+        RichTextCommand, RichTextEditorState, Ribbon, RibbonAppButton, RibbonGallery,
+        RibbonGalleryCell, RibbonItem, RibbonTab,
     },
 };
 use azul_appkit::ribbon::{button, column, group, large, row, small, toggle, RibbonCommand};
@@ -423,6 +423,83 @@ fn view_tab(app: &RefAny, st: &AppState) -> RibbonTab {
         ],
     );
     RibbonTab::create(s(TABS[2])).with_group(views).with_group(zoom).with_group(help)
+}
+
+/// The window width under which the screen is a phone's (portrait), and the height under which it is a
+/// phone's too (landscape: 393 dp on an iPhone 15 Pro, a desktop window is at least 480): the format bar
+/// ([`phone_bar`]) takes the ribbon's place. The ribbon's keys are 22 px tall and its band (the groups of
+/// a tab side by side) is wider than such a screen: the tab strip and the groups ran out of a 411 dp
+/// window on its right.
+pub const PHONE_WIDTH: f32 = 600.0;
+/// See [`PHONE_WIDTH`].
+pub const PHONE_HEIGHT: f32 = 440.0;
+
+/// The phone's format bar: one row of keys that scrolls sideways when the screen is too narrow
+/// for them.
+const PHONE_BAR: &str = "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; \
+                         gap: 2px; padding: 4px; overflow-x: auto; overflow-y: hidden; \
+                         background: system:window-background; border-bottom: 1px solid \
+                         system:separator;";
+
+/// A key of the phone's format bar: an icon named for a screen reader, lit while the caret's text
+/// has what it sets. Runs the command through [`on_command`], as a ribbon key does.
+fn key(app: &RefAny, icon: &str, name: &str, cmd: Command, on: bool) -> Dom {
+    Button::create("")
+        .with_icon(icon)
+        .with_toggled(on)
+        .with_on_click(command(app, cmd), on_command as ButtonOnClickCallbackType)
+        .dom()
+        .with_accessibility_name(s(name))
+}
+
+/// The format bar of a phone, in the ribbon's place: File (the backstage: new, open, save, export),
+/// then what people use while they write - undo and redo, the three formats, the two lists, the
+/// alignment - and the settings. Every key is a finger wide (the engine's touch floor of a button),
+/// and the caret's state is lit as in the ribbon.
+#[must_use]
+pub fn phone_bar(app: &RefAny, st: &AppState) -> Dom {
+    let editor = st.doc.as_ref().map(|d| &d.editor);
+    let format_on = |f: RichFormat| editor.is_some_and(|e| e.is_current_format(f));
+    let kind_on = |k: RichBlockKind| editor.is_some_and(|e| e.is_current_kind(k));
+    let align = editor.map_or(RichAlign::Left, current_align);
+    let file = Button::create(s("azwriter-tab-file"))
+        .with_on_click(
+            command(app, Command::OpenBackstage(BackstagePage::Info)),
+            on_command as ButtonOnClickCallbackType,
+        )
+        .dom();
+    Dom::create_div()
+        .with_css(PHONE_BAR)
+        .with_child(file)
+        .with_child(key(app, "undo", "azwriter-undo", Command::Rich(RichTextCommand::Undo), false))
+        .with_child(key(app, "redo", "azwriter-redo", Command::Rich(RichTextCommand::Redo), false))
+        .with_child(key(app, "format_bold", "azwriter-bold", Command::format(RichFormat::Bold), format_on(RichFormat::Bold)))
+        .with_child(key(app, "format_italic", "azwriter-italic", Command::format(RichFormat::Italic), format_on(RichFormat::Italic)))
+        .with_child(key(
+            app,
+            "format_underlined",
+            "azwriter-underline",
+            Command::format(RichFormat::Underline),
+            format_on(RichFormat::Underline),
+        ))
+        .with_child(key(
+            app,
+            "format_list_bulleted",
+            "azwriter-bullets",
+            Command::kind(RichBlockKind::Bullet(0)),
+            kind_on(RichBlockKind::Bullet(0)),
+        ))
+        .with_child(key(
+            app,
+            "format_list_numbered",
+            "azwriter-numbering",
+            Command::kind(RichBlockKind::Numbered(0)),
+            kind_on(RichBlockKind::Numbered(0)),
+        ))
+        .with_child(key(app, "format_align_left", "azwriter-left", Command::align(RichAlign::Left), align == RichAlign::Left))
+        .with_child(key(app, "format_align_center", "azwriter-center", Command::align(RichAlign::Center), align == RichAlign::Center))
+        .with_child(key(app, "format_align_right", "azwriter-right", Command::align(RichAlign::Right), align == RichAlign::Right))
+        .with_child(key(app, "settings", "azwriter-settings", Command::Settings, false))
 }
 
 /// The ribbon for the app's state.
