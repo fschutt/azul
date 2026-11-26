@@ -21,6 +21,7 @@ use azul_css::{
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     widgets::{
+        backstage::{Backstage, BackstageNavItem, BackstageNavItemVec},
         button::{Button, ButtonType},
         drop_down::DropDown,
         text_input::TextInput,
@@ -208,4 +209,24 @@ fn a_drop_down_is_as_tall_as_a_finger_on_a_phone_and_a_desktop_one_is_not() {
         let (_, desktop) = size_of_class(defaults::macos_modern_light(), drop_down(theme), "__azul-native-dropdown");
         assert!(desktop < 40.0, "{theme:?}: a desktop drop-down keeps its size: {desktop}");
     }
+}
+
+fn backstage() -> Dom {
+    let items = BackstageNavItemVec::from_vec(vec![
+        BackstageNavItem::new(AzString::from("Info")),
+        BackstageNavItem::new(AzString::from("Open")),
+        BackstageNavItem::new(AzString::from("Save as")),
+    ]);
+    Backstage::new(items).dom()
+}
+
+#[test]
+fn a_backstage_row_is_as_tall_as_a_finger_on_a_phone_and_a_desktop_row_is_not() {
+    let class = "__azul-native-backstage-nav-item";
+    let (_, android) = size_of_class(defaults::android_material_light(), backstage(), class);
+    assert!(android >= 47.9, "48 dp on Android: {android}");
+    let (_, ios) = size_of_class(defaults::ios_light(), backstage(), class);
+    assert!(ios >= 43.9, "44 pt on iOS: {ios}");
+    let (_, desktop) = size_of_class(defaults::macos_modern_light(), backstage(), class);
+    assert!(desktop < 40.0, "a desktop row keeps its 38 px: {desktop}");
 }

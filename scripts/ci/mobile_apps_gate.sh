@@ -76,6 +76,7 @@ red_layout() {
   [ -n "$base" ] || { echo "MOBILE_APPS_BASE is not set: no base commit to take the previous files from"; return 2; }
   git fetch -q --depth=1 origin "$base" || { echo "cannot fetch $base"; return 2; }
   local files=(layout/src/widgets/themes/decl.rs layout/src/widgets/themes/flat.rs layout/src/widgets/themes/flora.rs
+               layout/src/widgets/backstage.rs
                examples/azul-maps/src/lib.rs examples/azul-maps/src/drive_ui.rs examples/azul-widgets/src/video.rs
                examples/azul-widgets/src/mail.rs examples/azul-paint/src/lib.rs examples/azul-writer/src/ribbon.rs)
   git checkout -q "$base" -- "${files[@]}" || { echo "cannot take the previous files from $base"; return 2; }
@@ -88,6 +89,7 @@ red_layout() {
     a_button_is_a_touch_target_on_a_phone::a_button_is_44_pt_in_each_direction_on_ios_in_every_theme \
     a_button_is_a_touch_target_on_a_phone::a_text_field_is_as_tall_as_a_finger_on_a_phone_and_a_desktop_field_is_not \
     a_button_is_a_touch_target_on_a_phone::a_drop_down_is_as_tall_as_a_finger_on_a_phone_and_a_desktop_one_is_not \
+    a_button_is_a_touch_target_on_a_phone::a_backstage_row_is_as_tall_as_a_finger_on_a_phone_and_a_desktop_row_is_not \
     azul_widgets_video_card_fits_a_phone::no_node_of_the_video_card_crosses_the_right_edge_of_a_phone \
     azul_widgets_video_card_fits_a_phone::the_stage_is_as_wide_as_the_page_leaves_it_up_to_the_clips_480_and_keeps_16_to_9 \
     azul_widgets_mail_window_fits_a_phone::on_a_phone_the_three_panes_stand_one_over_the_other_inside_the_card \

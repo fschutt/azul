@@ -506,6 +506,9 @@ fn theme_nav_item(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
     push_nav_ink(&mut v, t);
     v.push(cond_bg(TRANSPARENT));
     push_nav_hover(&mut v, t);
+    // A finger needs room: a row of the nav is 48 dp tall on Android and 44 pt on iOS (the way to Open and
+    // Save on a phone), nothing on a desktop.
+    v.extend(super::themes::decl::touch_target_floor());
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
