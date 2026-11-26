@@ -47,3 +47,44 @@ fn the_widths_of_the_panels_are_told() {
     assert_eq!(v["right_open"], true);
     assert_eq!(v["right_w"], 481.0);
 }
+
+#[test]
+fn the_microphone_and_the_dictation_are_told_for_the_scripts_that_wait_for_them() {
+    use crate::{dictation::Mic, voice::Running};
+    let mut s = app();
+    let v = parsed(&s);
+    assert_eq!((v["mic"].as_str(), v["dictating"].as_bool(), v["ready"].as_bool()), (Some("cold"), Some(false), Some(false)));
+    assert_eq!(v["partial"], "");
+
+    let mut running = Running::for_test(1, 1);
+    running.partial = "this lo".to_string();
+    s.voice.running = Some(running);
+    let v = parsed(&s);
+    assert_eq!((v["dictating"].as_bool(), v["ready"].as_bool()), (Some(true), Some(false)), "opening");
+    assert_eq!(v["partial"], "this lo");
+
+    if let Some(r) = s.voice.running.as_mut() {
+        r.ready = true;
+    }
+    s.voice.mic = Mic::Listening;
+    let v = parsed(&s);
+    assert_eq!((v["ready"].as_bool(), v["mic"].as_str()), (Some(true), Some("listening")));
+}
+
+#[test]
+fn the_standby_is_told_with_what_the_policy_asked_so_far() {
+    let mut s = app();
+    let v = parsed(&s);
+    assert_eq!(v["standby"]["mode"], "near", "the pen near is the default");
+    assert_eq!(v["standby"]["enabled"], false, "nothing runs where the session cannot open the microphone ahead");
+    assert_eq!((v["standby"]["armed"].as_bool(), v["standby"]["arms"].as_u64(), v["standby"]["disarms"].as_u64()), (Some(false), Some(0), Some(0)));
+
+    s.voice.can_arm = true;
+    s.voice.dwell.set_config(crate::dwell::Config { allow: crate::dwell::Allow::Any, ..crate::dwell::Config::default() });
+    s.voice.pen_near(false);
+    let v = parsed(&s);
+    assert_eq!((v["standby"]["enabled"].as_bool(), v["standby"]["armed"].as_bool(), v["standby"]["arms"].as_u64()), (Some(true), Some(true), Some(1)));
+    s.voice.window_deactivated();
+    let v = parsed(&s);
+    assert_eq!((v["standby"]["armed"].as_bool(), v["standby"]["disarms"].as_u64()), (Some(false), Some(1)));
+}

@@ -34,6 +34,8 @@ pub const DICTATION_STOP: AzString = AzString::from_const_str("__azreview_dictat
 pub const SETTING_INPUT: AzString = AzString::from_const_str("__azreview_setting-input");
 pub const SETTING_REST: AzString = AzString::from_const_str("__azreview_setting-rest");
 pub const SETTING_QUIET: AzString = AzString::from_const_str("__azreview_setting-quiet");
+pub const SETTING_STANDBY: AzString = AzString::from_const_str("__azreview_setting-standby");
+pub const SETTING_STANDBY_IDLE: AzString = AzString::from_const_str("__azreview_setting-standby-idle");
 /// The flyout's "Open folder" button.
 pub const OPEN_FOLDER: AzString = AzString::from_const_str("__azreview_open-folder");
 /// The empty page's "Open folder" button, and the microphone widget that records a clip.
@@ -52,6 +54,8 @@ pub const RIGHT_PANEL: AzString = AzString::from_const_str("__azreview_right-pan
 pub const RIGHT_GRIP: AzString = AzString::from_const_str("__azreview_right-grip");
 /// The settings page's list of the recognisers and their state.
 pub const SPEECH_STATUS: AzString = AzString::from_const_str("__azreview_speech-status");
+/// The settings page's line about the microphone's state.
+pub const MIC_STATUS: AzString = AzString::from_const_str("__azreview_mic-status");
 /// The bottom bar of the agents at work.
 pub const BOTTOM_BAR: AzString = AzString::from_const_str("__azreview_agents-bar");
 /// What the tree shows of a file's conversations: an agent at work (the spinner), a suggestion waiting, all done.

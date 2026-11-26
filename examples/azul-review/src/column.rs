@@ -19,10 +19,12 @@ use azul_appkit::{
 
 use crate::{
     code::SourceFile,
+    dictation::Mic,
     dwell::{self, Allow},
     ids,
     model::Note,
-    switches::{self, KEY_INPUT, KEY_REST, KEY_SILENCE},
+    standby::{self, Standby},
+    switches::{self, KEY_INPUT, KEY_REST, KEY_SILENCE, KEY_STANDBY, KEY_STANDBY_IDLE},
     ui, voice, AppState,
 };
 
@@ -35,6 +37,8 @@ pub const MARKER_D: f32 = 22.0;
 pub static REST_PRESETS: [u64; 4] = [800, 1_200, 2_000, 3_000];
 /// The silence times the settings page offers, ms.
 pub static SILENCE_PRESETS: [u64; 4] = [5_000, 10_000, 20_000, 40_000];
+/// The idle times (how long the pen is away before the microphone is closed) the settings page offers, ms.
+pub static IDLE_PRESETS: [u64; 4] = [15_000, 30_000, 120_000, 600_000];
 
 /// What a note's controls carry: the app and the note's id.
 pub struct NoteTag {
@@ -133,7 +137,9 @@ fn header(s: &AppState, data: &RefAny) -> Dom {
             .with_child(Dom::create_icon("close").with_css("font-size: 14px;")),
     );
     if s.voice.running.is_some() {
-        let listening = s.voice.is_listening();
+        // Going (not asked to stop yet) is what the stop button is for; "listening" is the microphone taking words.
+        let going = s.voice.is_listening();
+        let ready = s.voice.is_ready();
         row.add_child(
             Dom::create_div()
                 .with_id(ids::LISTENING)
@@ -141,14 +147,16 @@ fn header(s: &AppState, data: &RefAny) -> Dom {
                     "display: flex; flex-direction: row; align-items: center; gap: 4px; font-size: \
                      11px; color: #d62d20; flex-shrink: 0;",
                 )
-                .with_child(Dom::create_icon(if listening { "mic" } else { "hourglass_top" }).with_css("font-size: 14px;"))
-                .with_child(Dom::create_span_with_text(label(if listening {
+                .with_child(Dom::create_icon(if ready { "mic" } else { "hourglass_top" }).with_css("font-size: 14px;"))
+                .with_child(Dom::create_span_with_text(label(if ready {
                     "azreview-listening"
+                } else if going {
+                    "azreview-dictation-opening"
                 } else {
                     "azreview-finishing"
                 }))),
         );
-        if listening {
+        if going {
             row.add_child(
                 Button::create(label("azreview-dictation-stop"))
                     .with_icon("stop")
@@ -186,7 +194,7 @@ fn hint(s: &AppState) -> Dom {
 /// One note's card.
 fn card(s: &AppState, data: &RefAny, number: usize, note: &Note) -> Dom {
     let running = s.voice.running_note() == Some(note.id);
-    let listening = running && s.voice.is_listening();
+    let listening = s.voice.ready_note() == Some(note.id);
     let tag = RefAny::new(NoteTag {
         app: data.clone(),
         id: note.id,
@@ -212,10 +220,24 @@ fn card(s: &AppState, data: &RefAny, number: usize, note: &Note) -> Dom {
         } else {
             note.text.clone()
         };
-        Dom::create_p_with_text(words.as_str()).with_css(
-            "margin: 0px; font-size: 13px; line-height: 1.35; white-space: pre-wrap; \
-             overflow-wrap: anywhere;",
-        )
+        let mut body = Dom::create_div()
+            .with_css("display: flex; flex-direction: column; gap: 2px;")
+            .with_child(Dom::create_p_with_text(words.as_str()).with_css(
+                "margin: 0px; font-size: 13px; line-height: 1.35; white-space: pre-wrap; \
+                 overflow-wrap: anywhere;",
+            ));
+        // The words of the utterance being spoken, before the recogniser has made them the note's.
+        if !s.voice.partial().is_empty() {
+            body.add_child(
+                Dom::create_p_with_text(s.voice.partial())
+                    .with_id(format!("__azreview_note-partial-{}", note.id).as_str())
+                    .with_css(
+                        "margin: 0px; font-size: 13px; line-height: 1.35; white-space: pre-wrap; \
+                         overflow-wrap: anywhere; color: system:secondary-text; font-style: italic;",
+                    ),
+            );
+        }
+        body
     } else {
         TextArea::create()
             .with_text(note.text.as_str())
@@ -294,6 +316,19 @@ static SILENCE_LABELS: [&str; 4] = [
     "azreview-quiet-20",
     "azreview-quiet-40",
 ];
+/// The labels of the idle times.
+static IDLE_LABELS: [&str; 4] = [
+    "azreview-idle-15",
+    "azreview-idle-30",
+    "azreview-idle-120",
+    "azreview-idle-600",
+];
+/// The labels of the standby choices, in the order of [`Standby::ALL`].
+static STANDBY_LABELS: [&str; 3] = [
+    "azreview-standby-off",
+    "azreview-standby-near",
+    "azreview-standby-always",
+];
 /// The labels of the pointers that may rest into a dictation, in the order of [`Allow::ALL`].
 static INPUT_LABELS: [&str; 3] = [
     "azreview-dictation-off",
@@ -301,12 +336,20 @@ static INPUT_LABELS: [&str; 3] = [
     "azreview-dictation-any",
 ];
 
+/// The labels of the microphone's states, in the order of [`Mic::ALL`].
+static MIC_LABELS: [&str; 4] = [
+    "azreview-mic-cold",
+    "azreview-mic-warm",
+    "azreview-mic-armed",
+    "azreview-mic-listening",
+];
+
 /// The settings page's Dictation section: which pointers start a dictation, how long the pen rests,
 /// how long the quiet lasts.
 #[must_use]
 pub fn settings_section(s: &AppState, app: &RefAny) -> kit::AppSection {
     let cfg = s.voice.dwell.config();
-    let content = Dom::create_div()
+    let mut content = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
         .with_child(kit::row(
             "azreview-dictation-when",
@@ -332,13 +375,44 @@ pub fn settings_section(s: &AppState, app: &RefAny) -> kit::AppSection {
                 .dom()
                 .with_id(ids::SETTING_QUIET),
         ))
-        .with_child(kit::note("azreview-dictation-note"))
-        .with_child(speech_status(s));
+        .with_child(kit::note("azreview-dictation-note"));
+    // Offered where the session can open the microphone ahead of a dictation: a choice that does nothing is not one.
+    if s.voice.can_arm {
+        let standing = s.voice.arming.config();
+        content.add_child(kit::row(
+            "azreview-standby-when",
+            Segmented::create(labels(&STANDBY_LABELS))
+                .with_selected_index(Standby::ALL.iter().position(|b| *b == standing.standby).unwrap_or(1))
+                .with_on_change(app.clone(), on_standby as SegmentedOnChangeCallbackType)
+                .dom()
+                .with_id(ids::SETTING_STANDBY),
+        ));
+        content.add_child(kit::row(
+            "azreview-standby-idle",
+            Segmented::create(labels(&IDLE_LABELS))
+                .with_selected_index(nearest(&IDLE_PRESETS, standing.idle_ms))
+                .with_on_change(app.clone(), on_standby_idle as SegmentedOnChangeCallbackType)
+                .dom()
+                .with_id(ids::SETTING_STANDBY_IDLE),
+        ));
+        content.add_child(kit::note("azreview-standby-note"));
+    }
+    content.add_child(mic_line(s));
+    content.add_child(speech_status(s));
     kit::AppSection {
         category: 0,
         title: t("azreview-category-dictation"),
         content,
     }
+}
+
+/// What is known of the microphone, in words.
+fn mic_line(s: &AppState) -> Dom {
+    let at = Mic::ALL.iter().position(|m| *m == s.voice.mic).unwrap_or(0);
+    let state = t(MIC_LABELS[at]);
+    Dom::create_span_with_text(t_args("azreview-mic-line", &[("state", Arg::from(state))]).as_str())
+        .with_id(ids::MIC_STATUS)
+        .with_css("padding: 8px 0px 0px 0px; font-size: 11px; color: system:secondary-text;")
 }
 
 /// The recognisers the dictation asks, in the order it asks them, each with its state in the speech session's own
@@ -407,6 +481,28 @@ extern "C" fn on_quiet(mut data: RefAny, mut info: CallbackInfo, state: Segmente
     })
 }
 
+extern "C" fn on_standby(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let Some(&choice) = Standby::ALL.get(state.selected_index) else {
+        return Update::DoNothing;
+    };
+    let update = change(&mut data, &mut info, KEY_STANDBY, choice.name().to_string(), |s| {
+        let cfg = s.voice.arming.config();
+        s.voice.set_standby(standby::Config { standby: choice, ..cfg });
+    });
+    voice::ensure_standby_timer(&mut data, &mut info);
+    update
+}
+
+extern "C" fn on_standby_idle(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let Some(&ms) = IDLE_PRESETS.get(state.selected_index) else {
+        return Update::DoNothing;
+    };
+    change(&mut data, &mut info, KEY_STANDBY_IDLE, ms.to_string(), |s| {
+        let cfg = s.voice.arming.config();
+        s.voice.set_standby(standby::Config { idle_ms: ms, ..cfg });
+    })
+}
+
 /// After Cancel put the settings back: the window's copies read them again (the switches of this
 /// run still win, as at the start).
 pub fn reload_settings(app: &mut RefAny, _info: &mut CallbackInfo, settings: &AppSettings) {
@@ -421,6 +517,10 @@ pub fn reload_settings(app: &mut RefAny, _info: &mut CallbackInfo, settings: &Ap
         ..cfg
     });
     s.voice.silence_ms = resolved.silence_ms;
+    s.voice.set_standby(standby::Config {
+        standby: resolved.standby,
+        idle_ms: resolved.standby_idle_ms,
+    });
 }
 
 #[cfg(test)]

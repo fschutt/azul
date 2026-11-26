@@ -23,7 +23,7 @@ use crate::{
     code, column, ids,
     ink::{self, InkCanvas, Layer},
     model::{Note, Semantic},
-    voice, AppState,
+    AppState,
 };
 
 /// A column that takes the rest of its parent.
@@ -1198,7 +1198,7 @@ extern "C" fn sheets_virtual_view(
 
         let mut row = Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: flex-start;");
-        let listening = s.voice.running_note().filter(|_| s.voice.is_listening());
+        let listening = s.voice.ready_note();
         for page in first..first + count {
             row.add_child(page_sheet(&cb_app, file, page, &s.notes, listening));
         }

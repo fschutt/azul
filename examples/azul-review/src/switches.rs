@@ -1,5 +1,5 @@
-//! AzReview's own switches (`--dwell-ms`, `--dwell-input`, `--silence-ms`) and the dictation settings
-//! they override, as pure functions: the settings file's values and the switches in, the numbers the
+//! AzReview's own switches (`--dwell-ms`, `--dwell-input`, `--silence-ms`, `--standby`, `--standby-idle-ms`) and the
+//! dictation settings they override, as pure functions: the settings file's values and the switches in, the numbers the
 //! window uses out, every value outside what a person can mean capped with a word about it.
 
 use std::{
@@ -10,6 +10,7 @@ use std::{
 use crate::{
     dictation,
     dwell::{self, Allow},
+    standby::{self, Standby},
 };
 
 /// The settings file's value: which pointers may start a dictation (`off`, `pen`, `any`).
@@ -19,13 +20,20 @@ pub const KEY_REST: &str = "dictation-rest-ms";
 /// The settings file's value: how long without words ends a dictation, ms.
 pub const KEY_SILENCE: &str = "dictation-silence-ms";
 
+/// The settings file's value: whether the microphone is kept ready for a dictation (`off`, `near`, `always`).
+pub const KEY_STANDBY: &str = "dictation-standby";
+/// The settings file's value: how long the pen is away before the microphone is closed, ms.
+pub const KEY_STANDBY_IDLE: &str = "dictation-standby-idle-ms";
+
 /// The settings file's value: the folder reviewed last.
 pub const KEY_FOLDER: &str = "last-folder";
 
 /// The lines AzReview adds to the kit's usage text.
 pub const HELP: &str = "    --dwell-ms <MS>          How long the pen rests before it dictates (this run only)\n    \
                         --dwell-input <NAME>     off | pen | any: which pointers may start a dictation (this run only)\n    \
-                        --silence-ms <MS>        How long without words ends a dictation (this run only)\n";
+                        --silence-ms <MS>        How long without words ends a dictation (this run only)\n    \
+                        --standby <NAME>         off | near | always: when the microphone is kept ready (this run only)\n    \
+                        --standby-idle-ms <MS>   How long the pen is away before the microphone is closed (this run only)\n";
 
 /// The switches of AzReview itself.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -36,6 +44,10 @@ pub struct Switches {
     pub dwell_input: Option<Allow>,
     /// `--silence-ms`.
     pub silence_ms: Option<u64>,
+    /// `--standby`.
+    pub standby: Option<Standby>,
+    /// `--standby-idle-ms`.
+    pub standby_idle_ms: Option<u64>,
 }
 
 impl Switches {
@@ -53,7 +65,10 @@ impl Switches {
                 Some((n, v)) if n.starts_with("--") => (n.to_string(), Some(v.to_string())),
                 _ => (arg.clone(), None),
             };
-            if !matches!(name.as_str(), "--dwell-ms" | "--dwell-input" | "--silence-ms") {
+            if !matches!(
+                name.as_str(),
+                "--dwell-ms" | "--dwell-input" | "--silence-ms" | "--standby" | "--standby-idle-ms"
+            ) {
                 rest.push(arg);
                 continue;
             }
@@ -64,6 +79,13 @@ impl Switches {
             match name.as_str() {
                 "--dwell-ms" => sw.dwell_ms = Some(millis(&name, &value)?),
                 "--silence-ms" => sw.silence_ms = Some(millis(&name, &value)?),
+                "--standby-idle-ms" => sw.standby_idle_ms = Some(millis(&name, &value)?),
+                "--standby" => {
+                    sw.standby = Some(
+                        Standby::parse(&value)
+                            .ok_or_else(|| format!("{name}: expected off|near|always, got {value:?}"))?,
+                    );
+                }
                 _ => {
                     sw.dwell_input = Some(
                         Allow::parse(&value)
@@ -89,6 +111,10 @@ pub struct Resolved {
     pub allow: Allow,
     pub rest_ms: u64,
     pub silence_ms: u64,
+    /// When the microphone is kept ready for a dictation.
+    pub standby: Standby,
+    /// How long the pen is away before it is closed, ms.
+    pub standby_idle_ms: u64,
     /// What was changed on the way (a value capped, a word nobody knows), for the log.
     pub notes: Vec<String>,
 }
@@ -129,10 +155,29 @@ pub fn resolve(values: &BTreeMap<String, String>, sw: &Switches) -> Resolved {
         .unwrap_or(dictation::DEFAULT_SILENCE_MS);
     let (silence_ms, why) = dictation::cap_silence_ms(silence);
     notes.extend(why);
+    let keep_ready = match (sw.standby, values.get(KEY_STANDBY)) {
+        (Some(s), _) => s,
+        (None, Some(raw)) => Standby::parse(raw).unwrap_or_else(|| {
+            notes.push(format!(
+                "the setting {KEY_STANDBY} is {raw:?}, not off, near or always: using {}",
+                Standby::default().name()
+            ));
+            Standby::default()
+        }),
+        (None, None) => Standby::default(),
+    };
+    let idle = sw
+        .standby_idle_ms
+        .or_else(|| number(values, KEY_STANDBY_IDLE, standby::DEFAULT_IDLE_MS, &mut notes))
+        .unwrap_or(standby::DEFAULT_IDLE_MS);
+    let (standby_idle_ms, why) = standby::cap_idle_ms(idle);
+    notes.extend(why);
     Resolved {
         allow,
         rest_ms,
         silence_ms,
+        standby: keep_ready,
+        standby_idle_ms,
         notes,
     }
 }

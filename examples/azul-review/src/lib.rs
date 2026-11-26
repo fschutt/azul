@@ -97,6 +97,7 @@ pub mod recorder_track;
 pub mod recorder_wb;
 pub mod recorder_writer;
 pub mod session;
+pub mod standby;
 pub mod stroke_features;
 /// The pen strokes every gesture is tested on (a loop, a slash, an underline, a scribble): shared by the
 /// whiteboard's lasso and the quick slash that deletes a word.
@@ -729,6 +730,14 @@ pub fn run() {
         },
         resolved.silence_ms,
     );
+    state.voice.arming = standby::Arming::new(standby::Config {
+        standby: resolved.standby,
+        idle_ms: resolved.standby_idle_ms,
+    });
+    // The session cannot open the microphone ahead of a dictation yet: the policy runs only under the e2e server, where
+    // what it asks is counted and no microphone is opened.
+    state.voice.can_arm = std::env::var_os("AZ_E2E").is_some();
+    state.voice.start_standby();
     state.switches = own;
     state.perf = perf::Perf::new(std::env::var_os("AZREVIEW_PROFILE").is_some());
     // The speech session of the window: the chain of recognisers (the system's, then the built-in one where its files
@@ -1397,6 +1406,8 @@ pub extern "C" fn on_window_left(mut data: RefAny, mut info: CallbackInfo) -> Up
 /// while another window has the focus is not heard here.
 pub extern "C" fn on_focus_lost(mut data: RefAny, mut info: CallbackInfo) -> Update {
     log_window(&mut data, &mut info, pointer::Kind::FocusLost);
+    // The microphone opened ahead of a dictation closes with the window going to the back.
+    voice::window_deactivated(&mut data);
     end_stroke(&mut data, &mut info)
 }
 

@@ -111,6 +111,7 @@ fn what_is_heard_is_handed_over_as_it_comes_and_silence_ends_the_session() {
     assert_eq!(
         outs,
         vec![
+            Out::Ready,
             Out::Text("this loop".to_string()),
             Out::Text("is off by one".to_string()),
             Out::Ended(End::Silence),
@@ -127,7 +128,7 @@ fn heard_text_restarts_the_silence_clock() {
         (1_000, said("late words")),
     ]);
     let outs = run_with(&plan(), &mut listener, &mut clock, None);
-    assert_eq!(outs, vec![Out::Text("late words".to_string()), Out::Ended(End::Silence)]);
+    assert_eq!(outs, vec![Out::Ready, Out::Text("late words".to_string()), Out::Ended(End::Silence)]);
     assert_eq!(clock.now.get(), 5_000 + 8_000);
 }
 
@@ -146,7 +147,7 @@ fn a_stop_ends_the_session_between_two_calls() {
     run(&plan(), &mut listener, &mut clock, &mut || stop.get(), &mut |o| outs.push(o));
     assert_eq!(
         outs,
-        vec![Out::Text("one".to_string()), Out::Text("two".to_string()), Out::Ended(End::Stopped)],
+        vec![Out::Ready, Out::Text("one".to_string()), Out::Text("two".to_string()), Out::Ended(End::Stopped)],
         "what was said while the stop was asked for is kept, nothing more is listened for"
     );
     assert_eq!(listener.calls.get(), 2);
@@ -168,6 +169,7 @@ fn a_refusal_is_told_with_its_words_and_ends_the_session() {
         assert_eq!(
             outs,
             vec![
+                Out::Ready,
                 Out::Failed {
                     status,
                     message: "the microphone is off".to_string()
@@ -198,14 +200,15 @@ fn a_call_that_took_its_time_is_not_slept_after() {
     let (mut listener, mut clock) = script(vec![(2_000, said("slow"))]);
     let outs = run_with(&plan(), &mut listener, &mut clock, Some(1));
     assert!(clock.slept.is_empty(), "{:?}", clock.slept);
-    assert_eq!(outs, vec![Out::Text("slow".to_string()), Out::Ended(End::Stopped)]);
+    assert_eq!(outs, vec![Out::Ready, Out::Text("slow".to_string()), Out::Ended(End::Stopped)]);
 }
 
 #[test]
 fn blank_text_is_nothing_heard() {
     let (mut listener, mut clock) = script(vec![(1_000, said("   ")), (1_000, said("real"))]);
     let outs = run_with(&plan(), &mut listener, &mut clock, None);
-    assert_eq!(outs[0], Out::Text("real".to_string()), "no empty text is handed over: {outs:?}");
+    assert_eq!(outs[1], Out::Text("real".to_string()), "no empty text is handed over: {outs:?}");
+    assert_eq!(outs.iter().filter(|o| matches!(o, Out::Text(_))).count(), 1, "{outs:?}");
 }
 
 #[test]
@@ -237,4 +240,278 @@ fn the_silence_and_chunk_times_are_capped_into_what_a_person_can_mean() {
     let (high, why) = cap_silence_ms(60 * 60 * 1_000);
     assert_eq!(high, MAX_SILENCE_MS);
     assert!(why.is_some());
+}
+
+// ---- a listener that streams: its state, the words so far, each utterance as it ends ----
+
+/// One call of a streaming listener: the events it tells, each after some time, then the time it takes to answer and
+/// the answer.
+struct StreamCall {
+    events: Vec<(u64, Event)>,
+    then: u64,
+    answer: Heard,
+}
+
+/// A listener that streams: each call plays its events to the sink while it goes, then answers. A call past the script
+/// hears nothing for the whole of its timeout.
+struct Stream {
+    now: Time,
+    calls: VecDeque<StreamCall>,
+    asked: Rc<Cell<usize>>,
+}
+
+impl Listener for Stream {
+    fn listen(&mut self, _language: &str, _timeout_ms: u32) -> Heard {
+        unreachable!("a listener that streams is asked to stream")
+    }
+
+    fn listen_stream(&mut self, _language: &str, timeout_ms: u32, events: &mut dyn FnMut(Event)) -> Heard {
+        self.asked.set(self.asked.get() + 1);
+        match self.calls.pop_front() {
+            Some(call) => {
+                for (after, event) in call.events {
+                    self.now.set(self.now.get() + after);
+                    events(event);
+                }
+                self.now.set(self.now.get() + call.then);
+                call.answer
+            }
+            None => {
+                self.now.set(self.now.get() + u64::from(timeout_ms));
+                heard(Status::Nothing, "", "nothing was said")
+            }
+        }
+    }
+}
+
+fn streaming(calls: Vec<StreamCall>) -> (Stream, FakeClock) {
+    let now: Time = Rc::new(Cell::new(0));
+    (
+        Stream {
+            now: now.clone(),
+            calls: calls.into(),
+            asked: Rc::new(Cell::new(0)),
+        },
+        FakeClock { now, slept: Vec::new() },
+    )
+}
+
+fn call(events: Vec<(u64, Event)>, then: u64, answer: Heard) -> StreamCall {
+    StreamCall { events, then, answer }
+}
+
+fn partial(text: &str) -> Event {
+    Event::Partial(text.to_string())
+}
+
+fn run_stream(plan: &Plan, listener: &mut Stream, clock: &mut FakeClock, stop_after_calls: Option<usize>) -> Vec<Out> {
+    let mut outs = Vec::new();
+    let asked = listener.asked.clone();
+    run(
+        plan,
+        listener,
+        clock,
+        &mut || stop_after_calls.is_some_and(|n| asked.get() >= n),
+        &mut |out| outs.push(out),
+    );
+    outs
+}
+
+#[test]
+fn a_listener_that_streams_hands_over_its_state_the_words_so_far_and_each_utterance_as_they_come() {
+    let (mut listener, mut clock) = streaming(vec![call(
+        vec![
+            (0, Event::State(Mic::Armed)),
+            (0, Event::Ready),
+            (300, partial("this")),
+            (200, partial("this loop")),
+            (400, Event::Final(said("this loop is off by one"))),
+            (0, Event::State(Mic::Listening)),
+        ],
+        100,
+        // the call's own answer carries what the finals already said: it is not said twice
+        said("this loop is off by one"),
+    )]);
+    let outs = run_stream(&plan(), &mut listener, &mut clock, Some(1));
+    assert_eq!(
+        outs,
+        vec![
+            Out::State(Mic::Armed),
+            Out::Ready,
+            Out::Partial("this".to_string()),
+            Out::Partial("this loop".to_string()),
+            Out::Text("this loop is off by one".to_string()),
+            Out::State(Mic::Listening),
+            Out::Ended(End::Stopped),
+        ]
+    );
+}
+
+#[test]
+fn several_utterances_of_one_call_are_each_handed_over_when_they_end_not_when_the_call_does() {
+    let (mut listener, mut clock) = streaming(vec![call(
+        vec![
+            (0, Event::Ready),
+            (1_000, Event::Final(said("first"))),
+            (1_000, partial("sec")),
+            (500, Event::Final(said("second"))),
+        ],
+        50,
+        said("first second"),
+    )]);
+    let mut at = Vec::new();
+    let mut outs = Vec::new();
+    let now = clock.now.clone();
+    let asked = listener.asked.clone();
+    run(
+        &plan(),
+        &mut listener,
+        &mut clock,
+        &mut || asked.get() >= 1,
+        &mut |o| {
+            at.push(now.get());
+            outs.push(o);
+        },
+    );
+    let texts: Vec<(&Out, u64)> = outs.iter().zip(at.iter().copied()).filter(|(o, _)| matches!(o, Out::Text(_))).collect();
+    assert_eq!(texts.len(), 2, "{outs:?}");
+    assert_eq!(texts[0], (&Out::Text("first".to_string()), 1_000), "told when the utterance ended");
+    assert_eq!(texts[1], (&Out::Text("second".to_string()), 2_500));
+}
+
+#[test]
+fn ready_is_told_once_for_the_dictation_not_once_for_each_call() {
+    let (mut listener, mut clock) = streaming(vec![
+        call(vec![(0, Event::Ready), (100, Event::Final(said("one")))], 0, said("one")),
+        call(vec![(0, Event::Ready), (100, Event::Final(said("two")))], 0, said("two")),
+    ]);
+    let outs = run_stream(&plan(), &mut listener, &mut clock, Some(2));
+    assert_eq!(outs.iter().filter(|o| **o == Out::Ready).count(), 1, "{outs:?}");
+    assert_eq!(outs[0], Out::Ready);
+}
+
+#[test]
+fn words_so_far_that_did_not_change_are_not_handed_over_again_and_a_blank_one_clears_them() {
+    let (mut listener, mut clock) = streaming(vec![call(
+        vec![
+            (0, Event::Ready),
+            (100, partial("loop")),
+            (100, partial("  loop ")),
+            (100, partial("loop")),
+            (100, partial("")),
+            (100, partial("")),
+        ],
+        0,
+        heard(Status::Nothing, "", ""),
+    )]);
+    let outs = run_stream(&plan(), &mut listener, &mut clock, Some(1));
+    assert_eq!(
+        outs,
+        vec![
+            Out::Ready,
+            Out::Partial("loop".to_string()),
+            Out::Partial(String::new()),
+            Out::Ended(End::Stopped)
+        ]
+    );
+}
+
+#[test]
+fn words_so_far_that_no_final_followed_are_cleared_when_the_call_ends() {
+    let (mut listener, mut clock) = streaming(vec![call(
+        vec![(0, Event::Ready), (100, partial("hello wor"))],
+        0,
+        heard(Status::Nothing, "", "nothing was said"),
+    )]);
+    let outs = run_stream(&plan(), &mut listener, &mut clock, Some(1));
+    assert_eq!(
+        outs,
+        vec![
+            Out::Ready,
+            Out::Partial("hello wor".to_string()),
+            Out::Partial(String::new()),
+            Out::Ended(End::Stopped)
+        ]
+    );
+}
+
+#[test]
+fn words_that_come_with_the_answer_and_no_final_are_the_text() {
+    // A stop answers "what was said so far": the call's words are the utterance.
+    let (mut listener, mut clock) = streaming(vec![call(
+        vec![(0, Event::Ready), (100, partial("hello wor"))],
+        0,
+        said("hello world"),
+    )]);
+    let outs = run_stream(&plan(), &mut listener, &mut clock, Some(1));
+    assert_eq!(
+        outs,
+        vec![
+            Out::Ready,
+            Out::Partial("hello wor".to_string()),
+            Out::Text("hello world".to_string()),
+            Out::Ended(End::Stopped)
+        ]
+    );
+}
+
+#[test]
+fn a_final_that_is_no_words_is_no_text() {
+    let (mut listener, mut clock) = streaming(vec![call(
+        vec![
+            (0, Event::Ready),
+            (10, Event::Final(said("   "))),
+            (10, Event::Final(heard(Status::Nothing, "", ""))),
+            (10, Event::Final(heard(Status::Failed, "words", "not words"))),
+        ],
+        0,
+        heard(Status::Nothing, "", ""),
+    )]);
+    let outs = run_stream(&plan(), &mut listener, &mut clock, Some(1));
+    assert!(outs.iter().all(|o| !matches!(o, Out::Text(_))), "{outs:?}");
+}
+
+#[test]
+fn words_being_spoken_hold_the_quiet_off_as_words_do() {
+    // The call hears words so far at 6 s and ends at 7 s with nothing final. The quiet is counted from the last words
+    // heard (6 s), not from the start: two more calls of 4 s, and 8 s of quiet are over at 15 s.
+    let (mut listener, mut clock) = streaming(vec![call(
+        vec![(0, Event::Ready), (6_000, partial("long thought"))],
+        1_000,
+        heard(Status::Nothing, "", ""),
+    )]);
+    let outs = run_stream(&plan(), &mut listener, &mut clock, None);
+    assert_eq!(outs.last(), Some(&Out::Ended(End::Silence)), "{outs:?}");
+    assert_eq!(clock.now.get(), 15_000);
+}
+
+#[test]
+fn a_refusal_of_a_streaming_call_is_told_after_what_it_said() {
+    let (mut listener, mut clock) = streaming(vec![call(
+        vec![(0, Event::Ready), (10, Event::Final(said("kept")))],
+        10,
+        heard(Status::Failed, "", "the microphone went away"),
+    )]);
+    let outs = run_stream(&plan(), &mut listener, &mut clock, None);
+    assert_eq!(
+        outs,
+        vec![
+            Out::Ready,
+            Out::Text("kept".to_string()),
+            Out::Failed {
+                status: Status::Failed,
+                message: "the microphone went away".to_string()
+            },
+            Out::Ended(End::Failed)
+        ]
+    );
+}
+
+#[test]
+fn the_states_of_the_microphone_have_names_a_script_can_read() {
+    let names: Vec<&str> = Mic::ALL.iter().map(|m| m.name()).collect();
+    assert_eq!(names, vec!["cold", "warm", "armed", "listening"]);
+    assert_eq!(Mic::default(), Mic::Cold);
+    assert!(Mic::Armed.is_open() && Mic::Listening.is_open());
+    assert!(!Mic::Cold.is_open() && !Mic::Warm.is_open(), "the microphone is closed until it is armed");
 }

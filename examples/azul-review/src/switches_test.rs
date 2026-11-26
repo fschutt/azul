@@ -34,6 +34,8 @@ fn a_switch_that_cannot_be_read_is_an_error_with_its_name() {
         vec!["--dwell-ms"],
         vec!["--silence-ms=-5"],
         vec!["--dwell-input", "stylus"],
+        vec!["--standby", "sometimes"],
+        vec!["--standby-idle-ms", "soon"],
     ] {
         let why = Switches::extract(argv(&bad)).expect_err("a switch that is wrong is refused");
         assert!(why.starts_with("--"), "{bad:?}: {why}");
@@ -62,6 +64,7 @@ fn the_settings_file_is_read_and_a_switch_wins_over_it() {
         dwell_ms: Some(500),
         dwell_input: Some(Allow::Off),
         silence_ms: Some(5_000),
+        ..Switches::default()
     };
     let r = resolve(&values, &sw);
     assert_eq!((r.allow, r.rest_ms, r.silence_ms), (Allow::Off, 500, 5_000));
@@ -87,6 +90,55 @@ fn a_value_that_is_no_number_is_the_default() {
     let r = resolve(&values, &Switches::default());
     assert_eq!(r.rest_ms, dwell::DEFAULT_REST_MS);
     assert_eq!(r.notes.len(), 1);
+}
+
+// ---- the standby of the microphone ----
+
+#[test]
+fn the_standby_switches_are_taken_out_like_the_others() {
+    let (sw, rest) = Switches::extract(argv(&["--standby", "off", "folder", "--standby-idle-ms=8000"])).expect("valid");
+    assert_eq!(sw.standby, Some(Standby::Off));
+    assert_eq!(sw.standby_idle_ms, Some(8_000));
+    assert_eq!(rest, argv(&["folder"]));
+    let (sw, _) = Switches::extract(argv(&["--standby=ALWAYS"])).expect("any case");
+    assert_eq!(sw.standby, Some(Standby::Always));
+}
+
+#[test]
+fn the_microphone_is_ready_when_the_pen_is_near_for_half_a_minute_unless_said_otherwise() {
+    let r = resolve(&BTreeMap::new(), &Switches::default());
+    assert_eq!(r.standby, Standby::Near);
+    assert_eq!(r.standby_idle_ms, standby::DEFAULT_IDLE_MS);
+    assert!(r.notes.is_empty(), "{:?}", r.notes);
+}
+
+#[test]
+fn the_settings_file_says_the_standby_and_a_switch_wins_over_it() {
+    let mut values = BTreeMap::new();
+    values.insert(KEY_STANDBY.to_string(), "always".to_string());
+    values.insert(KEY_STANDBY_IDLE.to_string(), "120000".to_string());
+    let r = resolve(&values, &Switches::default());
+    assert_eq!((r.standby, r.standby_idle_ms), (Standby::Always, 120_000));
+
+    let sw = Switches {
+        standby: Some(Standby::Off),
+        standby_idle_ms: Some(10_000),
+        ..Switches::default()
+    };
+    let r = resolve(&values, &sw);
+    assert_eq!((r.standby, r.standby_idle_ms), (Standby::Off, 10_000));
+}
+
+#[test]
+fn a_standby_nobody_can_mean_is_the_default_capped_and_said_not_obeyed_and_not_fatal() {
+    let mut values = BTreeMap::new();
+    values.insert(KEY_STANDBY.to_string(), "sometimes".to_string());
+    values.insert(KEY_STANDBY_IDLE.to_string(), "10".to_string());
+    let r = resolve(&values, &Switches::default());
+    assert_eq!(r.standby, Standby::Near, "a choice nobody knows is the default");
+    assert_eq!(r.standby_idle_ms, standby::MIN_IDLE_MS);
+    assert_eq!(r.notes.len(), 2, "each change is told: {:?}", r.notes);
+    assert!(r.notes.iter().any(|n| n.contains(KEY_STANDBY)), "{:?}", r.notes);
 }
 
 // ---- the folder to review ----

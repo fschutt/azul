@@ -292,7 +292,8 @@ def dictation(args, logs, out, binary, fake):
     extra = {"AZ_SPEECH_HEARD": HEARD} if fake else {}
     app = e2e.App("review-dictation", binary,
                   [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en",
-                   "--dwell-ms", "400", "--dwell-input", "any", "--silence-ms", "6000"],
+                   "--dwell-ms", "400", "--dwell-input", "any", "--silence-ms", "6000",
+                   "--standby", "near", "--standby-idle-ms", "5000"],
                   args.debug_port + 1, logs, args.timeout, extra_env=extra)
     try:
         app.until("AzReview's window", lambda: app.has_id(STRIP))
@@ -314,9 +315,18 @@ def dictation(args, logs, out, binary, fake):
             app.until("dictation %d ended (%s)" % (n, cause),
                       lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"ended %d %s" % (n, cause)) > 0)[1])
 
+        # 0. Nothing is open before the pointer comes near a page (the policy only counts under the e2e server: no
+        # test opens a microphone).
+        before = state(app)["standby"]
+        if not before["enabled"] or before["armed"] or before["arms"] != 0 or before["mode"] != "near":
+            raise Failure("the standby before the pointer came near a page: %s" % before)
         # 1. A rest starts a note that listens.
         rest_at(0.0, 0.0, "the first dictation to start", 1)
         app.until("the side column", lambda: app.has_id("__azreview_notes"))
+        near = state(app)["standby"]
+        if not near["armed"] or near["arms"] != 1:
+            raise Failure("the pointer came near a page and the microphone was not asked to open once: %s" % near)
+        app.until("AZREVIEW_STANDBY armed", lambda: app.count("AZREVIEW_STANDBY", r"armed") == 1)
         if fake:
             app.until("the marker on the page", lambda: app.has_id("__azreview_marker-1", every_dom=True))
             app.until("the words in the column", lambda: app.shows(HEARD))
@@ -385,6 +395,13 @@ def dictation(args, logs, out, binary, fake):
             app.click(selector="#__azreview_note-delete-5")
             app.until("the note gone", lambda: not app.has_id("__azreview_note-5"))
             app.screenshot(os.path.join(out, "7-notes.png"))
+            # 8. The pointer has been away for the idle time (5 s, from the end of the last dictation): the microphone
+            # is asked to close, once, and the standby's timer ends with it.
+            app.until("the microphone closed after the idle time", lambda: not state(app)["standby"]["armed"])
+            closed = state(app)["standby"]
+            if closed["disarms"] != 1:
+                raise Failure("the idle time closed the microphone %s times: %s" % (closed["disarms"], closed))
+            app.until("AZREVIEW_STANDBY disarmed", lambda: app.count("AZREVIEW_STANDBY", r"disarmed") == 1)
         else:
             # The real recogniser refuses (the binary has no Info.plist, or no microphone is there):
             # the user is told over the pages, and the empty note is not kept.
