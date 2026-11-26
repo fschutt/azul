@@ -106,6 +106,41 @@ fn a_key_inside_a_scroll_container_may_be_scrolled_out_of_the_safe_area() {
     assert!(check(&nodes, &env()).is_empty());
 }
 
+/// A page made to fit: a box with the class `az-fit` from the top of the safe area to its bottom, a key inside it.
+fn fitting_page(key: Zone) -> Vec<NodeBox> {
+    let mut nodes = good();
+    nodes.push(node(20, Some(0), &["az-scroll", "az-fit"], zone(0.0, 59.0, 393.0, 759.0)));
+    nodes.push(node(21, Some(20), &["az-target"], key));
+    nodes
+}
+
+#[test]
+fn a_page_made_to_fit_that_would_scroll_is_found() {
+    // the key ends at 818 = the bottom of the page: nothing beyond it
+    let fits = fitting_page(zone(16.0, 700.0, 361.0, 52.0));
+    assert!(!rules(&check(&fits, &env())).contains(&"page-overflow"), "{:?}", check(&fits, &env()));
+    // 40 px past the page's end: it would scroll
+    let overflows = fitting_page(zone(16.0, 806.0, 361.0, 52.0));
+    let found = check(&overflows, &env());
+    assert!(rules(&found).contains(&"page-overflow"), "{found:?}");
+    assert_eq!(found.iter().find(|v| v.rule == "page-overflow").map(|v| v.node), Some(21));
+    // a page that is not made to fit (no class) may scroll
+    let mut plain = overflows.clone();
+    plain[plain.len() - 2].classes = vec!["az-scroll".to_string()];
+    assert!(!rules(&check(&plain, &env())).contains(&"page-overflow"));
+}
+
+#[test]
+fn the_lowest_key_of_a_page_made_to_fit_keeps_48_px_clear_of_the_bar() {
+    // the page ends at 818: a key that ends at 770 keeps exactly 48, one that ends at 780 keeps 38
+    let clear = fitting_page(zone(16.0, 718.0, 361.0, 52.0));
+    assert!(!rules(&check(&clear, &env())).contains(&"key-near-bar"), "{:?}", check(&clear, &env()));
+    let near = fitting_page(zone(16.0, 728.0, 361.0, 52.0));
+    let found = check(&near, &env());
+    assert!(rules(&found).contains(&"key-near-bar"), "{found:?}");
+    assert!(found.iter().find(|v| v.rule == "key-near-bar").is_some_and(|v| v.detail.contains("38")), "{found:?}");
+}
+
 #[test]
 fn a_line_of_text_that_runs_out_of_its_box_is_found_and_one_that_is_cut_on_purpose_is_not() {
     let mut nodes = good();
