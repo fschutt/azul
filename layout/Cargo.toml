@@ -625,10 +625,17 @@ path = "tests/virtualview_hit_matches_render.rs"
 # decoded before the caller sees it; the size cap (`HttpRequestConfig::max_response_size`) counts the
 # DECODED bytes, so a decompression bomb is refused at the cap. flate2 (pure-Rust miniz_oxide) and
 # brotli-decompressor are in Cargo.lock already.
-ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots", "gzip", "brotli"], optional = true }
+ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots", "gzip", "brotli", "socks-proxy"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"], optional = true }
 rustls-rustcrypto = { package = "rustls-rustcrypto-azul", version = "0.1.0", optional = true }
 webpki-roots = { version = "1.0", optional = true }
+
+# `socks-proxy` above: a `socks5://` proxy (corporate networks, Tor) carries the requests. On Windows
+# ureq also reads the proxy that Internet Options names (HKCU ... Internet Settings, ProxyEnable and
+# ProxyServer): without it only ALL_PROXY, HTTPS_PROXY and HTTP_PROXY of the environment count, which
+# a Windows user behind a proxy has not set. One crate more on Windows only (winreg).
+[target.'cfg(windows)'.dependencies]
+ureq = { version = "3.3", default-features = false, features = ["win-system-proxy"], optional = true }
 
 [dev-dependencies]
 # Signing side of minisign — TESTS ONLY, to mint real signature vectors.
