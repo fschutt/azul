@@ -830,9 +830,7 @@ fn expand_home(p: &str, platform: &PlatformEnv) -> PathBuf {
 }
 
 fn folder_name(p: &Path) -> String {
-    p.file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "project".to_string())
+    p.file_name().map_or_else(|| "project".to_string(), |n| n.to_string_lossy().into_owned())
 }
 
 fn write_bytes(path: &Path, norm: &str, bytes: &[u8]) -> Result<(), String> {
@@ -878,11 +876,7 @@ fn list_dir(dir: &Path, rel: &str, depth: usize, count: &mut usize) -> Vec<Value
         };
         let order = if meta.file_type().is_symlink() {
             1
-        } else if meta.is_dir() {
-            0
-        } else {
-            1
-        };
+        } else { u8::from(!meta.is_dir()) };
         entries.push((order, name, e.path(), meta));
     }
     entries.sort_by(|a, b| {
@@ -1065,13 +1059,11 @@ fn apply_component(
     let library = obj
         .get("library")
         .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or(path_lib);
+        .map_or(path_lib, str::to_string);
     let name = obj
         .get("name")
         .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or(path_name);
+        .map_or(path_name, str::to_string);
     if library.is_empty() || library == "builtin" || !is_safe_segment(&library) {
         return Err(format!(
             "{library:?} is not a user library (name one in \"library\")"

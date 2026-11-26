@@ -409,21 +409,18 @@ impl BuilderDocument {
             .iter()
             .position(|nd| matches!(nd.get_node_type(), NodeType::Body));
         let mut uids = ROOT_UID;
-        match body {
-            Some(b) => {
-                if let Some(mut root) = node_from_styled(sd, NodeId::new(b), &mut uids, true, 0) {
-                    root.uid = ROOT_UID;
-                    root.kind = BuilderNodeKind::Element {
-                        tag: "body".to_string(),
-                    };
-                    doc.root = root;
-                }
+        if let Some(b) = body {
+            if let Some(mut root) = node_from_styled(sd, NodeId::new(b), &mut uids, true, 0) {
+                root.uid = ROOT_UID;
+                root.kind = BuilderNodeKind::Element {
+                    tag: "body".to_string(),
+                };
+                doc.root = root;
             }
-            None => {
-                uids = ROOT_UID + 1;
-                if let Some(n) = node_from_styled(sd, NodeId::new(0), &mut uids, true, 0) {
-                    doc.root.children.push(n);
-                }
+        } else {
+            uids = ROOT_UID + 1;
+            if let Some(n) = node_from_styled(sd, NodeId::new(0), &mut uids, true, 0) {
+                doc.root.children.push(n);
             }
         }
         doc.next_uid = uids.max(ROOT_UID + 1);
@@ -847,8 +844,8 @@ impl BuilderDocument {
     ///
     /// # Errors
     /// None today; `Result` for [`BuilderSession::edit`].
-    pub(super) fn replace_with(&mut self, loaded: BuilderDocument) -> Result<(), String> {
-        let BuilderDocument {
+    pub(super) fn replace_with(&mut self, loaded: Self) -> Result<(), String> {
+        let Self {
             mut root,
             stylesheet,
             ..
@@ -1275,12 +1272,9 @@ impl BuilderSession {
 
         let subtree = {
             let imported;
-            let doc = match &self.doc {
-                Some(d) => d,
-                None => {
-                    imported = BuilderDocument::from_styled_dom(live);
-                    &imported
-                }
+            let doc = if let Some(d) = &self.doc { d } else {
+                imported = BuilderDocument::from_styled_dom(live);
+                &imported
             };
             doc.node(node)?.clone()
         };
@@ -2063,7 +2057,7 @@ fn template_to_dom(
 pub(super) fn substitute(template: &str, args: &BTreeMap<String, String>) -> String {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
-    while let Some(pos) = rest.find(|c: char| c == '{' || c == '}') {
+    while let Some(pos) = rest.find(['{', '}']) {
         out.push_str(&rest[..pos]);
         let tail = &rest[pos..];
         if tail.starts_with("{{") {
@@ -2719,7 +2713,7 @@ fn is_param_name(name: &str) -> bool {
 
 /// `my-card` → `My Card`.
 fn title_case(name: &str) -> String {
-    name.split(|c: char| c == '-' || c == '_')
+    name.split(['-', '_'])
         .filter(|w| !w.is_empty())
         .map(|w| {
             let mut cs = w.chars();

@@ -6374,8 +6374,7 @@ fn log_internal(
     let location = core::panic::Location::caller();
     let timestamp_us = SERVER_START_TIME
         .get()
-        .map(|t| t.elapsed().as_micros() as u64)
-        .unwrap_or(0);
+        .map_or(0, |t| t.elapsed().as_micros() as u64);
 
     let message: String = message.into();
 
@@ -7888,7 +7887,7 @@ fn eval_assert_dom(
             return AssertionResult::fail_with(
                 "assert_dom: root_type mismatch".to_string(),
                 expected.to_string(),
-                dom.root.node_type.clone(),
+                dom.root.node_type,
             );
         }
     }
@@ -7911,7 +7910,7 @@ fn eval_assert_dom(
             return AssertionResult::fail_with(
                 "assert_dom: HTML does not contain the expected substring".to_string(),
                 needle.to_string(),
-                dom.html.clone(),
+                dom.html,
             );
         }
     }
@@ -7922,7 +7921,7 @@ fn eval_assert_dom(
                 "assert_dom: HTML still contains a substring it must not (stale DOM read)"
                     .to_string(),
                 format!("no '{needle}'"),
-                dom.html.clone(),
+                dom.html,
             );
         }
     }
@@ -8236,10 +8235,10 @@ fn eval_assert_layout(
     };
 
     let actual = match property {
-        "x" => rect.origin.x as f64,
-        "y" => rect.origin.y as f64,
-        "width" => rect.size.width as f64,
-        "height" => rect.size.height as f64,
+        "x" => f64::from(rect.origin.x),
+        "y" => f64::from(rect.origin.y),
+        "width" => f64::from(rect.size.width),
+        "height" => f64::from(rect.size.height),
         other => {
             return AssertionResult::fail(format!(
                 "assert_layout: unknown property '{other}' (use x, y, width, height)"
@@ -8686,7 +8685,7 @@ fn eval_assert_scroll(
 
     // Check x if specified
     if let Some(expected_x) = params.get("x").and_then(serde_json::Value::as_f64) {
-        let actual_x = offset.x as f64;
+        let actual_x = f64::from(offset.x);
         if (actual_x - expected_x).abs() > tolerance {
             return AssertionResult::fail_with(
                 format!("assert_scroll: '{selector}' scroll-x mismatch"),
@@ -8698,7 +8697,7 @@ fn eval_assert_scroll(
 
     // Check y if specified
     if let Some(expected_y) = params.get("y").and_then(serde_json::Value::as_f64) {
-        let actual_y = offset.y as f64;
+        let actual_y = f64::from(offset.y);
         if (actual_y - expected_y).abs() > tolerance {
             return AssertionResult::fail_with(
                 format!("assert_scroll: '{selector}' scroll-y mismatch"),
@@ -9129,9 +9128,9 @@ fn capture_damage_png(
     // Accumulated since the last `reset_frame_counters` — see `damage_of`.
     let report = frame_report_of(callback_info);
     let damage = if which == Some("present") {
-        report.accumulated_present_damage.clone()
+        report.accumulated_present_damage
     } else {
-        report.accumulated_paint_damage.clone()
+        report.accumulated_paint_damage
     };
 
     let frame = render_current(callback_info)?;
@@ -11846,7 +11845,7 @@ fn eval_assert_manager_invariants(
         checked += 1;
         let flag = lw.scroll_manager.has_active_animations();
         let keys = lw.scroll_manager.animating_keys();
-        if flag != !keys.is_empty() {
+        if flag == keys.is_empty() {
             violations.push(format!(
                 "X2 scroll: has_active_animations() = {flag} but {} state(s) carry an animation",
                 keys.len()
@@ -14119,7 +14118,7 @@ fn eval_assert_damage_sound(
 
         let report = frame_report_of(callback_info);
         let paint = report.accumulated_paint_damage.clone();
-        let present = report.accumulated_present_damage.clone();
+        let present = report.accumulated_present_damage;
         let covering = if which == "present" { &present } else { &paint };
 
         if forbid_full && paint.is_full() {
@@ -15891,7 +15890,7 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
 
         unsafe {
             let mut info: DlInfo = std::mem::zeroed();
-            let result = dladdr(address as *const std::os::raw::c_void, &mut info);
+            let result = dladdr(address as *const std::os::raw::c_void, &raw mut info);
             if result != 0 {
                 if !info.dli_fname.is_null() {
                     file_name = Some(
@@ -16297,7 +16296,7 @@ fn override_data_model_defaults(
                 .map_err(|e| format!("field '{name}': {e}"))?;
             field.default_value = OptionComponentDefaultValue::Some(parsed);
         } else if field.required {
-            if let OptionComponentDefaultValue::None = &field.default_value {
+            if matches!(&field.default_value, OptionComponentDefaultValue::None) {
                 return Err(format!("required field '{name}' is missing"));
             }
         }
@@ -16878,8 +16877,7 @@ fn json_to_serde_value(json: &azul_core::json::Json) -> serde_json::Value {
                     serde_json::Value::Number(serde_json::Number::from(n as i64))
                 } else {
                     serde_json::Number::from_f64(n)
-                        .map(serde_json::Value::Number)
-                        .unwrap_or(serde_json::Value::Null)
+                        .map_or(serde_json::Value::Null, serde_json::Value::Number)
                 }
             }
             azul_css::OptionF64::None => serde_json::Value::Null,
@@ -17237,7 +17235,7 @@ fn custom_op_outcome(
             .and_then(|r| r.get("error"))
             .and_then(serde_json::Value::as_str)
             .unwrap_or("no error given");
-        let mut answer = raw.clone();
+        let mut answer = raw;
         if answer.len() > 2000 {
             let mut cut = 2000;
             while !answer.is_char_boundary(cut) {
@@ -17927,7 +17925,7 @@ fn serve_debug_event(
                     let base_state = callback_info.get_current_window_state().clone();
 
                     // State 1: Move cursor to position
-                    let mut move_state = base_state.clone();
+                    let mut move_state = base_state;
                     move_state.mouse_state.cursor_position =
                         azul_core::window::CursorPosition::InWindow(LogicalPosition {
                             x: cx,
@@ -19150,12 +19148,9 @@ fn serve_debug_event(
                 text.as_deref(),
             );
 
-            let nid = match resolved_node_id {
-                Some(n) => n.index() as u64,
-                None => {
-                    send_err(request, "No node found matching the specified target");
-                    return needs_update;
-                }
+            let nid = if let Some(n) = resolved_node_id { n.index() as u64 } else {
+                send_err(request, "No node found matching the specified target");
+                return needs_update;
             };
 
             log(
@@ -19239,8 +19234,7 @@ fn serve_debug_event(
                     opacity: anim.current_opacity(),
                     finished: anim.is_finished(),
                     published: cache
-                        .map(|c| c.anim_current_transform_values.contains_key(node_id))
-                        .unwrap_or(false),
+                        .is_some_and(|c| c.anim_current_transform_values.contains_key(node_id)),
                 });
             }
             let active = lw.animations.len();
@@ -19277,12 +19271,9 @@ fn serve_debug_event(
                 text.as_deref(),
             );
 
-            let nid = match resolved_node_id {
-                Some(n) => n.index() as u64,
-                None => {
-                    send_err(request, "No node found matching the specified target");
-                    return needs_update;
-                }
+            let nid = if let Some(n) = resolved_node_id { n.index() as u64 } else {
+                send_err(request, "No node found matching the specified target");
+                return needs_update;
             };
 
             log(
@@ -19427,9 +19418,7 @@ fn serve_debug_event(
                     .into_crate_internal()
                     .unwrap_or(NodeId::ZERO);
                 let root_tag = node_data
-                    .get(root)
-                    .map(|d| alloc::format!("{:?}", d.get_node_type().get_path()).to_lowercase())
-                    .unwrap_or_else(|| "?".to_string());
+                    .get(root).map_or_else(|| "?".to_string(), |d| alloc::format!("{:?}", d.get_node_type().get_path()).to_lowercase());
                 let root_selector = build_selector_for_node(callback_info, id, root);
                 let size = callback_info
                     .get_node_rect(azul_core::dom::DomNodeId {
@@ -19523,8 +19512,7 @@ fn serve_debug_event(
                 let root_decoded = styled_dom
                     .root
                     .into_crate_internal()
-                    .map(|n| n.index() as i64)
-                    .unwrap_or(-1);
+                    .map_or(-1, |n| n.index() as i64);
 
                 let mut shown = shown_texts(layout_window, dom_id);
 
@@ -19626,7 +19614,7 @@ fn serve_debug_event(
 
                     nodes.push(HierarchyNodeInfo {
                         index: i,
-                        node_type: node_type.to_string(),
+                        node_type: node_type.clone(),
                         tag,
                         id: id_attr,
                         classes,
@@ -19697,7 +19685,7 @@ fn serve_debug_event(
                         anonymous_type: cold
                             .and_then(|c| c.anonymous_type.as_ref().map(|t| format!("{t:?}"))),
                         formatting_context: format!("{:?}", node.formatting_context),
-                        parent: node.parent.map(|p| p as i64).unwrap_or(-1),
+                        parent: node.parent.map_or(-1, |p| p as i64),
                         children: layout_tree.children(idx).to_vec(),
                     });
                 }
@@ -19963,8 +19951,8 @@ fn serve_debug_event(
                                 info.thumb_bounds.0.size.width, info.thumb_bounds.0.size.height,
                                 info.track_color.r, info.track_color.g, info.track_color.b, info.track_color.a,
                                 info.thumb_color.r, info.thumb_color.g, info.thumb_color.b, info.thumb_color.a,
-                                info.opacity_key.as_ref().map(|k| format!("{}", k.id)).unwrap_or_else(|| "none".to_string()),
-                                info.thumb_transform_key.as_ref().map(|k| format!("{}", k.id)).unwrap_or_else(|| "none".to_string()),
+                                info.opacity_key.as_ref().map_or_else(|| "none".to_string(), |k| format!("{}", k.id)),
+                                info.thumb_transform_key.as_ref().map_or_else(|| "none".to_string(), |k| format!("{}", k.id)),
                             );
                             DisplayListItemInfo {
                                 index: idx,
@@ -20270,12 +20258,9 @@ fn serve_debug_event(
                 text.as_deref(),
             );
 
-            let nid = match resolved_node_id {
-                Some(n) => n.index() as u64,
-                None => {
-                    send_err(request, "No node found matching the specified target");
-                    return needs_update;
-                }
+            let nid = if let Some(n) = resolved_node_id { n.index() as u64 } else {
+                send_err(request, "No node found matching the specified target");
+                return needs_update;
             };
 
             log(
@@ -20328,12 +20313,9 @@ fn serve_debug_event(
                 text.as_deref(),
             );
 
-            let nid = match resolved_node_id {
-                Some(n) => n.index() as u64,
-                None => {
-                    send_err(request, "No node found matching the specified target");
-                    return needs_update;
-                }
+            let nid = if let Some(n) = resolved_node_id { n.index() as u64 } else {
+                send_err(request, "No node found matching the specified target");
+                return needs_update;
             };
 
             log(
@@ -20383,12 +20365,9 @@ fn serve_debug_event(
                 text.as_deref(),
             );
 
-            let nid = match resolved_node_id {
-                Some(n) => n.index() as u64,
-                None => {
-                    send_err(request, "No node found matching the specified target");
-                    return needs_update;
-                }
+            let nid = if let Some(n) = resolved_node_id { n.index() as u64 } else {
+                send_err(request, "No node found matching the specified target");
+                return needs_update;
             };
 
             // `block`, `inline` and `behavior` are closed sets: a value outside
@@ -20631,12 +20610,9 @@ fn serve_debug_event(
                 text.as_deref(),
             );
 
-            let nid = match resolved_node_id {
-                Some(n) => n.index() as u64,
-                None => {
-                    send_err(request, "No node found matching the specified target");
-                    return needs_update;
-                }
+            let nid = if let Some(n) = resolved_node_id { n.index() as u64 } else {
+                send_err(request, "No node found matching the specified target");
+                return needs_update;
             };
 
             let dom_id = target_dom(request);
@@ -21209,27 +21185,24 @@ fn serve_debug_event(
                 };
                 send_ok(request, None, Some(ResponseData::AppState(response)));
             } else {
-                match serialize_refany_to_json(app_data) {
-                    Some(json) => {
-                        // Convert our Json type to serde_json::Value for the response
-                        let value = json.to_serde_value();
-                        let response = AppStateResponse {
-                            metadata,
-                            state: value,
-                            error: None,
-                        };
-                        send_ok(request, None, Some(ResponseData::AppState(response)));
-                    }
-                    None => {
-                        let response = AppStateResponse {
-                            metadata,
-                            state: serde_json::Value::Null,
-                            error: Some(RefAnyError::SerdeError(
-                                "Serialization returned null".to_string(),
-                            )),
-                        };
-                        send_ok(request, None, Some(ResponseData::AppState(response)));
-                    }
+                if let Some(json) = serialize_refany_to_json(app_data) {
+                    // Convert our Json type to serde_json::Value for the response
+                    let value = json.to_serde_value();
+                    let response = AppStateResponse {
+                        metadata,
+                        state: value,
+                        error: None,
+                    };
+                    send_ok(request, None, Some(ResponseData::AppState(response)));
+                } else {
+                    let response = AppStateResponse {
+                        metadata,
+                        state: serde_json::Value::Null,
+                        error: Some(RefAnyError::SerdeError(
+                            "Serialization returned null".to_string(),
+                        )),
+                    };
+                    send_ok(request, None, Some(ResponseData::AppState(response)));
                 }
             }
         }
@@ -21321,36 +21294,33 @@ fn serve_debug_event(
                                 };
                                 send_ok(request, None, Some(ResponseData::NodeDataset(response)));
                             } else {
-                                match serialize_refany_to_json(refany) {
-                                    Some(json) => {
-                                        let value = json.to_serde_value();
-                                        let response = NodeDatasetResponse {
-                                            node_id: *node_id,
-                                            metadata,
-                                            dataset: value,
-                                            error: None,
-                                        };
-                                        send_ok(
-                                            request,
-                                            None,
-                                            Some(ResponseData::NodeDataset(response)),
-                                        );
-                                    }
-                                    None => {
-                                        let response = NodeDatasetResponse {
-                                            node_id: *node_id,
-                                            metadata,
-                                            dataset: serde_json::Value::Null,
-                                            error: Some(RefAnyError::SerdeError(
-                                                "Serialization returned null".to_string(),
-                                            )),
-                                        };
-                                        send_ok(
-                                            request,
-                                            None,
-                                            Some(ResponseData::NodeDataset(response)),
-                                        );
-                                    }
+                                if let Some(json) = serialize_refany_to_json(refany) {
+                                    let value = json.to_serde_value();
+                                    let response = NodeDatasetResponse {
+                                        node_id: *node_id,
+                                        metadata,
+                                        dataset: value,
+                                        error: None,
+                                    };
+                                    send_ok(
+                                        request,
+                                        None,
+                                        Some(ResponseData::NodeDataset(response)),
+                                    );
+                                } else {
+                                    let response = NodeDatasetResponse {
+                                        node_id: *node_id,
+                                        metadata,
+                                        dataset: serde_json::Value::Null,
+                                        error: Some(RefAnyError::SerdeError(
+                                            "Serialization returned null".to_string(),
+                                        )),
+                                    };
+                                    send_ok(
+                                        request,
+                                        None,
+                                        Some(ResponseData::NodeDataset(response)),
+                                    );
                                 }
                             }
                         }
@@ -21876,8 +21846,7 @@ fn serve_debug_event(
                         .layout_results
                         .get(&dom_id)
                         .and_then(|lr| lr.styled_dom.node_data.get(node_id.index()))
-                        .map(azul_core::dom::NodeData::is_contenteditable)
-                        .unwrap_or(false);
+                        .is_some_and(azul_core::dom::NodeData::is_contenteditable);
 
                     // Get text content - extract from NodeType::Text if available
                     let text_content = callback_info
@@ -22049,8 +22018,7 @@ fn serve_debug_event(
             let node_count = layout_window
                 .layout_results
                 .get(&dom_id)
-                .map(|lr| lr.styled_dom.node_data.as_ref().len())
-                .unwrap_or(0);
+                .map_or(0, |lr| lr.styled_dom.node_data.as_ref().len());
 
             // The StyledDom hierarchy is a FLAT DFS array: a node's first child
             // is DERIVED as `id + 1`, so a node's children are a contiguous run.
@@ -22065,7 +22033,7 @@ fn serve_debug_event(
             let on_rightmost_spine = layout_window
                 .layout_results
                 .get(&dom_id)
-                .map(|lr| {
+                .is_some_and(|lr| {
                     let h = lr.styled_dom.node_hierarchy.as_container();
                     let mut cur = parent_node_id;
                     loop {
@@ -22077,8 +22045,7 @@ fn serve_debug_event(
                         }
                         cur = parent;
                     }
-                })
-                .unwrap_or(false);
+                });
 
             if parent_node_id.index() >= node_count {
                 send_err(
@@ -22155,8 +22122,7 @@ fn serve_debug_event(
             let node_count = layout_window
                 .layout_results
                 .get(&dom_id)
-                .map(|lr| lr.styled_dom.node_data.as_ref().len())
-                .unwrap_or(0);
+                .map_or(0, |lr| lr.styled_dom.node_data.as_ref().len());
 
             if target_node_id.index() >= node_count || *node_id == 0 {
                 send_err(
@@ -22226,8 +22192,7 @@ fn serve_debug_event(
             let node_count = layout_window
                 .layout_results
                 .get(&dom_id)
-                .map(|lr| lr.styled_dom.node_data.as_ref().len())
-                .unwrap_or(0);
+                .map_or(0, |lr| lr.styled_dom.node_data.as_ref().len());
 
             if target_node_id.index() >= node_count {
                 send_err(request, format!("Node {node_id} not found"));
@@ -22285,8 +22250,7 @@ fn serve_debug_event(
             let node_count = layout_window
                 .layout_results
                 .get(&dom_id)
-                .map(|lr| lr.styled_dom.node_data.as_ref().len())
-                .unwrap_or(0);
+                .map_or(0, |lr| lr.styled_dom.node_data.as_ref().len());
 
             if target_node_id.index() >= node_count {
                 send_err(request, format!("Node {node_id} not found"));
@@ -22382,8 +22346,7 @@ fn serve_debug_event(
             let node_count = layout_window
                 .layout_results
                 .get(&dom_id)
-                .map(|lr| lr.styled_dom.node_data.as_ref().len())
-                .unwrap_or(0);
+                .map_or(0, |lr| lr.styled_dom.node_data.as_ref().len());
 
             if target_node_id.index() >= node_count {
                 send_err(request, format!("Node {node_id} not found"));

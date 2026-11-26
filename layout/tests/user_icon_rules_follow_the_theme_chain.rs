@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use azul_core::icon::{IconDesignedFor, IconModeColors, IconProviderHandle, IconRecolor};
 use azul_css::{
-    dynamic_selector::{DynamicSelectorContext, ThemeCondition},
+    dynamic_selector::DynamicSelectorContext,
     props::basic::color::{ColorU, SystemColorRef},
 };
 use azul_layout::{

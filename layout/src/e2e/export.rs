@@ -665,7 +665,7 @@ pub(super) fn project(
             .get_exportable_libraries()
             .into_iter()
             .map(|l| l.name.as_str().to_string())
-            .filter(|n| library_filter.map_or(true, |f| f == n.as_str()))
+            .filter(|n| library_filter.is_none_or(|f| f == n.as_str()))
             .collect(),
     };
     project_files(language, &spec)

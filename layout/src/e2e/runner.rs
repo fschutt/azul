@@ -1356,15 +1356,14 @@ impl Runner {
                             .text_edit_manager
                             .multi_cursor
                             .as_ref()
-                            .map(|mc| {
+                            .is_some_and(|mc| {
                                 mc.selections.iter().any(|s| {
                                     matches!(
                                         &s.selection,
                                         azul_core::selection::Selection::Range(_)
                                     )
                                 })
-                            })
-                            .unwrap_or(false),
+                            }),
                         // Mirrors the dll shell: a focus with a Paste
                         // callback (a terminal) asks for the paste chord.
                         focus_hears_paste: lw
@@ -3640,7 +3639,7 @@ impl Runner {
             CallbackChange::SetSelectionOwnerColor { owner, color } => {
                 self.layout_window
                     .text_edit_manager
-                    .set_owner_color(*owner, color.clone().into_option());
+                    .set_owner_color(*owner, (*color).into_option());
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
             CallbackChange::CommitUndoSnapshot => {
@@ -3689,7 +3688,7 @@ impl Runner {
                     let physics = lw
                         .system_style
                         .as_ref()
-                        .map(|s| s.scroll_physics.clone())
+                        .map(|s| s.scroll_physics)
                         .unwrap_or_default();
                     let interval_ms = physics.timer_interval_ms.max(1);
                     let state =
