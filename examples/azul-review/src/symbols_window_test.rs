@@ -30,7 +30,7 @@ fn said(words: &[(&str, f32)]) -> Said {
         words: words
             .iter()
             .enumerate()
-            .map(|(i, (w, p))| HeardWord { text: (*w).to_string(), start_ms: i as u32 * 300, end_ms: i as u32 * 300 + 250, probability: *p })
+            .map(|(i, (w, p))| HeardWord { text: (*w).to_string(), start_ms: i as u32 * 300, end_ms: i as u32 * 300 + 250, probability: *p, biased: false })
             .collect(),
     }
 }
@@ -148,4 +148,12 @@ fn the_pen_and_the_wheel_touch_the_gate_and_a_hub_with_no_index_takes_the_touch_
     let hub = started();
     hub.touch();
     hub.set_focus("src/other.rs");
+}
+
+#[test]
+fn the_resolver_is_told_which_words_the_recogniser_was_told_to_favour() {
+    let mut s = said(&[("compute_stale_flag", 0.3), ("now", 0.9)]);
+    s.words[0].biased = true;
+    let spoken = spoken_words(&s);
+    assert!(spoken[0].biased && !spoken[1].biased, "{spoken:?}");
 }

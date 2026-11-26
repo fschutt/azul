@@ -25,18 +25,8 @@ impl Default for IrohRelayMode {
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct IrohConfig {
-    /// Application protocol name. Only peers that bind the same name can connect.
-    pub alpn: AzString,
-    /// Relay fallback for peers without a direct path.
-    pub relay_mode: IrohRelayMode,
-    /// Never use a direct path: no UDP socket is bound and no hole is punched, so every packet
-    /// goes through the relay of `relay_mode` (a network that blocks UDP, or a test that proves
-    /// the relay carries the traffic). Needs a relay; `port` does not apply.
-    pub relay_only: bool,
-    /// Relay server URL, used when `relay_mode` is `Custom`.
-    pub relay_url: AzString,
-    /// 32-byte secret key that fixes the endpoint id. Empty generates a new identity.
-    pub secret_key: U8Vec,
+    // The fields are ordered by decreasing alignment (azul-doc autofix refuses a struct whose
+    // order wastes padding): the 8-byte ones, the 4-byte ones, then the 2- and 1-byte ones.
     /// The certificate authorities the relays' (and any other non-iroh) TLS is checked
     /// against: the app's set by default (`AppConfig::trust_roots`), the public roots, or the
     /// ones it pins - minus any it distrusts - so a relay with a forged certificate is
@@ -47,16 +37,34 @@ pub struct IrohConfig {
     /// peer that knows the protocol name, and the app decides whom it trusts. `Some`: only
     /// these (an app's paired devices); any other peer is refused before any of its streams is
     /// read, and an `Error` event names it. An empty list accepts nobody (an endpoint that only
-    /// dials). `IrohEndpoint::set_allowed_peers` changes it while bound.
+    /// dials). `IrohEndpoint::set_allowed_peers` changes it while bound and
+    /// `IrohEndpoint::clear_allowed_peers` goes back to accepting every peer.
     pub allowed_peers: OptionStringVec,
-    /// Local UDP port, 0 for any free port.
-    pub port: u16,
+    /// Application protocol name. Only peers that bind the same name can connect.
+    pub alpn: AzString,
+    /// Relay server URL, used when `relay_mode` is `Custom`.
+    pub relay_url: AzString,
+    /// 32-byte secret key that fixes the endpoint id. Empty generates a new identity.
+    pub secret_key: U8Vec,
+    /// Relay fallback for peers without a direct path.
+    pub relay_mode: IrohRelayMode,
     /// Largest inbound frame or message in bytes. Larger ones are dropped.
     pub max_frame_bytes: u32,
+    /// Local UDP port, 0 for any free port.
+    pub port: u16,
+    /// Never use a direct path: no UDP socket is bound and no hole is punched, so every packet
+    /// goes through the relay of `relay_mode` (a network that blocks UDP, or a test that proves
+    /// the relay carries the traffic). Needs a relay; `port` does not apply.
+    pub relay_only: bool,
+    /// Find peers on the local network by their endpoint id (mDNS), without a ticket's saved
+    /// addresses or a relay, and announce this endpoint there. On by default; see
+    /// [`IrohConfig::with_local_discovery`] for what is announced and how to turn it off.
+    pub local_discovery: bool,
 }
 
 impl IrohConfig {
-    /// Config for the protocol `alpn`: default relays, a new identity, any free port, 16 MiB frames.
+    /// Config for the protocol `alpn`: default relays, a new identity, any free port, 16 MiB frames,
+    /// local-network discovery on.
     pub fn create(alpn: AzString) -> Self {
         IrohConfig {
             alpn,
@@ -68,6 +76,7 @@ impl IrohConfig {
             allowed_peers: OptionStringVec::None,
             port: 0,
             max_frame_bytes: 16 * 1024 * 1024,
+            local_discovery: true,
         }
     }
 
@@ -119,6 +128,20 @@ impl IrohConfig {
     /// Returns the config accepting inbound frames and messages up to `max_frame_bytes`.
     pub fn with_max_frame_bytes(mut self, max_frame_bytes: u32) -> Self {
         self.max_frame_bytes = max_frame_bytes;
+        self
+    }
+
+    /// Returns the config with local-network discovery switched on or off. On (the default), the
+    /// endpoint finds peers on the local network by their endpoint id alone (mDNS), so a phone
+    /// finds a Mac whose address changed without the ticket's saved addresses or a relay, and it
+    /// announces itself there: its endpoint id (a public key) and its network addresses, to the
+    /// local link only (multicast, never routed; its relay is not announced). Turn it off for a
+    /// server or an app that must not announce itself to the network it sits on. An endpoint
+    /// that accepts nobody (`with_allowed_peers` with an empty list) only looks and does not
+    /// announce, and `relay_only` never uses it. When the network or the OS refuses multicast
+    /// the endpoint works without it; `IrohEndpoint::local_discovery_status` says why.
+    pub fn with_local_discovery(mut self, local_discovery: bool) -> Self {
+        self.local_discovery = local_discovery;
         self
     }
 }
@@ -226,3 +249,7 @@ pub struct IrohPeerStats {
     /// Payload bytes of `messages_queued`.
     pub message_bytes_queued: u64,
 }
+
+#[cfg(test)]
+#[path = "types_test.rs"]
+mod tests;

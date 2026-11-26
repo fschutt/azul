@@ -26,6 +26,7 @@ pub const SETTINGS: AzString = AzString::from_const_str("__azreview_settings");
 /// The side column of notes, its title row's switch, its hint when empty, its "listening" pill, its
 /// stop button.
 pub const SYMBOLS_STATUS: AzString = AzString::from_const_str("__azreview_symbols-status");
+pub const BACK: AzString = AzString::from_const_str("__azreview_back");
 pub const BAR_MORE_DONE: AzString = AzString::from_const_str("__azreview_bar-more-done");
 pub const BAR_FEWER_DONE: AzString = AzString::from_const_str("__azreview_bar-fewer-done");
 pub const LISTENING: AzString = AzString::from_const_str("__azreview_listening");
@@ -41,6 +42,13 @@ pub const OPEN_FOLDER: AzString = AzString::from_const_str("__azreview_open-fold
 /// The empty page's "Open folder" button, and the microphone widget that records a clip.
 pub const OPEN_FOLDER_EMPTY: AzString = AzString::from_const_str("__azreview_open-folder-empty");
 pub const MICROPHONE: AzString = AzString::from_const_str("__azreview_microphone");
+/// The recorder's window, and the nodes its devices live in (the screen's capture, the camera, the microphone) and its
+/// level meter: what a script or a test finds them by.
+pub const REC_WINDOW_NAME: &str = "__azreview_recorder";
+pub const REC_SCREEN: AzString = AzString::from_const_str("__azreview_rec-screen");
+pub const REC_CAMERA: AzString = AzString::from_const_str("__azreview_rec-camera");
+pub const REC_MICROPHONE: AzString = AzString::from_const_str("__azreview_rec-microphone");
+pub const REC_LEVEL: AzString = AzString::from_const_str("__azreview_rec-level");
 /// The title row's labeled "Open folder..." button, and the chip that names the folder under review.
 pub const OPEN_FOLDER_BAR: AzString = AzString::from_const_str("__azreview_open-folder-bar");
 pub const FOLDER_CHIP: AzString = AzString::from_const_str("__azreview_folder-chip");

@@ -1194,6 +1194,11 @@ impl StreamShared {
 
     fn push(&self, event: SpeechEvent) {
         let mut queue = self.events.lock().unwrap_or_else(PoisonError::into_inner);
+        if event.kind == SpeechEventKind::Ended {
+            // The end and the flag are published together (the events are read under this lock): a
+            // caller that has read `Ended` never sees `is_running` still true.
+            self.running.store(false, Ordering::SeqCst);
+        }
         if queue.len() >= STREAM_QUEUE {
             // Nobody collects: the oldest partial goes first, then the oldest.
             let at = queue.iter().position(|e| e.kind == SpeechEventKind::Partial).unwrap_or(0);
@@ -1204,6 +1209,8 @@ impl StreamShared {
         self.arrived.notify_all();
     }
 
+    /// The thread of the stream is over: the flag is false (it already is when `Ended` was pushed)
+    /// and whoever waits for events is woken.
     fn finish(&self) {
         let queue = self.events.lock().unwrap_or_else(PoisonError::into_inner);
         self.running.store(false, Ordering::SeqCst);

@@ -94,6 +94,30 @@ const LEDGER: &[Row] = &[
         reason: NEEDS_DISPLAY,
     },
     Row {
+        file: "dll/src/desktop/extra/desktop_state/desktop_state_test.rs",
+        test: "the_real_desktop_of_a_mac_has_an_app_in_front_and_a_pointer",
+        kind: Kind::Hardware,
+        id: None,
+        owner: "dll/desktop_state",
+        reason: "reads the real desktop of the Mac it runs on (the app in front, the pointer, the lock): a CI runner's desktop is empty; run by hand: cargo test -p azul-dll --lib the_real_desktop_of_a_mac -- --ignored (X-EDGE-C-2)",
+    },
+    Row {
+        file: "dll/src/desktop/extra/iroh/bonjour_test.rs",
+        test: "bonjour_finds_what_the_mdns_lookup_announces",
+        kind: Kind::Hardware,
+        id: None,
+        owner: "dll/iroh",
+        reason: "needs a Mac on a network that carries multicast and the Local Network permission (X-EDGE-C-2)",
+    },
+    Row {
+        file: "dll/src/desktop/extra/iroh/engine_test.rs",
+        test: "two_endpoints_find_each_other_by_id_over_real_mdns",
+        kind: Kind::Hardware,
+        id: None,
+        owner: "dll/iroh",
+        reason: "needs a network that carries multicast between two endpoints of one process; a CI runner's does not (X-EDGE-C-2)",
+    },
+    Row {
         file: "dll/src/desktop/extra/screencap/dmabuf.rs",
         test: "egl_init_and_query",
         kind: Kind::Hardware,
@@ -331,7 +355,9 @@ const COUNTS: &[(Kind, usize)] = &[
     // + the halo dilation's timing (layout/src/cpurender/raster.rs): 4 -> 5.
     (Kind::Diagnostic, 5),
     // + the built-in speech recogniser's real-engine test (dll/tests/speech_builtin_engine.rs): 11 -> 12.
-    (Kind::Hardware, 12),
+    // + the two real-network tests of iroh's local discovery (extra/iroh/engine_test.rs, bonjour_test.rs): 12 -> 14.
+    // + the real desktop of a Mac (extra/desktop_state/desktop_state_test.rs): 14 -> 15.
+    (Kind::Hardware, 15),
 ];
 
 /// The crates whose sources are scanned (`src/` and `tests/` of each).

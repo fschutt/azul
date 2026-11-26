@@ -63,13 +63,13 @@ fn done(id: u64, page: usize, y: f32, text: &str) -> Note {
 #[test]
 fn a_marker_sits_on_its_anchor_and_the_markers_of_a_page_are_the_notes_of_that_page() {
     let notes = vec![done(1, 0, 100.0, "a"), done(2, 1, 50.0, "b"), done(3, 0, 200.0, "c")];
-    let markers = markers(&notes, 0, None);
+    let markers = markers(&notes, 0, None, &crate::line_map::LineMap::plain());
     assert_eq!(markers.len(), 2, "two notes are on page 0");
     assert!(with_id(&markers[0], "__azreview_marker-1").is_some());
     assert!(with_id(&markers[1], "__azreview_marker-3").is_some());
     // The numbers are the notes' places in the column: note 3 is the third card.
     assert!(texts(&markers[1]).iter().any(|t| t == "3"), "{:?}", texts(&markers[1]));
-    let listening = super::markers(&notes, 0, Some(3));
+    let listening = super::markers(&notes, 0, Some(3), &crate::line_map::LineMap::plain());
     assert!(texts(&listening[1]).is_empty(), "the listening marker shows a microphone, not a number");
 }
 

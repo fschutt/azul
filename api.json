@@ -7621,6 +7621,12 @@
                                 },
                                 "extend_into_safe_area": {
                                     "type": "bool"
+                                },
+                                "exclude_from_capture": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Keep this window out of screen captures and recordings (a preview of the camera, a recording indicator: a window that records the screen would otherwise show itself). macOS: the window's sharing type is none; Windows 10 version 2004 and later: WDA_EXCLUDEFROMCAPTURE; X11 and Wayland give no way and the flag has no effect there. Default: false."
+                                    ]
                                 }
                             }
                         ],
@@ -7729,6 +7735,12 @@
                                 },
                                 "is_primary_monitor": {
                                     "type": "bool"
+                                },
+                                "native_id": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "The system's own number for the display: the CGDirectDisplayID on macOS (what ScreenCaptureSource::DisplayId takes, so that an app can name this monitor to a screen capture); 0 where the system has no such number."
+                                    ]
                                 }
                             }
                         ],
@@ -13062,6 +13074,34 @@
                                     }
                                 ],
                                 "fn_body": "object.remove_timer(timer_id)"
+                            },
+                            "set_frame_tap": {
+                                "doc": [
+                                    "Register this window's frame tap (applied after the callback returns): from then on `callback` is called with `data` and the frame (`FrameTapInfo`) every time the CPU renderer paints a frame that changed, and never for one that did not. The first frame it hears is the whole window; after that the rectangles that changed. An app that records its window copies the damaged rows out of the frame and returns: the callback runs on the window's thread, inside the frame. A window drawn by the GPU has no CPU frame and never calls it. One tap a window: this replaces the one before."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "FrameTapCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_frame_tap(data, callback)"
+                            },
+                            "clear_frame_tap": {
+                                "doc": [
+                                    "Take this window's frame tap away (applied after the callback returns; nothing happens when the window has none)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.clear_frame_tap()"
                             },
                             "add_thread": {
                                 "doc": [
@@ -25973,6 +26013,24 @@
                                 "type": "CustomE2eOpResult"
                             }
                         }
+                    },
+                    "FrameTapCallbackType": {
+                        "doc": [
+                            "The function a frame tap calls: the data the app registered, and the frame."
+                        ],
+                        "external": "azul_layout::frame_tap::FrameTapCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "FrameTapInfo"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -39879,6 +39937,43 @@
                                 "Ended": {}
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "FrameTapCallback": {
+                        "doc": [
+                            "A frame tap's function, as the functions of the C interface take it."
+                        ],
+                        "external": "azul_layout::frame_tap::FrameTapCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "From",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "FrameTapCallbackType"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A function (of Rust or of C) as a tap's callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cb": "FrameTapCallbackType"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::frame_tap::FrameTapCallback::create(cb)"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
@@ -61782,6 +61877,68 @@
                             ]
                         }
                     },
+                    "DesktopState": {
+                        "doc": [
+                            "The desktop's state, polled: the app in front, the pointer on the desktop, whether the screen is locked and whether the display sleeps. Cheap enough to ask ten or twenty times a second from the thread that asks; no permission of the system is needed. macOS today; where a platform has no reading every field is 'not known' and the screen is not locked. In a headless or E2E test run it is what the file named by AZ_DESKTOP_STATE_FILE says. It reads the app's bundle id and name, the pointer's place, the lock and the display's sleep and nothing else (no window titles or contents, no keys, no clicks, no list of the other apps), and keeps and sends nothing: an app that asks says so to the person."
+                        ],
+                        "external": "azul_dll::unified::desktop_state::DesktopState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "front_bundle": {
+                                    "type": "OptionString",
+                                    "doc": [
+                                        "The bundle id of the app in front (com.apple.Safari); none where it is not known."
+                                    ]
+                                },
+                                "front_name": {
+                                    "type": "OptionString",
+                                    "doc": [
+                                        "The name of the app in front."
+                                    ]
+                                },
+                                "pointer": {
+                                    "type": "OptionScreenPosition",
+                                    "doc": [
+                                        "The pointer's place on the desktop, points from the top left of the primary display; none where it is not known."
+                                    ]
+                                },
+                                "locked": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "The screen is locked, or the screen saver shows."
+                                    ]
+                                },
+                                "display_asleep": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "The main display is asleep."
+                                    ]
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "query": {
+                                "doc": [
+                                    "The desktop now."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::desktop_state::DesktopState::query()"
+                            },
+                            "headless": {
+                                "doc": [
+                                    "What a headless or E2E run reports when no script says otherwise: nothing known, nothing locked."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::desktop_state::DesktopState::headless()"
+                            }
+                        },
+                        "repr": "C"
+                    },
                     "StyleFontVariantPosition": {
                         "external": "azul_css::props::basic::font_variation::StyleFontVariantPosition",
                         "derive": [
@@ -68288,6 +68445,12 @@
                                 },
                                 "on_consumer_frame": {
                                     "type": "OptionOnConsumerFrame"
+                                },
+                                "excluded_apps": {
+                                    "type": "StringVec",
+                                    "doc": [
+                                        "The apps whose windows are left out of the picture, by bundle id (at most eight, read when the capture starts); every window of such an app, the ones that open later too."
+                                    ]
                                 }
                             }
                         ],
@@ -68391,6 +68554,37 @@
                                     "type": "ScreenCaptureWidget"
                                 },
                                 "fn_body": "object.with_consumer(consumer)"
+                            },
+                            "add_excluded_app": {
+                                "doc": [
+                                    "Leave the windows of the app with this bundle id (com.apple.notificationcenterui) out of the picture. Read when the capture starts; at most eight apps."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "bundle_id": "String"
+                                    }
+                                ],
+                                "fn_body": "object.add_excluded_app(bundle_id)"
+                            },
+                            "with_excluded_app": {
+                                "doc": [
+                                    "Builder form of [`add_excluded_app`](Self::add_excluded_app)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "bundle_id": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ScreenCaptureWidget"
+                                },
+                                "fn_body": "object.with_excluded_app(bundle_id)"
                             },
                             "set_on_consumer_frame": {
                                 "doc": [
@@ -116083,6 +116277,44 @@
                                 "None": {},
                                 "First": {},
                                 "Second": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FrameTapInfo": {
+                        "doc": [
+                            "What a window's frame tap hears of one frame: its size and scale, the whole of it or the rectangles that changed (device pixels, x, y, width, height one after the other), and its pixels (RGBA, borrowed until the tap returns)."
+                        ],
+                        "external": "azul_layout::frame_tap::FrameTapInfo",
+                        "custom_impls": [
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "width": {
+                                    "type": "u32"
+                                },
+                                "height": {
+                                    "type": "u32"
+                                },
+                                "stride": {
+                                    "type": "usize"
+                                },
+                                "scale": {
+                                    "type": "f32"
+                                },
+                                "full": {
+                                    "type": "bool"
+                                },
+                                "damage": {
+                                    "type": "I32VecRef"
+                                },
+                                "pixels": {
+                                    "type": "U8VecRef"
+                                }
                             }
                         ],
                         "repr": "C"
@@ -208984,6 +209216,18 @@
                                 },
                                 "output_format": {
                                     "type": "RawImageFormat"
+                                },
+                                "show_cursor": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Whether the cursor is in the picture. Default: yes."
+                                    ]
+                                },
+                                "include_own_windows": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Whether this app's own windows are in the picture. Default: no - a shared desktop that shows the sharing app loops (every repaint of the tile is a change of the screen); an app that records its own review from the display wants them in."
+                                    ]
                                 }
                             }
                         ],
@@ -209007,6 +209251,12 @@
                                 },
                                 "Window": {
                                     "type": "u64"
+                                },
+                                "DisplayId": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "A specific display by the system's own id (macOS: its CGDirectDisplayID; 0 is the primary display). Unlike an index it names the same display while others come and go."
+                                    ]
                                 }
                             }
                         ],
@@ -210121,14 +210371,14 @@
                         ],
                         "struct_fields": [
                             {
+                                "trust_roots": {
+                                    "type": "TrustRoots"
+                                },
+                                "allowed_peers": {
+                                    "type": "OptionStringVec"
+                                },
                                 "alpn": {
                                     "type": "String"
-                                },
-                                "relay_mode": {
-                                    "type": "IrohRelayMode"
-                                },
-                                "relay_only": {
-                                    "type": "bool"
                                 },
                                 "relay_url": {
                                     "type": "String"
@@ -210136,17 +210386,20 @@
                                 "secret_key": {
                                     "type": "U8Vec"
                                 },
-                                "trust_roots": {
-                                    "type": "TrustRoots"
+                                "relay_mode": {
+                                    "type": "IrohRelayMode"
                                 },
-                                "allowed_peers": {
-                                    "type": "OptionStringVec"
+                                "max_frame_bytes": {
+                                    "type": "u32"
                                 },
                                 "port": {
                                     "type": "u16"
                                 },
-                                "max_frame_bytes": {
-                                    "type": "u32"
+                                "relay_only": {
+                                    "type": "bool"
+                                },
+                                "local_discovery": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -210301,6 +210554,31 @@
                                     "type": "IrohConfig"
                                 },
                                 "fn_body": "object.with_trust_roots(trust_roots)"
+                            },
+                            "with_local_discovery": {
+                                "doc": [
+                                    "Returns the config with local-network discovery switched on or off. On (the default), the",
+                                    "endpoint finds peers on the local network by their endpoint id alone (mDNS), so a phone",
+                                    "finds a Mac whose address changed without the ticket's saved addresses or a relay, and it",
+                                    "announces itself there: its endpoint id (a public key) and its network addresses, to the",
+                                    "local link only (multicast, never routed; its relay is not announced). Turn it off for a",
+                                    "server or an app that must not announce itself to the network it sits on. An endpoint",
+                                    "that accepts nobody (`with_allowed_peers` with an empty list) only looks and does not",
+                                    "announce, and `relay_only` never uses it. When the network or the OS refuses multicast",
+                                    "the endpoint works without it; `IrohEndpoint::local_discovery_status` says why."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "local_discovery": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohConfig"
+                                },
+                                "fn_body": "object.with_local_discovery(local_discovery)"
                             }
                         },
                         "repr": "C"
@@ -210816,6 +211094,40 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.set_allowed_peers(peers)"
+                            },
+                            "clear_allowed_peers": {
+                                "doc": [
+                                    "Accepts incoming connections from every peer again, from the next connection on: the",
+                                    "list of `with_allowed_peers` or `set_allowed_peers` is cleared (an app that accepts only",
+                                    "its paired devices opens its pairing window this way, and closes it again with",
+                                    "`set_allowed_peers`). Returns false when nothing is bound."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.clear_allowed_peers()"
+                            },
+                            "local_discovery_status": {
+                                "doc": [
+                                    "What local-network discovery does for this endpoint: `off` (switched off by the config,",
+                                    "or `relay_only`), `on`, or `unavailable: <reason>` when the network or the OS refused it",
+                                    "(no multicast, no permission): the endpoint works without it. Empty when nothing is",
+                                    "bound."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.local_discovery_status().into()"
                             }
                         },
                         "repr": "C"

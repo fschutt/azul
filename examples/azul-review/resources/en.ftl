@@ -37,6 +37,99 @@ azreview-nib-marker = marker
 azreview-nib-pen = pen
 azreview-nib-audio-pen = audio pen
 
+## Recording (the recorder's panel, src/recorder_panel.rs)
+
+azreview-rec-status-idle = Not recording
+azreview-rec-status-recording = Recording
+azreview-rec-status-paused-user = Paused by you
+azreview-rec-status-paused-idle = Paused: nothing happened for a while
+azreview-rec-status-paused-quota = Paused: the disk is nearly full
+azreview-rec-status-paused-locked = Paused: the screen is locked
+azreview-rec-described-idle = Not recording
+azreview-rec-described-recording = Recording, { $time } recorded
+azreview-rec-described-paused = Recording paused, { $time } recorded. { $why }
+azreview-rec-start = Start recording
+azreview-rec-stop = Stop recording
+azreview-rec-pause = Pause
+azreview-rec-resume = Resume
+azreview-rec-pause-described = Pause the recording (hotkey { $hotkey })
+azreview-rec-resume-described = Resume the recording (hotkey { $hotkey })
+azreview-rec-track-screen = Screen
+azreview-rec-track-camera = Camera
+azreview-rec-track-audio = Microphone
+azreview-rec-problem = { $track }: { $why }
+azreview-rec-disk-free = { $free } free on the disk.
+azreview-rec-disk-low = The disk is getting full: { $free } free.
+azreview-rec-disk-full = The disk is full ({ $free } free): the recording stays paused until there is room.
+azreview-rec-disk-unknown = The free space of the disk cannot be read: nothing is paused for it.
+azreview-rec-minutes-left = { $minutes ->
+    [one] About { $minutes } minute left.
+   *[other] About { $minutes } minutes left.
+ }
+azreview-rec-hours-left = { $hours ->
+    [one] About { $hours } hour left.
+   *[other] About { $hours } hours left.
+ }
+azreview-rec-dropped = { $count ->
+    [one] { $count } picture was dropped: the encoder was behind.
+   *[other] { $count } pictures were dropped: the encoder was behind.
+ }
+azreview-rec-will-display = Records everything on the display while it runs: every app, every window, and the pointer.
+azreview-rec-will-window = Records the window of AzReview and nothing else on the desktop.
+azreview-rec-will-own = Records only what AzReview itself shows, nothing else on the desktop.
+azreview-rec-will-camera = Records the camera.
+azreview-rec-will-voice = Records the microphone.
+azreview-rec-will-events = Keeps a log of the pen, the files opened and the words said.
+azreview-rec-denied = { $track } is not recorded: the system did not allow { $who } ({ $why })
+azreview-rec-access-allowed = { $track }: allowed.
+azreview-rec-access-not-asked = { $track }: the system asks when the recording starts.
+azreview-rec-access-denied = { $track }: off for { $who }. Switch it on in the system's privacy settings, then start again.
+azreview-rec-access-restricted = { $track }: restricted on this computer (a profile or parental controls).
+azreview-rec-notice-disk-low = The disk is getting full: { $free } free, and the recording pauses below { $min }.
+azreview-rec-notice-resumed = The recording goes on.
+azreview-rec-notice-ending = The recording reaches its longest length in { $time }.
+azreview-rec-notice-length-reached = The recording reached its longest length and stopped.
+azreview-rec-notice-screen-gap = The screen was away for a while ({ $why }): the video has a gap there.
+azreview-rec-notice-manifest-error = The recording's notes could not be written: { $why }
+azreview-rec-error-busy = A recording is going already.
+azreview-rec-error-nothing = The screen, the camera and the microphone are all off in the settings: there is nothing to record.
+azreview-rec-error-disk-full = The disk has { $free } free, under the { $min } the recorder keeps free: make room, or lower that limit in the settings.
+azreview-rec-error-io = The recording could not be made: { $why }
+azreview-rec-error-window-source = Recording one window needs the system's number for the window, which is not available yet: choose the display or AzReview's own frames in the settings. The whole display is not recorded in its place.
+azreview-rec-notice-saved = Saved: { $name } ({ $length }, { $size })
+azreview-rec-notice-recovered = { $count ->
+    [one] { $count } recording that was cut off when the app ended has been put right.
+   *[other] { $count } recordings that were cut off when the app ended have been put right.
+ }
+azreview-rec-error-delete = { $name } was not deleted: { $why }
+azreview-rec-error-recover = { $name } could not be put right: { $why }
+azreview-rec-window-title = Recording
+azreview-rec-hotkey-description = Pause or resume the recording
+azreview-rec-hotkey-unavailable = The pause key is not available: another program has it.
+azreview-rec-preview-on = Show the camera
+azreview-rec-preview-off = Hide the camera
+azreview-rec-preview = Camera preview
+azreview-rec-list-title = Recordings
+azreview-rec-reveal = Show folder
+azreview-rec-delete = Delete
+azreview-rec-notice-display-missing = The display { $id } named in the settings is not there: the display of this window is recorded.
+azreview-menu-recorder = Recording...
+azreview-rec-who-unknown = the program that started AzReview
+azreview-rec-state-complete = Complete
+azreview-rec-state-recovered = Recovered after the app ended
+azreview-rec-state-unfinished = Not finished
+azreview-rec-state-damaged = Cannot be read
+azreview-rec-row-problem = { $why }
+azreview-rec-export = Export video
+azreview-rec-export-cancel = Cancel export
+azreview-rec-export-open = Open video
+azreview-rec-export-running = Making the video: { $percent } %
+azreview-rec-export-done = Video: { $name } ({ $size })
+azreview-rec-export-failed = The video could not be made: { $why }
+azreview-rec-export-cancelled = The export was cancelled.
+azreview-rec-export-note = Note: { $note }
+azreview-rec-error-export = { $name } was not exported: { $why }
+
 ## Whiteboard
 
 azreview-whiteboard-notice-too-many-items = The whiteboard holds { $limit } items, as many as it has room for: remove one first.
@@ -65,6 +158,27 @@ azreview-whiteboard-cutout-name = { $file }, lines { $first } to { $last }
 azreview-whiteboard-label-placeholder = Add a label
 azreview-whiteboard-label-name = Label of { $file }, lines { $first } to { $last }
 azreview-whiteboard-arrow-label-name = Label of the arrow
+azreview-whiteboard-notice-too-many-boards = This folder has { $limit } whiteboards, as many as it has room for: delete one first.
+azreview-whiteboard-notice-board-name-cut = The name of a whiteboard holds { $limit } characters at most: the rest was cut off.
+azreview-whiteboard-notice-board-name-empty = A whiteboard needs a name.
+azreview-whiteboard-notice-no-such-board = There is no such whiteboard in this folder.
+azreview-whiteboard-notice-board-busy = The whiteboard is being kept or opened: one moment.
+azreview-whiteboard-boards-not-an-index = The list of whiteboards of this folder could not be read ({ $why }). It is kept as it is and a new list is started.
+azreview-whiteboard-boards-too-new = The list of whiteboards of this folder was saved by a newer AzReview (its format is { $found }). It is left as it is.
+azreview-whiteboard-boards-too-large = The list of whiteboards of this folder is far larger than a list is ({ $bytes } bytes). It is kept as it is and a new list is started.
+azreview-whiteboard-board-default = Board { $n }
+azreview-whiteboard-board-copy = { $name } copy
+azreview-whiteboard-boards-switcher = Whiteboards, open: { $name }
+azreview-whiteboard-board-new = New whiteboard
+azreview-whiteboard-board-rename = Rename
+azreview-whiteboard-board-duplicate = Duplicate
+azreview-whiteboard-board-delete = Delete
+azreview-whiteboard-board-up = Up
+azreview-whiteboard-board-down = Down
+azreview-whiteboard-board-undo = Undo
+azreview-whiteboard-board-deleted = Whiteboard "{ $name }" deleted
+azreview-whiteboard-board-rename-name = Name of the whiteboard { $name }
+azreview-whiteboard-board-loading = Opening the whiteboard...
 
 ## Dictation and the side column of notes
 
@@ -94,7 +208,7 @@ azreview-conv-suggestions =
        *[other] { $n } suggestions wait
     }
 azreview-conv-done = Done
-azreview-conv-title = Conversation { $n } - { $where }
+azreview-conv-title = { $n }: { $where }
 azreview-conv-close = Close the conversation
 azreview-conv-reply-placeholder = Reply to the agent
 azreview-conv-reply-name = Reply to the agent
@@ -103,6 +217,20 @@ azreview-conv-resolve = Mark the conversation as done
 azreview-conv-send = Send to the agent
 azreview-conv-ask-again = Ask the agent again
 azreview-conv-heard-as = Heard as: { $words }
+azreview-sugg-insert =
+    { $n ->
+        [one] Insert one line after line { $line }
+       *[other] Insert { $n } lines after line { $line }
+    }
+azreview-sugg-replace = Replace { $old } with the words below (line { $line })
+azreview-sugg-remove = Remove { $old } (line { $line })
+azreview-sugg-accept = Take this suggestion
+azreview-sugg-reject = Refuse this suggestion
+azreview-sugg-undo = Decide again
+azreview-sugg-accept-all = Take all that wait
+azreview-sugg-reject-all = Refuse all that wait
+azreview-sugg-taken = Taken
+azreview-sugg-refused = Refused
 azreview-conv-understood = Understood as: { $words }
 azreview-conv-earlier =
     { $n ->
@@ -225,6 +353,8 @@ azreview-page-skip = Skip to page { $n }
 azreview-reviewed-line = { $reviewed } of { $total } lines reviewed ({ $percent }%), { $seen } seen
 azreview-reviewed-counting = Still counting the workspace...
 azreview-shortcut-not-reviewed = Say the file is not reviewed, or is again (also a right click on it in the tree)
+azreview-shortcut-continue = Continue reviewing: back to where the jump to a conversation began
+azreview-back-label = Back to { $place }
 azreview-not-shown = { $file } is not shown: { $why }
 azreview-not-shown-binary = it is no text.
 azreview-not-shown-large = it is { $size }, over the { $limit } a page strip holds.

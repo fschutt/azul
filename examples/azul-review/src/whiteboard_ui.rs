@@ -22,7 +22,8 @@ use azul_appkit::l10n::{label, t, t_args, Arg};
 
 use crate::{
     whiteboard::{Arrow, Cutout, ImageSlot, ItemId, Notice},
-    whiteboard_app::Whiteboard,
+    whiteboard_app::{Plan, Whiteboard},
+    whiteboard_boards_ui::{self as boards_ui, Switcher},
     whiteboard_drag::{ArmedRegions, GRIP_PX},
     whiteboard_geom::{arrowhead, Curve, Pt, Size},
     whiteboard_input::{Mods, Out, PointerKind},
@@ -92,6 +93,8 @@ pub struct Panel {
     pub hint: Option<String>,
     /// The item whose label is being typed.
     pub editing: Option<ItemId>,
+    /// The header: whether the list of boards is open, which board is being renamed, what waits for a save.
+    pub switcher: Switcher,
     /// How long the frames took (asked for by `perf_on`).
     pub perf: Perf,
     pub perf_on: bool,
@@ -109,6 +112,7 @@ impl Panel {
             drag_over: false,
             hint: None,
             editing: None,
+            switcher: Switcher::default(),
             perf: Perf::default(),
             perf_on: false,
         }
@@ -180,10 +184,14 @@ pub struct Host {
     pub on_jump: fn(&mut RefAny, ItemId, &mut CallbackInfo) -> Update,
     /// The board changed: keep it (a save on a Thread).
     pub on_changed: fn(&mut RefAny, &mut CallbackInfo),
+    /// The list of boards changed or another board is to be opened: write the list, write a copy, read a board
+    /// ([`Plan`]); a board that was read is told to the panel with `Whiteboard::loaded`, and then to
+    /// `Panel::after_wait`.
+    pub on_plan: fn(&mut RefAny, Plan, &mut CallbackInfo),
 }
 
 impl Host {
-    fn run<R>(&self, mut f: impl FnMut(&mut Panel) -> R) -> Option<R> {
+    pub(crate) fn run<R>(&self, mut f: impl FnMut(&mut Panel) -> R) -> Option<R> {
         let mut app = self.app.clone();
         let mut out = None;
         (self.with)(&mut app, &mut |p| out = Some(f(p)));
@@ -382,28 +390,30 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
     let began = Instant::now();
     let selected = panel.wb.input.selection();
     let cutouts: Vec<Cutout> = panel.wb.board.cutouts().cloned().collect();
-    // No border on the panel: its origin is the surface's and the cutouts', and the bar's rect (where a drop is
-    // measured from) is the panel's own.
-    let mut root = Dom::create_div()
+    // The board's own area, under the header: its origin is the surface's and the cutouts' (no border: the bar's rect,
+    // where a drop is measured from, is the panel's own, and the header [`HEADER_PX`] is the area's offset in it).
+    let mut area = Dom::create_div()
         .with_css("position: relative; flex-grow: 1; min-height: 0px; min-width: 0px; overflow: hidden; background: #f4f1ea;");
     for c in &cutouts {
-        root.add_child(cutout_dom(panel, c, selected == Some(c.id)));
+        area.add_child(cutout_dom(panel, c, selected == Some(c.id)));
     }
     let arrows: Vec<Arrow> = panel.wb.board.arrows().cloned().collect();
     for a in &arrows {
         if let Some(on_its_line) = arrow_label_dom(panel, a) {
-            root.add_child(on_its_line);
+            area.add_child(on_its_line);
         }
     }
-    if cutouts.is_empty() {
-        root.add_child(
+    if panel.wb.is_loading() {
+        area.add_child(boards_ui::loading_dom());
+    } else if cutouts.is_empty() {
+        area.add_child(
             Dom::create_p_with_text(t("azreview-whiteboard-empty").as_str())
                 .with_css("position: absolute; left: 16px; right: 16px; top: 24px; margin: 0px; color: #6b665e; font-size: 12px;"),
         );
     }
     if let Some(said) = panel.hint.as_deref() {
         // What the board told (a refusal, a repaired file): under the surface, over the cutouts, until the next press.
-        root.add_child(Dom::create_p_with_text(said).with_css(
+        area.add_child(Dom::create_p_with_text(said).with_css(
             "position: absolute; left: 8px; right: 8px; bottom: 8px; margin: 0px; padding: 6px 8px; background: #fff3cd; \
              border: 1px solid #e0c36a; border-radius: 4px; font-size: 11px; color: #5a4a10;",
         ));
@@ -411,14 +421,29 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
     if panel.drag_over {
         // A region is carried over the bar: a frame inside its edge says it will be taken. Under the surface, which
         // keeps the pointer.
-        root.add_child(Dom::create_div().with_css(
+        area.add_child(Dom::create_div().with_css(
             "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; border: 2px solid #205cd6;",
         ));
     }
-    root.add_child(surface(host));
+    area.add_child(surface(host));
     // The label that is being typed: its text area is over the surface, so that a click lands in it.
     if let Some(typing) = panel.editing.and_then(|id| editor_dom(panel, host, id)) {
-        root.add_child(typing);
+        area.add_child(typing);
+    }
+    // The panel: the header, the board under it; over both the list of boards when it is open and the bar that tells a
+    // board was deleted.
+    let mut root = Dom::create_div()
+        .with_css(
+            "position: relative; display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: 0px; \
+             overflow: hidden; background: #f4f1ea;",
+        )
+        .with_child(boards_ui::header_dom(panel, host))
+        .with_child(area);
+    if panel.switcher.open {
+        root.add_child(boards_ui::popover_dom(panel, host));
+    }
+    if let Some(toast) = panel.switcher.toast.as_ref() {
+        root.add_child(boards_ui::toast_dom(toast, host));
     }
     if panel.perf_on {
         panel.perf.layout(u32::try_from(began.elapsed().as_micros()).unwrap_or(u32::MAX));
@@ -683,6 +708,10 @@ extern "C" fn on_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(host) = data.downcast_ref::<Host>().map(|h| (*h).clone()) else {
         return Update::DoNothing;
     };
+    // A board that is being read takes no pointer: what it is given would be replaced by what is read.
+    if host.run(|p| p.wb.is_loading()) == Some(true) {
+        return Update::DoNothing;
+    }
     let (Some(at), kind, mods) = (at_of(&info), kind_of(&info), mods_of(&info)) else {
         return Update::DoNothing;
     };
@@ -706,6 +735,10 @@ extern "C" fn on_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(host) = data.downcast_ref::<Host>().map(|h| (*h).clone()) else {
         return Update::DoNothing;
     };
+    // A board that is being read takes no pointer: what it is given would be replaced by what is read.
+    if host.run(|p| p.wb.is_loading()) == Some(true) {
+        return Update::DoNothing;
+    }
     let (Some(at), mods) = (at_of(&info), mods_of(&info)) else {
         return Update::DoNothing;
     };
@@ -733,6 +766,10 @@ extern "C" fn on_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(host) = data.downcast_ref::<Host>().map(|h| (*h).clone()) else {
         return Update::DoNothing;
     };
+    // A board that is being read takes no pointer: what it is given would be replaced by what is read.
+    if host.run(|p| p.wb.is_loading()) == Some(true) {
+        return Update::DoNothing;
+    }
     let (Some(at), mods) = (at_of(&info), mods_of(&info)) else {
         return Update::DoNothing;
     };
@@ -759,6 +796,10 @@ extern "C" fn on_double(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(host) = data.downcast_ref::<Host>().map(|h| (*h).clone()) else {
         return Update::DoNothing;
     };
+    // A board that is being read takes no pointer: what it is given would be replaced by what is read.
+    if host.run(|p| p.wb.is_loading()) == Some(true) {
+        return Update::DoNothing;
+    }
     let Some(at) = at_of(&info) else {
         return Update::DoNothing;
     };
@@ -782,6 +823,10 @@ extern "C" fn on_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(host) = data.downcast_ref::<Host>().map(|h| (*h).clone()) else {
         return Update::DoNothing;
     };
+    // A board that is being read takes no pointer: what it is given would be replaced by what is read.
+    if host.run(|p| p.wb.is_loading()) == Some(true) {
+        return Update::DoNothing;
+    }
     let (Some(at), mods) = (at_of(&info), mods_of(&info)) else {
         return Update::DoNothing;
     };
@@ -797,6 +842,11 @@ extern "C" fn on_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// The keys the panel answers when it has the keyboard: Delete takes the selection off, Escape lets go.
 /// `true` when it did something (the app then does not treat the key as its own).
 pub fn on_key(panel: &mut Panel, key: Key) -> bool {
+    if key == Key::Escape && panel.switcher.open {
+        panel.switcher.open = false;
+        panel.switcher.renaming = None;
+        return true;
+    }
     let Panel { wb, .. } = panel;
     match key {
         Key::Delete => matches!(wb.input.delete_selection(&mut wb.board), Out::Redraw),

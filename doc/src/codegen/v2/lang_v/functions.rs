@@ -95,5 +95,9 @@ fn emit_extern(b: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
         .map(|r| format!(" {}", map_type_to_v(r, ir)))
         .unwrap_or_default();
 
+    // `@[c_extern]`: with no C header to include, V 0.5.2 leaves the declaration out of the C it
+    // writes ("C function `C.AzString_fromUtf8` was declared in V, but the C compiler did not see
+    // a matching C declaration") and the program does not compile.
+    b.line("@[c_extern]");
     b.line(&format!("fn C.{}({}){}", func.c_name, args.join(", "), ret));
 }

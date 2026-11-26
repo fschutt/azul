@@ -152,6 +152,35 @@ fn own_windows() -> Vec<HWND> {
     list.1
 }
 
+/// Keeps each of `windows` out of captures that is not out of them already, and gives back the ones it changed:
+/// the ones the capture shows again when it stops. A window the app keeps out of captures itself
+/// (`WindowFlags::exclude_from_capture`) stays out.
+fn keep_out_of_capture(windows: &[HWND]) -> Vec<HWND> {
+    let Some(win32) = Win32Libraries::shared() else {
+        return Vec::new();
+    };
+    let Some(set) = win32.user32.SetWindowDisplayAffinity else {
+        return Vec::new();
+    };
+    let mut changed = Vec::new();
+    for &hwnd in windows {
+        unsafe {
+            if (win32.user32.IsWindow)(hwnd) == 0 {
+                continue;
+            }
+            let mut now = WDA_NONE;
+            let known = win32.user32.GetWindowDisplayAffinity.is_some_and(|get| get(hwnd, &mut now) != 0);
+            if known && now != WDA_NONE {
+                continue;
+            }
+            if set(hwnd, WDA_EXCLUDEFROMCAPTURE) != 0 {
+                changed.push(hwnd);
+            }
+        }
+    }
+    changed
+}
+
 fn set_affinity(windows: &[HWND], affinity: u32) {
     let Some(set) = Win32Libraries::shared().and_then(|w| w.user32.SetWindowDisplayAffinity) else {
         return;
@@ -230,13 +259,7 @@ impl DxgiCapture {
                 .map_err(|e| describe(e.code()))?;
             let desc = output.GetDesc().map_err(|e| describe(e.code()))?;
             let mode = duplication.GetDesc().ModeDesc;
-            let excluded = if request.exclude_self {
-                let windows = own_windows();
-                set_affinity(&windows, WDA_EXCLUDEFROMCAPTURE);
-                windows
-            } else {
-                Vec::new()
-            };
+            let excluded = if request.exclude_self { keep_out_of_capture(&own_windows()) } else { Vec::new() };
             Ok((
                 DxgiCapture {
                     device,

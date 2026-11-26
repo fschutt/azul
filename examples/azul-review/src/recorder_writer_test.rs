@@ -12,7 +12,7 @@ use crate::{
     recorder_events::{event_channel, Caps},
     recorder_clock::MockClock,
     recorder_manifest::{AppInfo, ClockInfo, HostInfo, Segment, Workspace},
-    recorder_mp4::scan,
+    recorder_mp4::{recorder_mp4_test::{tracks_of, voice_samples}, scan},
     recorder_track::SegmentFile,
 };
 
@@ -190,7 +190,7 @@ fn audio_track() -> Track {
 
 fn writer(store: &MemStore, transcript: Option<MemLines>) -> Writer {
     Writer::new(
-        WriterConfig { segment_us: 300 * SEC, created_unix_s: 1_764_108_000 },
+        WriterConfig { segment_us: 300 * SEC, created_unix_s: 1_764_108_000, camera_chunk_us: 5 * SEC, voice_in_camera: false },
         manifest(),
         Box::new(store.clone()),
         transcript.map(|t| Box::new(t) as Box<dyn Write + Send>),
@@ -290,6 +290,38 @@ fn a_pause_closes_the_segments_and_the_run_and_a_resume_begins_a_new_run() {
     assert_eq!((m.runs[1].start_us, m.runs[1].end_us), (60 * SEC, None));
     assert_eq!(m.tracks.screen.as_ref().unwrap().segments.len(), 2, "a new segment after the pause");
     assert_eq!(m.tracks.screen.as_ref().unwrap().segments[1].start_us, 60 * SEC);
+    assert!(m.problems().is_empty(), "{:?}", m.problems());
+}
+
+/// One track's segment ends while the run goes on (a gap of the screen): its file is finished, the next
+/// keyframe opens another file, the other tracks do not notice, and the manifest stays true. A track that
+/// is not there, or has no segment open, has nothing to end.
+///
+/// Mutation: an end that finishes every track; one that does not finish the file (the next keyframe goes
+/// on in the same segment).
+#[test]
+fn one_tracks_segment_ends_while_the_others_go_on_and_the_next_keyframe_opens_another() {
+    let store = MemStore::default();
+    let mut w = with_tracks(&store);
+    for i in 0..10_u64 {
+        w.video("screen", i * 100_000, &if i == 0 { key(0) } else { delta(i as u8) });
+        w.audio(i * 100_000, opus(i as u8));
+    }
+    assert!(w.end_segment("camera", SEC).is_empty(), "no such track");
+    let notes = w.end_segment("screen", SEC);
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(matches!(notes[0], Note::SegmentClosed { end_us: 1_000_000, .. }));
+    assert!(scan(&mut Cursor::new(store.file("screen/0001.mp4"))).unwrap().finished);
+    assert!(w.end_segment("screen", 2 * SEC).is_empty(), "nothing is open: nothing to end");
+    // A delta picture opens nothing; the next keyframe does.
+    w.video("screen", 5 * SEC, &delta(1));
+    w.video("screen", 6 * SEC, &key(2));
+    w.audio(6 * SEC, opus(9));
+    let m = w.manifest().clone();
+    let screen = m.tracks.screen.as_ref().unwrap();
+    assert_eq!(screen.segments.len(), 2);
+    assert_eq!((screen.segments[0].end_us, screen.segments[1].start_us), (Some(SEC), 6 * SEC));
+    assert_eq!(m.tracks.audio.as_ref().unwrap().segments.len(), 1, "the voice went on in its one segment");
     assert!(m.problems().is_empty(), "{:?}", m.problems());
 }
 
@@ -472,4 +504,98 @@ fn a_segment_in_a_listing_is_what_the_writer_has() {
     let listed: Vec<Segment> = w.manifest().tracks.screen.as_ref().unwrap().segments.clone();
     assert_eq!(listed[0].samples, 2);
     assert_eq!(listed[0].bytes, store.file("screen/0001.mp4").len() as u64);
+}
+
+// ---- the camera's files that carry the voice ----
+
+fn with_camera_and_voice(store: &MemStore, voice_in_camera: bool) -> Writer {
+    let mut w = Writer::new(
+        WriterConfig { segment_us: 300 * SEC, created_unix_s: 1_764_108_000, camera_chunk_us: 5 * SEC, voice_in_camera },
+        manifest(),
+        Box::new(store.clone()),
+        None,
+    );
+    w.add_track("camera", Kind::Video, video_track(1280, 720)).unwrap();
+    w.add_track("audio", Kind::Opus, audio_track()).unwrap();
+    w
+}
+
+/// The voice goes into the camera's files as well as into its own track's, and the camera's picture is what the
+/// manifest and the scanner see of the camera track: the voice's own files and the manifest's count of
+/// them are as they were.
+///
+/// Mutation: a voice that goes into the camera's files only; one that does not reach them.
+#[test]
+fn the_voice_goes_into_the_cameras_files_and_into_its_own() {
+    let store = MemStore::default();
+    let mut w = with_camera_and_voice(&store, true);
+    w.video("camera", SEC, &key(1));
+    for i in 0..100_u64 {
+        w.audio(SEC + i * 20_000, opus(i as u8));
+    }
+    for i in 1..30_u64 {
+        w.video("camera", SEC + i * 33_333, &delta(i as u8));
+    }
+    w.stop(4 * SEC, None);
+    let camera = store.file("camera/0001.mp4");
+    let voice = store.file("audio/0001.mp4");
+    assert_eq!(tracks_of(&camera), 2, "the camera's file carries a voice track");
+    assert_eq!(voice_samples(&camera), 100, "and every packet of the voice is in it");
+    assert_eq!(tracks_of(&voice), 1, "and the voice has its own, whole");
+    let s = scan(&mut Cursor::new(&voice)).unwrap();
+    assert_eq!(s.samples, 100, "every packet is in the voice's own file");
+    let c = scan(&mut Cursor::new(&camera)).unwrap();
+    assert_eq!(c.samples, 30, "the pictures are what the camera track counts");
+    let m = w.manifest();
+    assert_eq!(m.tracks.camera.as_ref().unwrap().segments[0].samples, 30);
+    assert_eq!(m.tracks.audio.as_ref().unwrap().segments[0].samples, 100);
+}
+
+/// A writer told not to carry the voice in the camera's files writes files of the picture alone, and the voice's
+/// own track is the same.
+///
+/// Mutation: the setting ignored.
+#[test]
+fn a_writer_that_is_not_to_carry_the_voice_writes_the_cameras_files_without_it() {
+    let store = MemStore::default();
+    let mut w = with_camera_and_voice(&store, false);
+    w.video("camera", SEC, &key(1));
+    for i in 0..50_u64 {
+        w.audio(SEC + i * 20_000, opus(i as u8));
+    }
+    w.stop(3 * SEC, None);
+    assert_eq!(tracks_of(&store.file("camera/0001.mp4")), 1);
+    assert_eq!(scan(&mut Cursor::new(&store.file("audio/0001.mp4"))).unwrap().samples, 50);
+}
+
+/// The voice before the camera's first picture has no file of the camera's to be in and is in the voice's own,
+/// and a camera that is not there takes nothing and breaks nothing.
+///
+/// Mutation: a voice that fails the audio track when there is no camera.
+#[test]
+fn the_voice_before_the_camera_began_is_in_its_own_track_only_and_no_camera_is_no_problem() {
+    let store = MemStore::default();
+    let mut w = with_camera_and_voice(&store, true);
+    for i in 0..10_u64 {
+        w.audio(i * 20_000, opus(i as u8));
+    }
+    w.video("camera", SEC, &key(1));
+    w.stop(2 * SEC, None);
+    assert_eq!(scan(&mut Cursor::new(&store.file("audio/0001.mp4"))).unwrap().samples, 10);
+    assert!(w.manifest().problems().is_empty(), "{:?}", w.manifest().problems());
+
+    // No camera track at all: the voice goes to its own and nothing is written for a camera.
+    let store = MemStore::default();
+    let mut w = Writer::new(
+        WriterConfig { segment_us: 300 * SEC, created_unix_s: 1_764_108_000, camera_chunk_us: 5 * SEC, voice_in_camera: true },
+        manifest(),
+        Box::new(store.clone()),
+        None,
+    );
+    w.add_track("audio", Kind::Opus, audio_track()).unwrap();
+    for i in 0..10_u64 {
+        assert!(w.audio(i * 20_000, opus(i as u8)).iter().all(|n| !matches!(n, Note::TrackFailed { .. })));
+    }
+    w.stop(SEC, None);
+    assert_eq!(store.names(), vec!["audio/0001.mp4"]);
 }

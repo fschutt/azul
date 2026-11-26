@@ -68,18 +68,18 @@ fn data() -> RefAny {
 /// The popover of conversation `id` open on page 0.
 fn open(s: &mut AppState, id: u64) -> Dom {
     s.open_conv = Some(id);
-    popover(s, &data(), 0, ui::PAGE_W).expect("the open conversation's popover")
+    popover(s, &data(), 0, ui::PAGE_W, ui::page_h()).expect("the open conversation's popover")
 }
 
 #[test]
 fn a_page_with_no_conversation_has_no_margin_and_nothing_open() {
     let mut s = app();
-    assert!(margin(&s, &data(), 0).is_none());
+    assert!(margin(&s, &data(), 0, ui::page_h()).is_none());
     s.notes.push(note(1, 1, 100.0, "on the second page"));
-    assert!(margin(&s, &data(), 0).is_none(), "the note is on page 1");
+    assert!(margin(&s, &data(), 0, ui::page_h()).is_none(), "the note is on page 1");
     s.open_conv = Some(1);
-    assert!(popover(&s, &data(), 0, ui::PAGE_W).is_none(), "and so is its popover");
-    assert!(popover(&s, &data(), 1, ui::PAGE_W).is_some());
+    assert!(popover(&s, &data(), 0, ui::PAGE_W, ui::page_h()).is_none(), "and so is its popover");
+    assert!(popover(&s, &data(), 1, ui::PAGE_W, ui::page_h()).is_some());
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn a_conversation_is_a_chip_in_the_margin_of_its_page_named_for_the_screen_reade
     // the fourth line of page 0
     s.notes.push(note(1, 0, ui::PAGE_PAD + 3.0 * ui::LINE_H + 2.0, "the bound is off by one"));
     s.notes.push(note(2, 1, 100.0, "another page"));
-    let m = margin(&s, &data(), 0).expect("the margin of page 0");
+    let m = margin(&s, &data(), 0, ui::page_h()).expect("the margin of page 0");
     assert!(with_id(&m, "__azreview_margin-1").is_some());
     let chip = with_id(&m, "__azreview_conv-1").expect("its chip");
     assert!(!chip.root.accessibility.is_null(), "the chip is named");
@@ -104,7 +104,7 @@ fn a_margin_that_cannot_hold_all_says_how_many_more_there_are() {
     for id in 1..=40 {
         s.notes.push(note(id, 0, 200.0, &format!("conversation {id}")));
     }
-    let m = margin(&s, &data(), 0).expect("a margin");
+    let m = margin(&s, &data(), 0, ui::page_h()).expect("a margin");
     let shown = (1..=40u64).filter(|id| with_id(&m, &format!("__azreview_conv-{id}")).is_some()).count();
     assert_eq!(shown, margin::capacity(ui::page_h() - 2.0 * ui::PAGE_PAD, CHIP_H, CHIP_GAP));
     let more = with_id(&m, "__azreview_margin-more-1").expect("the count of the rest");
@@ -119,7 +119,7 @@ fn what_works_stays_in_a_full_margin_and_so_does_the_open_one() {
     }
     s.notes[38].talk.asking(); // 39 works
     s.open_conv = Some(40);
-    let m = margin(&s, &data(), 0).expect("a margin");
+    let m = margin(&s, &data(), 0, ui::page_h()).expect("a margin");
     assert!(with_id(&m, "__azreview_conv-39").is_some(), "the one at work is in sight");
     assert!(with_id(&m, "__azreview_conv-40").is_some(), "so is the open one");
 }
@@ -184,9 +184,9 @@ fn the_words_being_spoken_are_the_last_line_in_italics_and_for_that_conversation
     if let Some(r) = s.voice.running.as_mut() {
         r.partial.clear();
     }
-    assert!(with_id(&popover(&s, &data(), 0, ui::PAGE_W).expect("open"), "__azreview_note-partial-1").is_none());
+    assert!(with_id(&popover(&s, &data(), 0, ui::PAGE_W, ui::page_h()).expect("open"), "__azreview_note-partial-1").is_none());
     s.open_conv = Some(2);
-    assert!(with_id(&popover(&s, &data(), 0, ui::PAGE_W).expect("open"), "__azreview_note-partial-2").is_none());
+    assert!(with_id(&popover(&s, &data(), 0, ui::PAGE_W, ui::page_h()).expect("open"), "__azreview_note-partial-2").is_none());
 }
 
 #[test]
@@ -205,7 +205,7 @@ fn a_dictation_says_listening_when_its_microphone_is_ready_and_before_that_that_
     if let Some(r) = s.voice.running.as_mut() {
         r.ready = true;
     }
-    let pop = popover(&s, &data(), 0, ui::PAGE_W).expect("open");
+    let pop = popover(&s, &data(), 0, ui::PAGE_W, ui::page_h()).expect("open");
     let pill = texts(with_id(&pop, "__azreview_listening").expect("the pill")).join(" ");
     assert!(pill.contains("Listening") && !pill.contains("Opening"), "{pill}");
 }
@@ -262,7 +262,7 @@ fn an_agent_at_work_shows_the_spinner_and_a_failure_shows_its_reason_and_a_key_t
     assert!(with_id(&pop, "__azreview_conv-problem-1").is_none());
 
     s.notes[0].talk.fail("claude is not installed".to_string());
-    let pop = popover(&s, &data(), 0, ui::PAGE_W).expect("open");
+    let pop = popover(&s, &data(), 0, ui::PAGE_W, ui::page_h()).expect("open");
     assert!(with_id(&pop, "__azreview_conv-working-1").is_none());
     assert_eq!(texts(with_id(&pop, "__azreview_conv-problem-1").expect("the reason")), vec!["claude is not installed"]);
     let send = with_id(&pop, "__azreview_conv-send-1").expect("a key to ask again");
@@ -280,7 +280,7 @@ fn a_finished_conversation_offers_to_open_it_again_and_an_unfinished_one_to_fini
     assert!(with_id(&pop, "__azreview_conv-reopen-1").is_some());
     assert!(with_id(&pop, "__azreview_conv-resolve-1").is_none());
     s.notes[0].talk.reopen();
-    let pop = popover(&s, &data(), 0, ui::PAGE_W).expect("open");
+    let pop = popover(&s, &data(), 0, ui::PAGE_W, ui::page_h()).expect("open");
     assert!(with_id(&pop, "__azreview_conv-reopen-1").is_none());
     assert!(with_id(&pop, "__azreview_conv-resolve-1").is_some());
 }
@@ -290,12 +290,12 @@ fn suggestions_that_wait_are_counted_in_the_open_conversation() {
     let mut s = app();
     let mut n = note(1, 0, 40.0, "x");
     n.talk.phase = Phase::Suggested;
-    n.talk.pending = 3;
+    n.talk.proposals = (0..3).map(|i| crate::conversation::Proposal { suggestion: crate::agent_review::Suggestion::InsertLines { after_line: i, lines: vec!["x".to_string()] }, decision: crate::conversation::Decision::Waiting }).collect();
     s.notes.push(n);
     let pop = open(&mut s, 1);
     assert_eq!(texts(with_id(&pop, "__azreview_conv-suggestions-1").expect("the count")), vec!["3 suggestions wait"]);
-    s.notes[0].talk.pending = 1;
-    let pop = popover(&s, &data(), 0, ui::PAGE_W).expect("open");
+    s.notes[0].talk.proposals.truncate(1);
+    let pop = popover(&s, &data(), 0, ui::PAGE_W, ui::page_h()).expect("open");
     assert_eq!(texts(with_id(&pop, "__azreview_conv-suggestions-1").expect("the count")), vec!["One suggestion waits"], "one is not many");
 }
 
@@ -373,5 +373,117 @@ fn what_the_words_were_understood_as_is_shown_beside_them_and_only_where_it_diff
     assert!(with_id(&pop, "__azreview_note-text-1").is_some());
     // words taken as heard have no such line
     s.notes[0].talk.understood = vec![None];
-    assert!(with_id(&popover(&s, &data(), 0, ui::PAGE_W).expect("open"), "__azreview_conv-understood-1").is_none());
+    assert!(with_id(&popover(&s, &data(), 0, ui::PAGE_W, ui::page_h()).expect("open"), "__azreview_conv-understood-1").is_none());
+}
+
+#[test]
+fn a_window_that_shows_less_of_the_page_holds_fewer_chips_and_says_how_many_more() {
+    let mut s = app();
+    for id in 1..=12 {
+        s.notes.push(note(id, 0, 100.0, "x"));
+    }
+    let tall = margin(&s, &data(), 0, ui::page_h()).expect("a margin");
+    let all = (1..=12u64).filter(|id| with_id(&tall, &format!("__azreview_conv-{id}")).is_some()).count();
+    assert_eq!(all, 12, "a whole page holds twelve");
+    // a window that shows 200 px of the page holds what fits in them
+    let short = margin(&s, &data(), 0, 200.0).expect("a margin");
+    let some = (1..=12u64).filter(|id| with_id(&short, &format!("__azreview_conv-{id}")).is_some()).count();
+    assert!(some < 12 && some >= 3, "{some}");
+    assert!(with_id(&short, "__azreview_margin-more-1").is_some(), "and the rest is counted");
+}
+
+#[test]
+fn the_open_conversation_keeps_inside_the_part_of_the_page_the_window_shows() {
+    // a chip low on the page and a conversation 330 px tall
+    let whole = popover_y(560.0, 330.0, ui::page_h(), ui::page_h());
+    let cut = popover_y(560.0, 330.0, ui::page_h(), 420.0);
+    assert!(cut < whole, "the window shows less of the page, so the popover stands higher: {cut} against {whole}");
+    assert!(cut + 330.0 <= 420.0 + 0.5, "its foot is inside what the window shows: {cut}");
+    assert!(whole + 330.0 <= ui::page_h() + 0.5, "and inside the page: {whole}");
+    // a chip high on the page keeps it where it is
+    assert_eq!(popover_y(40.0, 330.0, ui::page_h(), ui::page_h()), ui::PAGE_PAD + 40.0);
+}
+
+// ==== The agent's suggestions in the open conversation ====
+
+fn with_suggestions(decisions: &[Decision]) -> AppState {
+    use crate::{
+        agent_review::{Pos, Suggestion},
+        conversation::Proposal,
+    };
+    let mut s = app();
+    let mut n = note(1, 0, 40.0, "rename step_3 and drop the stale one");
+    let all = [
+        Suggestion::InsertLines { after_line: 3, lines: vec!["let n = items.len();".to_string(), "// two".to_string()] },
+        Suggestion::ReplaceRange { start: Pos { line: 4, col: 8 }, end: Pos { line: 4, col: 14 }, old: "step_3".to_string(), text: "first_step".to_string() },
+        Suggestion::RemoveRange { start: Pos { line: 5, col: 0 }, end: Pos { line: 5, col: 5 }, old: "stale".to_string() },
+    ];
+    n.talk.proposals = decisions.iter().zip(all).map(|(d, suggestion)| Proposal { suggestion, decision: *d }).collect();
+    n.talk.phase = if decisions.contains(&Decision::Waiting) { Phase::Suggested } else { Phase::Done };
+    s.notes.push(n);
+    s
+}
+
+#[test]
+fn each_suggestion_is_a_card_that_says_what_and_where_with_keys_that_have_names() {
+    let mut s = with_suggestions(&[Decision::Waiting, Decision::Waiting, Decision::Waiting]);
+    let pop = open(&mut s, 1);
+    let insert = texts(with_id(&pop, "__azreview_sugg-1-0").expect("the insertion"));
+    assert!(insert[0].contains("Insert 2 lines after line 3"), "{insert:?}");
+    assert!(insert.iter().any(|t| t == "let n = items.len();"), "the lines it would put there: {insert:?}");
+    let replace = texts(with_id(&pop, "__azreview_sugg-1-1").expect("the replacement"));
+    assert!(replace[0].contains("step_3") && replace[0].contains("line 4"), "{replace:?}");
+    assert!(replace.iter().any(|t| t == "first_step"), "the new words: {replace:?}");
+    let remove = texts(with_id(&pop, "__azreview_sugg-1-2").expect("the removal"));
+    assert!(remove[0].contains("stale") && remove[0].contains("line 5"), "{remove:?}");
+    for k in 0..3 {
+        for key in ["accept", "reject"] {
+            let b = with_id(&pop, &format!("__azreview_sugg-{key}-1-{k}")).unwrap_or_else(|| panic!("{key} of {k}"));
+            assert!(!b.root.accessibility.is_null(), "{key} of {k} has no name");
+        }
+    }
+    assert!(with_id(&pop, "__azreview_sugg-accept-all-1").is_some(), "three wait: a key for all of them");
+    assert!(with_id(&pop, "__azreview_sugg-reject-all-1").is_some());
+}
+
+#[test]
+fn a_decided_suggestion_says_so_and_has_a_key_to_decide_again_and_none_to_decide() {
+    let mut s = with_suggestions(&[Decision::Accepted, Decision::Rejected, Decision::Waiting]);
+    let pop = open(&mut s, 1);
+    assert_eq!(texts(with_id(&pop, "__azreview_sugg-decided-1-0").expect("taken")), vec!["Taken"]);
+    assert_eq!(texts(with_id(&pop, "__azreview_sugg-decided-1-1").expect("refused")), vec!["Refused"]);
+    for k in [0, 1] {
+        assert!(with_id(&pop, &format!("__azreview_sugg-undo-1-{k}")).is_some(), "decide again: {k}");
+        assert!(with_id(&pop, &format!("__azreview_sugg-accept-1-{k}")).is_none(), "nothing to take that was decided: {k}");
+    }
+    assert!(with_id(&pop, "__azreview_sugg-accept-1-2").is_some(), "the one that waits");
+    assert!(with_id(&pop, "__azreview_sugg-accept-all-1").is_none(), "one waits: no key for all");
+}
+
+#[test]
+fn a_conversation_with_no_suggestion_has_no_card_and_no_key_for_them() {
+    let mut s = app();
+    s.notes.push(note(1, 0, 40.0, "x"));
+    let pop = open(&mut s, 1);
+    assert!(with_id(&pop, "__azreview_sugg-1-0").is_none());
+    assert!(with_id(&pop, "__azreview_sugg-accept-all-1").is_none());
+}
+
+#[test]
+fn the_open_conversation_with_suggestions_is_taller_than_without() {
+    let none = with_suggestions(&[]);
+    let three = with_suggestions(&[Decision::Waiting, Decision::Waiting, Decision::Waiting]);
+    assert!(popover_height(&three.notes[0], false, 0) > popover_height(&none.notes[0], false, 0) + 100.0);
+}
+
+#[test]
+fn the_margin_of_a_page_that_grew_is_as_much_taller_as_the_page() {
+    let plain = margin_h(ui::page_h(), ui::page_h());
+    let grown = margin_h(ui::page_h() + 60.0, ui::page_h() + 60.0);
+    assert_eq!(grown, plain + 60.0);
+    // a window that shows no more than before cuts it where it cuts it: at what it shows, less the padding and a margin
+    assert_eq!(margin_h(ui::page_h() + 60.0, ui::page_h()), ui::page_h() - ui::PAGE_PAD - 8.0);
+    // and the open conversation may stand lower on it
+    let low = popover_y(plain, 100.0, ui::page_h() + 60.0, ui::page_h() + 60.0);
+    assert!(low > popover_y(plain, 100.0, ui::page_h(), ui::page_h()));
 }

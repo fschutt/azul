@@ -46,9 +46,11 @@ Run ONE app at a time, through the capped runner:
 The debug-server client is the shared one (scripts/azlin_e2e.py).
 """
 
+import glob
 import json
 import os
 import re
+import subprocess
 import time
 import zipfile
 
@@ -114,6 +116,15 @@ def read_session(path):
             return json.loads(z.read("session.json").decode("utf-8"))
     except (OSError, zipfile.BadZipFile, KeyError, ValueError):
         return {}
+
+
+def read_text(path):
+    """A text file as it is now ('' where it is not there yet)."""
+    try:
+        with open(path, encoding="utf-8", newline="") as f:
+            return f.read()
+    except OSError:
+        return ""
 
 
 def saves(app):
@@ -300,7 +311,14 @@ def dictation(args, logs, out, binary, fake):
     folder = os.path.join(logs, "folder-dictation")
     os.makedirs(data_dir, exist_ok=True)
     fixture(folder)
-    extra = {"AZ_SPEECH_HEARD": HEARD} if fake else {}
+    extra = {}
+    if fake:
+        # what the recogniser hears: one utterance, then quiet (the engine's stream walks the steps of a script; the old
+        # AZ_SPEECH_HEARD answers at once on every call, which a stream would take as utterance after utterance without a pause)
+        script = os.path.join(logs, "speech-dictation.json")
+        with open(script, "w", encoding="utf-8") as f:
+            json.dump({"builtin": [{"say": HEARD, "delay_ms": 300, "language": "en"}, {"silence": True}], "then": "silence"}, f)
+        extra = {"AZ_SPEECH_SCRIPT": script}
     app = e2e.App("review-dictation", binary,
                   [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en",
                    "--dwell-ms", "400", "--dwell-input", "any", "--silence-ms", "6000",
@@ -439,6 +457,208 @@ def dictation(args, logs, out, binary, fake):
         app.stop()
     app.log("PASS: dictation (%s)" % ("fake speech: words, stroke, stop, Escape, second rest, moving away, saved"
                                        if fake else "the real recogniser refused, and said so"))
+
+
+def pixels_of(png_path):
+    """A screenshot's pixels as a height x width x 3 array of RGB: the system's `sips` turns the PNG into a BMP (no decoder of
+    our own; the BMP it writes is top-down, 32 bits, blue first)."""
+    import struct
+    import numpy as np
+    bmp = png_path + ".bmp"
+    done = subprocess.run(["/usr/bin/sips", "-s", "format", "bmp", png_path, "--out", bmp], capture_output=True, text=True, check=False)
+    if done.returncode != 0:
+        raise Failure("sips could not read %s: %s" % (png_path, done.stderr))
+    with open(bmp, "rb") as f:
+        data = f.read()
+    os.remove(bmp)
+    offset, = struct.unpack("<I", data[10:14])
+    width, height = struct.unpack("<ii", data[18:26])
+    bits, = struct.unpack("<H", data[28:30])
+    if bits != 32:
+        raise Failure("the BMP of %s has %d bits" % (png_path, bits))
+    rows = abs(height)
+    a = np.frombuffer(data, dtype=np.uint8, count=width * rows * 4, offset=offset).reshape(rows, width, 4)
+    if height > 0:
+        a = a[::-1]
+    return a[:, :, [2, 1, 0]]
+
+
+def marker_bands(png_path, region):
+    """The rows, in the picture's px, where the marker's ink (a pink wash: 255, 182, 216) is, as bands of rows that touch:
+    `region` is (x0, y0, x1, y1) in the picture's px."""
+    import numpy as np
+    a = pixels_of(png_path)
+    x0, y0, x1, y1 = [int(v) for v in region]
+    part = a[y0:y1, x0:x1].astype(int)
+    pink = (part[:, :, 0] >= 245) & (part[:, :, 1] >= 165) & (part[:, :, 1] <= 200) & (part[:, :, 2] >= 200) & (part[:, :, 2] <= 232)
+    rows = np.where(pink.sum(axis=1) >= 30)[0]
+    bands = []
+    for r in rows:
+        if bands and r - bands[-1][1] <= 1:
+            bands[-1][1] = int(r)
+        else:
+            bands.append([int(r), int(r)])
+    return [(a_ + y0, b_ + y0) for a_, b_ in bands]
+
+
+def page_growth(args, logs, out, binary):
+    """Page breaks are stable and the ink stays with its line: a marker stroke drawn on a line goes down with that line when an
+    agent's suggestion puts a line in above it (the stroke is kept where the page was first drawn, and painted where its line
+    is), and a stroke drawn on the page that has grown is where the pen was."""
+    data_dir = os.path.join(logs, "data-grow")
+    folder = os.path.join(logs, "folder-grow")
+    os.makedirs(data_dir, exist_ok=True)
+    fixture(folder)
+    app = e2e.App("review-grow", binary,
+                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en", "--dwell-input", "off",
+                   "--standby", "off", "--agent", "mock", "--agent-auto", "off", "--agent-delay-ms", "300"],
+                  args.debug_port + 8, logs, args.timeout)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        show_files(app)
+        pick(app, "src", "lib.rs")
+        app.until("lib.rs open", lambda: state(app)["tree"]["open"] == os.path.join("src", "lib.rs"))
+        app.frame(3)
+        strip = app.rect(STRIP)
+
+        def draw(y, x0, x1):
+            app.must("mouse_move", x=x0, y=y)
+            app.must("mouse_down", x=x0, y=y)
+            for i in range(1, 11):
+                app.must("mouse_move", x=x0 + (x1 - x0) * i / 10.0, y=y)
+                app.frame(1)
+            app.must("mouse_up", x=x1, y=y)
+            app.frame(3)
+
+        def centre(n):
+            """The middle of line `n`'s row in the window's px (the rect of a node of the pages' DOM is in that DOM's own
+            coordinates, which start at the strip's corner)."""
+            r = app.rect("__azreview_line-%d" % n, every_dom=True)
+            return strip["y"] + r["y"] + r["height"] / 2.0, strip["x"] + r["x"]
+
+        def band_near(png, y):
+            """The one band of marker ink within 10 px (logical) of `y`: its centre in logical px."""
+            shot = pixels_of(png)
+            scale = shot.shape[1] / float(WIDTH)
+            region = ((strip["x"] + 100) * scale, (strip["y"] + 30) * scale, (strip["x"] + 700) * scale, (strip["y"] + 700) * scale)
+            found = [(a + b) / 2.0 / scale for a, b in marker_bands(png, region)]
+            near = [c for c in found if abs(c - y) <= 10.0]
+            if len(near) != 1:
+                raise Failure("expected one band of marker ink near y=%.1f, found bands at %s" % (y, found))
+            return near[0]
+
+        y8, x8 = centre(8)
+        draw(y8, x8 + 150.0, x8 + 330.0)
+        before = os.path.join(out, "30-ink-before.png")
+        app.screenshot(before)
+        a_y = band_near(before, y8)
+        if abs(a_y - y8) > 4.0:
+            raise Failure("the stroke is not where the pen was: its band is at %.1f, the pen drew at %.1f" % (a_y, y8))
+
+        # a suggestion that puts a line in after the fourth line: the seventh line and the stroke on it go down a row
+        note = add_note(app, "rename step_3 to first_step", CONV_ANCHOR_Y, ask=True)
+        app.until("a suggestion waits", lambda: talk_of(app, note)["phase"] == "suggested")
+        app.until("the line is a row of the page", lambda: app.has_id("__azreview_insert-%d-4" % note, every_dom=True))
+        app.until("line 8 is a row lower", lambda: abs(centre(8)[0] - (y8 + 15.0)) < 1.0)
+        after = os.path.join(out, "31-ink-grown.png")
+        app.screenshot(after)
+        b_y = band_near(after, y8 + 15.0)
+        if abs(b_y - a_y - 15.0) > 2.5:
+            raise Failure("the ink did not go down with its line: the band was at %.1f and is at %.1f, a row is 15" % (a_y, b_y))
+
+        # a stroke drawn on the page that has grown is where the pen was (kept where the page was first drawn, painted where
+        # its line is)
+        y20, x20 = centre(20)
+        draw(y20, x20 + 150.0, x20 + 330.0)
+        third = os.path.join(out, "32-ink-on-grown-page.png")
+        app.screenshot(third)
+        c_y = band_near(third, y20)
+        if abs(c_y - y20) > 4.0:
+            raise Failure("a stroke drawn on the grown page is not where the pen was: its band is at %.1f, the pen drew at %.1f" % (c_y, y20))
+        if abs(band_near(third, y8 + 15.0) - b_y) > 1.0:
+            raise Failure("the first stroke moved when the second was drawn")
+        # it is kept where the page was first drawn: the archive's second stroke is a row (15 px) higher than the pen was
+        app.key("s", primary=True)
+        path = os.path.join(data_dir, ARCHIVE)
+        app.until("the archive", lambda: len(read_session(path).get("strokes", [])) == 2)
+        strokes = read_session(path)["strokes"]
+        ys = [sum(p["y"] for p in st["points"]) / len(st["points"]) for st in strokes]
+        want = [(y8 - strip["y"]) , (y20 - strip["y"]) - 15.0]
+        if abs((ys[1] - ys[0]) - (want[1] - want[0])) > 3.0:
+            raise Failure("the kept strokes are %s px apart, the pen drew %.1f apart less a row put in" % (ys[1] - ys[0], y20 - y8))
+        no_lint(app, "the page growth run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: a line put in grows its page, the ink goes down with its line, and ink drawn on the grown page is where the pen was")
+
+
+def dictation_stream(args, logs, out, binary):
+    """A dictation through the engine's stream (a test-hooks libazul, which scripts the recogniser: nothing opens a microphone):
+    the words come as they are said (the words so far, then each utterance), the microphone is told, the quiet ends the stream
+    where it is (the last words are not lost), and a stop ends it at once (not after a chunk of seconds)."""
+    data_dir = os.path.join(logs, "data-stream")
+    folder = os.path.join(logs, "folder-stream")
+    os.makedirs(data_dir, exist_ok=True)
+    fixture(folder)
+    first, second = "rename this loop", "and then check the test"
+    script = os.path.join(logs, "speech-stream.json")
+    with open(script, "w", encoding="utf-8") as f:
+        json.dump({"builtin": [{"say": first, "delay_ms": 400, "language": "en"}, {"say": second, "delay_ms": 600, "language": "en"},
+                               {"silence": True}], "then": "silence"}, f)
+    app = e2e.App("review-stream", binary,
+                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en", "--agent", "mock",
+                   "--agent-auto", "off", "--dwell-ms", "400", "--dwell-input", "any", "--silence-ms", "3000", "--endpoint-ms", "800",
+                   "--standby", "off"],
+                  args.debug_port + 7, logs, args.timeout, extra_env={"AZ_SPEECH_SCRIPT": script})
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        show_files(app)
+        pick(app, "src", "lib.rs")
+        app.frame(3)
+        strip = app.rect(STRIP)
+        base = (strip["x"] + 160.0, strip["y"] + 140.0)
+        lines = lambda pattern: app.printed("AZREVIEW_DICTATION", pattern)
+
+        # 1. a rest starts it; the words come as utterances; the quiet ends it where it is
+        app.must("mouse_move", x=base[0], y=base[1])
+        app.until("the dictation to start", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started 1") > 0)[1])
+        app.until("the microphone is open", lambda: app.count("AZREVIEW_DICTATION", r"ready 1") > 0)
+        app.until("the first utterance", lambda: app.count("AZREVIEW_DICTATION", r"text 1 %s" % re.escape(first)) > 0)
+        app.until("the second", lambda: app.count("AZREVIEW_DICTATION", r"text 1 %s" % re.escape(second)) > 0)
+        if app.count("AZREVIEW_DICTATION", r"partial 1 .+") < 1:
+            raise Failure("no words so far were told while the words were said: %s" % lines(r".*"))
+        began = time.perf_counter()
+        app.until("the quiet ends it", lambda: app.count("AZREVIEW_DICTATION", r"ended 1 silence") > 0)
+        waited = time.perf_counter() - began
+        if waited > 3.0 + 2.5:
+            raise Failure("the quiet (3 s) ended the stream after %.1f s" % waited)
+        if app.count("AZREVIEW_MIC", r"listening") < 1:
+            raise Failure("the microphone was never told as listening: %s" % app.printed("AZREVIEW_MIC", r".*"))
+        notes = state(app)["conversations"]["notes"]
+        if not notes or notes[0]["said"] < 2:
+            raise Failure("the two utterances are not the conversation's: %s" % notes)
+        app.screenshot(os.path.join(out, "29-dictation-stream.png"))
+
+        # 2. a stop ends it at once: the script's utterances are over, a stream waits in the quiet, and the stop key ends it
+        app.must("mouse_move", x=base[0] + 300.0, y=base[1] + 200.0)
+        app.until("the second dictation to start", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started 2") > 0)[1])
+        app.until("its stop key", lambda: app.has_id("__azreview_dictation-stop"))
+        began = time.perf_counter()
+        app.click(selector="#__azreview_dictation-stop")
+        app.until("the stop ends it", lambda: app.count("AZREVIEW_DICTATION", r"ended 2 button") > 0)
+        stopped = time.perf_counter() - began
+        if stopped > 5.0:
+            raise Failure("a stop took %.1f s to end the stream" % stopped)
+        no_lint(app, "the dictation stream run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: a dictation through the engine's stream: the words as they are said, the quiet ends it, a stop ends it at once")
 
 
 def restore(args, logs, out, binary):
@@ -760,6 +980,9 @@ def conversations(args, logs, out, binary):
         # one: a note on the fourth line of page 1; its chip stands in the margin of that page
         first = add_note(app, "rename step_3 to first_step", CONV_ANCHOR_Y)
         app.until("its chip in the margin", lambda: app.has_id("__azreview_conv-%d" % first, every_dom=True))
+        # where the lines of the first two pages are before anything is put in (page breaks are stable: see below)
+        line_y = lambda n: app.rect("__azreview_line-%d" % n, every_dom=True)["y"]
+        rows_before = {n: line_y(n) for n in (1, 4, 5, 46, 47, 48)}
         if talk_of(app, first)["phase"] != "draft" or state(app)["chips"] != 1:
             raise Failure("a note nobody asked about: %s, %d chips" % (talk_of(app, first), state(app)["chips"]))
         chip = app.rect("__azreview_conv-%d" % first, every_dom=True)
@@ -806,6 +1029,65 @@ def conversations(args, logs, out, binary):
         app.until("the tree marks the file yellow", lambda: app.has_id("__azreview_file-mark-suggested", every_dom=True))
         app.screenshot(os.path.join(out, "23-conversation-suggested.png"))
 
+        # the suggestion: a card in the conversation and a yellow rule on the page where the line would go; taken (green),
+        # taken back, refused, taken again
+        card = "__azreview_sugg-%d-0" % first
+        rule = "__azreview_insert-%d-4" % first
+
+        def moved_by(down, why):
+            """The first page's lines after the fourth are `down` px lower than before, the others where they were (the second
+            page's too: page breaks are stable, a page that has lines put in grows and nothing else moves)."""
+            for n, want in ((1, 0.0), (4, 0.0), (5, down), (46, down), (47, 0.0), (48, 0.0)):
+                got = line_y(n) - rows_before[n]
+                if abs(got - want) > 1.0:
+                    raise Failure("%s: line %d is %.1f px lower than before, not %.1f" % (why, n, got, want))
+
+        app.until("the suggestion's card", lambda: app.has_id(card, every_dom=True))
+        app.until("the line on the page", lambda: app.has_id(rule, every_dom=True))
+        app.until("the lines after it are a row lower", lambda: abs(line_y(5) - rows_before[5] - 15.0) < 1.0)
+        moved_by(15.0, "a suggestion that waits")
+        if not app.shows("Insert one line after line 4", every_dom=True):
+            raise Failure("the card does not say what it would do")
+        app.click(selector="#__azreview_sugg-accept-%d-0" % first, every_dom=True)
+        app.until("taken", lambda: talk_of(app, first)["phase"] == "done" and talk_of(app, first)["accepted"] == 1)
+        app.until("it says taken", lambda: app.has_id("__azreview_sugg-decided-%d-0" % first, every_dom=True))
+        app.until("the file is no longer yellow", lambda: not app.has_id("__azreview_file-mark-suggested", every_dom=True))
+        app.screenshot(os.path.join(out, "23b-suggestion-taken.png"))
+        app.click(selector="#__azreview_sugg-undo-%d-0" % first, every_dom=True)
+        app.until("it waits again", lambda: talk_of(app, first)["phase"] == "suggested" and talk_of(app, first)["pending"] == 1)
+        app.click(selector="#__azreview_sugg-reject-%d-0" % first, every_dom=True)
+        app.until("refused", lambda: talk_of(app, first)["phase"] == "done" and talk_of(app, first)["accepted"] == 0)
+        app.until("no line where nothing goes", lambda: not app.has_id(rule, every_dom=True))
+        app.until("the lines are where they were", lambda: abs(line_y(5) - rows_before[5]) < 1.0)
+        moved_by(0.0, "a suggestion that was refused")
+        app.click(selector="#__azreview_sugg-undo-%d-0" % first, every_dom=True)
+        app.click(selector="#__azreview_sugg-accept-%d-0" % first, every_dom=True)
+        app.until("taken at last", lambda: talk_of(app, first)["accepted"] == 1 and talk_of(app, first)["phase"] == "done")
+        app.until("the line is back", lambda: app.has_id(rule, every_dom=True))
+        app.until("the lines after it are a row lower again", lambda: abs(line_y(5) - rows_before[5] - 15.0) < 1.0)
+        moved_by(15.0, "a suggestion that was taken")
+        app.screenshot(os.path.join(out, "23c-page-grew.png"))
+
+        # the resolved conversation is ONE patch file in the data root (the one it wrote before was replaced each time): the
+        # header says which conversation it is and how it ended, the diff is what was taken, and it applies to the file as it
+        # is on the disk
+        patches = lambda c: sorted(glob.glob(os.path.join(data_dir, "review", "patches-*", "*-c%d.patch" % c)))
+        app.until("its patch file", lambda: len(patches(first)) == 1 and "Outcome: accepted" in read_text(patches(first)[0]))
+        found = patches(first)
+        if len(found) != 1:
+            raise Failure("a conversation resolved three times has one patch file: %s" % found)
+        text = read_text(found[0])
+        for want in ("AzReview-Patch: 1", "Conversation: %d" % first, "Outcome: accepted", "Base: none", "Said: rename step_3 to first_step",
+                     "Rationale: Mock agent: rename step_3 to first_step", "Files: src/lib.rs",
+                     "diff --git a/src/lib.rs b/src/lib.rs", "@@ -2,6 +2,7 @@", "+// mock: rename step_3 to first_step"):
+            if want not in text:
+                raise Failure("the patch does not say %r:\n%s" % (want, text))
+        if app.count("AZREVIEW_PATCH", r"made c%d outcome=accepted changed=true left_out=0 name=.*" % first) < 1:
+            raise Failure("no line for the patch made: %s" % app.printed("AZREVIEW_PATCH", r".*"))
+        applied = subprocess.run(["patch", "-p1", "--dry-run", "-d", folder, "-i", found[0]], capture_output=True, text=True, check=False)
+        if applied.returncode != 0:
+            raise Failure("the patch does not apply to the file: %s%s" % (applied.stdout, applied.stderr))
+
         # nonsense: the agent does nothing, and nothing is shown of it (the reason is in the log line only)
         nonsense = add_note(app, "testing one two", CONV_ANCHOR_Y + 15.0 * 12, ask=True)
         app.until("asked", lambda: talk_of(app, nonsense)["asked"] == 1)
@@ -835,17 +1117,29 @@ def conversations(args, logs, out, binary):
         if state(app)["conversations"]["agents"]["late"] != 0:
             raise Failure("an answer is still waiting: %s" % state(app)["conversations"]["agents"])
 
-        # closing a conversation: what waits is no longer waited for, and the file is not yellow any more
+        # a conversation whose suggestions were all decided is done and offers to be opened again
         app.click(selector="#__azreview_conv-%d" % first, every_dom=True)
         app.until("the first one open", lambda: state(app)["conversations"]["open"] == first)
-        app.click(selector="#__azreview_conv-resolve-%d" % first, every_dom=True)
-        app.until("resolved", lambda: talk_of(app, first)["phase"] == "done")
         app.until("the reopen key", lambda: app.has_id("__azreview_conv-reopen-%d" % first, every_dom=True))
+        # closing a conversation that waits: what waits is no longer waited for, and the file is not yellow any more
         app.until("the one that waits is a suggestion still", lambda: talk_of(app, late)["phase"] == "suggested")
+        # an open conversation covers the margin below its chip, as it does for a reviewer: it is closed before the next chip
+        app.click(selector="#__azreview_conv-close-%d" % first, every_dom=True)
+        app.until("the first one closed", lambda: state(app)["conversations"]["open"] is None)
         app.click(selector="#__azreview_conv-%d" % late, every_dom=True)
         app.until("the other one open", lambda: state(app)["conversations"]["open"] == late)
         app.click(selector="#__azreview_conv-resolve-%d" % late, every_dom=True)
         app.until("it is resolved too", lambda: talk_of(app, late)["phase"] == "done")
+        # closed with a suggestion waiting: a header alone, that says nothing was taken (and a conversation nobody resolved has none)
+        app.until("the patch of the one that was closed", lambda: len(patches(late)) == 1)
+        closed = read_text(patches(late)[0])
+        for want in ("Conversation: %d" % late, "Outcome: rejected", "Files: none", "Said: what does step_5 add to x"):
+            if want not in closed:
+                raise Failure("the patch of the conversation that was closed does not say %r:\n%s" % (want, closed))
+        if "diff --git" in closed:
+            raise Failure("a diff where nothing was taken:\n%s" % closed)
+        if patches(nonsense):
+            raise Failure("a patch for a conversation nobody resolved: %s" % patches(nonsense))
         app.until("the file is no longer yellow", lambda: not app.has_id("__azreview_file-mark-suggested", every_dom=True))
 
         # the archive keeps the conversation: the phase and the turn are in it
@@ -980,6 +1274,69 @@ def conversations_dictation(args, logs, out, binary):
     app.log("PASS: a dictation without a microphone: its conversation opens in the margin, the last three lines show, the silence ends it, the agent answers and the archive has it all")
 
 
+def conversations_return(args, logs, out, binary):
+    """Continue reviewing: a jump to a conversation (a chip of the bottom bar) remembers where the reviewer was, the first
+    jump only; the key (or Mod+Shift+C) comes back and clears it; a restart still has it. No microphone, the mock agent."""
+    data_dir = os.path.join(logs, "data-conv-return")
+    folder = os.path.join(logs, "folder-conv-return")
+    os.makedirs(data_dir, exist_ok=True)
+    fixture(folder)
+    argv = [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en", "--dwell-input", "off",
+            "--standby", "off", "--agent", "mock"]
+    app = e2e.App("review-conv-return", binary, argv, args.debug_port + 9, logs, args.timeout)
+    place = {"file": os.path.join("src", "lib.rs"), "page": 0, "line": 1}
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        show_files(app)
+        pick(app, "src", "lib.rs")
+        app.until("lib.rs open", lambda: state(app)["tree"]["open"] == place["file"])
+        near = add_note(app, "near the top", CONV_ANCHOR_Y, page=0)
+        far = add_note(app, "far down the file", CONV_ANCHOR_Y, page=2)
+        app.until("the bar has them", lambda: app.shows("far down the file") and app.shows("near the top"))
+        if state(app)["progress"]["back"] is not None or app.has_id("__azreview_back"):
+            raise Failure("a place to come back to before any jump: %s" % state(app)["progress"]["back"])
+
+        # the first jump: to the far conversation, remembering where the reviewer was (page 1, line 1)
+        app.click(text="far down the file", frames=2)
+        app.until("it opened", lambda: state(app)["conversations"]["open"] == far)
+        app.until("the place is kept", lambda: state(app)["progress"]["back"] == place)
+        app.until("the key to continue", lambda: app.has_id("__azreview_back"))
+        if state(app)["visible_page"] != 2:
+            raise Failure("the jump did not take the pages to the conversation: page %s" % state(app)["visible_page"])
+        if not app.shows("Back to src/lib.rs p1 l1"):
+            raise Failure("the key does not say where it goes back to")
+        app.screenshot(os.path.join(out, "28-continue-reviewing.png"))
+
+        # a jump from one conversation to another does not overwrite it (the reviewer is on page 3 now)
+        app.click(text="near the top", frames=2)
+        app.until("the other opened", lambda: state(app)["conversations"]["open"] == near)
+        if state(app)["progress"]["back"] != place:
+            raise Failure("the second jump changed the place: %s" % state(app)["progress"]["back"])
+
+        # what the place is, is kept in the data root: leave the file (that writes it), stop, and start again
+        app.click(text="README.md", every_dom=True, frames=1)
+        app.until("the progress written", lambda: app.count("AZREVIEW_SAVED", r"review/progress-[0-9a-f]{16}\.json") > 0)
+        app.stop()
+        again = e2e.App("review-conv-return-again", binary, argv, args.debug_port + 10, logs, args.timeout)
+        try:
+            again.until("AzReview's window", lambda: again.has_id(STRIP))
+            again.until("the place came back with the window", lambda: state(again)["progress"]["back"] == place)
+            again.until("and its key", lambda: again.has_id("__azreview_back"))
+            # the shortcut comes back: the place opens, and is none
+            again.key("c", primary=True, shift=True)
+            again.until("back at the place", lambda: state(again)["tree"]["open"] == place["file"] and state(again)["visible_page"] == 0)
+            again.until("no place any more", lambda: state(again)["progress"]["back"] is None and not again.has_id("__azreview_back"))
+            no_lint(again, "the continue-reviewing run")
+        finally:
+            again.stop()
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: a jump to a conversation remembers where the reviewer was (the first one only), the key and Mod+Shift+C come back, and a restart still has it")
+
+
 def notes_in(path):
     with zipfile.ZipFile(path) as z:
         return json.loads(z.read("session.json").decode("utf-8")).get("notes", [])
@@ -987,7 +1344,7 @@ def notes_in(path):
 
 def run_all(args, logs, out):
     binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
-    # AZREVIEW_E2E_ONLY=slash, progress or conversations runs that step alone (the others each take minutes).
+    # AZREVIEW_E2E_ONLY=slash, progress, growth, stream or conversations runs that step alone (the others each take minutes).
     only = os.environ.get("AZREVIEW_E2E_ONLY", "")
     if only == "slash":
         slash(args, logs, out, binary)
@@ -995,10 +1352,21 @@ def run_all(args, logs, out):
     if only == "progress":
         progress(args, logs, out, binary)
         return True
+    if only == "growth":
+        page_growth(args, logs, out, binary)
+        return True
+    if only == "stream":
+        if not fake_speech():
+            print("[azreview] SKIPPED: the dictation stream (this libazul has no test hooks: the real recogniser would listen "
+                  "to the microphone)", flush=True)
+            return True
+        dictation_stream(args, logs, out, binary)
+        return True
     if only == "conversations":
         conversations(args, logs, out, binary)
         conversations_failing(args, logs, out, binary)
         conversations_dictation(args, logs, out, binary)
+        conversations_return(args, logs, out, binary)
         return True
     body(args, logs, out)
     # The dictation steps need the fake speech backend (a libazul with the test hooks). Without it the real recogniser
@@ -1006,6 +1374,7 @@ def run_all(args, logs, out):
     # open the microphone, so the steps are skipped.
     if fake_speech():
         dictation(args, logs, out, binary, True)
+        dictation_stream(args, logs, out, binary)
     else:
         print("[azreview] SKIPPED: the dictation steps (this libazul has no test hooks: the real recogniser would listen "
               "to the microphone)", flush=True)
@@ -1014,6 +1383,8 @@ def run_all(args, logs, out):
     conversations(args, logs, out, binary)
     conversations_failing(args, logs, out, binary)
     conversations_dictation(args, logs, out, binary)
+    conversations_return(args, logs, out, binary)
+    page_growth(args, logs, out, binary)
     restore(args, logs, out, binary)
     return True
 

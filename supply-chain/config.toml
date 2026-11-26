@@ -75,6 +75,11 @@ criteria = "safe-to-deploy"
 version = "0.32.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.acto]]
+version = "0.8.2"
+criteria = "safe-to-deploy"
+notes = "the actor runtime swarm-discovery (iroh's mDNS lookup) runs on, for IrohConfig.local_discovery; build.rs (ten lines, sets a cfg for the compiler channel) read, the rest not read."
+
 [[exemptions.addr2line]]
 version = "0.25.1"
 criteria = "safe-to-deploy"
@@ -1596,6 +1601,11 @@ criteria = "safe-to-deploy"
 version = "0.1.4"
 criteria = "safe-to-deploy"
 
+[[exemptions.hickory-proto]]
+version = "0.26.3"
+criteria = "safe-to-deploy"
+notes = "the DNS wire format swarm-discovery builds and parses its mDNS packets with (it parses what the local network sends); pinned to 0.26.3: 0.26.4 was 2 days old at the time (14-day floor) and 0.26.0/0.26.1 carry RUSTSEC-2026-0487 to 0491 (fixed in 0.26.2); not read."
+
 [[exemptions.hkdf]]
 version = "0.12.4"
 criteria = "safe-to-deploy"
@@ -1875,6 +1885,11 @@ criteria = "safe-to-deploy"
 [[exemptions.iroh-dns]]
 version = "1.3.0"
 criteria = "safe-to-deploy"
+
+[[exemptions.iroh-mdns-address-lookup]]
+version = "0.6.1"
+criteria = "safe-to-deploy"
+notes = "iroh's mDNS address lookup (n0-computer), the engine's IrohConfig.local_discovery; the single source file read, no unsafe, no build script."
 
 [[exemptions.iroh-metrics]]
 version = "1.0.1"
@@ -3544,6 +3559,11 @@ criteria = "safe-to-deploy"
 version = "1.1.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.smol_str]]
+version = "0.1.24"
+criteria = "safe-to-deploy"
+notes = "small-string type that acto (swarm-discovery) names its actors with; not read."
+
 [[exemptions.socket2]]
 version = "0.6.5"
 criteria = "safe-to-deploy"
@@ -3640,6 +3660,11 @@ criteria = "safe-to-deploy"
 [[exemptions.svg_fmt]]
 version = "0.4.5"
 criteria = "safe-to-deploy"
+
+[[exemptions.swarm-discovery]]
+version = "0.6.5"
+criteria = "safe-to-deploy"
+notes = "mDNS-style peer discovery on raw multicast sockets (UDP 5353) behind iroh-mdns-address-lookup; pinned to 0.6.5 (0.6.0 to 0.6.4 announce with TTL 0 and no PTR record, so Apple's Bonjour and Android's NsdManager do not see them); the sockets, sender and receiver read, no unsafe, no build script."
 
 [[exemptions.symlink]]
 version = "0.1.0"

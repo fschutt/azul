@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# demo_lib.sh: build the ONE libazul that every demo app of a target links over the C ABI, and stage it.
+#
+#   scripts/demo_lib.sh <kind> <rust-target> <features> <out-dir>
+#
+#   kind      desktop | android | ios
+#   target    the rust target ("" or "host" for the runner's own, desktop only)
+#   features  desktop: the features of the shipped libazul (`dist`); mobile: the feature union of the
+#             variant (scripts/demo_apps.toml [lib.*]), e.g. "std,logging,link-static,a11y,map-tiles"
+#   out-dir   what the app jobs download:
+#               desktop   libazul.a (azul.lib on Windows)
+#               android   libazul.so
+#               ios       libazul.a + libazul.a.native-libs (the system libraries rustc says the archive
+#                         needs: dll/build_link.rs reads that file instead of guessing them)
+#             and libazul.info.json {kind, target, features, git, seconds, size, sha256}
+#
+# Every app of the target links THIS file instead of compiling the engine again (the 2026-11-26 run
+# compiled azul-dll once per app and target: 6-11 minutes each on a macOS runner).
+set -euo pipefail
+
+kind="${1:?kind: desktop | android | ios}"
+target="${2:-}"
+features="${3:?features}"
+out="${4:?out-dir}"
+[ "$target" = "host" ] && target=""
+mkdir -p "$out"
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
+started=$(date +%s)
+target_flag=()
+[ -n "$target" ] && target_flag=(--target "$target")
+
+# The directory cargo writes to, and the profile directory inside it.
+profile_dir() {
+  local p="$1"
+  if [ -n "$target" ]; then echo "target/$target/$p"; else echo "target/$p"; fi
+}
+
+case "$kind" in
+  desktop)
+    # What ships (build_lib): prod-release, thin LTO, the static archive without the bitcode.
+    cargo build --profile prod-release "${target_flag[@]}" -p azul-dll --features "$features"
+    dir="$(profile_dir prod-release)"
+    for f in libazul.a azul.lib; do
+      [ -f "$dir/$f" ] || continue
+      cp "$dir/$f" "$out/$f"
+      bash scripts/strip_staticlib.sh "$out/$f"
+      case "$(uname -s)" in
+        Darwin) strip -S -x "$out/$f" || true ;;
+        Linux) strip --strip-debug --strip-unneeded "$out/$f" || true ;;
+      esac
+    done
+    ;;
+  android)
+    : "${ANDROID_NDK_HOME:?ANDROID_NDK_HOME (NDK r27)}"
+    case "$(uname -s)" in Darwin) host=darwin-x86_64 ;; *) host=linux-x86_64 ;; esac
+    ndkbin="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$host/bin"
+    upper="$(echo "${target//-/_}" | tr '[:lower:]' '[:upper:]')"
+    lower="${target//-/_}"
+    export "CARGO_TARGET_${upper}_LINKER=$ndkbin/${target}24-clang"
+    export "CARGO_TARGET_${upper}_AR=$ndkbin/llvm-ar"
+    export "CC_${lower}=$ndkbin/${target}24-clang" "CXX_${lower}=$ndkbin/${target}24-clang++" "AR_${lower}=$ndkbin/llvm-ar"
+    cargo build --release "${target_flag[@]}" -p azul-dll --no-default-features --features "$features"
+    dir="$(profile_dir release)"
+    cp "$dir/libazul.so" "$out/libazul.so"
+    "$ndkbin/llvm-strip" --strip-unneeded "$out/libazul.so"
+    ;;
+  ios)
+    # Only the archive is built (no cdylib to link on an iPhone), and rustc prints, for the staticlib, the
+    # system libraries and frameworks a consumer must link it with.
+    log="$out/libazul.build.log"
+    cargo rustc --release "${target_flag[@]}" -p azul-dll --lib --crate-type staticlib \
+      --no-default-features --features "$features" -- --print native-static-libs 2>&1 | tee "$log"
+    dir="$(profile_dir release)"
+    cp "$dir/libazul.a" "$out/libazul.a"
+    bash scripts/strip_staticlib.sh "$out/libazul.a"
+    strip -S -x "$out/libazul.a" || true
+    sed -n 's/^note: native-static-libs: //p' "$log" | tail -n 1 > "$out/libazul.a.native-libs"
+    if [ ! -s "$out/libazul.a.native-libs" ]; then
+      echo "::error::rustc printed no native-static-libs line for the iOS archive ($log)"
+      exit 1
+    fi
+    echo "native-static-libs: $(cat "$out/libazul.a.native-libs")"
+    rm -f "$log"
+    ;;
+  *) echo "unknown kind: $kind" >&2; exit 2 ;;
+esac
+
+lib="$(ls "$out"/libazul.so "$out"/libazul.a "$out"/azul.lib 2>/dev/null | head -n 1)"
+[ -f "$lib" ] || { echo "::error::no library staged in $out"; exit 1; }
+sum="$( (sha256sum "$lib" 2>/dev/null || shasum -a 256 "$lib") | cut -d' ' -f1)"
+size="$(wc -c < "$lib" | tr -d ' ')"
+python3 - "$out/libazul.info.json" "$kind" "${target:-host}" "$features" "$(git rev-parse HEAD)" "$(( $(date +%s) - started ))" "$size" "$sum" "$(basename "$lib")" <<'PY'
+import json, sys
+path, kind, target, features, git, seconds, size, sha, name = sys.argv[1:]
+json.dump({"kind": kind, "target": target, "features": features, "git": git, "seconds": int(seconds),
+           "size": int(size), "sha256": sha, "file": name}, open(path, "w"), indent=2, sort_keys=True)
+PY
+ls -la "$out"

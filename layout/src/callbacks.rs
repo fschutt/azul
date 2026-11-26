@@ -360,6 +360,11 @@ pub enum CallbackChange {
         timer_id: TimerId,
         timer: Timer,
     },
+    /// Register the window's frame tap ([`crate::frame_tap`]): the CPU frame calls it with every
+    /// frame that changed. Replaces the tap the window had.
+    SetFrameTap { tap: crate::frame_tap::FrameTap },
+    /// Take the window's frame tap away (nothing happens when it has none).
+    ClearFrameTap,
     /// Remove an existing timer
     /// Advance layout animations by an EXACT step, bypassing the wall clock.
     ///
@@ -1792,6 +1797,24 @@ impl CallbackInfo {
     /// Remove a timer from this window (applied after callback returns)
     pub fn remove_timer(&mut self, timer_id: TimerId) {
         self.push_change(CallbackChange::RemoveTimer { timer_id });
+    }
+
+    /// Register this window's frame tap (applied after the callback returns): from then on `callback`
+    /// is called with `data` and the frame ([`crate::frame_tap::FrameTapInfo`]) every time the CPU
+    /// renderer paints a frame that changed, and never for one that did not. An app that records its
+    /// window copies the damaged rows out of the frame and returns: the callback runs on the window's
+    /// thread, inside the frame. A window drawn by the GPU has no CPU frame and never calls it. One tap
+    /// a window: this replaces the one before.
+    pub fn set_frame_tap<C: Into<crate::frame_tap::FrameTapCallback>>(&mut self, data: RefAny, callback: C) {
+        self.push_change(CallbackChange::SetFrameTap {
+            tap: crate::frame_tap::FrameTap::new(data, callback),
+        });
+    }
+
+    /// Take this window's frame tap away (applied after the callback returns; nothing happens when the
+    /// window has none).
+    pub fn clear_frame_tap(&mut self) {
+        self.push_change(CallbackChange::ClearFrameTap);
     }
 
     /// Add a thread to this window (applied after callback returns)
