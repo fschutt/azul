@@ -153,7 +153,9 @@ phone); the row flips it.
 ## 8. Pairing, and what to keep
 
 1. "Pair a phone": `let offer = host.begin_pairing(now)` (`None` until the endpoint knows its address). Show `offer.to_text()` as a QR
-   code AND as text the user can copy (the phone takes the text pasted into its pairing screen; its QR scanner is not built yet).
+   code AND as text the user can copy: the phone takes the text from the clipboard ("Paste pairing code" on its pairing screen); its
+   QR scanner is not built yet. A "Copy pairing code" button is therefore the path that works today. (azul-appkit's QR encoder holds
+   at most 213 bytes: an offer whose ticket carries many addresses can be longer than that; then show the text only.)
    The offer holds a one-time secret and is good for five minutes (`host.pairing_open(now)`); `host.cancel_pairing()` closes the window.
 2. The phone dials the ticket in the offer and proves the secret. `PairingRequested` arrives (section 4): the dialog with the code.
 3. Yes: `accept_pairing` (returns `Err(ConfirmError)` when nobody waits any more, another phone waits, or four are paired: say so).

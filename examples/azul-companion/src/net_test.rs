@@ -54,6 +54,10 @@ fn a_new_phone_makes_its_key_keeps_it_and_starts_unpaired() {
     let kept = FileStore::new(dir.0.join(STORE_FILE)).load().expect("what was kept can be read");
     assert!(kept.secret_key.is_some(), "the key is kept whether or not the network started");
     assert!(net.notes.iter().any(|n| n.contains("the pairing is kept in")), "{:?}", net.notes);
+    if !did_not_start(&net) {
+        // what the start said is the first of the lines the settings screen shows as the connection log
+        assert!(net.api.log().iter().any(|line| line.contains("the pairing is kept in")), "{:?}", net.api.log());
+    }
     // the next start has the same key: the Mac would know the phone
     let again = connect_in(Some(&dir.0), "0.1.0");
     assert_eq!(FileStore::new(dir.0.join(STORE_FILE)).load().expect("read").secret_key, kept.secret_key);

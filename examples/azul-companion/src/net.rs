@@ -105,7 +105,12 @@ pub fn connect_in(dir: Option<&Path>, app_version: &str) -> Net {
             // the phone announces nothing (an iPhone only looks); it learns from the local network when its Mac appears
             let discovery = link.discovery();
             notes.push(format!("the local network: {}", link.discovery_status()));
-            Net { api: Box::new(PhoneClient::new(link, config, store).with_discovery(Box::new(discovery))), notes }
+            let mut client = PhoneClient::new(link, config, store).with_discovery(Box::new(discovery));
+            // what the start said is the first lines of the connection log the settings screen shows
+            for note in &notes {
+                client.note(note.clone());
+            }
+            Net { api: Box::new(client), notes }
         }
         Err(why) => {
             notes.push(format!("the network did not start: {why}"));

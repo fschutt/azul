@@ -21,7 +21,7 @@ conn-latency = { $ms } ms
 
 # ---- pairing (screen A)
 pair-title = Connect to AzReview
-pair-intro = This app is a remote control for AzReview on your Mac. Pair it once: in AzReview choose "Pair a phone", copy the pairing code and paste it here. Then you pan and zoom the page, open files and send your recurring instructions from here.
+pair-intro = The remote control for AzReview on your Mac. Pair it once: in AzReview choose "Pair a phone", copy the pairing code and paste it here.
 pair-permission-ios = Your iPhone will ask to find devices on your local network. Tap Allow: without it the app cannot see your Mac.
 pair-permission-android = Keep your phone on the same Wi-Fi as your Mac.
 pair-find = Find my Mac
@@ -171,6 +171,8 @@ settings-forget-ask = Forget { $mac }? You will need to pair again.
 settings-forget-yes = Forget
 settings-forget-no = Keep
 settings-about = About
+settings-log = Connection log
+settings-log-empty = Nothing to report.
 settings-version = Version { $v }
 settings-protocol = Protocol { $p }
 settings-licence = MIT licence. Part of AzReview.

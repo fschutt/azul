@@ -21,7 +21,7 @@ conn-latency = { $ms } ms
 
 # ---- pairing (screen A)
 pair-title = Mit AzReview verbinden
-pair-intro = Diese App ist eine Fernbedienung für AzReview auf deinem Mac. Koppele sie einmal: Wähle in AzReview "Telefon koppeln", kopiere den Kopplungscode und füge ihn hier ein. Dann verschiebst und zoomst du die Seite, öffnest Dateien und schickst deine wiederkehrenden Anweisungen von hier.
+pair-intro = Die Fernbedienung für AzReview auf deinem Mac. Koppele sie einmal: Wähle in AzReview "Telefon koppeln", kopiere den Kopplungscode und füge ihn hier ein.
 pair-permission-ios = Dein iPhone fragt, ob die App Geräte in deinem lokalen Netzwerk finden darf. Tippe auf Erlauben: ohne das sieht die App deinen Mac nicht.
 pair-permission-android = Halte dein Telefon im selben WLAN wie deinen Mac.
 pair-find = Meinen Mac suchen
@@ -171,6 +171,8 @@ settings-forget-ask = { $mac } vergessen? Du musst dann neu koppeln.
 settings-forget-yes = Vergessen
 settings-forget-no = Behalten
 settings-about = Über
+settings-log = Verbindungsprotokoll
+settings-log-empty = Nichts zu melden.
 settings-version = Version { $v }
 settings-protocol = Protokoll { $p }
 settings-licence = MIT-Lizenz. Teil von AzReview.

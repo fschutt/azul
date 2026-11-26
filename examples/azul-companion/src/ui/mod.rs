@@ -249,6 +249,12 @@ impl Root {
         self.api.view()
     }
 
+    /// What the connection noticed (the settings screen's "Connection log").
+    #[must_use]
+    pub fn log(&self) -> Vec<String> {
+        self.api.log()
+    }
+
     /// The part of the page the pad shows as the viewport: while a gesture is in progress what it has made of the view
     /// it began on (so the rectangle follows the finger at once), else what the Mac last said.
     #[must_use]

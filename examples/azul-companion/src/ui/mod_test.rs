@@ -609,3 +609,34 @@ fn a_text_that_is_no_offer_says_why_in_words() {
         assert_eq!(taken(&calls).len(), 1, "the connection was asked and said no");
     }
 }
+
+// ---- trying it without a Mac
+
+#[test]
+fn trying_it_without_a_mac_puts_a_pretend_mac_in_place_of_the_connection_and_the_remote_comes_up() {
+    let (mut root, calls) = root_with(PhoneView::new());
+    assert!(!root.demo);
+    assert!(root.perform(0, Action::Demo), "the screen changes");
+    assert!(root.demo);
+    assert_eq!(root.view().session, Session::Connected { mac_name: "Demo Mac".into() });
+    assert!(!root.ui.pair_card && root.ui.screen == Screen::Remote, "the remote is what shows, not the pairing card");
+    assert!(taken(&calls).is_empty(), "nothing is asked of the real connection");
+    // the pretend Mac's pen walks on its own: after a moment the pad has something to show
+    root.tick(0);
+    root.tick(200);
+    assert!(root.view().pen.is_some());
+}
+
+#[test]
+fn a_second_tap_on_the_demo_key_changes_nothing_and_leaving_brings_the_real_connection_back() {
+    let (mut root, _calls) = root_with(PhoneView::new());
+    root.perform(0, Action::Demo);
+    root.tick(0);
+    root.tick(200);
+    let pen = root.view().pen.clone();
+    root.perform(300, Action::Demo);
+    assert_eq!(root.view().pen, pen, "the same pretend Mac, not a new one");
+    root.perform(400, Action::LeaveDemo);
+    assert!(!root.demo);
+    assert_eq!(root.view().session, Session::Unpaired, "the real connection, as it was");
+}

@@ -32,7 +32,7 @@ pub const MAX_EVENTS_PER_POLL: usize = 512;
 pub const MAX_NEWS: usize = 256;
 
 /// How an endpoint is bound.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IrohOptions {
     /// The endpoint's identity as the last run kept it; `None` makes a new one (read it back with [`IrohLink::secret_key`]).
     pub secret_key: Option<[u8; 32]>,
@@ -41,6 +41,15 @@ pub struct IrohOptions {
     /// The short text the endpoint announces on the local network (`advert::encode`: the project, the display name; at most 245 bytes,
     /// never a secret): the phone reads it from the list of neighbours. `None`: nothing is announced but the key and the addresses.
     pub advertised: Option<String>,
+    /// The endpoint announces itself on the local network and looks for others there (on by default: it is how a phone finds a Mac
+    /// whose address changed). Off for a test that wants no company.
+    pub local_discovery: bool,
+}
+
+impl Default for IrohOptions {
+    fn default() -> Self {
+        IrohOptions { secret_key: None, relay: false, advertised: None, local_discovery: true }
+    }
 }
 
 /// The link over an iroh endpoint.
@@ -57,7 +66,8 @@ impl IrohLink {
     pub fn config(options: &IrohOptions) -> IrohConfig {
         let mut config = IrohConfig::create(ALPN)
             .with_relay_mode(relay_mode(options.relay))
-            .with_max_frame_bytes(u32::try_from(MAX_FRAME_BYTES).unwrap_or(u32::MAX));
+            .with_max_frame_bytes(u32::try_from(MAX_FRAME_BYTES).unwrap_or(u32::MAX))
+            .with_local_discovery(options.local_discovery);
         if let Some(key) = options.secret_key {
             config = config.with_secret_key(U8Vec::from(key.to_vec()));
         }

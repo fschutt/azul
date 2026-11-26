@@ -41,6 +41,8 @@ pub const SEARCH_MS: Millis = 2_500;
 pub const GARBAGE_FORGIVEN: u32 = 3;
 /// The newest diagnostics kept.
 pub const MAX_DIAGNOSTICS: usize = 64;
+/// A dial that has been out this long is given up when the Mac announces itself: its address is probably the stale one, in milliseconds.
+const DIAL_GIVE_UP_FOR_KEY_MS: Millis = 1_000;
 /// How many page keys one command may ask for at most (the Mac holds a command to the same).
 const MAX_PAGE_STEPS: i8 = 8;
 
@@ -225,6 +227,11 @@ impl<L: Link> PhoneClient<L> {
     /// The diagnostics, and forgets them.
     pub fn take_diagnostics(&mut self) -> Vec<String> {
         std::mem::take(&mut self.diagnostics)
+    }
+
+    /// A line for the log from the app (where the pairing is kept, what the network said at the start).
+    pub fn note(&mut self, text: String) {
+        self.diag(text);
     }
 
     /// The addresses the phone would dial the Mac at, the newest first.
@@ -783,7 +790,14 @@ impl<L: Link> PhoneClient<L> {
             let NearbyEvent::Appeared(near) = event else {
                 continue;
             };
-            if self.goal != Goal::Saved || self.halted || Some(&near.endpoint_id) != known.as_ref() || !matches!(self.conn, Conn::Down) {
+            if self.goal != Goal::Saved || self.halted || Some(&near.endpoint_id) != known.as_ref() {
+                continue;
+            }
+            // a dial that has been out for a while is to an address that is probably stale: it is given up for the key
+            if matches!(self.conn, Conn::Dialing { since } if now.saturating_sub(since) >= DIAL_GIVE_UP_FOR_KEY_MS) {
+                self.conn = Conn::Down;
+            }
+            if !matches!(self.conn, Conn::Down) {
                 continue;
             }
             // the Mac announced itself: the wait is over, and its key is the way (the engine knows its address now)
@@ -1051,6 +1065,10 @@ impl<L: Link> PhoneApi for PhoneClient<L> {
                 self.show(Session::Searching { attempt: 1 });
             }
         }
+    }
+
+    fn log(&self) -> Vec<String> {
+        self.diagnostics.clone()
     }
 
     fn cancel(&mut self, now: Millis) {

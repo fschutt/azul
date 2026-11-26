@@ -1533,6 +1533,17 @@ fn what_the_mac_tells_goes_through_to_the_screens_and_says_it_changed() {
 }
 
 #[test]
+fn the_log_the_settings_show_is_the_apps_own_notes_and_what_the_phone_noticed_oldest_first() {
+    let mut rig = Rig::active();
+    rig.phone.note("the pairing is kept in a folder".into());
+    rig.link.say(LinkEvent::Failed { text: "a path went away".into() });
+    rig.poll();
+    let log = rig.phone.log();
+    assert_eq!(log.len(), 2, "{log:?}");
+    assert!(log[0].contains("kept in a folder") && log[1].contains("a path went away"), "{log:?}");
+}
+
+#[test]
 fn a_client_started_on_a_store_with_a_key_and_no_mac_is_unpaired_and_dials_nothing() {
     let mut rig = Rig::with_store(MemoryStore::with(Stored { secret_key: Some([1; 32]), mac: None }));
     rig.advance(30_000);
@@ -1618,6 +1629,22 @@ fn a_mac_that_announces_itself_does_not_wake_a_phone_that_waits_for_the_user() {
     cancelled.phone.retry(cancelled.now);
     cancelled.poll();
     assert_eq!(cancelled.link.connects().len(), 2, "until the user asks again");
+}
+
+#[test]
+fn a_dial_that_has_been_out_a_while_is_given_up_for_the_key_when_the_mac_announces_itself_and_a_young_one_is_left_alone() {
+    let mut young = Rig::saved();
+    young.poll();
+    young.advance(300);
+    young.discovery.appear(Nearby::from_announcement(MAC_ID, "", vec![]));
+    young.poll();
+    assert_eq!(young.link.connects(), [MAC_TICKET], "the dial may be about to answer");
+    let mut old = Rig::saved();
+    old.poll();
+    old.advance(1_500);
+    old.discovery.appear(Nearby::from_announcement(MAC_ID, "", vec![]));
+    old.poll();
+    assert_eq!(old.link.connects(), [MAC_TICKET, MAC_ID], "the address is probably stale: the key it is");
 }
 
 #[test]

@@ -222,7 +222,8 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let phone = chrome::phone(&cx);
     match &root.sim {
         Some(sim) => crate::sim::wrap(&cx, sim, phone),
-        None => phone,
+        // the phone's own app: the same tree the layout study lays out (a body round the phone), not a bare block as the root
+        None => chrome::body(phone),
     }
 }
 

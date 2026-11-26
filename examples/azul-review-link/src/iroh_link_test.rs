@@ -114,8 +114,9 @@ fn an_advertised_text_is_part_of_what_is_bound_and_a_link_without_neighbours_has
         return;
     };
     let mut discovery = link.discovery();
-    assert!(discovery.nearby().is_empty(), "nobody else announces on this test's endpoint");
-    assert!(discovery.poll(0).is_empty());
+    // (other endpoints of this machine's other tests may announce themselves: the list is whoever is there, never this endpoint)
+    assert!(discovery.nearby().iter().all(|near| near.endpoint_id != link.local_id()));
+    let _news = discovery.poll(0);
     assert!(!link.discovery_status().is_empty(), "the engine says what it does for the local network");
 }
 
@@ -149,13 +150,14 @@ fn the_engines_numbers_become_the_links() {
 
 #[test]
 fn the_defaults_are_no_relay_and_a_new_key() {
-    assert_eq!(IrohOptions::default(), IrohOptions { secret_key: None, relay: false, advertised: None });
+    assert_eq!(IrohOptions::default(), IrohOptions { secret_key: None, relay: false, advertised: None, local_discovery: true });
 }
 
 // ---- the transport (needs the engine)
 
 fn quiet() -> IrohOptions {
-    IrohOptions::default()
+    // no company: the transport tests dial by ticket, and the engine's announcements of the other tests' endpoints are not their business
+    IrohOptions { local_discovery: false, ..IrohOptions::default() }
 }
 
 /// A bound link, or `None` when this libazul has no iroh engine (the test is skipped, or fails when the run says the engine must be there).
