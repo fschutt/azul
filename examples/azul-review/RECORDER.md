@@ -127,6 +127,15 @@ any thread, `EventSink::event(kind, fields_json)`, which stamps the event with t
 it is made. A line the recorder could not write is never lost silently: the log says what was
 dropped, once a second, as `recorder.drop`.
 
+**How the review's window tells it.** The window's state holds one `RecorderHook` (`recorder_hook.rs`: one call,
+`event(kind, fields)`, in the vocabulary below; a window with no recorder holds the hook that does nothing) and
+calls it where the person acts (a file opened, a pen taken, a panel opened), never in the path that draws a frame.
+The recorder's window gives the state a `SessionHook` (`recorder_host.rs`) when the app starts: it hands each
+event to the sink of the recording that is going, and drops it when none is (`SessionHook::is_open` says which;
+the host puts the sink in when a recording starts and takes it out when it stops, and at the tick that sees the
+recorder end it by itself, at the session's length limit). So an event told before a recording, between two, or
+after the last is written nowhere, and a second recording's events never go to the first one's file.
+
 **Caps** (`Caps`, `KINDS`): every kind has a rate and a burst (a token bucket), all kinds together
 500 a second (burst 1000), a line is at most 8 KB (a pen stroke 128 KB), at most 10 000 events wait for
 the writer, and the file stops at 200 MB (then only `session.*` and `recorder.*` lines are written,
