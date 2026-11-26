@@ -127,6 +127,8 @@ fi
 # uses. A demo crate takes no feature args, so FEATURE_ARGS is empty for all
 # five of them and this line aborted every single iOS bundle. Use the
 # empty-safe expansion.
+# the same iOS the library was built for (scripts/demo_lib.sh), and the one the Info.plist says
+export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-$MIN_OS}"
 echo "==> cargo build --target $TARGET --release -p $CRATE ${FEATURE_ARGS[*]:-}"
 CARGO_LOG="${AZ_IOS_BUILD_JSON:-$WORKSPACE_ROOT/target/ios-build-${CRATE}-${TARGET}.json}"
 mkdir -p "$WORKSPACE_ROOT/target"

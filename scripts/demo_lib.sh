@@ -66,6 +66,8 @@ case "$kind" in
     "$ndkbin/llvm-strip" --strip-unneeded "$out/libazul.so"
     ;;
   ios)
+    # The oldest iOS the apps' Info.plist names (build-ios.sh MIN_OS): rustc and the C parts of the engine (cc-rs) both read it
+    export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-16.0}"
     # Only the archive is built (no cdylib to link on an iPhone), and rustc prints, for the staticlib, the
     # system libraries and frameworks a consumer must link it with.
     log="$out/libazul.build.log"
