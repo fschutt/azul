@@ -4,8 +4,16 @@
 #   2. AzWidgets linked against it (the same recipe as the demos workflow: scripts/demo_build.py ios --variant mobile-e2e),
 #   3. scripts/ci/ios_qa.sh on that app: the lifecycle with simctl (qa) and the debug-server session (e2e), on the newest iOS runtime.
 # It is a build + link + launch gate of the tree at the same time: a failing step says which.
-#   scripts/remote.sh run <full sha> macos-15 'bash scripts/ci/qa_ios_build.sh' --codegen --artifacts 'demo-out/**'
-# (the libazul archive of ~150 MB is not part of the artifacts: only the app, the results and the QA folder are.)
+#   scripts/remote.sh run <full sha> macos-15 'bash scripts/ci/qa_ios_build.sh' --codegen --artifacts 'demo-out/results/*
+#   demo-out/plan.txt
+#   demo-out/qa/qa.*
+#   demo-out/qa/*.log
+#   demo-out/qa/shots/*
+#   demo-out/qa/logs/console-*
+#   demo-out/qa/logs/log-app.txt
+#   demo-out/qa/logs/DiagnosticReports-ls.txt
+#   demo-out/qa/e2e/**'
+# (not the libazul archive of ~140 MB, not the app, not logs/log-all.txt of the whole Simulator log (200-370 MB): what a person reads.)
 set -euo pipefail
 target=aarch64-apple-ios-sim
 rustup target add "$target"
