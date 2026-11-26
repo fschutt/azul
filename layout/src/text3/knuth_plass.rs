@@ -409,7 +409,10 @@ fn find_optimal_breakpoints(
     // inflated every candidate by one hyphen width per unused opportunity,
     // and the positioner then rendered a "-" at every opportunity mid-line.
     let n = nodes.len();
-    let balance_last_line = constraints.text_wrap == crate::text3::cache::TextWrap::Balance;
+    // Only against a measure there is (an indefinite one is as wide as the text: nothing to
+    // balance against).
+    let balance_last_line = constraints.text_wrap == crate::text3::cache::TextWrap::Balance
+        && matches!(constraints.available_width, AvailableSpace::Definite(_));
     let mut prefix_width = vec![0.0f32; n + 1];
     let mut prefix_stretch = vec![0.0f32; n + 1];
     let mut prefix_shrink = vec![0.0f32; n + 1];
