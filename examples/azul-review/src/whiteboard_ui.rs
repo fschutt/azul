@@ -26,7 +26,7 @@ use crate::{
     whiteboard_boards_ui::{self as boards_ui, Switcher},
     whiteboard_history_ui::{self as history_ui, HistoryUi},
     whiteboard_drag::{ArmedRegions, GRIP_PX},
-    whiteboard_geom::{arrowhead, Curve, Pt, Size},
+    whiteboard_geom::{arrowhead, ring_arc, Curve, Pt, Size},
     whiteboard_input::{Mods, Out, PointerKind},
     whiteboard_jump::{FileView, JumpTarget},
 };
@@ -596,7 +596,9 @@ impl Painter<'_> {
 }
 
 /// Paints the armed regions of `page` into `image` (`k` device pixels to a page px): each one's outline and,
-/// on the outline at the top right, its grip - the badge a press lifts the region by.
+/// on the outline at the top right, its grip - the badge a press lifts the region by - with a ring round it that drains
+/// as the region's time runs out ([`crate::whiteboard_drag::ArmedRegion::fraction_left`]); the page repaints while any
+/// region is armed.
 pub fn paint_armed(image: &mut RawImage, k: f32, regions: &ArmedRegions, page: usize, now_ms: u64) {
     let mut paint = Painter::new(image, k);
     for r in regions.all().iter().filter(|r| r.page == page && now_ms < r.expires_at_ms()) {
@@ -606,6 +608,11 @@ pub fn paint_armed(image: &mut RawImage, k: f32, regions: &ArmedRegions, page: u
         }
         paint.polyline(&outline, 1.2, [32, 92, 214, 190]);
         let c = r.grip.center();
+        // The ring round the grip is the time the region has left: a faint full circle, and over it what is left of it,
+        // draining clockwise from the top until the region goes.
+        let ring = GRIP_PX * 0.5 + 3.5;
+        paint.polyline(&ring_arc(c, ring, 1.0), 0.8, [32, 92, 214, 70]);
+        paint.polyline(&ring_arc(c, ring, r.fraction_left(now_ms)), 1.6, ACCENT);
         paint.dot(c, GRIP_PX * 0.5, ACCENT);
         // An arrow pointing right, in white: "take this along".
         let white = [255, 255, 255, 255];
