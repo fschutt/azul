@@ -171,7 +171,7 @@ and last `font-feature-settings`, which has the last word. `font-feature-setting
 turns the kerning off and `"kern" 1` on again after `font-kerning: none`, and the pair
 adjustments of a font are applied once.
 
-`font-variant: sub` and `font-variant: super` are accepted and set nothing: use `font-variant-position`.
+`font-variant: sub` and `font-variant: super` set `font-variant-position`, and every `font-variant` value that names no position resets it to `normal`; so does the `font` shorthand.
 
 A `font-feature-settings` value keeps its first 64 distinct tags (`MAX_FONT_FEATURES`; a font has a
 few dozen features at most) and the stylesheet parser warns about more.

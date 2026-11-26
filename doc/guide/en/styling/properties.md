@@ -193,7 +193,7 @@ text-decoration: underline;
 - `text-rendering` accepts `auto`, `optimizeSpeed`, `optimizeLegibility`, or `geometricPrecision`. Type `StyleTextRendering`. `optimizeSpeed` turns the kerning and the common ligatures off where `font-kerning` and `font-variant-ligatures` say nothing.
 - `font-synthesis-weight`, `font-synthesis-style`, `font-synthesis-small-caps`, and `font-synthesis-position` accept `auto` or `none`. Type `StyleFontSynthesis`.
 - `font-synthesis` (shorthand) accepts `none` or any of `weight`, `style`, `small-caps`, `position`; the ones not listed are `none`.
-- `font-variant` (shorthand) sets `font-variant-caps`, `-numeric`, `-ligatures`, and `-east-asian`; `none` is `font-variant-ligatures: none`.
+- `font-variant` (shorthand) sets `font-variant-caps`, `-numeric`, `-ligatures`, `-east-asian`, and `-position` (`sub`, `super`); `none` is `font-variant-ligatures: none`.
 - `font` (shorthand) accepts `[<font-style> || small-caps || <font-weight> || <font-stretch keyword>]? <font-size> [/ <line-height>]? <font-family>`, or a system font keyword. It sets every font property above; the ones the value does not name are reset to their initial value.
 - `line-height` accepts a unitless number, length, or percentage. Type `StyleLineHeight`.
 - `letter-spacing` accepts a length or `normal` (`0`, which ends the spacing of a parent). Type `StyleLetterSpacing`.
