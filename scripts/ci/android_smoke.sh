@@ -139,6 +139,9 @@ for apk in "$@"; do
         # 5 s later, would never see). The picture and the accessibility dump of 1 s after it say whether a tap reaches the app's
         # callbacks at all; the toast has gone before the main press.
         probe_label="$(python3 "$(dirname "$0")/ui_find.py" --probe-label "${app%-android-x86_64}")"
+        # AZ_SMOKE_NO_PROBE=1: the main key is pressed FIRST, in a fresh process (to tell a toast layer that eats the next press from a key
+        # that does nothing: scripts/ci/android_build_smoke.sh runs both ways with AZ_SMOKE_BOTH_WAYS=1)
+        if [ "${AZ_SMOKE_NO_PROBE:-}" = "1" ]; then probe_label=""; fi
         probe_json="{}"
         if [ -n "$probe_label" ]; then
           if pxy="$(node_centre "$dir/ui-before.xml" "$probe_label")"; then
