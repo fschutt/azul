@@ -219,8 +219,8 @@ jobs:
             exit 0
           fi
           if [ -x /c/msys64/mingw64/bin/gcc.exe ]; then
-            echo "using the image's MinGW-w64 at C:\msys64\mingw64\bin"
-            echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
+            printf '%s\n' "using the image's MinGW-w64 at /c/msys64/mingw64/bin"
+            printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
             exit 0
           fi
           for attempt in 1 2 3; do
@@ -471,8 +471,8 @@ jobs:
             exit 0
           fi
           if [ -x /c/msys64/mingw64/bin/gcc.exe ]; then
-            echo "using the image's MinGW-w64 at C:\msys64\mingw64\bin"
-            echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
+            printf '%s\n' "using the image's MinGW-w64 at /c/msys64/mingw64/bin"
+            printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
             exit 0
           fi
           for attempt in 1 2 3; do
