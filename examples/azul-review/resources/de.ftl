@@ -5,7 +5,7 @@
 azreview-about-summary = Code-Review mit Tinte zuerst: die Dateien eines Ordners als Seiten, mit einem Stift markiert, mit Sprachclips. Sitzungen werden in deinem Datenordner aufbewahrt.
 azreview-shortcuts-review = Review
 azreview-shortcut-save = Die Sitzung jetzt speichern
-azreview-shortcut-meaning = Die Bedeutung der Tinte wählen
+azreview-shortcut-meaning = Einen Stift nehmen (dieselbe Taste noch einmal: seine nächste Feder)
 azreview-shortcut-previous-nib = Die vorherige Feder
 azreview-voice-note = { $count ->
     [one] { $count } Sample gesprochener Begründung

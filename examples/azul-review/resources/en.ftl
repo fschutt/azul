@@ -5,7 +5,7 @@
 azreview-about-summary = Ink-first code review: the files of a folder as pages, marked with a pen, with voice clips. Sessions are kept in your data folder.
 azreview-shortcuts-review = Review
 azreview-shortcut-save = Save the session now
-azreview-shortcut-meaning = Pick the ink's meaning
+azreview-shortcut-meaning = Take a pen (the same key again: its next nib)
 azreview-shortcut-previous-nib = The previous nib
 azreview-voice-note = { $count ->
     [one] { $count } sample of spoken rationale
