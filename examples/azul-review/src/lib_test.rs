@@ -8,7 +8,13 @@ fn file() -> code::SourceFile {
         path: PathBuf::from("f.rs"),
         display: "f.rs".to_string(),
         lines: (0..120).map(|i| format!("fn f{i}() {{}}")).collect(),
+        big: None,
     }
+}
+
+/// A file of the same lines as `file()` under another name.
+pub(crate) fn file_named(name: &str) -> code::SourceFile {
+    code::SourceFile { path: PathBuf::from(name), display: name.to_string(), ..file() }
 }
 
 fn stroke_at(page: usize, y: f32) -> Stroke {
@@ -53,13 +59,28 @@ pub(crate) fn app_with_file() -> AppState {
     AppState::create(PathBuf::new(), vec![file()], RefAny::new(0u8), PathBuf::new())
 }
 
+/// A folder of the disk with these files (under the system's temporary folder, one per test name and process).
+pub(crate) fn scratch_folder(name: &str, files: &[(&str, &str)]) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("azreview-test-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a folder under the temporary one");
+    for (rel, text) in files {
+        let path = dir.join(rel);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("a folder");
+        }
+        std::fs::write(&path, text).expect("a file");
+    }
+    dir
+}
+
 /// A file whose line 12 has a word of ten characters where the fixtures' slash is drawn (column 33 of the page: x 301.8 to
 /// 367.8), another word of three after it, and a second page (the lines after the 46th).
 pub(crate) fn app_with_slash_file() -> AppState {
     let mut lines: Vec<String> = (0..120).map(|i| format!("fn f{i}() {{}}")).collect();
     lines[11] = format!("{}abcdefghij klm = 1;", " ".repeat(33));
     lines[code::LINES_PER_PAGE + 11] = format!("{}pqrstuvwxy zzz = 2;", " ".repeat(33));
-    let f = code::SourceFile { path: PathBuf::from("f.rs"), display: "f.rs".to_string(), lines };
+    let f = code::SourceFile { path: PathBuf::from("f.rs"), display: "f.rs".to_string(), lines, big: None };
     AppState::create(PathBuf::new(), vec![f], RefAny::new(0u8), PathBuf::new())
 }
 
@@ -145,12 +166,12 @@ fn undo_redraws_the_page_the_stroke_is_on() {
 fn opening_another_file_forgets_what_could_be_undone() {
     let mut s = AppState::create(
         PathBuf::new(),
-        vec![file(), file()],
+        vec![file(), file_named("g.rs")],
         RefAny::new(0u8),
         PathBuf::new(),
     );
     s.keep(kept(1, 0));
-    s.open_file(1);
+    assert!(s.open_path("g.rs"));
     assert!(!s.undo(), "the stroke belongs to the file left");
 }
 
@@ -205,17 +226,13 @@ fn opening_a_folder_replaces_the_files_and_starts_afresh() {
     s.keep(kept(1, 0));
     s.notes.push(crate::model::Note::listening(1, 0, 10.0, 10.0, "en-US"));
     s.panels.tree_open = false;
-    let other = code::SourceFile {
-        path: PathBuf::from("/other/a.rs"),
-        display: "a.rs".to_string(),
-        lines: vec!["fn a() {}".to_string()],
-    };
+    let folder = scratch_folder("open-folder", &[("a.rs", "fn a() {}\n")]);
 
-    s.open_folder(PathBuf::from("/other"), vec![other]);
+    s.open_folder(folder.clone());
 
-    assert_eq!(s.root, PathBuf::from("/other"));
-    assert_eq!(s.files.len(), 1);
-    assert_eq!(s.current, Some(0), "its first file is open");
+    assert_eq!(s.root, folder);
+    assert_eq!(s.tree.file_count(), 1);
+    assert_eq!(s.file().map(|f| f.display.as_str()), Some("a.rs"), "its first file is open");
     assert!(s.strokes.is_empty() && s.notes.is_empty(), "nothing of the folder left behind");
     assert!(!s.undo(), "nothing to take back from what was left");
     assert!(!s.panels.tree_open, "a new folder leaves the tree as the person had it");
@@ -225,9 +242,11 @@ fn opening_a_folder_replaces_the_files_and_starts_afresh() {
 #[test]
 fn a_folder_without_files_leaves_no_file_open() {
     let mut s = app_with_file();
-    s.open_folder(PathBuf::from("/empty"), Vec::new());
-    assert_eq!(s.current, None);
+    let folder = scratch_folder("empty", &[]);
+    s.open_folder(folder);
+    assert_eq!(s.open_node, None);
     assert!(s.file().is_none());
+    assert!(!s.has_entries(), "the empty page says there is nothing to review");
     assert!(s.panels.tree_open == AppState::create(PathBuf::new(), Vec::new(), RefAny::new(0u8), PathBuf::new()).panels.tree_open,
         "the way out (Open folder) is in the empty page itself; the tree is as it was");
 }
@@ -236,7 +255,7 @@ fn a_folder_without_files_leaves_no_file_open() {
 fn opening_a_folder_ends_the_dictation_that_listens() {
     let mut s = app_with_file();
     s.voice.running = Some(crate::voice::Running::for_test(1, 1));
-    s.open_folder(PathBuf::from("/other"), Vec::new());
+    s.open_folder(scratch_folder("listens", &[]));
     assert!(
         s.voice.running.as_ref().is_some_and(|r| r.stopping.is_some()),
         "what listens writes into the file being left: it is asked to stop"
@@ -453,8 +472,14 @@ fn the_words_of_a_deletion_are_hidden_on_their_own_page_only() {
 fn opening_another_file_leaves_the_deletions_behind() {
     let mut s = app_with_slash_file();
     draw_fixture(&mut s, &fx::slash(), 0);
-    s.files.push(file());
-    s.open_file(1);
+    s.tree = crate::tree::Tree::from_paths(&["f.rs", "g.rs"]);
+    s.source = std::sync::Arc::new({
+        let mut m = crate::symbols_source::MemSource::new();
+        m.put("f.rs", b"fn f() {}\n".to_vec());
+        m.put("g.rs", b"fn g() {}\n".to_vec());
+        m
+    });
+    assert!(s.open_path("g.rs"));
     assert!(s.slashes.is_empty());
     assert!(s.history.is_empty());
 }
@@ -484,4 +509,270 @@ fn deletions_are_bounded() {
     assert_eq!(ended.map(|e| e.up), Some(crate::pointer::Up::Kept));
     assert_eq!(s.slashes.len(), crate::deletion::MAX_DELETIONS);
     assert_eq!(s.strokes.len(), 1);
+}
+
+// ---- the tree of a folder on a disk: listed as it is opened ----
+
+fn names(s: &AppState) -> Vec<String> {
+    s.rows.iter().map(|r| r.name.clone()).collect()
+}
+
+fn on_disk(name: &str, files: &[(&str, &str)]) -> AppState {
+    AppState::on_disk(scratch_folder(name, files), RefAny::new(0u8), PathBuf::new())
+}
+
+/// [`on_disk`] for the other test modules.
+pub(crate) fn on_disk_for_state(name: &str, files: &[(&str, &str)]) -> AppState {
+    on_disk(name, files)
+}
+
+#[test]
+fn a_folder_of_a_disk_lists_its_root_only_and_opens_the_first_file_of_it() {
+    let s = on_disk(
+        "lazy",
+        &[("README.md", "# hi\n"), ("src/lib.rs", "fn a() {}\n"), ("src/deep/b.rs", "fn b() {}\n")],
+    );
+    assert_eq!(names(&s), vec!["src", "README.md"], "the folder is closed and was not listed");
+    assert_eq!(s.file().map(|f| f.display.as_str()), Some("README.md"));
+    let src = s.tree.find("src").expect("src");
+    assert!(!s.tree.is_listed(src));
+    assert_eq!(s.tree.file_count(), 1, "only the root's files are known");
+    assert!(s.has_entries());
+}
+
+#[test]
+fn opening_a_folder_gives_the_job_that_lists_it_and_its_listing_fills_the_rows() {
+    let mut s = on_disk("open-dir", &[("README.md", "x\n"), ("src/lib.rs", "fn a() {}\n"), ("src/deep/b.rs", "fn b() {}\n")]);
+    let src = s.tree.find("src").expect("src");
+    let job = s.toggle_dir(src).expect("a folder that was never listed asks for it");
+    assert_eq!((job.dir.as_str(), job.workspace), ("src", s.workspace));
+    assert!(s.rows.iter().any(|r| r.name == "src" && r.expanded && r.loading), "the row waits");
+
+    let entries = job.source.list(&job.dir).expect("the folder is there");
+    assert!(s.take_listing(job.workspace, "src", Ok(entries)));
+    assert_eq!(names(&s), vec!["src", "deep", "lib.rs", "README.md"]);
+    assert!(s.rows.iter().all(|r| !r.loading));
+
+    // closed and opened again: no listing is asked for
+    assert_eq!(s.toggle_dir(src).map(|j| j.dir), None);
+    assert_eq!(names(&s), vec!["src", "README.md"]);
+    assert_eq!(s.toggle_dir(src).map(|j| j.dir), None, "it is listed already");
+    assert_eq!(names(&s), vec!["src", "deep", "lib.rs", "README.md"]);
+}
+
+#[test]
+fn a_listing_that_comes_back_after_another_folder_was_chosen_is_not_taken() {
+    let mut s = on_disk("stale", &[("a.rs", "x\n"), ("src/lib.rs", "x\n")]);
+    let src = s.tree.find("src").expect("src");
+    let job = s.toggle_dir(src).expect("job");
+    let late = job.source.list("src").expect("listed");
+    s.open_folder(scratch_folder("stale-other", &[("b.rs", "x\n"), ("src/other.rs", "x\n")]));
+    assert_ne!(job.workspace, s.workspace);
+    assert!(!s.take_listing(job.workspace, "src", Ok(late)));
+    let src = s.tree.find("src").expect("the other folder's src");
+    assert!(!s.tree.is_listed(src), "what was listed for the folder left is not in this tree");
+}
+
+#[test]
+fn a_listing_that_failed_ends_the_wait_and_leaves_the_folder_open_and_empty() {
+    let mut s = on_disk("failed", &[("src/lib.rs", "x\n"), ("a.rs", "x\n")]);
+    let src = s.tree.find("src").expect("src");
+    let job = s.toggle_dir(src).expect("job");
+    assert!(s.take_listing(job.workspace, "src", Err(crate::symbols_source::ReadError::NotFound)));
+    assert!(s.rows.iter().all(|r| !r.loading));
+    assert_eq!(names(&s), vec!["src", "a.rs"]);
+}
+
+#[test]
+fn a_file_that_is_no_text_or_too_large_is_not_shown_and_the_window_says_why() {
+    crate::l10n::in_english();
+    let mut s = on_disk("not-shown", &[("a.rs", "fn a() {}\n"), ("bin.rs", "")]);
+    std::fs::write(s.root.join("bin.rs"), b"\x7fELF\0\0\0").expect("write");
+    let relist = s.source.list("").expect("list");
+    s.take_listing(s.workspace, "", Ok(relist));
+    assert!(!s.open_path("bin.rs"));
+    assert!(s.problem.as_deref().is_some_and(|p| p.contains("bin.rs") && p.contains("no text")), "{:?}", s.problem);
+    assert_eq!(s.file().map(|f| f.display.as_str()), Some("a.rs"), "the file that was open stays open");
+
+    std::fs::write(s.root.join("big.rs"), vec![b'a'; code::MAX_OPEN_BYTES + 1]).expect("write");
+    let relist = s.source.list("").expect("list");
+    s.take_listing(s.workspace, "", Ok(relist));
+    s.problem = None;
+    assert!(!s.open_path("big.rs"));
+    assert!(s.problem.as_deref().is_some_and(|p| p.contains("big.rs") && p.contains("MB")), "{:?}", s.problem);
+}
+
+#[test]
+fn a_path_the_tree_does_not_know_opens_nothing() {
+    let mut s = on_disk("unknown", &[("a.rs", "x\n"), ("src/lib.rs", "x\n")]);
+    assert!(!s.open_path("src/lib.rs"), "the folder was not listed: the tree does not know the file");
+    assert!(!s.open_path("nothing.rs"));
+    assert!(!s.open_path("src"), "a folder is not a file");
+    assert_eq!(s.file().map(|f| f.display.as_str()), Some("a.rs"));
+}
+
+#[test]
+fn the_lines_of_the_open_file_are_counted_in_the_tree() {
+    let s = on_disk("counted", &[("a.rs", "one\ntwo\nthree\n")]);
+    let a = s.tree.find("a.rs").expect("a.rs");
+    assert_eq!(s.tree.node(a).and_then(|n| n.lines), Some(3));
+}
+
+#[test]
+fn expanding_everything_lists_every_folder_down_to_its_files_and_says_how_much_it_read() {
+    let mut s = on_disk(
+        "expand-all",
+        &[("README.md", "x\n"), ("src/lib.rs", "x\n"), ("src/deep/b.rs", "x\n"), ("src/deep/er/c.rs", "x\n"), ("tests/t.rs", "x\n")],
+    );
+    assert_eq!(names(&s), vec!["src", "tests", "README.md"]);
+    let read = s.expand_all();
+    assert_eq!(read, 4, "src, deep, er and tests were listed");
+    assert_eq!((s.tree.file_count(), s.tree.dir_count()), (5, 4));
+    assert_eq!(
+        names(&s),
+        vec!["src", "deep", "er", "c.rs", "b.rs", "lib.rs", "tests", "t.rs", "README.md"]
+    );
+    assert_eq!(s.expand_all(), 0, "nothing is left to list");
+}
+
+#[test]
+fn a_first_file_that_cannot_be_shown_is_passed_over_at_the_start_without_a_word() {
+    let folder = scratch_folder("first-bad", &[("a.rs", ""), ("b.rs", "fn b() {}\n")]);
+    std::fs::write(folder.join("a.rs"), b"\x7fELF\0\0\0").expect("write");
+    let s = AppState::on_disk(folder, RefAny::new(0u8), PathBuf::new());
+    assert_eq!(s.file().map(|f| f.display.as_str()), Some("b.rs"));
+    assert!(s.problem.is_none(), "the reviewer did not ask for a.rs: {:?}", s.problem);
+}
+
+// ---- what has been looked at ----
+
+/// A folder of a disk with `a.rs` of 100 lines (three pages) and `b.rs` of 10, `a.rs` open.
+fn reviewing_two() -> AppState {
+    let a: String = (0..100).map(|i| format!("fn a{i}() {{}}\n")).collect();
+    let b: String = (0..10).map(|i| format!("fn b{i}() {{}}\n")).collect();
+    on_disk("progress", &[("a.rs", a.as_str()), ("b.rs", b.as_str())])
+}
+
+/// Looks at page `page` of the open file long enough for it to be seen (the strip scrolled to it, a viewport of 1,200).
+fn read_page(s: &mut AppState, page: usize) {
+    for _ in 0..4 {
+        s.watch_pages(page as f32 * ui::page_stride(), 1_200.0, 400);
+    }
+}
+
+fn id_of(s: &AppState, path: &str) -> crate::tree::NodeId {
+    s.tree.find(path).expect(path)
+}
+
+#[test]
+fn a_file_all_of_whose_pages_were_looked_at_is_reviewed_and_the_tree_marks_it_green() {
+    let mut s = reviewing_two();
+    let a = id_of(&s, "a.rs");
+    read_page(&mut s, 0);
+    read_page(&mut s, 1);
+    s.refresh_rollup();
+    assert_eq!(s.file_mark(a), None, "two pages of three");
+    read_page(&mut s, 2);
+    s.refresh_rollup();
+    assert_eq!(s.file_mark(a), Some(chips::State::Done), "every page seen, no conversation");
+    let root = s.totals_of(s.tree.root());
+    assert_eq!((root.files, root.files_reviewed, root.lines, root.lines_reviewed, root.lines_seen), (2, 1, 100, 100, 100));
+    assert_eq!(root.unknown_files, 1, "b.rs has not been counted yet");
+    assert!(root.is_partial());
+    assert!(s.progress.is_dirty(), "what was seen is to be kept");
+}
+
+#[test]
+fn a_page_that_carries_ink_is_seen_without_being_looked_at() {
+    let mut s = reviewing_two();
+    s.keep(kept(1, 2));
+    assert_eq!(s.progress.get("a.rs").map(|e| e.seen.ranges()), Some(vec![(2, 2)]));
+    s.slashes.clear();
+    let mut t = reviewing_two();
+    t.keep(kept(1, 0));
+    t.undo();
+    assert!(t.progress.get("a.rs").is_some_and(|e| e.seen.is_seen(0)), "taking the ink back does not unsee the page");
+}
+
+#[test]
+fn a_conversation_that_waits_or_works_keeps_a_file_from_being_reviewed_and_shows_its_own_colour() {
+    let mut s = reviewing_two();
+    for p in 0..3 {
+        read_page(&mut s, p);
+    }
+    let a = id_of(&s, "a.rs");
+    let chip = |state| chips::Chip { id: 1, file: "a.rs".to_string(), page: 0, line: 3, state, title: "why".to_string() };
+    s.chips.push(chip(chips::State::Suggested));
+    s.chips_changed();
+    s.refresh_rollup();
+    assert_eq!(s.file_mark(a), Some(chips::State::Suggested));
+    assert_eq!(s.totals_of(a).files_reviewed, 0);
+    s.chips.set_state(1, chips::State::Working);
+    s.refresh_rollup();
+    assert_eq!(s.file_mark(a), Some(chips::State::Working));
+    s.chips.set_state(1, chips::State::Done);
+    s.refresh_rollup();
+    assert_eq!(s.file_mark(a), Some(chips::State::Done), "resolved, and every page seen");
+}
+
+#[test]
+fn conversations_all_done_are_not_green_while_a_page_was_never_seen() {
+    let mut s = reviewing_two();
+    read_page(&mut s, 0);
+    s.chips.push(chips::Chip { id: 1, file: "a.rs".to_string(), page: 0, line: 3, state: chips::State::Done, title: "x".to_string() });
+    s.refresh_rollup();
+    assert_eq!(s.file_mark(id_of(&s, "a.rs")), None);
+}
+
+#[test]
+fn the_reviewer_can_hold_a_file_back_and_let_it_go_again() {
+    let mut s = reviewing_two();
+    for p in 0..3 {
+        read_page(&mut s, p);
+    }
+    s.refresh_rollup();
+    let a = id_of(&s, "a.rs");
+    assert_eq!(s.file_mark(a), Some(chips::State::Done));
+    assert!(s.toggle_held("a.rs"), "held back");
+    assert_eq!(s.file_mark(a), None, "not reviewed, whatever the pages say");
+    assert_eq!(s.totals_of(s.tree.root()).files_reviewed, 0);
+    assert!(!s.toggle_held("a.rs"), "let go");
+    assert_eq!(s.file_mark(a), Some(chips::State::Done));
+}
+
+#[test]
+fn nothing_is_seen_while_the_window_is_not_the_one_the_reviewer_is_at() {
+    let mut s = reviewing_two();
+    s.window_active = false;
+    for _ in 0..10 {
+        assert!(!s.watch_pages(0.0, 1_200.0, 400));
+    }
+    assert_eq!(s.progress.get("a.rs").map(|e| e.seen.count()).unwrap_or(0), 0);
+    s.window_active = true;
+    read_page(&mut s, 0);
+    assert!(s.progress.get("a.rs").is_some_and(|e| e.seen.is_seen(0)));
+}
+
+#[test]
+fn a_file_that_is_not_open_is_not_looked_at() {
+    let mut s = AppState::create(PathBuf::new(), Vec::new(), RefAny::new(0u8), PathBuf::new());
+    assert!(!s.watch_pages(0.0, 1_200.0, 400));
+    s.mark_page_seen(0);
+    assert!(s.progress.is_empty());
+}
+
+#[test]
+fn the_totals_of_a_folder_follow_its_files_once_they_are_counted() {
+    let mut s = reviewing_two();
+    read_page(&mut s, 0);
+    s.refresh_rollup();
+    let root = s.totals_of(s.tree.root());
+    assert_eq!((root.lines, root.lines_seen, root.files_reviewed), (100, 46, 0));
+    // b.rs is counted (the background count tells it): the totals have its lines
+    let b = id_of(&s, "b.rs");
+    s.tree.set_lines(b, 10);
+    s.refresh_rollup();
+    let root = s.totals_of(s.tree.root());
+    assert_eq!((root.lines, root.unknown_files), (110, 0));
+    assert!(!root.is_partial());
 }

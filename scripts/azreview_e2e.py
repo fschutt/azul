@@ -85,6 +85,17 @@ def show_files(app):
     if not app.has_id(TREE):
         app.click(selector="#" + SIDEBAR_TOGGLE)
     app.until("the file tree is out", lambda: app.has_id(TREE))
+
+
+def pick(app, folder, name):
+    """Opens `name` from the tree, opening its `folder` first: the tree lists a folder when it is opened, and its rows
+    are a VirtualView's (a DOM of their own)."""
+    if not app.shows(name, every_dom=True):
+        app.click(text=folder, every_dom=True)
+        app.until("the files of %s" % folder, lambda: app.shows(name, every_dom=True))
+    app.click(text=name, every_dom=True)
+
+
 ARCHIVE = "review/src_lib.rs.azreview.zip"
 
 
@@ -151,7 +162,7 @@ def body(args, logs, out):
             raise Failure("the pages did not come back with the tree: %s -> %s" % (under, back))
 
         # Open lib.rs from the tree: it opens and the tree stays.
-        app.click(text="lib.rs")
+        pick(app, "src", "lib.rs")
         app.expect_line("AZREVIEW_FILE", os.path.join("src", "lib.rs"), "a click opens lib.rs")
         app.frame(2)
         if not app.has_id(TREE):
@@ -299,7 +310,7 @@ def dictation(args, logs, out, binary, fake):
         app.until("AzReview's window", lambda: app.has_id(STRIP))
         app.frame(2)
         show_files(app)
-        app.click(text="lib.rs")
+        pick(app, "src", "lib.rs")
         app.frame(3)
         strip = app.rect(STRIP)
         base = (strip["x"] + 160.0, strip["y"] + 140.0)
@@ -448,7 +459,7 @@ def restore(args, logs, out, binary):
         app.until("AzReview's window", lambda: app.has_id(STRIP))
         app.frame(2)
         show_files(app)
-        app.click(text="lib.rs")
+        pick(app, "src", "lib.rs")
         app.frame(3)
         app.until("the saved session back", lambda: app.count("AZREVIEW_LOADED", r"1 0") > 0)
         strip = app.rect(STRIP)
@@ -516,7 +527,7 @@ def slash(args, logs, out, binary):
         app.until("AzReview's window", lambda: app.has_id(STRIP))
         app.frame(2)
         show_files(app)
-        app.click(text="lib.rs")
+        pick(app, "src", "lib.rs")
         app.frame(3)
         text = "__azreview_line-%d-text" % SLASH_LINE
         app.until("the third line of lib.rs", lambda: app.has_id(text, every_dom=True))
@@ -599,6 +610,106 @@ def slash(args, logs, out, binary):
     app.log("PASS: a quick slash took %d words, drew them in the colour of the page, moved no line, and undo, redo and the archive have them" % len(SLASH_TAKEN))
 
 
+def right_click_in_tree(app, name):
+    """A right click on the row of the tree named `name`: the pointer goes to the middle of the row and presses the right
+    button there (the rows are a VirtualView's: their rects are in its own DOM, whose corner is the tree list's)."""
+    row = next((r for r in state(app)["tree"]["visible"] if r["name"] == name), None)
+    if row is None:
+        raise Failure("no row of the tree is named %r: %s" % (name, state(app)["tree"]["visible"][:12]))
+    node = "__azreview_tree-row-%d" % row["id"]
+    rect = app.rect(node, every_dom=True)
+    corner = app.rect("__azreview_files")
+    x = corner["x"] + rect["x"] + min(rect["width"], 120.0) / 2.0
+    y = corner["y"] + rect["y"] + rect["height"] / 2.0
+    app.must("mouse_move", x=x, y=y)
+    app.must("mouse_down", x=x, y=y, button="right")
+    app.must("mouse_up", x=x, y=y, button="right")
+    app.frame(2)
+
+
+def reviewed_state(app):
+    return state(app)["progress"]
+
+
+def progress(args, logs, out, binary):
+    """What has been looked at, in a window: the page in view for a second and a half is seen, a file is reviewed when every
+    page of it is, the totals of the workspace follow (the whole workspace counted behind the window), a right click holds a
+    file back, and a second window on the same data folder has all of it from the start. No microphone: the dwell is off."""
+    data_dir = os.path.join(logs, "data-progress")
+    folder = os.path.join(logs, "folder-progress")
+    os.makedirs(data_dir, exist_ok=True)
+    fixture(folder)
+    argv = [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en", "--dwell-input", "off",
+            "--standby", "off"]
+    app = e2e.App("review-progress", binary, argv, args.debug_port + 4, logs, args.timeout)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        app.frame(2)
+        # README.md is open: one page, three lines. Not seen before a second and a half has passed.
+        if reviewed_state(app)["seen_pages"] != 0:
+            raise Failure("a page was seen before it was looked at: %s" % reviewed_state(app))
+        app.until("the README's page seen", lambda: reviewed_state(app)["seen_pages"] == 1)
+        app.until("the README reviewed", lambda: reviewed_state(app)["reviewed"])
+        # The workspace is counted behind the window: 3 lines of README, 120 of lib.rs.
+        app.until("the workspace counted", lambda: not reviewed_state(app)["counting"])
+        w = reviewed_state(app)["workspace"]
+        if (w["files"], w["lines"], w["files_reviewed"], w["lines_reviewed"]) != (2, 123, 1, 3):
+            raise Failure("the totals after the README: %s" % w)
+        app.until("the sentence at the foot of the tree", lambda: app.shows("3 of 123 lines reviewed (2%)", every_dom=False))
+        app.screenshot(os.path.join(out, "10-progress-readme.png"))
+
+        # lib.rs: three pages; the first is looked at, the others are not.
+        pick(app, "src", "lib.rs")
+        app.until("lib.rs open", lambda: state(app)["tree"]["open"] == os.path.join("src", "lib.rs"))
+        app.until("its first page seen", lambda: reviewed_state(app)["seen_pages"] == 1)
+        time.sleep(2.2)
+        p = reviewed_state(app)
+        if p["seen_pages"] != 1 or p["reviewed"]:
+            raise Failure("a page next to the one looked at was seen, or the file is reviewed after one page of three: %s" % p)
+        app.click(selector="#__azreview_page-pill-2")
+        app.until("page 2 seen", lambda: reviewed_state(app)["seen_pages"] == 2)
+        app.click(selector="#__azreview_page-pill-3")
+        app.until("lib.rs reviewed", lambda: reviewed_state(app)["reviewed"])
+        w = reviewed_state(app)["workspace"]
+        if (w["files_reviewed"], w["lines_reviewed"], w["lines_seen"]) != (2, 123, 123):
+            raise Failure("the totals after lib.rs: %s" % w)
+        app.until("the sentence says everything is reviewed", lambda: app.shows("123 of 123 lines reviewed (100%)"))
+        app.until("the tree marks the file green", lambda: app.has_id("__azreview_file-mark-done", every_dom=True))
+        app.screenshot(os.path.join(out, "11-progress-reviewed.png"))
+
+        # A right click on the file in the tree: it is not reviewed, whatever its pages say; again, and it is.
+        right_click_in_tree(app, "lib.rs")
+        app.until("lib.rs held back", lambda: reviewed_state(app)["held"] and not reviewed_state(app)["reviewed"])
+        app.until("the sentence follows", lambda: app.shows("3 of 123 lines reviewed (2%)"))
+        right_click_in_tree(app, "lib.rs")
+        app.until("lib.rs let go", lambda: not reviewed_state(app)["held"] and reviewed_state(app)["reviewed"])
+        # what was seen is written: the toggle asks for it at once
+        app.until("the progress file written", lambda: app.count("AZREVIEW_SAVED", r"review/progress-[0-9a-f]{16}\.json") > 0)
+        no_lint(app, "the progress run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+
+    # A second window on the same data folder: the README is open again, lib.rs is reviewed without being looked at.
+    again = e2e.App("review-progress-again", binary, argv, args.debug_port + 5, logs, args.timeout)
+    try:
+        again.until("AzReview's window", lambda: again.has_id(STRIP))
+        again.until("what was seen came back", lambda: again.count("AZREVIEW_PROGRESS_LOADED", r"2") > 0)
+        again.until("both files reviewed from the start", lambda: reviewed_state(again)["workspace"]["files_reviewed"] == 2)
+        if reviewed_state(again)["seen_pages"] != 1 or not reviewed_state(again)["reviewed"]:
+            raise Failure("the README is not reviewed straight away: %s" % reviewed_state(again))
+        again.screenshot(os.path.join(out, "12-progress-restored.png"))
+        no_lint(again, "the second progress run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(again.out_path), e2e.tail(again.err_path)))
+        raise
+    finally:
+        again.stop()
+    app.log("PASS: pages seen after a second and a half, a file reviewed when all are, the totals, a right click holds a file back, and a second window has all of it")
+
+
 def notes_in(path):
     with zipfile.ZipFile(path) as z:
         return json.loads(z.read("session.json").decode("utf-8")).get("notes", [])
@@ -611,6 +722,9 @@ def run_all(args, logs, out):
     if only == "slash":
         slash(args, logs, out, binary)
         return True
+    if only == "progress":
+        progress(args, logs, out, binary)
+        return True
     body(args, logs, out)
     # The dictation steps need the fake speech backend (a libazul with the test hooks). Without it the real recogniser
     # would be asked, and where the terminal holds the microphone and speech permissions it LISTENS: a test must never
@@ -621,6 +735,7 @@ def run_all(args, logs, out):
         print("[azreview] SKIPPED: the dictation steps (this libazul has no test hooks: the real recogniser would listen "
               "to the microphone)", flush=True)
     slash(args, logs, out, binary)
+    progress(args, logs, out, binary)
     restore(args, logs, out, binary)
     return True
 

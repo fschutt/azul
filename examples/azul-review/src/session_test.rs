@@ -15,6 +15,7 @@ fn state() -> AppState {
         path: "src/f.rs".into(),
         display: "src/f.rs".to_string(),
         lines: (0..100).map(|i| format!("fn f{i}() {{}}")).collect(),
+        big: None,
     };
     AppState::create(
         std::path::PathBuf::from("/work"),

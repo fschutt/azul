@@ -670,6 +670,8 @@ enum Sk {
     Impl(Option<String>),
     Trait(String),
     Fn,
+    /// The value of a const or a static: what is declared inside it is local to it, as in a function.
+    Value,
     Other,
 }
 
@@ -677,6 +679,8 @@ struct Scope {
     kind: Sk,
     def: Option<usize>,
     test: bool,
+    /// How many brackets were open where the brace opened (a brace in the value of a const is one inside brackets).
+    paren: u32,
 }
 
 struct Pending {
@@ -748,13 +752,14 @@ impl Rs<'_> {
             b'#' => self.attribute(i),
             b'{' => {
                 let scope = match self.pending.take() {
-                    Some(p) if p.paren == self.paren => Scope { kind: p.kind, def: p.def, test: p.test },
+                    Some(p) if p.paren == self.paren => Scope { kind: p.kind, def: p.def, test: p.test, paren: self.paren },
                     other => {
+                        let kind = if other.as_ref().is_some_and(|p| matches!(p.kind, Sk::Value)) { Sk::Value } else { Sk::Other };
                         self.pending = other;
-                        Scope { kind: Sk::Other, def: None, test: false }
+                        Scope { kind, def: None, test: false, paren: self.paren }
                     }
                 };
-                if matches!(scope.kind, Sk::Fn) {
+                if matches!(scope.kind, Sk::Fn | Sk::Value) {
                     self.fn_depth += 1;
                 }
                 if scope.test {
@@ -766,21 +771,35 @@ impl Rs<'_> {
                 i + 1
             }
             b'}' => {
+                // A brace that opened inside brackets while an item is being read is a struct literal or a block in
+                // the item's value (`const T: [P; 2] = [P { a: 1 }, ..];`): the item goes on to its semicolon.
+                let mut in_value = false;
+                let mut repend = None;
                 if let Some(scope) = self.scopes.pop() {
                     if let Some(d) = scope.def {
                         self.out[d].lines = tok.line.saturating_sub(self.out[d].line) + 1;
+                        // The value of a const or static goes on to its semicolon (`if a { 1 } else { 2 };`).
+                        if matches!(scope.kind, Sk::Value) {
+                            repend = Some(Pending { def: scope.def, kind: Sk::Value, paren: scope.paren, test: scope.test });
+                        }
                     }
-                    if matches!(scope.kind, Sk::Fn) {
+                    if matches!(scope.kind, Sk::Fn | Sk::Value) {
                         self.fn_depth = self.fn_depth.saturating_sub(1);
                     }
                     if scope.test {
                         self.test_depth = self.test_depth.saturating_sub(1);
                     }
+                    if matches!(scope.kind, Sk::Other | Sk::Value) && scope.def.is_none() && scope.paren > 0 && self.pending.is_some() {
+                        in_value = true;
+                        self.paren = scope.paren;
+                    }
                 }
-                self.pending = None;
-                self.paren = 0;
-                self.vis = Vis::Private;
-                self.attr_test = false;
+                if !in_value {
+                    self.pending = repend;
+                    self.paren = 0;
+                    self.vis = Vis::Private;
+                    self.attr_test = false;
+                }
                 i + 1
             }
             b';' => {
@@ -972,17 +991,21 @@ impl Rs<'_> {
             at += 1;
         }
         let is_generic_param = i > 0 && (is_punct(&self.toks, i - 1, b'<') || is_punct(&self.toks, i - 1, b','));
-        if !is_ident(&self.toks, at) || !is_punct(&self.toks, at + 1, b':') || is_generic_param {
+        // `NAME:` and not `path::Type` (the type of `*const crate::x::T`, a raw pointer).
+        let is_path = adjacent_punct(&self.toks, at + 1, b':', b':');
+        if !is_ident(&self.toks, at) || !is_punct(&self.toks, at + 1, b':') || is_path || is_generic_param {
             return i + 1;
         }
         let name = self.toks[at];
-        if &self.src[name.s as usize..name.e as usize] == b"_" {
-            return i + 1;
-        }
-        let parent = self.owner();
         let test = self.attr_test || self.test_depth > 0;
-        let def = self.record(&name, kind, parent);
-        self.pending = Some(Pending { def, kind: Sk::Other, paren: self.paren, test });
+        // `const _: () = { .. };` declares nothing, but what is written in it is as local as in a function.
+        let def = if &self.src[name.s as usize..name.e as usize] == b"_" {
+            None
+        } else {
+            let parent = self.owner();
+            self.record(&name, kind, parent)
+        };
+        self.pending = Some(Pending { def, kind: Sk::Value, paren: self.paren, test });
         at + 1
     }
 

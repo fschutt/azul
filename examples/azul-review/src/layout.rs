@@ -317,6 +317,55 @@ pub fn solve(window_w: f32, panels: &Panels, slide: &Slide, reserved_left: f32) 
     }
 }
 
+/// How many pages a file may have for every page number to be shown in the strip.
+pub const STRIP_ALL: usize = 60;
+/// How many page numbers the strip shows on either side of the page in view when the file has more pages than that.
+pub const STRIP_AROUND: usize = 8;
+
+/// What the strip of page numbers shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StripItem {
+    /// A page's number (the pages count from 0).
+    Page(usize),
+    /// A gap of pages that are not shown: a click goes to the page `to`, in the middle of it.
+    Skip { to: usize },
+}
+
+/// The strip of page numbers of a file of `total` pages with page `current` in view: every number for a file of up to
+/// [`STRIP_ALL`] pages; for a longer one the first, the last and the ones around the page in view, with a way to the
+/// pages between (a file of 15,000 pages has a strip of 21 keys, not 15,000). A gap of one page is that page.
+#[must_use]
+pub fn strip_items(total: usize, current: usize) -> Vec<StripItem> {
+    if total == 0 {
+        return Vec::new();
+    }
+    if total <= STRIP_ALL {
+        return (0..total).map(StripItem::Page).collect();
+    }
+    let current = current.min(total - 1);
+    let from = current.saturating_sub(STRIP_AROUND);
+    let to = (current + STRIP_AROUND).min(total - 1);
+    let mut shown: Vec<usize> = vec![0];
+    shown.extend(from.max(1)..=to.min(total - 2).max(from.max(1) - 1));
+    if to >= total - 1 || total - 1 > *shown.last().unwrap_or(&0) {
+        shown.push(total - 1);
+    }
+    shown.dedup();
+    let mut items = Vec::with_capacity(shown.len() + 2);
+    for (i, &page) in shown.iter().enumerate() {
+        if i > 0 {
+            let before = shown[i - 1];
+            match page - before {
+                1 => {}
+                2 => items.push(StripItem::Page(before + 1)),
+                gap => items.push(StripItem::Skip { to: before + gap / 2 }),
+            }
+        }
+        items.push(StripItem::Page(page));
+    }
+    items
+}
+
 #[cfg(test)]
 #[path = "layout_test.rs"]
 mod layout_test;
