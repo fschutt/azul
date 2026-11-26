@@ -35,7 +35,13 @@ impl AndroidWindow {
     pub(super) fn init_gpu(&mut self, options: &WindowCreateOptions, text: TextAntialiasing) {
         let request = request_for(&self.common.app.settings().shell, options);
         if request == GpuRequest::Cpu {
-            log_info!(LogCategory::Rendering, "{}", decide(GpuRequest::Cpu, None).render_line());
+            let decision = decide(GpuRequest::Cpu, None);
+            log_info!(LogCategory::Rendering, "{}", decision.render_line());
+            // The startup timeline (`AZ_STARTUP=1`) names the renderer the window got, whichever it is.
+            self.common
+                .app
+                .startup()
+                .mark_with("render_backend", || decision.timeline_detail());
             return;
         }
         let plan = FailPlan::parse(azul_core::run_mode::test_hooks().gpu_fail.as_deref());
@@ -55,6 +61,20 @@ impl AndroidWindow {
         );
         // WebRender draws the text the app asked for, as the CPU renderer does (grayscale by default on a phone).
         gpu.set_text_antialiasing(text.mode);
+        // The marks of the bring-up go to the startup timeline (`AZ_STARTUP=1`), under the names the Android window's other marks have;
+        // `render_backend` keeps its own name, the timeline's headline reads it.
+        let app = Arc::clone(&self.common.app);
+        gpu.set_marker(Box::new(move |name, detail| {
+            let name: &'static str = match name {
+                "egl_ready" => "android:egl_ready",
+                "gl_context_ready" => "android:gl_context_ready",
+                "webrender_ready" => "android:webrender_ready",
+                "first_gpu_frame_started" => "android:first_gpu_frame_started",
+                "first_gpu_frame_done" => "android:first_gpu_frame_done",
+                other => other,
+            };
+            app.startup().mark_with(name, || detail.to_owned());
+        }));
         self.gpu = Some(gpu);
         self.backend = RenderBackend::Gpu;
     }
