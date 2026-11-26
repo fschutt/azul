@@ -218,6 +218,19 @@ Requirements: OpenGL ES 3.0 (every iPhone since the 5s, which is every device iO
 Not verified without a phone: the speed of a real GPU, thermal behaviour, and the system's own
 termination of a background app that issues GL (the Simulator does not enforce it).
 
+To see it on your own phone, with the app installed (signed with your own profile) and the phone
+connected and trusted, one command on the Mac:
+
+```sh
+python3 scripts/ci/ios_phone_gpu.py "<the phone's name or id from `xcrun devicectl list devices`>" --bundle <your bundle id>
+```
+
+It starts the app three times (`cpu`, `gpu`, `auto`), keeps the console of each for 25 seconds (scroll
+the page with your finger meanwhile), and prints which renderer ran on which `GL_RENDERER`, why not
+the GPU if it fell back (`gpu unavailable at <stage>`), the first GPU frame and the frame times of what
+you scrolled. The two lines that say which renderer drew (and why not the GPU) are also in the unified
+log (Console.app) of an app started from the home screen with the `AZBackend` key set.
+
 ## Building the native library
 
 Mobile builds use `link-static` with **no default features** (the desktop
