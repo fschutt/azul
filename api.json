@@ -22012,7 +22012,7 @@
                                 "returns": {
                                     "type": "OptionFluentLocalizerHandle"
                                 },
-                                "fn_body": "azul_layout::fluent::fluent_localizer_of(object)"
+                                "fn_body": "azul_layout::fluent::fluent_localizer_of(layout_callback_info)"
                             }
                         },
                         "repr": "C"
