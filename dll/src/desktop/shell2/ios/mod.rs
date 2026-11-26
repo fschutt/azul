@@ -1767,6 +1767,11 @@ extern "C" fn did_finish_launching(
             crate::desktop::shell2::common::debug_server::register_debug_timer(&mut window, rx, cm);
         }
         AZUL_IOS_WINDOW = Box::into_raw(Box::new(window));
+        // The window is the app's window now (UIKit's callbacks find it): the app's create callback runs
+        // before the first layout, which the display link starts after this method returns.
+        if let Some(window) = azul_ios_window() {
+            window.fire_create_callback();
+        }
         log_info!(
             LogCategory::EventLoop,
             "[iOS] application:didFinishLaunching: ok"
@@ -2106,6 +2111,10 @@ pub struct IOSWindow {
     text_interaction: *mut Object,
     /// Whether [`Self::text_interaction`] is added to the view right now.
     text_interaction_attached: bool,
+    /// `WindowCreateOptions::create_callback`, kept until `application:didFinishLaunching:` fires it
+    /// ([`Self::fire_create_callback`]): this shell used to take the options' window state and colours and
+    /// DROP the callback, so an app that starts a timer or a worker there was dead on an iPhone.
+    create_callback: azul_layout::callbacks::OptionCallback,
 }
 
 impl IOSWindow {
@@ -2124,6 +2133,7 @@ impl IOSWindow {
             app_shared.mode(),
         );
         let mut full_window_state = options.window_state;
+        let create_callback = options.create_callback;
 
         let icon_provider_handle = core::mem::take(&mut config.icon_provider);
         let icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
@@ -2322,6 +2332,7 @@ impl IOSWindow {
             webviews: None,
             text_interaction,
             text_interaction_attached: false,
+            create_callback,
         };
         // The renderer of this window: `AZ_BACKEND` / `hw_accel` decide, the CPU one unless the GPU was
         // asked for and came up (a fallback names its stage in one line). The line the QA harness reads
@@ -2397,6 +2408,31 @@ impl IOSWindow {
         // `displayLayer:` re-rasters instead of blitting the previous frame.
         self.needs_rerender = true;
         let _ = self.present();
+    }
+
+    /// Fire the app's `WindowCreateOptions::create_callback`, ONCE per window lifetime, as the desktop shells and
+    /// Android do (`common::create_callback::invoke_create_callback`): the window exists, its size and scale are the
+    /// screen's, and nothing is laid out yet (the first layout runs from the display link, which only starts to
+    /// tick when `application:didFinishLaunching:` returns). An app starts its timers, workers, locale and requests
+    /// here. The pass that follows applies what the callback put in the window state.
+    pub(crate) fn fire_create_callback(&mut self) {
+        let callback = core::mem::replace(
+            &mut self.create_callback,
+            azul_layout::callbacks::OptionCallback::None,
+        );
+        if callback.is_none() {
+            log_info!(
+                LogCategory::Callbacks,
+                "[iOS] create_callback: none set for this window"
+            );
+            return;
+        }
+        log_info!(LogCategory::Callbacks, "[iOS] create_callback called");
+        // snapshot -> mutate -> pass, the contract of every shell's window-state change
+        self.snapshot_window_state_baseline("ios.create_callback");
+        crate::desktop::shell2::common::create_callback::invoke_create_callback(self, callback);
+        let result = self.process_window_events(0);
+        self.apply_event_result(result);
     }
 
     /// Do what a pass of `process_window_events` left owing, at the weight the pass classified
@@ -2574,11 +2610,6 @@ impl IOSWindow {
         // inert. `headless/mod.rs` already carries this exact fix and the same
         // explanation; both mobile backends were missing the one line.
         self.common.rebuild_cpu_hit_tester();
-
-        // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
-        // layout's reconciliation — the SAME step headless + X11 run. Without it,
-        // EventFilter::Component(AfterMount) callbacks never fire on iOS (e.g. the
-        // MapWidget's first tile fetch never starts).
 
         // A GPU window sends the display list to WebRender here; the next display tick draws it.
         if self.backend == RenderBackend::Gpu {
