@@ -277,9 +277,9 @@ fn dom_item_fn(item: &Item) -> String {
             item.ty,
             render(&doc, "  ", 1)
         ); },
-        Err(reason) => { let _ = write!(
+        Err(reason) => { let _ = writeln!(
             out,
-            "# not expressible with the Nim bindings: {reason}\n"
+            "# not expressible with the Nim bindings: {reason}"
         ); },
     }
     out
@@ -373,9 +373,9 @@ fn item_fn(item: &Item) -> String {
             item.ty,
             render(&doc, "  ", 1)
         ); },
-        Err(reason) => { let _ = write!(
+        Err(reason) => { let _ = writeln!(
             out,
-            "# not expressible with the Nim bindings: {reason}\n"
+            "# not expressible with the Nim bindings: {reason}"
         ); },
     }
     out

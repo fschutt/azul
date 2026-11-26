@@ -376,9 +376,9 @@ fn item_fn(item: &Item) -> String {
             item.ty,
             render(&doc, "  ", 2)
         ); },
-        Err(reason) => { let _ = write!(
+        Err(reason) => { let _ = writeln!(
             out,
-            "  # {name}: not expressible with the Crystal bindings: {reason}\n"
+            "  # {name}: not expressible with the Crystal bindings: {reason}"
         ); },
     }
     out

@@ -228,9 +228,9 @@ fn item_fn(item: &Item) -> String {
             "let {name} () =\n  {}\n",
             render(&doc, "  ", 1)
         ); },
-        Err(reason) => { let _ = write!(
+        Err(reason) => { let _ = writeln!(
             out,
-            "(* not expressible with the OCaml bindings: {} *)\n",
+            "(* not expressible with the OCaml bindings: {} *)",
             reason.replace("*)", "* )")
         ); },
     }

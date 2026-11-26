@@ -347,12 +347,12 @@ impl CodegenBackend for Cpp {
             let name = item.name.snake();
             let _ = writeln!(main, "    Az{} {name}_value = {name}();", item.ty);
             if item.ty.ends_with("Vec") {
-                let _ = write!(
+                let _ = writeln!(
                     main,
-                    "    std::printf(\"{name}: %zu properties\\n\", {name}_value.len);\n"
+                    "    std::printf(\"{name}: %zu properties\\n\", {name}_value.len);"
                 );
             } else {
-                let _ = write!(main, "    std::printf(\"{name}: built\\n\");\n");
+                let _ = writeln!(main, "    std::printf(\"{name}: built\\n\");");
             }
             let _ = writeln!(main, "    Az{}_delete(&{name}_value);", item.ty);
         }

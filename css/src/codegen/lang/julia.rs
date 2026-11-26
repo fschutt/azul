@@ -255,9 +255,9 @@ fn dom_item_fn(item: &Item) -> String {
             "function {name}({params})\n    {}\nend\n",
             render(&doc, "    ", 1)
         ); },
-        Err(reason) => { let _ = write!(
+        Err(reason) => { let _ = writeln!(
             out,
-            "# not expressible with the Julia bindings: {reason}\n"
+            "# not expressible with the Julia bindings: {reason}"
         ); },
     }
     out
@@ -359,9 +359,9 @@ fn item_fn(item: &Item) -> String {
             "function {name}()\n    {}\nend\n",
             render(&doc, "    ", 1)
         ); },
-        Err(reason) => { let _ = write!(
+        Err(reason) => { let _ = writeln!(
             out,
-            "# not expressible with the Julia bindings: {reason}\n"
+            "# not expressible with the Julia bindings: {reason}"
         ); },
     }
     out

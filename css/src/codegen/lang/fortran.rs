@@ -433,7 +433,7 @@ fn item_fn(item: &Item) -> (bool, String) {
                 let (len, ty) = rest.split_once(' ').unwrap_or((rest, ""));
                 let _ = writeln!(out, "    {ty}, target :: {n}({len})");
             }
-            None => { let _ = write!(out, "    {t} :: {n}\n"); },
+            None => { let _ = writeln!(out, "    {t} :: {n}"); },
         }
     }
     for s in &st.body {
@@ -522,9 +522,9 @@ impl CodegenBackend for Fortran {
             main = main.replace("  use azul_styles\n", "  use azul_ui\n");
         }
         for item in &built {
-            let _ = write!(
+            let _ = writeln!(
                 main,
-                "  type(Az{}) :: {}_value\n",
+                "  type(Az{}) :: {}_value",
                 item.ty,
                 fn_name(item)
             );

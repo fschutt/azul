@@ -217,7 +217,7 @@ fn dom_item_fn(item: &Item) -> String {
             item.ty,
             render(&doc, "    ", 1)
         ); },
-        Err(reason) => { let _ = write!(out, "// not expressible with the D bindings: {reason}\n"); },
+        Err(reason) => { let _ = writeln!(out, "// not expressible with the D bindings: {reason}"); },
     }
     out
 }
@@ -286,7 +286,7 @@ fn item_fn(item: &Item) -> String {
             "{ty} {name}()\n{{\n    return {};\n}}\n",
             render(&doc, "    ", 1)
         ); },
-        Err(reason) => { let _ = write!(out, "// not expressible with the D bindings: {reason}\n"); },
+        Err(reason) => { let _ = writeln!(out, "// not expressible with the D bindings: {reason}"); },
     }
     out
 }

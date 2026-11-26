@@ -440,9 +440,9 @@ fn item_method(m: &Module, item: &Item) -> (bool, String) {
             (true, out)
         }
         Err(reason) => {
-            let _ = write!(
+            let _ = writeln!(
                 out,
-                "\"{name}: not expressible with the Smalltalk bindings: {}\"\n",
+                "\"{name}: not expressible with the Smalltalk bindings: {}\"",
                 reason.replace('"', "''")
             );
             (false, out)
@@ -520,10 +520,10 @@ impl CodegenBackend for Smalltalk {
         );
         for item in m.items.iter().filter(|i| item_method(m, i).0) {
             let name = method_name(item);
-            let _ = write!(
+            let _ = writeln!(
                 main,
                 "Transcript show: '{name}: ', AzulStyles {name} len printString, ' \
-                 properties'; cr.\n"
+                 properties'; cr."
             );
         }
         vec![

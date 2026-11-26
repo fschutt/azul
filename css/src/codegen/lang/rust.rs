@@ -278,9 +278,9 @@ fn rust_component(s: &mut String, lib: &LibrarySpec, c: &ComponentSpec, item: &I
     }
     for p in &item.params {
         let local = format!("arg_{}", p.name.snake());
-        let _ = write!(
+        let _ = writeln!(
             s,
-            "    let {local} = model_string(model, {:?}, {:?});\n",
+            "    let {local} = model_string(model, {:?}, {:?});",
             p.name.snake(),
             p.default_text()
         );

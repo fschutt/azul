@@ -158,9 +158,9 @@ fn item_fn(item: &Item) -> String {
                 render(&list, "  ", 1)
             );
         }
-        _ => { let _ = write!(
+        _ => { let _ = writeln!(
             out,
-            "-- not expressible with the Haskell bindings: a {} value holds Vecs\n",
+            "-- not expressible with the Haskell bindings: a {} value holds Vecs",
             item.ty
         ); },
     }

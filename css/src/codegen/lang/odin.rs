@@ -290,9 +290,9 @@ fn item_fn(item: &Item) -> (bool, String) {
             (true, out)
         }
         Err(reason) => {
-            let _ = write!(
+            let _ = writeln!(
                 out,
-                "// {name}: not expressible with the Odin bindings: {reason}\n"
+                "// {name}: not expressible with the Odin bindings: {reason}"
             );
             (false, out)
         }

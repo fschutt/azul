@@ -866,9 +866,9 @@ impl CodegenBackend for Ada {
             .collect();
         for item in &built {
             let name = unit_name(item);
-            let _ = write!(
+            let _ = writeln!(
                 main,
-                "   {name}_Value : constant Az_{} := Styles.{name};\n",
+                "   {name}_Value : constant Az_{} := Styles.{name};",
                 item.ty
             );
         }

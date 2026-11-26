@@ -372,12 +372,12 @@ impl CodegenBackend for C {
             let name = item.name.snake();
             let _ = writeln!(main, "    Az{} {name}_value = {name}();", item.ty);
             if item.ty.ends_with("Vec") {
-                let _ = write!(
+                let _ = writeln!(
                     main,
-                    "    printf(\"{name}: %zu properties\\n\", {name}_value.len);\n"
+                    "    printf(\"{name}: %zu properties\\n\", {name}_value.len);"
                 );
             } else {
-                let _ = write!(main, "    printf(\"{name}: built\\n\");\n");
+                let _ = writeln!(main, "    printf(\"{name}: built\\n\");");
             }
             let _ = writeln!(main, "    Az{}_delete(&{name}_value);", item.ty);
         }

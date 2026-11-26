@@ -300,7 +300,7 @@ fn item_fn(item: &Item) -> (bool, String) {
                 let (last, ty) = rest.split_once(' ').unwrap_or((rest, ""));
                 let _ = writeln!(out, "    Dim {n}(0 To {last}) As {ty}");
             }
-            None => { let _ = write!(out, "    Dim {n} As {t}\n"); },
+            None => { let _ = writeln!(out, "    Dim {n} As {t}"); },
         }
     }
     for s in &st.body {

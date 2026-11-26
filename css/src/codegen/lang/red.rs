@@ -138,9 +138,9 @@ fn item_fn(item: &Item) -> (bool, String) {
             for line in &item.doc {
                 let _ = writeln!(out, ";; {line}");
             }
-            let _ = write!(
+            let _ = writeln!(
                 out,
-                ";; {name}: not expressible with the Red/System bindings: {reason}\n"
+                ";; {name}: not expressible with the Red/System bindings: {reason}"
             );
             (false, out)
         }
