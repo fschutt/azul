@@ -1,10 +1,19 @@
-//! The built-in recognizer: a small speech model the app provides, run in this process, for when
-//! the system's recognizer refuses (a bare binary the system will not let ask) or does not exist
-//! (Linux). Nothing of it is in the default build: the engine is a shared library and the model a
-//! file the app registers at its start (`SpeechSession::set_builtin_files`); the files are
-//! `libcactus.{dylib,so,dll}` (the runtime wheel of Cactus 4.1.4) and `whistle.cact`, fetched and
-//! checked by `scripts/fetch_whistle.sh`, and looked for next to the executable, in a `speech`
-//! folder there and in the bundle's `Resources` when the app names none.
+//! The built-in recognizer: a small speech model run in this process, for when the system's
+//! recognizer refuses (a bare binary the system will not let ask) or does not exist (Linux).
+//! Nothing of it is in the default build and nothing of it is bundled. Two parts:
+//!
+//! * the ENGINE (`libcactus`, the Cactus runtime, 13 C functions): a shared library opened at run
+//!   time (`libcactus.{dylib,so,dll}` of the runtime wheel of Cactus 4.1.4, fetched and checked by
+//!   `scripts/fetch_whistle.sh`, looked for next to the executable, in a `speech` folder there and in
+//!   a bundle's `Resources` when the app names none, or registered with
+//!   `SpeechSession::set_builtin_files`), or, in a build of one's own with the cargo feature
+//!   `speech-engine-static`, the vendor's static library linked into the program (`LinkedEngine`; the
+//!   only way on iOS; no shipped build has it: see `dll/Cargo.toml`);
+//! * the MODEL (`whistle.cact`, 16.9 MB): a file next to the program or registered by the app, or else
+//!   the one the program fetches itself into the user's cache folder the first time it is needed,
+//!   when the app and the user allow it ([`ModelStore`]: the policy `Never | Ask | Automatic`, the
+//!   consent step, offline mode, progress, cancel, resume, the pinned SHA-256; `SpeechSession::
+//!   model_state` and `allow_model_download`).
 //!
 //! # The choice (measured on an Apple M2, 8 GB, one engine thread, 2026-11-25)
 //!
@@ -36,6 +45,8 @@
 
 mod audio;
 mod engine;
+pub(crate) mod model;
+mod model_http;
 
 use std::path::{Path, PathBuf};
 
@@ -43,7 +54,11 @@ use self::audio::{Endpointer, Progress, Resampler};
 pub use self::{
     audio::{Vad, MODEL_RATE},
     engine::{CactusEngine, Engine, EngineError},
+    model::{DownloadPolicy, FetchError, ModelFetch, ModelPhase, ModelSource, ModelState, ModelStore, NoNetwork, WHISTLE},
+    model_http::LayoutFetch,
 };
+#[cfg(feature = "speech-engine-static")]
+pub use self::engine::LinkedEngine;
 use super::{
     keeper::{MicKeeper, PREROLL_MS},
     recognizer::{Answer, EventKind, Kind, Listen, Outcome, Readiness, Recognizer, StreamOptions, STREAM_ENDPOINT_MS},
@@ -196,6 +211,9 @@ pub struct Builtin {
     vocabulary: Vocabulary,
     /// The quietest the room was in the last call: the next call starts from it.
     floor: f32,
+    /// Where the model is fetched to when it is not next to the program (set by the session); a
+    /// recognizer without one only looks in the default places.
+    store: Option<ModelStore>,
 }
 
 impl std::fmt::Debug for Builtin {
@@ -247,6 +265,7 @@ impl Builtin {
             tuning,
             vocabulary: Vocabulary::default(),
             floor: 0.0004,
+            store: None,
         }
     }
 
@@ -259,7 +278,16 @@ impl Builtin {
             tuning: Tuning::default(),
             vocabulary: Vocabulary::default(),
             floor: 0.0004,
+            store: None,
         }
+    }
+
+    /// The same recognizer, with a model store: when the model is not next to the program it is the
+    /// store's file, and the store fetches it as its policy says.
+    #[must_use]
+    pub fn with_store(mut self, store: ModelStore) -> Self {
+        self.store = Some(store);
+        self
     }
 
     /// A recognizer on `engine` with `model` loaded.
@@ -294,6 +322,7 @@ impl Builtin {
             tuning,
             vocabulary: Vocabulary::default(),
             floor: 0.0004,
+            store: None,
         })
     }
 
@@ -305,6 +334,21 @@ impl Builtin {
                 CactusEngine::open(Path::new(engine_path.trim())).map_err(engine_failure)?,
             ));
         }
+        Self::default_engine(exe_dir)
+    }
+
+    /// The engine when the app names no library: the one the program linked (a build of one's own
+    /// with the vendor's static library, the only way on iOS).
+    #[cfg(feature = "speech-engine-static")]
+    #[allow(clippy::unnecessary_wraps)]
+    fn default_engine(_exe_dir: Option<&Path>) -> Result<Box<dyn Engine>, Failure> {
+        Ok(Box::new(LinkedEngine::new()))
+    }
+
+    /// The engine when the app names no library: the library in the default places of `exe_dir`, or
+    /// the engine in the process when the app linked it by hand.
+    #[cfg(not(feature = "speech-engine-static"))]
+    fn default_engine(exe_dir: Option<&Path>) -> Result<Box<dyn Engine>, Failure> {
         let places = exe_dir.map(default_places).unwrap_or_default();
         let name = engine_file_name(std::env::consts::OS);
         match find_in(&places, name) {
@@ -322,15 +366,34 @@ impl Builtin {
         }
     }
 
-    /// The model file at `model_path` (empty: looked for in the default places of `exe_dir`),
-    /// read, when it is not larger than the limit.
-    fn read_model(model_path: &str, exe_dir: Option<&Path>, tuning: &Tuning) -> Result<Vec<u8>, Failure> {
+    /// The model file at `model_path` (empty: looked for in the default places of `exe_dir`, then
+    /// among the files of `store`), read, when it is not larger than the limit.
+    fn read_model(
+        model_path: &str,
+        exe_dir: Option<&Path>,
+        store: Option<&ModelStore>,
+        tuning: &Tuning,
+    ) -> Result<Vec<u8>, Failure> {
         let places = exe_dir.map(default_places).unwrap_or_default();
         let file = if model_path.trim().is_empty() {
-            find_in(&places, MODEL_FILE_NAME).ok_or_else(|| Failure {
-                status: BuiltinStatus::ModelMissing,
-                message: format!("no speech model: {MODEL_FILE_NAME} was not found in {}", describe_places(&places)),
-            })?
+            match (find_in(&places, MODEL_FILE_NAME), store) {
+                (Some(file), _) => file,
+                // Not next to the program: the store's file; a call that needs the model asks the store, whose
+                // policy decides whether it fetches it, and its state says why there is none yet.
+                (None, Some(store)) => {
+                    let state = store.request();
+                    state.path.ok_or(Failure { status: BuiltinStatus::ModelMissing, message: state.message })?
+                }
+                (None, None) => {
+                    return Err(Failure {
+                        status: BuiltinStatus::ModelMissing,
+                        message: format!(
+                            "no speech model: {MODEL_FILE_NAME} was not found in {}",
+                            describe_places(&places)
+                        ),
+                    })
+                }
+            }
         } else {
             PathBuf::from(model_path.trim())
         };
@@ -369,8 +432,25 @@ impl Builtin {
         microphone: impl Into<MicKeeper>,
         tuning: Tuning,
     ) -> Result<Self, Failure> {
+        Self::from_files_with_store(engine_path, model_path, exe_dir, None, microphone, tuning)
+    }
+
+    /// The same, and an empty `model_path` is also looked for among the files of `store` (the model
+    /// the program fetched), after the default places.
+    ///
+    /// # Errors
+    ///
+    /// [`Failure`] naming what is missing or wrong and where it was looked for.
+    pub fn from_files_with_store(
+        engine_path: &str,
+        model_path: &str,
+        exe_dir: Option<&Path>,
+        store: Option<&ModelStore>,
+        microphone: impl Into<MicKeeper>,
+        tuning: Tuning,
+    ) -> Result<Self, Failure> {
         let engine = Self::open_engine(engine_path, exe_dir)?;
-        let bytes = Self::read_model(model_path, exe_dir, &tuning)?;
+        let bytes = Self::read_model(model_path, exe_dir, store, &tuning)?;
         Self::with_engine(engine, &bytes, microphone, tuning)
     }
 
@@ -390,13 +470,16 @@ impl Builtin {
         Self::with_engine(engine, model, microphone, tuning)
     }
 
-    /// Loads what [`Self::discover`] looked for, once: the state is `Ready` or `Refused` after it.
-    fn load_discovered(&mut self) {
+    /// Loads what [`Self::discover`] looked for, once: the state is `Ready` or `Refused` after it. The one
+    /// exception is a model that is only not there YET (it waits for the user's consent, is downloading, or
+    /// the program is offline: the store's states): that is no verdict, the state stays `Discover` so that the
+    /// next call asks again, and the sentence for this call is answered.
+    fn load_discovered(&mut self) -> Option<String> {
         let State::Discover(exe_dir) = &self.state else {
-            return;
+            return None;
         };
         let loaded = Self::open_engine("", exe_dir.as_deref()).and_then(|mut engine| {
-            let bytes = Self::read_model("", exe_dir.as_deref(), &self.tuning)?;
+            let bytes = Self::read_model("", exe_dir.as_deref(), self.store.as_ref(), &self.tuning)?;
             if bytes.len() as u64 > self.tuning.max_model_bytes {
                 return Err(Failure {
                     status: BuiltinStatus::ModelRejected,
@@ -410,10 +493,17 @@ impl Builtin {
             })?;
             Ok(engine)
         });
-        self.state = match loaded {
-            Ok(engine) => State::Ready(engine),
-            Err(failure) => State::Refused(failure.message),
-        };
+        match loaded {
+            Ok(engine) => {
+                self.state = State::Ready(engine);
+                None
+            }
+            Err(failure) if failure.status == BuiltinStatus::ModelMissing && self.store.is_some() => Some(failure.message),
+            Err(failure) => {
+                self.state = State::Refused(failure.message);
+                None
+            }
+        }
     }
 
     /// The words the model should favour (names, jargon): at most the limit, each kept to its
@@ -434,6 +524,14 @@ impl Builtin {
             })
         });
         note.map(|note| format!("{}: {note}", Kind::Builtin.describe()))
+    }
+}
+
+impl Builtin {
+    /// Whether the program has the engine in it without a library to look for: the build links the
+    /// static one, or the app linked `libcactus.a` by hand.
+    fn engine_is_linked() -> bool {
+        cfg!(feature = "speech-engine-static") || CactusEngine::this().is_ok()
     }
 }
 
@@ -471,23 +569,35 @@ impl Recognizer for Builtin {
                 outcome: Outcome::Unavailable,
                 message: message.clone(),
             },
-            // Without loading anything: are the files there?
+            // Without loading anything: are the files there? The model may be the store's.
             State::Discover(exe_dir) => {
                 let places = exe_dir.as_deref().map(default_places).unwrap_or_default();
-                let engine = find_in(&places, engine_file_name(std::env::consts::OS)).is_some() || CactusEngine::this().is_ok();
+                let engine = find_in(&places, engine_file_name(std::env::consts::OS)).is_some() || Self::engine_is_linked();
                 let model = find_in(&places, MODEL_FILE_NAME).is_some();
                 if engine && model {
-                    Readiness::Ready
-                } else {
-                    Readiness::Refused {
-                        outcome: Outcome::Unavailable,
-                        message: format!(
-                            "the built-in recognizer is not set up: {} was not found in {} (register the files with \
-                             set_builtin_files; scripts/fetch_whistle.sh fetches them)",
-                            if !engine { engine_file_name(std::env::consts::OS) } else { MODEL_FILE_NAME },
-                            describe_places(&places)
-                        ),
+                    return Readiness::Ready;
+                }
+                // The engine is there and the model is not next to the program: the store's file, or why
+                // there is none. Only a question: the status lines ask it too, and a status line starts no
+                // download (a call that needs the model does: `read_model`).
+                if engine {
+                    if let Some(store) = &self.store {
+                        let state = store.state();
+                        return if state.phase == ModelPhase::Present {
+                            Readiness::Ready
+                        } else {
+                            Readiness::Refused { outcome: Outcome::Unavailable, message: state.message }
+                        };
                     }
+                }
+                Readiness::Refused {
+                    outcome: Outcome::Unavailable,
+                    message: format!(
+                        "the built-in recognizer is not set up: {} was not found in {} (register the files with \
+                         set_builtin_files; scripts/fetch_whistle.sh fetches them)",
+                        if !engine { engine_file_name(std::env::consts::OS) } else { MODEL_FILE_NAME },
+                        describe_places(&places)
+                    ),
                 }
             }
         }
@@ -599,7 +709,9 @@ impl Builtin {
         emit: &dyn Fn(EventKind, Answer),
         keep_on_stop: bool,
     ) -> Answer {
-        self.load_discovered();
+        if let Some(message) = self.load_discovered() {
+            return Answer::none(Outcome::Unavailable, &message);
+        }
         if let State::Refused(message) = &self.state {
             return Answer::none(Outcome::Unavailable, message);
         }

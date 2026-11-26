@@ -1,4 +1,4 @@
-//! AzBuilder's quick exports — text in, text out, no zip:
+//! `AzBuilder`'s quick exports — text in, text out, no zip:
 //!
 //! * **Compile CSS to…** — list the rules of a stylesheet (pasted text, the
 //!   document's stylesheet, the selected node's style, a component's CSS) and
@@ -33,7 +33,7 @@
 
 use std::fmt::Write as _;
 
-pub use azul_core::codegen::project::{AppMarkup, CodeExport, CodeMode};
+pub(super) use azul_core::codegen::project::{AppMarkup, CodeExport, CodeMode};
 use azul_core::{
     codegen::{
         backend,
@@ -61,7 +61,7 @@ use super::builder::{self, BuilderDocument, BuilderNode, BuilderNodeKind, ROOT_U
 /// Export > Code (ZIP) list the others disabled with `no_dom_reason`, the
 /// warning such an export carries - `azul_core::codegen::dom_warning`).
 #[must_use]
-pub fn languages_json() -> serde_json::Value {
+pub(super) fn languages_json() -> serde_json::Value {
     serde_json::json!({
         "languages": all_backends()
             .iter()
@@ -83,7 +83,7 @@ pub fn languages_json() -> serde_json::Value {
 
 /// Where "Compile CSS to…" takes its stylesheet from.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CssSource {
+pub(super) enum CssSource {
     /// CSS text the user typed or pasted.
     Text(String),
     /// The builder document's stylesheet: every component stylesheet it
@@ -102,7 +102,7 @@ impl CssSource {
     ///
     /// # Errors
     /// An unknown source, or one missing the field it needs.
-    pub fn from_op(
+    pub(super) fn from_op(
         source: Option<&str>,
         css: Option<&str>,
         node: Option<u64>,
@@ -133,7 +133,7 @@ impl CssSource {
 ///
 /// # Errors
 /// An unknown node / component, a text node.
-pub fn resolve_css(
+pub(super) fn resolve_css(
     source: &CssSource,
     doc: &BuilderDocument,
     map: &ComponentMap,
@@ -226,7 +226,10 @@ fn with_own_stylesheet(mut css: String, doc: &BuilderDocument) -> String {
 /// `.a.b` if the node has classes, else `#id`, else its tag.
 fn element_selector(tag: &str, classes: &[&str], ids: &[&str]) -> String {
     if !classes.is_empty() {
-        classes.iter().map(|c| format!(".{c}")).collect()
+        classes.iter().fold(String::new(), |mut acc, c| {
+            let _ = write!(acc, ".{c}");
+            acc
+        })
     } else if let Some(id) = ids.first() {
         format!("#{id}")
     } else {
@@ -280,7 +283,7 @@ fn rule_text(rule: &CssRuleBlock) -> String {
 /// `get_css_rules`: the source's CSS and its rules, in source order:
 /// `{css, rules: [{index, selector, declarations, classes}], warnings}`.
 #[must_use]
-pub fn css_rules_json(css_text: &str) -> serde_json::Value {
+pub(super) fn css_rules_json(css_text: &str) -> serde_json::Value {
     let (css, warnings) = azul_css::parser2::new_from_str(css_text);
     let rules: Vec<serde_json::Value> = css
         .rules
@@ -330,7 +333,7 @@ pub fn css_rules_json(css_text: &str) -> serde_json::Value {
 ///
 /// # Errors
 /// An unknown language; a rule index past the end.
-pub fn compile_css(
+pub(super) fn compile_css(
     css_text: &str,
     language: &str,
     rules: Option<&[usize]>,
@@ -385,11 +388,11 @@ fn parse_xml(xml: &str) -> Result<Vec<XmlNodeChild>, String> {
 }
 
 /// A component's TEMPLATE as markup for the component-aware lowering
-/// (AzBuilder's templates: `{placeholders}`, nested instances as
+/// (`AzBuilder`'s templates: `{placeholders}`, nested instances as
 /// `<library:name ..>` tags), with the component's CSS; `None` for a
 /// component without one (the lowering then exports what it renders).
 #[must_use]
-pub fn template_markup(def: &ComponentDef) -> Option<Result<ComponentMarkup, String>> {
+pub(super) fn template_markup(def: &ComponentDef) -> Option<Result<ComponentMarkup, String>> {
     let template = builder::template_of(def)?;
     Some(parse_xml(template).map(|nodes| ComponentMarkup {
         nodes,
@@ -409,7 +412,7 @@ fn components(map: &ComponentMap) -> Components<'_> {
 /// An export answer as the dialogs read it:
 /// `{language, file_name, code, files: [{path, contents}], warnings}`.
 #[must_use]
-pub fn code_json(c: &CodeExport) -> serde_json::Value {
+pub(super) fn code_json(c: &CodeExport) -> serde_json::Value {
     serde_json::json!({
         "language": c.language,
         "file_name": c.file_name,
@@ -466,7 +469,7 @@ fn builder_markup(
 ///
 /// # Errors
 /// An unknown uid or language.
-pub fn subtree_code(
+pub(super) fn subtree_code(
     doc: &BuilderDocument,
     map: &ComponentMap,
     uid: u64,
@@ -496,7 +499,7 @@ pub fn subtree_code(
 ///
 /// # Errors
 /// Unknown component or language.
-pub fn component_code(
+pub(super) fn component_code(
     map: &ComponentMap,
     library: &str,
     name: &str,
@@ -524,7 +527,7 @@ pub fn component_code(
 ///
 /// # Errors
 /// An unknown language; a document without a body.
-pub fn html_to_code(
+pub(super) fn html_to_code(
     html: &str,
     map: &ComponentMap,
     language: &str,
@@ -557,7 +560,7 @@ pub fn html_to_code(
 /// A markup parse error as the dialogs read it: `{message, line, column}`
 /// (1-based; `line` / `column` are `null` when the parser gave no position).
 #[must_use]
-pub fn parse_error_json(e: &azul_core::xml::XmlError) -> serde_json::Value {
+pub(super) fn parse_error_json(e: &azul_core::xml::XmlError) -> serde_json::Value {
     let (line, column) = xml_error_position(e).map_or((None, None), |p| (Some(p.row), Some(p.col)));
     serde_json::json!({
         "message": e.to_string(),
@@ -628,7 +631,7 @@ fn xml_error_position(e: &azul_core::xml::XmlError) -> Option<azul_core::xml::Xm
 ///
 /// # Errors
 /// The document's markup does not parse.
-pub fn document_app(doc: &BuilderDocument, map: &ComponentMap) -> Result<AppMarkup, String> {
+pub(super) fn document_app(doc: &BuilderDocument, map: &ComponentMap) -> Result<AppMarkup, String> {
     let (nodes, css) = builder_markup(doc, &doc.root, map)?;
     Ok(AppMarkup::Fragment { nodes, css })
 }
@@ -638,7 +641,7 @@ pub fn document_app(doc: &BuilderDocument, map: &ComponentMap) -> Result<AppMark
 ///
 /// # Errors
 /// The HTML does not parse.
-pub fn live_page_app(html: &str) -> Result<AppMarkup, String> {
+pub(super) fn live_page_app(html: &str) -> Result<AppMarkup, String> {
     Ok(AppMarkup::Page(parse_xml(html)?))
 }
 
@@ -649,7 +652,7 @@ pub fn live_page_app(html: &str) -> Result<AppMarkup, String> {
 ///
 /// # Errors
 /// Unknown language; a page without a body.
-pub fn project(
+pub(super) fn project(
     language: &str,
     app: AppMarkup,
     title: &str,
@@ -665,7 +668,7 @@ pub fn project(
             .get_exportable_libraries()
             .into_iter()
             .map(|l| l.name.as_str().to_string())
-            .filter(|n| library_filter.map_or(true, |f| f == n.as_str()))
+            .filter(|n| library_filter.is_none_or(|f| f == n.as_str()))
             .collect(),
     };
     project_files(language, &spec)

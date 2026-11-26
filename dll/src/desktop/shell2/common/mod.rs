@@ -17,6 +17,13 @@ pub mod cpu_compositor;
 pub mod dlopen;
 pub mod error;
 pub mod gl_loader;
+/// What happens to a phone's GL context, surface and renderer when the surface goes, the context is lost, the
+/// app goes to the background or the system wants memory back: a pure reducer both phone shells follow (the
+/// platform's executor performs its actions), tested against a fake platform that enforces the platforms' rules.
+pub mod gpu_lifecycle;
+/// Which renderer a phone window gets: `AZ_BACKEND` and `hw_accel`, what the GPU bring-up said stage by
+/// stage, the one decision, the failure plan of a test run (`AZ_GPU_FAIL`) and the one line the QA harness reads.
+pub mod gpu_select;
 
 // Unified cross-platform modules
 pub mod accessibility;

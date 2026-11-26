@@ -34,7 +34,7 @@ pub enum Doc {
     /// A method chain (`head.a(..).b(..)`): flat, or `broken` with every
     /// link on a line of its own, one level deeper than the head.
     Chain {
-        head: alloc::boxed::Box<Doc>,
+        head: Box<Doc>,
         links: Vec<Doc>,
         broken: bool,
     },
@@ -47,7 +47,7 @@ impl Doc {
     }
 
     #[must_use]
-    pub fn cat(parts: Vec<Self>) -> Self {
+    pub const fn cat(parts: Vec<Self>) -> Self {
         Self::Cat(parts)
     }
 
@@ -99,7 +99,7 @@ impl Doc {
                 }
             }
             other => Self::Chain {
-                head: alloc::boxed::Box::new(other),
+                head: Box::new(other),
                 links: alloc::vec![link],
                 broken: false,
             },
