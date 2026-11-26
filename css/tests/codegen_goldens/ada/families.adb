@@ -115,7 +115,7 @@ package body Styles is
    --  CSS: .shorthands
    function Style_Shorthands return Az_CssPropertyWithConditionsVec is
       t1 : aliased array (0 .. 1) of Az_StyleFontFamily;
-      t2 : aliased array (0 .. 25) of Az_CssPropertyWithConditions;
+      t2 : aliased array (0 .. 27) of Az_CssPropertyWithConditions;
    begin
       t1 (0) := Az_StyleFontFamily_System_K (To_Az_String ("Georgia"));
       t1 (1) := Az_StyleFontFamily_System_K (To_Az_String ("serif"));
@@ -129,23 +129,25 @@ package body Styles is
       t2 (7) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontVariantNumeric)));
       t2 (8) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontVariantLigatures)));
       t2 (9) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontVariantEastAsian)));
-      t2 (10) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontKerning)));
-      t2 (11) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontOpticalSizing)));
-      t2 (12) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontVariationSettings)));
-      t2 (13) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontFeatureSettings)));
-      t2 (14) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontSynthesisWeight)));
-      t2 (15) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontSynthesisStyle)));
-      t2 (16) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontSynthesisSmallCaps)));
-      t2 (17) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontSynthesisPosition)));
-      t2 (18) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Variant_Numeric (Az_StyleFontVariantNumeric'(Lining_Nums => 0, Oldstyle_Nums => 1, Proportional_Nums => 0, Tabular_Nums => 0, Diagonal_Fractions => 0, Stacked_Fractions => 0, Ordinal => 0, Slashed_Zero => 0)));
-      t2 (19) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Variant_Caps (Az_StyleFontVariantCapsValue'(Tag => Exact, Payload_Exact => Az_StyleFontVariantCaps'(Normal))));
-      t2 (20) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Variant_Ligatures (Az_StyleFontVariantLigaturesValue'(Tag => Exact, Payload_Exact => Az_StyleFontVariantLigatures'(Common => Az_StyleFontLigatureChoice'(Unset), Discretionary => Az_StyleFontLigatureChoice'(Unset), Historical => Az_StyleFontLigatureChoice'(Unset), Contextual => Az_StyleFontLigatureChoice'(Unset)))));
-      t2 (21) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Variant_East_Asian (Az_StyleFontVariantEastAsianValue'(Tag => Exact, Payload_Exact => Az_StyleFontVariantEastAsian'(Jis78 => 1, Jis83 => 0, Jis90 => 0, Jis04 => 0, Simplified => 0, Traditional => 0, Full_Width => 0, Proportional_Width => 0, Ruby => 0))));
-      t2 (22) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Synthesis_Weight (Az_StyleFontSynthesisValue'(Tag => Exact, Payload_Exact => Az_StyleFontSynthesis'(Auto))));
-      t2 (23) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Synthesis_Style (Az_StyleFontSynthesisValue'(Tag => Exact, Payload_Exact => Az_StyleFontSynthesis'(Auto))));
-      t2 (24) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Synthesis_Small_Caps (Az_StyleFontSynthesisValue'(Tag => Exact, Payload_Exact => Az_StyleFontSynthesis'(None))));
-      t2 (25) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Synthesis_Position (Az_StyleFontSynthesisValue'(Tag => Exact, Payload_Exact => Az_StyleFontSynthesis'(None))));
-      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t2 (0)'Address, 26);
+      t2 (10) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontVariantPosition)));
+      t2 (11) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontKerning)));
+      t2 (12) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontOpticalSizing)));
+      t2 (13) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontVariationSettings)));
+      t2 (14) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontFeatureSettings)));
+      t2 (15) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontSynthesisWeight)));
+      t2 (16) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontSynthesisStyle)));
+      t2 (17) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontSynthesisSmallCaps)));
+      t2 (18) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Initial (Az_CssPropertyType'(FontSynthesisPosition)));
+      t2 (19) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Variant_Numeric (Az_StyleFontVariantNumeric'(Lining_Nums => 0, Oldstyle_Nums => 1, Proportional_Nums => 0, Tabular_Nums => 0, Diagonal_Fractions => 0, Stacked_Fractions => 0, Ordinal => 0, Slashed_Zero => 0)));
+      t2 (20) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Variant_Caps (Az_StyleFontVariantCapsValue'(Tag => Exact, Payload_Exact => Az_StyleFontVariantCaps'(Normal))));
+      t2 (21) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Variant_Ligatures (Az_StyleFontVariantLigaturesValue'(Tag => Exact, Payload_Exact => Az_StyleFontVariantLigatures'(Common => Az_StyleFontLigatureChoice'(Unset), Discretionary => Az_StyleFontLigatureChoice'(Unset), Historical => Az_StyleFontLigatureChoice'(Unset), Contextual => Az_StyleFontLigatureChoice'(Unset)))));
+      t2 (22) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Variant_East_Asian (Az_StyleFontVariantEastAsianValue'(Tag => Exact, Payload_Exact => Az_StyleFontVariantEastAsian'(Jis78 => 1, Jis83 => 0, Jis90 => 0, Jis04 => 0, Simplified => 0, Traditional => 0, Full_Width => 0, Proportional_Width => 0, Ruby => 0))));
+      t2 (23) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Variant_Position (Az_StyleFontVariantPositionValue'(Tag => Exact, Payload_Exact => Az_StyleFontVariantPosition'(Normal))));
+      t2 (24) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Synthesis_Weight (Az_StyleFontSynthesisValue'(Tag => Exact, Payload_Exact => Az_StyleFontSynthesis'(Auto))));
+      t2 (25) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Synthesis_Style (Az_StyleFontSynthesisValue'(Tag => Exact, Payload_Exact => Az_StyleFontSynthesis'(Auto))));
+      t2 (26) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Synthesis_Small_Caps (Az_StyleFontSynthesisValue'(Tag => Exact, Payload_Exact => Az_StyleFontSynthesis'(None))));
+      t2 (27) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Synthesis_Position (Az_StyleFontSynthesisValue'(Tag => Exact, Payload_Exact => Az_StyleFontSynthesis'(None))));
+      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t2 (0)'Address, 28);
    end Style_Shorthands;
 
    --  CSS: .box
