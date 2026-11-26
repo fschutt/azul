@@ -100,6 +100,8 @@ mobile_lib = "mobile"
 needs = ["a network connection for the map tiles"]
 [app.android]
 permissions = ["android.permission.ACCESS_FINE_LOCATION"]
+[app.ios.usage]
+NSLocationWhenInUseUsageDescription = "AzMaps shows where you are on the map while the app is open."
 
 [[app]]
 package = "AzPaint"
@@ -121,6 +123,11 @@ mobile_lib = "mobile"
 needs = ["a meeting server (the `meet` worker) to start or join a meeting"]
 [app.android]
 permissions = ["android.permission.CAMERA", "android.permission.RECORD_AUDIO"]
+[app.ios.usage]
+# iOS refuses the camera and the microphone without the text that says why (the engine refuses to start them and names the key):
+# these texts are the ones of the Android permissions above, in the words of the prompt. build-ios.sh writes them (AZ_IOS_USAGE).
+NSCameraUsageDescription = "AzMeet shows your camera to the other people in the meeting."
+NSMicrophoneUsageDescription = "AzMeet sends your voice to the other people in the meeting."
 
 [[app]]
 package = "AzWriter"

@@ -75,6 +75,20 @@ pub trait CodecFactory {
     /// # Errors
     /// Why none opens here, in words.
     fn audio(&self, sample_rate: u32, channels: u16, kbps: u32) -> Result<Box<dyn AudioCodec>, String>;
+
+    /// Gets what a first video encoder needs ready, on a thread of its own, and does not wait for it. The first
+    /// session of a hardware encoder in a process takes a few hundred milliseconds (the framework, the encoder's
+    /// drivers, the engine's own probe); opened at the first picture of the camera it held the window's thread for
+    /// that long. Called once, when a recording that takes pictures starts, which is a second or more before the
+    /// first picture comes. Nothing to do by default.
+    fn warm_up(&self) {}
+}
+
+/// Runs `work` on a thread of its own, named `name`, and does not wait for it: the caller is back at once. A thread that
+/// cannot be made leaves the work undone (the kind of work this is for only makes something later faster, such as
+/// [`CodecFactory::warm_up`]).
+pub fn in_background(name: &str, work: impl FnOnce() + Send + 'static) {
+    let _ = std::thread::Builder::new().name(name.to_string()).spawn(work);
 }
 
 // ---------------------------------------------------------------------------
