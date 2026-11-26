@@ -20,8 +20,11 @@ import sys
 
 try:
     import tomllib
-except ImportError:  # pragma: no cover
-    sys.exit("demo_apps.py needs Python 3.11 or later (tomllib)")
+except ImportError:  # pragma: no cover  (Python 3.10: a runner's default; the backport has the same API)
+    try:
+        import tomli as tomllib
+    except ImportError:
+        sys.exit("demo_apps.py needs Python 3.11 or later (tomllib), or the tomli package (python3 -m pip install --user tomli)")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "scripts" / "demo_apps.toml"
