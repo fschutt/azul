@@ -1770,3 +1770,7 @@ mod focus_return_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "transient_dock_test.rs"]
+mod transient_dock_test;
