@@ -3,11 +3,12 @@
 # links after the ABI guard of the generated binding stopped naming az_abi_check_slow on Apple targets (doc/src/codegen/v2/abi_guard.rs).
 #   bash scripts/ci/exp_apple_link.sh sim      the iOS Simulator leg: the plain phone lib and the iroh lib for aarch64-apple-ios-sim, the six
 #                                              apps, `xcrun dyld_info -inits` of two of them, and the boot test of each (information)
-#   bash scripts/ci/exp_apple_link.sh device   the iOS device lib and AzWidgets for aarch64-apple-ios (unsigned), and the macOS desktop
-#                                              lib (dist) and AzWidgets for macOS arm64: the link lines of both, `dyld_info -inits`
-# Everything lands in demo-out/ (apps, results, dyld-inits-*.txt, link-*.txt).
+#   bash scripts/ci/exp_apple_link.sh evidence   the formal link evidence, ONE run: AzWidgets linked for aarch64-apple-ios-sim, for
+#                                              aarch64-apple-ios (unsigned device bundle) and for macOS arm64 (the shipped desktop lib, dist),
+#                                              each with `xcrun dyld_info -inits` and the init sections of its binary
+# Everything lands in demo-out/ (apps, results, dyld-inits-*.txt, otool-inits-*.txt, link-*.txt).
 set -euxo pipefail
-mode="${1:?sim | device}"
+mode="${1:?evidence | sim}"
 mkdir -p demo-out/libs demo-out/apps demo-out/results
 python3 scripts/demo_apps.py plan | tee demo-out/plan.txt
 
@@ -57,7 +58,16 @@ case "$mode" in
     bash scripts/ci/ios_smoke.sh demo-out/smoke 12 demo-out/apps/*-ios-sim.app.zip || echo "SMOKE FAILED"
     for f in demo-out/smoke/*/result.json; do python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print(r["app"], "PASS" if r["pass"] else "FAIL", "-", r["reason"])' "$f"; done
     ;;
-  device)
+  evidence)
+    # (1) the iOS Simulator: the plain phone lib and AzWidgets linked against it
+    target=aarch64-apple-ios-sim; col=ios-sim
+    rustup target add "$target"
+    start=$(date +%s)
+    bash scripts/demo_lib.sh ios "$target" "$(lib_features "$col" mobile)" "demo-out/libs/demolib-$col-mobile"
+    echo "LIB ios-sim SECONDS: $(( $(date +%s) - start ))"
+    python3 scripts/demo_build.py ios --target "$target" --apps AzWidgets --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant "" | tee demo-out/link-ios-sim.txt
+    [ -f "target/ios-bundle/$target/AzWidgets.app/AzWidgets" ] && inits ios-sim-AzWidgets "target/ios-bundle/$target/AzWidgets.app/AzWidgets"
+    # (2) the iOS device: unsigned
     target=aarch64-apple-ios; col=ios-device
     rustup target add "$target"
     start=$(date +%s)
