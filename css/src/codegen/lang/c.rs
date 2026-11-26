@@ -237,10 +237,10 @@ pub(crate) fn c_params(item: &Item, ty: &dyn Fn(&str) -> String) -> (String, Str
             .collect::<Vec<_>>()
             .join(", ")
     };
-    let unused: String = unused_params(item)
-        .iter()
-        .map(|p| format!("    (void){};\n", c_param(&p.name)))
-        .collect();
+    let unused: String = unused_params(item).iter().fold(String::new(), |mut acc, p| {
+        let _ = writeln!(acc, "    (void){};", c_param(&p.name));
+        acc
+    });
     (sig, unused)
 }
 

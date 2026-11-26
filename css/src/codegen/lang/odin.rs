@@ -265,10 +265,10 @@ fn odin_params(item: &Item) -> (String, String) {
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let unused = unused_params(item)
-        .iter()
-        .map(|p| format!("\t_ = {}\n", odin_param(&p.name)))
-        .collect();
+    let unused = unused_params(item).iter().fold(String::new(), |mut acc, p| {
+        let _ = writeln!(acc, "\t_ = {}", odin_param(&p.name));
+        acc
+    });
     (sig, unused)
 }
 

@@ -192,10 +192,10 @@ fn item_fn(item: &Item) -> String {
         .map(|p| format!("{}: {}", param_ident(&p.name), param_type(&p.ty)))
         .collect::<Vec<_>>()
         .join(", ");
-    let unused: String = unused_params(item)
-        .iter()
-        .map(|p| format!("    let _ = {};\n", param_ident(&p.name)))
-        .collect();
+    let unused: String = unused_params(item).iter().fold(String::new(), |mut acc, p| {
+        let _ = writeln!(acc, "    let _ = {};", param_ident(&p.name));
+        acc
+    });
     let _ = write!(
         out,
         "pub fn {}({params}) -> {} {{\n{unused}    {body}\n}}\n",
@@ -306,19 +306,16 @@ fn rust_registration(m: &Module, lib: &LibrarySpec) -> String {
         let fields = if item.params.is_empty() {
             "ComponentDataFieldVec::create()".to_string()
         } else {
-            let items: String = item
-                .params
-                .iter()
-                .enumerate()
-                .map(|(i, p)| {
-                    format!(
-                        "                string_field({:?}, {:?}, {:?}),\n",
-                        p.name.snake(),
-                        p.default_text(),
-                        c.field_descriptions.get(i).map_or("", String::as_str)
-                    )
-                })
-                .collect();
+            let items: String = item.params.iter().enumerate().fold(String::new(), |mut acc, (i, p)| {
+                let _ = writeln!(
+                    acc,
+                    "                string_field({:?}, {:?}, {:?}),",
+                    p.name.snake(),
+                    p.default_text(),
+                    c.field_descriptions.get(i).map_or("", String::as_str)
+                );
+                acc
+            });
             format!("vec![\n{items}            ]\n            .into()")
         };
         let _ = write!(

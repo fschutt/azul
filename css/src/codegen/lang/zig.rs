@@ -322,10 +322,10 @@ fn dom_item_fn(item: &Item) -> String {
         .map(|p| format!("{}: []const u8", zig_param(&p.name)))
         .collect::<Vec<_>>()
         .join(", ");
-    let unused: String = unused_params(item)
-        .iter()
-        .map(|p| format!("    _ = {};\n", zig_param(&p.name)))
-        .collect();
+    let unused: String = unused_params(item).iter().fold(String::new(), |mut acc, p| {
+        let _ = writeln!(acc, "    _ = {};", zig_param(&p.name));
+        acc
+    });
     match item_doc(&Zig, item) {
         Ok(doc) => { let _ = write!(
             out,

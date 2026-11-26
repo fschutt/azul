@@ -230,10 +230,10 @@ fn item_fn(item: &Item) -> String {
         .map(|p| format!("{} {}", cpp_param_type(&p.ty), cpp_param(&p.name)))
         .collect::<Vec<_>>()
         .join(", ");
-    let unused: String = super::dom::unused_params(item)
-        .iter()
-        .map(|p| format!("    (void){};\n", cpp_param(&p.name)))
-        .collect();
+    let unused: String = super::dom::unused_params(item).iter().fold(String::new(), |mut acc, p| {
+        let _ = writeln!(acc, "    (void){};", cpp_param(&p.name));
+        acc
+    });
     let _ = write!(
         out,
         "inline Az{} {}({sig}) {{\n{unused}    return {body};\n}}\n",

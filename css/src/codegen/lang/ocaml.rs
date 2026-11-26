@@ -397,18 +397,17 @@ fn dom_item_fn(item: &Item) -> String {
     match item_doc(&syntax, item) {
         Ok(doc) => {
             // dune's dev profile makes an unused variable an error.
-            let unused: String = unused_params(item)
-                .iter()
-                .map(|p| format!("  let _ = {} in\n", ml_param(&p.name)))
-                .collect();
+            let unused: String = unused_params(item).iter().fold(String::new(), |mut acc, p| {
+                let _ = writeln!(acc, "  let _ = {} in", ml_param(&p.name));
+                acc
+            });
             let _ = write!(out, "{head}\n{unused}  {}\n", render(&doc, "  ", 1));
         }
         Err(reason) => {
-            let unused: String = item
-                .params
-                .iter()
-                .map(|p| format!("  let _ = {} in\n", ml_param(&p.name)))
-                .collect();
+            let unused: String = item.params.iter().fold(String::new(), |mut acc, p| {
+                let _ = writeln!(acc, "  let _ = {} in", ml_param(&p.name));
+                acc
+            });
             let _ = write!(
                 out,
                 "(* not expressible with the OCaml bindings: {} *)\n{head}\n{unused}  failwith {}\n",

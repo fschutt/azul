@@ -144,7 +144,10 @@ fn cobol_literal(s: &str) -> String {
         out.push('"');
         out
     } else {
-        let hex: String = s.bytes().map(|b| format!("{b:02X}")).collect();
+        let hex = s.bytes().fold(String::new(), |mut acc, b| {
+            let _ = write!(acc, "{b:02X}");
+            acc
+        });
         format!("X\"{hex}\"")
     }
 }

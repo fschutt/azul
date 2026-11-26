@@ -226,7 +226,10 @@ fn with_own_stylesheet(mut css: String, doc: &BuilderDocument) -> String {
 /// `.a.b` if the node has classes, else `#id`, else its tag.
 fn element_selector(tag: &str, classes: &[&str], ids: &[&str]) -> String {
     if !classes.is_empty() {
-        classes.iter().map(|c| format!(".{c}")).collect()
+        classes.iter().fold(String::new(), |mut acc, c| {
+            let _ = write!(acc, ".{c}");
+            acc
+        })
     } else if let Some(id) = ids.first() {
         format!("#{id}")
     } else {
