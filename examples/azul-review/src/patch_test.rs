@@ -243,3 +243,81 @@ fn only_what_the_app_names_a_patch_is_a_patch_name() {
     }
     assert!(!is_name(&format!("{}.patch", "a".repeat(80))), "too long");
 }
+
+// ---- the header read back (the whiteboard's snapshots read their WHY from it) ----
+
+#[test]
+fn a_header_is_read_back_as_it_was_written() {
+    let left_out = ["line 9: the words \"x\" are not what the file says there any more".to_string()];
+    let header = Header {
+        conversation: 7,
+        outcome: Outcome::Accepted,
+        base: Some("3833f10608241be94251152cd9c4da3de1b6a283"),
+        time_unix_ms: 1_764_135_612_000,
+        said: "rename step three / and check the test",
+        understood: Some("rename step_3 / and check the test"),
+        rationale: "One line goes in. / Done.",
+        left_out: &left_out,
+    };
+    let diff = "--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-a\n+b\n".to_string();
+    let text = render(&header, &[("src/lib.rs".to_string(), diff.clone()), ("src/main.rs".to_string(), diff)]);
+    let read = read_header(&text).expect("a header");
+    assert_eq!(read.conversation, 7);
+    assert_eq!(read.outcome, Some(Outcome::Accepted));
+    assert_eq!(read.base.as_deref(), Some("3833f10608241be94251152cd9c4da3de1b6a283"));
+    assert_eq!(read.time, "2025-11-26T05:40:12Z");
+    assert_eq!(read.said, "rename step three / and check the test");
+    assert_eq!(read.understood.as_deref(), Some("rename step_3 / and check the test"));
+    assert_eq!(read.rationale, "One line goes in. / Done.");
+    assert_eq!(read.files, vec!["src/lib.rs".to_string(), "src/main.rs".to_string()]);
+    assert_eq!(read.left_out, left_out.to_vec());
+}
+
+#[test]
+fn a_header_alone_is_read_with_no_base_no_files_and_no_understanding() {
+    for outcome in [Outcome::Rejected, Outcome::Answered, Outcome::Closed] {
+        let header = Header { conversation: 3, outcome, base: None, time_unix_ms: 0, said: "why is this here", understood: None, rationale: "", left_out: &[] };
+        let read = read_header(&render(&header, &[])).expect("a header");
+        assert_eq!((read.conversation, read.outcome), (3, Some(outcome)));
+        assert_eq!(read.base, None);
+        assert_eq!(read.understood, None);
+        assert!(read.files.is_empty() && read.left_out.is_empty());
+        assert_eq!(read.time, "1970-01-01T00:00:00Z");
+    }
+}
+
+#[test]
+fn what_is_not_a_header_of_ours_is_read_as_nothing_and_what_a_later_version_adds_is_ignored() {
+    assert_eq!(read_header(""), None);
+    assert_eq!(read_header("diff --git a/x b/x\n"), None, "a plain patch");
+    assert_eq!(read_header("AzReview-Patch: 2\nConversation: 1\n\n"), None, "a format this build does not know");
+    assert_eq!(read_header("AzReview-Patch: 1\nOutcome: accepted\n\n"), None, "no conversation");
+    assert_eq!(read_header("AzReview-Patch: 1\nConversation: seven\n\n"), None, "a conversation that is no number");
+    let later = "AzReview-Patch: 1\nConversation: 4\nOutcome: postponed\nMood: fine\nSaid: hi\n\ndiff --git a/x b/x\nConversation: 9\n";
+    let read = read_header(later).expect("a header");
+    assert_eq!(read.conversation, 4, "the diff after the empty line is not read");
+    assert_eq!(read.outcome, None, "an outcome this build does not know is none, not a refusal of the file");
+    assert_eq!(read.said, "hi");
+    // a header read from a file with Windows line ends
+    assert_eq!(read_header("AzReview-Patch: 1\r\nConversation: 5\r\n\r\n").map(|h| h.conversation), Some(5));
+}
+
+#[test]
+fn a_file_that_goes_on_and_on_is_read_no_further_than_a_header_can_be() {
+    let mut text = String::from("AzReview-Patch: 1\nConversation: 2\n");
+    for i in 0..10_000 {
+        text.push_str(&format!("Left-out: {i}\n"));
+    }
+    let read = read_header(&text).expect("a header");
+    assert_eq!(read.left_out.len(), MAX_HEADER_LINES - 1, "at most the lines of a header");
+}
+
+#[test]
+fn the_outcome_words_are_the_ones_the_header_writes() {
+    for outcome in [Outcome::Accepted, Outcome::Rejected, Outcome::Answered, Outcome::Closed] {
+        assert_eq!(Outcome::parse(outcome.name()), Some(outcome));
+    }
+    assert_eq!(Outcome::parse(" accepted "), Some(Outcome::Accepted));
+    assert_eq!(Outcome::parse("Accepted"), None);
+    assert_eq!(Outcome::parse(""), None);
+}

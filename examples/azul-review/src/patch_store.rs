@@ -163,6 +163,7 @@ pub(crate) fn record_due(data: &RefAny, info: &mut CallbackInfo) {
         let now = crate::agent_window::unix_now_ms();
         let mut jobs = Vec::new();
         for note in s.notes.iter_mut().filter(|n| n.talk.due()) {
+            // the base is the workspace's git head: `None` until the git-head reader (`.git` files, no process) is on master
             let patch = made(note, &file, bytes.as_deref().map_err(String::as_str), None, now);
             if let Some(gone) = superseded(note.talk.patch.as_deref(), &patch.name) {
                 jobs.push(FileJob::Delete { key: key_of(&root, &gone) });

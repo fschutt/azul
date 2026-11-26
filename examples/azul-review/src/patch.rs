@@ -1,12 +1,44 @@
 //! A resolved conversation as one patch file.
 //!
 //! What the reviewer took of an agent's suggestions is a diff kept in memory and in the session archive, and the files are
-//! never written. Once a conversation is resolved with something taken, that diff is also written as ONE `.patch` file: a
-//! unified diff against the lines of the file, under a small header that says which conversation it is, over which revision
-//! of the workspace (the git hash, when there is one), when, what the reviewer said, what the agent made of it and which
-//! files it touches. The sequence of these patches over a base hash is the review's own sequence of revisions, and what the
-//! board's snapshots and the HTML export read. A conversation that took nothing is a header alone (how it ended, what was
-//! said, what the agent made of it), so that every resolved conversation is one file and the files are the whole record.
+//! never written. Once a conversation is resolved it is also written as ONE `.patch` file: a small header that says which
+//! conversation it is, how it ended, over which revision of the workspace (the git hash, when there is one), when, what the
+//! reviewer said, what the agent made of it and which files it touches, and then, where something was taken, a unified diff
+//! against the lines of the file. A conversation that took nothing is the header alone, so that every resolved conversation is
+//! one file and the files are the whole record: the sequence of these patches over a base hash is the review's own sequence
+//! of revisions, and what the whiteboard's snapshots (their WHY) and the HTML export read.
+//!
+//! # The file
+//!
+//! `review/patches-<16 hex digits of the workspace folder>/<YYYYMMDD>-<HHMMSS>-c<conversation>.patch` in the data root (the
+//! time is UTC, [`file_name`]). One conversation has one file: resolved again (opened again, decided again), it writes a new
+//! file and the old one is removed. To find the file of conversation 7 list the folder for names ending `-c7.patch`.
+//!
+//! # The header
+//!
+//! Lines of `Key: value`, one line each (a value's line breaks are spaces, a value is at most 500 characters), ending at the
+//! first empty line. The first line is the format, `AzReview-Patch: 1`; a reader that does not know the number reads nothing,
+//! and a reader ignores keys it does not know. In this order:
+//!
+//! ```text
+//! AzReview-Patch: 1
+//! Conversation: 7                      the conversation's number in the review (a whole number)
+//! Outcome: accepted                    accepted | rejected | answered | closed
+//! Base: 3833f10608241be94251152c...    the workspace's git revision, or "none" (no repository, or not read yet)
+//! Time: 2025-11-26T05:40:12Z           when it was resolved, ISO 8601 UTC
+//! Said: rename step three to ...       what the reviewer said, as it was heard (the dictation, then each follow-up after " / ")
+//! Understood: rename step_3 to ...     what the words came to against the workspace's names (only where they were read as names)
+//! Rationale: One line goes in.         what the agent said, answer after answer (separated by " / ")
+//! Files: src/lib.rs, src/main.rs       the files the diff is about, or "none"
+//! Left-out: line 3: the words "9" ...  zero or more: a suggestion that was taken and could not be put in the diff, and why
+//! ```
+//!
+//! `Outcome` is how the conversation ended: `accepted` (the reviewer took at least one suggestion: a diff follows), `rejected`
+//! (suggestions were made and none was taken), `answered` (the agent answered in words and suggested nothing), `closed` (the
+//! reviewer closed it with nothing said back). The empty line is followed by the diff (`diff --git a/<path> b/<path>`, `---`,
+//! `+++`, hunks with three lines of context), which `patch -p1` and `git apply` take; a header alone is no patch to them.
+//!
+//! [`read_header`] reads a header back (the whiteboard's snapshots call it for their WHY).
 //!
 //! This file is pure: lines in, text out. It reads no file and runs no program.
 
@@ -48,7 +80,13 @@ pub enum Outcome {
 }
 
 impl Outcome {
-    /// The word the index keeps.
+    /// The outcome a word stands for (the header's `Outcome`).
+    #[must_use]
+    pub fn parse(word: &str) -> Option<Self> {
+        [Self::Accepted, Self::Rejected, Self::Answered, Self::Closed].into_iter().find(|o| o.name() == word.trim())
+    }
+
+    /// The word the header keeps.
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
@@ -357,6 +395,63 @@ pub fn render(header: &Header<'_>, files: &[(String, String)]) -> String {
         out.push_str(&format!("diff --git a/{path} b/{path}\n{diff}"));
     }
     out
+}
+
+/// What a patch's header says, read back.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ReadHeader {
+    pub conversation: u64,
+    /// None for a word this version does not know.
+    pub outcome: Option<Outcome>,
+    /// The git revision; none for `none`.
+    pub base: Option<String>,
+    /// When it was resolved, as written: ISO 8601 UTC.
+    pub time: String,
+    pub said: String,
+    pub understood: Option<String>,
+    pub rationale: String,
+    /// The files of the diff (none for a header alone).
+    pub files: Vec<String>,
+    pub left_out: Vec<String>,
+}
+
+/// The most lines of a header a reader looks at: a header is a dozen lines, a file that goes on is not one.
+pub const MAX_HEADER_LINES: usize = 64;
+
+/// The header of the text of a patch file, or `None` where the text is not one of ours (the first line is not
+/// `AzReview-Patch: 1`) or says no conversation. A key it does not know is left out; the diff after the empty line is not
+/// read.
+#[must_use]
+pub fn read_header(text: &str) -> Option<ReadHeader> {
+    let mut lines = text.lines().map(|l| l.trim_end_matches('\r'));
+    if lines.next()?.trim() != "AzReview-Patch: 1" {
+        return None;
+    }
+    let mut out = ReadHeader::default();
+    let mut conversation = None;
+    for line in lines.take(MAX_HEADER_LINES) {
+        if line.trim().is_empty() {
+            break;
+        }
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        match key.trim() {
+            "Conversation" => conversation = value.parse::<u64>().ok(),
+            "Outcome" => out.outcome = Outcome::parse(value),
+            "Base" => out.base = (value != "none" && !value.is_empty()).then(|| value.to_string()),
+            "Time" => out.time = value.to_string(),
+            "Said" => out.said = value.to_string(),
+            "Understood" => out.understood = (!value.is_empty()).then(|| value.to_string()),
+            "Rationale" => out.rationale = value.to_string(),
+            "Files" => out.files = if value == "none" { Vec::new() } else { value.split(", ").map(str::to_string).filter(|f| !f.is_empty()).collect() },
+            "Left-out" => out.left_out.push(value.to_string()),
+            _ => {}
+        }
+    }
+    out.conversation = conversation?;
+    Some(out)
 }
 
 /// A Unix time in milliseconds as `(year, month, day, hour, minute, second)`, UTC (the civil calendar from a count of days,
