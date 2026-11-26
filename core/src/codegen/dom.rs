@@ -324,7 +324,7 @@ impl<'a> Components<'a> {
     }
 }
 
-fn no_template(_: &ComponentDef) -> Option<Result<ComponentMarkup, String>> {
+const fn no_template(_: &ComponentDef) -> Option<Result<ComponentMarkup, String>> {
     None
 }
 
