@@ -641,6 +641,18 @@ fn a_second_tap_on_the_demo_key_changes_nothing_and_leaving_brings_the_real_conn
     assert_eq!(root.view().session, Session::Unpaired, "the real connection, as it was");
 }
 
+// ---- the window's setup is done once
+
+#[test]
+fn the_windows_setup_is_asked_for_by_two_callbacks_and_done_once_in_either_order() {
+    let (mut root, _calls) = root_with(PhoneView::new());
+    assert!(!root.window_ready);
+    assert!(root.first_window_ready(), "the first to say the window is ready does the setup");
+    assert!(root.window_ready);
+    assert!(!root.first_window_ready(), "the second finds it done");
+    assert!(!root.first_window_ready(), "and so does every later mount of the screens");
+}
+
 // ---- the real connection comes when the window exists
 
 #[test]

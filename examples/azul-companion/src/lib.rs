@@ -48,7 +48,7 @@ const HELP: &str = "companion_sim: the AzReview phone companion in a window\n\
 /// keeps, and the client over azul's iroh endpoint: [`net`]). "Try it without a Mac" shows the rest of the screens. Runs until the app
 /// is closed.
 pub fn start() {
-    // the screens start on a stand-in; the real connection is made when the window exists (glue::on_window_created): an Android app has
+    // the screens start on a stand-in; the real connection is made when the window exists (glue::on_window_ready): an Android app has
     // no activity yet when this runs from the library's constructor
     let mut root = Root::new(Box::new(offline::OfflinePhone::new()), EnvSource::Window);
     root.connect_later = true;
