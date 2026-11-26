@@ -18,7 +18,10 @@
 //! - **Hearing.** [`BoardObserver`] hears every change as a [`BoardEvent`] (a recorder plugs in
 //!   there; the default hears nothing).
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::Arc,
+};
 
 use crate::whiteboard_geom::{ray_exit, side_mid, Curve, Pt, Rect, Side, Size, View, MAX_BEND};
 
@@ -1228,35 +1231,65 @@ impl Board {
     #[must_use]
     pub fn place_arrow(&self, id: ItemId) -> Option<Placed> {
         let arrow = self.arrow(id)?;
-        let aim_from = self.aim(&arrow.from)?;
-        let aim_to = self.aim(&arrow.to)?;
-        let from = self.end_point(&arrow.from, aim_to)?;
-        let to = self.end_point(&arrow.to, aim_from)?;
-        Some(Placed { from, to, curve: Curve::bent(from, to, arrow.bend) })
+        place(arrow, &|cutout| self.cutout(cutout).map(|c| c.rect))
     }
 
-    /// What the other end of an arrow aims at: the loose point, the fastening, or the middle.
-    fn aim(&self, end: &End) -> Option<Pt> {
-        match end {
-            End::Free(p) => Some(*p),
-            End::Item { id, anchor } => {
-                let r = self.cutout(*id)?.rect;
-                Some(match anchor {
-                    Anchor::Auto => r.center(),
-                    Anchor::Side(s) => side_mid(&r, *s),
-                    Anchor::Point { u, v } => Pt::new(r.x + r.w * u, r.y + r.h * v),
-                })
-            }
+    /// Every arrow where it is drawn now, in the order of the board (an arrow whose ends are gone is left out): what
+    /// [`Self::place_arrow`] says for each, with the cutouts looked up once for all of them - a frame of a board of
+    /// hundreds asks for every arrow, and a search of the items for each end of each would be most of the frame.
+    #[must_use]
+    pub fn placed_arrows(&self) -> Vec<(ItemId, Placed)> {
+        let rects: HashMap<ItemId, Rect> = self
+            .data
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Cutout(c) => Some((c.id, c.rect)),
+                Item::Arrow(_) => None,
+            })
+            .collect();
+        let rect_of = |id: ItemId| rects.get(&id).copied();
+        self.data
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Arrow(a) => place(a, &rect_of).map(|p| (a.id, p)),
+                Item::Cutout(_) => None,
+            })
+            .collect()
+    }
+}
+
+/// Where `arrow` is drawn, the cutouts' places given by `rect_of`.
+fn place(arrow: &Arrow, rect_of: &dyn Fn(ItemId) -> Option<Rect>) -> Option<Placed> {
+    let aim_from = aim(rect_of, &arrow.from)?;
+    let aim_to = aim(rect_of, &arrow.to)?;
+    let from = end_point(rect_of, &arrow.from, aim_to)?;
+    let to = end_point(rect_of, &arrow.to, aim_from)?;
+    Some(Placed { from, to, curve: Curve::bent(from, to, arrow.bend) })
+}
+
+/// What the other end of an arrow aims at: the loose point, the fastening, or the middle.
+fn aim(rect_of: &dyn Fn(ItemId) -> Option<Rect>, end: &End) -> Option<Pt> {
+    match end {
+        End::Free(p) => Some(*p),
+        End::Item { id, anchor } => {
+            let r = rect_of(*id)?;
+            Some(match anchor {
+                Anchor::Auto => r.center(),
+                Anchor::Side(s) => side_mid(&r, *s),
+                Anchor::Point { u, v } => Pt::new(r.x + r.w * u, r.y + r.h * v),
+            })
         }
     }
+}
 
-    /// Where `end` is drawn when the other end is at `toward`.
-    fn end_point(&self, end: &End, toward: Pt) -> Option<Pt> {
-        match end {
-            End::Free(p) => Some(*p),
-            End::Item { id, anchor: Anchor::Auto } => Some(ray_exit(&self.cutout(*id)?.rect, toward)),
-            End::Item { .. } => self.aim(end),
-        }
+/// Where `end` is drawn when the other end is at `toward`.
+fn end_point(rect_of: &dyn Fn(ItemId) -> Option<Rect>, end: &End, toward: Pt) -> Option<Pt> {
+    match end {
+        End::Free(p) => Some(*p),
+        End::Item { id, anchor: Anchor::Auto } => Some(ray_exit(&rect_of(*id)?, toward)),
+        End::Item { .. } => aim(rect_of, end),
     }
 }
 

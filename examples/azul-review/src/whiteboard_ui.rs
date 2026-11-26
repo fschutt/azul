@@ -237,12 +237,13 @@ fn cutout_dom(panel: &mut Panel, c: &Cutout, selected: bool) -> Dom {
         }
     }
     let mut group = Dom::create_div().with_child(node);
-    // The label is shown under the cutout; while it is typed, its text area ([`editor_dom`]) is, over the surface.
+    // The label is shown under the cutout; while it is typed, its text area ([`editor_dom`]) is, over the surface. The
+    // board's ground is a fixed light colour, so the ink on it is fixed too: the system's text colour is white in dark mode.
     if panel.editing != Some(c.id) && !c.label.is_empty() {
         group.add_child(
             Dom::create_span_with_text(c.label.as_str()).with_css(
                 format!(
-                    "position: absolute; left: {}; top: {}; width: {}; font-size: 11px; color: system:text; text-align: center;",
+                    "position: absolute; left: {}; top: {}; width: {}; font-size: 11px; color: #1f1f1f; text-align: center;",
                     css_px(o.x),
                     css_px(o.y + h + 3.0),
                     css_px(w)
@@ -328,7 +329,7 @@ fn arrow_label_dom(panel: &Panel, a: &Arrow) -> Option<Dom> {
             .with_child(
                 Dom::create_span_with_text(a.label.as_str()).with_css(
                     "padding: 1px 7px; background: #f4f1ea; border: 1px solid #b9b4ab; border-radius: 8px; font-size: 11px; \
-                     color: system:text; white-space: pre;",
+                     color: #1f1f1f; white-space: pre;",
                 ),
             ),
     )
@@ -538,12 +539,11 @@ fn paint_surface(panel: &Panel, w: u32, h: u32, k: f32) -> RawImage {
     // What the surface shows, in logical px: an arrow wholly off it paints nothing (its control points hold the
     // curve), so a board of hundreds only pays for the arrows in view.
     let on_surface = crate::whiteboard_geom::Rect::new(0.0, 0.0, w as f32 / k.max(0.01), h as f32 / k.max(0.01));
-    for a in board.arrows() {
-        if preview.is_some_and(|p| p.replaces == Some(a.id)) {
+    for (id, placed) in board.placed_arrows() {
+        if preview.is_some_and(|p| p.replaces == Some(id)) {
             continue;
         }
-        let Some(placed) = board.place_arrow(a.id) else { continue };
-        let selected = input.selection() == Some(a.id);
+        let selected = input.selection() == Some(id);
         let curve = screen_curve(&placed.curve);
         // (A straight arrow along a row or a column has a box of no height or width: the reach gives it some.)
         if !crate::whiteboard_geom::Rect::from_points(&[curve.a, curve.c, curve.b])
