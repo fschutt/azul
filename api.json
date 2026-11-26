@@ -199248,7 +199248,8 @@
                                 "Flatpak": {},
                                 "WindowsStore": {},
                                 "UserWritable": {},
-                                "ReadOnly": {}
+                                "ReadOnly": {},
+                                "AppStore": {}
                             }
                         ],
                         "functions": {
