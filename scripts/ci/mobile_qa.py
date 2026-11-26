@@ -923,6 +923,38 @@ def android_scenarios(args):
     if args.series:
         run.step("03d-cold-start-series", "N cold starts from the launcher: the app against the floor (an empty Java Activity)", s_series, needs_app=True)
 
+    def s_tap_label(s):
+        """Press the button the accessibility tree names `--tap-label`: a tap, then a long press, then a tap 40 px higher, each
+        followed by 3 s and a picture; the step passes when ANY of them changes the screen, and says which did. (AzCompanion's
+        'Try it without a Mac' changed nothing on a tap: is it the touch path or the button?)"""
+        mark = dev.now_mark()
+        before = dev.look(s, "before-label-tap")
+        found = dev.find_label(args.tap_label)
+        s.check(f"the accessibility tree names {args.tap_label!r} with a position", bool(found), str(found))
+        if not found:
+            return
+        x, y = found
+        run.meta["tap_label_at"] = f"{args.tap_label!r} ({x}, {y})"
+        s.note(f"{args.tap_label!r} is at ({x}, {y}) in the accessibility tree")
+        outcomes = []
+        for how, action in (("tap", lambda: dev.tap(x, y)),
+                            ("long press 800 ms", lambda: dev.swipe(x, y, x, y, 800)),
+                            ("tap 40 px higher", lambda: dev.tap(x, y - 40))):
+            action()
+            dev.settle(3.0)
+            sig = dev.look(s, "after-" + how.split(" ")[0] + ("-" + how.split(" ")[1] if how.startswith("tap 40") else ""))
+            d = sig_diff(sig, before)
+            outcomes.append((how, d))
+            if d > SAME_BELOW:
+                break
+        s.check("pressing the button changes the screen", any(d > SAME_BELOW for _h, d in outcomes),
+                "; ".join(f"{h}: differs {d:.3f}" for h, d in outcomes))
+        dev.alive_and_front(s)
+        dev.no_crash_since(s, mark)
+
+    if args.tap_label:
+        run.step("03e-tap-label", f"press the button {args.tap_label!r} (a tap, a long press, a tap 40 px higher): the screen must change", s_tap_label, needs_app=True)
+
     def s_ui_dump(s):
         dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
         xml = dev.sh("cat /sdcard/qa-ui.xml")
@@ -1039,7 +1071,19 @@ def android_scenarios(args):
         pid0 = dev.pid()
         before = dev.look(s, "before-background")
         dev.home()
-        time.sleep(10)
+        time.sleep(6)
+        # an app in the background draws nothing and costs nothing: CPU over 3 s at 6 s in (a battery question, a finding when high)
+        pid_bg = dev.pid()
+        if pid_bg:
+            top = dev.sh(f"top -b -n 2 -d 3 -p {pid_bg}", timeout=60)
+            rows = [l for l in top.splitlines() if l.strip().startswith(pid_bg)]
+            if rows:
+                cols = rows[-1].split()
+                cpu = next((c for c in cols if re.fullmatch(r"\d+(\.\d+)?", c) and "." in c), None)
+                if cpu is not None:
+                    s.check("the app is quiet in the background (CPU under 5 %)", float(cpu) < 5.0, f"{cpu} % of one core over 3 s", required=False)
+                s.note("background top: " + " ".join(cols))
+        time.sleep(1)
         s.check("alive after 10 s in the background", dev.alive(), f"pid {dev.pid() or '-'}")
         dev.resume()
         t = dev.wait_for_front(timeout=30)
@@ -1181,6 +1225,33 @@ def android_scenarios(args):
         dev.no_crash_since(s, mark)
 
     run.step("18-monkey", "300 random touches and drags (fixed seed)", s_monkey, needs_app=True)
+
+    def pss_kb(pid):
+        text = dev.sh(f"dumpsys meminfo {pid} | grep -E 'TOTAL PSS|TOTAL:' | head -n 2")
+        m = re.search(r"TOTAL PSS:\s+(\d+)", text) or re.search(r"TOTAL:?\s+(\d+)", text)
+        return int(m.group(1)) if m else None
+
+    def s_soak(s):
+        """Rotate eight times (portrait, landscape, portrait ...) and look at what the process holds: a leak per rotation (a
+        pixmap, a layout, a window never dropped) shows as growth. Required: alive, in front, growth under 100 MB; the number is
+        in the notes."""
+        mark = dev.now_mark()
+        pid = dev.pid()
+        before = pss_kb(pid) if pid else None
+        for _ in range(8):
+            dev.rotate(1)
+            dev.settle(1.5)
+            dev.rotate(0)
+            dev.settle(1.5)
+        dev.look(s, "after-rotation-soak")
+        after = pss_kb(dev.pid() or pid)
+        if before and after:
+            s.note(f"PSS {before // 1024} MB before, {after // 1024} MB after eight rotation pairs ({(after - before) // 1024:+d} MB)")
+            s.check("eight rotation pairs leave the process's memory within 100 MB", after - before < 100 * 1024, f"{(after - before) // 1024:+d} MB")
+        dev.alive_and_front(s)
+        dev.no_crash_since(s, mark)
+
+    run.step("18b-rotation-soak", "eight rotations there and back: alive, in front, memory growth", s_soak, needs_app=True)
 
     # ---- the logs
     def s_logs(s):
@@ -1605,7 +1676,7 @@ def ios_scenarios(args):
         dev.settle(2.0)
         after = dev.look(s, "after-background")
         s.check("same process as before", dev.pid() == pid0, f"{pid0} -> {dev.pid()}", required=False)
-        s.check("the picture is the one from before", sig_diff(after, before) < 0.05, f"differs {sig_diff(after, before):.3f}", required=False)
+        s.check("the window shows the picture it had before (it was repainted after the return)", sig_diff(after, before) < 0.08, f"differs {sig_diff(after, before):.3f}")
         crashes = dev.crash_reports()
         s.check("the host wrote no crash report for the app", not crashes, ", ".join(crashes))
 
@@ -1713,6 +1784,7 @@ def main(argv):
     a.add_argument("--series", type=int, default=0, help="N cold starts to measure (0: none)")
     a.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
     a.add_argument("--floor-apk", default="", help="the floor APK (an empty Java Activity) measured the same way")
+    a.add_argument("--tap-label", default="", help="press the button the accessibility tree names this (step 03e)")
     i = sub.add_parser("ios")
     i.add_argument("--out", required=True)
     i.add_argument("--udid", required=True)
