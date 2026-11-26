@@ -4,8 +4,6 @@
 
 use std::path::Path;
 
-use azul::prelude::*;
-
 use crate::{
     recorder::Deps,
     recorder_args::parse_utc_offset,
