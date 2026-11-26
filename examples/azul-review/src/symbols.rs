@@ -460,6 +460,18 @@ struct KeyInfo {
     ntokens: u8,
 }
 
+/// What the definitions of a key are, without spelling them out.
+#[derive(Clone, Copy, Debug)]
+pub struct KeySummary {
+    pub defs: usize,
+    pub public: bool,
+    pub type_like: bool,
+    pub package: bool,
+    pub non_test: bool,
+    /// The definition to spell the key's name from: a type, else a public one, else the first.
+    pub best: DefId,
+}
+
 /// A key as the resolver sees it.
 #[derive(Clone, Copy, Debug)]
 pub struct KeyView<'a> {
@@ -506,6 +518,9 @@ pub struct Index {
     keys: Interner,
     key_defs: Vec<Vec<u32>>,
     key_info: Vec<KeyInfo>,
+    /// The words of a key of two or more words written together (`scrollmanager`), for a recogniser
+    /// that wrote a name as one lower-case word; `NONE` where two keys make the same word.
+    joined: HashMap<Arc<str>, u32>,
     tokens: HashMap<Arc<str>, u32>,
     defs: Vec<Def>,
     free: Vec<u32>,
@@ -530,6 +545,7 @@ impl Index {
             keys: Interner::default(),
             key_defs: Vec::new(),
             key_info: Vec::new(),
+            joined: HashMap::new(),
             tokens: HashMap::new(),
             defs: Vec::new(),
             free: Vec::new(),
@@ -697,6 +713,11 @@ impl Index {
                     ntokens: u8::try_from(words.len()).unwrap_or(u8::MAX),
                 });
                 self.bytes += key.len() + COST_KEY;
+                if words.len() >= 2 {
+                    let one_word: Arc<str> = Arc::from(cat.as_str());
+                    self.bytes += cat.len() + COST_STRING;
+                    self.joined.entry(one_word).and_modify(|k| *k = NONE).or_insert(key_id);
+                }
                 for word in &words {
                     if let Some(count) = self.tokens.get_mut(word.as_str()) {
                         *count += 1;
@@ -832,6 +853,16 @@ impl Index {
         self.lookup_key(&key_of(&lower))
     }
 
+    /// The definitions whose name, written as one lower-case word, is `word` (`scrollmanager` for
+    /// `ScrollManager`): only names of two or more words, and only when one name makes the word.
+    #[must_use]
+    pub fn lookup_joined(&self, word: &str) -> Vec<DefInfo> {
+        match self.joined.get(word) {
+            Some(&key) if key != NONE => self.defs_of_key(KeyId(key)),
+            _ => Vec::new(),
+        }
+    }
+
     /// The definitions of a key (words joined by a space, lower case).
     #[must_use]
     pub fn lookup_key(&self, key: &str) -> Vec<DefInfo> {
@@ -845,6 +876,36 @@ impl Index {
     #[must_use]
     pub fn defs_of_key(&self, id: KeyId) -> Vec<DefInfo> {
         self.key_defs.get(id.0 as usize).map_or_else(Vec::new, |l| l.iter().map(|&d| self.info(DefId(d))).collect())
+    }
+
+    /// What the definitions of key `id` are in short: `None` when it has none.
+    #[must_use]
+    pub fn key_summary(&self, id: KeyId) -> Option<KeySummary> {
+        let list = self.key_defs.get(id.0 as usize)?;
+        let first = *list.first()?;
+        let mut best = first;
+        let mut rank = (false, false, false);
+        let mut summary = KeySummary { defs: list.len(), public: false, type_like: false, package: false, non_test: false, best: DefId(first) };
+        for &d in list {
+            let def = &self.defs[d as usize];
+            summary.public |= def.vis == Vis::Public;
+            summary.type_like |= def.kind.is_type_like();
+            summary.package |= matches!(def.kind, Kind::Package | Kind::Dependency);
+            summary.non_test |= !def.test;
+            let this = (!def.test, def.kind.is_type_like(), def.vis == Vis::Public);
+            if this > rank {
+                rank = this;
+                best = d;
+            }
+        }
+        summary.best = DefId(best);
+        Some(summary)
+    }
+
+    /// The name of definition `id` as it was written.
+    #[must_use]
+    pub fn spelling(&self, id: DefId) -> &str {
+        self.defs.get(id.0 as usize).map_or("", |d| self.names.str(d.name.0))
     }
 
     /// How many definitions have key `id`.

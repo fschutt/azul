@@ -14,8 +14,9 @@
 //! time linear in the input.
 //!
 //! [`scan_code`] is the entry: it counts the lines, marks a test file and dispatches on the
-//! language. The language families: Rust and C/C++ (token state machines), Python (a line scanner
-//! that tracks indentation and triple-quoted strings).
+//! language. The language families: Rust and C/C++ (token state machines), JavaScript and TypeScript, Go,
+//! Java, Kotlin, C# and Swift (one braced-language state machine with a table of the keywords of each),
+//! Python (a line scanner that tracks indentation and triple-quoted strings) and shell (a line scanner).
 
 use crate::{
     symbols::{Kind, RawDef, Scanned, Vis},
@@ -50,7 +51,13 @@ pub fn scan_code(lang: Lang, rel: &str, bytes: &[u8], caps: &ScanCaps) -> Scanne
         Lang::Rust => scan_rust(bytes, caps),
         Lang::C | Lang::Cpp => scan_c(bytes, caps),
         Lang::Python => scan_python(bytes, caps),
-        _ => (Vec::new(), Vec::new()),
+        Lang::JavaScript | Lang::TypeScript => scan_braced(bytes, caps, Family::Script),
+        Lang::Go => scan_braced(bytes, caps, Family::Go),
+        Lang::Java => scan_braced(bytes, caps, Family::Java),
+        Lang::Kotlin => scan_braced(bytes, caps, Family::Kotlin),
+        Lang::CSharp => scan_braced(bytes, caps, Family::CSharp),
+        Lang::Swift => scan_braced(bytes, caps, Family::Swift),
+        Lang::Shell => scan_shell(bytes, caps),
     };
     Scanned {
         lang: Some(lang),
@@ -103,6 +110,12 @@ struct Tok {
 enum Dialect {
     Rust,
     C,
+    /// JavaScript and TypeScript: template literals over lines, regular expression literals.
+    Script,
+    /// Go: raw strings in backticks, runes.
+    Go,
+    /// Java, Kotlin, C#, Swift: text blocks, verbatim strings, nested comments.
+    Jvm,
 }
 
 struct Lexer<'a> {
@@ -118,11 +131,11 @@ struct Lexer<'a> {
 }
 
 fn is_ident_start(b: u8) -> bool {
-    b.is_ascii_alphabetic() || b == b'_' || b >= 0x80
+    b.is_ascii_alphabetic() || b == b'_' || b == b'$' || b >= 0x80
 }
 
 fn is_ident_byte(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b >= 0x80
 }
 
 fn newlines_in(bytes: &[u8]) -> u32 {
@@ -250,6 +263,94 @@ impl<'a> Lexer<'a> {
         self.i = end;
     }
 
+    /// A text block `"""..."""` (Java, Kotlin, C#, Swift): over lines, to the closing three quotes.
+    fn skip_text_block(&mut self) {
+        let start = self.i;
+        let n = self.src.len();
+        let mut j = self.i + 3;
+        while j < n {
+            if self.src[j] == b'\\' {
+                j += 2;
+            } else if self.src[j] == b'"' && self.at(j + 1) == b'"' && self.at(j + 2) == b'"' {
+                j += 3;
+                break;
+            } else {
+                j += 1;
+            }
+        }
+        let end = j.min(n);
+        self.line = self.line.saturating_add(newlines_in(&self.src[start..end]));
+        self.i = end;
+    }
+
+    /// A C# verbatim string `@"..."`: a doubled quote is a quote.
+    fn skip_verbatim(&mut self) {
+        let start = self.i;
+        let n = self.src.len();
+        let mut j = self.i + 2;
+        while j < n {
+            if self.src[j] == b'"' {
+                if self.at(j + 1) == b'"' {
+                    j += 2;
+                    continue;
+                }
+                j += 1;
+                break;
+            }
+            j += 1;
+        }
+        let end = j.min(n);
+        self.line = self.line.saturating_add(newlines_in(&self.src[start..end]));
+        self.i = end;
+    }
+
+    /// Whether a `/` here starts a regular expression (JavaScript): after an operator, an opening bracket,
+    /// a separator or a keyword that takes a value, not after a name, a number, a string or a closing bracket.
+    fn regex_allowed(&self) -> bool {
+        match self.toks.last() {
+            None => true,
+            Some(t) => match t.t {
+                T::Punct => matches!(t.c, b'(' | b',' | b'=' | b':' | b'[' | b'!' | b'&' | b'|' | b'?' | b'{' | b'}' | b';' | b'+' | b'-' | b'*' | b'%' | b'<' | b'>' | b'~' | b'^'),
+                T::Ident => matches!(
+                    &self.src[t.s as usize..(t.e as usize).min(self.src.len())],
+                    b"return" | b"typeof" | b"instanceof" | b"in" | b"of" | b"new" | b"delete" | b"void" | b"throw" | b"case" | b"do" | b"else" | b"yield" | b"await"
+                ),
+                _ => false,
+            },
+        }
+    }
+
+    /// A regular expression literal: to the closing `/` on the same line, brackets and escapes respected,
+    /// then its flags. When there is none on the line the `/` is a division.
+    fn lex_regex(&mut self) {
+        let start = self.i;
+        let line = self.line;
+        let n = self.src.len();
+        let mut j = self.i + 1;
+        let mut in_class = false;
+        while j < n {
+            match self.src[j] {
+                b'\n' => break,
+                b'\\' => j += 1,
+                b'[' => in_class = true,
+                b']' => in_class = false,
+                b'/' if !in_class => {
+                    j += 1;
+                    while j < n && self.src[j].is_ascii_alphabetic() {
+                        j += 1;
+                    }
+                    self.i = j;
+                    self.push(T::Str, 0, start, j, line);
+                    return;
+                }
+                _ => {}
+            }
+            j += 1;
+        }
+        self.i += 1;
+        self.push(T::Punct, b'/', start, start + 1, line);
+    }
+
     fn lex_number(&mut self) {
         let start = self.i;
         let line = self.line;
@@ -373,6 +474,7 @@ impl<'a> Lexer<'a> {
                     return;
                 }
             }
+            Dialect::Script | Dialect::Go | Dialect::Jvm => {}
         }
         self.i = j;
         self.push(T::Ident, 0, start, j, line);
@@ -456,11 +558,26 @@ impl<'a> Lexer<'a> {
                         self.i += 1;
                     }
                 }
-                b'/' if self.at(self.i + 1) == b'*' => self.skip_block_comment(self.dialect == Dialect::Rust),
+                b'/' if self.at(self.i + 1) == b'*' => self.skip_block_comment(matches!(self.dialect, Dialect::Rust | Dialect::Jvm)),
+                b'/' if self.dialect == Dialect::Script && self.regex_allowed() => self.lex_regex(),
+                b'`' if matches!(self.dialect, Dialect::Script | Dialect::Go) => {
+                    let (start, line) = (self.i, self.line);
+                    self.skip_quoted(b'`', false);
+                    self.push(T::Str, 0, start, self.i, line);
+                }
+                b'@' if self.dialect == Dialect::Jvm && self.at(self.i + 1) == b'"' => {
+                    let (start, line) = (self.i, self.line);
+                    self.skip_verbatim();
+                    self.push(T::Str, 0, start, self.i, line);
+                }
                 b'#' if self.dialect == Dialect::C && self.line_start && !self.in_directive => self.lex_directive(),
                 b'"' => {
                     let (start, line) = (self.i, self.line);
-                    self.skip_quoted(b'"', self.dialect == Dialect::C);
+                    if self.dialect == Dialect::Jvm && self.at(self.i + 1) == b'"' && self.at(self.i + 2) == b'"' {
+                        self.skip_text_block();
+                    } else {
+                        self.skip_quoted(b'"', self.dialect != Dialect::Rust);
+                    }
                     self.push(T::Str, 0, start, self.i, line);
                 }
                 b'\'' => {
@@ -1541,6 +1658,789 @@ impl Cs<'_> {
 }
 
 // ---------------------------------------------------------------------------------------------
+// JavaScript and TypeScript, Go, Java, Kotlin, C#, Swift
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Family {
+    Script,
+    Go,
+    Java,
+    Kotlin,
+    CSharp,
+    Swift,
+}
+
+#[derive(Clone)]
+enum Bk {
+    /// The body of a class, an interface, an enum, an `extension`: what is a function in it is a method.
+    Type(String),
+    Module(String),
+    Fn,
+    Other,
+}
+
+struct BScope {
+    kind: Bk,
+    def: Option<usize>,
+}
+
+struct BPending {
+    def: Option<usize>,
+    kind: Bk,
+    paren: u32,
+    line: u32,
+}
+
+struct Br<'a> {
+    src: &'a [u8],
+    toks: Vec<Tok>,
+    out: Vec<RawDef>,
+    imports: Vec<String>,
+    caps: &'a ScanCaps,
+    family: Family,
+    scopes: Vec<BScope>,
+    pending: Option<BPending>,
+    paren: u32,
+    exported: bool,
+    fn_depth: u32,
+    /// Inside `const ( ... )` or `var ( ... )` of Go: the kind of each name that starts a line.
+    group: Option<(Kind, u32)>,
+}
+
+fn scan_braced(src: &[u8], caps: &ScanCaps, family: Family) -> (Vec<RawDef>, Vec<String>) {
+    let dialect = match family {
+        Family::Script => Dialect::Script,
+        Family::Go => Dialect::Go,
+        _ => Dialect::Jvm,
+    };
+    let toks = lex(src, dialect);
+    let mut br = Br {
+        src,
+        toks,
+        out: Vec::new(),
+        imports: Vec::new(),
+        caps,
+        family,
+        scopes: Vec::new(),
+        pending: None,
+        paren: 0,
+        exported: false,
+        fn_depth: 0,
+        group: None,
+    };
+    br.run();
+    (br.out, br.imports)
+}
+
+/// Words of a braced language that begin a statement and are never the name of a method.
+static NOT_A_METHOD: [&str; 22] = [
+    "if", "for", "while", "switch", "catch", "function", "return", "new", "typeof", "super", "this", "import", "await", "delete", "throw", "synchronized",
+    "using", "lock", "foreach", "when", "guard", "else",
+];
+
+impl Br<'_> {
+    fn word(&self, i: usize) -> &[u8] {
+        self.toks
+            .get(i)
+            .filter(|t| t.t == T::Ident)
+            .map_or(&[][..], |t| &self.src[t.s as usize..(t.e as usize).min(self.src.len())])
+    }
+
+    fn run(&mut self) {
+        let mut i = 0;
+        while i < self.toks.len() {
+            if self.out.len() >= self.caps.max_defs {
+                break;
+            }
+            let tok = self.toks[i];
+            self.expire(&tok);
+            i = match tok.t {
+                T::Punct => self.punct(i, tok),
+                T::Ident => self.ident(i, tok),
+                _ => i + 1,
+            };
+        }
+        let last = self.toks.last().map_or(1, |t| t.line);
+        let open: Vec<usize> = self.scopes.iter().filter_map(|s| s.def).chain(self.pending.as_ref().and_then(|p| p.def)).collect();
+        for d in open {
+            self.out[d].lines = last.saturating_sub(self.out[d].line) + 1;
+        }
+    }
+
+    /// A header without a body or a semicolon (`data class P(val x: Int)`, `fun f() = 1`, `type Id = string`) ends
+    /// where the next line begins a declaration of its own.
+    fn expire(&mut self, tok: &Tok) {
+        let Some(p) = &self.pending else {
+            return;
+        };
+        if tok.line <= p.line || self.paren > p.paren || tok.t != T::Ident {
+            return;
+        }
+        let word = &self.src[tok.s as usize..(tok.e as usize).min(self.src.len())];
+        let starter = match self.family {
+            Family::Script => matches!(word, b"class" | b"interface" | b"enum" | b"function" | b"const" | b"let" | b"var" | b"type" | b"export" | b"import" | b"namespace" | b"declare"),
+            Family::Go => matches!(word, b"func" | b"type" | b"const" | b"var" | b"import"),
+            Family::Kotlin => matches!(word, b"class" | b"interface" | b"object" | b"fun" | b"val" | b"var" | b"typealias" | b"import" | b"data" | b"sealed" | b"private" | b"public" | b"internal" | b"override"),
+            Family::Swift => matches!(word, b"class" | b"struct" | b"enum" | b"protocol" | b"extension" | b"func" | b"var" | b"let" | b"typealias" | b"import" | b"actor" | b"init"),
+            Family::Java | Family::CSharp => false,
+        };
+        if starter {
+            self.pending = None;
+        }
+    }
+
+    fn punct(&mut self, i: usize, tok: Tok) -> usize {
+        match tok.c {
+            b'{' => {
+                let scope = match self.pending.take() {
+                    Some(p) if p.paren == self.paren => BScope { kind: p.kind, def: p.def },
+                    other => {
+                        self.pending = other;
+                        BScope { kind: Bk::Other, def: None }
+                    }
+                };
+                if matches!(scope.kind, Bk::Fn) {
+                    self.fn_depth += 1;
+                }
+                self.scopes.push(scope);
+                self.exported = false;
+                i + 1
+            }
+            b'}' => {
+                if let Some(scope) = self.scopes.pop() {
+                    if let Some(d) = scope.def {
+                        self.out[d].lines = tok.line.saturating_sub(self.out[d].line) + 1;
+                    }
+                    if matches!(scope.kind, Bk::Fn) {
+                        self.fn_depth = self.fn_depth.saturating_sub(1);
+                    }
+                }
+                // `fun find() = null` inside a body ends at the brace that closes the body.
+                if let Some(p) = self.pending.take() {
+                    if let Some(d) = p.def {
+                        self.out[d].lines = tok.line.saturating_sub(self.out[d].line).max(1);
+                    }
+                }
+                self.paren = 0;
+                self.exported = false;
+                i + 1
+            }
+            b';' => {
+                if self.pending.as_ref().is_some_and(|p| p.paren == self.paren) {
+                    if let Some(p) = self.pending.take() {
+                        if let Some(d) = p.def {
+                            self.out[d].lines = tok.line.saturating_sub(self.out[d].line) + 1;
+                        }
+                    }
+                }
+                if self.paren == 0 {
+                    self.exported = false;
+                }
+                i + 1
+            }
+            b'(' | b'[' => {
+                self.paren += 1;
+                i + 1
+            }
+            b')' | b']' => {
+                self.paren = self.paren.saturating_sub(1);
+                if self.paren == 0 {
+                    self.group = None;
+                }
+                i + 1
+            }
+            _ => i + 1,
+        }
+    }
+
+    fn record(&mut self, name: &Tok, kind: Kind, parent: Option<String>) -> Option<usize> {
+        let text = name_of(self.src, name);
+        if text.is_empty() {
+            return None;
+        }
+        let public = self.exported || (self.family == Family::Go && text.chars().next().is_some_and(char::is_uppercase));
+        self.out.push(RawDef {
+            name: text,
+            kind,
+            vis: if public { Vis::Public } else { Vis::Private },
+            test: false,
+            line: name.line,
+            lines: 1,
+            parent,
+        });
+        self.exported = false;
+        Some(self.out.len() - 1)
+    }
+
+    fn owner(&self) -> Option<String> {
+        match self.scopes.last().map(|s| &s.kind) {
+            Some(Bk::Type(name) | Bk::Module(name)) if !name.is_empty() => Some(name.clone()),
+            _ => None,
+        }
+    }
+
+    fn in_type(&self) -> bool {
+        matches!(self.scopes.last().map(|s| &s.kind), Some(Bk::Type(_)))
+    }
+
+    fn push_import(&mut self, path: &str) {
+        if self.imports.len() < self.caps.max_imports && !path.is_empty() && path.len() <= MAX_IMPORT_CHARS {
+            self.imports.push(path.to_string());
+        }
+    }
+
+    fn str_content(&self, t: &Tok) -> String {
+        let s = (t.s as usize + 1).min(self.src.len());
+        let e = (t.e as usize).saturating_sub(1).max(s).min(self.src.len());
+        String::from_utf8_lossy(&self.src[s..e]).into_owned()
+    }
+
+    fn ident(&mut self, i: usize, tok: Tok) -> usize {
+        let word = self.word(i).to_vec();
+        match word.as_slice() {
+            b"export" | b"public" | b"open" => {
+                self.exported = true;
+                return i + 1;
+            }
+            b"import" | b"using" | b"require" => {
+                if let Some(next) = self.imports_at(i, &word) {
+                    return next;
+                }
+            }
+            _ => {}
+        }
+        if self.paren > 0 && self.group.is_none() {
+            return i + 1;
+        }
+        // Go's `const ( A = 1 \n B )`: a name that begins a line.
+        if let Some((kind, _)) = self.group {
+            if self.paren == 1 && self.pending.is_none() && (i == 0 || self.toks[i - 1].line < tok.line) {
+                let parent = self.owner();
+                self.record(&tok, kind, parent);
+            }
+            return i + 1;
+        }
+        if self.pending.is_some() {
+            return i + 1;
+        }
+        match self.family {
+            Family::Script => self.script(i, &word),
+            Family::Go => self.go(i, &word),
+            Family::Java | Family::CSharp => self.java_like(i, &word),
+            Family::Kotlin => self.kotlin(i, &word),
+            Family::Swift => self.swift(i, &word),
+        }
+    }
+
+    /// The imports an `import`, `using` or `require` names; the index after what was read.
+    fn imports_at(&mut self, i: usize, word: &[u8]) -> Option<usize> {
+        match self.family {
+            Family::Script => {
+                if word == b"require" {
+                    if is_punct(&self.toks, i + 1, b'(') && self.toks.get(i + 2).is_some_and(|t| t.t == T::Str) {
+                        let path = self.str_content(&self.toks[i + 2]);
+                        self.push_import(&path);
+                        return Some(i + 3);
+                    }
+                    return None;
+                }
+                if word != b"import" {
+                    return None;
+                }
+                let mut j = i + 1;
+                while j < self.toks.len() && j < i + 80 && !is_punct(&self.toks, j, b';') {
+                    if self.toks[j].t == T::Str {
+                        let path = self.str_content(&self.toks[j]);
+                        self.push_import(&path);
+                        return Some(j + 1);
+                    }
+                    if is_punct(&self.toks, j, b'(') {
+                        return None;
+                    }
+                    j += 1;
+                }
+                None
+            }
+            Family::Go => {
+                if word != b"import" {
+                    return None;
+                }
+                let mut j = i + 1;
+                let grouped = is_punct(&self.toks, j, b'(');
+                if grouped {
+                    j += 1;
+                }
+                while j < self.toks.len() {
+                    let t = self.toks[j];
+                    if t.t == T::Str {
+                        let path = self.str_content(&t);
+                        self.push_import(&path);
+                        if !grouped {
+                            return Some(j + 1);
+                        }
+                    } else if grouped && is_punct(&self.toks, j, b')') {
+                        return Some(j + 1);
+                    } else if !grouped && t.t != T::Ident && !is_punct(&self.toks, j, b'.') && !is_punct(&self.toks, j, b'_') {
+                        return None;
+                    }
+                    j += 1;
+                }
+                None
+            }
+            Family::Java | Family::Kotlin | Family::CSharp | Family::Swift => {
+                let wanted: &[u8] = if self.family == Family::CSharp { b"using" } else { b"import" };
+                if word != wanted || !is_ident(&self.toks, i + 1) {
+                    return None;
+                }
+                let line = self.toks[i].line;
+                let mut j = i + 1;
+                let mut path = String::new();
+                while j < self.toks.len() && self.toks[j].line == line && !is_punct(&self.toks, j, b';') {
+                    let t = self.toks[j];
+                    if t.t == T::Ident {
+                        let w = name_of(self.src, &t);
+                        if w == "static" && path.is_empty() {
+                            j += 1;
+                            continue;
+                        }
+                        path.push_str(&w);
+                    } else if is_punct(&self.toks, j, b'.') {
+                        path.push('.');
+                    } else if is_punct(&self.toks, j, b'*') {
+                        path.push('*');
+                    } else if is_punct(&self.toks, j, b'=') {
+                        // `using Alias = A.B;`
+                        path.clear();
+                    } else {
+                        break;
+                    }
+                    j += 1;
+                }
+                self.push_import(path.trim_end_matches('.'));
+                Some(j)
+            }
+        }
+    }
+
+    fn start_type(&mut self, name: &Tok, kind: Kind, bk: Bk) -> usize {
+        let parent = self.owner();
+        let def = self.record(name, kind, parent);
+        self.pending = Some(BPending { def, kind: bk, paren: self.paren, line: name.line });
+        0
+    }
+
+    fn start_fn(&mut self, name: &Tok, kind: Kind) {
+        let parent = self.owner();
+        let def = self.record(name, kind, parent);
+        self.pending = Some(BPending { def, kind: Bk::Fn, paren: self.paren, line: name.line });
+    }
+
+    fn script(&mut self, i: usize, word: &[u8]) -> usize {
+        if self.fn_depth > 0 {
+            return i + 1;
+        }
+        let name = self.toks.get(i + 1).copied().filter(|t| t.t == T::Ident);
+        match word {
+            b"class" | b"interface" | b"enum" => {
+                if let Some(n) = name {
+                    let kind = match word {
+                        b"class" => Kind::Class,
+                        b"interface" => Kind::Interface,
+                        _ => Kind::Enum,
+                    };
+                    let text = name_of(self.src, &n);
+                    self.start_type(&n, kind, Bk::Type(text));
+                    return i + 2;
+                }
+            }
+            b"namespace" | b"module" => {
+                if let Some(n) = name {
+                    if self.word(i + 2) == b"." || is_punct(&self.toks, i + 2, b'{') || is_punct(&self.toks, i + 2, b'.') {
+                        let mut last = n;
+                        let mut j = i + 1;
+                        while is_ident(&self.toks, j) {
+                            last = self.toks[j];
+                            if is_punct(&self.toks, j + 1, b'.') {
+                                j += 2;
+                            } else {
+                                break;
+                            }
+                        }
+                        let text = name_of(self.src, &last);
+                        self.start_type(&last, Kind::Module, Bk::Module(text));
+                        return j + 1;
+                    }
+                }
+            }
+            b"type" => {
+                if let Some(n) = name {
+                    if is_punct(&self.toks, i + 2, b'=') || is_punct(&self.toks, i + 2, b'<') {
+                        self.start_type(&n, Kind::Type, Bk::Other);
+                        return i + 2;
+                    }
+                }
+            }
+            b"function" => {
+                let at = if is_punct(&self.toks, i + 1, b'*') { i + 2 } else { i + 1 };
+                if let Some(n) = self.toks.get(at).copied().filter(|t| t.t == T::Ident) {
+                    if is_punct(&self.toks, at + 1, b'(') || is_punct(&self.toks, at + 1, b'<') {
+                        self.start_fn(&n, Kind::Fn);
+                        return at + 1;
+                    }
+                }
+            }
+            b"const" | b"let" | b"var" => {
+                if let Some(n) = name {
+                    if is_punct(&self.toks, i + 2, b'=') && !self.in_type() {
+                        let text = name_of(self.src, &n);
+                        if self.is_function_value(i + 3) {
+                            self.start_fn(&n, Kind::Fn);
+                            return i + 3;
+                        }
+                        if word == b"const" && text.chars().any(char::is_alphabetic) && text.chars().all(|c| c.is_uppercase() || c.is_ascii_digit() || c == '_') {
+                            let parent = self.owner();
+                            let def = self.record(&n, Kind::Const, parent);
+                            self.pending = Some(BPending { def, kind: Bk::Other, paren: self.paren, line: n.line });
+                            return i + 3;
+                        }
+                    }
+                }
+            }
+            _ => {
+                // A method of a class: `name(...) {`, with the modifiers before it.
+                if self.in_type() && is_punct(&self.toks, i + 1, b'(') && !NOT_A_METHOD.iter().any(|k| k.as_bytes() == word) {
+                    let before_ok = i == 0
+                        || matches!(self.toks[i - 1].t, T::Punct if matches!(self.toks[i - 1].c, b'{' | b';' | b'}' | b'*' | b'>' | b'@'))
+                        || matches!(
+                            self.word(i - 1),
+                            b"static" | b"async" | b"get" | b"set" | b"public" | b"private" | b"protected" | b"readonly" | b"override" | b"abstract" | b"declare"
+                        );
+                    if before_ok {
+                        let tok = self.toks[i];
+                        self.start_fn(&tok, Kind::Method);
+                        return i + 1;
+                    }
+                }
+            }
+        }
+        i + 1
+    }
+
+    /// Whether the value after `=` is a function: `function`, `async x =>`, `(a) =>`.
+    fn is_function_value(&self, at: usize) -> bool {
+        let mut j = at;
+        if self.word(j) == b"async" {
+            j += 1;
+        }
+        if self.word(j) == b"function" {
+            return true;
+        }
+        if is_ident(&self.toks, j) {
+            return adjacent_punct(&self.toks, j + 1, b'=', b'>');
+        }
+        if is_punct(&self.toks, j, b'(') {
+            let Some(close) = matching_close(&self.toks, j) else {
+                return false;
+            };
+            let mut k = close + 1;
+            // A return type: `(a): number =>`
+            if is_punct(&self.toks, k, b':') {
+                while k < self.toks.len() && k < close + 12 && !adjacent_punct(&self.toks, k, b'=', b'>') && !is_punct(&self.toks, k, b';') {
+                    k += 1;
+                }
+            }
+            return adjacent_punct(&self.toks, k, b'=', b'>');
+        }
+        false
+    }
+
+    fn go(&mut self, i: usize, word: &[u8]) -> usize {
+        if self.fn_depth > 0 {
+            return i + 1;
+        }
+        match word {
+            b"func" => {
+                let mut at = i + 1;
+                let mut parent = None;
+                if is_punct(&self.toks, at, b'(') {
+                    // The receiver: the last name before the closing parenthesis (`r *Reader` is Reader).
+                    let Some(close) = matching_close(&self.toks, at) else {
+                        return self.toks.len();
+                    };
+                    parent = (at..close).rev().find(|&k| is_ident(&self.toks, k)).map(|k| name_of(self.src, &self.toks[k]));
+                    at = close + 1;
+                }
+                if let Some(n) = self.toks.get(at).copied().filter(|t| t.t == T::Ident) {
+                    let def = self.record(&n, if parent.is_some() { Kind::Method } else { Kind::Fn }, parent);
+                    self.pending = Some(BPending { def, kind: Bk::Fn, paren: self.paren, line: n.line });
+                    return at + 1;
+                }
+            }
+            b"type" => {
+                if let Some(n) = self.toks.get(i + 1).copied().filter(|t| t.t == T::Ident) {
+                    let kind = match self.word(i + 2) {
+                        b"struct" => Kind::Struct,
+                        b"interface" => Kind::Interface,
+                        _ => Kind::Type,
+                    };
+                    self.start_type(&n, kind, Bk::Other);
+                    return i + 2;
+                }
+            }
+            b"const" | b"var" => {
+                let kind = if word == b"const" { Kind::Const } else { Kind::Static };
+                if is_punct(&self.toks, i + 1, b'(') {
+                    self.group = Some((kind, 1));
+                    return i + 1;
+                }
+                if let Some(n) = self.toks.get(i + 1).copied().filter(|t| t.t == T::Ident) {
+                    let def = self.record(&n, kind, None);
+                    self.pending = Some(BPending { def, kind: Bk::Other, paren: self.paren, line: n.line });
+                    return i + 2;
+                }
+            }
+            _ => {}
+        }
+        i + 1
+    }
+
+    fn java_like(&mut self, i: usize, word: &[u8]) -> usize {
+        let csharp = self.family == Family::CSharp;
+        let name = self.toks.get(i + 1).copied().filter(|t| t.t == T::Ident);
+        match word {
+            b"class" | b"interface" | b"enum" | b"record" | b"struct" if word != b"struct" || csharp => {
+                if let Some(n) = name {
+                    // `class` after a dot (`Foo.class`) is no declaration.
+                    if i > 0 && is_punct(&self.toks, i - 1, b'.') {
+                        return i + 1;
+                    }
+                    let kind = match word {
+                        b"interface" => Kind::Interface,
+                        b"enum" => Kind::Enum,
+                        b"struct" => Kind::Struct,
+                        _ => Kind::Class,
+                    };
+                    let text = name_of(self.src, &n);
+                    self.start_type(&n, kind, Bk::Type(text));
+                    return i + 2;
+                }
+            }
+            b"namespace" if csharp => {
+                let mut last = name;
+                let mut j = i + 1;
+                while is_ident(&self.toks, j) {
+                    last = Some(self.toks[j]);
+                    if is_punct(&self.toks, j + 1, b'.') {
+                        j += 2;
+                    } else {
+                        break;
+                    }
+                }
+                if let Some(n) = last {
+                    let text = name_of(self.src, &n);
+                    self.start_type(&n, Kind::Module, Bk::Module(text));
+                    return j + 1;
+                }
+            }
+            _ => {
+                if self.in_type() && is_punct(&self.toks, i + 1, b'(') && !NOT_A_METHOD.iter().any(|k| k.as_bytes() == word) {
+                    let tok = self.toks[i];
+                    let own = matches!(self.scopes.last().map(|s| &s.kind), Some(Bk::Type(t)) if t.as_bytes() == word);
+                    let typed_before = i > 0
+                        && (matches!(self.toks[i - 1].t, T::Ident)
+                            || (matches!(self.toks[i - 1].t, T::Punct) && matches!(self.toks[i - 1].c, b'>' | b']')))
+                        && !matches!(self.word(i - 1), b"new" | b"return" | b"throw" | b"else" | b"await");
+                    if own || typed_before {
+                        self.start_fn(&tok, Kind::Method);
+                        return i + 1;
+                    }
+                }
+            }
+        }
+        i + 1
+    }
+
+    fn kotlin(&mut self, i: usize, word: &[u8]) -> usize {
+        if self.fn_depth > 0 {
+            return i + 1;
+        }
+        let name = self.toks.get(i + 1).copied().filter(|t| t.t == T::Ident);
+        match word {
+            b"class" | b"interface" | b"object" => {
+                if let Some(n) = name {
+                    let kind = if word == b"interface" { Kind::Interface } else { Kind::Class };
+                    let text = name_of(self.src, &n);
+                    self.start_type(&n, kind, Bk::Type(text));
+                    return i + 2;
+                }
+            }
+            b"typealias" => {
+                if let Some(n) = name {
+                    self.start_type(&n, Kind::Type, Bk::Other);
+                    return i + 2;
+                }
+            }
+            b"fun" => {
+                // `fun <T> Recv.name(`: the last name before the parenthesis.
+                let mut j = i + 1;
+                let mut last: Option<Tok> = None;
+                while j < self.toks.len() && j < i + 40 && !is_punct(&self.toks, j, b'(') {
+                    if is_ident(&self.toks, j) {
+                        last = Some(self.toks[j]);
+                    } else if is_punct(&self.toks, j, b'{') || is_punct(&self.toks, j, b'=') {
+                        last = None;
+                        break;
+                    }
+                    j += 1;
+                }
+                if let Some(n) = last {
+                    let kind = if self.in_type() { Kind::Method } else { Kind::Fn };
+                    self.start_fn(&n, kind);
+                    return j;
+                }
+            }
+            b"val" if i > 0 && self.word(i - 1) == b"const" => {
+                if let Some(n) = name {
+                    let parent = self.owner();
+                    let def = self.record(&n, Kind::Const, parent);
+                    self.pending = Some(BPending { def, kind: Bk::Other, paren: self.paren, line: n.line });
+                    return i + 2;
+                }
+            }
+            _ => {}
+        }
+        i + 1
+    }
+
+    fn swift(&mut self, i: usize, word: &[u8]) -> usize {
+        if self.fn_depth > 0 {
+            return i + 1;
+        }
+        let name = self.toks.get(i + 1).copied().filter(|t| t.t == T::Ident);
+        match word {
+            b"class" | b"struct" | b"enum" | b"protocol" | b"actor" => {
+                if let Some(n) = name {
+                    let kind = match word {
+                        b"struct" => Kind::Struct,
+                        b"enum" => Kind::Enum,
+                        b"protocol" => Kind::Interface,
+                        _ => Kind::Class,
+                    };
+                    let text = name_of(self.src, &n);
+                    self.start_type(&n, kind, Bk::Type(text));
+                    return i + 2;
+                }
+            }
+            b"extension" => {
+                if let Some(n) = name {
+                    let text = name_of(self.src, &n);
+                    self.pending = Some(BPending { def: None, kind: Bk::Type(text), paren: self.paren, line: n.line });
+                    return i + 2;
+                }
+            }
+            b"typealias" => {
+                if let Some(n) = name {
+                    self.start_type(&n, Kind::Type, Bk::Other);
+                    return i + 2;
+                }
+            }
+            b"func" => {
+                if let Some(n) = name {
+                    let kind = if self.in_type() { Kind::Method } else { Kind::Fn };
+                    self.start_fn(&n, kind);
+                    return i + 2;
+                }
+            }
+            _ => {}
+        }
+        i + 1
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Shell
+// ---------------------------------------------------------------------------------------------
+
+/// The braces of a line of shell that are not inside a quote.
+fn shell_braces(line: &str) -> i32 {
+    let mut depth = 0i32;
+    let mut quote = 0u8;
+    let b = line.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if quote != 0 {
+            if c == b'\\' && quote == b'"' {
+                i += 1;
+            } else if c == quote {
+                quote = 0;
+            }
+        } else {
+            match c {
+                b'"' | b'\'' => quote = c,
+                b'#' if i == 0 || b[i - 1] == b' ' || b[i - 1] == b'\t' => break,
+                b'{' => depth += 1,
+                b'}' => depth -= 1,
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    depth
+}
+
+fn scan_shell(src: &[u8], caps: &ScanCaps) -> (Vec<RawDef>, Vec<String>) {
+    let text = String::from_utf8_lossy(src);
+    let mut out: Vec<RawDef> = Vec::new();
+    let mut imports: Vec<String> = Vec::new();
+    let mut open: Option<(usize, i32)> = None;
+    for (n, line) in text.lines().enumerate() {
+        if out.len() >= caps.max_defs {
+            break;
+        }
+        let line_no = u32::try_from(n + 1).unwrap_or(u32::MAX);
+        let t = line.trim_start();
+        if t.starts_with('#') {
+            continue;
+        }
+        if let Some((def, depth)) = open.as_mut() {
+            *depth += shell_braces(line);
+            if *depth <= 0 {
+                out[*def].lines = line_no.saturating_sub(out[*def].line) + 1;
+                open = None;
+            }
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("source ").or_else(|| t.strip_prefix(". ")) {
+            let path = rest.split_whitespace().next().unwrap_or("").trim_matches(|c| c == '"' || c == '\'');
+            if !path.is_empty() && path.len() <= MAX_IMPORT_CHARS && imports.len() < caps.max_imports {
+                imports.push(path.to_string());
+            }
+            continue;
+        }
+        let (had_keyword, rest) = t.strip_prefix("function ").map_or((false, t), |r| (true, r.trim_start()));
+        let end = rest.find(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'))).unwrap_or(rest.len());
+        let (name, after) = rest.split_at(end);
+        let after = after.trim_start();
+        let defined = !name.is_empty() && (had_keyword || after.starts_with("()")) && (after.is_empty() || after.starts_with('(') || after.starts_with('{'));
+        if !defined {
+            continue;
+        }
+        out.push(RawDef { name: name.to_string(), kind: Kind::Fn, vis: Vis::Public, test: false, line: line_no, lines: 1, parent: None });
+        let depth = shell_braces(after);
+        if depth > 0 {
+            open = Some((out.len() - 1, depth));
+        }
+    }
+    if let Some((def, _)) = open {
+        let total = u32::try_from(text.lines().count()).unwrap_or(u32::MAX);
+        out[def].lines = total.saturating_sub(out[def].line) + 1;
+    }
+    (out, imports)
+}
+
+// ---------------------------------------------------------------------------------------------
 // Python
 // ---------------------------------------------------------------------------------------------
 
@@ -1763,3 +2663,7 @@ fn find_triple(bytes: &[u8], from: usize, pat: &[u8; 3]) -> Option<usize> {
 #[cfg(test)]
 #[path = "symbols_scan_test.rs"]
 mod symbols_scan_test;
+
+#[cfg(test)]
+#[path = "symbols_scan_more_test.rs"]
+mod symbols_scan_more_test;
