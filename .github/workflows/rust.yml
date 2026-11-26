@@ -905,6 +905,18 @@ jobs:
           cargo test -p AzCompanion --lib --no-fail-fast 2>&1 | tee azul-companion-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-companion-tests.txt
 
+      # The transport tests of the phone companion over the REAL iroh engine: a host and a phone client of azul-review-link
+      # talking through the libazul built above (its shipped feature set carries iroh). With AZ_REQUIRE_IROH_ENGINE=1 a libazul
+      # without the engine fails them instead of skipping them.
+      - name: Run azul-review-link transport tests (real iroh engine)
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+          AZ_REQUIRE_IROH_ENGINE: "1"
+        run: |
+          set -o pipefail
+          cargo test -p azul-review-link --lib --features link-dynamic --no-fail-fast 2>&1 | tee azul-review-link-transport-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-review-link-transport-tests.txt
+
       - name: Run azul-calendar-core tests
         run: |
           set -o pipefail
