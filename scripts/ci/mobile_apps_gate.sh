@@ -31,7 +31,13 @@ run layout_tests cargo test -p azul-layout --test all -- safe_area_inset azul_wi
 
 # 2. the engine through the headless shell: RED (the guard out), then GREEN
 file=dll/src/desktop/shell2/common/layout.rs
-sed -i -e '/^[[:space:]]*&& !safe_area_moved_precheck[[:space:]]*$/d' -e 's/ && !safe_area_moved_precheck//' "$file"
+sed -i 's/let safe_area_moved_precheck = layout_window.safe_area_moved_since_layout(current_window_state);/let safe_area_moved_precheck = false;/' "$file"
+if git diff --quiet -- "$file"; then
+  echo "the RED step could not take the guard out of $file: the line it looks for is gone"
+  red_setup=1
+else
+  red_setup=0
+fi
 run red_safe_area_without_the_guard cargo test -p azul-dll --features build-dll --test headless_safe_area_moved
 git checkout -q -- "$file"
 run green_dll_tests cargo test -p azul-dll --features build-dll --test headless_safe_area_moved --test localization_headless --test android_language_contract
@@ -39,15 +45,19 @@ run green_dll_tests cargo test -p azul-dll --features build-dll --test headless_
 # 3. lints of the three engine crates, as the CI's second clippy step runs them
 run clippy cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --features "$features" -- -D warnings
 
-# 4. the apps over the C ABI, against the library of this tree
+# 4. the apps over the C ABI, against the library of this tree (a copy of it in a folder of its own, as the CI's
+#    lib tests do: they link-dynamic against that file)
 run cabi_build cargo build -p azul-dll --features build-dll
-export AZ_LINK_PATH="$PWD/target/debug"
-run appkit_tests cargo test -p azul-appkit --features azul
-run azpaint_tests cargo test -p AzPaint --lib
-run azmaps_tests cargo test -p AzMaps --lib
-run azmeet_tests cargo test -p AzMeet --lib
-run azwriter_tests cargo test -p AzWriter --lib
-run azwidgets_tests cargo test -p AzWidgets --lib
+cabi_dir="$(mktemp -d)"
+cp target/debug/libazul.so "$cabi_dir/"
+export AZ_LINK_PATH="$cabi_dir"
+run cabi_exports bash -c 'nm -D "$AZ_LINK_PATH/libazul.so" | grep -q " T AzU8Vec_delete"'
+run appkit_tests cargo test -p azul-appkit --features azul --no-fail-fast
+run azpaint_tests cargo test -p AzPaint --lib --no-fail-fast
+run azmaps_tests cargo test -p AzMaps --lib --no-fail-fast
+run azmeet_tests cargo test -p AzMeet --lib --no-fail-fast
+run azwriter_tests cargo test -p AzWriter --lib --no-fail-fast
+run azwidgets_tests cargo test -p AzWidgets --lib --no-fail-fast
 
 # 5. the Android shell compiles for a phone
 run android_check bash scripts/ci/android_check.sh
@@ -70,6 +80,7 @@ for name in "${order[@]}"; do
   code="${exit_of[$name]}"
   echo "STEP $name $code"
   if [ "$name" = "red_safe_area_without_the_guard" ]; then
+    [ "$red_setup" -eq 0 ] || { echo "the RED step ran on an unchanged file"; bad=1; }
     [ "$code" -ne 0 ] || { echo "the RED step passed: the test does not see the bug"; bad=1; }
   else
     [ "$code" -eq 0 ] || bad=1
