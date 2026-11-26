@@ -498,7 +498,7 @@ impl BuilderDocument {
                 return Err(format!("the format is {f:?}, not {DOCUMENT_FORMAT:?}"));
             }
         }
-        let stylesheet = match v.get("root").and(v.get("stylesheet")) {
+        let stylesheet = match v.get("root").and_then(|_| v.get("stylesheet")) {
             None | Some(serde_json::Value::Null) => String::new(),
             Some(serde_json::Value::String(s)) => s.clone(),
             Some(_) => return Err("`stylesheet` must be a string".to_string()),
@@ -842,10 +842,7 @@ impl BuilderDocument {
     /// Replace the whole document - tree and stylesheet - by `loaded` (a
     /// file read back, `builder_load_document`): ONE undo step, unlike a
     /// project load, which starts a history. The new nodes take fresh uids.
-    ///
-    /// # Errors
-    /// None today; `Result` for [`BuilderSession::edit`].
-    pub(super) fn replace_with(&mut self, loaded: Self) -> Result<(), String> {
+    pub(super) fn replace_with(&mut self, loaded: Self) {
         let Self {
             mut root,
             stylesheet,
@@ -858,7 +855,6 @@ impl BuilderDocument {
         root.uid = ROOT_UID;
         self.root = root;
         self.stylesheet = stylesheet;
-        Ok(())
     }
 
     /// Replace the subtree at `uid` by an instance of `library:name`, keeping
@@ -1194,14 +1190,19 @@ impl BuilderSession {
     /// `builder_load_document`: `loaded` replaces the document as one edit.
     ///
     /// # Errors
-    /// See [`BuilderDocument::replace_with`].
+    /// None today; the `Result` is [`BuilderSession::edit`]'s.
     pub(super) fn replace_document(
         &mut self,
         live: Option<&StyledDom>,
         map: &ComponentMap,
         loaded: BuilderDocument,
     ) -> Result<BuilderReply, String> {
-        Ok(self.edit(live, map, |doc| doc.replace_with(loaded))?.1)
+        Ok(self
+            .edit(live, map, |doc| {
+                doc.replace_with(loaded);
+                Ok(())
+            })?
+            .1)
     }
 
     /// `builder_undo`.
@@ -2061,14 +2062,14 @@ pub(super) fn substitute(template: &str, args: &BTreeMap<String, String>) -> Str
     while let Some(pos) = rest.find(['{', '}']) {
         out.push_str(&rest[..pos]);
         let tail = &rest[pos..];
-        if tail.starts_with("{{") {
+        if let Some(after) = tail.strip_prefix("{{") {
             out.push('{');
-            rest = &tail[2..];
+            rest = after;
             continue;
         }
-        if tail.starts_with("}}") {
+        if let Some(after) = tail.strip_prefix("}}") {
             out.push('}');
-            rest = &tail[2..];
+            rest = after;
             continue;
         }
         if tail.starts_with('{') {
@@ -2123,7 +2124,7 @@ impl Inference {
         if !self.params.iter().any(|p| p.name == base) {
             return base.to_string();
         }
-        (2..)
+        (2..=u32::MAX)
             .map(|n| format!("{base}_{n}"))
             .find(|c| !self.params.iter().any(|p| &p.name == c))
             .unwrap_or_else(|| base.to_string())
@@ -3407,7 +3408,7 @@ mod tests {
             .expect("p");
         other.set_stylesheet("div { }").expect("sheet");
         let loaded = BuilderDocument::from_file_json(&other.to_file_json()).expect("reads");
-        doc.replace_with(loaded).expect("replace");
+        doc.replace_with(loaded);
         assert_eq!(kids(&doc, 0), vec![4], "fresh uids after 1..3");
         assert_eq!(kids(&doc, 4), vec![5]);
         assert_eq!(doc.stylesheet, "div { }");

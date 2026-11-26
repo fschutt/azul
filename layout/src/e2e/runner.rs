@@ -63,6 +63,8 @@ use azul_css::system::DarkLightMode;
 
 // ── Headless window scaffolding ──────────────────────────────────────────────
 
+// The flags (`resize_pending`, `dpi_pending`, ...) are independent notes the host leaves for the next service pass.
+#[allow(clippy::struct_excessive_bools)]
 struct Runner {
     layout_window: LayoutWindow,
     renderer_resources: RendererResources,
@@ -243,7 +245,7 @@ impl Runner {
     /// `ref_data` and the transient locals it borrows are dropped when `f`
     /// returns, releasing the borrow so the caller can relayout.
     fn with_callback_info<R>(
-        &mut self,
+        &self,
         changes: &Arc<Mutex<Vec<CallbackChange>>>,
         f: impl FnOnce(&mut CallbackInfo) -> R,
     ) -> R {
@@ -890,15 +892,16 @@ impl Runner {
                 let now = self.now();
                 let event = self.layout_window.webviews.begin_report(&report, &now);
                 let dispatched = event.is_some();
-                let mut prevented = false;
-                if let Some(event) = event {
+                let prevented = if let Some(event) = event {
                     let (r, update, any_prevented, _) = self.dispatch_events_propagated(&[event]);
                     result = result.max(r);
                     if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
                         result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
                     }
-                    prevented = any_prevented;
-                }
+                    any_prevented
+                } else {
+                    false
+                };
                 let allowed = self
                     .layout_window
                     .webviews
@@ -1494,14 +1497,13 @@ impl Runner {
             .forget_queued_scroll_input();
         self.layout_window.scroll_manager.pending_wheel_event = None;
 
-        let mut should_recurse = false;
-        if matches!(
+        let should_recurse = matches!(
             callback_update,
             azul_core::callbacks::Update::RefreshDom
                 | azul_core::callbacks::Update::RefreshDomAllWindows
-        ) {
+        );
+        if should_recurse {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-            should_recurse = true;
         }
 
         // ── 3b. POST-CALLBACK TEXT INPUT ─────────────────────────────────
@@ -1660,16 +1662,17 @@ impl Runner {
         // single Tab walked the focus ring MAX_EVENT_RECURSION_DEPTH times and
         // set `hit_depth_cap` on every key press (it only produced the right
         // answer because 7 steps over 3 focusables is a net +1).
-        let mut default_action_focus_changed = false;
-        if !prevent_default
+        let default_action_focus_changed = if !prevent_default
             && synthetic_events
                 .iter()
                 .any(|e| e.event_type == azul_core::events::EventType::KeyDown)
         {
             let (r, changed) = self.run_keyboard_default_action(&synthetic_events);
             result = result.max(r);
-            default_action_focus_changed = changed;
-        }
+            changed
+        } else {
+            false
+        };
 
         // ── 6. FOCUS EVENTS + RE-ENTRY ───────────────────────────────────
         if (default_action_focus_changed || mouse_click_focus_changed)
@@ -3683,7 +3686,7 @@ impl Runner {
                 if recorded.is_some() && !lw.timers.contains_key(&SCROLL_MOMENTUM_TIMER_ID) {
                     use crate::{
                         scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState},
-                        timer::{Timer, TimerCallbackType},
+                        timer::Timer,
                     };
                     let physics = lw
                         .system_style
@@ -3695,7 +3698,7 @@ impl Runner {
                         ScrollPhysicsState::new(lw.scroll_manager.get_input_queue(), physics);
                     let timer = Timer::create(
                         RefAny::new(state),
-                        scroll_physics_timer_callback as TimerCallbackType,
+                        scroll_physics_timer_callback,
                         self.system_callbacks.get_system_time_fn,
                     )
                     .with_interval(azul_core::task::Duration::System(

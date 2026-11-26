@@ -486,6 +486,9 @@ impl ProjectSession {
         builder.set_project_stylesheet(map, css)
     }
 
+    // `lower` is `norm` with its case folded on the first line: the suffix tests are case-blind already,
+    // and `Path::extension` would answer differently for a file named `.css`.
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
     fn apply_written(
         &self,
         norm: &str,

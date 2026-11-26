@@ -42,19 +42,20 @@ fn write(path: &Path, contents: &str) {
 }
 
 fn ctx(dark: bool, chain: &[&str]) -> DynamicSelectorContext {
-    let mut ctx = DynamicSelectorContext::default();
-    ctx.mode = if dark {
-        azul_css::system::DarkLightMode::Dark
-    } else {
-        azul_css::system::DarkLightMode::Light
-    };
-    ctx.theme_chain = azul_css::StringVec::from_vec(
-        chain
-            .iter()
-            .map(|t| azul_css::AzString::from((*t).to_string()))
-            .collect(),
-    );
-    ctx
+    DynamicSelectorContext {
+        mode: if dark {
+            azul_css::system::DarkLightMode::Dark
+        } else {
+            azul_css::system::DarkLightMode::Light
+        },
+        theme_chain: azul_css::StringVec::from_vec(
+            chain
+                .iter()
+                .map(|t| azul_css::AzString::from((*t).to_string()))
+                .collect(),
+        ),
+        ..DynamicSelectorContext::default()
+    }
 }
 
 /// The SVG a spec is drawn as under `ctx`, if a rule (or a registration)

@@ -245,6 +245,8 @@ pub enum FontStyle {
 
 /// The colour a line of a [`TextDecoration`] is painted in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+// A node id (8 bytes) beside a 4-byte colour: the whole enum is 16 bytes, and a `Box` would cost more.
+#[allow(variant_size_differences)]
 pub enum DecorationColor {
     /// The colour of the text the line crosses: a line that no box of a document sets (the
     /// editor's, the composition of an input method) and the text API's.

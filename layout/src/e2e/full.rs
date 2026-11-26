@@ -153,6 +153,7 @@ fn continuation_blocked(
 
 /// Request from HTTP thread to timer callback
 #[cfg(feature = "std")]
+#[derive(Debug)]
 pub struct DebugRequest {
     pub request_id: u64,
     pub event: DebugEvent,
@@ -175,7 +176,7 @@ pub struct DebugRequest {
 
 /// Where a debug request goes ([`route_debug_request`]).
 #[cfg(feature = "std")]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DebugRoute {
     /// This window serves it.
     Mine,
@@ -685,8 +686,10 @@ pub enum ResponseData {
     CursorState(CursorStateResponse),
     /// E2E test results
     E2eResults(E2eResultsResponse),
-    /// Per-frame damage + frame-work counters (`get_frame_report`)
-    FrameReport(FrameReportResponse),
+    /// Per-frame damage + frame-work counters (`get_frame_report`). Boxed: it is
+    /// by far the largest payload (about 1 KB), and every response carries the room
+    /// of the largest.
+    FrameReport(Box<FrameReportResponse>),
     /// Node inserted result (returns new `node_id`)
     NodeInserted(NodeInsertedResponse),
     /// Node deleted result
@@ -725,7 +728,7 @@ pub enum ResponseData {
 
 /// Response for `get_mode` / `set_mode`: the app's light / dark mode.
 #[cfg(feature = "std")]
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct ModeResponse {
     /// The app's CHOICE: `"system"` (follows the desktop), `"light"` or
     /// `"dark"` (pinned).
@@ -5083,6 +5086,8 @@ pub enum SwipeDir {
 
 #[derive(Debug, Clone, Copy, Default)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+// The four modifier keys of the wire format (`shift`, `ctrl`, `alt`, `meta`): independent keys, not one state.
+#[allow(clippy::struct_excessive_bools)]
 pub struct Modifiers {
     #[serde(default)]
     pub shift: bool,
@@ -5761,14 +5766,16 @@ fn run_project_op(
         let platform = &layout_window.settings.services.platform;
         let mut guard = scratch(callback_info);
         let s = &mut *guard;
-        super::project::handle(
+        let outcome = super::project::handle(
             op,
             &mut s.project,
             &mut s.builder,
             &mut map_guard,
             live,
             platform,
-        )
+        );
+        drop(guard);
+        outcome
     };
     finish_builder_op(request, callback_info, result)
 }
@@ -5777,6 +5784,8 @@ fn run_project_op(
 /// the builder took the window over) what the window shows — and the
 /// component map. Locks the map, then the scratch (the builder ops' order).
 #[cfg(feature = "std")]
+// `doc` borrows from the scratch guard and `f` reads it: the guard cannot be dropped before the call.
+#[allow(clippy::significant_drop_tightening)]
 fn with_export_document<R>(
     callback_info: &azul_layout::callbacks::CallbackInfo,
     component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
@@ -6114,6 +6123,15 @@ pub struct DebugServerHandle {
     /// The sender side of the spmc channel.
     /// HTTP thread and `queue_e2e_tests` use this to push `DebugRequest`s.
     pub request_tx: Arc<Mutex<spmc::Sender<DebugRequest>>>,
+}
+
+#[cfg(feature = "std")]
+#[cfg(feature = "e2e-server")]
+impl core::fmt::Debug for DebugServerHandle {
+    /// The channels and the thread handle say nothing worth printing: the port is the handle's name.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DebugServerHandle").field("port", &self.port).finish_non_exhaustive()
+    }
 }
 
 #[cfg(feature = "std")]
@@ -9239,46 +9257,10 @@ fn reject_unknown_params(
     None
 }
 
-/// `assert_damage`: the raw predicate over the last frame's damage.
-///
-/// Parameters:
-/// - `which`: `"paint"` (default) or `"present"`
-/// - `frame`: `"last"` to look at the last frame instead of the accumulation
-/// - `kind`: `"none"` | `"rects"` | `"full"` — exact damage kind
-/// - `min_rects` / `max_rects`: bounds on the rect count
-/// - `max_area_ratio`: damaged area / window area upper bound
-///
-/// AT LEAST ONE of `kind` / `min_rects` / `max_rects` / `max_area_ratio` is
-/// REQUIRED, and an unrecognised key is an error. Every constraint used to be
-/// matched with `if let Some(..)`, so a step with none of them — or with ONE
-/// TYPO (`max_area` instead of `max_area_ratio`) — fell straight through to
-/// `pass`. Against a generated corpus that is a false-green factory: the typo'd
-/// test asserts nothing and counts as coverage.
-#[cfg(feature = "std")]
-/// `assert_stderr` — assert on the framework DIAGNOSTICS emitted so far.
-///
-/// ```json
-/// { "op": "assert_stderr", "not_contains": "image-churn" }
-/// { "op": "assert_stderr", "contains": "image-churn", "clear": true }
-/// ```
-///
-/// Reads `azul_core::diagnostics`, the in-process ring every engine lint writes
-/// to through `diagnostics::emit`. Not literal stderr: a process cannot read
-/// back its own file descriptor, and capturing one would not survive an
-/// application that has routed diagnostics to its own logger. The ring records
-/// regardless of where the sink sends them, so this keeps working when output
-/// is muted or shipped to Loki.
-///
-/// `clear` empties the ring AFTER evaluating, so the next step starts from a
-/// known state — otherwise a warning from step 2 satisfies an assertion in
-/// step 9.
-///
-/// The point of `not_contains` is regression pressure: a scenario that provokes
-/// the conditions of a lint and asserts the lint stays quiet is a test that the
-/// underlying bug has not come back.
 // ==================== Resumable-API mock store (the `mock` op) ====================
 
 /// Decodes standard or URL-safe base64 (padding optional).
+#[cfg(feature = "std")]
 fn e2e_b64_decode(input: &str) -> Option<Vec<u8>> {
     fn val(c: u8) -> Option<u32> {
         Some(match c {
@@ -9825,6 +9807,27 @@ fn eval_assert_unmocked_request(params: &serde_json::Value) -> AssertionResult {
     }
 }
 
+/// `assert_stderr` — assert on the framework DIAGNOSTICS emitted so far.
+///
+/// ```json
+/// { "op": "assert_stderr", "not_contains": "image-churn" }
+/// { "op": "assert_stderr", "contains": "image-churn", "clear": true }
+/// ```
+///
+/// Reads `azul_core::diagnostics`, the in-process ring every engine lint writes
+/// to through `diagnostics::emit`. Not literal stderr: a process cannot read
+/// back its own file descriptor, and capturing one would not survive an
+/// application that has routed diagnostics to its own logger. The ring records
+/// regardless of where the sink sends them, so this keeps working when output
+/// is muted or shipped to Loki.
+///
+/// `clear` empties the ring AFTER evaluating, so the next step starts from a
+/// known state — otherwise a warning from step 2 satisfies an assertion in
+/// step 9.
+///
+/// The point of `not_contains` is regression pressure: a scenario that provokes
+/// the conditions of a lint and asserts the lint stays quiet is a test that the
+/// underlying bug has not come back.
 fn eval_assert_stderr(params: &serde_json::Value) -> AssertionResult {
     const CONSTRAINTS: &[&str] = &["contains", "not_contains", "clear"];
 
@@ -9880,6 +9883,21 @@ fn eval_assert_stderr(params: &serde_json::Value) -> AssertionResult {
     result
 }
 
+/// `assert_damage`: the raw predicate over the last frame's damage.
+///
+/// Parameters:
+/// - `which`: `"paint"` (default) or `"present"`
+/// - `frame`: `"last"` to look at the last frame instead of the accumulation
+/// - `kind`: `"none"` | `"rects"` | `"full"` — exact damage kind
+/// - `min_rects` / `max_rects`: bounds on the rect count
+/// - `max_area_ratio`: damaged area / window area upper bound
+///
+/// AT LEAST ONE of `kind` / `min_rects` / `max_rects` / `max_area_ratio` is
+/// REQUIRED, and an unrecognised key is an error. Every constraint used to be
+/// matched with `if let Some(..)`, so a step with none of them — or with ONE
+/// TYPO (`max_area` instead of `max_area_ratio`) — fell straight through to
+/// `pass`. Against a generated corpus that is a false-green factory: the typo'd
+/// test asserts nothing and counts as coverage.
 fn eval_assert_damage(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
@@ -10798,15 +10816,16 @@ fn eval_assert_resource_counts(
 ) -> AssertionResult {
     let current = collect_resource_counts(callback_info.get_layout_window());
     let baseline = match params.get("vs").and_then(|v| v.as_str()) {
-        Some(name) => match scratch(callback_info).resource_snapshots.get(name).cloned() {
-            Some(b) => Some(b),
-            None => {
+        Some(name) => {
+            let found = scratch(callback_info).resource_snapshots.get(name).cloned();
+            if found.is_none() {
                 return AssertionResult::fail(format!(
                     "assert_resource_counts: no resource snapshot named '{name}' (use \
                      snapshot_resources first)"
-                ))
+                ));
             }
-        },
+            found
+        }
         None => None,
     };
 
@@ -13497,6 +13516,8 @@ fn eval_assert_only_managers_changed(
 /// One sample of the manager state, taken by the step loop before every step.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+// One flag per manager state the stages are read from: they are independent facts, not one state.
+#[allow(clippy::struct_excessive_bools)]
 struct CompositionSample {
     drag_active: bool,
     scroll_animating: bool,
@@ -13568,6 +13589,8 @@ pub(crate) fn e2e_reset_composition_trace(callback_info: &azul_layout::callbacks
 /// loop in `resume_e2e_continuation` before each step, so the sample observes the
 /// PREVIOUS step's effects after the shell serviced them.
 #[cfg(feature = "std")]
+// `trace` borrows from the scratch guard to the last line: the guard cannot be dropped earlier.
+#[allow(clippy::significant_drop_tightening)]
 fn e2e_record_composition_sample(
     step_index: usize,
     callback_info: &azul_layout::callbacks::CallbackInfo,
@@ -14259,8 +14282,7 @@ fn eval_assert_damage_sound(
         }
 
         // ---- (4) PIXEL IDENTITY (opt-in) ------------------------------------
-        let mut identity = String::new();
-        if params
+        let identity = if params
             .get("pixel_identity")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false)
@@ -14328,8 +14350,10 @@ fn eval_assert_damage_sound(
                     ),
                 );
             }
-            identity = String::from(", pixel-identical to a full repaint");
-        }
+            String::from(", pixel-identical to a full repaint")
+        } else {
+            String::new()
+        };
 
         let across = if resized {
             format!(
@@ -15843,6 +15867,8 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
     {
         use std::ffi::CStr;
 
+        // The fields of C's `Dl_info`, under its names.
+        #[allow(clippy::struct_field_names)]
         #[repr(C)]
         struct DlInfo {
             dli_fname: *const std::os::raw::c_char,
@@ -16383,15 +16409,15 @@ fn parse_json_to_default_value(
             other => Err(format!("expected f64, got {other}")),
         },
         ComponentFieldType::ColorU => match val {
-            serde_json::Value::String(s) => {
-                let hex = s.strip_prefix('#').unwrap_or(s.as_str());
+            serde_json::Value::String(text) => {
+                let hex = text.strip_prefix('#').unwrap_or(text.as_str());
                 if hex.len() >= 6 {
                     let r = u8::from_str_radix(&hex[0..2], 16)
-                        .map_err(|_| format!("invalid color: {s}"))?;
+                        .map_err(|_| format!("invalid color: {text}"))?;
                     let g = u8::from_str_radix(&hex[2..4], 16)
-                        .map_err(|_| format!("invalid color: {s}"))?;
+                        .map_err(|_| format!("invalid color: {text}"))?;
                     let b = u8::from_str_radix(&hex[4..6], 16)
-                        .map_err(|_| format!("invalid color: {s}"))?;
+                        .map_err(|_| format!("invalid color: {text}"))?;
                     let a = if hex.len() >= 8 {
                         u8::from_str_radix(&hex[6..8], 16).unwrap_or(255)
                     } else {
@@ -16401,7 +16427,7 @@ fn parse_json_to_default_value(
                         azul_css::props::basic::color::ColorU { r, g, b, a },
                     ))
                 } else {
-                    Err(format!("expected #RRGGBB[AA], got \"{s}\""))
+                    Err(format!("expected #RRGGBB[AA], got \"{text}\""))
                 }
             }
             other => Err(format!("expected color string (#RRGGBB), got {other}")),
@@ -17100,42 +17126,6 @@ extern "C" fn e2e_tick_timer_callback(
     }
 }
 
-/// Process a single debug event
-///
-/// # An INPUT op must never set `needs_update`
-///
-/// `needs_update` is the step loop's "the application asked for a DOM rebuild"
-/// flag: the debug timer turns it into `Update::RefreshDom`, which the event
-/// loop answers with an unconditional `regenerate_layout()` — a full DOM
-/// rebuild and a full repaint, taken REGARDLESS of what the engine's own
-/// event-determination / invalidation pipeline decided.
-///
-/// For an op whose whole job is to deliver input that is a false-evidence
-/// factory, in both directions:
-///
-/// * It MANUFACTURES the damage the test then measures. Delete the engine's `:hover` invalidation
-///   path entirely and a `mouse_move` still repaints the window, still resolves `:hover` during the
-///   rebuild and still reports non-empty damage — so `assert_changed` goes green against an engine
-///   that does not invalidate anything.
-/// * It makes `dom_regenerations >= 1` unconditionally, so no test can ever assert that an inert
-///   event costs zero DOM regenerations.
-///
-/// This is the same defect `tick_ms` had (fixed in b44cb702b): the harness was
-/// the work it was measuring. `Scroll` / `KeyDown` / `KeyUp` / `TextInput` /
-/// `Focus` / `Blur` / `Move` were already written this way and carry an
-/// explicit "do NOT set `needs_update`" note each; every pointer, touch, pen,
-/// gesture, resize and DPI arm now follows the same model.
-///
-/// The engine still decides — and still regenerates where it should:
-/// `modify_window_state` pushes `CallbackChange::ModifyWindowState`, whose
-/// handler runs the state-diff pass when something actually changed and sets
-/// `resize_pending` for a size/DPI delta (which the runner turns into
-/// `ShouldRegenerateDomCurrentWindow` on its own, exactly as
-/// `request_regeneration` does in the real shell).
-///
-/// `mount` / `unmount` / `remount` / `set_app_state` / `update_component` DO
-/// still set it: those are the ops that legitimately mean "rebuild the DOM".
-#[cfg(feature = "std")]
 /// Parse one op (`{"op": "...", ...}`) the way the dispatcher takes it.
 ///
 /// An op name no engine op has becomes [`DebugEvent::CustomOp`] with the
@@ -17231,6 +17221,42 @@ fn custom_op_is_pending(response: &CustomOpResponse) -> bool {
         == Some(true)
 }
 
+/// Process a single debug event
+///
+/// # An INPUT op must never set `needs_update`
+///
+/// `needs_update` is the step loop's "the application asked for a DOM rebuild"
+/// flag: the debug timer turns it into `Update::RefreshDom`, which the event
+/// loop answers with an unconditional `regenerate_layout()` — a full DOM
+/// rebuild and a full repaint, taken REGARDLESS of what the engine's own
+/// event-determination / invalidation pipeline decided.
+///
+/// For an op whose whole job is to deliver input that is a false-evidence
+/// factory, in both directions:
+///
+/// * It MANUFACTURES the damage the test then measures. Delete the engine's `:hover` invalidation
+///   path entirely and a `mouse_move` still repaints the window, still resolves `:hover` during the
+///   rebuild and still reports non-empty damage — so `assert_changed` goes green against an engine
+///   that does not invalidate anything.
+/// * It makes `dom_regenerations >= 1` unconditionally, so no test can ever assert that an inert
+///   event costs zero DOM regenerations.
+///
+/// This is the same defect `tick_ms` had (fixed in b44cb702b): the harness was
+/// the work it was measuring. `Scroll` / `KeyDown` / `KeyUp` / `TextInput` /
+/// `Focus` / `Blur` / `Move` were already written this way and carry an
+/// explicit "do NOT set `needs_update`" note each; every pointer, touch, pen,
+/// gesture, resize and DPI arm now follows the same model.
+///
+/// The engine still decides — and still regenerates where it should:
+/// `modify_window_state` pushes `CallbackChange::ModifyWindowState`, whose
+/// handler runs the state-diff pass when something actually changed and sets
+/// `resize_pending` for a size/DPI delta (which the runner turns into
+/// `ShouldRegenerateDomCurrentWindow` on its own, exactly as
+/// `request_regeneration` does in the real shell).
+///
+/// `mount` / `unmount` / `remount` / `set_app_state` / `update_component` DO
+/// still set it: those are the ops that legitimately mean "rebuild the DOM".
+#[cfg(feature = "std")]
 pub fn process_debug_event(
     request: &DebugRequest,
     callback_info: &mut azul_layout::callbacks::CallbackInfo,
@@ -18375,10 +18401,10 @@ fn serve_debug_event(
             send_ok(
                 request,
                 None,
-                Some(ResponseData::FrameReport(build_frame_report_response(
+                Some(ResponseData::FrameReport(Box::new(build_frame_report_response(
                     &report,
                     window_logical_area(callback_info),
-                ))),
+                )))),
             );
         }
 
@@ -23325,12 +23351,10 @@ fn serve_debug_event(
                     "render_fn" => {
                         // For user-defined components, the source is stored; for builtins, return a
                         // description
-                        comp.render_fn_source
-                            .as_ref()
-                            .map(|s| s.as_str().to_string())
-                            .unwrap_or_else(|| {
-                                format!("// Built-in render function for '{name}'")
-                            })
+                        comp.render_fn_source.as_ref().map_or_else(
+                            || format!("// Built-in render function for '{name}'"),
+                            |s| s.as_str().to_string(),
+                        )
                     }
                     // The component as code in any language: the same printers
                     // as "Component → code" (`ComponentDef::codegen`, no
@@ -23583,6 +23607,7 @@ fn serve_debug_event(
                 let guard = scratch(callback_info);
                 let active = guard.builder.is_active();
                 let stylesheet = guard.builder.export_document(live).stylesheet.clone();
+                drop(guard);
                 (active, stylesheet)
             };
             let mut json = super::export::css_rules_json(&stylesheet);
@@ -24085,7 +24110,6 @@ mod screenshot_cache_tests {
         assert_eq!(shoot(&mut cache, 7), "png-7", "same generation, same bytes");
         assert_eq!(shoot(&mut cache, 7), "png-7");
         assert_eq!(shoot(&mut cache, 8), "png-8", "a presented frame captures again");
-        drop(shoot);
         assert_eq!(captures, 2, "three requests at one generation capture once");
     }
 
@@ -24688,7 +24712,7 @@ mod debug_request_wake_tests {
     /// no longer a 4-per-second wake-up of an idle app.
     #[test]
     fn an_idle_debug_server_polls_at_most_every_two_seconds() {
-        assert!(DEBUG_POLL_IDLE_MS >= 2000, "{DEBUG_POLL_IDLE_MS} ms");
+        const { assert!(DEBUG_POLL_IDLE_MS >= 2000, "the idle poll is every two seconds at most") }
     }
 
     /// HEADLESS6 (CAL3 / MAIL2): the window a request is forwarded to must
@@ -25446,9 +25470,9 @@ fn base64_decode_for_shot(input: &str) -> Result<Vec<u8>, ()> {
 mod assert_stderr_tests {
     use super::*;
 
-    /// The diagnostics ring is GLOBAL, so these must not run concurrently —
-    /// one clearing it mid-assert makes another flake. This bit once already:
-    /// the tests passed individually and failed as a group.
+    // The diagnostics ring is GLOBAL, so these must not run concurrently —
+    // one clearing it mid-assert makes another flake. This bit once already:
+    // the tests passed individually and failed as a group.
     // Workspace-wide: see azul_core::diagnostics::test_lock.
 
     /// `assert_stderr` reads the diagnostics ring every engine lint writes to.
@@ -25739,7 +25763,9 @@ mod selection_state_tests {
 
         let state = selection_state(&lw, |_, _| None);
 
-        let reported: Vec<(Option<u64>, Vec<(String, Option<usize>, Option<usize>)>)> = state
+        // (node id, [(selection type, start, end)]) of each selection.
+        type Reported = Vec<(Option<u64>, Vec<(String, Option<usize>, Option<usize>)>)>;
+        let reported: Reported = state
             .selections
             .iter()
             .map(|s| {
