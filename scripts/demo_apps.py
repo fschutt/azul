@@ -390,16 +390,21 @@ def read_libs(dirs):
 def boot_text(r):
     if r is None:
         return None
-    if r.get("alive") and not r.get("fatal"):
+    if "pass" in r:   # the verdict of scripts/ci/smoke_verdict.py: the one pass line
+        if not r["pass"]:
+            return "BOOT FAILED: " + str(r.get("reason") or "no reason given")[:110]
+        text = "boots"
+    elif r.get("alive") and not r.get("fatal"):
         text = "boots" + ("" if r.get("screen_nonblank") else " (blank screen)")
-        exp = r.get("expect")
-        if exp:
-            text += f", \"{exp.get('text')}\" " + ("shown" if exp.get("found") else "NOT SHOWN")
-        tap = r.get("tap")
-        if tap:
-            text += f", \"{tap.get('label')}\" pressed {tap.get('found')}: " + ("fine" if tap.get("alive") and not tap.get("fatal") else "CRASHED")
-        return text
-    return "BOOT FAILED: " + str(r.get("fatal") or "not alive after the wait")[:90]
+    else:
+        return "BOOT FAILED: " + str(r.get("fatal") or "not alive after the wait")[:90]
+    exp = r.get("expect")
+    if exp:
+        text += f", \"{exp.get('text')}\" " + ("shown" if exp.get("found") else "NOT SHOWN")
+    tap = r.get("tap")
+    if tap:
+        text += f", \"{tap.get('label')}\" pressed {tap.get('found')}: " + ("fine" if tap.get("alive") and not tap.get("fatal") else "CRASHED")
+    return text
 
 
 def status(dirs, m=None, extra=None):

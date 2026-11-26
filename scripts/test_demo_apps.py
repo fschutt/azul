@@ -20,6 +20,9 @@ import demo_build  # noqa: E402
 import demo_gate  # noqa: E402
 import demo_icon  # noqa: E402
 import demo_publish  # noqa: E402
+sys.path.insert(0, str(HERE / "ci"))
+import png_compare  # noqa: E402
+import smoke_verdict  # noqa: E402
 
 
 def cargo_json(*artifacts):
@@ -359,6 +362,168 @@ class IconTest(unittest.TestCase):
             demo_icon.main(["ios", "AzMaps", str(root / "app")])
             self.assertTrue((root / "res" / "mipmap-xxxhdpi" / "ic_launcher.png").is_file())
             self.assertTrue((root / "app" / "AppIcon60x60@3x.png").is_file())
+
+
+def synthetic_png(width, height, pixel):
+    """An RGBA PNG (filter 0) of pixel(x, y) -> (r, g, b, a)."""
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    raw = b"".join(b"\x00" + b"".join(bytes(pixel(x, y)) for x in range(width)) for y in range(height))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def home_screen(x, y):          # a wallpaper-like gradient with a row of "icons"
+    if 40 <= y < 60 and (x // 16) % 2 == 0:
+        return (230, 230, 240, 255)
+    return ((x * 3) % 256, (y * 2) % 256, 160, 255)
+
+
+def app_screen(x, y):           # a page: white, with lines of glyph-like marks in grey ramps (anti-aliased edges)
+    if 24 <= y < 136 and y % 9 < 4 and (x * 7 + y * 3) % 23 < 15:
+        v = 40 + (x * 5 + y) % 120
+        return (v, v, v, 255)
+    return (250, 250, 250, 255)
+
+
+def black_window_under_bars(x, y):   # a window that never drew: black, but the system draws its bars over it
+    if y < 8 or y >= 150:
+        v = (x * 13 + y * 5) % 256   # the clock, the icons, the navigation shapes: anti-aliased, many values
+        return (v, v, v, 255)
+    return (0, 0, 0, 255)
+
+
+def white_window_under_bars(x, y):
+    if y < 8 or y >= 150:
+        v = (x * 13 + y * 5) % 256
+        return (v, v, v, 255)
+    return (255, 255, 255, 255)
+
+
+class VerdictTest(unittest.TestCase):
+    def pictures(self, d, after):
+        root = pathlib.Path(d)
+        (root / "home.png").write_bytes(synthetic_png(96, 160, home_screen))
+        (root / "after.png").write_bytes(synthetic_png(96, 160, after))
+        return str(root / "home.png"), str(root / "after.png")
+
+    def verdict(self, d, after, **kw):
+        home, shot = self.pictures(d, after)
+        argv = ["--out", str(pathlib.Path(d) / "result.json"), "--app", "AzX", "--id", "com.azul.AzX", "--alive", kw.get("alive", "1"),
+                "--alive-after", kw.get("alive_after", "1"), "--fatal", kw.get("fatal", ""), "--baseline", home, "--after", shot]
+        if "resumed" in kw:
+            argv += ["--resumed", kw["resumed"]]
+        code = smoke_verdict.main(argv)
+        return code, json.loads((pathlib.Path(d) / "result.json").read_text())
+
+    def test_an_app_that_is_alive_twice_and_drawn_over_the_home_screen_boots(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, app_screen)
+        self.assertEqual(code, 0)
+        self.assertTrue(r["pass"] and r["differs_from_home"] and r["screen_nonblank"])
+
+    def test_the_home_screen_left_behind_is_a_failure_even_though_it_is_not_black(self):
+        # the iOS run of 2026-11-26: the app had died, the screenshot was the home screen, and a "not black" test passed it
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, home_screen)
+        self.assertEqual(code, 1)
+        self.assertFalse(r["pass"])
+        self.assertIn("home screen is still showing", r["reason"])
+        self.assertTrue(r["screen_nonblank"])
+
+    def test_the_clock_of_the_status_bar_does_not_make_a_home_screen_a_different_picture(self):
+        def with_clock(x, y):
+            return (255, 255, 255, 255) if y < 4 and x < 24 else home_screen(x, y)
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, with_clock)
+        self.assertEqual(code, 1)
+        self.assertGreater(r["home_similarity"], 0.985)
+
+    def test_dying_at_the_second_look_is_a_failure_with_its_fatal_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, app_screen, alive_after="0", fatal="SIGABRT")
+        self.assertEqual(code, 1)
+        self.assertIn("second look", r["reason"])
+        self.assertIn("SIGABRT", r["reason"])
+
+    def test_not_alive_at_all_comes_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, app_screen, alive="0", alive_after="0")
+        self.assertEqual(code, 1)
+        self.assertIn("not alive", r["reason"])
+
+    def test_a_flat_colour_is_a_window_that_never_drew(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, lambda x, y: (0, 0, 0, 255))
+        self.assertEqual(code, 1)
+        self.assertIn("flat colour", r["reason"])
+
+    def test_the_system_naming_another_app_as_resumed_fails_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, app_screen, resumed="no")
+        self.assertEqual(code, 1)
+        self.assertIn("launcher is in front", r["reason"])
+
+    def test_a_fatal_line_fails_an_app_that_looks_fine(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, app_screen, fatal="Fatal signal 11")
+        self.assertEqual(code, 1)
+        self.assertIn("Fatal signal 11", r["reason"])
+
+    def test_a_button_that_took_the_app_down_and_a_missing_text_fail_it(self):
+        base = {"alive": True, "alive_after": True, "screen_nonblank": True, "home_similarity": 0.2, "differs_from_home": True}
+        self.assertFalse(smoke_verdict.judge({**base, "tap": {"label": "Try", "alive": False, "fatal": None}})[0])
+        self.assertFalse(smoke_verdict.judge({**base, "expect": {"text": "Connect", "found": False}})[0])
+        self.assertTrue(smoke_verdict.judge({**base, "expect": {"text": "Connect", "found": True}, "tap": {"alive": True}})[0])
+
+    def test_pictures_of_different_sizes_are_different_pictures(self):
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "a.png").write_bytes(synthetic_png(8, 8, home_screen))
+            (pathlib.Path(d) / "b.png").write_bytes(synthetic_png(16, 8, home_screen))
+            self.assertEqual(png_compare.same_fraction(png_compare.decode(str(pathlib.Path(d) / "a.png")),
+                                                       png_compare.decode(str(pathlib.Path(d) / "b.png"))), 0.0)
+
+    def test_a_black_window_under_the_system_bars_is_a_window_that_never_drew(self):
+        # the status bar and the navigation bar are in every screenshot: a picture counted whole is "drawn" because of them
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, black_window_under_bars)
+        self.assertEqual(code, 1)
+        self.assertTrue(r["differs_from_home"])
+        self.assertFalse(r["screen_nonblank"])
+        self.assertIn("flat colour", r["reason"])
+
+    def test_a_white_window_under_the_system_bars_is_a_window_that_never_drew(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, white_window_under_bars)
+        self.assertEqual(code, 1)
+        self.assertIn("flat colour", r["reason"])
+
+    def test_a_little_content_in_the_window_is_enough(self):
+        def one_button(x, y):   # black, with a single grey button: 3 percent of the window
+            return (90, 90, 90, 255) if 60 <= y < 70 and 20 <= x < 76 else (0, 0, 0, 255)
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, one_button)
+        self.assertEqual(code, 0)
+        self.assertTrue(r["screen_nonblank"])
+
+    def test_a_screenshot_that_was_never_taken_or_cannot_be_read_says_so(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "home.png").write_bytes(synthetic_png(96, 160, home_screen))
+            base = ["--out", str(root / "r.json"), "--app", "AzX", "--alive", "1", "--alive-after", "1"]
+            self.assertEqual(smoke_verdict.main(base + ["--baseline", str(root / "home.png"), "--after", str(root / "none.png")]), 1)
+            self.assertIn("no screenshot", json.loads((root / "r.json").read_text())["reason"])
+            (root / "torn.png").write_bytes(synthetic_png(96, 160, app_screen)[:200])   # cut off, as a hiccup of the emulator does
+            self.assertEqual(smoke_verdict.main(base + ["--baseline", str(root / "home.png"), "--after", str(root / "torn.png")]), 1)
+            self.assertIn("cannot be read", json.loads((root / "r.json").read_text())["reason"])
+
+    def test_the_status_text_of_a_failed_boot_carries_the_reason(self):
+        text = demo_apps.boot_text({"pass": False, "reason": "the home screen is still showing (99.8% of the pixels are the same)"})
+        self.assertTrue(text.startswith("BOOT FAILED: the home screen"))
+        self.assertEqual(demo_apps.boot_text({"pass": True}), "boots")
 
 
 if __name__ == "__main__":
