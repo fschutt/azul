@@ -41,6 +41,7 @@ use super::{
     egl_gles::{DisplayKind, EglApi, EglFailure, EglSession, GlesFunctions},
     egl_pure::{egl_error_name, EglInt, SwapError, EGL_PBUFFER_BIT, EGL_WINDOW_BIT},
     event::CommonWindowState,
+    frame_stats::FrameStats,
     gpu_lifecycle::{Action, Event, GpuLifecycle, Phase, Surface, TrimLevel},
     gpu_renderer::{self, GpuDevice, InitParams},
     gpu_select::{decide, Decision, FailPlan, GpuFallback, GpuRequest, GpuStage, Ran},
@@ -209,6 +210,11 @@ pub struct GlesGpu {
     first_frame_pending: bool,
     /// What the window decided about its renderer.
     decision: Option<Decision>,
+    /// The frames this path presents, measured inside the engine: one `[render] frames n=..` line a second while they come
+    /// one after another (`common::frame_stats`), which is how the phone QA tells the frame times of the two renderers.
+    frame_stats: FrameStats,
+    /// The clock of `frame_stats`: microseconds since the path was made.
+    clock: Instant,
 }
 
 impl std::fmt::Debug for GlesGpu {
@@ -258,6 +264,8 @@ impl GlesGpu {
             renderers_made: 0,
             first_frame_pending: false,
             decision: None,
+            frame_stats: FrameStats::new(),
+            clock: Instant::now(),
         }
     }
 
@@ -675,6 +683,8 @@ impl GlesGpu {
         let size = session.surface_size().unwrap_or(self.size_px);
         let age = session.buffer_age();
         gpu_renderer::render_frame(ctx.common, size, age)?;
+        // What the draw cost the loop's thread: WebRender's commands for the frame, before the swap that may wait for the display.
+        let draw_us = u64::try_from(started.elapsed().as_micros()).ok();
 
         // The damage of the frame, from WebRender, unless the swap must be a full one.
         let damage = if self.full_swap_owed {
@@ -701,6 +711,10 @@ impl GlesGpu {
                 }
                 // A good frame forgives the losses before it.
                 let _ = self.lifecycle.step(Event::FramePresented);
+                let at_us = u64::try_from(self.clock.elapsed().as_micros()).unwrap_or(u64::MAX);
+                if let Some(line) = self.frame_stats.record(at_us, draw_us) {
+                    log_info!(LogCategory::Rendering, "{}", line);
+                }
                 Ok(())
             }
             // The system took the window; `TerminateWindow` is on its way and the next surface gets the next frame.
