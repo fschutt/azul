@@ -2,7 +2,7 @@
 //! conversations a press starts. The simulator and the phone's tests lean on it, so it is held to account.
 
 use super::*;
-use azul_review_link::frame::PairReject;
+use azul_review_link::frame::{Focus, PairReject};
 use azul_review_link::limits::{MAX_BUTTON_TEXT_CHARS, MAX_THUMBNAIL_BYTES};
 use azul_review_link::viewport::{apply_gesture, fit_width, resolve_focus};
 
@@ -398,4 +398,21 @@ fn the_log_keeps_the_newest_lines_and_the_time_of_each() {
     assert_eq!(mac.log.last().map(|l| l.at), Some(LOG_LINES as u64 + 49));
     assert_eq!(mac.log.first().map(|l| l.text.as_str()), Some("line 50"));
     let _ = PairReject::Busy;
+}
+
+#[test]
+fn the_trace_of_a_line_is_one_line_with_the_time_in_seconds_and_the_words_as_they_are_in_the_log() {
+    assert_eq!(trace_line(61_800, "pan end #0  -0.16 +0.00  x1.00"), "[trace] 61.800 pan end #0  -0.16 +0.00  x1.00");
+    assert_eq!(trace_line(0, "x"), "[trace] 0.000 x");
+    assert!(!trace_line(5, "a\nb").contains('\n'), "a line stays one line");
+}
+
+#[test]
+fn a_mac_that_traces_says_its_lines_and_one_that_does_not_keeps_quiet_but_both_keep_the_log() {
+    let mut mac = SimMac::new();
+    assert!(!mac.trace, "silent by default");
+    mac.say(10, "one".into());
+    mac.trace = true;
+    mac.say(20, "two".into());
+    assert_eq!(mac.log.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(), ["one", "two"]);
 }

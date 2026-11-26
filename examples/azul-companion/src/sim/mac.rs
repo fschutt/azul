@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use azul_review_link::frame::{
-    is_safe_relative_path, ButtonSet, Context, Entry, EntryKind, FileState, Focus, Frame, PenMark, PenState, Phase, Rect, Reply, ReplyStatus,
+    is_safe_relative_path, ButtonSet, Context, Entry, EntryKind, FileState, Frame, PenMark, PenState, Phase, Rect, Reply, ReplyStatus,
     Rows, ThumbFormat, Thumbnail, ViewportOp,
 };
 use azul_review_link::limits::{Capped, MAX_ROWS};
@@ -41,6 +41,13 @@ pub struct Conversation {
     pub started: Millis,
     /// How many of the [`STAGES`] the phone has been told.
     pub stage: usize,
+}
+
+/// A line of the log as the trace prints it: the time in seconds, then the words, on one line.
+#[must_use]
+pub fn trace_line(at: Millis, text: &str) -> String {
+    let one_line: String = text.chars().map(|c| if c == '\n' || c == '\r' { ' ' } else { c }).collect();
+    format!("[trace] {:.3} {one_line}", at as f64 / 1000.0)
 }
 
 /// One line of the log.
@@ -81,6 +88,8 @@ pub struct SimMac {
     buttons_sent: bool,
     /// The user marked a region with the pen: the buttons act on it.
     pub armed_region: bool,
+    /// Every line of the log is also printed (for a script that drives the simulator).
+    pub trace: bool,
 }
 
 /// The files and folders of the workspace the simulator browses (a folder's name ends with `/`).
@@ -204,6 +213,7 @@ impl SimMac {
             last_gesture_log: 0,
             buttons_sent: false,
             armed_region: false,
+            trace: false,
         };
         mac.page_count = mac.pages_of(&mac.file);
         mac.page = 2;
@@ -451,6 +461,9 @@ impl SimMac {
 
     /// Writes a line in the log.
     pub fn say(&mut self, now: Millis, text: String) {
+        if self.trace {
+            println!("{}", trace_line(now, &text));
+        }
         self.log.push(LogLine { at: now, text });
         if self.log.len() > LOG_LINES {
             let extra = self.log.len() - LOG_LINES;

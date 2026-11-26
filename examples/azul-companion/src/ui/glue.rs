@@ -63,16 +63,18 @@ pub fn with_action(dom: Dom, filter: HoverEventFilter, root: &RefAny, action: Ac
 
 // ---- the pad
 
-/// Where the pointer is on the pad (its own pixels) and how wide the pad is.
+/// Where the pointer is on the pad (the pad's own layout pixels) and how wide the pad is. The engine answers the cursor local
+/// to the node the callback sits on, and undoes a transform that paints the screen smaller (the simulator's window on a small
+/// screen), so a drag of a given length on the pad is the same drag at every scale.
 fn pad_point(info: &CallbackInfo) -> Option<(f32, f32, f32)> {
-    let cursor = info.get_cursor_position().into_option()?;
+    let local = info.get_cursor_relative_to_node().into_option()?;
     let dom = info.get_hit_node().dom;
     let node = info.get_node_id_by_id_attribute(dom, AzString::from(super::remote::PAD_ID));
     if node.into_raw() == 0 {
         return None;
     }
     let rect = info.get_node_rect(DomNodeId { dom, node }).into_option()?;
-    Some((cursor.x - rect.origin.x, cursor.y - rect.origin.y, rect.size.width))
+    Some((local.x, local.y, rect.size.width))
 }
 
 fn pad_event(mut data: RefAny, mut info: CallbackInfo, make: impl FnOnce(f32, f32) -> PadEvent) -> Update {

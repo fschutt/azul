@@ -2,7 +2,6 @@
 
 use std::sync::{Arc, Mutex};
 
-use azul_review_link::phone::PhoneApi;
 use azul_review_link::view::Session;
 
 use super::super::mac::SimMac;
