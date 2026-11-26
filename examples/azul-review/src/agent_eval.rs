@@ -496,7 +496,7 @@ pub fn request_of(case: &Case) -> ReviewRequest {
             biased: *biased,
         })
         .collect();
-    ReviewRequest {
+    ReviewRequest { symbols: String::new(),
         task: case.task,
         conversation: 1,
         language: "en".to_string(),

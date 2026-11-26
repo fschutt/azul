@@ -47,6 +47,10 @@ extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCal
             s.refresh_rollup();
             changed = true;
         }
+        // How far the symbol index is, at the tree's foot.
+        if s.symbols_line_changed() {
+            changed = true;
+        }
         changed
     };
     // What was seen is kept every so often, not at every page.

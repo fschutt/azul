@@ -112,8 +112,8 @@ fn what_is_heard_is_handed_over_as_it_comes_and_silence_ends_the_session() {
         outs,
         vec![
             Out::Ready,
-            Out::Text("this loop".to_string()),
-            Out::Text("is off by one".to_string()),
+            Out::Text(Said::plain("this loop")),
+            Out::Text(Said::plain("is off by one")),
             Out::Ended(End::Silence),
         ]
     );
@@ -128,7 +128,7 @@ fn heard_text_restarts_the_silence_clock() {
         (1_000, said("late words")),
     ]);
     let outs = run_with(&plan(), &mut listener, &mut clock, None);
-    assert_eq!(outs, vec![Out::Ready, Out::Text("late words".to_string()), Out::Ended(End::Silence)]);
+    assert_eq!(outs, vec![Out::Ready, Out::Text(Said::plain("late words")), Out::Ended(End::Silence)]);
     assert_eq!(clock.now.get(), 5_000 + 8_000);
 }
 
@@ -147,7 +147,7 @@ fn a_stop_ends_the_session_between_two_calls() {
     run(&plan(), &mut listener, &mut clock, &mut || stop.get(), &mut |o| outs.push(o));
     assert_eq!(
         outs,
-        vec![Out::Ready, Out::Text("one".to_string()), Out::Text("two".to_string()), Out::Ended(End::Stopped)],
+        vec![Out::Ready, Out::Text(Said::plain("one")), Out::Text(Said::plain("two")), Out::Ended(End::Stopped)],
         "what was said while the stop was asked for is kept, nothing more is listened for"
     );
     assert_eq!(listener.calls.get(), 2);
@@ -200,14 +200,14 @@ fn a_call_that_took_its_time_is_not_slept_after() {
     let (mut listener, mut clock) = script(vec![(2_000, said("slow"))]);
     let outs = run_with(&plan(), &mut listener, &mut clock, Some(1));
     assert!(clock.slept.is_empty(), "{:?}", clock.slept);
-    assert_eq!(outs, vec![Out::Ready, Out::Text("slow".to_string()), Out::Ended(End::Stopped)]);
+    assert_eq!(outs, vec![Out::Ready, Out::Text(Said::plain("slow")), Out::Ended(End::Stopped)]);
 }
 
 #[test]
 fn blank_text_is_nothing_heard() {
     let (mut listener, mut clock) = script(vec![(1_000, said("   ")), (1_000, said("real"))]);
     let outs = run_with(&plan(), &mut listener, &mut clock, None);
-    assert_eq!(outs[1], Out::Text("real".to_string()), "no empty text is handed over: {outs:?}");
+    assert_eq!(outs[1], Out::Text(Said::plain("real")), "no empty text is handed over: {outs:?}");
     assert_eq!(outs.iter().filter(|o| matches!(o, Out::Text(_))).count(), 1, "{outs:?}");
 }
 
@@ -340,7 +340,7 @@ fn a_listener_that_streams_hands_over_its_state_the_words_so_far_and_each_uttera
             Out::Ready,
             Out::Partial("this".to_string()),
             Out::Partial("this loop".to_string()),
-            Out::Text("this loop is off by one".to_string()),
+            Out::Text(Said::plain("this loop is off by one")),
             Out::State(Mic::Listening),
             Out::Ended(End::Stopped),
         ]
@@ -375,8 +375,8 @@ fn several_utterances_of_one_call_are_each_handed_over_when_they_end_not_when_th
     );
     let texts: Vec<(&Out, u64)> = outs.iter().zip(at.iter().copied()).filter(|(o, _)| matches!(o, Out::Text(_))).collect();
     assert_eq!(texts.len(), 2, "{outs:?}");
-    assert_eq!(texts[0], (&Out::Text("first".to_string()), 1_000), "told when the utterance ended");
-    assert_eq!(texts[1], (&Out::Text("second".to_string()), 2_500));
+    assert_eq!(texts[0], (&Out::Text(Said::plain("first")), 1_000), "told when the utterance ended");
+    assert_eq!(texts[1], (&Out::Text(Said::plain("second")), 2_500));
 }
 
 #[test]
@@ -449,7 +449,7 @@ fn words_that_come_with_the_answer_and_no_final_are_the_text() {
         vec![
             Out::Ready,
             Out::Partial("hello wor".to_string()),
-            Out::Text("hello world".to_string()),
+            Out::Text(Said::plain("hello world")),
             Out::Ended(End::Stopped)
         ]
     );
@@ -497,7 +497,7 @@ fn a_refusal_of_a_streaming_call_is_told_after_what_it_said() {
         outs,
         vec![
             Out::Ready,
-            Out::Text("kept".to_string()),
+            Out::Text(Said::plain("kept")),
             Out::Failed {
                 status: Status::Failed,
                 message: "the microphone went away".to_string()
@@ -514,4 +514,38 @@ fn the_states_of_the_microphone_have_names_a_script_can_read() {
     assert_eq!(Mic::default(), Mic::Cold);
     assert!(Mic::Armed.is_open() && Mic::Listening.is_open());
     assert!(!Mic::Cold.is_open() && !Mic::Warm.is_open(), "the microphone is closed until it is armed");
+}
+
+#[test]
+fn an_utterance_is_handed_over_with_its_words_their_times_and_the_moment_its_call_began() {
+    let words = vec![
+        HeardWord { text: "this".to_string(), start_ms: 40, end_ms: 310, probability: 0.75 },
+        HeardWord { text: "loop".to_string(), start_ms: 330, end_ms: 700, probability: 0.5 },
+    ];
+    let utterance = Heard { words: words.clone(), started_unix_ms: 1_700_000_000_000, recognizer: Recognizer::Scripted, ..said("this loop") };
+    let (mut listener, mut clock) = streaming(vec![call(vec![(0, Event::Ready), (900, Event::Final(utterance))], 50, said("this loop"))]);
+    let outs = run_stream(&plan(), &mut listener, &mut clock, Some(1));
+    let said_out = outs.iter().find_map(|o| if let Out::Text(s) = o { Some(s.clone()) } else { None }).expect("the utterance");
+    assert_eq!(said_out.text, "this loop");
+    assert_eq!(said_out.started_unix_ms, 1_700_000_000_000);
+    assert_eq!(said_out.words, words);
+}
+
+#[test]
+fn a_call_that_cannot_stream_hands_over_its_one_utterance_with_its_words_too() {
+    let words = vec![HeardWord { text: "hello".to_string(), start_ms: 0, end_ms: 400, probability: 0.9 }];
+    let one = Heard { words: words.clone(), started_unix_ms: 42, ..said("hello") };
+    let mut clock = FakeClock { now: Rc::new(Cell::new(0)), slept: Vec::new() };
+    let mut listener = Script { now: clock.now.clone(), answers: VecDeque::from(vec![(100, one)]), calls: Rc::new(Cell::new(0)), meanwhile: None };
+    let calls = listener.calls.clone();
+    let mut outs = Vec::new();
+    run(&plan(), &mut listener, &mut clock, &mut || calls.get() >= 1, &mut |o| outs.push(o));
+    let got = outs.iter().find_map(|o| if let Out::Text(s) = o { Some(s.clone()) } else { None }).expect("the utterance");
+    assert_eq!((got.text.as_str(), got.started_unix_ms, got.words), ("hello", 42, words));
+}
+
+#[test]
+fn a_said_has_a_plain_form_for_what_has_no_words_and_no_time() {
+    let s = Said::plain("  spaced  words ");
+    assert_eq!(s, Said { text: "  spaced  words ".to_string(), started_unix_ms: 0, words: Vec::new() }, "kept as given: the loop trims");
 }

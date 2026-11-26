@@ -303,7 +303,7 @@ fn a_factory_makes_the_backend_when_a_worker_calls_it_and_the_job_runs() {
         Arc::new(w),
     );
     let mut backend = make().expect("made on the worker");
-    let request = Request::Review(ReviewRequest {
+    let request = Request::Review(ReviewRequest { symbols: String::new(),
         task: Task::Editing,
         conversation: 1,
         language: "en".to_string(),
