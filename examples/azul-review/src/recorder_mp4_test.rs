@@ -887,7 +887,7 @@ fn a_fragment_holds_the_picture_and_the_voice_of_the_same_seconds() {
 fn every_sample_of_both_tracks_comes_back_out_of_a_joint_file() {
     let (file, _) = joint_file(6, 60, 33_333, 0);
     let mut voice_tags = Vec::new();
-    let mut pictures = 0;
+    let mut pictures = 0_usize;
     for (runs, media, _) in read_joint(&file) {
         let mut at = 0_usize;
         for (id, _, samples, _) in &runs {
@@ -895,6 +895,13 @@ fn every_sample_of_both_tracks_comes_back_out_of_a_joint_file() {
                 let bytes = &media[at..at + *size as usize];
                 at += *size as usize;
                 if *id == 1 {
+                    let key = pictures % 60 == 0;
+                    let au = if key { keyframe(pictures as u8, 300) } else { delta(pictures as u8, 100) };
+                    assert_eq!(bytes, &annexb_to_avcc(&au).bytes, "picture {pictures}'s bytes");
+                    assert_eq!(*flags, if key { 0x0200_0000 } else { 0x0101_0000 }, "picture {pictures}'s flags");
+                    // (The last picture lasts until the end the file was finished at: 6 s.)
+                    let end = if pictures == 179 { us_to_ticks(6_000_000, 90_000) } else { us_to_ticks((pictures as u64 + 1) * 33_333, 90_000) };
+                    assert_eq!(u64::from(*duration), end - us_to_ticks(pictures as u64 * 33_333, 90_000), "picture {pictures}'s duration");
                     pictures += 1;
                 } else {
                     assert_eq!((*duration, *flags), (960, 0x0200_0000), "a packet of 20 ms and a sync sample");
@@ -965,4 +972,54 @@ fn a_joint_writer_refuses_what_a_single_one_does_and_counts_the_voice_in_its_lim
         closed += usize::from(!w.push_voice(i * 20_000, vec![0xf8; 200]).unwrap().is_empty());
     }
     assert!(closed >= 1 || w.stats().fragments >= 1, "the voice alone fills a fragment");
+}
+
+/// A voice that fills a fragment by itself (the picture has stopped coming) closes it as a run of the voice
+/// alone; the scanner counts that fragment whole and no picture in it.
+///
+/// Mutation: a scanner that reads the first run of a fragment, whichever track it is.
+#[test]
+fn a_voice_that_fills_a_fragment_alone_closes_it_as_a_voice_run_and_holds_no_picture() {
+    let limits = Limits { max_fragment_samples: 10, ..Limits::default() };
+    let (mut w, mut file) = JointWriter::new(video_config(), OpusConfig::mono_48k(), 0, limits);
+    file.extend(w.push_video(0, annexb_to_avcc(&keyframe(0, 300)).bytes, true).unwrap());
+    // Nine voice packets go with the picture; the tenth sample closes the fragment, then voice alone fills the next.
+    for i in 0..25_u64 {
+        file.extend(w.push_voice(i * 20_000, opus_packet(i as u8)).unwrap());
+    }
+    file.extend(w.finish(500_000));
+    let fragments = read_joint(&file);
+    assert!(fragments.len() >= 2, "{}", fragments.len());
+    assert!(fragments.iter().skip(1).all(|f| f.0.iter().map(|r| r.0).collect::<Vec<_>>() == vec![2]), "after the first fragment, runs of the voice alone");
+    let s = scan(&mut Cursor::new(&file)).unwrap();
+    assert_eq!(s.fragments as usize, fragments.len(), "every fragment is whole");
+    assert_eq!(s.samples, 1, "one picture in all");
+    assert!(s.finished);
+}
+
+/// A voice that runs ahead of the pictures (its packets arrive before the picture that is earlier than they are)
+/// waits for the next fragment: the fragment that the next keyframe closes holds only the voice before that picture.
+///
+/// Mutation: the voice that is after the keyframe put in the fragment before it.
+#[test]
+fn a_voice_that_runs_ahead_of_the_pictures_waits_for_the_fragment_after_the_keyframe() {
+    let (mut w, mut file) = JointWriter::new(video_config(), OpusConfig::mono_48k(), 0, Limits::default());
+    // The pictures of the first two seconds, a keyframe at 0.
+    for i in 0..60_u64 {
+        let key = i == 0;
+        let au = if key { keyframe(0, 300) } else { delta(i as u8, 100) };
+        file.extend(w.push_video(i * 33_333, annexb_to_avcc(&au).bytes, key).unwrap());
+    }
+    // The voice is ahead: all of it up to 2.3 s has arrived when the second keyframe (at 2.0 s) does.
+    for i in 0..115_u64 {
+        file.extend(w.push_voice(i * 20_000, opus_packet(i as u8)).unwrap());
+    }
+    file.extend(w.push_video(2_000_000, annexb_to_avcc(&keyframe(60, 300)).bytes, true).unwrap());
+    file.extend(w.push_video(2_033_333, annexb_to_avcc(&delta(61, 100)).bytes, false).unwrap());
+    file.extend(w.finish(2_100_000));
+    let fragments = read_joint(&file);
+    assert_eq!(fragments.len(), 2);
+    assert_eq!(fragments[0].0[1].2.len(), 100, "the voice before 2.0 s");
+    assert_eq!(fragments[1].0[1].2.len(), 15, "the voice after it");
+    assert_eq!(fragments[1].0[1].1, 100 * 960, "begins at 2.0 s");
 }

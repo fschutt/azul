@@ -377,3 +377,172 @@ fn a_write_that_fails_breaks_the_track_in_words_and_the_rest_is_dropped_quietly(
     assert_eq!(segs.len(), 1);
     assert!(!segs[0].complete);
 }
+
+// ---- the camera's files that carry the voice ----
+
+/// The boxes of a box's body: `(name, body)` in order.
+fn boxes(data: &[u8]) -> Vec<([u8; 4], &[u8])> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at + 8 <= data.len() {
+        let size = u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]) as usize;
+        if size < 8 || at + size > data.len() {
+            break;
+        }
+        out.push(([data[at + 4], data[at + 5], data[at + 6], data[at + 7]], &data[at + 8..at + size]));
+        at += size;
+    }
+    out
+}
+
+/// How many tracks a file's `moov` describes.
+fn tracks_of(file: &[u8]) -> usize {
+    let top = boxes(file);
+    let moov = top.iter().find(|(k, _)| k == b"moov").map_or(&[][..], |(_, b)| *b);
+    boxes(moov).iter().filter(|(k, _)| k == b"trak").count()
+}
+
+/// How many samples the voice's (track 2) runs of a file hold in all.
+fn voice_samples(file: &[u8]) -> u32 {
+    let mut total = 0;
+    for (kind, moof) in boxes(file) {
+        if &kind != b"moof" {
+            continue;
+        }
+        for (k, traf) in boxes(moof) {
+            if &k != b"traf" {
+                continue;
+            }
+            let tfhd = boxes(traf).into_iter().find(|(k, _)| k == b"tfhd").map_or(&[][..], |(_, b)| b);
+            if tfhd.len() >= 8 && u32::from_be_bytes([tfhd[4], tfhd[5], tfhd[6], tfhd[7]]) == 2 {
+                let trun = boxes(traf).into_iter().find(|(k, _)| k == b"trun").map_or(&[][..], |(_, b)| b);
+                total += u32::from_be_bytes([trun[4], trun[5], trun[6], trun[7]]);
+            }
+        }
+    }
+    total
+}
+
+/// The time and the sample count of the voice's (track 2) run in the first fragment that has one.
+fn first_voice_run(file: &[u8]) -> Option<(u64, u32)> {
+    for (kind, moof) in boxes(file) {
+        if &kind != b"moof" {
+            continue;
+        }
+        for (k, traf) in boxes(moof) {
+            if &k != b"traf" {
+                continue;
+            }
+            let tfhd = boxes(traf).into_iter().find(|(k, _)| k == b"tfhd")?.1;
+            if u32::from_be_bytes([tfhd[4], tfhd[5], tfhd[6], tfhd[7]]) == 2 {
+                let tfdt = boxes(traf).into_iter().find(|(k, _)| k == b"tfdt")?.1;
+                let trun = boxes(traf).into_iter().find(|(k, _)| k == b"trun")?.1;
+                let base = u64::from_be_bytes([tfdt[4], tfdt[5], tfdt[6], tfdt[7], tfdt[8], tfdt[9], tfdt[10], tfdt[11]]);
+                return Some((base, u32::from_be_bytes([trun[4], trun[5], trun[6], trun[7]])));
+            }
+        }
+    }
+    None
+}
+
+/// A picture track that carries the voice makes its segments files of two tracks, and the voice's packets go
+/// into the open segment at their times, after the segment's start.
+///
+/// Mutation: a voice that is not written; a packet before the segment's start written at its start.
+#[test]
+fn a_picture_track_that_carries_the_voice_writes_files_of_two_tracks() {
+    let mut store = MemStore::default();
+    let mut t = TrackWriter::new("camera", Kind::Video, 60_000_000, 1, 0).with_voice(true);
+    // The voice before the first keyframe has no file to go in: it is dropped here (the voice's own track has it).
+    assert!(t.push_voice(&mut store, 0, opus(0)).unwrap().is_empty());
+    assert!(t.push_voice(&mut store, 100_000, opus(1)).unwrap().is_empty());
+    t.push_video(&mut store, 1_000_000, &key_720(1)).unwrap();
+    for i in 0..60_u64 {
+        let at = 1_000_000 + i * 33_333;
+        if i > 0 {
+            t.push_video(&mut store, at, &delta(i as u8)).unwrap();
+        }
+        // The voice packets of 20 ms, with one before the segment's start among them.
+        t.push_voice(&mut store, at.saturating_sub(40_000), opus(i as u8)).unwrap();
+    }
+    t.finish(3_000_000).unwrap();
+    let file = store.file("camera/0001.mp4");
+    assert_eq!(tracks_of(&file), 2, "a picture and a voice");
+    // The packets at the segment's start or after it are in the file (the two before it are not): 58 of the 60.
+    assert_eq!(voice_samples(&file), 58);
+    let s = scan(&mut Cursor::new(&file)).unwrap();
+    assert!(s.finished && !s.truncated);
+    assert_eq!((s.kind, s.samples), (Some(TrackKind::Video), 60), "the picture is what the file is scanned by");
+}
+
+/// A picture track that does not carry the voice writes files of one track, and takes a voice packet for nothing.
+///
+/// Mutation: a voice track in every picture file.
+#[test]
+fn a_picture_track_without_the_voice_writes_files_of_one_track_and_ignores_it() {
+    let mut store = MemStore::default();
+    let mut t = TrackWriter::new("camera", Kind::Video, 60_000_000, 1, 0);
+    t.push_video(&mut store, 0, &key_720(1)).unwrap();
+    assert!(t.push_voice(&mut store, 10_000, opus(1)).unwrap().is_empty());
+    t.finish(1_000_000).unwrap();
+    assert_eq!(tracks_of(&store.file("camera/0001.mp4")), 1);
+    // And a sound track takes no voice for a copy.
+    let mut a = TrackWriter::new("audio", Kind::Opus, 60_000_000, 1, 0).with_voice(true);
+    assert!(a.push_voice(&mut store, 0, opus(2)).unwrap().is_empty());
+    assert!(!a.is_open());
+}
+
+/// The voice goes on into the next segment when a picture track rotates its file, and a file's voice begins at
+/// that file's own start.
+///
+/// Mutation: a voice that is lost at a rotation; a voice's time that is the session's and not the file's.
+#[test]
+fn the_voice_goes_on_into_the_next_segment_and_is_timed_from_its_start() {
+    let mut store = MemStore::default();
+    // Segments of two seconds: the second begins at the keyframe at 2 s.
+    let mut t = TrackWriter::new("camera", Kind::Video, 2_000_000, 1, 0).with_voice(true);
+    for i in 0..9_u64 {
+        let at = i * 500_000;
+        let au = if i % 4 == 0 { key_720(i as u8) } else { delta(i as u8) };
+        t.push_video(&mut store, at, &au).unwrap();
+        for k in 0..25_u64 {
+            t.push_voice(&mut store, at + k * 20_000, opus(k as u8)).unwrap();
+        }
+    }
+    t.finish(4_500_000).unwrap();
+    assert_eq!(store.names(), vec!["camera/0001.mp4", "camera/0002.mp4", "camera/0003.mp4"]);
+    for name in ["camera/0001.mp4", "camera/0002.mp4"] {
+        let file = store.file(name);
+        assert_eq!(tracks_of(&file), 2, "{name}");
+        let s = scan(&mut Cursor::new(&file)).unwrap();
+        assert_eq!(s.first_us(), 0, "{name}: the picture begins at the file's own start");
+    }
+    // The voice of the second file begins at its start (0), not at the session's 2 s: read its first voice run's time.
+    let second = store.file("camera/0002.mp4");
+    let (voice_base, voice_samples) = first_voice_run(&second).expect("a voice run");
+    assert!(voice_base < 960 * 50, "the voice's time in the file is under the file's first second: {voice_base}");
+    assert!(voice_samples > 0);
+}
+
+/// The voice carried in a file is cut and recovered with it: a file cut mid-fragment is whole up to the fragment before,
+/// and finishing a track that carries the voice reports the segment as any other.
+///
+/// Mutation: a voice run that makes the scanner count the voice's samples as the picture's.
+#[test]
+fn a_file_with_the_voice_in_it_is_a_whole_file_up_to_its_last_whole_fragment() {
+    let mut store = MemStore::default();
+    let mut t = TrackWriter::new("camera", Kind::Video, 60_000_000, 1, 0).with_voice(true).with_limits(Limits::chunked(1_000_000));
+    t.push_video(&mut store, 0, &key_720(0)).unwrap();
+    for i in 1..150_u64 {
+        let at = i * 33_333;
+        t.push_video(&mut store, at, &if i % 30 == 0 { key_720(i as u8) } else { delta(i as u8) }).unwrap();
+        t.push_voice(&mut store, at, opus(i as u8)).unwrap();
+    }
+    // Not finished: the file as a kill leaves it.
+    let file = store.file("camera/0001.mp4");
+    let s = scan(&mut Cursor::new(&file)).unwrap();
+    assert!(s.fragments >= 3 && !s.finished);
+    assert_eq!(s.samples % 30, 0, "whole chunks of 30 pictures; the voice's samples are not in the count: {}", s.samples);
+    let cut = scan(&mut Cursor::new(&file[..s.whole_end as usize])).unwrap();
+    assert!(!cut.truncated && cut.fragments == s.fragments);
+}

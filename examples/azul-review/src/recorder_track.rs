@@ -17,7 +17,7 @@ use std::{fmt, io};
 use crate::{
     recorder_manifest::{segment_file, Segment},
     recorder_mp4::{
-        annexb_to_avcc, Colour, FragmentWriter, Limits, MuxError, OpusConfig, TrackConfig, VideoConfig,
+        annexb_to_avcc, Colour, FragmentWriter, JointWriter, Limits, MuxError, OpusConfig, TrackConfig, VideoConfig,
     },
 };
 
@@ -103,8 +103,47 @@ impl From<io::Error> for TrackError {
     }
 }
 
+/// What writes a segment's file: one track's muxer, or the muxer of a picture and a voice in one.
+enum Muxer {
+    One(FragmentWriter),
+    Both(JointWriter),
+}
+
+impl Muxer {
+    /// One sample of the file's track (the picture, in a file of both) at `rel_us` from the segment's start.
+    fn push(&mut self, rel_us: u64, data: Vec<u8>, sync: bool) -> Result<Vec<u8>, MuxError> {
+        match self {
+            Self::One(w) => w.push(rel_us, data, sync),
+            Self::Both(w) => w.push_video(rel_us, data, sync),
+        }
+    }
+
+    /// One packet of the voice; a file of one track has no place for it.
+    fn push_voice(&mut self, rel_us: u64, data: Vec<u8>) -> Result<Vec<u8>, MuxError> {
+        match self {
+            Self::One(_) => Ok(Vec::new()),
+            Self::Both(w) => w.push_voice(rel_us, data),
+        }
+    }
+
+    fn finish(&mut self, end_us: u64) -> Vec<u8> {
+        match self {
+            Self::One(w) => w.finish(end_us),
+            Self::Both(w) => w.finish(end_us),
+        }
+    }
+
+    /// The samples of the file's own track (the pictures, in a file of both).
+    fn samples(&self) -> u64 {
+        match self {
+            Self::One(w) => w.stats().samples,
+            Self::Both(w) => w.stats().samples,
+        }
+    }
+}
+
 struct Open {
-    writer: FragmentWriter,
+    writer: Muxer,
     file: Box<dyn SegmentFile>,
     info: Segment,
     /// The parameter sets the segment was opened with (video): a keyframe with others rotates.
@@ -124,6 +163,8 @@ pub struct TrackWriter {
     dropped_before_keyframe: u64,
     failed: Option<String>,
     default_colour: Option<Colour>,
+    /// The segments of a picture track carry the voice too (a camera's chunk with the microphone in it).
+    voice: bool,
 }
 
 impl TrackWriter {
@@ -143,6 +184,7 @@ impl TrackWriter {
             dropped_before_keyframe: 0,
             failed: None,
             default_colour: None,
+            voice: false,
         }
     }
 
@@ -150,6 +192,14 @@ impl TrackWriter {
     #[must_use]
     pub const fn with_limits(mut self, limits: Limits) -> Self {
         self.limits = limits;
+        self
+    }
+
+    /// The segments of a picture track carry the voice as a second track ([`Self::push_voice`]): a camera's file that
+    /// plays with its sound in any player. A track of sound has nothing to carry.
+    #[must_use]
+    pub const fn with_voice(mut self, on: bool) -> Self {
+        self.voice = on;
         self
     }
 
@@ -185,7 +235,7 @@ impl TrackWriter {
         if let Some(open) = &self.open {
             let mut info = open.info.clone();
             info.bytes = open.file.len();
-            info.samples = open.writer.stats().samples;
+            info.samples = open.writer.samples();
             out.push(info);
         }
         out
@@ -273,6 +323,29 @@ impl TrackWriter {
         result
     }
 
+    /// Takes one Opus packet for the open segment of a picture track that carries the voice: the voice of a time before
+    /// the segment began (or while none is open) has no place in a file and is not written here (the voice's own track
+    /// has it). A track that does not carry the voice takes nothing.
+    ///
+    /// # Errors
+    /// As [`Self::push_video`].
+    pub fn push_voice(&mut self, _store: &mut dyn SegmentStore, pts_us: u64, packet: Vec<u8>) -> Result<Vec<Change>, TrackError> {
+        if self.kind != Kind::Video || !self.voice || self.failed.is_some() {
+            return Ok(Vec::new());
+        }
+        let Some(open) = self.open.as_mut() else {
+            return Ok(Vec::new());
+        };
+        if pts_us < open.info.start_us {
+            return Ok(Vec::new());
+        }
+        let result = open.writer.push_voice(pts_us - open.info.start_us, packet).map_err(TrackError::from).and_then(|fragment| Self::append(open, &fragment));
+        if let Err(e) = &result {
+            self.failed = Some(e.to_string());
+        }
+        result.map(|()| Vec::new())
+    }
+
     fn audio(&mut self, store: &mut dyn SegmentStore, pts_us: u64, packet: Vec<u8>) -> Result<Vec<Change>, TrackError> {
         let mut changes = Vec::new();
         if self.open.as_ref().is_some_and(|o| pts_us.saturating_sub(o.info.start_us) >= self.segment_us) {
@@ -314,7 +387,16 @@ impl TrackWriter {
     ) -> Result<Change, TrackError> {
         let name = segment_file(self.dir, self.next_index);
         let mut file = store.create(&name)?;
-        let (writer, head) = FragmentWriter::new(config, self.created_unix_s, self.limits);
+        let (writer, head) = match (config, self.voice) {
+            (TrackConfig::Video(video), true) => {
+                let (w, head) = JointWriter::new(video, OpusConfig::mono_48k(), self.created_unix_s, self.limits);
+                (Muxer::Both(w), head)
+            }
+            (config, _) => {
+                let (w, head) = FragmentWriter::new(config, self.created_unix_s, self.limits);
+                (Muxer::One(w), head)
+            }
+        };
         file.append(&head)?;
         file.sync()?;
         self.next_index += 1;
@@ -343,7 +425,7 @@ impl TrackWriter {
         let appended = open.file.append(&tail).and_then(|()| open.file.sync());
         let mut info = open.info;
         info.bytes = open.file.len();
-        info.samples = open.writer.stats().samples;
+        info.samples = open.writer.samples();
         if let Err(e) = appended {
             // What was written stays listed, not complete: a scan will find where it is whole.
             self.done.push(info);
