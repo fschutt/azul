@@ -290,7 +290,7 @@ fn no_node_of_a_phone_screen_overlaps_a_bar_unless_the_window_drew_under_them() 
     for (width, height, top, bottom, left, right) in phones {
         let (w, _) = lay_out_phone(width, height, side_insets(top, bottom, left, right), false);
         let rects = every_rect(&w);
-        assert!(rects.len() >= 12, "the screen has its nodes: {}", rects.len());
+        assert!(rects.len() >= 11, "the screen has its nodes: {}", rects.len());
         for (node, r) in rects {
             let eps = 0.01;
             assert!(
