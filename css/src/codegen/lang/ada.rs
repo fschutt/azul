@@ -2,7 +2,7 @@
 //! `doc/src/codegen/v2/lang_ada`).
 //!
 //! Spellings: every C function is imported as `Az_<Type>_<Method>` with the
-//! method in Pascal_Snake (`AzCssProperty_textColor` ->
+//! method in `Pascal_Snake` (`AzCssProperty_textColor` ->
 //! `Az_CssProperty_Text_Color`, variant constructor `AzLayoutWidth_px` ->
 //! `Az_LayoutWidth_Px`, reserved words get `_K`: `Az_OptionString_Some_K`);
 //! a nullary function is called without parentheses. Types are `Az_<Type>`,
@@ -362,10 +362,10 @@ impl LinearSyntax for Ada {
         payload: Option<&str>,
     ) -> Option<String> {
         let tag = literal(variant);
-        Some(match payload {
-            Some(p) => format!("Az_{ty}'(Tag => {tag}, Payload_{} => {p})", sanitize(variant)),
-            None => format!("Az_{ty}'(Tag => {tag})"),
-        })
+        Some(payload.map_or_else(
+            || format!("Az_{ty}'(Tag => {tag})"),
+            |p| format!("Az_{ty}'(Tag => {tag}, Payload_{} => {p})", sanitize(variant)),
+        ))
     }
 
     fn struct_expr(&self, ty: &str, fields: &[(String, String)]) -> Option<String> {
@@ -434,21 +434,21 @@ fn item_fn(item: &Item) -> (Option<String>, String) {
     let st = lower_to_statements(&Ada, &item.value);
     let mut out = String::new();
     for line in linear_comments(item, &st) {
-        out.push_str(&format!("   --  {line}\n"));
+        let _ = writeln!(out, "   --  {line}");
     }
-    out.push_str(&format!("   {decl} is\n"));
+    let _ = writeln!(out, "   {decl} is");
     let unused: Vec<String> = unused_params(item).iter().map(|p| ada_param(&p.name)).collect();
     if !unused.is_empty() {
-        out.push_str(&format!("      pragma Unreferenced ({});\n", unused.join(", ")));
+        let _ = writeln!(out, "      pragma Unreferenced ({});", unused.join(", "));
     }
     for (n, t) in &st.decls {
-        out.push_str(&format!("      {n} : {t};\n"));
+        let _ = writeln!(out, "      {n} : {t};");
     }
     out.push_str("   begin\n");
     for s in &st.body {
-        out.push_str(&format!("      {s}\n"));
+        let _ = writeln!(out, "      {s}");
     }
-    out.push_str(&format!("      return {};\n   end {name};\n", st.result));
+    let _ = write!(out, "      return {};\n   end {name};\n", st.result);
     (Some(format!("   {decl};\n")), out)
 }
 
@@ -472,7 +472,7 @@ fn spec_and_body(m: &Module) -> (String, String) {
     if registration.is_some() {
         spec.push_str("with System;\n");
     }
-    spec.push_str(&format!("with Azul; use Azul;\n\npackage {package} is\n\n"));
+    let _ = write!(spec, "with Azul; use Azul;\n\npackage {package} is\n\n");
     for (decl, _) in &fns {
         if let Some(d) = decl {
             spec.push_str(d);
@@ -484,7 +484,7 @@ fn spec_and_body(m: &Module) -> (String, String) {
     if let Some((reg_spec, _)) = &registration {
         spec.push_str(reg_spec);
     }
-    spec.push_str(&format!("\nend {package};\n"));
+    let _ = write!(spec, "\nend {package};\n");
     let strings = m.app.is_some()
         || registration.is_some()
         || module_any(m, &|e| matches!(e, Expr::Str(_) | Expr::Param(_) | Expr::Concat(_)));
@@ -492,7 +492,7 @@ fn spec_and_body(m: &Module) -> (String, String) {
     if strings {
         body.push_str("with Interfaces.C;\n\n");
     }
-    body.push_str(&format!("package body {package} is\n"));
+    let _ = writeln!(body, "package body {package} is");
     if strings {
         body.push('\n');
         body.push_str(TO_AZ_STRING);
@@ -508,16 +508,17 @@ fn spec_and_body(m: &Module) -> (String, String) {
         } else {
             format!("Az_Dom_With_Child (Az_Dom_Create_Body, {root})")
         };
-        body.push_str(&format!(
+        let _ = write!(
+            body,
             "\n   function Layout (Data : Az_RefAny; Info : Az_LayoutCallbackInfo) return Az_Dom \
              is\n      pragma Unreferenced (Data, Info);\n   begin\n      return {value};\n   end \
              Layout;\n"
-        ));
+        );
     }
     if let Some((_, reg_body)) = &registration {
         body.push_str(reg_body);
     }
-    body.push_str(&format!("\nend {package};\n"));
+    let _ = write!(body, "\nend {package};\n");
     (spec, body)
 }
 
@@ -565,6 +566,115 @@ const REGISTRATION_HELPERS: &str = "
    end String_Field;
 ";
 
+/// One component of the library: what is written for it, and the call that makes its
+/// `ComponentDef`.
+fn ada_component(
+    s: &mut String,
+    spec: &mut String,
+    lib: &LibrarySpec,
+    c: &ComponentSpec,
+    item: &Item,
+) -> String {
+    let az = |s: &str| format!("To_Az_String ({})", ada_string(s));
+    let item_fn = unit_name(item);
+    let cp = sanitize(&pascalize_method(&Ident::from_text(&c.name).snake()));
+    let defaults: Vec<String> = item.params.iter().map(|p| ada_string(p.default_text())).collect();
+    let call = if defaults.is_empty() {
+        item_fn.clone()
+    } else {
+        format!("{item_fn} ({})", defaults.join(", "))
+    };
+    let _ = writeln!(spec, "   function {item_fn}_Default return Az_Dom;");
+    let _ = write!(
+        s,
+        "\n   --  `{}:{}` with its default arguments.\n   function {item_fn}_Default return \
+         Az_Dom is\n   begin\n      return {call};\n   end {item_fn}_Default;\n",
+        one_line(&lib.name),
+        one_line(&c.name)
+    );
+    let args: Vec<String> = item
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "Model_String (Model, {}, {})",
+                ada_string(&p.name.snake()),
+                ada_string(p.default_text())
+            )
+        })
+        .collect();
+    let render_call = if args.is_empty() {
+        item_fn.clone()
+    } else {
+        format!("{item_fn} ({})", args.join(", "))
+    };
+    let unreferenced = if item.params.is_empty() {
+        "Def, Model, Map"
+    } else {
+        "Def, Map"
+    };
+    let _ = write!(
+        s,
+        "\n   function {cp}_Render_Fn\n     (Def : System.Address; Model : System.Address; Map : \
+         System.Address)\n      return Az_ResultStyledDomRenderDomError\n     with Convention => \
+         C;\n\n   function {cp}_Render_Fn\n     (Def : System.Address; Model : System.Address; Map \
+         : System.Address)\n      return Az_ResultStyledDomRenderDomError\n   is\n      pragma \
+         Unreferenced ({unreferenced});\n   begin\n      return \
+         Az_ResultStyledDomRenderDomError_Ok\n        (Az_StyledDom_Create_From_Dom \
+         ({render_call}));\n   end {cp}_Render_Fn;\n"
+    );
+    let _ = write!(s, "\n   function {cp}_Def return Az_ComponentDef is\n");
+    let fields = if item.params.is_empty() {
+        s.push_str("   begin\n");
+        "Az_ComponentDataFieldVec_Create".to_string()
+    } else {
+        let n = item.params.len();
+        let items: Vec<String> = item
+            .params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+                format!(
+                    "{i} => String_Field ({}, {}, {})",
+                    ada_string(&p.name.snake()),
+                    ada_string(p.default_text()),
+                    ada_string(desc)
+                )
+            })
+            .collect();
+        let _ = write!(
+            s,
+            "      Fields : aliased array (0 .. {}) of Az_ComponentDataField :=\n        ({});\n      \
+             Field_Vec : constant Az_ComponentDataFieldVec :=\n        \
+             Az_ComponentDataFieldVec_Copy_From_Ptr (Fields (0)'Address, {n});\n   begin\n      \
+             --  copyFromPtr cloned them.\n      for I in Fields'Range loop\n         \
+             Az_ComponentDataField_Delete (Fields (I)'Address);\n      end loop;\n",
+            n - 1,
+            items.join(",\n         ")
+        );
+        "Field_Vec".to_string()
+    };
+    let _ = write!(
+        s,
+        "      return (Id => Az_ComponentId_Create ({}, {}),\n              Display_Name => {},\n              \
+         Description => {},\n              --  The CSS is applied per node by \
+         {item_fn}.\n              Css => {},\n              Source => UserDefined,\n              \
+         Data_Model => (Name => {}, Description => {}, Fields => {fields}),\n              \
+         Render_Fn => {cp}_Render_Fn'Address,\n              Codegen => {},\n              \
+         Render_Fn_Source => Az_OptionString_None);\n   end {cp}_Def;\n",
+        az(&lib.name),
+        az(&c.name),
+        az(&c.display_name),
+        az(&c.description),
+        az(""),
+        az(&c.data_model),
+        az(&c.data_model_description),
+        Ada.variant_expr("ComponentCodegen", "RenderFunction", &[]).unwrap_or_default(),
+    );
+    format!("{cp}_Def")
+}
+
 /// The registration of a component library (`m.library`): (spec lines,
 /// body text). Per component a default-arguments wrapper (in the spec), a
 /// C-convention render function (its `'Address` is the `ComponentDef`'s
@@ -590,103 +700,7 @@ fn ada_registration(m: &Module, lib: &LibrarySpec) -> (String, String) {
     }
     let mut defs: Vec<String> = Vec::new();
     for (c, item) in &components {
-        let item_fn = unit_name(item);
-        let cp = sanitize(&pascalize_method(&Ident::from_text(&c.name).snake()));
-        let defaults: Vec<String> = item.params.iter().map(|p| ada_string(p.default_text())).collect();
-        let call = if defaults.is_empty() {
-            item_fn.clone()
-        } else {
-            format!("{item_fn} ({})", defaults.join(", "))
-        };
-        let _ = writeln!(spec, "   function {item_fn}_Default return Az_Dom;");
-        let _ = write!(
-            s,
-            "\n   --  `{}:{}` with its default arguments.\n   function {item_fn}_Default return \
-             Az_Dom is\n   begin\n      return {call};\n   end {item_fn}_Default;\n",
-            one_line(&lib.name),
-            one_line(&c.name)
-        );
-        let args: Vec<String> = item
-            .params
-            .iter()
-            .map(|p| {
-                format!(
-                    "Model_String (Model, {}, {})",
-                    ada_string(&p.name.snake()),
-                    ada_string(p.default_text())
-                )
-            })
-            .collect();
-        let render_call = if args.is_empty() {
-            item_fn.clone()
-        } else {
-            format!("{item_fn} ({})", args.join(", "))
-        };
-        let unreferenced = if item.params.is_empty() {
-            "Def, Model, Map"
-        } else {
-            "Def, Map"
-        };
-        let _ = write!(
-            s,
-            "\n   function {cp}_Render_Fn\n     (Def : System.Address; Model : System.Address; Map : \
-             System.Address)\n      return Az_ResultStyledDomRenderDomError\n     with Convention => \
-             C;\n\n   function {cp}_Render_Fn\n     (Def : System.Address; Model : System.Address; Map \
-             : System.Address)\n      return Az_ResultStyledDomRenderDomError\n   is\n      pragma \
-             Unreferenced ({unreferenced});\n   begin\n      return \
-             Az_ResultStyledDomRenderDomError_Ok\n        (Az_StyledDom_Create_From_Dom \
-             ({render_call}));\n   end {cp}_Render_Fn;\n"
-        );
-        let _ = write!(s, "\n   function {cp}_Def return Az_ComponentDef is\n");
-        let fields = if item.params.is_empty() {
-            s.push_str("   begin\n");
-            "Az_ComponentDataFieldVec_Create".to_string()
-        } else {
-            let n = item.params.len();
-            let items: Vec<String> = item
-                .params
-                .iter()
-                .enumerate()
-                .map(|(i, p)| {
-                    let desc = c.field_descriptions.get(i).map_or("", String::as_str);
-                    format!(
-                        "{i} => String_Field ({}, {}, {})",
-                        ada_string(&p.name.snake()),
-                        ada_string(p.default_text()),
-                        ada_string(desc)
-                    )
-                })
-                .collect();
-            let _ = write!(
-                s,
-                "      Fields : aliased array (0 .. {}) of Az_ComponentDataField :=\n        ({});\n      \
-                 Field_Vec : constant Az_ComponentDataFieldVec :=\n        \
-                 Az_ComponentDataFieldVec_Copy_From_Ptr (Fields (0)'Address, {n});\n   begin\n      \
-                 --  copyFromPtr cloned them.\n      for I in Fields'Range loop\n         \
-                 Az_ComponentDataField_Delete (Fields (I)'Address);\n      end loop;\n",
-                n - 1,
-                items.join(",\n         ")
-            );
-            "Field_Vec".to_string()
-        };
-        let _ = write!(
-            s,
-            "      return (Id => Az_ComponentId_Create ({}, {}),\n              Display_Name => {},\n              \
-             Description => {},\n              --  The CSS is applied per node by \
-             {item_fn}.\n              Css => {},\n              Source => UserDefined,\n              \
-             Data_Model => (Name => {}, Description => {}, Fields => {fields}),\n              \
-             Render_Fn => {cp}_Render_Fn'Address,\n              Codegen => {},\n              \
-             Render_Fn_Source => Az_OptionString_None);\n   end {cp}_Def;\n",
-            az(&lib.name),
-            az(&c.name),
-            az(&c.display_name),
-            az(&c.description),
-            az(""),
-            az(&c.data_model),
-            az(&c.data_model_description),
-            Ada.variant_expr("ComponentCodegen", "RenderFunction", &[]).unwrap_or_default(),
-        );
-        defs.push(format!("{cp}_Def"));
+        defs.push(ada_component(&mut s, &mut spec, lib, c, item));
     }
     let _ = write!(
         spec,
@@ -848,22 +862,24 @@ impl CodegenBackend for Ada {
         let built: Vec<&Item> = m
             .items
             .iter()
-            .filter(|i| item_blocker(&Ada, i).is_none())
+            .filter(|i| item_blocker(&Self, i).is_none())
             .collect();
         for item in &built {
             let name = unit_name(item);
-            main.push_str(&format!(
-                "   {name}_Value : constant Az_{} := Styles.{name};\n",
+            let _ = writeln!(
+                main,
+                "   {name}_Value : constant Az_{} := Styles.{name};",
                 item.ty
-            ));
+            );
         }
         main.push_str("begin\n");
         for item in &built {
             let name = unit_name(item);
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "   Ada.Text_IO.Put_Line\n     (\"{name}:\" & Interfaces.C.size_t'Image \
                  ({name}_Value.Len) & \" properties\");\n"
-            ));
+            );
         }
         if built.is_empty() {
             main.push_str("   null;\n");

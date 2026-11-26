@@ -220201,6 +220201,98 @@
                                     }
                                 ],
                                 "fn_body": "object.set_standby(standby)"
+                            },
+                            "set_model_download": {
+                                "doc": [
+                                    "Whether the built-in recognizer's model is fetched when it is missing: [`SpeechModelDownload::Ask`]",
+                                    "by default (the environment's `AZ_SPEECH_MODEL_DOWNLOAD`, `never`, `ask` or `automatic`, sets the",
+                                    "default of the session; this call wins over it). Set it at the start; after changing it later, call",
+                                    "[`SpeechSession::reset`] so that a recognizer that was refused for the missing model is asked again."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "policy": "SpeechModelDownload"
+                                    }
+                                ],
+                                "fn_body": "object.set_model_download(policy)"
+                            },
+                            "set_offline": {
+                                "doc": [
+                                    "An offline program fetches nothing, whatever the policy and whoever allowed it (the environment's",
+                                    "`AZ_SPEECH_OFFLINE` sets the default of the session)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "offline": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_offline(offline)"
+                            },
+                            "set_model_folder": {
+                                "doc": [
+                                    "The folder the model is kept in. Empty: the user's cache folder (`azul/speech` in it), which",
+                                    "some platforms (Android) do not have: the app then names one, its own cache or files folder."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "folder": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_model_folder(folder)"
+                            },
+                            "model_state": {
+                                "doc": [
+                                    "Where the built-in recognizer's model is, without waiting for anything: the phase, how far a",
+                                    "download is, and a sentence to show (for [`SpeechModelPhase::NeedsConsent`] the question for the",
+                                    "user: what is fetched, how large it is, from where, under which licence)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechModelState"
+                                },
+                                "fn_body": "object.model_state()"
+                            },
+                            "allow_model_download": {
+                                "doc": [
+                                    "The user said yes (or the app decided so): fetches the model now, on a thread of its own, unless it is",
+                                    "there, the program is offline, the policy is `Never` or there is no folder. When it is in place the",
+                                    "session takes the built-in recognizer up again by itself. Allowing again after a failure tries again.",
+                                    "Answers the state; poll [`SpeechSession::model_state`] for the progress."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechModelState"
+                                },
+                                "fn_body": "object.allow_model_download()"
+                            },
+                            "cancel_model_download": {
+                                "doc": [
+                                    "Stops a download at its next window (a megabyte); what came stays and the next",
+                                    "`allow_model_download` resumes from it. The consent is withdrawn."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "fn_body": "object.cancel_model_download()"
                             }
                         },
                         "repr": "C"
@@ -220493,6 +220585,83 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechModelDownload": {
+                        "external": "azul_dll::unified::speech::SpeechModelDownload",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Never": {},
+                                "Ask": {},
+                                "Automatic": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechModelPhase": {
+                        "external": "azul_dll::unified::speech::SpeechModelPhase",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Present": {},
+                                "Downloading": {},
+                                "NeedsConsent": {},
+                                "Missing": {},
+                                "Failed": {},
+                                "Offline": {},
+                                "NoFolder": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechModelState": {
+                        "external": "azul_dll::unified::speech::SpeechModelState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "bytes_done": {
+                                    "type": "u64"
+                                },
+                                "bytes_total": {
+                                    "type": "u64"
+                                },
+                                "message": {
+                                    "type": "String"
+                                },
+                                "path": {
+                                    "type": "String"
+                                },
+                                "url": {
+                                    "type": "String"
+                                },
+                                "phase": {
+                                    "type": "SpeechModelPhase"
                                 }
                             }
                         ],
