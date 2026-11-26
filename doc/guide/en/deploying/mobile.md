@@ -320,6 +320,19 @@ AZ_IOS_LOCAL_NETWORK="Find the computer you control on your network" \
   bash scripts/build-ios.sh aarch64-apple-ios my-app
 ```
 
+## Updates on a phone
+
+The App Store and Google Play deliver the updates of an app that is installed from them, and both
+forbid an app to download or install code of its own (App Store Review Guideline 2.5.2, Google
+Play's Device and Network Abuse policy). A libazul built for iOS or Android therefore has no code
+that fetches, stages or installs a program: the updater is still there (its types and functions
+are part of the C API on every target), `InstallKind::detect()` answers `AppStore`, the mode is
+clamped to notify-only, a check can still read your manifest and tell the user that a newer
+version exists, and `stage_program_update`, the automatic staging and the update dialog answer
+that the store delivers the updates. The HTTP client itself (map tiles, `http_get`, your own
+requests) is part of every build except wasm32. A desktop app that is sold through the Mac App
+Store or the Microsoft Store gets the same build with azul-layout's `store_app` feature.
+
 ## Installing & debugging the built app
 
 You don't have to build anything to try the demos — every example is published
