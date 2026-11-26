@@ -86,5 +86,17 @@ case "$mode" in
     [ -f demo-out/apps/AzWidgets-macos ] && inits macos-arm64-AzWidgets demo-out/apps/AzWidgets-macos
     for f in demo-out/results/*.json; do python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print(r["app"], r["column"], r["status"], r.get("size"), r.get("seconds"), (r.get("first_error") or "")[:300])' "$f"; done
     ;;
+  macos)
+    # ONLY the macOS desktop app (the `evidence` run died here on bash 3.2 and is not repeated for the iOS legs it had linked already)
+    brew install coreutils || true
+    export MACOSX_DEPLOYMENT_TARGET=11.0
+    start=$(date +%s)
+    bash scripts/demo_lib.sh desktop "" dist demo-out/libs/demolib-macos-arm64
+    echo "LIB macos-arm64 SECONDS: $(( $(date +%s) - start ))"
+    python3 scripts/demo_build.py desktop --leg macos-arm64 --apps AzWidgets --lib demo-out/libs/demolib-macos-arm64/libazul.a --out demo-out/apps --results demo-out/results --deployment-target 11.0 | tee demo-out/link-macos-arm64.txt
+    ls -la demo-out/apps
+    [ -f demo-out/apps/AzWidgets-macos ] && inits macos-arm64-AzWidgets demo-out/apps/AzWidgets-macos
+    for f in demo-out/results/*.json; do python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print(r["app"], r["column"], r["status"], r.get("size"), r.get("seconds"), (r.get("first_error") or "")[:300])' "$f"; done
+    ;;
   *) echo "unknown mode $mode" >&2; exit 2 ;;
 esac
