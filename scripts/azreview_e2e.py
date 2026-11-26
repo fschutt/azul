@@ -1060,22 +1060,43 @@ def whiteboard(args, logs, out, binary):
     app.log("PASS: the whiteboard: a loop is armed with its words and key, its grip carried to the panel is a cutout with its source and its picture, a double click goes back to the lines, the key sends one and opens the panel, the board comes back, a loop that is not taken is let go of")
 
 
+def scrolled_rect(app, strip, number):
+    """The window box (x, y, width, height) of the text of line `number` of the pages as drawn now: the rect of a node of the strip's own DOM
+    is local to it, so how far the strip is scrolled (the state says: `strip_scroll`) is taken off."""
+    r = app.rect("__azreview_line-%d-text" % number, every_dom=True)
+    if r is None:
+        return None
+    sx, sy = state(app)["strip_scroll"]
+    return (strip["x"] + r["x"] - sx, strip["y"] + r["y"] - sy, r["width"], r["height"])
+
+
 def visible_lines(app, strip, count):
-    """The first `count` lines in a row that are all inside the page strip's viewport (a line's rect is local to the strip's DOM)."""
+    """The first of `count` lines in a row that are all inside the page strip's viewport."""
     inside = []
     for number in range(1, 47):
-        r = app.rect("__azreview_line-%d-text" % number, every_dom=True)
-        if r is None:
+        box = scrolled_rect(app, strip, number)
+        if box is None:
             continue
-        top, bottom = strip["y"] + r["y"], strip["y"] + r["y"] + r["height"]
-        left, right = strip["x"] + r["x"], strip["x"] + r["x"] + r["width"]
-        if top >= strip["y"] + 4 and bottom <= strip["y"] + strip["height"] - 4 and left >= strip["x"] and right <= strip["x"] + strip["width"]:
+        x, y, w, h = box
+        if y >= strip["y"] + 4 and y + h <= strip["y"] + strip["height"] - 4 and x >= strip["x"] and x + w <= strip["x"] + strip["width"]:
             inside.append(number)
     for i in range(len(inside) - count + 1):
         run = inside[i:i + count]
         if run[-1] - run[0] == count - 1:
             return run[0]
     raise Failure("no %d lines in a row are inside the window (the lines inside: %s)" % (count, inside))
+
+
+def scrolled_line_box(app, strip, first, last):
+    """The box round lines `first` to `last` in the window, as `line_box` gives it where the strip is not scrolled."""
+    boxes = [scrolled_rect(app, strip, n) for n in range(first, last + 1)]
+    if any(b is None for b in boxes):
+        raise Failure("lines %d to %d are not all on the screen" % (first, last))
+    left = min(b[0] for b in boxes)
+    top = min(b[1] for b in boxes)
+    right = max(b[0] + b[2] for b in boxes)
+    bottom = max(b[1] + b[3] for b in boxes)
+    return left, top, right - left, bottom - top
 
 
 def viewport_op(app, **op):
@@ -1130,7 +1151,7 @@ def companion_view(args, logs, out, binary):
 
         # 3. a loop drawn at that zoom is round the lines it was drawn round
         first = visible_lines(app, strip, 3)
-        draw_loop(app, line_box(app, strip, first, first + 2))
+        draw_loop(app, scrolled_line_box(app, strip, first, first + 2))
         app.until("the loop is armed", lambda: len(board_of(app)["armed"]) == 1)
         armed = board_of(app)["armed"][0]
         if (armed["first"], armed["last"]) != (first, first + 2):

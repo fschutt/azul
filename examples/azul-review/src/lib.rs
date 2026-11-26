@@ -369,6 +369,9 @@ pub struct AppState {
     pub zoom: f32,
     /// Where the pen (or the cursor) was last seen on the pages, and when: what the phone is told of it.
     pub pen_seen: Option<(companion_pen::PenAt, std::time::Instant)>,
+    /// How far the strip of pages was scrolled when its pages were last built (px of the screen): what a script needs to find where a node of
+    /// the strip's own DOM is in the window.
+    pub strip_scroll: (f32, f32),
     /// The pointer is over the whiteboard's panel (what the phone's pad is about: the board's, not the pages'), and where it was last seen in
     /// the window (kept only while the phone companion is on).
     pub over_board: bool,
@@ -504,6 +507,7 @@ impl AppState {
             visible_page: 0,
             zoom: 1.0,
             pen_seen: None,
+            strip_scroll: (0.0, 0.0),
             over_board: false,
             pointer_at: None,
             epoch: 0,

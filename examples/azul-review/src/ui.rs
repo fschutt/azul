@@ -1580,6 +1580,7 @@ extern "C" fn sheets_virtual_view(
 
     if let Some(mut s) = app.downcast_mut::<AppState>() {
         s.visible_page = leftmost;
+        s.strip_scroll = (info.scroll_offset.x, info.scroll_offset.y);
     }
 
     VirtualViewReturn::with_dom(
