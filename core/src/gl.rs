@@ -34,7 +34,6 @@ use crate::{
     geom::PhysicalSizeU32,
     resources::{
         Brush, ImageDescriptor, ImageDescriptorFlags, RawImage, RawImageData, RawImageFormat,
-        StrokeDabs,
     },
     svg::{TessellatedGPUSvgNode, TessellatedSvgNode},
     window::RendererType,
@@ -3288,22 +3287,6 @@ impl Texture {
             return;
         }
 
-        // The dabs of the stroke that can reach the texture (the CPU brush plans the same ones): a stroke that
-        // lies off it draws nothing and sets nothing up, one that crosses it draws the dabs in view and not the
-        // thousands along the rest of its length.
-        let Some(dabs) = StrokeDabs::plan(
-            x0,
-            y0,
-            x1,
-            y1,
-            brush.radius,
-            brush.spacing,
-            self.size.width as i32,
-            self.size.height as i32,
-        ) else {
-            return;
-        };
-
         let fbo = gl.gen_framebuffers(1).get(0).copied().unwrap_or(0);
         let vbo = gl.gen_buffers(1).get(0).copied().unwrap_or(0);
         // A vertex array of its own: a core profile has no default one, and the one the renderer left
@@ -3367,9 +3350,16 @@ impl Texture {
         gl.vertex_attrib_pointer_f32(0, 2, false, 16, 0);
         gl.vertex_attrib_pointer_f32(1, 2, false, 16, 8);
 
+        let dx = x1 - x0;
+        let dy = y1 - y0;
+        let len = dx.hypot(dy);
+        let step = (brush.radius * brush.spacing.max(0.01)).max(0.5);
+        let n = ((len / step).floor() as i32).max(0);
         let r = brush.radius;
-        for i in dabs.indices() {
-            let (px, py) = dabs.position(i);
+        for i in 0..=n {
+            let t = if n == 0 { 1.0 } else { i as f32 / n as f32 };
+            let px = x0 + dx * t;
+            let py = y0 + dy * t;
             // dab bbox -> NDC. The texture's y runs down as the rows of its memory do (row 0 is
             // the top, as the SVG shader and the compositor read it): (0, 0) is the top-left like
             // the CPU path. The picture a stroke made showed upside down in a window drawn by

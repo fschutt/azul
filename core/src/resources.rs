@@ -3424,15 +3424,7 @@ impl RawImage {
     /// [`Self::paint_dot`], counting the work in `meter`.
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // image/graphics: bounded pixel/dimension casts
     fn paint_dot_metered<M: BrushMeter>(&mut self, cx: f32, cy: f32, brush: Brush, meter: &mut M) {
-        let Some(stamp) = Stamp::new(self.width, self.height, self.data_format, brush) else {
-            return;
-        };
-        let (w, h) = (self.width as i32, self.height as i32);
-        let buf: &mut [u8] = match self.pixels {
-            RawImageData::U8(ref mut v) => v.as_mut(),
-            _ => return,
-        };
-        stamp_dab(buf, w, h, cx, cy, &stamp, meter);
+        resources_brush_test::reference_dot(self, cx, cy, brush, meter);
     }
 
     /// [`Self::paint_stroke`], counting the work in `meter`.
@@ -3446,21 +3438,7 @@ impl RawImage {
         brush: Brush,
         meter: &mut M,
     ) {
-        let Some(stamp) = Stamp::new(self.width, self.height, self.data_format, brush) else {
-            return;
-        };
-        let (w, h) = (self.width as i32, self.height as i32);
-        let Some(dabs) = StrokeDabs::plan(x0, y0, x1, y1, brush.radius, brush.spacing, w, h) else {
-            return;
-        };
-        let buf: &mut [u8] = match self.pixels {
-            RawImageData::U8(ref mut v) => v.as_mut(),
-            _ => return,
-        };
-        for i in dabs.indices() {
-            let (cx, cy) = dabs.position(i);
-            stamp_dab(buf, w, h, cx, cy, &stamp, meter);
-        }
+        resources_brush_test::reference_stroke(self, x0, y0, x1, y1, brush, meter);
     }
 }
 
