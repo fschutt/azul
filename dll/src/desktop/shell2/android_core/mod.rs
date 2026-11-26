@@ -15,5 +15,6 @@ pub mod keys;
 pub mod lifecycle;
 pub mod metrics;
 pub mod present;
+pub mod slop;
 pub mod touch;
 pub mod ui_bridge;

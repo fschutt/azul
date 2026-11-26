@@ -38,6 +38,7 @@ use crate::{
                 ime::ImeMirror,
                 lifecycle::{frame_work, trim_plan, FrameWork, TRIM_MEMORY_UI_HIDDEN},
                 present::{rows_to_write, PresentState, RowDamage},
+                slop::{Lift as SlopLift, Move as SlopMove, TapSlop, TOUCH_SLOP_DP},
                 metrics::{self, dpi_of_density, logical_size},
                 touch::{mouse_effect, HitTest, Phase as TouchPhase},
                 ui_bridge::{RawGesture, UiEvent},
@@ -134,6 +135,9 @@ pub struct AndroidWindow {
     a11y_scroll: ScrollRefresh,
     /// The clock `a11y_scroll` counts on: the milliseconds since this window was made.
     clock_start: std::time::Instant,
+    /// The touch slop of the primary contact (`android_core::slop`): a finger is a tap candidate until it has moved more
+    /// than 8 dp from where it landed; only then does it pan (and it clicks nothing when it lifts).
+    tap: TapSlop,
 
     /// A frame must be re-rastered and posted, but the layout is UNCHANGED.
     ///
@@ -266,6 +270,7 @@ impl AndroidWindow {
             needs_rerender: false,
             a11y_scroll: ScrollRefresh::new(),
             clock_start: std::time::Instant::now(),
+            tap: TapSlop::default(),
             create_callback,
             touch_pan_last: None,
             primary_pointer_id: None,
@@ -1022,36 +1027,39 @@ fn trim_memory(window: &mut AndroidWindow, level: i32) {
     }
 }
 
-/// One log line with the app's private folders as the environment names them and whether each can be written
-/// (`AzulActivity.prepareAppDirs` sets them before the library loads): `FilePath::get_data_dir()` and the cache
-/// and temp folders of an app resolve through them. An error line (visible at the default log level) when one
-/// is not writable: an app that keeps a pairing or a cache through it keeps nothing.
+/// One log line with the app's private folders as the app sees them (`FilePath::get_home_dir()`, `get_data_dir()`,
+/// `get_cache_dir()` and `get_temp_dir()`: what `AzulActivity.prepareAppDirs` set in the environment before the library
+/// loaded) and whether each can be written. An error line (visible at the default log level) when one is missing or not
+/// writable: an app that keeps a pairing or a cache through it keeps nothing. The shell reads no environment itself: the
+/// folders come from the facade every app uses (`azul_layout::file`), the one place that knows where they are.
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn log_app_dirs() {
+    use azul_layout::file::FilePath;
+
     let mut all_ok = true;
-    let mut probe = |name: &str| -> String {
-        let Some(value) = std::env::var_os(name) else {
+    let mut probe = |label: &str, dir: Option<FilePath>| -> String {
+        let Some(dir) = dir else {
             all_ok = false;
-            return format!("{name}=<unset>");
+            return format!("{label}=<none>");
         };
-        let dir = std::path::PathBuf::from(&value);
+        let dir = std::path::PathBuf::from(dir.as_str());
         let file = dir.join(".azul-write-probe");
         let writable = std::fs::create_dir_all(&dir).is_ok()
             && std::fs::write(&file, b"x").is_ok()
             && std::fs::remove_file(&file).is_ok();
         all_ok &= writable;
         format!(
-            "{name}={} ({})",
+            "{label}={} ({})",
             dir.display(),
             if writable { "writable" } else { "NOT writable" }
         )
     };
     let line = format!(
         "[Android] app dirs: {} {} {} {}",
-        probe("HOME"),
-        probe("XDG_DATA_HOME"),
-        probe("XDG_CACHE_HOME"),
-        probe("TMPDIR"),
+        probe("home", FilePath::get_home_dir()),
+        probe("data", FilePath::get_data_dir()),
+        probe("cache", FilePath::get_cache_dir()),
+        probe("temp", Some(FilePath::get_temp_dir())),
     );
     if all_ok {
         log_info!(LogCategory::EventLoop, "{}", line);
@@ -1987,12 +1995,56 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             primary_pos
         };
 
+        // THE TOUCH SLOP (`android_core::slop`). A finger (or a contact the platform did not name) that went down is a
+        // TAP CANDIDATE until it has moved more than 8 dp from where it landed: it scrolls nothing, the pointer stays where
+        // it landed and a lift inside the slop is a click THERE (a real finger jitters by a few pixels: the page scrolled by
+        // the jitter and the click was lost whenever the node under the finger changed). The move that crosses the slop
+        // makes it a pan for good, and the lift of a pan is no click: the mouse sees it as the end of an aborted gesture.
+        // A mouse, a stylus and an eraser have no slop.
+        let slop_at = |p: LogicalPosition| (p.x, p.y);
+        let mut slop_move: Option<SlopMove> = None;
+        let mut mouse_action = update.action;
+        match update.action {
+            MotionAction::Down => {
+                let tool = update
+                    .touch_points
+                    .iter()
+                    .find(|tp| i32::try_from(tp.id).ok() == primary_id)
+                    .map(|tp| tp.tool_type);
+                let applies = matches!(
+                    tool,
+                    None | Some(
+                        azul_core::window::TouchToolType::Finger | azul_core::window::TouchToolType::Unknown
+                    )
+                );
+                match primary_pos {
+                    Some(p) => window.tap.down(applies, slop_at(p), TOUCH_SLOP_DP),
+                    None => window.tap.cancel(),
+                }
+            }
+            MotionAction::Move => {
+                slop_move = primary_pos.map(|p| window.tap.moved(slop_at(p)));
+            }
+            MotionAction::Up => {
+                if matches!(window.tap.up(), SlopLift::Pan) {
+                    mouse_action = MotionAction::Cancel;
+                }
+            }
+            MotionAction::PointerUp if primary_lifting => {
+                if matches!(window.tap.up(), SlopLift::Pan) {
+                    mouse_action = MotionAction::Cancel;
+                }
+            }
+            MotionAction::Cancel => window.tap.cancel(),
+            _ => {}
+        }
+
         let hit_pos = {
             let ms = window.common.mouse_state_mut();
             // The field existed with no writer on any platform, so
             // `get_pointer_device_id()` answered 0 everywhere (9b-ii).
             ms.pointer_device_id = update.device_id;
-            match update.action {
+            match mouse_action {
                 MotionAction::Down => {
                     if let Some(p) = mouse_pos {
                         ms.cursor_position = CursorPosition::InWindow(p);
@@ -2008,9 +2060,12 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 }
                 MotionAction::Move | MotionAction::HoverMove => {
                     // `None` = the primary already lifted and only other
-                    // fingers are moving: the mouse does not follow them.
-                    if let Some(p) = mouse_pos {
-                        ms.cursor_position = CursorPosition::InWindow(p);
+                    // fingers are moving: the mouse does not follow them. Inside the touch slop the pointer stays where the
+                    // finger LANDED: a jitter is a click there.
+                    if !matches!(slop_move, Some(SlopMove::Hold)) {
+                        if let Some(p) = mouse_pos {
+                            ms.cursor_position = CursorPosition::InWindow(p);
+                        }
                     }
                 }
                 MotionAction::Up => {
@@ -2067,7 +2122,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         // Update CPU hit-tester at the new cursor; dispatch callbacks. A cancelled gesture hit-tests
         // NOWHERE and clears the hover chain, as a mouse leaving the window does on every desktop
         // shell (`android_core::touch`).
-        match mouse_effect(phase_of(update.action), primary_lifting).hit_test {
+        match mouse_effect(phase_of(mouse_action), primary_lifting).hit_test {
             HitTest::AtCursor => window.update_hit_test_at(hit_pos),
             HitTest::Nowhere => {
                 if let Some(lw) = window.common.layout_window.as_mut() {
@@ -2123,6 +2178,20 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 MotionAction::Move => {
                     let current = window.pan_pointer_id.and_then(position_of);
                     match current {
+                        // Inside the touch slop nothing scrolls and `touch_pan_last` stays where the finger landed.
+                        Some(_) if matches!(slop_move, Some(SlopMove::Hold)) => {
+                            (None, ScrollInputSource::TrackpadContinuous)
+                        }
+                        // The move that crossed it: the pan starts with the displacement BEYOND the slop, so the page
+                        // does not jump by the slop (Android's ScrollView: `deltaY -= mTouchSlop`).
+                        Some(current) if matches!(slop_move, Some(SlopMove::Start { .. })) => {
+                            window.touch_pan_last = Some(current);
+                            let delta = match slop_move {
+                                Some(SlopMove::Start { delta }) => Some(delta),
+                                _ => None,
+                            };
+                            (delta, ScrollInputSource::TrackpadContinuous)
+                        }
                         Some(current) => {
                             let d = window.touch_pan_last.map(|last| {
                                 // Finger delta, NOT the inverse. Dragging UP
