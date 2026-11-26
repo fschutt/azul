@@ -260,30 +260,50 @@ pub extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCa
 /// How often the timer runs.
 pub const TICK_MS: u64 = 33;
 
-/// The window is created: the timer starts.
-pub extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Update {
-    let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
-        .with_interval(Duration::System(SystemTimeDiff::from_millis(TICK_MS)));
-    info.add_timer(TimerId::unique(), timer);
-    Update::DoNothing
+/// The window is ready: the timer starts and the phone's own app makes its connection. Two things say so, and whichever comes first
+/// does it (the second finds it done): the window's creation callback (the desktop shells call it) and the first mount of the screens
+/// (`chrome::phone` asks for it; every shell reports a mount). The phones' shells (Android, iOS) never call the creation callback, so
+/// an app that waited for it alone would never start its timer: no tick, no connection, a demo that does not walk.
+pub extern "C" fn on_window_ready(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(setup) = data.downcast_mut::<Root>().map(|mut root| root.window_setup()) else {
+        return Update::DoNothing;
+    };
+    if setup.timer {
+        let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(TICK_MS)));
+        info.add_timer(TimerId::unique(), timer);
+    }
+    if !setup.connect {
+        return Update::DoNothing;
+    }
+    // the phone's own app connects now, not when the library loaded: the window (on Android: the activity) exists
+    let net = crate::net::connect();
+    for note in &net.notes {
+        info.log(AppLogLevel::Info, AzString::from(format!("AzCompanion: {note}").as_str()));
+    }
+    let Some(mut root) = data.downcast_mut::<Root>() else {
+        return Update::DoNothing;
+    };
+    root.connect_now(net.api);
+    Update::RefreshDom
 }
 
-/// The window of the phone's own app: the title and the timer on creation; the size is the screen's.
+/// The window of the phone's own app: the title and the setup on creation; the size is the screen's.
 #[must_use]
 pub fn phone_window_options(title: &str) -> WindowCreateOptions {
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = AzString::from(title);
-    window.create_callback = Some(Callback::create(on_window_created)).into();
+    window.create_callback = Some(Callback::create(on_window_ready)).into();
     window
 }
 
-/// The window of the app: the title, the size (a phone's own, or the simulator's), the timer on creation.
+/// The window of the app: the title, the size (a phone's own, or the simulator's), the setup on creation.
 #[must_use]
 pub fn window_options(title: &str, size: (f32, f32), dpi: u32) -> WindowCreateOptions {
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = AzString::from(title);
     window.window_state.size.dimensions = LogicalSize::create(size.0, size.1);
     window.window_state.size.dpi = dpi;
-    window.create_callback = Some(Callback::create(on_window_created)).into();
+    window.create_callback = Some(Callback::create(on_window_ready)).into();
     window
 }
