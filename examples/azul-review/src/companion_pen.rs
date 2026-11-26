@@ -12,7 +12,11 @@ use azul_review_link::{
     viewport,
 };
 
-use crate::page_view::{pen_in_column, Geometry, Looking};
+use crate::{
+    board_view,
+    page_view::{pen_in_column, Geometry, Looking},
+    whiteboard_geom::{Pt, View},
+};
 
 /// How long after it was last seen the pen still counts as being over the pages, ms.
 pub const PEN_AWAY_MS: u64 = 2_000;
@@ -29,9 +33,24 @@ pub struct PenAt {
     pub down: bool,
 }
 
+/// The whiteboard under the pen, when it is what the pad is over: the board's geometry (the box round its items and its canvas), its view,
+/// which board it is, and where the pointer is over its canvas.
+#[derive(Debug, Clone)]
+pub struct BoardInput {
+    pub geometry: board_view::Geometry,
+    pub view: View,
+    pub board_id: u32,
+    pub name: String,
+    pub items: usize,
+    /// The board point under the pointer (`None`: the pointer is elsewhere, or was not seen lately).
+    pub pointer: Option<Pt>,
+}
+
 /// What the phone is told of the review, as the window knows it.
 #[derive(Debug, Clone)]
 pub struct Input<'a> {
+    /// The whiteboard, when the pointer is over it: the pad is a free pan and zoom of the board then, not of the pages.
+    pub board: Option<BoardInput>,
     /// The workspace folder's name.
     pub folder: &'a str,
     /// The file under review, relative to the workspace (empty: none open).
@@ -64,6 +83,9 @@ pub fn context_of(region: bool, line: usize) -> Context {
 /// The pen state for `input`, its number left at 0 (the host numbers them itself).
 #[must_use]
 pub fn pen_state(input: &Input<'_>) -> PenState {
+    if let Some(board) = &input.board {
+        return board_state(input, board);
+    }
     let g = input.geometry.sane();
     let to_u32 = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
     let pen = input.pen.filter(|(_, ago)| *ago <= PEN_AWAY_MS).map(|(at, _)| {
@@ -83,6 +105,35 @@ pub fn pen_state(input: &Input<'_>) -> PenState {
         pen,
         thumb_id: 0,
         context: context_of(input.region, line),
+        return_point: input.back.as_ref().map(|(file, page, line, label)| ReturnPoint {
+            file: clean(file, MAX_PATH_BYTES),
+            page_index: to_u32(*page),
+            line: *line,
+            label: clean(label, MAX_NAME_BYTES),
+        }),
+    }
+}
+
+/// The pen state over the whiteboard: the board's name and shape, the window of the board the canvas shows, the pointer's place in the box's
+/// units, and a button acts on the marked region if a loop waits, else on the page (there are no lines on a board).
+fn board_state(input: &Input<'_>, board: &BoardInput) -> PenState {
+    let g = board.geometry.sane();
+    let to_u32 = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    let window = g.window_of(board.view);
+    let pen = board.pointer.map(|p| {
+        let (x, y) = g.to_units(p);
+        PenMark { x, y, down: false }
+    });
+    PenState {
+        seq: 0,
+        screen: ScreenId::MAIN,
+        folder: clean(input.folder, MAX_NAME_BYTES),
+        surface: Surface::Whiteboard(g.surface(board.board_id, &clean(&board.name, MAX_NAME_BYTES), board.items)),
+        view: window,
+        zoom: viewport::zoom_of(window),
+        pen,
+        thumb_id: 0,
+        context: if input.region { Context::Region } else { Context::Page },
         return_point: input.back.as_ref().map(|(file, page, line, label)| ReturnPoint {
             file: clean(file, MAX_PATH_BYTES),
             page_index: to_u32(*page),

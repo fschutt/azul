@@ -63,7 +63,7 @@ fn the_pen_is_in_the_zoom_models_units_while_it_was_seen_lately_and_is_away_afte
 #[test]
 fn the_phone_is_told_the_folder_the_file_the_pages_and_the_window() {
     let s = AppState::create(PathBuf::from("/work/proj"), vec![crate::lib_test::file_named("src/lib.rs")], RefAny::new(0u8), PathBuf::new());
-    let state = pen_state_of(&s, Some(&strip()));
+    let state = pen_state_of(&s, Some(&strip()), None);
     assert_eq!(state.folder, "proj");
     let page = state.page().expect("the pages");
     assert_eq!((page.file.as_str(), page.page_count, page.line_count), ("src/lib.rs", 3, 120));
@@ -78,7 +78,7 @@ fn a_pen_over_a_line_makes_a_button_act_on_the_line_and_the_line_is_the_pages_fi
     let mut s = app_with_file();
     let y = ui::PAGE_PAD + 3.0 * 15.0;
     s.pen_seen = Some((PenAt { page: 1, x: 200.0, y, down: false }, Instant::now()));
-    let state = pen_state_of(&s, Some(&strip()));
+    let state = pen_state_of(&s, Some(&strip()), None);
     assert_eq!(state.context, PenContext::Line);
     let page = state.page().expect("the pages");
     assert_eq!(page.line as usize, crate::code::SourceFile::first_line_of(1) + ui::line_of(y));
@@ -90,7 +90,7 @@ fn a_file_with_no_room_for_the_pen_line_has_no_line() {
     let mut s = app_with_file();
     // below the last line of the file: the page's rows run out before the pen's height does
     s.pen_seen = Some((PenAt { page: 2, x: 200.0, y: ui::PAGE_PAD + 40.0 * 15.0, down: false }, Instant::now()));
-    let line = pen_state_of(&s, Some(&strip())).page().map(|p| p.line);
+    let line = pen_state_of(&s, Some(&strip()), None).page().map(|p| p.line);
     assert_eq!(line, Some(0), "line 91 + 40 is past line 120");
 }
 
@@ -99,10 +99,10 @@ fn the_state_has_the_zoom_the_pages_are_drawn_at_and_the_place_to_go_back_to() {
     let mut s = app_with_file();
     s.zoom = 2.0;
     let zoomed = ui::StripNow { scroll: (0.0, 0.0), size: (1100.0, 700.0) };
-    let state = pen_state_of(&s, Some(&zoomed));
+    let state = pen_state_of(&s, Some(&zoomed), None);
     assert!(near(state.view.w, 0.55), "{:?}", state.view);
     let _ = s.progress.jumped_from(crate::progress::Back { file: "f.rs".to_string(), page: 1, line: 50 });
-    let back = pen_state_of(&s, Some(&zoomed)).return_point.expect("the way back");
+    let back = pen_state_of(&s, Some(&zoomed), None).return_point.expect("the way back");
     assert_eq!((back.file.as_str(), back.page_index, back.line), ("f.rs", 1, 50));
     assert!(back.label.contains("f.rs"), "{back:?}");
 }
@@ -110,10 +110,10 @@ fn the_state_has_the_zoom_the_pages_are_drawn_at_and_the_place_to_go_back_to() {
 #[test]
 fn with_no_file_or_no_strip_the_phone_is_told_the_folder_and_an_empty_page() {
     let none = AppState::create(PathBuf::from("/work/proj"), Vec::new(), RefAny::new(0u8), PathBuf::new());
-    let state = pen_state_of(&none, Some(&strip()));
+    let state = pen_state_of(&none, Some(&strip()), None);
     assert_eq!(state.folder, "proj");
     assert_eq!(state.page().map(|p| p.file.as_str()), Some(""));
-    let unlaid = pen_state_of(&app_with_file(), None);
+    let unlaid = pen_state_of(&app_with_file(), None, None);
     assert_eq!(unlaid.page().map(|p| p.file.as_str()), Some(""), "the pages are not laid out yet");
 }
 

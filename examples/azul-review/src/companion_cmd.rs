@@ -8,19 +8,23 @@
 //! What the phone is told (`publish`) is the pen state of `companion_pen`.
 
 use azul::{error::CustomE2eOpResult, json::Json, prelude::*, str::String as AzString, task::TerminateTimer, time::SystemTimeDiff};
+use azul_appkit::ui as kit;
 use azul_review_link::{
     frame::{Entry, EntryKind, FileState, Focus, PageSurface, PenState, Phase, Rect, ReplyStatus, Rows, Surface, ViewportOp},
     limits::{cut_bytes, MAX_ENTRY_NAME_BYTES, MAX_ROWS},
 };
 
 use crate::{
-    agent_window,
-    companion_pen::{self, PenAt},
+    agent_window, board_view,
+    companion_pen::{self, BoardInput, PenAt},
     companion_plug::with_companion,
     model::{Note, NoteState},
     page_view::{Applied, Context, Geometry, Looking},
     symbols_source::DirEntry,
-    tree, ui, AppState,
+    tree, ui,
+    whiteboard_geom::{Pt, View},
+    whiteboard_ui::SURFACE_ID,
+    AppState,
 };
 
 /// What the window knows of the pages that the zoom model needs: its geometry from the layout, where the window is now, and where the pen is.
@@ -35,6 +39,9 @@ fn window_of(s: &AppState, strip: &ui::StripNow) -> Option<(Geometry, Looking, O
 /// A command of the phone for the window's view of the pages: the model says where the window goes, the pages are laid out at the zoom it
 /// says and the strip is scrolled there. `true` when the window changed.
 pub fn viewport(app: &RefAny, info: &mut CallbackInfo, op: ViewportOp) -> bool {
+    if board_is_surface(app) {
+        return board_viewport(app, info, op);
+    }
     let Some(strip) = ui::strip_now(info) else {
         return false;
     };
@@ -59,6 +66,110 @@ pub fn viewport(app: &RefAny, info: &mut CallbackInfo, op: ViewportOp) -> bool {
     }
     with_companion(app, |g, _| g.touch());
     changed || zoom_changed
+}
+
+// ==== the whiteboard under the pen ====
+
+/// The whiteboard's canvas as a timer sees the window: where it is in the window and how large it is.
+#[derive(Debug, Clone, Copy)]
+pub struct Canvas {
+    pub origin: (f32, f32),
+    pub size: (f32, f32),
+    node: DomNodeId,
+}
+
+/// The canvas now (`None`: the panel is closed, or the window has not laid it out).
+#[must_use]
+pub fn canvas_now(info: &CallbackInfo) -> Option<Canvas> {
+    let dom = DomId { inner: 0 };
+    let node = info.get_node_id_by_id_attribute(dom, SURFACE_ID);
+    if node.into_raw() == 0 {
+        return None;
+    }
+    let at = DomNodeId { dom, node };
+    let rect = info.get_node_rect(at).into_option()?;
+    Some(Canvas { origin: (rect.origin.x, rect.origin.y), size: (rect.size.width, rect.size.height), node: at })
+}
+
+/// Whether the pad is over the whiteboard: the pointer was last over its panel, and the panel is open.
+fn board_is_surface(app: &RefAny) -> bool {
+    let mut handle = app.clone();
+    handle.downcast_ref::<AppState>().is_some_and(|s| s.over_board && s.panels.right_open)
+}
+
+/// A number for a board's name, for the phone (its id is words): the same name is always the same number.
+#[must_use]
+pub fn board_number(id: &str) -> u32 {
+    id.bytes().fold(2_166_136_261_u32, |hash, byte| (hash ^ u32::from(byte)).wrapping_mul(16_777_619))
+}
+
+/// The board under the pen as the pen state says it: its geometry (the box round its cutouts, the canvas, the zoom the board may be
+/// drawn at), its view, which board it is and where the pointer is over its canvas.
+fn board_input(s: &AppState, canvas: &Canvas) -> Option<BoardInput> {
+    let glue = s.wb.try_borrow().ok()?;
+    let board = &glue.panel.wb.board;
+    let limits = *board.limits();
+    let geometry = board_view::Geometry { items: board_view::box_round(board.cutouts().map(|c| c.rect)), window: canvas.size, zoom: (limits.zoom_min, limits.zoom_max) };
+    let view = board.view();
+    let (id, name) = glue.panel.wb.active_board();
+    let pointer = s.pointer_at.filter(|_| s.over_board).map(|(x, y)| view.to_board(Pt::new(x - canvas.origin.0, y - canvas.origin.1)));
+    Some(BoardInput { geometry, view, board_id: board_number(id), name: name.to_string(), items: board.len(), pointer })
+}
+
+/// A command of the phone for the whiteboard's view (the pen is over it): a free pan and zoom of the board's canvas by the board's zoom
+/// model (`board_view`). `true` when the window changed.
+fn board_viewport(app: &RefAny, info: &mut CallbackInfo, op: ViewportOp) -> bool {
+    let Some(canvas) = canvas_now(info) else {
+        return false;
+    };
+    let applied = with_companion(app, |g, s| {
+        let mut glue = s.wb.try_borrow_mut().ok()?;
+        let board = &mut glue.panel.wb.board;
+        let limits = *board.limits();
+        let geometry = board_view::Geometry { items: board_view::box_round(board.cutouts().map(|c| c.rect)), window: canvas.size, zoom: (limits.zoom_min, limits.zoom_max) };
+        let now = board.view();
+        let pen = s.pointer_at.map(|(x, y)| geometry.to_units(now.to_board(Pt::new(x - canvas.origin.0, y - canvas.origin.1))));
+        let applied = board_view::apply(&geometry, now, &mut g.held, op, pen);
+        board.set_view(applied.view);
+        Some(applied)
+    })
+    .flatten();
+    let Some(applied) = applied else {
+        return false;
+    };
+    let _ = applied.zoom_held;
+    kit::redraw_image(info, canvas.node);
+    with_companion(app, |g, _| g.touch());
+    true
+}
+
+/// The pointer moved anywhere in the window: when the companion is on, where it is and whether it is over the whiteboard's panel is what the
+/// phone's pad is about (the pages' or the board's), and it is told when that changes.
+pub extern "C" fn on_window_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    let on = data.downcast_ref::<AppState>().is_some_and(|s| s.companion.try_borrow().is_ok_and(|g| g.stored.enabled));
+    if !on {
+        return Update::DoNothing;
+    }
+    let Some(at) = info.get_cursor_position().into_option() else {
+        return Update::DoNothing;
+    };
+    let size = info.get_current_window_state().size.dimensions;
+    let over = crate::whiteboard_plug::point_is_on_panel(&data, size.width, size.height, at.x, at.y);
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        let changed = s.over_board != over;
+        s.over_board = over;
+        s.pointer_at = Some((at.x, at.y));
+        if changed {
+            // a gesture that was under way belongs to the surface the pointer has left
+            if let Ok(mut companion) = s.companion.try_borrow_mut() {
+                companion.held = crate::page_view::Held::default();
+            }
+        }
+        if changed || over {
+            s.touch_companion();
+        }
+    }
+    Update::DoNothing
 }
 
 /// How long the pages are given to be laid out at their new zoom before the strip is scrolled, ms.
@@ -271,8 +382,9 @@ pub fn continue_reviewing(app: &RefAny, info: &mut CallbackInfo) -> bool {
 /// changed). Nothing without a file: the phone keeps what it had.
 pub fn publish(app: &RefAny, info: &CallbackInfo) {
     let strip = ui::strip_now(info);
+    let canvas = canvas_now(info);
     with_companion(app, |g, s| {
-        let state = pen_state_of(s, strip.as_ref());
+        let state = pen_state_of(s, strip.as_ref(), canvas.as_ref());
         if let Some(host) = g.host_mut() {
             host.publish_pen(state);
         }
@@ -282,10 +394,18 @@ pub fn publish(app: &RefAny, info: &CallbackInfo) {
 /// The pen state of the window: the file and the page in view, the view of it, the pen and what a button would act on, and the place to go
 /// back to.
 #[must_use]
-pub fn pen_state_of(s: &AppState, strip: Option<&ui::StripNow>) -> PenState {
+pub fn pen_state_of(s: &AppState, strip: Option<&ui::StripNow>, canvas: Option<&Canvas>) -> PenState {
     let folder = s.root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    // over the whiteboard the pad is the board's
+    let board = canvas.filter(|_| s.over_board && s.panels.right_open).and_then(|c| board_input(s, c));
     let (Some(file), Some(strip)) = (s.file(), strip) else {
         // nothing to look at: no file is open, or the pages are not laid out yet
+        if let Some(board) = board {
+            let back = s.progress.back().map(|b| (b.file.clone(), b.page, b.line, b.words()));
+            let region = s.wb.try_borrow().is_ok_and(|g| !g.panel.wb.armed.is_empty());
+            let geometry = Geometry { page_w: ui::PAGE_W, page_h: ui::page_h(), gap: ui::PAGE_GAP, pages: 1, window: (1.0, 1.0) };
+            return companion_pen::pen_state(&companion_pen::Input { board: Some(board), folder: &folder, file: "", line: 0, line_count: 0, geometry, looking: Looking::HOME, pen: None, region, back });
+        }
         return PenState { folder, surface: Surface::Page(PageSurface::empty()), view: Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 }, ..PenState::empty() };
     };
     let geometry = Geometry { page_w: ui::PAGE_W, page_h: ui::page_h_with(s.most_extra_rows()), gap: ui::PAGE_GAP, pages: file.page_count(), window: strip.size };
@@ -299,6 +419,7 @@ pub fn pen_state_of(s: &AppState, strip: Option<&ui::StripNow>) -> PenState {
     let region = s.wb.try_borrow().is_ok_and(|g| !g.panel.wb.armed.is_empty());
     let back = s.progress.back().map(|b| (b.file.clone(), b.page, b.line, b.words()));
     companion_pen::pen_state(&companion_pen::Input {
+        board,
         folder: &folder,
         file: &file.display,
         line,

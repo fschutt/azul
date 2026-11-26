@@ -256,6 +256,11 @@ pub(crate) fn with_window_listeners(body: Dom, data: &RefAny) -> Dom {
         crate::whiteboard_plug::on_window_down,
     )
     .with_callback(
+        EventFilter::Window(WindowEventFilter::MouseOver),
+        data.clone(),
+        crate::companion_cmd::on_window_move,
+    )
+    .with_callback(
         EventFilter::Window(WindowEventFilter::LeftMouseUp),
         data.clone(),
         crate::on_window_up,

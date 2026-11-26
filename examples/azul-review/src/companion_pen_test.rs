@@ -9,6 +9,7 @@ fn geometry() -> Geometry {
 
 fn input<'a>() -> Input<'a> {
     Input {
+        board: None,
         folder: "azul",
         file: "src/lib.rs",
         line: 57,
@@ -117,4 +118,53 @@ fn a_geometry_that_is_no_geometry_still_makes_a_state_of_numbers() {
     let state = pen_state(&i);
     assert!(state.view.x.is_finite() && state.view.y.is_finite() && state.view.w > 0.0 && state.view.h > 0.0, "{:?}", state.view);
     assert!(state.zoom.is_finite() && state.zoom > 0.0);
+}
+
+// ---- over the whiteboard
+
+fn over_board<'a>() -> Input<'a> {
+    let mut i = input();
+    i.board = Some(BoardInput {
+        geometry: board_view::Geometry { items: Some(crate::whiteboard_geom::Rect { x: 100.0, y: 50.0, w: 2000.0, h: 1000.0 }), window: (800.0, 600.0), zoom: (0.2, 4.0) },
+        view: View { pan: Pt::new(600.0, 300.0), zoom: 0.5 },
+        board_id: 3,
+        name: "Architecture".to_string(),
+        items: 7,
+        pointer: Some(Pt::new(1100.0, 550.0)),
+    });
+    i
+}
+
+#[test]
+fn over_the_whiteboard_the_state_is_the_boards_name_and_shape_and_the_window_of_it() {
+    let state = pen_state(&over_board());
+    let board = state.board().expect("the whiteboard");
+    assert_eq!((board.board_id, board.name.as_str(), board.item_count), (3, "Architecture", 7));
+    assert!(near(board.aspect, 2.0), "{board:?}");
+    assert!(state.page().is_none(), "no pages here");
+    assert!(near(state.view.x, 0.25) && near(state.view.y, 0.125) && near(state.view.w, 0.8) && near(state.view.h, 0.6), "{:?}", state.view);
+    assert!(near(state.zoom, 1.25), "{}", state.zoom);
+    assert_eq!(state.folder, "azul");
+}
+
+#[test]
+fn over_the_whiteboard_the_pen_is_the_pointer_in_the_boxs_units_and_a_button_acts_on_the_region_or_the_page() {
+    let mut i = over_board();
+    let state = pen_state(&i);
+    let mark = state.pen.expect("the pointer is over the board");
+    assert!(near(mark.x, 0.5) && near(mark.y, 0.25), "{mark:?}");
+    assert_eq!(state.context, Context::Page, "no line on a board");
+    i.region = true;
+    assert_eq!(pen_state(&i).context, Context::Region);
+    if let Some(board) = i.board.as_mut() {
+        board.pointer = None;
+    }
+    assert_eq!(pen_state(&i).pen, None);
+}
+
+#[test]
+fn the_place_to_come_back_to_is_told_over_the_whiteboard_too() {
+    let mut i = over_board();
+    i.back = Some(("src/lib.rs".to_string(), 1, 50, "src/lib.rs p2 l50".to_string()));
+    assert_eq!(pen_state(&i).return_point.map(|r| r.line), Some(50));
 }

@@ -63,6 +63,7 @@ pub mod agent_process;
 pub mod agent_review;
 pub mod agent_settings;
 pub mod agent_stroke;
+pub mod board_view;
 pub mod census;
 pub mod chips;
 pub mod chips_op;
@@ -368,6 +369,10 @@ pub struct AppState {
     pub zoom: f32,
     /// Where the pen (or the cursor) was last seen on the pages, and when: what the phone is told of it.
     pub pen_seen: Option<(companion_pen::PenAt, std::time::Instant)>,
+    /// The pointer is over the whiteboard's panel (what the phone's pad is about: the board's, not the pages'), and where it was last seen in
+    /// the window (kept only while the phone companion is on).
+    pub over_board: bool,
+    pub pointer_at: Option<(f32, f32)>,
     pub epoch: u64,
     pub idle_timer: TimerId,
     pub root: PathBuf,
@@ -499,6 +504,8 @@ impl AppState {
             visible_page: 0,
             zoom: 1.0,
             pen_seen: None,
+            over_board: false,
+            pointer_at: None,
             epoch: 0,
             idle_timer: TimerId::unique(),
             root,
