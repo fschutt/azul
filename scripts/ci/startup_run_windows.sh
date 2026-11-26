@@ -19,6 +19,8 @@ ls -la out
 HERE="$(pwd -W)"
 echo "=== AzWidgets: 9 starts with the timeline, exit at the first frame"
 python scripts/ci/startup_measure.py --exe "$HERE/out/AzWidgets.exe" --runs 9 --label "AzWidgets windows release (runner VM)" --json out/startup-windows.json
+echo "=== the phases of each layout pass: one start with AZ_PROFILE=cpu (the profiler adds a little)"
+AZ_STARTUP=1 AZ_PROFILE=cpu AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1 ./out/AzWidgets.exe 2>&1 | grep -E "^\[CPU\]|^\[startup\]" | head -220
 echo "=== the same under Measure-Command (what a user's stopwatch sees: spawn to exit)"
 export AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1
 powershell -NoProfile -Command "1..5 | ForEach-Object { (Measure-Command { & '$HERE/out/AzWidgets.exe' | Out-Null }).TotalMilliseconds }"

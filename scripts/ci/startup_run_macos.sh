@@ -17,5 +17,7 @@ cp scripts/ci/startup_measure.py out/
 ls -la out
 echo "=== AzWidgets on the runner: 7 starts, the timeline of each, exit at the first frame"
 python3 scripts/ci/startup_measure.py --exe "$PWD/out/AzWidgets" --runs 7 --label "AzWidgets macos release (runner VM)" --env "DYLD_LIBRARY_PATH=$PWD/out" --json out/startup-macos-runner.json
+echo "=== the phases of each layout pass: one start with AZ_PROFILE=cpu (the profiler adds a little)"
+( cd out && DYLD_LIBRARY_PATH="$PWD" AZ_STARTUP=1 AZ_PROFILE=cpu AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1 ./AzWidgets 2>&1 | grep -E "^\[CPU\]|^\[startup\]" | head -220 )
 echo "=== the tests of the timeline, the settings and the app's shared state"
 cargo test --release -p azul-dll --lib --features build-dll -- startup_timeline shell_settings app_shared first_frame 2>&1 | grep -E "^test |^test result|FAILED|panicked|^error|could not compile" | head -80

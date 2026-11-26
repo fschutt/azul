@@ -10677,6 +10677,9 @@ impl MacOSWindow {
         // reports as a frame's render cost next to its relayout.
         let _probe = azul_layout::probe::Probe::span("draw_rect_render_present");
         log_trace!(LogCategory::Rendering, "[render_and_present] START");
+        // The startup timeline (`AZ_STARTUP=1`): where the first frame's render begins and ends (the layout, the
+        // display list and the raster or the WebRender transaction), so the blit to the window is what is left.
+        self.common.app.startup().mark_once("frame:first_render_begin");
         self.sync_window_backdrop();
 
         // NOTE: Timer callbacks are NOT invoked here — they run in the
@@ -11645,6 +11648,7 @@ impl MacOSWindow {
             LogCategory::Rendering,
             "[render_and_present] FRAME COMPLETE"
         );
+        self.common.app.startup().mark_once("frame:first_render_done");
 
         // `<webview>`s where this frame put them (after its layout and its
         // scroll): placements and queued ops to WebKit. No callback runs

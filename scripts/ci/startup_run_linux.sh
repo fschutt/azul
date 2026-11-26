@@ -28,6 +28,8 @@ echo "=== 9 starts as on a GNOME desktop (a D-Bus session, XDG_CURRENT_DESKTOP=G
 dbus-run-session -- python3 scripts/ci/startup_measure.py --exe "$PWD/out/AzWidgets" --runs 9 --label "AzWidgets linux release, Xvfb, CPU renderer, GNOME-like session" --env XDG_CURRENT_DESKTOP=GNOME --env DESKTOP_SESSION=gnome --json out/startup-linux-gnome.json
 echo "=== 5 starts with the GL renderer (llvmpipe: not a GPU)"
 python3 scripts/ci/startup_measure.py --exe "$PWD/out/AzWidgets" --runs 5 --label "AzWidgets linux release, Xvfb, AZ_BACKEND=gpu (llvmpipe)" --env AZ_BACKEND=gpu --json out/startup-linux-gl.json
+echo "=== the phases of each layout pass: one start with AZ_PROFILE=cpu (the profiler adds a little)"
+AZ_STARTUP=1 AZ_PROFILE=cpu AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1 ./out/AzWidgets 2>&1 | grep -E "^\[CPU\]|^\[startup\]" | head -220
 echo "=== strace -f of one start (GNOME-like session): the processes it spawned and how long each lived"
 export XDG_CURRENT_DESKTOP=GNOME DESKTOP_SESSION=gnome AZ_STARTUP=1 AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1
 dbus-run-session -- strace -f -tt -T -e trace=execve,exit_group,openat,connect -o out/strace-gnome.log ./out/AzWidgets 2> out/strace-gnome-stderr.txt
