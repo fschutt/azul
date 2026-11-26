@@ -122,6 +122,7 @@ let style_shorthands () =
     (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontVariantNumeric)));
     (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontVariantLigatures)));
     (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontVariantEastAsian)));
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontVariantPosition)));
     (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontKerning)));
     (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontOpticalSizing)));
     (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontVariationSettings)));
@@ -134,11 +135,12 @@ let style_shorthands () =
     (azCssPropertyWithConditions_simple (azCssProperty_fontVariantCaps (az_union az_style_font_variant_caps_value 6 (Some (az_payload az_style_font_variant_caps (StyleFontVariantCaps.to_int StyleFontVariantCaps.Normal))))));
     (azCssPropertyWithConditions_simple (azCssProperty_fontVariantLigatures (az_union az_style_font_variant_ligatures_value 6 (Some (az_payload az_style_font_variant_ligatures (az_struct az_style_font_variant_ligatures [ (fun v -> Ctypes.setf v az_style_font_variant_ligatures_field_common (StyleFontLigatureChoice.to_int StyleFontLigatureChoice.Unset)); (fun v -> Ctypes.setf v az_style_font_variant_ligatures_field_discretionary (StyleFontLigatureChoice.to_int StyleFontLigatureChoice.Unset)); (fun v -> Ctypes.setf v az_style_font_variant_ligatures_field_historical (StyleFontLigatureChoice.to_int StyleFontLigatureChoice.Unset)); (fun v -> Ctypes.setf v az_style_font_variant_ligatures_field_contextual (StyleFontLigatureChoice.to_int StyleFontLigatureChoice.Unset)) ]))))));
     (azCssPropertyWithConditions_simple (azCssProperty_fontVariantEastAsian (az_union az_style_font_variant_east_asian_value 6 (Some (az_payload az_style_font_variant_east_asian (az_struct az_style_font_variant_east_asian [ (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_jis78 true); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_jis83 false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_jis90 false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_jis04 false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_simplified false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_traditional false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_full_width false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_proportional_width false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_ruby false) ]))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontVariantPosition (az_union az_style_font_variant_position_value 6 (Some (az_payload az_style_font_variant_position (StyleFontVariantPosition.to_int StyleFontVariantPosition.Normal))))));
     (azCssPropertyWithConditions_simple (azCssProperty_fontSynthesisWeight (az_union az_style_font_synthesis_value 6 (Some (az_payload az_style_font_synthesis (StyleFontSynthesis.to_int StyleFontSynthesis.Auto))))));
     (azCssPropertyWithConditions_simple (azCssProperty_fontSynthesisStyle (az_union az_style_font_synthesis_value 6 (Some (az_payload az_style_font_synthesis (StyleFontSynthesis.to_int StyleFontSynthesis.Auto))))));
     (azCssPropertyWithConditions_simple (azCssProperty_fontSynthesisSmallCaps (az_union az_style_font_synthesis_value 6 (Some (az_payload az_style_font_synthesis (StyleFontSynthesis.to_int StyleFontSynthesis.None))))));
     (azCssPropertyWithConditions_simple (azCssProperty_fontSynthesisPosition (az_union az_style_font_synthesis_value 6 (Some (az_payload az_style_font_synthesis (StyleFontSynthesis.to_int StyleFontSynthesis.None))))))
-  ])) (Unsigned.Size_t.of_int 26))
+  ])) (Unsigned.Size_t.of_int 28))
 
 (* CSS: .box *)
 let style_box () =

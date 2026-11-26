@@ -17,11 +17,18 @@
 //! # The document model
 //!
 //! UIKit addresses text by opaque `UITextPosition` objects. This maps them to
-//! BYTE OFFSETS into one flat string:
+//! UTF-16 OFFSETS into one flat string (the unit every `UITextInput` offset is measured in: an
+//! `NSString`'s `length`, `offset(from:to:)`, the `NSRange` of `setMarkedText:`):
 //!
 //! ```text
 //!   committed[..caret] + preedit + committed[caret..]
 //! ```
+//!
+//! The ENGINE measures in bytes of that same string; `azul_layout::window::{utf16_offset_to_byte,
+//! byte_offset_to_utf16, utf16_range_to_bytes}` are the bridge macOS's `NSTextInputClient` already
+//! uses, and every method below converts at the seam. The shell used to store BYTES: on the first
+//! non-ASCII character (an umlaut is 2 bytes for 1 unit, a kana 3, an emoji 4 for 2) every
+//! question was answered wrongly and a step of one character landed inside the next one.
 //!
 //! The preedit is spliced in at the caret rather than kept beside the document,
 //! because UIKit requires `textInRange:` to return marked text — it asks for
@@ -46,9 +53,15 @@ use objc::{
     sel, sel_impl, Encode, Encoding,
 };
 
+use azul_layout::window::{byte_offset_to_utf16, utf16_offset_to_byte, utf16_range_to_bytes};
+
 use super::{azul_ios_window, ns_string_to_rust, settle, CGPoint, CGRect, CGSize, IOSWindow};
 use crate::{
-    desktop::shell2::common::{debug_server::LogCategory, event::PlatformWindow},
+    desktop::shell2::common::{
+        debug_server::LogCategory,
+        event::PlatformWindow,
+        ios_logic::{one_character_around, position_from_offset, utf16_len},
+    },
     log_debug,
 };
 
@@ -130,51 +143,39 @@ fn document(window: &IOSWindow) -> (String, Option<(usize, usize)>) {
         .map_or((String::new(), None), |lw| lw.ime_document())
 }
 
-/// Snap an offset to a char boundary at or below it.
-///
-/// UIKit hands back offsets it computed from OUR numbers, so they are usually
-/// aligned — but `positionFromPosition:offset:` is documented in CHARACTERS
-/// while this model is in bytes, and an IME moving through a multi-byte
-/// candidate can land mid-scalar. Slicing there panics, so every offset that
-/// reaches a slice goes through here first.
-fn clamp_to_char_boundary(s: &str, mut offset: usize) -> usize {
-    if offset >= s.len() {
-        return s.len();
-    }
-    while offset > 0 && !s.is_char_boundary(offset) {
-        offset -= 1;
-    }
-    offset
-}
-
 fn document_len(window: &IOSWindow) -> usize {
     document(window).0.len()
 }
 
 // ─── AzulTextPosition / AzulTextRange ─────────────────────────────────
 
-fn position_class() -> &'static Class {
+/// `None` when the class could not be declared (a panic here was an abort in a phone app, and a
+/// name that is taken is handled by [`super::declare_class`]): the text-input queries then answer
+/// "nothing" instead of an object of a class that is not there.
+fn position_class() -> Option<&'static Class> {
     use std::sync::Once;
     static ONCE: Once = Once::new();
     static mut CLS: *const Class = core::ptr::null();
     ONCE.call_once(|| unsafe {
-        let superclass = class!(UITextPosition);
-        let mut decl = ClassDecl::new("AzulTextPosition", superclass)
-            .expect("AzulTextPosition class name already registered");
+        let Some(mut decl) = super::declare_class("AzulTextPosition", class!(UITextPosition))
+        else {
+            return;
+        };
         decl.add_ivar::<i64>(POSITION_IVAR);
         CLS = decl.register();
     });
-    unsafe { &*CLS }
+    // SAFETY: a registered class is never freed; null when it could not be declared.
+    unsafe { CLS.as_ref() }
 }
 
-fn range_class() -> &'static Class {
+fn range_class() -> Option<&'static Class> {
     use std::sync::Once;
     static ONCE: Once = Once::new();
     static mut CLS: *const Class = core::ptr::null();
     ONCE.call_once(|| unsafe {
-        let superclass = class!(UITextRange);
-        let mut decl = ClassDecl::new("AzulTextRange", superclass)
-            .expect("AzulTextRange class name already registered");
+        let Some(mut decl) = super::declare_class("AzulTextRange", class!(UITextRange)) else {
+            return;
+        };
         decl.add_ivar::<i64>(RANGE_START_IVAR);
         decl.add_ivar::<i64>(RANGE_END_IVAR);
         // `start`, `end` and `isEmpty` are the three readonly properties
@@ -193,14 +194,22 @@ fn range_class() -> &'static Class {
         );
         CLS = decl.register();
     });
-    unsafe { &*CLS }
+    // SAFETY: a registered class is never freed; null when it could not be declared.
+    unsafe { CLS.as_ref() }
 }
 
 /// Build an `AzulTextPosition`. Always non-nil: UIKit treats a nil where the
 /// header promises an object as a programmer error and crashes.
+///
+/// AUTORELEASED: these answers go back to UIKit from methods that are not `alloc`/`new`/`copy`,
+/// so the caller does not own them (the convention every Cocoa caller follows, ARC or not). The
+/// objects used to leave `alloc`/`init` at +1 and never be released: UIKit asks for positions and
+/// ranges on every selection change and every keystroke, one leaked object per question.
 fn make_position(offset: usize) -> *mut Object {
     unsafe {
-        let cls = position_class();
+        let Some(cls) = position_class() else {
+            return core::ptr::null_mut();
+        };
         let obj: *mut Object = msg_send![cls, alloc];
         let obj: *mut Object = msg_send![obj, init];
         if obj.is_null() {
@@ -208,10 +217,19 @@ fn make_position(offset: usize) -> *mut Object {
         }
         let ob: &mut Object = &mut *obj;
         ob.set_ivar::<i64>(POSITION_IVAR, i64::try_from(offset).unwrap_or(i64::MAX));
-        obj
+        msg_send![obj, autorelease]
     }
 }
 
+/// A range between two BYTE offsets of `text`, stored in UTF-16 units.
+fn make_range_at_bytes(text: &str, start: usize, end: usize) -> *mut Object {
+    make_range(
+        byte_offset_to_utf16(text, start),
+        byte_offset_to_utf16(text, end),
+    )
+}
+
+/// `make_range` in UTF-16 units.
 fn make_range(start: usize, end: usize) -> *mut Object {
     // Ordered on construction, so nothing downstream has to wonder. UIKit
     // does hand out reversed pairs while dragging a selection backwards.
@@ -221,7 +239,9 @@ fn make_range(start: usize, end: usize) -> *mut Object {
         (end, start)
     };
     unsafe {
-        let cls = range_class();
+        let Some(cls) = range_class() else {
+            return core::ptr::null_mut();
+        };
         let obj: *mut Object = msg_send![cls, alloc];
         let obj: *mut Object = msg_send![obj, init];
         if obj.is_null() {
@@ -230,18 +250,20 @@ fn make_range(start: usize, end: usize) -> *mut Object {
         let ob: &mut Object = &mut *obj;
         ob.set_ivar::<i64>(RANGE_START_IVAR, i64::try_from(start).unwrap_or(i64::MAX));
         ob.set_ivar::<i64>(RANGE_END_IVAR, i64::try_from(end).unwrap_or(i64::MAX));
-        obj
+        // Autoreleased, like `make_position`.
+        msg_send![obj, autorelease]
     }
 }
 
-/// Read a position's offset. `None` for nil or a foreign class — UIKit is
+/// Read a position's offset (UTF-16 units). `None` for nil or a foreign class — UIKit is
 /// documented to pass only our own objects back, but a wrong assumption here
 /// would be a wild read rather than a miss.
 unsafe fn position_offset(pos: *mut Object) -> Option<usize> {
     if pos.is_null() {
         return None;
     }
-    let is_ours: bool = msg_send![pos, isKindOfClass: position_class()];
+    let cls = position_class()?;
+    let is_ours: bool = msg_send![pos, isKindOfClass: cls];
     if !is_ours {
         return None;
     }
@@ -249,11 +271,13 @@ unsafe fn position_offset(pos: *mut Object) -> Option<usize> {
     usize::try_from(v).ok()
 }
 
+/// A range's bounds in UTF-16 units.
 unsafe fn range_bounds(range: *mut Object) -> Option<(usize, usize)> {
     if range.is_null() {
         return None;
     }
-    let is_ours: bool = msg_send![range, isKindOfClass: range_class()];
+    let cls = range_class()?;
+    let is_ours: bool = msg_send![range, isKindOfClass: cls];
     if !is_ours {
         return None;
     }
@@ -290,8 +314,9 @@ extern "C" fn text_in_range(_this: &Object, _cmd: Sel, range: *mut Object) -> *m
         return unsafe { ns_string("") };
     };
     let (text, _) = document(window);
-    let start = clamp_to_char_boundary(&text, start.min(text.len()));
-    let end = clamp_to_char_boundary(&text, end.min(text.len()));
+    // UTF-16 units to bytes: always a character boundary, so the slice cannot panic.
+    let start = utf16_offset_to_byte(&text, start);
+    let end = utf16_offset_to_byte(&text, end).max(start);
     unsafe { ns_string(&text[start..end]) }
 }
 
@@ -305,10 +330,14 @@ extern "C" fn replace_range_with_text(
         return;
     };
     let replacement = unsafe { ns_string_to_rust(text) };
-    let Some((start, end)) = (unsafe { range_bounds(range) }) else {
+    let Some((start16, end16)) = (unsafe { range_bounds(range) }) else {
         return;
     };
-    let doc_len = document(window).0.len();
+    let document_text = document(window).0;
+    let doc_len = document_text.len();
+    // The range is in UTF-16 units; the engine takes bytes.
+    let start = utf16_offset_to_byte(&document_text, start16);
+    let end = utf16_offset_to_byte(&document_text, end16).max(start);
     if let Some(lw) = window.common.layout_window.as_mut() {
         if start == end {
             // A pure INSERT at a point. The engine inserts at its own caret,
@@ -317,30 +346,30 @@ extern "C" fn replace_range_with_text(
             if !replacement.is_empty() {
                 let _ = lw.record_text_input(&replacement);
             }
-        } else if end >= doc_len && start <= doc_len {
-            // A replace that reaches the END of the document - autocorrect
-            // swapping the word being typed. Expressible as delete-back then
-            // insert, which is what the engine models.
+        } else if lw.set_focused_selection_from_byte_range(start, end) {
+            // A REPLACE of a range: autocorrect swapping a word, a dictation fix-up. It used to
+            // be DROPPED because there was no way to say "select this range" - and falling
+            // through to an insert would have appended the correction instead of replacing it,
+            // silently duplicating text on every autocorrect.
+            //
+            // The same two steps the editor itself performs for a selection: delete what is
+            // selected, then insert. Ordering matters - inserting first would put the new text
+            // beside the old and then delete the wrong span.
             if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
-                for _ in 0..(end - start) {
-                    lw.delete_selection(focused, false);
-                }
+                lw.delete_selection(focused, false);
                 if !replacement.is_empty() {
                     let _ = lw.record_text_input(&replacement);
                 }
             }
-        } else if lw.set_focused_selection_from_byte_range(start, end) {
-            // AN INTERIOR REPLACE, which used to be DROPPED because there was
-            // no way to say "select this range" - and falling through to an
-            // insert would have appended the correction instead of replacing
-            // it, silently duplicating text on every autocorrect.
-            //
-            // Now it is the same two steps the editor itself performs for a
-            // selection: delete what is selected, then insert. Ordering
-            // matters - inserting first would put the new text beside the old
-            // and then delete the wrong span.
+        } else if end >= doc_len && start <= doc_len {
+            // The selection could not be set, but the range reaches the END of the document
+            // (autocorrect swapping the word being typed): expressible as delete-back then
+            // insert, which is what the engine models. One delete per CHARACTER of the range -
+            // the loop counted BYTES, so replacing an umlaut (2 bytes) ate two characters.
             if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
-                lw.delete_selection(focused, false);
+                for _ in 0..document_text[start..end].chars().count() {
+                    lw.delete_selection(focused, false);
+                }
                 if !replacement.is_empty() {
                     let _ = lw.record_text_input(&replacement);
                 }
@@ -384,14 +413,10 @@ extern "C" fn selected_text_range(_this: &Object, _cmd: Sel) -> *mut Object {
     // insertion point rather than nil: macOS pins `(0, 0)` for the same
     // reason, because an unanswerable selection stops the IME talking.
     match lw.focused_selection_byte_range() {
-        Some((start, end)) => {
-            let start = clamp_to_char_boundary(&text, start.min(text.len()));
-            let end = clamp_to_char_boundary(&text, end.min(text.len()));
-            make_range(start, end)
-        }
+        Some((start, end)) => make_range_at_bytes(&text, start, end),
         None => {
             let caret = text.len();
-            make_range(caret, caret)
+            make_range_at_bytes(&text, caret, caret)
         }
     }
 }
@@ -406,9 +431,12 @@ extern "C" fn set_selected_text_range(_this: &Object, _cmd: Sel, range: *mut Obj
     // between the bytes of a multi-byte grapheme.
     // `set_focused_selection_from_byte_range` resolves each end against the
     // shaped layout instead.
-    let Some((start, end)) = (unsafe { range_bounds(range) }) else {
+    let Some((start16, end16)) = (unsafe { range_bounds(range) }) else {
         return;
     };
+    let text = document(window).0;
+    let start = utf16_offset_to_byte(&text, start16);
+    let end = utf16_offset_to_byte(&text, end16).max(start);
     let changed = window
         .common
         .layout_window
@@ -426,8 +454,9 @@ extern "C" fn marked_text_range(_this: &Object, _cmd: Sel) -> *mut Object {
     };
     // nil = "no composition open", which is what UIKit expects and is why
     // this one is nullable in the header.
-    match document(window).1 {
-        Some((start, end)) => make_range(start, end),
+    let (text, marked) = document(window);
+    match marked {
+        Some((start, end)) => make_range_at_bytes(&text, start, end),
         None => core::ptr::null_mut(),
     }
 }
@@ -458,12 +487,18 @@ extern "C" fn set_marked_text(
         if text.is_empty() {
             lw.text_edit_manager.clear_preedit();
         } else {
-            // `selectedRange` is relative to the MARKED TEXT, not the
-            // document - which is exactly what `set_preedit` wants, so the
-            // two line up without translation.
-            let begin = i32::try_from(selected_range.location).unwrap_or(0);
-            let len = i32::try_from(selected_range.length).unwrap_or(0);
-            lw.text_edit_manager.set_preedit(text, begin, begin + len);
+            // `selectedRange` is relative to the MARKED TEXT, not the document, and in UTF-16
+            // UNITS; `set_preedit` wants BYTES within the preedit. On ASCII the two agree, which
+            // is how passing units as bytes survived: on the first kana it put the composition
+            // caret in the wrong syllable (macOS fixed the same line, `setMarkedText:` there).
+            let location = usize::try_from(selected_range.location).unwrap_or(usize::MAX);
+            let length = usize::try_from(selected_range.length).unwrap_or(0);
+            let (begin, end) = utf16_range_to_bytes(&text, location, length);
+            lw.text_edit_manager.set_preedit(
+                text,
+                i32::try_from(begin).unwrap_or(i32::MAX),
+                i32::try_from(end).unwrap_or(i32::MAX),
+            );
         }
     }
     let result = window.process_window_events(0);
@@ -501,7 +536,7 @@ extern "C" fn beginning_of_document(_this: &Object, _cmd: Sel) -> *mut Object {
 }
 
 extern "C" fn end_of_document(_this: &Object, _cmd: Sel) -> *mut Object {
-    let len = unsafe { azul_ios_window() }.map_or(0, |w| document_len(w));
+    let len = unsafe { azul_ios_window() }.map_or(0, |w| utf16_len(&document(w).0));
     make_position(len)
 }
 
@@ -532,16 +567,13 @@ extern "C" fn position_from_position_offset(
         return core::ptr::null_mut();
     };
     let (text, _) = document(window);
-    // Out of bounds returns nil, which the header allows and UIKit relies on
-    // to discover where the document ends. Saturating to the end instead
-    // would make it walk forever.
-    let Some(target) = base.checked_add_signed(offset as isize) else {
-        return core::ptr::null_mut();
-    };
-    if target > text.len() {
-        return core::ptr::null_mut();
+    // In UTF-16 units, as UIKit measures. Out of bounds returns nil, which the header allows and
+    // UIKit relies on to discover where the document ends. Saturating to the end instead would
+    // make it walk forever.
+    match position_from_offset(&text, base, offset) {
+        Some(target) => make_position(target),
+        None => core::ptr::null_mut(),
     }
-    make_position(clamp_to_char_boundary(&text, target))
 }
 
 extern "C" fn position_from_position_in_direction_offset(
@@ -620,24 +652,15 @@ extern "C" fn character_range_by_extending_position_in_direction(
         return core::ptr::null_mut();
     };
     let (text, _) = document(window);
-    // One CHARACTER, not one byte: extending by a byte would split a
-    // multi-byte scalar and every subsequent slice would panic.
-    match direction {
-        DIRECTION_LEFT | DIRECTION_UP => {
-            let start = text[..base.min(text.len())]
-                .char_indices()
-                .next_back()
-                .map_or(0, |(i, _)| i);
-            make_range(start, base)
-        }
-        _ => {
-            let end = text[base.min(text.len())..]
-                .chars()
-                .next()
-                .map_or(base, |c| base + c.len_utf8());
-            make_range(base, end.min(text.len()))
-        }
-    }
+    // One CHARACTER, not one unit or one byte: extending by one would split a multi-byte scalar
+    // and every subsequent slice would panic. `base` (UTF-16 units) came from UIKit, from a
+    // position handed out before the text last changed, so it becomes a byte offset on a
+    // character boundary first (a slice inside a character is a panic, in an `extern "C"`
+    // callback an abort).
+    let toward_start = matches!(direction, DIRECTION_LEFT | DIRECTION_UP);
+    let base_byte = utf16_offset_to_byte(&text, base);
+    let (start, end) = one_character_around(&text, base_byte, toward_start);
+    make_range_at_bytes(&text, start, end)
 }
 
 // ─── Writing direction ────────────────────────────────────────────────
@@ -678,9 +701,13 @@ extern "C" fn first_rect_for_range(_this: &Object, _cmd: Sel, range: *mut Object
     // window, so the node box put it beside the field rather than under the
     // text being composed.
     let bounds = unsafe { range_bounds(range) };
-    let rect = bounds.and_then(|(start, end)| {
+    let rect = bounds.and_then(|(start16, end16)| {
         let window = unsafe { azul_ios_window() }?;
         let lw = window.common.layout_window.as_ref()?;
+        // UTF-16 units to the engine's bytes.
+        let text = lw.ime_document().0;
+        let start = utf16_offset_to_byte(&text, start16);
+        let end = utf16_offset_to_byte(&text, end16).max(start);
         lw.focused_rect_for_byte_range(start, end)
     });
     match rect {
@@ -695,10 +722,11 @@ extern "C" fn first_rect_for_range(_this: &Object, _cmd: Sel, range: *mut Object
 
 extern "C" fn caret_rect_for_position(_this: &Object, _cmd: Sel, position: *mut Object) -> CGRect {
     let offset = unsafe { position_offset(position) };
-    let rect = offset.and_then(|offset| {
+    let rect = offset.and_then(|offset16| {
         let window = unsafe { azul_ios_window() }?;
         let lw = window.common.layout_window.as_ref()?;
-        lw.focused_rect_for_byte_offset(offset)
+        let text = lw.ime_document().0;
+        lw.focused_rect_for_byte_offset(utf16_offset_to_byte(&text, offset16))
     });
     let mut r = match rect {
         Some(r) => to_cgrect(r),
@@ -730,17 +758,19 @@ extern "C" fn closest_position_to_point(_this: &Object, _cmd: Sel, point: CGPoin
     let hit = (|| {
         let window = unsafe { azul_ios_window() }?;
         let lw = window.common.layout_window.as_ref()?;
-        lw.focused_byte_offset_for_point(azul_core::geom::LogicalPosition::new(
+        let byte = lw.focused_byte_offset_for_point(azul_core::geom::LogicalPosition::new(
             point.x as f32,
             point.y as f32,
-        ))
+        ))?;
+        // The engine answers in bytes; positions are UTF-16 units.
+        Some(byte_offset_to_utf16(&lw.ime_document().0, byte))
     })();
     match hit {
         Some(offset) => make_position(offset),
         // The end of the document remains the fallback for a field with no
         // text layout. Nil would break the loupe entirely.
         None => {
-            let len = unsafe { azul_ios_window() }.map_or(0, |w| document_len(w));
+            let len = unsafe { azul_ios_window() }.map_or(0, |w| utf16_len(&document(w).0));
             make_position(len)
         }
     }
@@ -762,10 +792,11 @@ extern "C" fn closest_position_to_point_within_range(
     let hit = (|| {
         let window = unsafe { azul_ios_window() }?;
         let lw = window.common.layout_window.as_ref()?;
-        lw.focused_byte_offset_for_point(azul_core::geom::LogicalPosition::new(
+        let byte = lw.focused_byte_offset_for_point(azul_core::geom::LogicalPosition::new(
             point.x as f32,
             point.y as f32,
-        ))
+        ))?;
+        Some(byte_offset_to_utf16(&lw.ime_document().0, byte))
     })();
     let (lo, hi) = if start <= end {
         (start, end)

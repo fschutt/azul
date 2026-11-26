@@ -504,6 +504,26 @@ def read_startchecks(dirs):
     return found
 
 
+def read_symbols(dirs):
+    """{(package, column): {min_os, imports, unchecked, violations}} from the <App>.<column>.symbols.json files the iOS builds leave
+    (scripts/ci/ios_symbol_gate.py through AZ_IOS_SYMBOL_JSON): the counts of its strong imports, `violations` as a number. The files
+    of the QA variant (<column>-e2e) are not the shipped cells'."""
+    found = {}
+    for d in dirs:
+        for f in sorted(pathlib.Path(d).rglob("*.symbols.json")):
+            stem = f.name[:-len(".symbols.json")]
+            package, _, column = stem.rpartition(".")
+            if column not in ARTIFACT_COLUMNS:
+                continue
+            try:
+                r = json.loads(f.read_text(encoding="utf-8"))
+                found[(package, column)] = {"min_os": r.get("min_os"), "imports": int(r.get("imports", 0)),
+                                            "unchecked": int(r.get("unchecked", 0)), "violations": len(r.get("violations") or [])}
+            except (ValueError, TypeError, AttributeError):
+                continue
+    return found
+
+
 def read_libs(dirs):
     """The libazul.info.json files the library jobs leave: [{kind, target, features, seconds, size, ...}]."""
     libs = []
@@ -554,6 +574,7 @@ def status(dirs, m=None, extra=None):
     results = read_results(dirs)
     smoke = read_smoke(dirs)
     starts = read_startchecks(dirs)
+    symbols = read_symbols(dirs)
     rows = []
     total_files = total_bytes = total_shipped = 0
     unexplained = []
@@ -579,6 +600,8 @@ def status(dirs, m=None, extra=None):
             start = starts.get((a["package"], col))
             if start:
                 cell["start"] = start
+            if (a["package"], col) in symbols:
+                cell["symbols"] = symbols[(a["package"], col)]
             if cell["status"] in ("built", "reused"):
                 total_files += 1
                 total_bytes += cell.get("size") or 0
@@ -590,8 +613,10 @@ def status(dirs, m=None, extra=None):
     boot_failed = sorted(f"{r['app']}/{c}" for r in rows for c, cell in r["cells"].items()
                          if str(cell.get("boot", "")).startswith("BOOT FAILED"))
     libs = read_libs(dirs)
+    # a violation of the iOS symbol gate: a strong import newer than the oldest iOS the app claims (it fails the build too)
+    symbol_violations = sorted(f"{package}/{column}" for (package, column), s in symbols.items() if s["violations"])
     summary = {
-        "libs": libs,
+        "libs": libs, "symbol_violations": symbol_violations,
         "assets": total_files, "bytes": total_bytes, "shipped_bytes": total_shipped,
         "artifacts_of_the_run": extra.get("artifacts"), "runner_minutes": extra.get("runner_minutes"),
         "unexplained_failures": unexplained, "boot_failures": boot_failed, "smoke": extra.get("smoke", {}),
@@ -632,11 +657,16 @@ def render_markdown(data):
         lines.append(f"| {r['app']} | " + " | ".join(cells) + f" | {engine} | {secs} | {'; '.join(sizes[:2])}{' ...' if len(sizes) > 2 else ''} |")
     files = [(r["app"], c, cell) for r in data["apps"] for c, cell in r["cells"].items() if cell.get("artifact")]
     if files:
+        with_symbols = any(cell.get("symbols") for _, _, cell in files)
         lines += ["", "### Files (what the release page links)", "",
-                  "| asset | platform | stripped | shipped | seconds | engine crates | sha256 |", "|---|---|---|---|---|---|---|"]
+                  "| asset | platform | stripped | shipped | seconds | engine crates | sha256 |" + (" iOS symbols |" if with_symbols else ""),
+                  "|---|---|---|---|---|---|---|" + ("---|" if with_symbols else "")]
         for app, col, cell in files:
+            sym = cell.get("symbols")
+            sym_text = f" {sym['imports']} imports, {sym['unchecked']} unchecked, {sym['violations']} violations |" if sym else " - |"
             lines.append(f"| {cell['artifact']} | {col} | {human(cell.get('size'))} | {human(cell.get('shipped_size'))} | "
-                         f"{cell.get('seconds') or 0} | {len(cell.get('engine_crates') or [])} | `{str(cell.get('sha256') or '')[:12]}` |")
+                         f"{cell.get('seconds') or 0} | {len(cell.get('engine_crates') or [])} | `{str(cell.get('sha256') or '')[:12]}` |"
+                         + (sym_text if with_symbols else ""))
     s = data["summary"]
     lines += ["", f"**{s['assets']} files, {human(s['bytes'])} stripped, {human(s['shipped_bytes'])} as shipped**; "
                   f"artifacts of the run: {s['artifacts_of_the_run']}; runner minutes: {s['runner_minutes']}."]

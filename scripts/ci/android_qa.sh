@@ -10,7 +10,7 @@
 #            audit: the phone-fit audit of QA-variant APKs (scripts/ci/mobile_e2e.py --audit-only) on the first mode only: the
 #                 APK, then every APK of AZ_QA_AUDIT_APKS (space separated), each in its own folder <out>/<mode>/audit/<apk name>/
 #                 (layout-audit.md and .json, the dumps, both pictures per orientation, the dark-mode verdict, and the app's own
-#                 script: AzPaint paint, AzWriter writer, AzMaps maps).
+#                 script: AzPaint paint, AzWriter writer, AzMaps maps, AzMeet meet).
 #
 # For an Ubuntu runner with KVM (without it the emulator is unusable) and the runner's Android SDK. Per GPU
 # mode <out-dir>/<mode>/ holds what scripts/ci/mobile_qa.py writes (qa.json, qa.md, shots/, logs/) and the
@@ -138,7 +138,7 @@ for mode in "${mode_list[@]}"; do
       an="$(basename "$aapk" .apk)"
       [ -n "$apkg" ] || { echo "no package in the badging of $aapk"; continue; }
       ascript=""
-      case "$an" in AzPaint-*) ascript=paint ;; AzWriter-*) ascript=writer ;; AzMaps-*) ascript=maps ;; esac
+      case "$an" in AzPaint-*) ascript=paint ;; AzWriter-*) ascript=writer ;; AzMaps-*) ascript=maps ;; AzMeet-*) ascript=meet ;; esac
       echo "---- phone-fit audit of $an ($apkg)${ascript:+, script $ascript}"
       mkdir -p "$d/audit"
       python3 "$here/mobile_e2e.py" android --out "$d/audit/$an" --apk "$aapk" --package "$apkg" --activity "${aact:-}" \

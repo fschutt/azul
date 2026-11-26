@@ -178,6 +178,12 @@ pub(super) fn set_up_panic_hooks(unattended: bool) {
 
         // TODO: invoke external app crash handler with the location to the log file
         log::error!("{}", error_str);
+        // An iOS app's stderr goes nowhere unless a debugger or `simctl launch --console` is
+        // attached, so the message is also written where a crash is read from: the system log
+        // (`simctl spawn <device> log stream`, Console.app, a device's syslog). The app that
+        // "launched and exited" on the simulator had its cause on a stderr nobody saw.
+        #[cfg(target_os = "ios")]
+        crate::desktop::shell2::ios::system_log(&error_str);
 
         // The modal is the "report this error" surface — it runs BEFORE the
         // `panic = "abort"` runtime kills the process, which is the only
