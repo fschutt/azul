@@ -718,11 +718,13 @@ mod e2e {
         screen: Vec<Vec<u8>>,
         camera: Vec<Vec<u8>>,
         voice: Vec<Vec<u8>>,
+        /// The width of the screen's pictures: an encoder opened for it replays the screen's stream.
+        screen_width: u32,
     }
 
     impl CodecFactory for ReplayFactory {
         fn video(&self, width: u32, _height: u32, _kbps: u32) -> Result<Box<dyn VideoCodec>, String> {
-            let aus = if width == 640 { self.screen.clone() } else { self.camera.clone() };
+            let aus = if width == self.screen_width { self.screen.clone() } else { self.camera.clone() };
             Ok(Box::new(Replay::new(aus)))
         }
         fn audio(&self, _rate: u32, _channels: u16, _kbps: u32) -> Result<Box<dyn AudioCodec>, String> {
@@ -747,11 +749,19 @@ mod e2e {
         screen: Vec<Vec<u8>>,
         camera: Vec<Vec<u8>>,
         voice: Vec<Vec<u8>>,
+        /// The sizes of the screen's and the camera's pictures.
+        screen_size: (u32, u32),
+        camera_size: (u32, u32),
         tmp: Tmp,
     }
 
     /// The rig, or `None` (said, and a failure under `AZ_REQUIRE_FFMPEG=1`) where ffmpeg cannot do it.
     fn rig(name: &str) -> Option<Rig> {
+        rig_sized(name, (640, 360), (320, 240))
+    }
+
+    /// [`rig`] with pictures of these sizes.
+    fn rig_sized(name: &str, screen_size: (u32, u32), camera_size: (u32, u32)) -> Option<Rig> {
         let (Some(ffmpeg), Some(ffprobe)) = (find_tool("ffmpeg"), find_tool("ffprobe")) else {
             skipped("there is no ffmpeg and ffprobe in /opt/homebrew/bin, /usr/local/bin or /usr/bin");
             return None;
@@ -763,7 +773,7 @@ mod e2e {
         }
         let h264 = |size: &str| ffmpeg_bytes(&ffmpeg, &["-f", "lavfi", "-i", &format!("testsrc2=size={size}:rate=30"), "-t", "6", "-c:v", "libx264", "-g", "30", "-bf", "0", "-pix_fmt", "yuv420p", "-f", "h264", "-"]);
         let opus = ffmpeg_bytes(&ffmpeg, &["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "6", "-c:a", "libopus", "-b:a", "32k", "-frame_duration", "20", "-f", "ogg", "-"]);
-        let (Some(screen), Some(camera), Some(opus)) = (h264("640x360"), h264("320x240"), opus) else {
+        let (Some(screen), Some(camera), Some(opus)) = (h264(&format!("{}x{}", screen_size.0, screen_size.1)), h264(&format!("{}x{}", camera_size.0, camera_size.1)), opus) else {
             skipped("this ffmpeg cannot make the test streams (it needs libx264 and libopus)");
             return None;
         };
@@ -771,14 +781,21 @@ mod e2e {
         let tmp = Tmp(std::env::temp_dir().join(format!("azreview-e2e-{name}-{}", std::process::id())));
         let _ = fs::remove_dir_all(&tmp.0);
         fs::create_dir_all(&tmp.0).unwrap();
-        Some(Rig { ffmpeg, ffprobe, encoders, screen: split_aus(&screen), camera: split_aus(&camera), voice: ogg_packets(&opus), tmp })
+        Some(Rig { ffmpeg, ffprobe, encoders, screen: split_aus(&screen), camera: split_aus(&camera), voice: ogg_packets(&opus), screen_size, camera_size, tmp })
     }
 
     /// A session of six seconds recorded through the recorder with the rig's encoders: the window changes ten
     /// times a second, the camera sends 15 pictures a second and the voice 50 packets; three seconds, then (when
     /// `with_pause`) a pause of two seconds, then three seconds more.
     fn record(rig: &Rig, with_pause: bool, with_camera: bool) -> Started {
-        let factory = ReplayFactory { screen: rig.screen.clone(), camera: rig.camera.clone(), voice: rig.voice.clone() };
+        record_blocks(rig, 2, with_pause, with_camera)
+    }
+
+    /// [`record`] for `blocks` of three seconds (a pause, when asked for, after the first).
+    fn record_blocks(rig: &Rig, blocks: u64, with_pause: bool, with_camera: bool) -> Started {
+        let (sw, sh) = rig.screen_size;
+        let (cw, ch) = rig.camera_size;
+        let factory = ReplayFactory { screen: rig.screen.clone(), camera: rig.camera.clone(), voice: rig.voice.clone(), screen_width: sw };
         let clock = MockClock::at(0);
         let c = clock.clone();
         let deps = Deps {
@@ -803,7 +820,7 @@ mod e2e {
                 screen_device: None,
             })
             .unwrap();
-        let window = vec![9_u8; 640 * 360 * 4];
+        let window = vec![9_u8; sw as usize * sh as usize * 4];
         let second = |rec: &mut Recorder, from_ms: u64, events: &[(u64, &str)]| {
             for i in 0..30_u64 {
                 clock.set_us((from_ms + i * 100) * 1_000);
@@ -811,9 +828,9 @@ mod e2e {
                     let _ = at;
                     rec.event("nav.file", &format!("{{\"file\":\"{file}\",\"lines\":100}}")).unwrap();
                 }
-                rec.tap(&TapFrame { width: 640, height: 360, stride: 640 * 4, scale: 1.0, damage: Damage::Full, pixels: &window });
+                rec.tap(&TapFrame { width: sw, height: sh, stride: sw as usize * 4, scale: 1.0, damage: Damage::Full, pixels: &window });
                 if with_camera {
-                    rec.camera_frame(RawFrame { width: 320, height: 240, format: PixelFormat::Nv12, bytes: vec![0; 320 * 240 * 3 / 2] });
+                    rec.camera_frame(RawFrame { width: cw, height: ch, format: PixelFormat::Nv12, bytes: vec![0; cw as usize * ch as usize * 3 / 2] });
                 }
                 for k in 0..5 {
                     clock.set_us((from_ms + i * 100 + k * 20 + 20) * 1_000);
@@ -830,7 +847,9 @@ mod e2e {
             rec.toggle_pause();
             second(&mut rec, 5_000, &[(0, "README.md")]);
         } else {
-            second(&mut rec, 3_000, &[(0, "README.md")]);
+            for block in 1..blocks {
+                second(&mut rec, block * 3_000, if block == 1 { &[(0, "README.md")] } else { &[] });
+            }
         }
         let done = rec.stop("user").unwrap();
         assert!(done.clean, "{done:?}");
@@ -871,6 +890,34 @@ mod e2e {
         assert!(decode.status.success() && decode.stderr.is_empty(), "{}", String::from_utf8_lossy(&decode.stderr));
         eprintln!("exported {} bytes, {duration:.2} s, {} chapters", report.bytes, chapters.lines().count());
         eprintln!("ffprobe streams (codec, type, size):\n{streams}ffprobe duration: {duration:.3} s\nffprobe chapters (id, time base, start, start s, end, end s):\n{chapters}");
+    }
+
+    /// What an export costs per hour of recording, measured with this machine's real ffmpeg on a made-up
+    /// session of a minute at a 1920 x 1248 display and a 720p camera: with the camera over the screen (the
+    /// pictures are composed and encoded once) and without it (the screen's files are copied). Run it by
+    /// hand: `cargo test --release -p AzReview --lib -- --ignored --nocapture an_export_is_timed`.
+    #[test]
+    #[ignore = "X-EDGE-C-2: a measurement, run by hand: cargo test --release -p AzReview --lib -- --ignored --nocapture an_export_is_timed"]
+    fn an_export_is_timed_per_hour_of_recording() {
+        let Some(rig) = rig_sized("timed", (1920, 1248), (1280, 720)) else { return };
+        for (camera, what) in [(true, "the screen with the camera over it and the voice (the pictures encoded once)"), (false, "the screen and the voice alone (the pictures copied)")] {
+            let started = record_blocks(&rig, 20, false, camera);
+            let manifest = Manifest::parse(&fs::read_to_string(started.dir.join("manifest.json")).unwrap()).unwrap();
+            let edl = identity_edl(&manifest, &[]);
+            let plan = build_plan(&manifest, &edl, &started.dir, &rig.tmp.0.join(format!("work-{camera}")), &rig.tmp.0.join(format!("export/{camera}.mp4")), rig.encoders).unwrap();
+            let recorded = edl.duration_us() as f64 / 1e6;
+            let t0 = std::time::Instant::now();
+            let report = run(&plan, &rig.ffmpeg, &AtomicBool::new(false), &mut |_| {}).unwrap_or_else(|e| panic!("{e}"));
+            let took = t0.elapsed().as_secs_f64();
+            eprintln!(
+                "export of {what}: {recorded:.0} s recorded, {} commands, {} bytes, made in {took:.1} s = {:.0} s ({:.1} min) per hour of recording, {:.1}x real time",
+                plan.commands.len(),
+                report.bytes,
+                took / recorded * 3600.0,
+                took / recorded * 60.0,
+                recorded / took
+            );
+        }
     }
 
     /// The packets of the first video stream of `file`, and its codec, as ffprobe counts them.
