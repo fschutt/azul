@@ -494,6 +494,8 @@ mod text_rendering_optimize_speed_turns_the_kerning_and_the_ligatures_off;
 mod text_shadow_wraps_the_text_it_shadows_in_the_display_list;
 #[path = "text_transform_changes_the_letters_that_are_drawn.rs"]
 mod text_transform_changes_the_letters_that_are_drawn;
+#[path = "text_underline_offset_and_position_place_the_underline_of_a_box.rs"]
+mod text_underline_offset_and_position_place_the_underline_of_a_box;
 #[path = "text_wrap_balances_and_pretty_breaks_a_paragraph_and_nowrap_keeps_it_on_one_line.rs"]
 mod text_wrap_balances_and_pretty_breaks_a_paragraph_and_nowrap_keeps_it_on_one_line;
 #[path = "text3_baseline_exact.rs"]
