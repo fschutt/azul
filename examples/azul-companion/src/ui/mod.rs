@@ -210,6 +210,15 @@ pub enum EnvSource {
     Fixed(Env),
 }
 
+/// What the window's setup has to do when the window says it is ready.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowSetup {
+    /// Start the timer that lets the connection work.
+    pub timer: bool,
+    /// Make the phone's real connection (the phone's own app waited for the window).
+    pub connect: bool,
+}
+
 /// The whole app state.
 pub struct Root {
     pub api: Box<dyn PhoneApi>,
@@ -249,10 +258,11 @@ impl Root {
         }
     }
 
-    /// The window says it is ready: true the first time only, so that the setup (the timer, the real connection) runs once however
-    /// often and in whichever order the window says it.
-    pub fn first_window_ready(&mut self) -> bool {
-        !std::mem::replace(&mut self.window_ready, true)
+    /// The window says it is ready (its creation callback and the first mount of the screens both say so): what is to be done now. It is
+    /// something the first time only, so the setup runs once however often and in whichever order the window says it.
+    pub fn window_setup(&mut self) -> WindowSetup {
+        let first = !std::mem::replace(&mut self.window_ready, true);
+        WindowSetup { timer: first, connect: first && self.connect_later }
     }
 
     /// The real connection, made once the window exists: it takes the place of the stand-in (behind the pretend Mac when the demo is on).

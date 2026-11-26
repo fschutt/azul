@@ -265,23 +265,25 @@ pub const TICK_MS: u64 = 33;
 /// (`chrome::phone` asks for it; every shell reports a mount). The phones' shells (Android, iOS) never call the creation callback, so
 /// an app that waited for it alone would never start its timer: no tick, no connection, a demo that does not walk.
 pub extern "C" fn on_window_ready(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    if !data.downcast_mut::<Root>().is_some_and(|mut root| root.first_window_ready()) {
-        return Update::DoNothing;
-    }
-    let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
-        .with_interval(Duration::System(SystemTimeDiff::from_millis(TICK_MS)));
-    info.add_timer(TimerId::unique(), timer);
-    // the phone's own app connects now, not when the library loaded: the window (on Android: the activity) exists
-    let Some(mut root) = data.downcast_mut::<Root>() else {
+    let Some(setup) = data.downcast_mut::<Root>().map(|mut root| root.window_setup()) else {
         return Update::DoNothing;
     };
-    if !root.connect_later {
+    if setup.timer {
+        let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(TICK_MS)));
+        info.add_timer(TimerId::unique(), timer);
+    }
+    if !setup.connect {
         return Update::DoNothing;
     }
+    // the phone's own app connects now, not when the library loaded: the window (on Android: the activity) exists
     let net = crate::net::connect();
     for note in &net.notes {
         info.log(AppLogLevel::Info, AzString::from(format!("AzCompanion: {note}").as_str()));
     }
+    let Some(mut root) = data.downcast_mut::<Root>() else {
+        return Update::DoNothing;
+    };
     root.connect_now(net.api);
     Update::RefreshDom
 }
