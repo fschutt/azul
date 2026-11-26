@@ -426,6 +426,15 @@ crash-mail = ["telemetry", "dep:micromail"]
 # runtime — the system package manager owns those updates.
 updater = ["std", "http", "dep:serde_json", "dep:sha2", "dep:minisign-verify"]
 
+# A build that is delivered by a store that updates it (the App Store, Google Play; for a desktop
+# build the Mac App Store or the Microsoft Store): no code that downloads or installs a program is
+# compiled in, because the stores forbid an app to fetch code of its own (App Store Review
+# Guideline 2.5.2, Google Play's Device and Network Abuse policy). Always so on iOS and Android, by
+# target: there is nothing to switch on there. This feature is for a desktop store build and for the
+# test run of the store paths on a computer without a phone
+# (`cargo test -p azul-layout --lib --features updater,store_app -- updater::store_tests`).
+store_app = []
+
 # Sign-in sessions (OAuth 2.0 for native apps): PKCE's S256 challenge needs SHA-256 (sha2,
 # already in the tree through the updater and rustls-rustcrypto). See src/auth_session.rs.
 auth_session = ["std", "dep:sha2"]

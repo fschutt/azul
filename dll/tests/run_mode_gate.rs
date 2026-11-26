@@ -487,3 +487,27 @@ fn the_recipe_scanner_sees_build_dll_a_door_by_name_and_a_missing_dist() {
         vec!["a", "b", "c"]
     );
 }
+
+// ---- the HTTP client is a named part of the gate, not a side effect of the updater ----
+
+/// azul-layout's `http` (ureq, rustls with the pure-Rust provider: no ring, no C) is in every build
+/// that has azul-layout, on a phone too: map tiles, `http_get`, the telemetry upload and an app's
+/// own requests need HTTPS there. It used to be there only because the `azul-layout` dependency
+/// names `updater` and `updater` implies `http`; the shared gate (`_internal_deps`, which
+/// `link-static` - the mobile gate of rust.yml - and `build-dll` and so `dist` all contain) now
+/// names it, so the phone keeps it when the updater is ever not named.
+#[test]
+fn the_shared_gate_names_the_http_client_for_the_desktop_and_the_mobile_sets() {
+    let table = dll_features();
+    for set in ["link-static", "build-dll", "dist"] {
+        let (features, entries) = closure(&table, set);
+        assert!(
+            features.contains("http"),
+            "the closure of `{set}` does not name the dll feature `http`: {features:?}"
+        );
+        assert!(
+            entries.contains("azul-layout?/http"),
+            "no feature of `{set}` reaches azul-layout's `http`"
+        );
+    }
+}
