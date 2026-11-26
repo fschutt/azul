@@ -274,7 +274,7 @@ def plan(m=None):
                 leg=leg, group=i, groups=len(groups), apps=" ".join(group), os=LEG_RUNNER[leg], os_suffix=OS_SUFFIX[leg],
                 bin_ext=BIN_EXT.get(leg, ""), codegen_os=LEG_CODEGEN_OS[leg], lib_artifact=f"demolib-{leg}",
                 lib_file=t["lib_file"], target=t["target"], deployment_target=t.get("deployment_target", ""),
-                artifact=f"demoapps-{leg}-{i}"))
+                artifact=f"demoapps-{leg}-{i}", results_artifact=f"demoresults-{leg}-{i}"))
     for k, v in apps_by_family.items():
         out["apps_" + k] = v
     # --- the phone apps: one job per target, every app of it against its own variant of the library
@@ -290,7 +290,7 @@ def plan(m=None):
                 leg=col, kind=kind, target=target, apps=" ".join(a["package"] for a in apps),
                 os="ubuntu-22.04" if kind == "android" else "macos-15", codegen_os="Linux" if kind == "android" else "macOS",
                 lib_artifacts=" ".join(sorted({f"demolib-{col}-{a['mobile_lib']}" for a in apps})),
-                artifact=f"demoapps-{col}"))
+                artifact=f"demoapps-{col}", results_artifact=f"demoresults-{col}"))
         out["apps_" + kind] = entries
     # the buttons the boot tests press after the first screenshot: {package: label}
     out["smoke_taps"] = json.dumps({a["package"]: a["smoke"]["tap"] for a in m["app"]
@@ -355,6 +355,20 @@ def read_smoke(dirs):
     return found
 
 
+def read_startchecks(dirs):
+    """{(package, leg): text} from the desktop start checks (demo_build.py --run-check: startcheck.<leg>.json)."""
+    found = {}
+    for d in dirs:
+        for f in sorted(pathlib.Path(d).rglob("startcheck.*.json")):
+            leg = f.name[len("startcheck."):-len(".json")]
+            try:
+                for package, text in json.loads(f.read_text(encoding="utf-8")).items():
+                    found[(package, leg)] = text
+            except ValueError:
+                continue
+    return found
+
+
 def boot_text(r):
     if r is None:
         return None
@@ -373,6 +387,7 @@ def status(dirs, m=None, extra=None):
     extra = extra or {}
     results = read_results(dirs)
     smoke = read_smoke(dirs)
+    starts = read_startchecks(dirs)
     rows = []
     total_files = total_bytes = total_shipped = 0
     unexplained = []
@@ -393,6 +408,9 @@ def status(dirs, m=None, extra=None):
             boot = boot_text(smoke.get((a["package"], col)))
             if boot:
                 cell["boot"] = boot
+            start = starts.get((a["package"], col))
+            if start:
+                cell["start"] = start
             if cell["status"] in ("built", "reused"):
                 total_files += 1
                 total_bytes += cell.get("size") or 0
@@ -433,6 +451,8 @@ def render_markdown(data):
                 st = "known: " + str(cell["known"])[:60].replace("|", "/")
             if cell.get("boot") and cell["status"] in ("built", "reused"):
                 st += ", " + cell["boot"]
+            if cell.get("start") and cell["status"] in ("built", "reused"):
+                st += ", starts" if str(cell["start"]).startswith("ok") else ", NO START: " + str(cell["start"])[:60]
             cells.append(st)
             secs += int(cell.get("seconds") or 0)
             engine += len(cell.get("engine_crates") or [])
