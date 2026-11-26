@@ -61,6 +61,17 @@ spans a chunk and a half). A crash costs at most one chunk, and the file is cut 
 is ordinary fragmented MP4 that ffmpeg and HandBrake read as it is, so combining it with the screen track
 is a cheap overlay and not a re-encode of the camera (section 10).
 
+**The camera's files carry the voice** (`recorder-camera-voice`, on by default): a camera file is one fragmented
+MP4 of two tracks, the picture (H.264, track 1) and a copy of the microphone's voice (Opus, track 2), so that
+the one file plays with its sound in any player and opens in HandBrake. Every fragment closes where the
+picture's would and holds the voice up to the picture that begins the next fragment: its run of the picture
+first, then its run of the voice (a fragment before the first voice packet has the picture's run alone). The
+scanner reads the picture's run of each fragment, so a crashed camera file is cut at its last whole fragment
+the way a file of the picture alone is. The voice's own files (`audio/NNNN.mp4`, the whole, in segments of
+five minutes) are written all the same and stay the canonical record: the exporter reads the voice from them
+and not from the camera files, and with the setting off the camera's files are a picture alone, as before. The
+copy costs the voice's 32 kbit/s again on disk (about 14 MB an hour) and nothing else.
+
 * **H.264** (`avc1`, `avcC`; the parameter sets of the first keyframe; the SPS's colour description
   becomes a `colr` box). Encoded by azul's `VideoEncoder` (VideoToolbox, in hardware; no B-frames, so
   decode order is presentation order). Times are ticks of 90 kHz; a sample lasts until the next
@@ -552,9 +563,14 @@ audio tracks, and it does not open an audio-only MP4 at all ("unrecognized file 
 `screen/NNNN.mp4` and `camera/NNNN.mp4` open, `audio/NNNN.mp4` does not. A scan of a picture and an Opus track
 in one MP4 lists the track as "Opus, 1.0 ch, 32 kbps", and a transcode of it decoded every Opus packet and
 every picture with 0 decoder errors (output H.264 and AAC). HandBrake transcodes one file; it does not put one
-video over another, so the overlay is ffmpeg's. To give HandBrake the camera with the voice:
-`ffmpeg -i camera/0001.mp4 -i audio/0001.mp4 -c copy camera-with-voice.mp4` (no re-encoding). The voice inside
-the camera file as recorded (one two-track file) is a later slice.
+video over another, so the overlay is ffmpeg's. A camera file as
+recorded carries the voice as its second track (section 2), so `camera/NNNN.mp4` opens in HandBrake with the voice
+in it and needs no preparation: ffprobe lists two streams (`h264`, `opus`), ffmpeg decodes the file with no
+error, `avmediainfo` (macOS 15.5) reports 0 errors and "System support for decoding this track: Yes" for both
+tracks, and HandBrakeCLI scans it (the voice as "Opus, 1.0 ch") and transcodes it with 0 decoder errors. A
+session recorded with `recorder-camera-voice` off has the picture alone in its camera files; to give HandBrake
+such a camera with the voice: `ffmpeg -i camera/0001.mp4 -i audio/0001.mp4 -c copy camera-with-voice.mp4` (no
+re-encoding).
 
 Why Opus and not AAC in the recorded files: ffprobe, ffmpeg (decodes clean), `avmediainfo` ("System support
 for decoding this track: Yes", macOS 15.5) and HandBrakeCLI read Opus in MP4, and azul has no AAC encoder (its
@@ -568,8 +584,6 @@ the export writes AAC.
   own cost when the whole window changes).
 * The capture's sample buffer goes into VideoToolbox without a copy (section 9, measured); azul's path copies it
   three times. An `encode` that takes the capture slot's pixel buffer straight, inside the dll, removes them.
-* The voice inside the camera file as recorded: a joint two-track fragmented MP4 (H.264 and Opus in one file,
-  the audio's fragments interleaved with the picture's at the chunk boundaries), with its crash recovery.
 * A readback of the GL window's framebuffer for the `own` source on a window that is on the GPU.
 * **The check that the camera preview is not in a display capture** (built, NOT run: it needs a real capture of
   the display, which the person has to allow). `cargo run -p AzReview --example recorder_probe -- --exclude on`
