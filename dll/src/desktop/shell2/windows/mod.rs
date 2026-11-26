@@ -338,11 +338,16 @@ impl Win32Window {
         let total_start = std::time::Instant::now();
         let mut step_start = std::time::Instant::now();
 
+        // The marks of the app's start (`AZ_STARTUP=1`): a handle of its own, the window moves out of here.
+        let startup = app_shared.startup_handle();
+        startup.mark("win:new_begin");
+
         macro_rules! timing_log {
-            ($step:expr) => {{
+            ($step:expr, $mark:expr) => {{
                 let elapsed = step_start.elapsed();
                 log_debug!(LogCategory::Window, "[Win32] {} took {:?}", $step, elapsed);
                 step_start = std::time::Instant::now();
+                startup.mark($mark);
             }};
         }
 
@@ -356,7 +361,7 @@ impl Win32Window {
             );
             WindowError::PlatformError(format!("Failed to load Win32 libraries: {}", e))
         })?;
-        timing_log!("Load Win32 libraries");
+        timing_log!("Load Win32 libraries", "win:libs_loaded");
 
         // Get HINSTANCE from GetModuleHandleW(NULL)
         log_trace!(LogCategory::Window, "[Win32] getting HINSTANCE");
@@ -368,7 +373,7 @@ impl Win32Window {
                 "kernel32.dll not available".into(),
             ));
         };
-        timing_log!("Get HINSTANCE");
+        timing_log!("Get HINSTANCE", "win:hinstance");
 
         if hinstance.is_null() {
             log_error!(LogCategory::Platform, "[Win32] Failed to get HINSTANCE");
@@ -378,11 +383,11 @@ impl Win32Window {
         // Initialize DPI awareness
         let dpi_functions = DpiFunctions::init();
         dpi_functions.become_dpi_aware();
-        timing_log!("DPI awareness init");
+        timing_log!("DPI awareness init", "win:dpi_aware");
 
         // Register window class with our window procedure
         wcreate::register_window_class(hinstance, Some(window_proc), &win32)?;
-        timing_log!("Register window class");
+        timing_log!("Register window class", "win:class_registered");
 
         // A parent-owned popup (Menu type + parent id) gets its parent's HWND
         // as OWNER: it orders above the owner, hides/minimises with it, and
@@ -410,12 +415,12 @@ impl Win32Window {
             ptr::null_mut(), // User data will be set later
             &win32,
         )?;
-        timing_log!("Create HWND");
+        timing_log!("Create HWND", "win:hwnd_created");
 
         // Get DPI for window
         let dpi = unsafe { dpi_functions.hwnd_dpi(hwnd as _) };
         let dpi_factor = dpi::dpi_to_scale_factor(dpi);
-        timing_log!("Get window DPI");
+        timing_log!("Get window DPI", "win:dpi_read");
 
         // Update options with actual DPI
         let mut options = options;
@@ -604,7 +609,14 @@ impl Win32Window {
                 OptionGlContextPtr::None,
             )
         };
-        timing_log!("Create rendering context");
+        timing_log!("Create rendering context", "win:render_context_ready");
+        startup.mark_with("render_backend", || {
+            format!(
+                "backend={} requested={} device=win32",
+                if matches!(render_mode, RenderMode::Gpu { .. }) { "gpu" } else { "cpu" },
+                if should_use_hardware { "auto" } else { "cpu" }
+            )
+        });
 
         // Update options size with actual window size
         options.window_state.size.dimensions = physical_size.to_logical(dpi_factor);
@@ -675,7 +687,7 @@ impl Win32Window {
         if let Ok(mut guard) = layout_window.monitors.lock() {
             *guard = crate::desktop::display::get_monitors();
         }
-        timing_log!("Create LayoutWindow");
+        timing_log!("Create LayoutWindow", "win:layout_window_built");
 
         // Set up menu bar if present
         // TODO: Menu bar needs to be extracted from window state
@@ -725,7 +737,7 @@ impl Win32Window {
             options.parent_window_id,
             &win32,
         );
-        timing_log!("Position window");
+        timing_log!("Position window", "win:positioned");
 
         // Raw mouse input, for RELATIVE motion. `WM_MOUSEMOVE` reports an
         // ABSOLUTE client position, so once a pointer lock confines the cursor
@@ -896,7 +908,7 @@ impl Win32Window {
             #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::WindowsAccessibilityAdapter::new(),
         };
-        timing_log!("Build Win32Window struct");
+        timing_log!("Build Win32Window struct", "win:struct_built");
 
         // Initialize accessibility adapter BEFORE showing the window
         // AccessKit's SubclassingAdapter requires the window to be invisible when initialized
@@ -911,7 +923,7 @@ impl Win32Window {
                 );
             }
         }
-        timing_log!("Initialize accessibility adapter");
+        timing_log!("Initialize accessibility adapter", "win:a11y_initialized");
 
         // Apply initial background material if not Opaque
         // This enables Mica/Acrylic effects on Windows 11
@@ -953,7 +965,7 @@ impl Win32Window {
                 result.apply_background_material(initial_material);
             }
         }
-        timing_log!("Apply initial background material");
+        timing_log!("Apply initial background material", "win:material_applied");
 
         // Render FIRST FRAME before showing window to avoid black flash
         // This ensures the window has content when it becomes visible
@@ -1065,11 +1077,11 @@ impl Win32Window {
                 .clear_regeneration_unless_reraised(regen_epoch_seen);
             let _ = result.render_and_present(true);
         }
-        timing_log!("Render first frame (async - not waiting for completion)");
+        timing_log!("Render first frame (async - not waiting for completion)", "win:first_frame_requested");
 
         // The window will be shown after the first frame renders via the
         // `first_frame_shown` gate inside render_and_present (CPU and GPU paths).
-        timing_log!("Skip show window (will be shown after first frame render)");
+        timing_log!("Skip show window (will be shown after first frame render)", "win:show_deferred");
 
         // Invoke create_callback if provided (for GL resource upload, config loading, etc.)
         // This runs AFTER GL context is ready but BEFORE any layout is done
@@ -1115,7 +1127,7 @@ impl Win32Window {
         }
 
         // Register debug timer is now done from run() with explicit channel + component map
-        timing_log!("Final setup (callback)");
+        timing_log!("Final setup (callback)", "win:create_callback_done");
 
         // Apply initial window state for fields not set during window creation
         result.apply_initial_window_state();
