@@ -304,7 +304,12 @@ pub fn rust_items(ir: &CodegenIR, config: &CodegenConfig) -> String {
             b.line("fn az_abi_check_slow() {");
             b.indent();
             b.line("// Names the load-time entry below: a linker that pulls this code in");
-            b.line("// (every wrapper calls it) keeps the initializer entry too.");
+            b.line("// (every wrapper calls it) keeps the initializer entry too. Not on Apple:");
+            b.line("// ld64 turns the `__mod_init_func` section into `__init_offsets` and drops");
+            b.line("// its symbols, so the address taken here resolves to 0 and the link of the");
+            b.line("// whole app fails (\"ADRP out of range\"); the section type is a root of the");
+            b.line("// linker's dead stripping, the entry is kept without being named.");
+            b.line("#[cfg(not(target_vendor = \"apple\"))]");
             b.line("let _ = unsafe { core::ptr::read_volatile(&AZ_ABI_CHECK_AT_LOAD) };");
             b.line("az_abi_check_hash(unsafe { AzAbi_getHash() });");
             b.line("AZ_ABI_CHECKED.store(true, core::sync::atomic::Ordering::Relaxed);");
@@ -849,6 +854,23 @@ mod tests {
                     .take_while(|l| **l != "}")
                     .any(|l| l.contains("AZ_ABI_CHECK_AT_LOAD")),
                 "{what}: az_abi_check_slow must keep AZ_ABI_CHECK_AT_LOAD linked"
+            );
+            // ... except on Apple: ld64 turns `__mod_init_func` into `__init_offsets` (the default
+            // for an iOS target of 13 or later) and drops the section's symbols, so an address
+            // taken of the static from code resolves to 0 and the link of EVERY app fails with
+            // "ADRP out of range ... AZ_ABI_CHECK_AT_LOAD" (run 45771541813). The section type
+            // `mod_init_funcs` is a root of the linker's dead stripping: the entry is kept
+            // without being named.
+            let naming = lines[slow..]
+                .iter()
+                .position(|l| l.contains("AZ_ABI_CHECK_AT_LOAD"))
+                .expect("az_abi_check_slow names the entry")
+                + slow;
+            assert_eq!(
+                lines[naming - 1],
+                "#[cfg(not(target_vendor = \"apple\"))]",
+                "{what}: an Apple linker drops the initializer section's symbols: naming the \
+                 static there fails every app's link"
             );
         }
         // libazul itself (and link-static) has nothing to check against.

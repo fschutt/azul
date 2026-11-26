@@ -58,6 +58,31 @@ fn the_hash_of_a_file_is_the_hash_of_its_lines_whether_they_are_held_or_made_fro
     assert_eq!(view.lines("big.rs", 3, 3), Some(vec!["fn f2() {    }".to_string()]));
 }
 
+/// The lines `lines` of a file as one text.
+fn joined(lines: &[&str]) -> Vec<u8> {
+    lines.iter().flat_map(|l| format!("{l}\n").into_bytes()).collect()
+}
+
+#[test]
+fn a_block_of_lines_that_moved_is_found_where_it_is_now_nearest_to_where_it_was() {
+    let (view, _) = view_of(&[("a.rs", joined(&["one", "two", "x", "two", "x", "y", "three", "x", "y", "end"]))]);
+    let block = ["x".to_string(), "y".to_string()];
+    assert_eq!(view.find_block("a.rs", &block, 1), Some(5), "the nearest to line 1 of the two places");
+    assert_eq!(view.find_block("a.rs", &block, 9), Some(8), "the nearest to line 9");
+    assert_eq!(view.find_block("a.rs", &["not here".to_string()], 1), None);
+    assert_eq!(view.find_block("a.rs", &[], 1), None, "no lines are no block");
+    assert_eq!(view.find_block("gone.rs", &block, 1), None, "the file is gone");
+}
+
+#[test]
+fn a_block_of_lines_is_found_in_a_file_that_is_held_as_its_text_as_well() {
+    let big_lines = code::WHOLE_LIMIT / 12 + 100;
+    let (view, _) = view_of(&[("big.rs", text(big_lines))]);
+    let block = ["fn f40() {    }".to_string(), "fn f41() {    }".to_string()];
+    assert_eq!(view.find_block("big.rs", &block, 1), Some(41), "line 41 holds the first of them");
+    assert_eq!(view.find_block("big.rs", &["fn f9999999999() {    }".to_string()], 1), None);
+}
+
 #[test]
 fn a_file_is_read_once_for_the_questions_asked_of_it_in_a_row() {
     let (view, source) = view_of(&[("a.rs", text(10)), ("b.rs", text(10))]);

@@ -272,6 +272,20 @@ def parse_ime_shown(text):
     return bool(re.search(r"(mInputShown|isInputViewShown|mIsInputViewShown)=true", text))
 
 
+def parse_ime_inset(text):
+    """The IME's inset source in `dumpsys window` (API 30+): `InsetsSource type=ime frame=[0,1360][1080,2400] visible=true`
+    (older: `mType=ITYPE_IME ... mVisible=true`). -> True / False, None when no such line is there. The inset is the
+    window system's own account of the keyboard, which `dumpsys input_method` stopped giving a stable field for (API 34:
+    the keyboard was on the screen while `mInputShown` said nothing)."""
+    seen = None
+    for line in text.splitlines():
+        if re.search(r"type=ime\b|ITYPE_IME", line):
+            m = re.search(r"\b(?:visible|mVisible)=(true|false)", line)
+            if m:
+                seen = (m.group(1) == "true") or bool(seen)
+    return seen
+
+
 def parse_bounds(xml_text):
     """[(label, cx, cy)] for the nodes of a `uiautomator dump` that carry a text or a content description."""
     found = []
@@ -354,6 +368,8 @@ class Run:
         self.platform, self.meta, self.steps = platform, dict(meta), []
         self.t0 = time.time()
         self.recover = None
+        self.render_table = []       # rows of the "Render backends" section of qa.md (filled by report_modes)
+        self.render_diff = None
         self.only = None             # {"03", "08", ...}: run only these steps (00-02, the device and the install, always run)
         self.extra_shots = 100       # diff images are numbered from 100 so they never collide with a step's own pictures
 
@@ -388,6 +404,7 @@ class Run:
 
     def write(self):
         doc = {"platform": self.platform, "meta": self.meta, "ok": all(s.ok for s in self.steps),
+               "render": {"table": self.render_table, "cpu_against_gpu": self.render_diff},
                "steps": [s.as_json() for s in self.steps]}
         (self.out / "qa.json").write_text(json.dumps(doc, indent=2), encoding="utf-8")
         lines = [f"# {self.platform} QA: {self.meta.get('label', '')}", "",
@@ -398,6 +415,20 @@ class Run:
             res = "PASS" if s.ok else "FAIL"
             why = "; ".join(f"{c['what']} ({c['detail']})" if c["detail"] else c["what"] for c in bad) or s.error
             lines.append(f"| {s.name} | {res} | {s.seconds:.0f} | {s.what} | {(why if not s.ok else '; '.join(s.notes))[:300]} |")
+        # The standing section every run fills the same way (the GPU work reads and writes the same columns):
+        # one row per AZ_BACKEND request, which renderer RAN, and the numbers per backend
+        if self.render_table:
+            lines += ["", "## Render backends: requested against ran", "",
+                      "| requested | ran | device | Displayed ms | first frame seen s | scroll frame ms median | p95 | frames |",
+                      "|---|---|---|---|---|---|---|---|"]
+            for r in self.render_table:
+                lines.append("| {requested} | {ran} | {device} | {displayed} | {first} | {median} | {p95} | {n} |".format(**r))
+            if self.render_diff:
+                d = self.render_diff
+                lines += ["", f"cpu against gpu, pixel by pixel (a pixel differs above {PIXEL_TOLERANCE}/255; pass below {MAX_DIFFERING_SHARE * 100:.0f} % "
+                          f"of the pixels and a mean difference below {MAX_MEAN_DIFF}/255): {d['share'] * 100:.2f} % of the pixels differ, "
+                          f"mean {d['mean_abs']:.2f}/255, max {d['max_abs']}" + (f", box {d['bbox']}" if d.get("bbox") else "")
+                          + f" - {'PASS' if d['ok'] else 'FAIL'}; the diff image is shots/{d['image']}"]
         (self.out / "qa.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -445,6 +476,17 @@ def report_modes(run, step, results, expect_gpu, platform):
                 step.check(f"requested {mode}: the engine says which renderer ran", False,
                            "no `[render] backend=` line in the engine's log: it cannot be told which renderer drew", required=expect_gpu and mode == "gpu")
     run.meta["render_modes"] = " | ".join(summary)
+    run.render_table = []
+    for mode in ("cpu", "gpu", "auto"):
+        r = results.get(mode)
+        if not r:
+            continue
+        f = r.get("frames") or {}
+        run.render_table.append({
+            "requested": mode, "ran": r["ran"], "device": (r.get("device") or "-")[:60],
+            "displayed": r["displayed_ms"] if r.get("displayed_ms") is not None else "n/a",
+            "first": f"{r['first_frame_s']:.1f}" if r.get("first_frame_s") is not None else "n/a",
+            "median": f"{f['median']:.1f}" if f else "n/a", "p95": f"{f['p95']:.1f}" if f else "n/a", "n": f["n"] if f else "n/a"})
     cpu, gpu = results.get("cpu"), results.get("gpu")
     if cpu and gpu and cpu.get("rgba") and gpu.get("rgba") and cpu["dims"] == gpu["dims"]:
         w, h = cpu["dims"]
@@ -453,6 +495,7 @@ def report_modes(run, step, results, expect_gpu, platform):
         write_png(run.shots_dir / fname, w, h, d["image"])
         step.shots.append(fname)
         verdict = d["share"] < MAX_DIFFERING_SHARE and d["mean_abs"] < MAX_MEAN_DIFF
+        run.render_diff = {"share": d["share"], "mean_abs": d["mean_abs"], "max_abs": d["max_abs"], "bbox": d["bbox"], "ok": verdict, "image": fname}
         step.check("the cpu and gpu pictures agree", verdict,
                    f"{d['share'] * 100:.2f} % of the pixels differ by more than {PIXEL_TOLERANCE}/255 (limit {MAX_DIFFERING_SHARE * 100:.0f} %), "
                    f"mean |diff| {d['mean_abs']:.2f}/255 (limit {MAX_MEAN_DIFF}), max {d['max_abs']}"
@@ -479,6 +522,7 @@ class Android:
         self.last_rgba = None
         self.dims = (0, 0)
         self.shot_count = 0
+        self.ime_dumps = 0
 
     # -- plumbing
     def adb(self, *args, timeout=90, binary=False):
@@ -506,7 +550,41 @@ class Android:
         return self.package in self.focus()
 
     def ime_shown(self):
+        """Is the soft keyboard up? The window system's IME inset first, the input method service's own fields as a
+        fallback; the raw dumps of the first calls go to logs/ime-*.txt so the detection can be checked against them."""
+        inset = parse_ime_inset(self.sh("dumpsys window | grep -iE 'type=ime|ITYPE_IME'"))
+        if self.ime_dumps < 3:
+            self.ime_dumps += 1
+            self.save_log(f"ime-{self.ime_dumps}.txt", "== dumpsys window (ime lines)\n" + self.sh("dumpsys window | grep -iE 'type=ime|ITYPE_IME|InputMethod'")
+                          + "\n== dumpsys input_method\n" + self.sh("dumpsys input_method | head -n 120"))
+        if inset is not None:
+            return inset
         return parse_ime_shown(self.sh("dumpsys input_method | grep -E 'mInputShown|isInputViewShown'"))
+
+    def find_label(self, label):
+        """The centre of the first on-screen accessibility node named `label` (uiautomator dump of the window), or None."""
+        self.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
+        for name, cx, cy in parse_bounds(self.sh("cat /sdcard/qa-ui.xml")):
+            if name == label and cx > 0 and cy > 0:
+                return cx, cy
+        return None
+
+    def tap_label(self, label, fallback=None):
+        """Tap the node named `label`; when the tree does not show it, tap `fallback` (x, y) instead. -> (x, y, how)"""
+        found = self.find_label(label)
+        if found:
+            self.tap(*found)
+            return found[0], found[1], "accessibility tree"
+        if fallback:
+            self.tap(*fallback)
+            return fallback[0], fallback[1], "fixed position"
+        return None, None, "not found"
+
+    def hide_ime(self):
+        """BACK closes the keyboard when it is up (and only then: BACK on a closed keyboard leaves the app)."""
+        if self.ime_shown():
+            self.back()
+            time.sleep(1.5)
 
     def resolve_activity(self):
         if self.activity:
@@ -695,6 +773,7 @@ def android_scenarios(args):
         dev.sh("wm density reset")
         dev.sh("cmd uimode night no")
         if dev.alive() and dev.foreground():
+            dev.hide_ime()           # a keyboard an earlier step left up covers half of every later picture
             return
         s.note(f"recovered: the app was {'not in front' if dev.alive() else 'dead'} before this step; started it again")
         dev.launch(cold=True)
@@ -877,11 +956,11 @@ def android_scenarios(args):
     def s_tap_dark(s):
         mark = dev.now_mark()
         before = dev.look(s, "before-tap")
-        x, y = at("dark")
-        dev.tap(x, y)
+        x, y, how = dev.tap_label("Dark", fallback=at("dark"))
+        s.note(f"tapped Dark at ({x:.0f}, {y:.0f}) from the {how}")
         dev.settle(1.5)
         after = dev.look(s, "after-tap-dark", expect_changed_from=before)
-        dev.tap(*at("system"))   # back to the system scheme
+        dev.tap_label("System", fallback=at("system"))   # back to the system scheme
         dev.settle(1.0)
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
@@ -891,11 +970,11 @@ def android_scenarios(args):
     def s_keyboard(s):
         mark = dev.now_mark()
         s.check("the keyboard is hidden before the tap", not dev.ime_shown(), "", required=False)
-        x, y = at("text_input")
-        dev.tap(x, y)
+        x, y, how = dev.tap_label("TextInput", fallback=at("text_input"))
+        s.note(f"tapped the TextInput field at ({x:.0f}, {y:.0f}) from the {how}")
         dev.settle(2.5)
         shown = dev.ime_shown()
-        s.check("tapping a text field shows the soft keyboard", shown, "input_method says " + ("shown" if shown else "hidden"))
+        s.check("tapping a text field shows the soft keyboard", shown, "the window system says " + ("shown" if shown else "hidden"))
         dev.sh("input text hello%sazul")
         dev.settle(1.0)
         typed = dev.look(s, "keyboard-and-text")
@@ -948,7 +1027,8 @@ def android_scenarios(args):
         s.check("the app is back in front", t is not None, f"after {t:.1f} s" if t is not None else "not back after 30 s")
         dev.settle(1.5)
         after = dev.look(s, "resumed")
-        s.check("the picture is the one from before", sig_diff(after, before) < 0.05, f"differs {sig_diff(after, before):.3f}", required=False)
+        # REQUIRED: a window that came back black (the surface was recreated and nothing asked for a repaint) is a failure
+        s.check("the window shows the picture it had before (it was repainted after the return)", sig_diff(after, before) < 0.08, f"differs {sig_diff(after, before):.3f}")
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
 
@@ -967,7 +1047,7 @@ def android_scenarios(args):
         dev.settle(1.5)
         after = dev.look(s, "after-10s-background")
         s.check("same process as before", dev.pid() == pid0, f"{pid0} -> {dev.pid()}", required=False)
-        s.check("the picture is the one from before", sig_diff(after, before) < 0.05, f"differs {sig_diff(after, before):.3f}", required=False)
+        s.check("the window shows the picture it had before (it was repainted after the return)", sig_diff(after, before) < 0.08, f"differs {sig_diff(after, before):.3f}")
         dev.no_crash_since(s, mark)
 
     run.step("10-background-10s", "ten seconds in the background, then back", s_background, needs_app=True)
@@ -989,8 +1069,16 @@ def android_scenarios(args):
         mark = dev.now_mark()
         base = dev.look(s, "light-system")
         dev.sh("cmd uimode night yes")
+        # SLOW or MISSING? the picture after 3 s and again after 6 s: a change by 3 s is fine, a change only by 6 s says the
+        # theme arrives late, no change at 6 s says the app never took the system's night mode
+        dev.settle(3.0)
+        sig3, *_r = dev.capture("system-dark-3s")
+        d3 = sig_diff(sig3, base)
         dev.settle(3.0)
         dark = dev.look(s, "system-dark", expect_changed_from=base)
+        d6 = sig_diff(dark, base)
+        verdict = "changed by 3 s" if d3 > SAME_BELOW else ("changed only by 6 s: SLOW" if d6 > SAME_BELOW else "did not change in 6 s: MISSING")
+        s.note(f"the app's picture against the light one: {d3:.3f} at 3 s, {d6:.3f} at 6 s: {verdict}")
         dev.alive_and_front(s)
         dev.sh("cmd uimode night no")
         dev.settle(2.5)
@@ -1152,6 +1240,27 @@ class IOS:
     def simctl(self, *args, timeout=120, env=None):
         return self.x("xcrun", "simctl", *args, timeout=timeout, env=env)
 
+    def to_file(self, log_name, *cmd, timeout=600):
+        """Run a command with its output going straight into logs/<log_name> (a FILE, not a pipe: the first trial run of this
+        harness hung for an hour in `log show` because a killed command's children kept a pipe open). -> (rc, the file's text)"""
+        path = self.run.logs_dir / log_name
+        with open(path, "wb") as fh:
+            try:
+                rc = subprocess.run(list(cmd), stdout=fh, stderr=subprocess.STDOUT, timeout=timeout).returncode
+            except subprocess.TimeoutExpired:
+                rc = 124
+        return rc, path.read_text(encoding="utf-8", errors="replace")
+
+    def fire(self, *args, wait=25):
+        """`simctl <args>` that is allowed to run on in the background: waits `wait` seconds for it, never kills it, never
+        blocks longer (launches and the like). -> its output so far"""
+        proc = subprocess.Popen(["xcrun", "simctl"] + list(args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        try:
+            out, _e = proc.communicate(timeout=wait)
+        except subprocess.TimeoutExpired:
+            return "(still running after %d s)" % wait
+        return out.decode("utf-8", "replace")
+
     # -- state
     def pid(self):
         _rc, out, _err = self.simctl("spawn", self.udid, "launchctl", "list")
@@ -1238,15 +1347,25 @@ class IOS:
         out_f = self.run.logs_dir / f"console-{self.launch_count}.out.txt"
         err_f = self.run.logs_dir / f"console-{self.launch_count}.err.txt"
         cmd = ["launch"] + (["--terminate-running-process"] if cold else []) + [f"--stdout={out_f}", f"--stderr={err_f}", self.udid, self.bundle]
-        rc, out, err = self.simctl(*cmd, timeout=120, env=env)
+        # `simctl launch` prints "<bundle>: <pid>" and returns; when it does not (it can wait for the app to exit when the
+        # output is redirected) it is left running after 25 s: waiting for it would block every step that follows
+        proc = subprocess.Popen(["xcrun", "simctl"] + cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+        try:
+            raw_out, raw_err = proc.communicate(timeout=25)
+            rc = proc.returncode
+        except subprocess.TimeoutExpired:
+            raw_out, raw_err, rc = b"", b"", None
+        out = raw_out.decode("utf-8", "replace")
+        err = raw_err.decode("utf-8", "replace")
         m = re.search(r":\s*(\d+)\s*$", out.strip())
-        return {"rc": rc, "pid": m.group(1) if m else "", "out": out.strip(), "err": err.strip(), "console": (out_f, err_f)}
+        return {"rc": rc, "pid": m.group(1) if m else self.pid(), "out": out.strip() or "(simctl launch still running after 25 s)",
+                "err": err.strip(), "console": (out_f, err_f)}
 
     def terminate(self):
         self.simctl("terminate", self.udid, self.bundle)
 
     def open_other_app(self, bundle="com.apple.Preferences"):
-        return self.simctl("launch", self.udid, bundle)
+        return self.fire("launch", self.udid, bundle)
 
     def wait_for_front(self, timeout=45):
         t0 = time.time()
@@ -1308,7 +1427,10 @@ class IOS:
 
     def gui_keystroke(self, char_code):
         """Cmd + arrow in the Simulator app (Device > Rotate Left = Cmd-Left, Rotate Right = Cmd-Right). Needs the
-        GUI app and the runner's accessibility permission for osascript. -> (ok, message)"""
+        GUI app and the runner's accessibility permission for osascript. OFF unless AZ_QA_GUI=1: it is the one part
+        of the QA that touches the runner's window server. -> (ok, message)"""
+        if os.environ.get("AZ_QA_GUI") != "1":
+            return False, "the Simulator GUI steps are off (AZ_QA_GUI=1 turns them on)"
         if not self.gui:
             self.x("open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", self.udid, timeout=60)
             time.sleep(8)
@@ -1319,7 +1441,9 @@ class IOS:
         return rc == 0, (err or out).strip()[:200]
 
     def gui_menu(self, menu, item):
-        """A Simulator menu item by name (Debug > Simulate Memory Warning ...). -> (ok, message)"""
+        """A Simulator menu item by name (Debug > Simulate Memory Warning ...). OFF unless AZ_QA_GUI=1. -> (ok, message)"""
+        if os.environ.get("AZ_QA_GUI") != "1":
+            return False, "the Simulator GUI steps are off (AZ_QA_GUI=1 turns them on)"
         if not self.gui:
             self.x("open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", self.udid, timeout=60)
             time.sleep(8)
@@ -1354,8 +1478,6 @@ def ios_scenarios(args):
         s.note(f"{run.meta.get('device')} / {run.meta.get('runtime')}")
         s.check("the simulator answers", rc == 0, run.meta.get("runtime", ""))
 
-    run.step("00-device", "the simulator is up; light appearance, medium text, a neutral status bar (9:41, full battery)", s_device)
-
     def recover(s):
         """Before a step: appearance and text size back to normal, the app running (started again when an earlier
         step left it dead: that step has already said so)."""
@@ -1373,7 +1495,8 @@ def ios_scenarios(args):
     run.recover = recover
 
     def s_home(s):
-        dev.simctl("launch", args.udid, "com.apple.springboard")
+        # the home screen as it is after boot and install (the app's icon on it): no launch of SpringBoard through simctl
+        # (the first trial run lost 127 s to it and the install after it timed out)
         dev.settle(3.0)
         sig, w, h, fname = dev.capture("home-baseline")
         s.shots.append(fname)
@@ -1381,19 +1504,21 @@ def ios_scenarios(args):
         s.check("the home screen is a picture", not is_flat(sig), f"{flat_fraction(sig):.3f}")
         s.note(f"screen {w}x{h}")
 
-    run.step("01-home-baseline", "the home screen before the app starts: the picture an app must differ from", s_home)
-
     def s_install(s):
         if args.app:
-            rc, _o, err = dev.simctl("install", args.udid, args.app, timeout=180)
-            s.check("simctl install succeeds", rc == 0, err.strip()[:160])
+            t0 = time.time()
+            rc, text = dev.to_file("install.log", "xcrun", "simctl", "install", args.udid, args.app, timeout=600)
+            s.check("simctl install succeeds", rc == 0, f"{text.strip()[-160:]} ({time.time() - t0:.0f} s)")
             plist = Path(args.app) / "Info.plist"
             if plist.exists():
                 import plistlib
                 info = plistlib.loads(plist.read_bytes())
                 s.note(f"{info.get('CFBundleIdentifier')} {info.get('CFBundleShortVersionString')} min iOS {info.get('MinimumOSVersion')} orientations {info.get('UISupportedInterfaceOrientations')}")
 
-    run.step("02-install", "install the Simulator app", s_install)
+    # the order of the demos pipeline's smoke test, which works: boot, install, then everything else
+    run.step("00-install", "install the Simulator app", s_install)
+    run.step("01-device", "the simulator is up; light appearance, medium text, a neutral status bar (9:41, full battery)", s_device)
+    run.step("02-home-baseline", "the home screen before the app starts: the picture an app must differ from", s_home)
 
     def s_cold(s):
         l = dev.launch(cold=True)
@@ -1550,8 +1675,9 @@ def ios_scenarios(args):
     run.step("10-terminate-and-start-again", "kill the process, start again", s_cold2)
 
     def s_logs(s):
-        rc, out, _e = dev.simctl("spawn", args.udid, "log", "show", "--last", "20m", "--style", "compact", "--info", "--debug", timeout=300)
-        (run.logs_dir / "log-all.txt").write_text(out, encoding="utf-8", errors="replace")
+        # straight into a file with a bound (a pipe hung the first trial for an hour); the last 6 minutes, info level
+        rc, out = dev.to_file("log-all.txt", "xcrun", "simctl", "spawn", args.udid, "log", "show", "--last", "6m", "--style", "compact", "--info", timeout=240)
+        s.note(f"log show exit {rc}, {len(out.splitlines())} lines")
         mine = [l for l in out.splitlines() if exe in l or "launchd_sim" in l and dev.bundle in l]
         (run.logs_dir / "log-app.txt").write_text("\n".join(mine), encoding="utf-8")
         rep = dev.crash_reports()

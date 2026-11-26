@@ -18,6 +18,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use super::c::{c_param, C};
 use crate::codegen::{
@@ -220,7 +221,7 @@ fn cpp_param_type(ty: &str) -> String {
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Cpp, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let body = render(&expr_doc_top(&Cpp, &item.value), "    ", 1);
     let sig = item
@@ -229,15 +230,16 @@ fn item_fn(item: &Item) -> String {
         .map(|p| format!("{} {}", cpp_param_type(&p.ty), cpp_param(&p.name)))
         .collect::<Vec<_>>()
         .join(", ");
-    let unused: String = super::dom::unused_params(item)
-        .iter()
-        .map(|p| format!("    (void){};\n", cpp_param(&p.name)))
-        .collect();
-    out.push_str(&format!(
+    let unused: String = super::dom::unused_params(item).iter().fold(String::new(), |mut acc, p| {
+        let _ = writeln!(acc, "    (void){};", cpp_param(&p.name));
+        acc
+    });
+    let _ = write!(
+        out,
         "inline Az{} {}({sig}) {{\n{unused}    return {body};\n}}\n",
         item.ty,
         item.name.snake()
-    ));
+    );
     out
 }
 
@@ -266,7 +268,7 @@ fn cpp_app_main(m: &Module, module_file: &str) -> String {
          azul::WindowCreateOptions::create(layout);\n    azul::App app = \
          azul::App::create(std::move(data), azul::AppConfig::create());\n    \
          app.run(std::move(window));\n    return 0;\n}}\n",
-        title = app.title.replace(|c: char| c == '\n' || c == '\r', " "),
+        title = app.title.replace(['\n', '\r'], " "),
     )
 }
 
@@ -343,15 +345,16 @@ impl CodegenBackend for Cpp {
         let mut main = String::from("#include <cstdio>\n#include \"styles.hpp\"\n\nint main() {\n");
         for item in &m.items {
             let name = item.name.snake();
-            main.push_str(&format!("    Az{} {name}_value = {name}();\n", item.ty));
+            let _ = writeln!(main, "    Az{} {name}_value = {name}();", item.ty);
             if item.ty.ends_with("Vec") {
-                main.push_str(&format!(
-                    "    std::printf(\"{name}: %zu properties\\n\", {name}_value.len);\n"
-                ));
+                let _ = writeln!(
+                    main,
+                    "    std::printf(\"{name}: %zu properties\\n\", {name}_value.len);"
+                );
             } else {
-                main.push_str(&format!("    std::printf(\"{name}: built\\n\");\n"));
+                let _ = writeln!(main, "    std::printf(\"{name}: built\\n\");");
             }
-            main.push_str(&format!("    Az{}_delete(&{name}_value);\n", item.ty));
+            let _ = writeln!(main, "    Az{}_delete(&{name}_value);", item.ty);
         }
         main.push_str("    return 0;\n}\n");
         vec![

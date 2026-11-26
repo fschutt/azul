@@ -87,7 +87,7 @@ impl PercentageValue {
     #[cfg(feature = "codegen")]
     #[inline]
     #[must_use]
-    pub(crate) const fn raw_number(&self) -> FloatValue {
+    pub(crate) const fn raw_number(self) -> FloatValue {
         self.number
     }
 

@@ -7,7 +7,7 @@
 //!
 //! The debug server is started in `App::create()` and runs on a background thread.
 //! It accepts JSON commands on "/" and forwards them to the timer callback for
-//! cross-platform processing via CallbackInfo.
+//! cross-platform processing via `CallbackInfo`.
 //!
 //! ## Usage
 //!
@@ -24,7 +24,10 @@ use alloc::{
     string::String,
     vec::Vec,
 };
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::{
+    fmt::Write as _,
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+};
 // Import the NativeScreenshotExt trait for native screenshots
 #[cfg(feature = "std")]
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
@@ -38,7 +41,7 @@ const ROOT_DOM_ID: azul_core::dom::DomId = azul_core::dom::DomId { inner: 0 };
 /// said nothing.
 ///
 /// Every node-addressing op runs through this instead of hardcoding
-/// [`ROOT_DOM_ID`], so one envelope field reaches all of them. A VirtualView's
+/// [`ROOT_DOM_ID`], so one envelope field reaches all of them. A `VirtualView`'s
 /// document and a `<transient-window>`'s popup content are separate DOMs whose
 /// nodes DOM 0 cannot see; before this, scripting them meant guessing pixel
 /// coordinates. Discover the live ids with the `list_doms` op.
@@ -131,7 +134,7 @@ fn continuation_blocked(
     if cont.frame_wait_ticks > FRAME_BARRIER_MAX_TICKS {
         log(
             LogLevel::Warn,
-            LogCategory::DebugServer,
+            DebugServer,
             format!(
                 "[E2E] wait_frame: no frame prepared in {} ticks (frame clock {} < {}) - resuming \
                  without the barrier",
@@ -150,13 +153,14 @@ fn continuation_blocked(
 
 /// Request from HTTP thread to timer callback
 #[cfg(feature = "std")]
+#[derive(Debug)]
 pub struct DebugRequest {
     pub request_id: u64,
     pub event: DebugEvent,
     pub window_id: Option<String>,
     pub wait_for_render: bool,
     /// Which DOM the op addresses. `None` = the root DOM (0), which is what
-    /// every op used to hardcode. A VirtualView's document and a
+    /// every op used to hardcode. A `VirtualView`'s document and a
     /// `<transient-window>`'s popup content are DOMs of their own, and their
     /// nodes are unreachable from DOM 0: without this, scripting them meant
     /// hand-rolling coordinates and hoping. Set once on the request envelope
@@ -172,7 +176,7 @@ pub struct DebugRequest {
 
 /// Where a debug request goes ([`route_debug_request`]).
 #[cfg(feature = "std")]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DebugRoute {
     /// This window serves it.
     Mine,
@@ -324,7 +328,7 @@ impl DebugHub {
     ///
     /// Why: the requests arrive on the server thread and the debug timer drains them on the UI
     /// thread. Without a wake, the UI loop had to LOOK - a poll timer that stayed at 250 ms in an
-    /// idle app (IDLE_CPU, 2026-09-30). Now the server wakes the loop, the loop re-arms the poll at
+    /// idle app (`IDLE_CPU`, 2026-09-30). Now the server wakes the loop, the loop re-arms the poll at
     /// the busy rate (`PlatformWindow::serve_debug_request_wake` in the dll), and the idle poll
     /// ([`DEBUG_POLL_IDLE_MS`]) is only a safety net.
     pub fn add_waker(&self, waker: Arc<dyn Fn() + Send + Sync>) {
@@ -422,6 +426,9 @@ pub fn take_forwarded_debug_requests(slot: u64) -> Vec<DebugRequest> {
 /// Response data from timer callback to HTTP thread (internal)
 #[cfg(feature = "std")]
 #[derive(Debug, Clone)]
+// One response is built per request and moved once into a channel; boxing its payload would change the
+// variant the DLL's debug server matches on (dll/src/desktop/shell2/run.rs).
+#[allow(clippy::large_enum_variant)]
 pub enum DebugResponseData {
     /// Successful response with optional data
     Ok {
@@ -532,7 +539,7 @@ mod pending_screenshot_tests {
 
 /// Typed response data variants
 #[cfg(feature = "std")]
-fn profile_kind_memory() -> ProfileKind {
+const fn profile_kind_memory() -> ProfileKind {
     ProfileKind::Memory
 }
 
@@ -658,9 +665,9 @@ pub enum ResponseData {
     ClickNode(ClickNodeResponse),
     /// Scrollbar info result
     ScrollbarInfo(ScrollbarInfoResponse),
-    /// VirtualView states (all tracked VirtualViews and their internal state)
+    /// `VirtualView` states (all tracked `VirtualViews` and their internal state)
     VirtualViewStates(VirtualViewStatesResponse),
-    /// VirtualView layout (nodes inside a specific VirtualView DOM)
+    /// `VirtualView` layout (nodes inside a specific `VirtualView` DOM)
     VirtualViewLayout(VirtualViewLayoutResponse),
     /// Selection state result
     SelectionState(SelectionStateResponse),
@@ -682,9 +689,11 @@ pub enum ResponseData {
     CursorState(CursorStateResponse),
     /// E2E test results
     E2eResults(E2eResultsResponse),
-    /// Per-frame damage + frame-work counters (`get_frame_report`)
-    FrameReport(FrameReportResponse),
-    /// Node inserted result (returns new node_id)
+    /// Per-frame damage + frame-work counters (`get_frame_report`). Boxed: it is
+    /// by far the largest payload (about 1 KB), and every response carries the room
+    /// of the largest.
+    FrameReport(Box<FrameReportResponse>),
+    /// Node inserted result (returns new `node_id`)
     NodeInserted(NodeInsertedResponse),
     /// Node deleted result
     NodeDeleted(NodeDeletedResponse),
@@ -710,7 +719,7 @@ pub enum ResponseData {
     ExportedLibrary(ExportedLibraryResponse),
     /// Component preview image (CPU-rendered)
     ComponentPreview(ComponentPreviewResponse),
-    /// Node dataset (RefAny serialized to JSON)
+    /// Node dataset (`RefAny` serialized to JSON)
     NodeDataset(NodeDatasetResponse),
     /// Generic JSON data (for endpoints that return arbitrary JSON)
     Json(serde_json::Value),
@@ -722,7 +731,7 @@ pub enum ResponseData {
 
 /// Response for `get_mode` / `set_mode`: the app's light / dark mode.
 #[cfg(feature = "std")]
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct ModeResponse {
     /// The app's CHOICE: `"system"` (follows the desktop), `"light"` or
     /// `"dark"` (pinned).
@@ -762,7 +771,7 @@ fn mode_response(
     }
 }
 
-/// Response for GetComponentPreview — CPU-rendered component image.
+/// Response for `GetComponentPreview` — CPU-rendered component image.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ComponentPreviewResponse {
@@ -774,13 +783,13 @@ pub struct ComponentPreviewResponse {
     pub height: f32,
 }
 
-/// Response for GetNodeDataset — serialized RefAny dataset of a DOM node.
+/// Response for `GetNodeDataset` — serialized `RefAny` dataset of a DOM node.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NodeDatasetResponse {
     /// The node ID queried
     pub node_id: u64,
-    /// Metadata about the RefAny type
+    /// Metadata about the `RefAny` type
     pub metadata: RefAnyMetadata,
     /// The serialized dataset JSON (null if not serializable)
     pub dataset: serde_json::Value,
@@ -796,7 +805,7 @@ pub struct E2eResultsResponse {
     pub results: Vec<E2eTestResult>,
 }
 
-/// Response for InsertNode: returns the new node's ID
+/// Response for `InsertNode`: returns the new node's ID
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NodeInsertedResponse {
@@ -805,7 +814,7 @@ pub struct NodeInsertedResponse {
     pub node_type: String,
 }
 
-/// Response for DeleteNode
+/// Response for `DeleteNode`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct NodeDeletedResponse {
@@ -813,7 +822,7 @@ pub struct NodeDeletedResponse {
     pub success: bool,
 }
 
-/// Response for SetNodeText
+/// Response for `SetNodeText`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NodeTextSetResponse {
@@ -830,7 +839,7 @@ pub struct FocusNodeResponse {
     pub selector: Option<String>,
 }
 
-/// Response for SetNodeClasses
+/// Response for `SetNodeClasses`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NodeClassesSetResponse {
@@ -886,7 +895,7 @@ pub struct FrameReportResponse {
     /// folded into a box already laid out); `0` in any steady state.
     pub virtual_view_size_passes: u32,
     pub hit_depth_cap: bool,
-    /// Terminal `ProcessEventResult` discriminant (0 = DoNothing … 6 = RegenerateDomAllWindows).
+    /// Terminal `ProcessEventResult` discriminant (0 = `DoNothing` … 6 = `RegenerateDomAllWindows`).
     pub terminal_result: u8,
     /// Injectable test-clock offset in ms (advanced by `tick_ms`).
     pub test_clock_offset_ms: u64,
@@ -1012,7 +1021,7 @@ impl From<&azul_layout::cpu_counters::CpuFrameCounters> for CpuCountersJson {
     }
 }
 
-/// Response for SetNodeCssOverride
+/// Response for `SetNodeCssOverride`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NodeCssOverrideSetResponse {
@@ -1021,7 +1030,7 @@ pub struct NodeCssOverrideSetResponse {
     pub value: String,
 }
 
-/// Response for ResolveFunctionPointers
+/// Response for `ResolveFunctionPointers`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FunctionPointersResponse {
@@ -1050,7 +1059,7 @@ pub struct ResolvedFunctionPointer {
     pub approximate: bool,
 }
 
-/// Response for ExportCode: compiled project as a base64-encoded ZIP
+/// Response for `ExportCode`: compiled project as a base64-encoded ZIP
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ExportedCodeResponse {
@@ -1062,7 +1071,7 @@ pub struct ExportedCodeResponse {
     pub warnings: Vec<String>,
 }
 
-/// Response for GetComponentRegistry
+/// Response for `GetComponentRegistry`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ComponentRegistryResponse {
@@ -1104,7 +1113,7 @@ pub struct ComponentInfo {
     pub display_name: String,
     /// Description / documentation
     pub description: String,
-    /// Source: "builtin", "compiled", "user_defined"
+    /// Source: "builtin", "compiled", "`user_defined`"
     pub source: String,
     /// Component-specific data model fields (the component's own attributes,
     /// e.g., href/target/rel for <a>). These ARE the component's main data model.
@@ -1116,7 +1125,7 @@ pub struct ComponentInfo {
     pub callback_slots: Vec<ComponentCallbackSlotInfo>,
     /// CSS
     pub css: String,
-    /// A component made in AzBuilder ("Convert to component"): its template,
+    /// A component made in `AzBuilder` ("Convert to component"): its template,
     /// `{placeholders}` and all (`builder::template_of`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template: Option<String>,
@@ -1140,9 +1149,9 @@ pub struct ComponentAttributeInfo {
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ComponentCallbackSlotInfo {
-    /// Slot name (e.g., "on_click", "on_value_change")
+    /// Slot name (e.g., "`on_click`", "`on_value_change`")
     pub name: String,
-    /// Callback type name (e.g., "ButtonOnClickCallbackType")
+    /// Callback type name (e.g., "`ButtonOnClickCallbackType`")
     pub callback_type: String,
     /// Description
     pub description: String,
@@ -1200,7 +1209,7 @@ pub struct CallbackArgInfo {
     pub arg_type: String,
 }
 
-/// Response for GetLibraries — list of registered component libraries (without component details)
+/// Response for `GetLibraries` — list of registered component libraries (without component details)
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LibraryListResponse {
@@ -1223,7 +1232,7 @@ pub struct LibrarySummary {
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DataModelInfo {
-    /// Type name, e.g. "UserProfile"
+    /// Type name, e.g. "`UserProfile`"
     pub name: String,
     /// Human-readable description
     pub description: String,
@@ -1235,7 +1244,7 @@ pub struct DataModelInfo {
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct EnumModelInfo {
-    /// Enum name, e.g. "UserRole"
+    /// Enum name, e.g. "`UserRole`"
     pub name: String,
     /// Human-readable description
     pub description: String,
@@ -1255,7 +1264,7 @@ pub struct EnumVariantInfo {
     pub fields: Vec<ComponentDataFieldInfo>,
 }
 
-/// Response for GetLibraryComponents — components within a specific library
+/// Response for `GetLibraryComponents` — components within a specific library
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LibraryComponentsResponse {
@@ -1263,7 +1272,7 @@ pub struct LibraryComponentsResponse {
     pub components: Vec<ComponentInfo>,
 }
 
-/// Response for ImportComponentLibrary
+/// Response for `ImportComponentLibrary`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportedLibraryResponse {
@@ -1275,7 +1284,7 @@ pub struct ImportedLibraryResponse {
     pub was_update: bool,
 }
 
-/// Response for ExportComponentLibrary — JSON-serializable library definition
+/// Response for `ExportComponentLibrary` — JSON-serializable library definition
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ExportedLibraryResponse {
@@ -1327,7 +1336,7 @@ pub struct ExportedEnumVariantDef {
 }
 
 /// A component definition in JSON-serializable form (for import/export).
-/// Uses a unified `fields` list instead of separate parameters/data_fields/callback_slots.
+/// Uses a unified `fields` list instead of separate `parameters/data_fields/callback_slots`.
 /// Callbacks are fields with type "Callback(...)", struct refs use "struct:Name", etc.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1346,7 +1355,7 @@ pub struct ExportedComponentDef {
     /// CSS for the component
     #[serde(default)]
     pub css: String,
-    /// A component made in AzBuilder: its template (`{placeholders}` and
+    /// A component made in `AzBuilder`: its template (`{placeholders}` and
     /// all). Importing it makes the component a template component again
     /// (it renders and compiles its markup, not its default texts).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1377,23 +1386,23 @@ pub struct ExportedDataField {
     pub description: String,
 }
 
-/// Metadata about a RefAny's type
+/// Metadata about a `RefAny`'s type
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RefAnyMetadata {
     /// The compiler-generated type ID
     pub type_id: u64,
-    /// Human-readable type name (e.g., "app::MyStruct")
+    /// Human-readable type name (e.g., "`app::MyStruct`")
     pub type_name: String,
-    /// Whether this RefAny supports JSON serialization
+    /// Whether this `RefAny` supports JSON serialization
     pub can_serialize: bool,
-    /// Whether this RefAny type supports JSON deserialization
+    /// Whether this `RefAny` type supports JSON deserialization
     pub can_deserialize: bool,
     /// Number of active references to this data
     pub ref_count: usize,
 }
 
-/// Error information for RefAny operations
+/// Error information for `RefAny` operations
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "error_type", content = "message", rename_all = "snake_case")]
@@ -1404,7 +1413,7 @@ pub enum RefAnyError {
     NotDeserializable,
     /// Serde serialization/deserialization failed
     SerdeError(String),
-    /// Valid JSON but cannot construct RefAny (type mismatch, missing fields, etc.)
+    /// Valid JSON but cannot construct `RefAny` (type mismatch, missing fields, etc.)
     TypeConstructionError(String),
 }
 
@@ -1412,7 +1421,7 @@ pub enum RefAnyError {
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AppStateResponse {
-    /// Metadata about the RefAny type
+    /// Metadata about the `RefAny` type
     pub metadata: RefAnyMetadata,
     /// The serialized JSON data (null if serialization failed or not supported)
     pub state: serde_json::Value,
@@ -1509,6 +1518,9 @@ pub struct LogMessageJson {
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "status")]
+// One response is built per request and serialized at once: boxing its body would change the type the
+// DLL's debug server builds.
+#[allow(clippy::large_enum_variant)]
 pub enum DebugHttpResponse {
     #[serde(rename = "ok")]
     Ok(DebugHttpResponseOk),
@@ -1630,7 +1642,7 @@ impl serde::Serialize for WindowStateSnapshot {
 
 // ==================== Response Data Structures ====================
 
-/// Response for GetNodeCssProperties
+/// Response for `GetNodeCssProperties`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NodeCssPropertiesResponse {
@@ -1689,7 +1701,7 @@ pub struct TickAnimationsResponse {
     pub active: usize,
 }
 
-/// Response for GetNodeLayout
+/// Response for `GetNodeLayout`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct NodeLayoutResponse {
@@ -1705,7 +1717,7 @@ pub struct NodeLayoutResponse {
     pub screen_rect: Option<LogicalRectJson>,
 }
 
-/// Response for GetAllNodesLayout
+/// Response for `GetAllNodesLayout`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AllNodesLayoutResponse {
@@ -1725,7 +1737,7 @@ pub struct NodeLayoutInfo {
     pub rect: Option<LogicalRectJson>,
 }
 
-/// Response for GetDomTree
+/// Response for `GetDomTree`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct DomTreeResponse {
@@ -1750,7 +1762,7 @@ pub struct DomListEntry {
     pub root_tag: String,
     /// The id/classes of the root node, when it carries any.
     pub root_selector: Option<String>,
-    /// Set when this DOM is a VirtualView's document: the DOM + node that hosts it.
+    /// Set when this DOM is a `VirtualView`'s document: the DOM + node that hosts it.
     pub virtual_view_parent: Option<DomNodeIdJson>,
     /// Laid-out size of the DOM's root, when it has one.
     pub size: Option<LogicalSizeJson>,
@@ -1813,7 +1825,7 @@ pub struct DomNodeIdJson {
     pub node_id: u64,
 }
 
-/// Response for GetNodeHierarchy
+/// Response for `GetNodeHierarchy`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NodeHierarchyResponse {
@@ -1883,12 +1895,12 @@ pub struct HierarchyNodeInfo {
     /// Enables the debugger to show a Component Tree alongside the DOM tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component: Option<ComponentOriginJson>,
-    /// Whether this node has a dataset (opaque RefAny data).
+    /// Whether this node has a dataset (opaque `RefAny` data).
     /// True if `NodeData.dataset` is `Some(...)`. The actual data is opaque
     /// but knowing it exists helps visualize component state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_dataset: Option<bool>,
-    /// The AzBuilder document node this live node shows, if it is a mounted
+    /// The `AzBuilder` document node this live node shows, if it is a mounted
     /// document element. Its marker class `azb-<uid>` stays on the node
     /// (the builder finds its nodes by it) but is answered here, not in
     /// `classes`: it is the builder's plumbing, not the user's markup.
@@ -1914,7 +1926,7 @@ pub struct NodeEventInfo {
     pub callback_ptr: String,
 }
 
-/// Response for GetLayoutTree
+/// Response for `GetLayoutTree`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LayoutTreeResponse {
@@ -1938,7 +1950,7 @@ pub struct LayoutNodeInfo {
     pub children: Vec<usize>, // populated from layout_tree.children(idx)
 }
 
-/// Response for GetDisplayList
+/// Response for `GetDisplayList`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DisplayListResponse {
@@ -2119,18 +2131,18 @@ pub fn gradient_item_info(
 
 /// The concrete colours of a gradient's stops (a system-colour stop has none here).
 #[cfg(feature = "std")]
-fn concrete_stop_colors<'a>(
-    colors: impl Iterator<Item = &'a azul_css::props::basic::color::ColorOrSystem>,
+fn concrete_stop_colors(
+    colors: impl Iterator<Item = azul_css::props::basic::color::ColorOrSystem>,
 ) -> Vec<azul_css::props::basic::color::ColorU> {
     colors
         .filter_map(|c| match c {
-            azul_css::props::basic::color::ColorOrSystem::Color(c) => Some(*c),
+            azul_css::props::basic::color::ColorOrSystem::Color(c) => Some(c),
             azul_css::props::basic::color::ColorOrSystem::System(_) => None,
         })
         .collect()
 }
 
-/// Response for GetScrollStates
+/// Response for `GetScrollStates`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ScrollStatesResponse {
@@ -2153,7 +2165,7 @@ pub struct ScrollStateInfo {
     pub max_scroll_y: f32,
 }
 
-/// Response for GetScrollableNodes
+/// Response for `GetScrollableNodes`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ScrollableNodesResponse {
@@ -2173,7 +2185,7 @@ pub struct ScrollableNodeInfo {
     pub can_scroll_y: bool,
 }
 
-/// Response for ScrollNodeBy
+/// Response for `ScrollNodeBy`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct ScrollNodeByResponse {
@@ -2183,7 +2195,7 @@ pub struct ScrollNodeByResponse {
     pub delta_y: f32,
 }
 
-/// Response for ScrollNodeTo
+/// Response for `ScrollNodeTo`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct ScrollNodeToResponse {
@@ -2193,7 +2205,7 @@ pub struct ScrollNodeToResponse {
     pub y: f32,
 }
 
-/// Response for ScrollIntoView
+/// Response for `ScrollIntoView`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct ScrollIntoViewResponse {
@@ -2202,7 +2214,7 @@ pub struct ScrollIntoViewResponse {
     pub adjustments_count: usize,
 }
 
-/// Response for GetScrollbarInfo - detailed scrollbar geometry and state
+/// Response for `GetScrollbarInfo` - detailed scrollbar geometry and state
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ScrollbarInfoResponse {
@@ -2259,7 +2271,7 @@ pub struct ScrollbarGeometryJson {
     pub thumb_size_ratio: f32,
 }
 
-/// Response for GetVirtualViewStates - lists all tracked VirtualViews and their internal state
+/// Response for `GetVirtualViewStates` - lists all tracked `VirtualViews` and their internal state
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct VirtualViewStatesResponse {
@@ -2267,7 +2279,7 @@ pub struct VirtualViewStatesResponse {
     pub virtual_views: Vec<VirtualViewStateInfo>,
 }
 
-/// State info for a single VirtualView
+/// State info for a single `VirtualView`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct VirtualViewStateInfo {
@@ -2286,23 +2298,23 @@ pub struct VirtualViewStateInfo {
     pub last_bounds: LogicalRectJson,
 }
 
-/// Response for GetVirtualViewLayout - layout of nodes inside a VirtualView's DOM
+/// Response for `GetVirtualViewLayout` - layout of nodes inside a `VirtualView`'s DOM
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct VirtualViewLayoutResponse {
     pub dom_id: usize,
     pub node_count: usize,
     pub nodes: Vec<NodeLayoutInfo>,
-    /// Scroll state for the VirtualView container (from the parent DOM)
+    /// Scroll state for the `VirtualView` container (from the parent DOM)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scroll_state: Option<VirtualViewScrollStateInfo>,
-    /// All DOM IDs currently in layout_results (diagnostic)
+    /// All DOM IDs currently in `layout_results` (diagnostic)
     pub available_dom_ids: Vec<usize>,
-    /// Whether layout_results contains this VirtualView's DOM
+    /// Whether `layout_results` contains this `VirtualView`'s DOM
     pub layout_result_found: bool,
 }
 
-/// Scroll state info specific to a VirtualView
+/// Scroll state info specific to a `VirtualView`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct VirtualViewScrollStateInfo {
@@ -2320,7 +2332,7 @@ pub struct VirtualViewScrollStateInfo {
     pub max_scroll_y: f32,
 }
 
-/// Response for GetSelectionState - text selection state
+/// Response for `GetSelectionState` - text selection state
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SelectionStateResponse {
@@ -2496,7 +2508,7 @@ fn selection_state(
     }
 }
 
-/// JSON-serializable LogicalSize
+/// JSON-serializable `LogicalSize`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct LogicalSizeJson {
@@ -2504,7 +2516,7 @@ pub struct LogicalSizeJson {
     pub height: f32,
 }
 
-/// JSON-serializable LogicalPosition
+/// JSON-serializable `LogicalPosition`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct LogicalPositionJson {
@@ -2512,7 +2524,7 @@ pub struct LogicalPositionJson {
     pub y: f32,
 }
 
-/// JSON-serializable LogicalRect
+/// JSON-serializable `LogicalRect`
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct LogicalRectJson {
@@ -2522,7 +2534,7 @@ pub struct LogicalRectJson {
     pub height: f32,
 }
 
-/// Full dump of the SelectionManager for debugging
+/// Full dump of the `SelectionManager` for debugging
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SelectionManagerDump {
@@ -2570,7 +2582,7 @@ pub struct ClickStateDump {
     pub click_count: u8,
 }
 
-/// Response for GetDragState - current drag state from unified drag system
+/// Response for `GetDragState` - current drag state from unified drag system
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DragStateResponse {
@@ -2583,7 +2595,7 @@ pub struct DragStateResponse {
     pub description: String,
 }
 
-/// Response for GetDragContext - detailed drag context information
+/// Response for `GetDragContext` - detailed drag context information
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DragContextResponse {
@@ -2615,7 +2627,7 @@ pub struct DragContextResponse {
     pub files: Option<Vec<String>>,
     /// Drag data (MIME type -> data)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub drag_data: Option<std::collections::BTreeMap<String, String>>,
+    pub drag_data: Option<BTreeMap<String, String>>,
     /// Current drag effect
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drag_effect: Option<String>,
@@ -2623,7 +2635,7 @@ pub struct DragContextResponse {
     pub debug: String,
 }
 
-/// Response for GetFocusState - which node has keyboard focus
+/// Response for `GetFocusState` - which node has keyboard focus
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FocusStateResponse {
@@ -2652,7 +2664,7 @@ pub struct FocusedNodeInfo {
     pub text_content: Option<String>,
 }
 
-/// Response for GetCursorState - cursor position and blink state
+/// Response for `GetCursorState` - cursor position and blink state
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CursorStateResponse {
@@ -2806,10 +2818,10 @@ pub enum DebugEvent {
         seat: u64,
     },
     Click {
-        /// X position (used if no selector/node_id provided)
+        /// X position (used if no `selector/node_id` provided)
         #[serde(default)]
         x: Option<f32>,
-        /// Y position (used if no selector/node_id provided)
+        /// Y position (used if no `selector/node_id` provided)
         #[serde(default)]
         y: Option<f32>,
         /// CSS selector (e.g. ".button", "#my-id", "div")
@@ -2864,7 +2876,7 @@ pub enum DebugEvent {
     /// + scroll-physics-timer path, target chosen by the hit test (innermost
     /// scrollable node, boundary handoff). `scroll` above is the PROGRAMMATIC
     /// `scroll_to` on a node found by rect containment; it never exercises
-    /// the wheel path, which is where a VirtualView's edge-scroll
+    /// the wheel path, which is where a `VirtualView`'s edge-scroll
     /// re-materialization actually happens. The physics glides to an ABSOLUTE
     /// target of `delta * wheel_multiplier` (a mouse-wheel click, default
     /// multiplier 1.0: raw `delta_y: -100` ends 100px further down with the
@@ -2888,14 +2900,14 @@ pub enum DebugEvent {
         /// A native shell records the text of a keystroke (`XLookupString`,
         /// `wl_keyboard` / xkb, `WM_CHAR`, `NSTextInputClient`) into the text
         /// changeset BEFORE it runs the state-diff pass, so ONE pass carries
-        /// both the KeyDown and the Input event and the pass's post-callback
+        /// both the `KeyDown` and the Input event and the pass's post-callback
         /// filter decides whether the recorded edit lands. That is what makes a
-        /// KeyDown handler's `prevent_default()` able to veto an insertion.
+        /// `KeyDown` handler's `prevent_default()` able to veto an insertion.
         ///
         /// `text_input` is the OTHER ingress (`CallbackChange::CreateTextInput`
         /// — the debug server / C API / IME commit), which records, dispatches
         /// `Input` and applies inside a single change. A veto raised by a
-        /// KeyDown handler cannot be observed through it, because no KeyDown is
+        /// `KeyDown` handler cannot be observed through it, because no `KeyDown` is
         /// dispatched in that window at all.
         #[serde(default)]
         text: Option<String>,
@@ -3169,7 +3181,7 @@ pub enum DebugEvent {
     // DOM Inspection
     /// Get the HTML representation of the DOM
     GetHtmlString,
-    /// Get all computed CSS properties for a node (supports selector, node_id, or text)
+    /// Get all computed CSS properties for a node (supports selector, `node_id`, or text)
     GetNodeCssProperties {
         #[serde(default)]
         node_id: Option<u64>,
@@ -3178,7 +3190,7 @@ pub enum DebugEvent {
         #[serde(default)]
         text: Option<String>,
     },
-    /// Get node layout information (position, size) - supports selector, node_id, or text
+    /// Get node layout information (position, size) - supports selector, `node_id`, or text
     GetNodeLayout {
         #[serde(default)]
         node_id: Option<u64>,
@@ -3215,7 +3227,7 @@ pub enum DebugEvent {
     ///
     /// `{ "op": "list_doms" }`
     ///
-    /// The window's own document is DOM 0; a VirtualView's document and a
+    /// The window's own document is DOM 0; a `VirtualView`'s document and a
     /// `<transient-window>`'s popup content are DOMs of their own. Every
     /// node-addressing op defaults to DOM 0 and takes the envelope's
     /// `dom_id` to reach the others — this op is how you learn the ids
@@ -3232,7 +3244,7 @@ pub enum DebugEvent {
     /// envelope's `window_id`. This op is how a script learns those ids.
     ListWindows,
     /// Get the raw node hierarchy (for debugging DOM structure issues).
-    /// Address a child DOM (a VirtualView / transient-window document) with
+    /// Address a child DOM (a `VirtualView` / transient-window document) with
     /// the envelope's `dom_id`, like every other node-addressing op.
     GetNodeHierarchy,
     /// Get the layout tree structure (for debugging layout tree building)
@@ -3243,7 +3255,7 @@ pub enum DebugEvent {
     GetScrollStates,
     /// Get all scrollable nodes (nodes with overflow that can be scrolled)
     GetScrollableNodes,
-    /// Scroll a specific node by a delta amount (supports selector, node_id, or text)
+    /// Scroll a specific node by a delta amount (supports selector, `node_id`, or text)
     ScrollNodeBy {
         #[serde(default)]
         node_id: Option<u64>,
@@ -3254,7 +3266,7 @@ pub enum DebugEvent {
         delta_x: f32,
         delta_y: f32,
     },
-    /// Scroll a specific node to an absolute position (supports selector, node_id, or text)
+    /// Scroll a specific node to an absolute position (supports selector, `node_id`, or text)
     ScrollNodeTo {
         #[serde(default)]
         node_id: Option<u64>,
@@ -3286,7 +3298,7 @@ pub enum DebugEvent {
     },
 
     // Node Finding
-    /// Find a node by text content (returns node_id and bounds)
+    /// Find a node by text content (returns `node_id` and bounds)
     FindNodeByText {
         text: String,
     },
@@ -3297,7 +3309,7 @@ pub enum DebugEvent {
         button: MouseButton,
     },
 
-    /// Get detailed scrollbar information for a node (supports selector, node_id, or text)
+    /// Get detailed scrollbar information for a node (supports selector, `node_id`, or text)
     /// Returns geometry for both horizontal and vertical scrollbars if present
     GetScrollbarInfo {
         #[serde(default)]
@@ -3312,15 +3324,15 @@ pub enum DebugEvent {
     },
 
     // VirtualView inspection
-    /// Get all tracked VirtualView states (scroll sizes, virtual sizes, invocation status)
+    /// Get all tracked `VirtualView` states (scroll sizes, virtual sizes, invocation status)
     GetVirtualViewStates,
-    /// Get layout of nodes inside a specific VirtualView's DOM (by nested dom_id or parent
-    /// node_id)
+    /// Get layout of nodes inside a specific `VirtualView`'s DOM (by nested `dom_id` or parent
+    /// `node_id`)
     GetVirtualViewLayout {
-        /// The nested DOM ID of the VirtualView (from get_virtual_view_states result)
+        /// The nested DOM ID of the `VirtualView` (from `get_virtual_view_states` result)
         #[serde(default)]
         dom_id: Option<usize>,
-        /// The parent node_id of the VirtualView node (in the root DOM)
+        /// The parent `node_id` of the `VirtualView` node (in the root DOM)
         #[serde(default)]
         node_id: Option<usize>,
     },
@@ -3545,21 +3557,21 @@ pub enum DebugEvent {
     /// `wait_settled` before it: right after a rebuild, moved nodes are still
     /// sliding and a still of them shows "two layouts at once".
     TakeScreenshot,
-    /// `render_shadow` omitted follows AZ_SCREENSHOT_SHADOW.
+    /// `render_shadow` omitted follows `AZ_SCREENSHOT_SHADOW`.
     TakeNativeScreenshot {
         #[serde(default)]
         render_shadow: Option<bool>,
     },
 
     // App State (JSON Serialization)
-    /// Get the global app state as JSON (requires RefAny with serialize_fn)
+    /// Get the global app state as JSON (requires `RefAny` with `serialize_fn`)
     GetAppState,
-    /// Set the global app state from JSON (requires RefAny with deserialize_fn)
+    /// Set the global app state from JSON (requires `RefAny` with `deserialize_fn`)
     SetAppState {
         /// The JSON value to set as the new app state
         state: serde_json::Value,
     },
-    /// Get the dataset (RefAny) of a specific DOM node as JSON
+    /// Get the dataset (`RefAny`) of a specific DOM node as JSON
     GetNodeDataset {
         /// Node ID whose dataset to retrieve
         node_id: u64,
@@ -3747,7 +3759,7 @@ pub enum DebugEvent {
     /// programmatically via `queue_e2e_tests()`.
     RunE2eTests {
         tests: Vec<E2eTest>,
-        /// Named snapshots map (alias → saved app_state JSON).
+        /// Named snapshots map (alias → saved `app_state` JSON).
         /// Used by `restore_snapshot` steps to look up pre-saved states.
         #[serde(default)]
         snapshots: Option<std::collections::HashMap<String, serde_json::Value>>,
@@ -4010,15 +4022,15 @@ pub enum DebugEvent {
         #[serde(default)]
         css_override: Option<String>,
         /// Component arguments as typed JSON values, e.g. {"label": "Click", "disabled": true,
-        /// "count": 42}. Keys must match the component's data_model field names.
-        /// Values are validated against the field's ComponentFieldType.
-        /// Missing fields use their default_value from the data model.
+        /// "count": 42}. Keys must match the component's `data_model` field names.
+        /// Values are validated against the field's `ComponentFieldType`.
+        /// Missing fields use their `default_value` from the data model.
         #[serde(default)]
         args: Option<std::collections::HashMap<String, serde_json::Value>>,
-        /// Override OS for @os() CSS at-rules: "windows", "mac", "linux"
+        /// Override OS for @`os()` CSS at-rules: "windows", "mac", "linux"
         #[serde(default)]
         override_os: Option<String>,
-        /// Override theme for @theme() CSS: "light", "dark"
+        /// Override theme for @`theme()` CSS: "light", "dark"
         #[serde(default)]
         override_theme: Option<String>,
         /// Override language/locale: e.g. "en", "de", "fr"
@@ -4032,7 +4044,7 @@ pub enum DebugEvent {
         /// Component tag name
         name: String,
     },
-    /// Get the source code of a component's render_fn, or the component as
+    /// Get the source code of a component's `render_fn`, or the component as
     /// code (`compile_fn` / `code`: printed by the code generator for
     /// `language`, the same as `export_component_code`).
     GetComponentSource {
@@ -4040,20 +4052,20 @@ pub enum DebugEvent {
         library: String,
         /// Component tag name
         name: String,
-        /// "render_fn", or "compile_fn" / "code"
+        /// "`render_fn`", or "`compile_fn`" / "code"
         source_type: String,
         /// Any code generator's language (see `get_codegen_languages`; ignored
-        /// for render_fn). Default: rust.
+        /// for `render_fn`). Default: rust.
         #[serde(default)]
         language: Option<String>,
     },
-    /// Update a component's render_fn source code.
+    /// Update a component's `render_fn` source code.
     UpdateComponentRenderFn {
         /// Library name
         library: String,
         /// Component tag name
         name: String,
-        /// New source code for the render_fn
+        /// New source code for the `render_fn`
         source: String,
     },
     /// Open a source file in the user's editor (best-effort)
@@ -4492,7 +4504,7 @@ fn parse_accessibility_action(
 
 // ==================== Node Resolution Helper ====================
 
-/// Resolves a node target (selector, node_id, or text) to a NodeId.
+/// Resolves a node target (selector, `node_id`, or text) to a `NodeId`.
 /// Returns the first matching node or None if no match found.
 #[cfg(feature = "std")]
 fn resolve_node_target(
@@ -4553,7 +4565,7 @@ fn resolve_node_target(
     None
 }
 
-/// Resolve a CSS selector to **all** matching NodeIds (not just the first).
+/// Resolve a CSS selector to **all** matching `NodeIds` (not just the first).
 ///
 /// Used by `assert_node_count` and also internally by the assertion engine
 /// to verify existence / non-existence of nodes.
@@ -4567,14 +4579,12 @@ fn resolve_all_matching_nodes(
     use azul_css::parser2::parse_css_path;
     let layout_window = callback_info.get_layout_window();
 
-    let layout_result = match layout_window.layout_results.get(&dom_id) {
-        Some(lr) => lr,
-        None => return Vec::new(),
+    let Some(layout_result) = layout_window.layout_results.get(&dom_id) else {
+        return Vec::new();
     };
 
-    let css_path = match parse_css_path(selector) {
-        Ok(p) => p,
-        Err(_) => return Vec::new(),
+    let Ok(css_path) = parse_css_path(selector) else {
+        return Vec::new();
     };
 
     let styled_dom = &layout_result.styled_dom;
@@ -4985,12 +4995,12 @@ fn build_selector_for_node(
 
     // Get tag name from NodeTypeTag (lowercase HTML tag name)
     let node_type_tag = node_data.get_node_type().get_path();
-    let tag_name = alloc::format!("{:?}", node_type_tag).to_lowercase();
+    let tag_name = alloc::format!("{node_type_tag:?}").to_lowercase();
 
     let mut selector = tag_name;
 
     // Add ID if present (first ID wins)
-    for attr in node_data.attributes().as_ref().iter() {
+    for attr in node_data.attributes().as_ref() {
         if let Some(id) = attr.as_id() {
             selector.push('#');
             selector.push_str(id);
@@ -4999,7 +5009,7 @@ fn build_selector_for_node(
     }
 
     // Add all classes
-    for attr in node_data.attributes().as_ref().iter() {
+    for attr in node_data.attributes().as_ref() {
         if let Some(class) = attr.as_class() {
             selector.push('.');
             selector.push_str(class);
@@ -5013,7 +5023,7 @@ fn build_selector_for_node(
         .iter()
         .any(|a| a.as_id().is_some() || a.as_class().is_some());
     if !has_id_or_class {
-        selector.push_str(&alloc::format!(":nth-child({})", node_id.index() + 1));
+        let _ = write!(selector, ":nth-child({})", node_id.index() + 1);
     }
 
     Some(selector)
@@ -5064,7 +5074,7 @@ pub enum MouseButton {
 
 /// Default touch / pen force when the JSON test doesn't supply one. 0.5
 /// is the same "pressure unavailable" sentinel `TouchPoint` documents.
-fn default_force() -> f32 {
+const fn default_force() -> f32 {
     0.5
 }
 
@@ -5082,6 +5092,8 @@ pub enum SwipeDir {
 
 #[derive(Debug, Clone, Copy, Default)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+// The four modifier keys of the wire format (`shift`, `ctrl`, `alt`, `meta`): independent keys, not one state.
+#[allow(clippy::struct_excessive_bools)]
 pub struct Modifiers {
     #[serde(default)]
     pub shift: bool,
@@ -5114,7 +5126,7 @@ static SERVER_START_TIME: OnceLock<std::time::Instant> = OnceLock::new();
 #[cfg(feature = "std")]
 static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
-/// File handle for AZ_RECORD file-based logging.
+/// File handle for `AZ_RECORD` file-based logging.
 /// When `AZ_RECORD=<filepath>` is set, all log messages are written to this file.
 // Process configuration read once from the environment (`AZ_RECORD`).
 #[cfg(feature = "std")]
@@ -5136,7 +5148,7 @@ static DEBUG_PORT: OnceLock<u16> = OnceLock::new();
 // / `stop_http_server`) and stopped at process exit: nothing that does has a handle to it.
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server")]
-static DEBUG_SERVER: std::sync::Mutex<Option<Arc<DebugServerHandle>>> = std::sync::Mutex::new(None);
+static DEBUG_SERVER: Mutex<Option<Arc<DebugServerHandle>>> = Mutex::new(None);
 /// Per-window E2E scheduler slot: the half-finished scenario run that has to
 /// survive between event-loop ticks.
 ///
@@ -5288,11 +5300,11 @@ pub struct E2eScratch {
     /// step has begun yet, which is why X8 hard-fails rather than passing when
     /// it finds none — an invariant with no subject must not report success.
     composition_trace: Option<CompositionTrace>,
-    /// The AzBuilder document this window shows once the builder took it
+    /// The `AzBuilder` document this window shows once the builder took it
     /// over, and the palette thumbnail cache (the `builder_*` ops and
     /// `get_component_thumbnail`). Per window, like everything here.
     builder: super::builder::BuilderSession,
-    /// The AzBuilder project folder open in this window (the `project_*`
+    /// The `AzBuilder` project folder open in this window (the `project_*`
     /// ops, layout/src/e2e/project.rs).
     project: super::project::ProjectSession,
     /// The last debug-request announcement this window re-armed its poll for
@@ -5308,9 +5320,9 @@ pub struct E2eScratch {
 /// panicked on: a scenario that panicked mid-step must not take the whole
 /// (possibly parallel) run down with it.
 #[cfg(feature = "std")]
-fn scratch<'a>(
-    callback_info: &'a azul_layout::callbacks::CallbackInfo,
-) -> std::sync::MutexGuard<'a, E2eScratch> {
+fn scratch(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> std::sync::MutexGuard<'_, E2eScratch> {
     callback_info
         .get_layout_window()
         .e2e_scratch
@@ -5637,7 +5649,7 @@ fn remount_builder_if_active(
     component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
 ) -> bool {
     let xml = {
-        let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+        let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         scratch(callback_info).builder.remount_xml(&map_guard)
     };
     match xml {
@@ -5751,7 +5763,7 @@ fn run_project_op(
     op: super::project::ProjectOp<'_>,
 ) -> bool {
     let result = {
-        let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let layout_window = callback_info.get_layout_window();
         let live = layout_window
             .layout_results
@@ -5760,14 +5772,17 @@ fn run_project_op(
         let platform = &layout_window.settings.services.platform;
         let mut guard = scratch(callback_info);
         let s = &mut *guard;
-        super::project::handle(
+        let outcome = super::project::handle(
             op,
             &mut s.project,
             &mut s.builder,
             &mut map_guard,
             live,
             platform,
-        )
+        );
+        drop(guard);
+        drop(map_guard);
+        outcome
     };
     finish_builder_op(request, callback_info, result)
 }
@@ -5776,12 +5791,14 @@ fn run_project_op(
 /// the builder took the window over) what the window shows — and the
 /// component map. Locks the map, then the scratch (the builder ops' order).
 #[cfg(feature = "std")]
+// `doc` borrows from the scratch guard and `f` reads it: the guard cannot be dropped before the call.
+#[allow(clippy::significant_drop_tightening)]
 fn with_export_document<R>(
     callback_info: &azul_layout::callbacks::CallbackInfo,
     component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
     f: impl FnOnce(&super::builder::BuilderDocument, &azul_core::xml::ComponentMap) -> R,
 ) -> R {
-    let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+    let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let layout_window = callback_info.get_layout_window();
     let live = layout_window
         .layout_results
@@ -5839,7 +5856,7 @@ fn build_project_files(
     library: Option<&str>,
 ) -> Result<(Vec<azul_css::codegen::GeneratedFile>, Vec<String>), String> {
     let (app, title) = build_app_code(callback_info, component_map)?;
-    let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+    let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     super::export::project(language, app, title, &map_guard, library)
 }
 
@@ -6116,6 +6133,15 @@ pub struct DebugServerHandle {
 }
 
 #[cfg(feature = "std")]
+#[cfg(feature = "e2e-server")]
+impl core::fmt::Debug for DebugServerHandle {
+    /// The channels and the thread handle say nothing worth printing: the port is the handle's name.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DebugServerHandle").field("port", &self.port).finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "std")]
 #[cfg(feature = "e2e-server-http")]
 impl std::fmt::Debug for DebugServerHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -6188,6 +6214,7 @@ pub fn scripted_run_owns_the_clock() -> bool {
 /// the HTTP server / `AZ_RECORD` exactly as before. (The lean stub overrides
 /// this to follow `AZ_LOG` and forward to the `log` facade instead.)
 #[cfg(feature = "std")]
+#[must_use]
 pub fn log_active() -> bool {
     is_debug_enabled()
 }
@@ -6204,7 +6231,7 @@ pub fn log_active() -> bool {
 pub fn init_recording(record: Option<&std::path::Path>) {
     if let Some(path) = record {
         if let Ok(file) = std::fs::File::create(path) {
-            let _ = RECORD_FILE.set(Mutex::new(file));
+            drop(RECORD_FILE.set(Mutex::new(file)));
             DEBUG_ENABLED.store(true, Ordering::SeqCst);
             SERVER_START_TIME.get_or_init(std::time::Instant::now);
             LOG_QUEUE.get_or_init(|| Mutex::new(Vec::new()));
@@ -6224,24 +6251,23 @@ pub fn init_recording(record: Option<&std::path::Path>) {
 /// `std::process::exit`.
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server")]
-pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugResponseData> {
+pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> mpsc::Receiver<DebugResponseData> {
     E2E_ACTIVE.store(true, Ordering::SeqCst);
 
     let test_count = tests.len();
     let total_steps: usize = tests.iter().map(|t| t.steps.len()).sum();
     log(
         LogLevel::Info,
-        LogCategory::DebugServer,
+        DebugServer,
         format!(
-            "[E2E] Queuing {} test(s) with {} total step(s)",
-            test_count, total_steps
+            "[E2E] Queuing {test_count} test(s) with {total_steps} total step(s)"
         ),
         None,
     );
     for (i, test) in tests.iter().enumerate() {
         log(
             LogLevel::Debug,
-            LogCategory::DebugServer,
+            DebugServer,
             format!(
                 "[E2E]   test[{}]: '{}' ({} steps)",
                 i,
@@ -6265,12 +6291,12 @@ pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugRe
         wait_for_render: false,
         dom_id: None,
         response_tx: tx,
-        answered: std::sync::Mutex::new(None),
+        answered: Mutex::new(None),
     };
 
     if let Some(handle) = get_debug_server() {
         if let Ok(mut sender) = handle.request_tx.lock() {
-            let _ = sender.send(request);
+            drop(sender.send(request));
         }
         announce_debug_request();
     }
@@ -6375,8 +6401,7 @@ fn log_internal(
     let location = core::panic::Location::caller();
     let timestamp_us = SERVER_START_TIME
         .get()
-        .map(|t| t.elapsed().as_micros() as u64)
-        .unwrap_or(0);
+        .map_or(0, |t| t.elapsed().as_micros() as u64);
 
     let message: String = message.into();
 
@@ -6384,10 +6409,9 @@ fn log_internal(
     if let Some(file) = RECORD_FILE.get() {
         if let Ok(mut f) = file.lock() {
             use std::io::Write;
-            let _ = writeln!(
+            let _unused = writeln!(
                 f,
-                "[{:>12}us] [{:?}] [{:?}] {}",
-                timestamp_us, level, category, message
+                "[{timestamp_us:>12}us] [{level:?}] [{category:?}] {message}"
             );
         }
     }
@@ -6659,7 +6683,7 @@ fn notification_event_from_op(
 
 /// The name `assert_global_hotkeys` reports a status with: the failure's
 /// reason for a `Failed` one.
-fn global_hotkey_status_name(status: &azul_core::global_hotkey::GlobalHotkeyStatus) -> &'static str {
+const fn global_hotkey_status_name(status: &azul_core::global_hotkey::GlobalHotkeyStatus) -> &'static str {
     use azul_core::global_hotkey::{GlobalHotkeyError as E, GlobalHotkeyStatus as S};
     match status {
         S::NotRegistered => "not_registered",
@@ -6692,7 +6716,7 @@ fn global_hotkey_status_matches(
 }
 
 /// The name `assert_global_hotkeys` spells an owner with.
-fn global_hotkey_owner_name(owner: azul_core::global_hotkey::GlobalHotkeyOwner) -> &'static str {
+const fn global_hotkey_owner_name(owner: azul_core::global_hotkey::GlobalHotkeyOwner) -> &'static str {
     use azul_core::global_hotkey::GlobalHotkeyOwner as O;
     match owner {
         O::App => "app",
@@ -6977,16 +7001,16 @@ pub fn send_ok(
         }
     }
     // Clear logs to prevent memory buildup
-    let _ = take_logs();
+    drop(take_logs());
     let response = DebugResponseData::Ok { window_state, data };
     // Receiver may have disconnected (HTTP thread timed out) — ignore send errors
-    let _ = request.response_tx.send(response);
+    drop(request.response_tx.send(response));
 }
 
 /// Send an error response to a debug request
 #[cfg(feature = "std")]
 /// Synthesize a solid-color RGBA raster image for the image ops
-/// (`set_node_image` / `add_image_to_cache`) — JSON cannot carry an ImageRef,
+/// (`set_node_image` / `add_image_to_cache`) — JSON cannot carry an `ImageRef`,
 /// so the op smuggles `{width, height, color}` in, same discipline as
 /// `add_timer` supplying the fn pointer JSON cannot express.
 fn synthesize_solid_image(
@@ -7017,15 +7041,16 @@ fn synthesize_solid_image(
 
 pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
     // Clear logs to prevent memory buildup
-    let _ = take_logs();
+    drop(take_logs());
     let response = DebugResponseData::Err(message.into());
     // Receiver may have disconnected (HTTP thread timed out) — ignore send errors
-    let _ = request.response_tx.send(response);
+    drop(request.response_tx.send(response));
 }
 
-/// Helper function for serializing DebugHttpResponse
+/// Helper function for serializing `DebugHttpResponse`
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server")]
+#[must_use]
 pub fn serialize_http_response(response: &DebugHttpResponse) -> String {
     serde_json::to_string_pretty(response)
         .unwrap_or_else(|_| r#"{"status":"error","message":"Serialization failed"}"#.to_string())
@@ -7092,12 +7117,12 @@ pub fn handle_event_request(
                 wait_for_render: req.wait_for_render,
                 dom_id: req.dom_id,
                 response_tx: tx,
-                answered: std::sync::Mutex::new(None),
+                answered: Mutex::new(None),
             };
 
             // Send via spmc channel, then wake the UI loop that serves it
             if let Ok(mut sender) = request_tx.lock() {
-                let _ = sender.send(request);
+                drop(sender.send(request));
             }
             announce_debug_request();
 
@@ -7146,7 +7171,7 @@ pub fn handle_event_request(
         }
         Err(e) => serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
             request_id: None,
-            message: format!("Invalid JSON: {}", e),
+            message: format!("Invalid JSON: {e}"),
         })),
     }
 }
@@ -7204,7 +7229,7 @@ pub struct E2eTest {
     /// step and reports SKIP with the reason, so an empty test is never a pass.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub not_applicable: Option<String>,
-    /// Optional runtime configuration (continue_on_failure, delay, …).
+    /// Optional runtime configuration (`continue_on_failure`, delay, …).
     #[serde(default)]
     pub config: E2eConfig,
     /// Optional setup (window size, DPI, initial app state).
@@ -7242,27 +7267,27 @@ pub struct E2eSetup {
 }
 
 #[cfg(feature = "std")]
-fn default_width() -> u32 {
+const fn default_width() -> u32 {
     800
 }
 #[cfg(feature = "std")]
-fn default_height() -> u32 {
+const fn default_height() -> u32 {
     600
 }
 #[cfg(feature = "std")]
-fn default_dpi() -> u32 {
+const fn default_dpi() -> u32 {
     96
 }
 
 /// A single step inside an E2E test.
 ///
-/// Steps are either regular debug commands (click, text_input, …) or
-/// assertions (assert_text, assert_exists, …).  The JSON format is the
+/// Steps are either regular debug commands (click, `text_input`, …) or
+/// assertions (`assert_text`, `assert_exists`, …).  The JSON format is the
 /// same as the debug API: `{"op": "click", "selector": ".btn"}`.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct E2eStep {
-    /// Operation name (same as DebugEvent discriminant, plus assert_* ops).
+    /// Operation name (same as `DebugEvent` discriminant, plus assert_* ops).
     pub op: String,
     /// Whether to capture a screenshot after this step.
     #[serde(default)]
@@ -7323,7 +7348,7 @@ pub const E2E_PLATFORMS: &[&str] = &["linux", "windows", "macos", "ios", "androi
 /// `"android"`, ...), and `"web"` on wasm32.
 #[cfg(feature = "std")]
 #[must_use]
-pub fn e2e_host_platform() -> &'static str {
+pub const fn e2e_host_platform() -> &'static str {
     if cfg!(target_arch = "wasm32") {
         "web"
     } else {
@@ -7458,6 +7483,7 @@ impl AssertionResult {
 /// | `assert_global_hotkeys` | `expect` (`[{accelerator, status?, owner?}]`), `count?` |
 /// | `assert_memory_growth` | `vs` (a `snapshot_resources` name), `max_bytes` |
 #[cfg(feature = "std")]
+#[must_use]
 pub fn evaluate_assertion(
     op: &str,
     params: &serde_json::Value,
@@ -7466,8 +7492,8 @@ pub fn evaluate_assertion(
 ) -> AssertionResult {
     log(
         LogLevel::Debug,
-        LogCategory::DebugServer,
-        format!("[E2E] evaluate_assertion: op='{}', params={}", op, params),
+        DebugServer,
+        format!("[E2E] evaluate_assertion: op='{op}', params={params}"),
         None,
     );
     let result = match op {
@@ -7506,19 +7532,19 @@ pub fn evaluate_assertion(
         "assert_notification" => eval_assert_notification(params, callback_info),
         // Global hotkeys, as the window's App manager holds them
         "assert_global_hotkeys" => eval_assert_global_hotkeys(params, callback_info),
-        other => AssertionResult::fail(format!("Unknown assertion: {}", other)),
+        other => AssertionResult::fail(format!("Unknown assertion: {other}")),
     };
     if result.passed {
         log(
             LogLevel::Debug,
-            LogCategory::DebugServer,
+            DebugServer,
             format!("[E2E] assertion PASSED: {}", result.message),
             None,
         );
     } else {
         log(
             LogLevel::Info,
-            LogCategory::DebugServer,
+            DebugServer,
             format!(
                 "[E2E] assertion FAILED: {} (expected={:?}, actual={:?})",
                 result.message, result.expected, result.actual
@@ -7545,25 +7571,20 @@ fn eval_assert_text(
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_text: missing 'selector' parameter"),
     };
-    let expected = match params.get("expected").and_then(|v| v.as_str()) {
-        Some(s) => s,
-        None => return AssertionResult::fail("assert_text: missing 'expected' parameter"),
+    let Some(expected) = params.get("expected").and_then(|v| v.as_str()) else {
+        return AssertionResult::fail("assert_text: missing 'expected' parameter");
     };
 
-    let node_id = match resolve_node_target(
+    let Some(node_id) = resolve_node_target(
         callback_info,
         params_dom(params),
         Some(selector),
         None,
         None,
-    ) {
-        Some(nid) => nid,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_text: no node matches selector '{}'",
-                selector
-            ))
-        }
+    ) else {
+        return AssertionResult::fail(format!(
+            "assert_text: no node matches selector '{selector}'"
+        ));
     };
 
     // Get text content: try callback_info first, fall back to raw NodeType::Text
@@ -7596,10 +7617,10 @@ fn eval_assert_text(
         .unwrap_or_default();
 
     if actual_text == expected {
-        AssertionResult::pass(format!("assert_text: '{}' matches", selector))
+        AssertionResult::pass(format!("assert_text: '{selector}' matches"))
     } else {
         AssertionResult::fail_with(
-            format!("assert_text: selector '{}' text mismatch", selector),
+            format!("assert_text: selector '{selector}' text mismatch"),
             expected,
             actual_text,
         )
@@ -7623,8 +7644,7 @@ fn eval_assert_exists(
     let matches = resolve_all_matching_nodes(callback_info, params_dom(params), selector);
     if matches.is_empty() {
         AssertionResult::fail(format!(
-            "assert_exists: no node matches selector '{}'",
-            selector
+            "assert_exists: no node matches selector '{selector}'"
         ))
     } else {
         AssertionResult::pass(format!(
@@ -7652,8 +7672,7 @@ fn eval_assert_not_exists(
     let matches = resolve_all_matching_nodes(callback_info, params_dom(params), selector);
     if matches.is_empty() {
         AssertionResult::pass(format!(
-            "assert_not_exists: '{}' correctly has no matches",
-            selector
+            "assert_not_exists: '{selector}' correctly has no matches"
         ))
     } else {
         AssertionResult::fail(format!(
@@ -7678,7 +7697,7 @@ fn eval_assert_node_count(
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_node_count: missing 'selector' parameter"),
     };
-    let expected = match params.get("expected").and_then(|v| v.as_u64()) {
+    let expected = match params.get("expected").and_then(serde_json::Value::as_u64) {
         Some(n) => n as usize,
         None => {
             return AssertionResult::fail(
@@ -7692,12 +7711,11 @@ fn eval_assert_node_count(
 
     if actual == expected {
         AssertionResult::pass(format!(
-            "assert_node_count: '{}' has {} node(s)",
-            selector, actual
+            "assert_node_count: '{selector}' has {actual} node(s)"
         ))
     } else {
         AssertionResult::fail_with(
-            format!("assert_node_count: selector '{}' count mismatch", selector),
+            format!("assert_node_count: selector '{selector}' count mismatch"),
             expected.to_string(),
             actual.to_string(),
         )
@@ -7734,9 +7752,8 @@ fn eval_assert_window_state(
         Some(p) if !p.is_empty() => p,
         _ => return AssertionResult::fail("assert_window_state: missing 'property' parameter"),
     };
-    let expected_val = match params.get("expected") {
-        Some(v) => v,
-        None => return AssertionResult::fail("assert_window_state: missing 'expected' parameter"),
+    let Some(expected_val) = params.get("expected") else {
+        return AssertionResult::fail("assert_window_state: missing 'expected' parameter");
     };
 
     let window_state = callback_info.get_current_window_state();
@@ -7744,13 +7761,10 @@ fn eval_assert_window_state(
 
     // --- boolean properties ---
     if property == "focused" || property == "window_focused" {
-        let expected = match expected_val.as_bool() {
-            Some(b) => b,
-            None => {
-                return AssertionResult::fail(format!(
-                    "assert_window_state: '{property}' needs a boolean 'expected'"
-                ))
-            }
+        let Some(expected) = expected_val.as_bool() else {
+            return AssertionResult::fail(format!(
+                "assert_window_state: '{property}' needs a boolean 'expected'"
+            ));
         };
         // `flags.has_focus` is the OS-level flag; `window_focused` is the field
         // the state-diff pass reads to emit WindowFocusIn / WindowFocusOut.
@@ -7771,13 +7785,10 @@ fn eval_assert_window_state(
     }
 
     // --- numeric properties ---
-    let expected = match expected_val.as_f64() {
-        Some(n) => n,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_window_state: '{property}' needs a numeric 'expected'"
-            ))
-        }
+    let Some(expected) = expected_val.as_f64() else {
+        return AssertionResult::fail(format!(
+            "assert_window_state: '{property}' needs a numeric 'expected'"
+        ));
     };
     let tolerance = params
         .get("tolerance")
@@ -7894,7 +7905,7 @@ fn eval_assert_dom(
             return AssertionResult::fail_with(
                 "assert_dom: root_type mismatch".to_string(),
                 expected.to_string(),
-                dom.root.node_type.clone(),
+                dom.root.node_type,
             );
         }
     }
@@ -7917,7 +7928,7 @@ fn eval_assert_dom(
             return AssertionResult::fail_with(
                 "assert_dom: HTML does not contain the expected substring".to_string(),
                 needle.to_string(),
-                dom.html.clone(),
+                dom.html,
             );
         }
     }
@@ -7928,7 +7939,7 @@ fn eval_assert_dom(
                 "assert_dom: HTML still contains a substring it must not (stale DOM read)"
                     .to_string(),
                 format!("no '{needle}'"),
-                dom.html.clone(),
+                dom.html,
             );
         }
     }
@@ -7955,20 +7966,20 @@ fn eval_assert_dom(
 /// changes).
 /// Lift a rect from `dom_id`'s own coordinate space into WINDOW space.
 ///
-/// A VirtualView's document is laid out in its own space, starting at (0,0) —
+/// A `VirtualView`'s document is laid out in its own space, starting at (0,0) —
 /// `get_node_rect` for a node inside it answers in THAT space. Synthesising a
 /// device event needs window coordinates, so every op that turns a node into a
-/// click position has to cross the VirtualView boundary explicitly:
+/// click position has to cross the `VirtualView` boundary explicitly:
 ///
-///   window = child_local + host_origin + content_offset
+///   window = `child_local` + `host_origin` + `content_offset`
 ///
 /// where `content_offset` (`materialized_origin - scroll_offset`) is exactly
 /// the shift the rasteriser applies when compositing the child list. Without
 /// this, `{"op":"click","selector":"#mw-blk-0","dom_id":1}` reported success
-/// while clicking at AzWriter's TOOLBAR: the paragraph's y=113 is 113px down
+/// while clicking at `AzWriter`'s TOOLBAR: the paragraph's y=113 is 113px down
 /// the page, not 113px down the window.
 ///
-/// Walks up nested VirtualViews, so a document inside a document also lands.
+/// Walks up nested `VirtualViews`, so a document inside a document also lands.
 #[cfg(feature = "std")]
 fn lift_rect_to_window_space(
     callback_info: &azul_layout::callbacks::CallbackInfo,
@@ -8014,10 +8025,10 @@ fn lift_rect_to_window_space(
 ///
 /// Hit-test bounds first (that is what a real pointer would land on), then the
 /// laid-out rect. The fallback is what makes a CHILD DOM clickable: a
-/// VirtualView's document and a `<transient-window>`'s content are laid out,
+/// `VirtualView`'s document and a `<transient-window>`'s content are laid out,
 /// but their nodes are not in the parent window's hit-test structure, so
 /// `get_node_hit_test_bounds` answers `None` for every one of them and a
-/// selector click into AzWriter's document could only ever fail.
+/// selector click into `AzWriter`'s document could only ever fail.
 #[cfg(feature = "std")]
 fn node_centre_for_click(
     callback_info: &azul_layout::callbacks::CallbackInfo,
@@ -8035,11 +8046,11 @@ fn node_centre_for_click(
         })
 }
 
-/// WebDriver's element click: a target outside its scroll containers'
+/// `WebDriver`'s element click: a target outside its scroll containers'
 /// visible areas is scrolled into view first (instantly, the nearest edge),
 /// and clicked where it is then. `at` is its centre now; returns the centre
 /// after the queued scroll. The click op used to press wherever the node's
-/// centre was - below a settings page's fold, AzMail's "Sign my mail with
+/// centre was - below a settings page's fold, `AzMail`'s "Sign my mail with
 /// DKIM" clicked the Save bar instead (E2E sweep, 2026-10-06).
 #[cfg(feature = "std")]
 fn reveal_click_target(
@@ -8198,33 +8209,28 @@ fn eval_assert_layout(
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_layout: missing 'selector' parameter"),
     };
-    let property = match params.get("property").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return AssertionResult::fail("assert_layout: missing 'property' parameter"),
+    let Some(property) = params.get("property").and_then(|v| v.as_str()) else {
+        return AssertionResult::fail("assert_layout: missing 'property' parameter");
     };
-    let expected: f64 = match params.get("expected").and_then(|v| v.as_f64()) {
+    let expected: f64 = match params.get("expected").and_then(serde_json::Value::as_f64) {
         Some(n) => n,
         None => return AssertionResult::fail("assert_layout: missing or non-numeric 'expected'"),
     };
     let tolerance: f64 = params
         .get("tolerance")
-        .and_then(|v| v.as_f64())
+        .and_then(serde_json::Value::as_f64)
         .unwrap_or(0.5);
 
-    let node_id = match resolve_node_target(
+    let Some(node_id) = resolve_node_target(
         callback_info,
         params_dom(params),
         Some(selector),
         None,
         None,
-    ) {
-        Some(nid) => nid,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_layout: no node matches selector '{}'",
-                selector
-            ))
-        }
+    ) else {
+        return AssertionResult::fail(format!(
+            "assert_layout: no node matches selector '{selector}'"
+        ));
     };
 
     use azul_core::dom::{DomId, DomNodeId};
@@ -8233,39 +8239,33 @@ fn eval_assert_layout(
         node: Some(node_id).into(),
     };
 
-    let rect = match callback_info.get_node_rect(dom_node_id) {
-        Some(r) => r,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_layout: node '{}' has no layout rect",
-                selector
-            ))
-        }
+    let Some(rect) = callback_info.get_node_rect(dom_node_id) else {
+        return AssertionResult::fail(format!(
+            "assert_layout: node '{selector}' has no layout rect"
+        ));
     };
 
     let actual = match property {
-        "x" => rect.origin.x as f64,
-        "y" => rect.origin.y as f64,
-        "width" => rect.size.width as f64,
-        "height" => rect.size.height as f64,
+        "x" => f64::from(rect.origin.x),
+        "y" => f64::from(rect.origin.y),
+        "width" => f64::from(rect.size.width),
+        "height" => f64::from(rect.size.height),
         other => {
             return AssertionResult::fail(format!(
-                "assert_layout: unknown property '{}' (use x, y, width, height)",
-                other
+                "assert_layout: unknown property '{other}' (use x, y, width, height)"
             ))
         }
     };
 
     if (actual - expected).abs() <= tolerance {
         AssertionResult::pass(format!(
-            "assert_layout: '{}' {} = {:.1} (expected {:.1} ± {:.1})",
-            selector, property, actual, expected, tolerance
+            "assert_layout: '{selector}' {property} = {actual:.1} (expected {expected:.1} ± {tolerance:.1})"
         ))
     } else {
         AssertionResult::fail_with(
-            format!("assert_layout: '{}' {} mismatch", selector, property),
-            format!("{:.1} (± {:.1})", expected, tolerance),
-            format!("{:.1}", actual),
+            format!("assert_layout: '{selector}' {property} mismatch"),
+            format!("{expected:.1} (± {tolerance:.1})"),
+            format!("{actual:.1}"),
         )
     }
 }
@@ -8286,29 +8286,23 @@ fn eval_assert_css(
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_css: missing 'selector' parameter"),
     };
-    let property = match params.get("property").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return AssertionResult::fail("assert_css: missing 'property' parameter"),
+    let Some(property) = params.get("property").and_then(|v| v.as_str()) else {
+        return AssertionResult::fail("assert_css: missing 'property' parameter");
     };
-    let expected = match params.get("expected").and_then(|v| v.as_str()) {
-        Some(e) => e,
-        None => return AssertionResult::fail("assert_css: missing 'expected' parameter"),
+    let Some(expected) = params.get("expected").and_then(|v| v.as_str()) else {
+        return AssertionResult::fail("assert_css: missing 'expected' parameter");
     };
 
-    let node_id = match resolve_node_target(
+    let Some(node_id) = resolve_node_target(
         callback_info,
         params_dom(params),
         Some(selector),
         None,
         None,
-    ) {
-        Some(nid) => nid,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_css: no node matches selector '{}'",
-                selector
-            ))
-        }
+    ) else {
+        return AssertionResult::fail(format!(
+            "assert_css: no node matches selector '{selector}'"
+        ));
     };
 
     use azul_core::dom::{DomId, DomNodeId};
@@ -8321,27 +8315,22 @@ fn eval_assert_css(
 
     // Try to parse the property name into CssPropertyType
     let key_map = get_css_key_map();
-    let prop_type = match CssPropertyType::from_str(property, &key_map) {
-        Some(pt) => pt,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_css: unknown CSS property '{}'",
-                property
-            ))
-        }
+    let Some(prop_type) = CssPropertyType::from_str(property, &key_map) else {
+        return AssertionResult::fail(format!(
+            "assert_css: unknown CSS property '{property}'"
+        ));
     };
 
     match callback_info.get_computed_css_property(dom_node_id, prop_type) {
         Some(computed) => {
-            let actual = format!("{:?}", computed);
+            let actual = format!("{computed:?}");
             if actual == expected {
                 AssertionResult::pass(format!(
-                    "assert_css: '{}' {} = {}",
-                    selector, property, actual
+                    "assert_css: '{selector}' {property} = {actual}"
                 ))
             } else {
                 AssertionResult::fail_with(
-                    format!("assert_css: '{}' {} mismatch", selector, property),
+                    format!("assert_css: '{selector}' {property} mismatch"),
                     expected,
                     actual,
                 )
@@ -8349,8 +8338,7 @@ fn eval_assert_css(
         }
         None => AssertionResult::fail_with(
             format!(
-                "assert_css: property '{}' not set on '{}'",
-                property, selector
+                "assert_css: property '{property}' not set on '{selector}'"
             ),
             expected,
             "(not set)",
@@ -8374,9 +8362,8 @@ fn eval_assert_app_state(
         Some(p) if !p.is_empty() => p,
         _ => return AssertionResult::fail("assert_app_state: missing 'path' parameter"),
     };
-    let expected = match params.get("expected") {
-        Some(v) => v,
-        None => return AssertionResult::fail("assert_app_state: missing 'expected' parameter"),
+    let Some(expected) = params.get("expected") else {
+        return AssertionResult::fail("assert_app_state: missing 'expected' parameter");
     };
 
     if !app_data.can_serialize() {
@@ -8387,9 +8374,8 @@ fn eval_assert_app_state(
 
     // Serialize app_data → JSON
     use azul_layout::json::serialize_refany_to_json;
-    let json = match serialize_refany_to_json(app_data) {
-        Some(j) => j,
-        None => return AssertionResult::fail("assert_app_state: serialization returned null"),
+    let Some(json) = serialize_refany_to_json(app_data) else {
+        return AssertionResult::fail("assert_app_state: serialization returned null");
     };
 
     // Convert our internal JSON into serde_json::Value
@@ -8400,17 +8386,17 @@ fn eval_assert_app_state(
     match actual {
         Some(val) => {
             if val == expected {
-                AssertionResult::pass(format!("assert_app_state: '{}' = {}", path, val))
+                AssertionResult::pass(format!("assert_app_state: '{path}' = {val}"))
             } else {
                 AssertionResult::fail_with(
-                    format!("assert_app_state: '{}' mismatch", path),
+                    format!("assert_app_state: '{path}' mismatch"),
                     expected.to_string(),
                     val.to_string(),
                 )
             }
         }
         None => AssertionResult::fail_with(
-            format!("assert_app_state: path '{}' not found in state", path),
+            format!("assert_app_state: path '{path}' not found in state"),
             expected.to_string(),
             "(path not found)",
         ),
@@ -8659,23 +8645,19 @@ fn eval_assert_scroll(
     };
     let tolerance: f64 = params
         .get("tolerance")
-        .and_then(|v| v.as_f64())
+        .and_then(serde_json::Value::as_f64)
         .unwrap_or(1.0);
 
-    let node_id = match resolve_node_target(
+    let Some(node_id) = resolve_node_target(
         callback_info,
         params_dom(params),
         Some(selector),
         None,
         None,
-    ) {
-        Some(nid) => nid,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_scroll: no node matches selector '{}'",
-                selector
-            ))
-        }
+    ) else {
+        return AssertionResult::fail(format!(
+            "assert_scroll: no node matches selector '{selector}'"
+        ));
     };
 
     use azul_core::dom::{DomId, DomNodeId};
@@ -8690,36 +8672,32 @@ fn eval_assert_scroll(
         .scroll_manager
         .get_current_offset(dom_id, node_id);
 
-    let offset = match scroll_offset {
-        Some(o) => o,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_scroll: node '{}' is not scrollable or has no scroll state",
-                selector
-            ))
-        }
+    let Some(offset) = scroll_offset else {
+        return AssertionResult::fail(format!(
+            "assert_scroll: node '{selector}' is not scrollable or has no scroll state"
+        ));
     };
 
     // Check x if specified
-    if let Some(expected_x) = params.get("x").and_then(|v| v.as_f64()) {
-        let actual_x = offset.x as f64;
+    if let Some(expected_x) = params.get("x").and_then(serde_json::Value::as_f64) {
+        let actual_x = f64::from(offset.x);
         if (actual_x - expected_x).abs() > tolerance {
             return AssertionResult::fail_with(
-                format!("assert_scroll: '{}' scroll-x mismatch", selector),
-                format!("{:.1} (± {:.1})", expected_x, tolerance),
-                format!("{:.1}", actual_x),
+                format!("assert_scroll: '{selector}' scroll-x mismatch"),
+                format!("{expected_x:.1} (± {tolerance:.1})"),
+                format!("{actual_x:.1}"),
             );
         }
     }
 
     // Check y if specified
-    if let Some(expected_y) = params.get("y").and_then(|v| v.as_f64()) {
-        let actual_y = offset.y as f64;
+    if let Some(expected_y) = params.get("y").and_then(serde_json::Value::as_f64) {
+        let actual_y = f64::from(offset.y);
         if (actual_y - expected_y).abs() > tolerance {
             return AssertionResult::fail_with(
-                format!("assert_scroll: '{}' scroll-y mismatch", selector),
-                format!("{:.1} (± {:.1})", expected_y, tolerance),
-                format!("{:.1}", actual_y),
+                format!("assert_scroll: '{selector}' scroll-y mismatch"),
+                format!("{expected_y:.1} (± {tolerance:.1})"),
+                format!("{actual_y:.1}"),
             );
         }
     }
@@ -8736,7 +8714,7 @@ fn eval_assert_scroll(
 /// OFF by default, on purpose: a missing reference must be RED, never a silent
 /// "record whatever azul does today and call it expected".
 #[cfg(feature = "std")]
-fn e2e_record_mode(callback_info: &azul_layout::callbacks::CallbackInfo) -> bool {
+const fn e2e_record_mode(callback_info: &azul_layout::callbacks::CallbackInfo) -> bool {
     callback_info
         .get_layout_window()
         .settings
@@ -8776,11 +8754,11 @@ fn eval_assert_screenshot(
         };
         let threshold = params
             .get("threshold")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(2) as u8;
         let max_diff_ratio = params
             .get("max_diff_ratio")
-            .and_then(|v| v.as_f64())
+            .and_then(serde_json::Value::as_f64)
             .unwrap_or(0.0);
         let save_actual = params.get("save_actual").and_then(|v| v.as_str());
 
@@ -8801,15 +8779,14 @@ fn eval_assert_screenshot(
             Ok(p) => p,
             Err(e) => {
                 return AssertionResult::fail(format!(
-                    "assert_screenshot: decode rendered PNG failed: {}",
-                    e
+                    "assert_screenshot: decode rendered PNG failed: {e}"
                 ))
             }
         };
 
         // Save the actual screenshot if requested
         if let Some(actual_path) = save_actual {
-            let _ = std::fs::write(actual_path, &png_bytes);
+            drop(std::fs::write(actual_path, &png_bytes));
         }
 
         // Load and compare against reference
@@ -8828,7 +8805,7 @@ fn eval_assert_screenshot(
                 if e.kind() == std::io::ErrorKind::NotFound {
                     if e2e_record_mode(callback_info) {
                         if let Some(parent) = std::path::Path::new(reference_path).parent() {
-                            let _ = std::fs::create_dir_all(parent);
+                            drop(std::fs::create_dir_all(parent));
                         }
                         if let Err(we) = std::fs::write(reference_path, &png_bytes) {
                             return AssertionResult::fail(format!(
@@ -8858,8 +8835,7 @@ fn eval_assert_screenshot(
                     );
                 }
                 return AssertionResult::fail(format!(
-                    "assert_screenshot: cannot read reference {}: {}",
-                    reference_path, e
+                    "assert_screenshot: cannot read reference {reference_path}: {e}"
                 ));
             }
         };
@@ -8868,8 +8844,7 @@ fn eval_assert_screenshot(
             Ok(p) => p,
             Err(e) => {
                 return AssertionResult::fail(format!(
-                    "assert_screenshot: decode reference PNG failed: {}",
-                    e
+                    "assert_screenshot: decode reference PNG failed: {e}"
                 ))
             }
         };
@@ -8891,8 +8866,8 @@ fn eval_assert_screenshot(
                     "assert_screenshot: {}/{} pixels differ (max_delta={})",
                     result.diff_count, result.total_pixels, result.max_delta
                 ),
-                format!("diff_ratio <= {:.4}", max_diff_ratio),
-                format!("diff_ratio = {:.4}", ratio),
+                format!("diff_ratio <= {max_diff_ratio:.4}"),
+                format!("diff_ratio = {ratio:.4}"),
             );
         }
 
@@ -9038,7 +9013,7 @@ fn damage_of(
 }
 
 #[cfg(feature = "std")]
-fn damage_kind_str(d: &azul_layout::window::FrameDamage) -> &'static str {
+const fn damage_kind_str(d: &azul_layout::window::FrameDamage) -> &'static str {
     if d.is_none() {
         "none"
     } else if d.is_full() {
@@ -9148,9 +9123,9 @@ fn capture_damage_png(
     // Accumulated since the last `reset_frame_counters` — see `damage_of`.
     let report = frame_report_of(callback_info);
     let damage = if which == Some("present") {
-        report.accumulated_present_damage.clone()
+        report.accumulated_present_damage
     } else {
-        report.accumulated_paint_damage.clone()
+        report.accumulated_paint_damage
     };
 
     let frame = render_current(callback_info)?;
@@ -9289,46 +9264,10 @@ fn reject_unknown_params(
     None
 }
 
-/// `assert_damage`: the raw predicate over the last frame's damage.
-///
-/// Parameters:
-/// - `which`: `"paint"` (default) or `"present"`
-/// - `frame`: `"last"` to look at the last frame instead of the accumulation
-/// - `kind`: `"none"` | `"rects"` | `"full"` — exact damage kind
-/// - `min_rects` / `max_rects`: bounds on the rect count
-/// - `max_area_ratio`: damaged area / window area upper bound
-///
-/// AT LEAST ONE of `kind` / `min_rects` / `max_rects` / `max_area_ratio` is
-/// REQUIRED, and an unrecognised key is an error. Every constraint used to be
-/// matched with `if let Some(..)`, so a step with none of them — or with ONE
-/// TYPO (`max_area` instead of `max_area_ratio`) — fell straight through to
-/// `pass`. Against a generated corpus that is a false-green factory: the typo'd
-/// test asserts nothing and counts as coverage.
-#[cfg(feature = "std")]
-/// `assert_stderr` — assert on the framework DIAGNOSTICS emitted so far.
-///
-/// ```json
-/// { "op": "assert_stderr", "not_contains": "image-churn" }
-/// { "op": "assert_stderr", "contains": "image-churn", "clear": true }
-/// ```
-///
-/// Reads `azul_core::diagnostics`, the in-process ring every engine lint writes
-/// to through `diagnostics::emit`. Not literal stderr: a process cannot read
-/// back its own file descriptor, and capturing one would not survive an
-/// application that has routed diagnostics to its own logger. The ring records
-/// regardless of where the sink sends them, so this keeps working when output
-/// is muted or shipped to Loki.
-///
-/// `clear` empties the ring AFTER evaluating, so the next step starts from a
-/// known state — otherwise a warning from step 2 satisfies an assertion in
-/// step 9.
-///
-/// The point of `not_contains` is regression pressure: a scenario that provokes
-/// the conditions of a lint and asserts the lint stays quiet is a test that the
-/// underlying bug has not come back.
 // ==================== Resumable-API mock store (the `mock` op) ====================
 
 /// Decodes standard or URL-safe base64 (padding optional).
+#[cfg(feature = "std")]
 fn e2e_b64_decode(input: &str) -> Option<Vec<u8>> {
     fn val(c: u8) -> Option<u32> {
         Some(match c {
@@ -9875,6 +9814,27 @@ fn eval_assert_unmocked_request(params: &serde_json::Value) -> AssertionResult {
     }
 }
 
+/// `assert_stderr` — assert on the framework DIAGNOSTICS emitted so far.
+///
+/// ```json
+/// { "op": "assert_stderr", "not_contains": "image-churn" }
+/// { "op": "assert_stderr", "contains": "image-churn", "clear": true }
+/// ```
+///
+/// Reads `azul_core::diagnostics`, the in-process ring every engine lint writes
+/// to through `diagnostics::emit`. Not literal stderr: a process cannot read
+/// back its own file descriptor, and capturing one would not survive an
+/// application that has routed diagnostics to its own logger. The ring records
+/// regardless of where the sink sends them, so this keeps working when output
+/// is muted or shipped to Loki.
+///
+/// `clear` empties the ring AFTER evaluating, so the next step starts from a
+/// known state — otherwise a warning from step 2 satisfies an assertion in
+/// step 9.
+///
+/// The point of `not_contains` is regression pressure: a scenario that provokes
+/// the conditions of a lint and asserts the lint stays quiet is a test that the
+/// underlying bug has not come back.
 fn eval_assert_stderr(params: &serde_json::Value) -> AssertionResult {
     const CONSTRAINTS: &[&str] = &["contains", "not_contains", "clear"];
 
@@ -9930,6 +9890,21 @@ fn eval_assert_stderr(params: &serde_json::Value) -> AssertionResult {
     result
 }
 
+/// `assert_damage`: the raw predicate over the last frame's damage.
+///
+/// Parameters:
+/// - `which`: `"paint"` (default) or `"present"`
+/// - `frame`: `"last"` to look at the last frame instead of the accumulation
+/// - `kind`: `"none"` | `"rects"` | `"full"` — exact damage kind
+/// - `min_rects` / `max_rects`: bounds on the rect count
+/// - `max_area_ratio`: damaged area / window area upper bound
+///
+/// AT LEAST ONE of `kind` / `min_rects` / `max_rects` / `max_area_ratio` is
+/// REQUIRED, and an unrecognised key is an error. Every constraint used to be
+/// matched with `if let Some(..)`, so a step with none of them — or with ONE
+/// TYPO (`max_area` instead of `max_area_ratio`) — fell straight through to
+/// `pass`. Against a generated corpus that is a false-green factory: the typo'd
+/// test asserts nothing and counts as coverage.
 fn eval_assert_damage(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
@@ -10848,15 +10823,16 @@ fn eval_assert_resource_counts(
 ) -> AssertionResult {
     let current = collect_resource_counts(callback_info.get_layout_window());
     let baseline = match params.get("vs").and_then(|v| v.as_str()) {
-        Some(name) => match scratch(callback_info).resource_snapshots.get(name).cloned() {
-            Some(b) => Some(b),
-            None => {
+        Some(name) => {
+            let found = scratch(callback_info).resource_snapshots.get(name).cloned();
+            if found.is_none() {
                 return AssertionResult::fail(format!(
                     "assert_resource_counts: no resource snapshot named '{name}' (use \
                      snapshot_resources first)"
-                ))
+                ));
             }
-        },
+            found
+        }
         None => None,
     };
 
@@ -11071,7 +11047,7 @@ fn dom_node_is_live(lw: &azul_layout::window::LayoutWindow, id: azul_core::dom::
 
 /// Human name of the active drag kind, for diagnostics.
 #[cfg(feature = "std")]
-fn drag_kind_str(d: &azul_core::drag::DragContext) -> &'static str {
+const fn drag_kind_str(d: &azul_core::drag::DragContext) -> &'static str {
     use azul_core::drag::ActiveDragType;
     match d.drag_type {
         ActiveDragType::TextSelection(_) => "text-selection",
@@ -11086,7 +11062,7 @@ fn drag_kind_str(d: &azul_core::drag::DragContext) -> &'static str {
 /// The `(DomId, NodeId)` an active drag hangs off, if it has one. Window
 /// move/resize and file drops are not node-anchored.
 #[cfg(feature = "std")]
-fn drag_source_node(
+const fn drag_source_node(
     d: &azul_core::drag::DragContext,
 ) -> Option<(azul_core::dom::DomId, azul_core::dom::NodeId)> {
     use azul_core::drag::ActiveDragType;
@@ -11253,7 +11229,7 @@ fn collect_state_machine_leaks(
     leaks
 }
 
-/// `assert_state_machines_idle` — E2E_PLAN §(g3), "it ended, but the manager
+/// `assert_state_machines_idle` — `E2E_PLAN` §(g3), "it ended, but the manager
 /// didn't notice".
 ///
 /// The interaction is over; assert that every state machine noticed. Checks, in
@@ -11321,7 +11297,7 @@ fn eval_assert_state_machines_idle(
     )
 }
 
-/// `assert_manager_invariants` — E2E_PLAN §(g2), the cross-manager consistency
+/// `assert_manager_invariants` — `E2E_PLAN` §(g2), the cross-manager consistency
 /// table.
 ///
 /// Parameters:
@@ -11865,7 +11841,7 @@ fn eval_assert_manager_invariants(
         checked += 1;
         let flag = lw.scroll_manager.has_active_animations();
         let keys = lw.scroll_manager.animating_keys();
-        if flag != !keys.is_empty() {
+        if flag == keys.is_empty() {
             violations.push(format!(
                 "X2 scroll: has_active_animations() = {flag} but {} state(s) carry an animation",
                 keys.len()
@@ -12491,7 +12467,7 @@ pub(crate) struct ManagerFingerprint {
 
 #[cfg(feature = "std")]
 impl ManagerFingerprint {
-    fn new(population: usize, digest: String) -> Self {
+    const fn new(population: usize, digest: String) -> Self {
         Self { population, digest }
     }
 }
@@ -12680,7 +12656,7 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
 /// * `ScrollManager::scrollbar_states`: private, and recomputed from geometry every frame — it is a
 ///   derived cache, not state anybody can leak into.
 /// * `GpuValueCache`'s animated VALUES: they change every frame of a running animation, so they
-///   would report "gpu_state moved" for every tick of a fade the scenario asked for. The KEYS are
+///   would report "`gpu_state` moved" for every tick of a fade the scenario asked for. The KEYS are
 ///   recorded (a key is what leaks) and `scrollbar_fade_active` says whether a fade is live.
 /// * `VirtualViewState`'s per-view internals and geolocation's private pending queues: no accessor
 ///   exists. The view KEYS and the refcount are recorded.
@@ -13547,6 +13523,8 @@ fn eval_assert_only_managers_changed(
 /// One sample of the manager state, taken by the step loop before every step.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+// One flag per manager state the stages are read from: they are independent facts, not one state.
+#[allow(clippy::struct_excessive_bools)]
 struct CompositionSample {
     drag_active: bool,
     scroll_animating: bool,
@@ -13618,6 +13596,8 @@ pub(crate) fn e2e_reset_composition_trace(callback_info: &azul_layout::callbacks
 /// loop in `resume_e2e_continuation` before each step, so the sample observes the
 /// PREVIOUS step's effects after the shell serviced them.
 #[cfg(feature = "std")]
+// `trace` borrows from the scratch guard to the last line: the guard cannot be dropped earlier.
+#[allow(clippy::significant_drop_tightening)]
 fn e2e_record_composition_sample(
     step_index: usize,
     callback_info: &azul_layout::callbacks::CallbackInfo,
@@ -13724,7 +13704,7 @@ fn e2e_record_composition_sample(
     trace.samples += 1;
 }
 
-/// `assert_composition` — E2E_PLAN §(g1), "the managers fire together, in order,
+/// `assert_composition` — `E2E_PLAN` §(g1), "the managers fire together, in order,
 /// and reach a fixpoint".
 ///
 /// Asserts that each named stage was ENTERED over the steps since the last
@@ -14021,7 +14001,7 @@ pub fn e2e_presented_frame(
         .clone()
 }
 
-/// `assert_damage_sound` — E2E_PLAN §(c), damage soundness in BOTH directions.
+/// `assert_damage_sound` — `E2E_PLAN` §(c), damage soundness in BOTH directions.
 ///
 /// The global, stronger form of `assert_damage_covers_changes`. It differs in
 /// four ways:
@@ -14138,7 +14118,7 @@ fn eval_assert_damage_sound(
 
         let report = frame_report_of(callback_info);
         let paint = report.accumulated_paint_damage.clone();
-        let present = report.accumulated_present_damage.clone();
+        let present = report.accumulated_present_damage;
         let covering = if which == "present" { &present } else { &paint };
 
         if forbid_full && paint.is_full() {
@@ -14309,8 +14289,7 @@ fn eval_assert_damage_sound(
         }
 
         // ---- (4) PIXEL IDENTITY (opt-in) ------------------------------------
-        let mut identity = String::new();
-        if params
+        let identity = if params
             .get("pixel_identity")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false)
@@ -14378,8 +14357,10 @@ fn eval_assert_damage_sound(
                     ),
                 );
             }
-            identity = String::from(", pixel-identical to a full repaint");
-        }
+            String::from(", pixel-identical to a full repaint")
+        } else {
+            String::new()
+        };
 
         let across = if resized {
             format!(
@@ -14486,7 +14467,7 @@ fn resume_e2e_continuation_inner(
             if let Some(verdict) = verdict {
                 log(
                     LogLevel::Info,
-                    LogCategory::DebugServer,
+                    DebugServer,
                     format!(
                         "[E2E] {} not run: {}",
                         test.name,
@@ -14513,7 +14494,7 @@ fn resume_e2e_continuation_inner(
             if let Some(released) = e2e_input_released(callback_info.get_current_window_state()) {
                 log(
                     LogLevel::Debug,
-                    LogCategory::DebugServer,
+                    DebugServer,
                     format!(
                         "[E2E] {}: releasing the buttons, keys and touches the test before left \
                          held (yield)",
@@ -14585,7 +14566,7 @@ fn resume_e2e_continuation_inner(
                             wait_for_render: false,
                             dom_id: None,
                             response_tx: tx,
-                            answered: std::sync::Mutex::new(None),
+                            answered: Mutex::new(None),
                         };
                         let _ = process_debug_event(
                             &req,
@@ -14599,7 +14580,7 @@ fn resume_e2e_continuation_inner(
 
                 log(
                     LogLevel::Debug,
-                    LogCategory::DebugServer,
+                    DebugServer,
                     format!(
                         "[E2E] setup: window {}x{} @ {} dpi (yield for relayout)",
                         setup.window_width, setup.window_height, setup.dpi
@@ -14630,7 +14611,7 @@ fn resume_e2e_continuation_inner(
             // event-loop thread (an inline sleep would block the very relayout
             // the wait is for; see resume_not_before).
             if op == "wait" {
-                let ms = step.params.get("ms").and_then(|v| v.as_u64()).unwrap_or(0);
+                let ms = step.params.get("ms").and_then(serde_json::Value::as_u64).unwrap_or(0);
                 // `"real": true` waits on the WALL CLOCK instead of the
                 // injectable one. The virtual wait below is right for anything
                 // the ENGINE drives — it is exact and it is free — but it buys
@@ -15011,8 +14992,7 @@ fn resume_e2e_continuation_inner(
                         None
                     } else {
                         Some(format!(
-                            "'{}' did nothing (no JSON serializer, or empty history)",
-                            op
+                            "'{op}' did nothing (no JSON serializer, or empty history)"
                         ))
                     },
                     response: None,
@@ -15058,7 +15038,7 @@ fn resume_e2e_continuation_inner(
                             wait_for_render: false,
                             dom_id: step_dom_id,
                             response_tx: step_tx,
-                            answered: std::sync::Mutex::new(None),
+                            answered: Mutex::new(None),
                         };
                         let step_needs_update = process_debug_event(
                             &step_request,
@@ -15280,7 +15260,7 @@ fn resume_e2e_continuation_inner(
                             duration_ms: step_start.elapsed().as_millis() as u64,
                             logs: vec![],
                             screenshot: None,
-                            error: Some(format!("Unknown op '{}': {}", op, e)),
+                            error: Some(format!("Unknown op '{op}': {e}")),
                             response: None,
                         });
                     }
@@ -15347,12 +15327,12 @@ fn resume_e2e_continuation_inner(
     }
 
     // All tests done — send results
-    let _ = cont.response_tx.send(DebugResponseData::Ok {
+    drop(cont.response_tx.send(DebugResponseData::Ok {
         window_state: None,
         data: Some(ResponseData::E2eResults(E2eResultsResponse {
             results: cont.completed_results,
         })),
-    });
+    }));
 
     needs_update
 }
@@ -15417,20 +15397,17 @@ pub extern "C" fn debug_timer_callback(
     // while `timer_data`'s exclusive borrow must not stay live across the
     // callbacks below.
     let (mut app_data, component_map, request_rx, my_window_id, my_slot, mut session) = {
-        let mut dtd = match timer_data.downcast_mut::<DebugTimerData>() {
-            Some(d) => d,
-            None => {
-                log(
-                    LogLevel::Error,
-                    LogCategory::DebugServer,
-                    "[timer] Failed to downcast DebugTimerData",
-                    None,
-                );
-                return TimerCallbackReturn {
-                    should_update: Update::DoNothing,
-                    should_terminate: TerminateTimer::Continue,
-                };
-            }
+        let Some(mut dtd) = timer_data.downcast_mut::<DebugTimerData>() else {
+            log(
+                LogLevel::Error,
+                DebugServer,
+                "[timer] Failed to downcast DebugTimerData",
+                None,
+            );
+            return TimerCallbackReturn {
+                should_update: Update::DoNothing,
+                should_terminate: TerminateTimer::Continue,
+            };
         };
         (
             dtd.app_data.clone(),
@@ -15457,7 +15434,7 @@ pub extern "C" fn debug_timer_callback(
         continuation.resume_not_before = None;
         log(
             LogLevel::Debug,
-            LogCategory::DebugServer,
+            DebugServer,
             format!(
                 "[E2E] Resuming continuation: test {}, step {}",
                 continuation.test_idx, continuation.step_idx
@@ -15500,7 +15477,7 @@ pub extern "C" fn debug_timer_callback(
     for request in mine {
         log(
             LogLevel::Debug,
-            LogCategory::DebugServer,
+            DebugServer,
             format!("Processing: {:?}", request.event),
             request.window_id.as_deref(),
         );
@@ -15567,10 +15544,9 @@ pub extern "C" fn debug_timer_callback(
     if processed_count > 0 {
         log(
             LogLevel::Debug,
-            LogCategory::DebugServer,
+            DebugServer,
             format!(
-                "[timer] Processed {} request(s), needs_update={}",
-                processed_count, needs_update
+                "[timer] Processed {processed_count} request(s), needs_update={needs_update}"
             ),
             None,
         );
@@ -15721,7 +15697,7 @@ fn build_clip_analysis(
     }
 }
 
-/// Parse a key string to a VirtualKeyCode
+/// Parse a key string to a `VirtualKeyCode`
 #[cfg(feature = "std")]
 pub(crate) fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::VirtualKeyCode> {
     use azul_core::window::VirtualKeyCode;
@@ -15898,6 +15874,8 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
     {
         use std::ffi::CStr;
 
+        // The fields of C's `Dl_info`, under its names.
+        #[allow(clippy::struct_field_names)]
         #[repr(C)]
         struct DlInfo {
             dli_fname: *const std::os::raw::c_char,
@@ -15912,7 +15890,7 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
 
         unsafe {
             let mut info: DlInfo = std::mem::zeroed();
-            let result = dladdr(address as *const std::os::raw::c_void, &mut info);
+            let result = dladdr(address as *const std::os::raw::c_void, &raw mut info);
             if result != 0 {
                 if !info.dli_fname.is_null() {
                     file_name = Some(
@@ -15989,7 +15967,7 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
             if parts.len() >= 2 {
                 let crate_name = parts[0].replace('_', "-");
                 let module = parts[1];
-                source_file = Some(format!("{}/src/{}.rs", crate_name, module));
+                source_file = Some(format!("{crate_name}/src/{module}.rs"));
                 approximate = true;
                 hint = Some("Guessed from symbol name (approximate)".into());
             }
@@ -16016,10 +15994,10 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
 
     let mut libraries = Vec::new();
 
-    for lib in map_ref.libraries.iter() {
+    for lib in &map_ref.libraries {
         let mut components = Vec::new();
 
-        for def in lib.components.iter() {
+        for def in &lib.components {
             let tag = def.id.name.as_str();
 
             // --- data model (component-specific attributes) ---
@@ -16195,7 +16173,7 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
     ComponentRegistryResponse { libraries }
 }
 
-/// Convert a StyledDom into a JSON-serializable render tree for the mini HTML tree widget.
+/// Convert a `StyledDom` into a JSON-serializable render tree for the mini HTML tree widget.
 /// The result is a JSON object with a "nodes" array of root-level nodes,
 /// each with "tag", "text", "classes", "children" fields.
 #[cfg(feature = "std")]
@@ -16219,9 +16197,8 @@ fn styled_dom_to_render_tree(styled_dom: &azul_core::styled_dom::StyledDom) -> s
         use serde_json::json;
 
         let idx = node_id.index();
-        let nd = match node_data_vec.as_ref().get(idx) {
-            Some(nd) => nd,
-            None => return json!({}),
+        let Some(nd) = node_data_vec.as_ref().get(idx) else {
+            return json!({});
         };
 
         let tag = match &nd.node_type {
@@ -16253,7 +16230,7 @@ fn styled_dom_to_render_tree(styled_dom: &azul_core::styled_dom::StyledDom) -> s
             .attributes()
             .as_ref()
             .iter()
-            .filter_map(|attr| attr.as_class().map(|s| s.to_string()))
+            .filter_map(|attr| attr.as_class().map(ToString::to_string))
             .collect();
 
         // Collect children
@@ -16311,17 +16288,16 @@ fn override_data_model_defaults(
 
     let mut fields: Vec<ComponentDataField> = data_model.fields.as_ref().to_vec();
 
-    for field in fields.iter_mut() {
+    for field in &mut fields {
         let name = field.name.as_str();
         if let Some(json_val) = map.get(name) {
             let parsed = parse_json_to_default_value(&field.field_type, json_val)
-                .map_err(|e| format!("field '{}': {}", name, e))?;
+                .map_err(|e| format!("field '{name}': {e}"))?;
             field.default_value = OptionComponentDefaultValue::Some(parsed);
-        } else if field.required {
-            if let OptionComponentDefaultValue::None = &field.default_value {
-                return Err(format!("required field '{}' is missing", name));
+        } else if field.required
+            && matches!(&field.default_value, OptionComponentDefaultValue::None) {
+                return Err(format!("required field '{name}' is missing"));
             }
-        }
     }
 
     Ok(ComponentDataModel {
@@ -16354,100 +16330,100 @@ fn parse_json_to_default_value(
             serde_json::Value::String(s) => s
                 .parse::<bool>()
                 .map(ComponentDefaultValue::Bool)
-                .map_err(|_| format!("expected bool, got \"{}\"", s)),
-            other => Err(format!("expected bool, got {}", other)),
+                .map_err(|_| format!("expected bool, got \"{s}\"")),
+            other => Err(format!("expected bool, got {other}")),
         },
         ComponentFieldType::I32 => match val {
             serde_json::Value::Number(n) => n
                 .as_i64()
                 .and_then(|v| i32::try_from(v).ok())
                 .map(ComponentDefaultValue::I32)
-                .ok_or_else(|| format!("expected i32, got {}", n)),
+                .ok_or_else(|| format!("expected i32, got {n}")),
             serde_json::Value::String(s) => s
                 .parse::<i32>()
                 .map(ComponentDefaultValue::I32)
-                .map_err(|_| format!("expected i32, got \"{}\"", s)),
-            other => Err(format!("expected i32, got {}", other)),
+                .map_err(|_| format!("expected i32, got \"{s}\"")),
+            other => Err(format!("expected i32, got {other}")),
         },
         ComponentFieldType::I64 => match val {
             serde_json::Value::Number(n) => n
                 .as_i64()
                 .map(ComponentDefaultValue::I64)
-                .ok_or_else(|| format!("expected i64, got {}", n)),
+                .ok_or_else(|| format!("expected i64, got {n}")),
             serde_json::Value::String(s) => s
                 .parse::<i64>()
                 .map(ComponentDefaultValue::I64)
-                .map_err(|_| format!("expected i64, got \"{}\"", s)),
-            other => Err(format!("expected i64, got {}", other)),
+                .map_err(|_| format!("expected i64, got \"{s}\"")),
+            other => Err(format!("expected i64, got {other}")),
         },
         ComponentFieldType::U32 => match val {
             serde_json::Value::Number(n) => n
                 .as_u64()
                 .and_then(|v| u32::try_from(v).ok())
                 .map(ComponentDefaultValue::U32)
-                .ok_or_else(|| format!("expected u32, got {}", n)),
+                .ok_or_else(|| format!("expected u32, got {n}")),
             serde_json::Value::String(s) => s
                 .parse::<u32>()
                 .map(ComponentDefaultValue::U32)
-                .map_err(|_| format!("expected u32, got \"{}\"", s)),
-            other => Err(format!("expected u32, got {}", other)),
+                .map_err(|_| format!("expected u32, got \"{s}\"")),
+            other => Err(format!("expected u32, got {other}")),
         },
         ComponentFieldType::U64 => match val {
             serde_json::Value::Number(n) => n
                 .as_u64()
                 .map(ComponentDefaultValue::U64)
-                .ok_or_else(|| format!("expected u64, got {}", n)),
+                .ok_or_else(|| format!("expected u64, got {n}")),
             serde_json::Value::String(s) => s
                 .parse::<u64>()
                 .map(ComponentDefaultValue::U64)
-                .map_err(|_| format!("expected u64, got \"{}\"", s)),
-            other => Err(format!("expected u64, got {}", other)),
+                .map_err(|_| format!("expected u64, got \"{s}\"")),
+            other => Err(format!("expected u64, got {other}")),
         },
         ComponentFieldType::Usize => match val {
             serde_json::Value::Number(n) => n
                 .as_u64()
                 .map(|v| v as usize)
                 .map(ComponentDefaultValue::Usize)
-                .ok_or_else(|| format!("expected usize, got {}", n)),
+                .ok_or_else(|| format!("expected usize, got {n}")),
             serde_json::Value::String(s) => s
                 .parse::<usize>()
                 .map(ComponentDefaultValue::Usize)
-                .map_err(|_| format!("expected usize, got \"{}\"", s)),
-            other => Err(format!("expected usize, got {}", other)),
+                .map_err(|_| format!("expected usize, got \"{s}\"")),
+            other => Err(format!("expected usize, got {other}")),
         },
         ComponentFieldType::F32 => match val {
             serde_json::Value::Number(n) => n
                 .as_f64()
                 .map(|v| v as f32)
                 .map(ComponentDefaultValue::F32)
-                .ok_or_else(|| format!("expected f32, got {}", n)),
+                .ok_or_else(|| format!("expected f32, got {n}")),
             serde_json::Value::String(s) => s
                 .parse::<f32>()
                 .map(ComponentDefaultValue::F32)
-                .map_err(|_| format!("expected f32, got \"{}\"", s)),
-            other => Err(format!("expected f32, got {}", other)),
+                .map_err(|_| format!("expected f32, got \"{s}\"")),
+            other => Err(format!("expected f32, got {other}")),
         },
         ComponentFieldType::F64 => match val {
             serde_json::Value::Number(n) => n
                 .as_f64()
                 .map(ComponentDefaultValue::F64)
-                .ok_or_else(|| format!("expected f64, got {}", n)),
+                .ok_or_else(|| format!("expected f64, got {n}")),
             serde_json::Value::String(s) => s
                 .parse::<f64>()
                 .map(ComponentDefaultValue::F64)
-                .map_err(|_| format!("expected f64, got \"{}\"", s)),
-            other => Err(format!("expected f64, got {}", other)),
+                .map_err(|_| format!("expected f64, got \"{s}\"")),
+            other => Err(format!("expected f64, got {other}")),
         },
         ComponentFieldType::ColorU => match val {
-            serde_json::Value::String(s) => {
-                let hex = s.strip_prefix('#').unwrap_or(s.as_str());
+            serde_json::Value::String(text) => {
+                let hex = text.strip_prefix('#').unwrap_or(text.as_str());
                 if hex.len() >= 6 {
                     let r = u8::from_str_radix(&hex[0..2], 16)
-                        .map_err(|_| format!("invalid color: {}", s))?;
+                        .map_err(|_| format!("invalid color: {text}"))?;
                     let g = u8::from_str_radix(&hex[2..4], 16)
-                        .map_err(|_| format!("invalid color: {}", s))?;
+                        .map_err(|_| format!("invalid color: {text}"))?;
                     let b = u8::from_str_radix(&hex[4..6], 16)
-                        .map_err(|_| format!("invalid color: {}", s))?;
+                        .map_err(|_| format!("invalid color: {text}"))?;
                     let a = if hex.len() >= 8 {
                         u8::from_str_radix(&hex[6..8], 16).unwrap_or(255)
                     } else {
@@ -16457,10 +16433,10 @@ fn parse_json_to_default_value(
                         azul_css::props::basic::color::ColorU { r, g, b, a },
                     ))
                 } else {
-                    Err(format!("expected #RRGGBB[AA], got \"{}\"", s))
+                    Err(format!("expected #RRGGBB[AA], got \"{text}\""))
                 }
             }
-            other => Err(format!("expected color string (#RRGGBB), got {}", other)),
+            other => Err(format!("expected color string (#RRGGBB), got {other}")),
         },
         ComponentFieldType::OptionType(inner) => match val {
             serde_json::Value::Null => Ok(ComponentDefaultValue::None),
@@ -16683,8 +16659,7 @@ fn parse_field_type_from_string(s: &str) -> Result<azul_core::xml::ComponentFiel
                     .and_then(|s| s.strip_suffix(")"))
                     .ok_or_else(|| {
                         format!(
-                            "Invalid RefAny syntax '{}', expected 'RefAny(TypeHint)'",
-                            other
+                            "Invalid RefAny syntax '{other}', expected 'RefAny(TypeHint)'"
                         )
                     })?;
                 Ok(ComponentFieldType::RefAny(AzString::from(hint)))
@@ -16694,8 +16669,7 @@ fn parse_field_type_from_string(s: &str) -> Result<azul_core::xml::ComponentFiel
                     .and_then(|s| s.strip_suffix(">"))
                     .ok_or_else(|| {
                         format!(
-                            "Invalid Option type syntax '{}', expected 'Option<InnerType>'",
-                            other
+                            "Invalid Option type syntax '{other}', expected 'Option<InnerType>'"
                         )
                     })?;
                 Ok(ComponentFieldType::OptionType(ComponentFieldTypeBox::new(
@@ -16707,8 +16681,7 @@ fn parse_field_type_from_string(s: &str) -> Result<azul_core::xml::ComponentFiel
                     .and_then(|s| s.strip_suffix(">"))
                     .ok_or_else(|| {
                         format!(
-                            "Invalid Vec type syntax '{}', expected 'Vec<InnerType>'",
-                            other
+                            "Invalid Vec type syntax '{other}', expected 'Vec<InnerType>'"
                         )
                     })?;
                 Ok(ComponentFieldType::VecType(ComponentFieldTypeBox::new(
@@ -16726,10 +16699,9 @@ fn parse_field_type_from_string(s: &str) -> Result<azul_core::xml::ComponentFiel
                 Ok(ComponentFieldType::EnumRef(AzString::from(name)))
             } else {
                 Err(format!(
-                    "Unknown field type '{}'. Valid types: String, bool, i32, i64, u32, u64, \
+                    "Unknown field type '{other}'. Valid types: String, bool, i32, i64, u32, u64, \
                      usize, f32, f64, ColorU, CssProperty, ImageRef, FontRef, StyledDom, \
-                     Callback(...), RefAny(...), Option<...>, Vec<...>, struct:Name, enum:Name",
-                    other
+                     Callback(...), RefAny(...), Option<...>, Vec<...>, struct:Name, enum:Name"
                 ))
             }
         }
@@ -16744,16 +16716,15 @@ fn validate_field_name(name: &str) -> Result<(), String> {
         return Err("Field name cannot be empty".to_string());
     }
     if name.starts_with(|c: char| c.is_ascii_digit()) {
-        return Err(format!("Field name '{}' cannot start with a digit", name));
+        return Err(format!("Field name '{name}' cannot start with a digit"));
     }
     if !name
         .chars()
         .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
     {
         return Err(format!(
-            "Field name '{}' contains invalid characters (only alphanumeric, underscore, hyphen \
-             allowed)",
-            name
+            "Field name '{name}' contains invalid characters (only alphanumeric, underscore, hyphen \
+             allowed)"
         ));
     }
     Ok(())
@@ -16802,49 +16773,49 @@ fn parse_default_value(
         ComponentFieldType::Bool => match value {
             "true" | "1" | "yes" => Ok(ComponentDefaultValue::Bool(true)),
             "false" | "0" | "no" => Ok(ComponentDefaultValue::Bool(false)),
-            _ => Err(format!("expected bool ('true'/'false'), got '{}'", value)),
+            _ => Err(format!("expected bool ('true'/'false'), got '{value}'")),
         },
         ComponentFieldType::I32 => value
             .parse::<i32>()
             .map(ComponentDefaultValue::I32)
-            .map_err(|e| format!("expected i32: {}", e)),
+            .map_err(|e| format!("expected i32: {e}")),
         ComponentFieldType::I64 => value
             .parse::<i64>()
             .map(ComponentDefaultValue::I64)
-            .map_err(|e| format!("expected i64: {}", e)),
+            .map_err(|e| format!("expected i64: {e}")),
         ComponentFieldType::U32 => value
             .parse::<u32>()
             .map(ComponentDefaultValue::U32)
-            .map_err(|e| format!("expected u32: {}", e)),
+            .map_err(|e| format!("expected u32: {e}")),
         ComponentFieldType::U64 => value
             .parse::<u64>()
             .map(ComponentDefaultValue::U64)
-            .map_err(|e| format!("expected u64: {}", e)),
+            .map_err(|e| format!("expected u64: {e}")),
         ComponentFieldType::Usize => value
             .parse::<usize>()
             .map(ComponentDefaultValue::Usize)
-            .map_err(|e| format!("expected usize: {}", e)),
+            .map_err(|e| format!("expected usize: {e}")),
         ComponentFieldType::F32 => value
             .parse::<f32>()
             .map(ComponentDefaultValue::F32)
-            .map_err(|e| format!("expected f32: {}", e)),
+            .map_err(|e| format!("expected f32: {e}")),
         ComponentFieldType::F64 => value
             .parse::<f64>()
             .map(ComponentDefaultValue::F64)
-            .map_err(|e| format!("expected f64: {}", e)),
+            .map_err(|e| format!("expected f64: {e}")),
         ComponentFieldType::ColorU => {
             // Accept #rrggbb or #rrggbbaa hex strings
             let hex = value.strip_prefix('#').unwrap_or(value);
             if hex.len() == 6 || hex.len() == 8 {
                 let r = u8::from_str_radix(&hex[0..2], 16)
-                    .map_err(|e| format!("invalid color: {}", e))?;
+                    .map_err(|e| format!("invalid color: {e}"))?;
                 let g = u8::from_str_radix(&hex[2..4], 16)
-                    .map_err(|e| format!("invalid color: {}", e))?;
+                    .map_err(|e| format!("invalid color: {e}"))?;
                 let b = u8::from_str_radix(&hex[4..6], 16)
-                    .map_err(|e| format!("invalid color: {}", e))?;
+                    .map_err(|e| format!("invalid color: {e}"))?;
                 let a = if hex.len() == 8 {
                     u8::from_str_radix(&hex[6..8], 16)
-                        .map_err(|e| format!("invalid color: {}", e))?
+                        .map_err(|e| format!("invalid color: {e}"))?
                 } else {
                     255
                 };
@@ -16853,8 +16824,7 @@ fn parse_default_value(
                 ))
             } else {
                 Err(format!(
-                    "expected #rrggbb or #rrggbbaa hex color, got '{}'",
-                    value
+                    "expected #rrggbb or #rrggbbaa hex color, got '{value}'"
                 ))
             }
         }
@@ -16889,7 +16859,7 @@ pub(super) fn validate_exported_fields(
 ///
 /// For primitive types (null, bool, number, string) we convert directly.
 /// For arrays/objects the internal representation is already a JSON string,
-/// so we parse it with serde_json.
+/// so we parse it with `serde_json`.
 #[cfg(feature = "std")]
 fn json_to_serde_value(json: &azul_core::json::Json) -> serde_json::Value {
     use azul_core::json::JsonType;
@@ -16905,8 +16875,7 @@ fn json_to_serde_value(json: &azul_core::json::Json) -> serde_json::Value {
                     serde_json::Value::Number(serde_json::Number::from(n as i64))
                 } else {
                     serde_json::Number::from_f64(n)
-                        .map(serde_json::Value::Number)
-                        .unwrap_or(serde_json::Value::Null)
+                        .map_or(serde_json::Value::Null, serde_json::Value::Number)
                 }
             }
             azul_css::OptionF64::None => serde_json::Value::Null,
@@ -17074,7 +17043,7 @@ fn build_dom_response(
 
         let mut id_attr = None;
         let mut classes = Vec::new();
-        for attr in data.attributes().as_ref().iter() {
+        for attr in data.attributes().as_ref() {
             if let Some(id) = attr.as_id() {
                 id_attr = Some(id.to_string());
             } else if let Some(class) = attr.as_class() {
@@ -17163,42 +17132,6 @@ extern "C" fn e2e_tick_timer_callback(
     }
 }
 
-/// Process a single debug event
-///
-/// # An INPUT op must never set `needs_update`
-///
-/// `needs_update` is the step loop's "the application asked for a DOM rebuild"
-/// flag: the debug timer turns it into `Update::RefreshDom`, which the event
-/// loop answers with an unconditional `regenerate_layout()` — a full DOM
-/// rebuild and a full repaint, taken REGARDLESS of what the engine's own
-/// event-determination / invalidation pipeline decided.
-///
-/// For an op whose whole job is to deliver input that is a false-evidence
-/// factory, in both directions:
-///
-/// * It MANUFACTURES the damage the test then measures. Delete the engine's `:hover` invalidation
-///   path entirely and a `mouse_move` still repaints the window, still resolves `:hover` during the
-///   rebuild and still reports non-empty damage — so `assert_changed` goes green against an engine
-///   that does not invalidate anything.
-/// * It makes `dom_regenerations >= 1` unconditionally, so no test can ever assert that an inert
-///   event costs zero DOM regenerations.
-///
-/// This is the same defect `tick_ms` had (fixed in b44cb702b): the harness was
-/// the work it was measuring. `Scroll` / `KeyDown` / `KeyUp` / `TextInput` /
-/// `Focus` / `Blur` / `Move` were already written this way and carry an
-/// explicit "do NOT set needs_update" note each; every pointer, touch, pen,
-/// gesture, resize and DPI arm now follows the same model.
-///
-/// The engine still decides — and still regenerates where it should:
-/// `modify_window_state` pushes `CallbackChange::ModifyWindowState`, whose
-/// handler runs the state-diff pass when something actually changed and sets
-/// `resize_pending` for a size/DPI delta (which the runner turns into
-/// `ShouldRegenerateDomCurrentWindow` on its own, exactly as
-/// `request_regeneration` does in the real shell).
-///
-/// `mount` / `unmount` / `remount` / `set_app_state` / `update_component` DO
-/// still set it: those are the ops that legitimately mean "rebuild the DOM".
-#[cfg(feature = "std")]
 /// Parse one op (`{"op": "...", ...}`) the way the dispatcher takes it.
 ///
 /// An op name no engine op has becomes [`DebugEvent::CustomOp`] with the
@@ -17264,7 +17197,7 @@ fn custom_op_outcome(
             .and_then(|r| r.get("error"))
             .and_then(serde_json::Value::as_str)
             .unwrap_or("no error given");
-        let mut answer = raw.clone();
+        let mut answer = raw;
         if answer.len() > 2000 {
             let mut cut = 2000;
             while !answer.is_char_boundary(cut) {
@@ -17294,6 +17227,42 @@ fn custom_op_is_pending(response: &CustomOpResponse) -> bool {
         == Some(true)
 }
 
+/// Process a single debug event
+///
+/// # An INPUT op must never set `needs_update`
+///
+/// `needs_update` is the step loop's "the application asked for a DOM rebuild"
+/// flag: the debug timer turns it into `Update::RefreshDom`, which the event
+/// loop answers with an unconditional `regenerate_layout()` — a full DOM
+/// rebuild and a full repaint, taken REGARDLESS of what the engine's own
+/// event-determination / invalidation pipeline decided.
+///
+/// For an op whose whole job is to deliver input that is a false-evidence
+/// factory, in both directions:
+///
+/// * It MANUFACTURES the damage the test then measures. Delete the engine's `:hover` invalidation
+///   path entirely and a `mouse_move` still repaints the window, still resolves `:hover` during the
+///   rebuild and still reports non-empty damage — so `assert_changed` goes green against an engine
+///   that does not invalidate anything.
+/// * It makes `dom_regenerations >= 1` unconditionally, so no test can ever assert that an inert
+///   event costs zero DOM regenerations.
+///
+/// This is the same defect `tick_ms` had (fixed in b44cb702b): the harness was
+/// the work it was measuring. `Scroll` / `KeyDown` / `KeyUp` / `TextInput` /
+/// `Focus` / `Blur` / `Move` were already written this way and carry an
+/// explicit "do NOT set `needs_update`" note each; every pointer, touch, pen,
+/// gesture, resize and DPI arm now follows the same model.
+///
+/// The engine still decides — and still regenerates where it should:
+/// `modify_window_state` pushes `CallbackChange::ModifyWindowState`, whose
+/// handler runs the state-diff pass when something actually changed and sets
+/// `resize_pending` for a size/DPI delta (which the runner turns into
+/// `ShouldRegenerateDomCurrentWindow` on its own, exactly as
+/// `request_regeneration` does in the real shell).
+///
+/// `mount` / `unmount` / `remount` / `set_app_state` / `update_component` DO
+/// still set it: those are the ops that legitimately mean "rebuild the DOM".
+#[cfg(feature = "std")]
 pub fn process_debug_event(
     request: &DebugRequest,
     callback_info: &mut azul_layout::callbacks::CallbackInfo,
@@ -17362,8 +17331,8 @@ fn serve_debug_event(
         DebugEvent::Resize { width, height } => {
             log(
                 LogLevel::Info,
-                LogCategory::Window,
-                format!("Resizing to {}x{}", width, height),
+                Window,
+                format!("Resizing to {width}x{height}"),
                 None,
             );
 
@@ -17398,7 +17367,7 @@ fn serve_debug_event(
         DebugEvent::Focus => {
             log(
                 LogLevel::Info,
-                LogCategory::Window,
+                Window,
                 "Window focus gained (debug)",
                 None,
             );
@@ -17416,7 +17385,7 @@ fn serve_debug_event(
         DebugEvent::Blur => {
             log(
                 LogLevel::Info,
-                LogCategory::Window,
+                Window,
                 "Window focus lost (debug)",
                 None,
             );
@@ -17624,7 +17593,7 @@ fn serve_debug_event(
                 (Some(nid), Some(true), Ok(parsed_action)) => {
                     log(
                         LogLevel::Info,
-                        LogCategory::EventLoop,
+                        EventLoop,
                         format!(
                             "Accessibility action '{action}' on node {} ({described})",
                             nid.index()
@@ -17647,8 +17616,8 @@ fn serve_debug_event(
         DebugEvent::Move { x, y } => {
             log(
                 LogLevel::Info,
-                LogCategory::Window,
-                format!("Moving window to ({}, {})", x, y),
+                Window,
+                format!("Moving window to ({x}, {y})"),
                 None,
             );
             let mut new_state = callback_info.get_current_window_state().clone();
@@ -17672,8 +17641,8 @@ fn serve_debug_event(
             let old_dpi = callback_info.get_current_window_state().size.dpi;
             log(
                 LogLevel::Info,
-                LogCategory::Window,
-                format!("DPI change {} -> {}", old_dpi, new_dpi),
+                Window,
+                format!("DPI change {old_dpi} -> {new_dpi}"),
                 None,
             );
             let mut new_state = callback_info.get_current_window_state().clone();
@@ -17721,7 +17690,7 @@ fn serve_debug_event(
                 Some(choice) => {
                     log(
                         LogLevel::Info,
-                        LogCategory::Window,
+                        Window,
                         format!("App mode -> {}", mode.trim()),
                         None,
                     );
@@ -17756,7 +17725,7 @@ fn serve_debug_event(
             } else {
                 log(
                     LogLevel::Info,
-                    LogCategory::Window,
+                    Window,
                     format!("App theme -> {name}"),
                     None,
                 );
@@ -17825,8 +17794,8 @@ fn serve_debug_event(
             };
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
-                format!("Debug mouse move to ({}, {}) seat {}", x, y, seat),
+                EventLoop,
+                format!("Debug mouse move to ({x}, {y}) seat {seat}"),
                 None,
             );
 
@@ -17844,10 +17813,9 @@ fn serve_debug_event(
         DebugEvent::MouseDown { x, y, button, seat } => {
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!(
-                    "Debug mouse down at ({}, {}) button {:?} seat {}",
-                    x, y, button, seat
+                    "Debug mouse down at ({x}, {y}) button {button:?} seat {seat}"
                 ),
                 None,
             );
@@ -17879,10 +17847,9 @@ fn serve_debug_event(
         DebugEvent::MouseUp { x, y, button, seat } => {
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!(
-                    "Debug mouse up at ({}, {}) button {:?} seat {}",
-                    x, y, button, seat
+                    "Debug mouse up at ({x}, {y}) button {button:?} seat {seat}"
                 ),
                 None,
             );
@@ -17944,8 +17911,8 @@ fn serve_debug_event(
                 Some((cx, cy)) => {
                     log(
                         LogLevel::Debug,
-                        LogCategory::EventLoop,
-                        format!("Debug click at ({}, {}) button {:?}", cx, cy, button),
+                        EventLoop,
+                        format!("Debug click at ({cx}, {cy}) button {button:?}"),
                         None,
                     );
 
@@ -17956,7 +17923,7 @@ fn serve_debug_event(
                     let base_state = callback_info.get_current_window_state().clone();
 
                     // State 1: Move cursor to position
-                    let mut move_state = base_state.clone();
+                    let mut move_state = base_state;
                     move_state.mouse_state.cursor_position =
                         azul_core::window::CursorPosition::InWindow(LogicalPosition {
                             x: cx,
@@ -17988,7 +17955,7 @@ fn serve_debug_event(
 
                     let response = ClickNodeResponse {
                         success: true,
-                        message: format!("Clicked at ({:.1}, {:.1})", cx, cy),
+                        message: format!("Clicked at ({cx:.1}, {cy:.1})"),
                     };
                     send_ok(request, None, Some(ResponseData::ClickNode(response)));
                 }
@@ -18056,8 +18023,8 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
-                format!("Debug double click at ({}, {}) button {:?}", x, y, button),
+                EventLoop,
+                format!("Debug double click at ({x}, {y}) button {button:?}"),
                 None,
             );
 
@@ -18108,10 +18075,9 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!(
-                    "Debug scroll at ({}, {}) delta ({}, {})",
-                    x, y, delta_x, delta_y
+                    "Debug scroll at ({x}, {y}) delta ({delta_x}, {delta_y})"
                 ),
                 None,
             );
@@ -18171,7 +18137,7 @@ fn serve_debug_event(
                 callback_info.scroll_to(dom_id, hierarchy_id, new_pos);
                 log(
                     LogLevel::Debug,
-                    LogCategory::EventLoop,
+                    EventLoop,
                     format!(
                         "Scrolled node {:?}/{:?} from ({:.1}, {:.1}) to ({:.1}, {:.1})",
                         dom_id, node_id, current.x, current.y, new_pos.x, new_pos.y
@@ -18181,8 +18147,8 @@ fn serve_debug_event(
             } else {
                 log(
                     LogLevel::Debug,
-                    LogCategory::EventLoop,
-                    format!("No scrollable node found at ({}, {})", x, y),
+                    EventLoop,
+                    format!("No scrollable node found at ({x}, {y})"),
                     None,
                 );
             }
@@ -18204,7 +18170,7 @@ fn serve_debug_event(
         } => {
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!("Debug wheel at ({x}, {y}) raw delta ({delta_x}, {delta_y})"),
                 None,
             );
@@ -18314,7 +18280,7 @@ fn serve_debug_event(
             let total = advance_engine_time(callback_info, *ms);
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!("[E2E] tick_ms: +{ms} ms (clock offset now {total} ms)"),
                 None,
             );
@@ -18441,10 +18407,10 @@ fn serve_debug_event(
             send_ok(
                 request,
                 None,
-                Some(ResponseData::FrameReport(build_frame_report_response(
+                Some(ResponseData::FrameReport(Box::new(build_frame_report_response(
                     &report,
                     window_logical_area(callback_info),
-                ))),
+                )))),
             );
         }
 
@@ -18512,7 +18478,7 @@ fn serve_debug_event(
         DebugEvent::Relayout => {
             log(
                 LogLevel::Info,
-                LogCategory::Layout,
+                Layout,
                 "Forcing relayout",
                 None,
             );
@@ -18523,7 +18489,7 @@ fn serve_debug_event(
         DebugEvent::Redraw => {
             log(
                 LogLevel::Info,
-                LogCategory::Rendering,
+                Rendering,
                 "Requesting redraw",
                 None,
             );
@@ -18534,7 +18500,7 @@ fn serve_debug_event(
         DebugEvent::Close => {
             log(
                 LogLevel::Info,
-                LogCategory::EventLoop,
+                EventLoop,
                 "Close via close_window()",
                 None,
             );
@@ -18551,7 +18517,7 @@ fn serve_debug_event(
             let written = crate::pgo::dump_profile();
             log(
                 LogLevel::Info,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!("dump_profile: written = {written}"),
                 None,
             );
@@ -18589,7 +18555,7 @@ fn serve_debug_event(
 
         DebugEvent::BuilderDuplicate { node } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let layout_window = callback_info.get_layout_window();
                 let live = layout_window
                     .layout_results
@@ -18622,7 +18588,7 @@ fn serve_debug_event(
             let result = match super::builder::BuilderDocument::from_file_json(document) {
                 Err(e) => Err(e),
                 Ok(loaded) => {
-                    let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                    let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     let layout_window = callback_info.get_layout_window();
                     let live = layout_window
                         .layout_results
@@ -18756,7 +18722,7 @@ fn serve_debug_event(
             // what memory did.
             log(
                 LogLevel::Info,
-                LogCategory::DebugServer,
+                DebugServer,
                 match serde_json::to_string(&r) {
                     Ok(j) => format!("[PROFILE] {j}"),
                     Err(e) => format!("[PROFILE] serialise failed: {e}"),
@@ -19015,7 +18981,7 @@ fn serve_debug_event(
         DebugEvent::TakeScreenshot => {
             log(
                 LogLevel::Info,
-                LogCategory::Rendering,
+                Rendering,
                 "Taking CPU screenshot via debug API",
                 None,
             );
@@ -19031,8 +18997,8 @@ fn serve_debug_event(
             // capture order.
             match callback_info.render_screenshot(dom_id) {
                 Ok(pixmap) => {
-                    let _ = take_logs();
-                    let _ = request
+                    drop(take_logs());
+                    drop(request
                         .response_tx
                         .send(DebugResponseData::pending_screenshot(
                             pixmap,
@@ -19042,7 +19008,7 @@ fn serve_debug_event(
                                 .e2e
                                 .shot_dir
                                 .clone(),
-                        ));
+                        )));
                 }
                 Err(e) => {
                     send_err(request, e.as_str().to_string());
@@ -19054,7 +19020,7 @@ fn serve_debug_event(
             // Straight to stderr as well as the log: a scenario's own
             // narration should be visible whatever the log level is.
             std::eprintln!("[e2e] {text}");
-            log(LogLevel::Info, LogCategory::General, text, None);
+            log(LogLevel::Info, General, text, None);
             send_ok(request, None, None);
         }
 
@@ -19072,7 +19038,7 @@ fn serve_debug_event(
         DebugEvent::TakeNativeScreenshot { render_shadow } => {
             log(
                 LogLevel::Info,
-                LogCategory::Rendering,
+                Rendering,
                 "Taking native screenshot via debug API",
                 None,
             );
@@ -19133,7 +19099,7 @@ fn serve_debug_event(
         DebugEvent::GetDom => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting DOM",
                 None,
             );
@@ -19146,7 +19112,7 @@ fn serve_debug_event(
         DebugEvent::GetHtmlString => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting HTML string",
                 None,
             );
@@ -19180,18 +19146,15 @@ fn serve_debug_event(
                 text.as_deref(),
             );
 
-            let nid = match resolved_node_id {
-                Some(n) => n.index() as u64,
-                None => {
-                    send_err(request, "No node found matching the specified target");
-                    return needs_update;
-                }
+            let nid = if let Some(n) = resolved_node_id { n.index() as u64 } else {
+                send_err(request, "No node found matching the specified target");
+                return needs_update;
             };
 
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
-                format!("Getting CSS properties for node {}", nid),
+                DebugServer,
+                format!("Getting CSS properties for node {nid}"),
                 None,
             );
 
@@ -19269,8 +19232,7 @@ fn serve_debug_event(
                     opacity: anim.current_opacity(),
                     finished: anim.is_finished(),
                     published: cache
-                        .map(|c| c.anim_current_transform_values.contains_key(node_id))
-                        .unwrap_or(false),
+                        .is_some_and(|c| c.anim_current_transform_values.contains_key(node_id)),
                 });
             }
             let active = lw.animations.len();
@@ -19307,18 +19269,15 @@ fn serve_debug_event(
                 text.as_deref(),
             );
 
-            let nid = match resolved_node_id {
-                Some(n) => n.index() as u64,
-                None => {
-                    send_err(request, "No node found matching the specified target");
-                    return needs_update;
-                }
+            let nid = if let Some(n) = resolved_node_id { n.index() as u64 } else {
+                send_err(request, "No node found matching the specified target");
+                return needs_update;
             };
 
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
-                format!("Getting layout for node {}", nid),
+                DebugServer,
+                format!("Getting layout for node {nid}"),
                 None,
             );
 
@@ -19360,7 +19319,7 @@ fn serve_debug_event(
         DebugEvent::GetAllNodesLayout => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting all nodes layout",
                 None,
             );
@@ -19413,7 +19372,7 @@ fn serve_debug_event(
         DebugEvent::ListDoms => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Listing live DOMs",
                 None,
             );
@@ -19425,7 +19384,7 @@ fn serve_debug_event(
             // VirtualView documents announce their host, so a caller can tell
             // "the AzWriter document" from "some other nested DOM" without
             // opening each one.
-            let vv_parent: alloc::collections::BTreeMap<usize, DomNodeIdJson> = callback_info
+            let vv_parent: BTreeMap<usize, DomNodeIdJson> = callback_info
                 .get_layout_window()
                 .virtual_view_manager
                 .get_all_virtual_view_infos()
@@ -19457,9 +19416,7 @@ fn serve_debug_event(
                     .into_crate_internal()
                     .unwrap_or(NodeId::ZERO);
                 let root_tag = node_data
-                    .get(root)
-                    .map(|d| alloc::format!("{:?}", d.get_node_type().get_path()).to_lowercase())
-                    .unwrap_or_else(|| "?".to_string());
+                    .get(root).map_or_else(|| "?".to_string(), |d| alloc::format!("{:?}", d.get_node_type().get_path()).to_lowercase());
                 let root_selector = build_selector_for_node(callback_info, id, root);
                 let size = callback_info
                     .get_node_rect(azul_core::dom::DomNodeId {
@@ -19501,7 +19458,7 @@ fn serve_debug_event(
         DebugEvent::GetDomTree => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting DOM tree",
                 None,
             );
@@ -19536,7 +19493,7 @@ fn serve_debug_event(
         DebugEvent::GetNodeHierarchy => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting node hierarchy",
                 None,
             );
@@ -19553,8 +19510,7 @@ fn serve_debug_event(
                 let root_decoded = styled_dom
                     .root
                     .into_crate_internal()
-                    .map(|n| n.index() as i64)
-                    .unwrap_or(-1);
+                    .map_or(-1, |n| n.index() as i64);
 
                 let mut shown = shown_texts(layout_window, dom_id);
 
@@ -19574,7 +19530,7 @@ fn serve_debug_event(
                     let mut id_attr = None;
                     let mut classes = Vec::new();
                     let mut builder_uid = None;
-                    for attr in data.attributes().as_ref().iter() {
+                    for attr in data.attributes().as_ref() {
                         if let Some(id) = attr.as_id() {
                             id_attr = Some(id.to_string());
                         } else if let Some(class) = attr.as_class() {
@@ -19656,7 +19612,7 @@ fn serve_debug_event(
 
                     nodes.push(HierarchyNodeInfo {
                         index: i,
-                        node_type: node_type.to_string(),
+                        node_type: node_type.clone(),
                         tag,
                         id: id_attr,
                         classes,
@@ -19687,7 +19643,7 @@ fn serve_debug_event(
         DebugEvent::GetLayoutTree => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting layout tree",
                 None,
             );
@@ -19725,9 +19681,9 @@ fn serve_debug_event(
                         node_type: node_type.to_string(),
                         is_anonymous: node.dom_node_id.is_none(),
                         anonymous_type: cold
-                            .and_then(|c| c.anonymous_type.as_ref().map(|t| format!("{:?}", t))),
+                            .and_then(|c| c.anonymous_type.as_ref().map(|t| format!("{t:?}"))),
                         formatting_context: format!("{:?}", node.formatting_context),
-                        parent: node.parent.map(|p| p as i64).unwrap_or(-1),
+                        parent: node.parent.map_or(-1, |p| p as i64),
                         children: layout_tree.children(idx).to_vec(),
                     });
                 }
@@ -19746,7 +19702,7 @@ fn serve_debug_event(
         DebugEvent::GetDisplayList => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting display list",
                 None,
             );
@@ -19960,7 +19916,7 @@ fn serve_debug_event(
                             };
                             DisplayListItemInfo {
                                 index: idx,
-                                item_type: format!("scrollbar_{}", orient_str),
+                                item_type: format!("scrollbar_{orient_str}"),
                                 x: Some(bounds.0.origin.x),
                                 y: Some(bounds.0.origin.y),
                                 width: Some(bounds.0.size.width),
@@ -19993,12 +19949,12 @@ fn serve_debug_event(
                                 info.thumb_bounds.0.size.width, info.thumb_bounds.0.size.height,
                                 info.track_color.r, info.track_color.g, info.track_color.b, info.track_color.a,
                                 info.thumb_color.r, info.thumb_color.g, info.thumb_color.b, info.thumb_color.a,
-                                info.opacity_key.as_ref().map(|k| format!("{}", k.id)).unwrap_or_else(|| "none".to_string()),
-                                info.thumb_transform_key.as_ref().map(|k| format!("{}", k.id)).unwrap_or_else(|| "none".to_string()),
+                                info.opacity_key.as_ref().map_or_else(|| "none".to_string(), |k| format!("{}", k.id)),
+                                info.thumb_transform_key.as_ref().map_or_else(|| "none".to_string(), |k| format!("{}", k.id)),
                             );
                             DisplayListItemInfo {
                                 index: idx,
-                                item_type: format!("scrollbar_{}", orient_str),
+                                item_type: format!("scrollbar_{orient_str}"),
                                 x: Some(info.bounds.0.origin.x),
                                 y: Some(info.bounds.0.origin.y),
                                 width: Some(info.bounds.0.size.width),
@@ -20129,17 +20085,17 @@ fn serve_debug_event(
                         }
                         azul_layout::solver3::display_list::DisplayListItem::LinearGradient { bounds, gradient, .. } => {
                             other_count += 1;
-                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| &s.color));
+                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| s.color));
                             gradient_item_info(idx, "linear_gradient", bounds.0, &stops, clip_depth, scroll_depth)
                         }
                         azul_layout::solver3::display_list::DisplayListItem::RadialGradient { bounds, gradient, .. } => {
                             other_count += 1;
-                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| &s.color));
+                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| s.color));
                             gradient_item_info(idx, "radial_gradient", bounds.0, &stops, clip_depth, scroll_depth)
                         }
                         azul_layout::solver3::display_list::DisplayListItem::ConicGradient { bounds, gradient, .. } => {
                             other_count += 1;
-                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| &s.color));
+                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| s.color));
                             gradient_item_info(idx, "conic_gradient", bounds.0, &stops, clip_depth, scroll_depth)
                         }
                         _ => {
@@ -20190,7 +20146,7 @@ fn serve_debug_event(
         DebugEvent::GetScrollStates => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting scroll states",
                 None,
             );
@@ -20205,7 +20161,7 @@ fn serve_debug_event(
                 .get_scroll_states_for_dom(dom_id);
             let mut states = Vec::new();
 
-            for (node_id, scroll_position) in scroll_states.iter() {
+            for (node_id, scroll_position) in &scroll_states {
                 let scroll_x = scroll_position.children_rect.origin.x;
                 let scroll_y = scroll_position.children_rect.origin.y;
                 let content_width = scroll_position.children_rect.size.width;
@@ -20236,7 +20192,7 @@ fn serve_debug_event(
         DebugEvent::GetScrollableNodes => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting scrollable nodes",
                 None,
             );
@@ -20300,18 +20256,15 @@ fn serve_debug_event(
                 text.as_deref(),
             );
 
-            let nid = match resolved_node_id {
-                Some(n) => n.index() as u64,
-                None => {
-                    send_err(request, "No node found matching the specified target");
-                    return needs_update;
-                }
+            let nid = if let Some(n) = resolved_node_id { n.index() as u64 } else {
+                send_err(request, "No node found matching the specified target");
+                return needs_update;
             };
 
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
-                format!("Scrolling node {} by ({}, {})", nid, delta_x, delta_y),
+                DebugServer,
+                format!("Scrolling node {nid} by ({delta_x}, {delta_y})"),
                 None,
             );
 
@@ -20358,18 +20311,15 @@ fn serve_debug_event(
                 text.as_deref(),
             );
 
-            let nid = match resolved_node_id {
-                Some(n) => n.index() as u64,
-                None => {
-                    send_err(request, "No node found matching the specified target");
-                    return needs_update;
-                }
+            let nid = if let Some(n) = resolved_node_id { n.index() as u64 } else {
+                send_err(request, "No node found matching the specified target");
+                return needs_update;
             };
 
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
-                format!("Scrolling node {} to position ({}, {})", nid, x, y),
+                DebugServer,
+                format!("Scrolling node {nid} to position ({x}, {y})"),
                 None,
             );
 
@@ -20413,12 +20363,9 @@ fn serve_debug_event(
                 text.as_deref(),
             );
 
-            let nid = match resolved_node_id {
-                Some(n) => n.index() as u64,
-                None => {
-                    send_err(request, "No node found matching the specified target");
-                    return needs_update;
-                }
+            let nid = if let Some(n) = resolved_node_id { n.index() as u64 } else {
+                send_err(request, "No node found matching the specified target");
+                return needs_update;
             };
 
             // `block`, `inline` and `behavior` are closed sets: a value outside
@@ -20462,10 +20409,9 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!(
-                    "Scrolling node {} into view (block: {:?}, inline: {:?}, behavior: {:?})",
-                    nid, block_align, inline_align, scroll_behavior
+                    "Scrolling node {nid} into view (block: {block_align:?}, inline: {inline_align:?}, behavior: {scroll_behavior:?})"
                 ),
                 None,
             );
@@ -20501,8 +20447,8 @@ fn serve_debug_event(
         DebugEvent::FindNodeByText { text } => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
-                format!("Finding node by text: {}", text),
+                DebugServer,
+                format!("Finding node by text: {text}"),
                 None,
             );
             use azul_core::{
@@ -20571,8 +20517,8 @@ fn serve_debug_event(
         DebugEvent::ClickNode { node_id, button } => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
-                format!("Clicking node {} with button {:?}", node_id, button),
+                DebugServer,
+                format!("Clicking node {node_id} with button {button:?}"),
                 None,
             );
             use azul_core::{
@@ -20618,7 +20564,7 @@ fn serve_debug_event(
 
                 let response = ClickNodeResponse {
                     success: true,
-                    message: format!("Clicked node {} at ({}, {})", node_id, center_x, center_y),
+                    message: format!("Clicked node {node_id} at ({center_x}, {center_y})"),
                 };
                 send_ok(request, None, Some(ResponseData::ClickNode(response)));
             } else {
@@ -20646,11 +20592,10 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!(
-                    "Getting scrollbar info for node_id={:?}, selector={:?}, text={:?}, \
-                     orientation={:?}",
-                    node_id, selector, text, orientation
+                    "Getting scrollbar info for node_id={node_id:?}, selector={selector:?}, text={text:?}, \
+                     orientation={orientation:?}"
                 ),
                 None,
             );
@@ -20663,12 +20608,9 @@ fn serve_debug_event(
                 text.as_deref(),
             );
 
-            let nid = match resolved_node_id {
-                Some(n) => n.index() as u64,
-                None => {
-                    send_err(request, "No node found matching the specified target");
-                    return needs_update;
-                }
+            let nid = if let Some(n) = resolved_node_id { n.index() as u64 } else {
+                send_err(request, "No node found matching the specified target");
+                return needs_update;
             };
 
             let dom_id = target_dom(request);
@@ -20690,25 +20632,22 @@ fn serve_debug_event(
                 .map(|(_, s)| s);
 
             // Default container/content rects if not in scroll manager
-            let (container_rect, content_rect, max_scroll_x, max_scroll_y) = match scroll_info {
-                Some(state) => {
-                    let max_x =
-                        (state.children_rect.size.width - state.parent_rect.size.width).max(0.0);
-                    let max_y =
-                        (state.children_rect.size.height - state.parent_rect.size.height).max(0.0);
-                    (state.parent_rect, state.children_rect, max_x, max_y)
-                }
-                None => {
-                    // Fallback: try to get from layout
-                    let zero_rect = azul_core::geom::LogicalRect {
-                        origin: LogicalPosition { x: 0.0, y: 0.0 },
-                        size: azul_core::geom::LogicalSize {
-                            width: 0.0,
-                            height: 0.0,
-                        },
-                    };
-                    (zero_rect, zero_rect, 0.0, 0.0)
-                }
+            let (container_rect, content_rect, max_scroll_x, max_scroll_y) = if let Some(state) = scroll_info {
+                let max_x =
+                    (state.children_rect.size.width - state.parent_rect.size.width).max(0.0);
+                let max_y =
+                    (state.children_rect.size.height - state.parent_rect.size.height).max(0.0);
+                (state.parent_rect, state.children_rect, max_x, max_y)
+            } else {
+                // Fallback: try to get from layout
+                let zero_rect = azul_core::geom::LogicalRect {
+                    origin: LogicalPosition { x: 0.0, y: 0.0 },
+                    size: LogicalSize {
+                        width: 0.0,
+                        height: 0.0,
+                    },
+                };
+                (zero_rect, zero_rect, 0.0, 0.0)
             };
 
             fn build_scrollbar_geometry(
@@ -20727,7 +20666,7 @@ fn serve_debug_event(
 
                         let top_btn = azul_core::geom::LogicalRect {
                             origin: track.origin,
-                            size: azul_core::geom::LogicalSize {
+                            size: LogicalSize {
                                 width: track.size.width,
                                 height: button_size,
                             },
@@ -20737,7 +20676,7 @@ fn serve_debug_event(
                                 x: track.origin.x,
                                 y: track.origin.y + track.size.height - button_size,
                             },
-                            size: azul_core::geom::LogicalSize {
+                            size: LogicalSize {
                                 width: track.size.width,
                                 height: button_size,
                             },
@@ -20747,7 +20686,7 @@ fn serve_debug_event(
                                 x: track.origin.x,
                                 y: track.origin.y + thumb_y_start,
                             },
-                            size: azul_core::geom::LogicalSize {
+                            size: LogicalSize {
                                 width: track.size.width,
                                 height: thumb_height,
                             },
@@ -20762,7 +20701,7 @@ fn serve_debug_event(
 
                         let left_btn = azul_core::geom::LogicalRect {
                             origin: track.origin,
-                            size: azul_core::geom::LogicalSize {
+                            size: LogicalSize {
                                 width: button_size,
                                 height: track.size.height,
                             },
@@ -20772,7 +20711,7 @@ fn serve_debug_event(
                                 x: track.origin.x + track.size.width - button_size,
                                 y: track.origin.y,
                             },
-                            size: azul_core::geom::LogicalSize {
+                            size: LogicalSize {
                                 width: button_size,
                                 height: track.size.height,
                             },
@@ -20782,7 +20721,7 @@ fn serve_debug_event(
                                 x: track.origin.x + thumb_x_start,
                                 y: track.origin.y,
                             },
-                            size: azul_core::geom::LogicalSize {
+                            size: LogicalSize {
                                 width: thumb_width,
                                 height: track.size.height,
                             },
@@ -20878,7 +20817,7 @@ fn serve_debug_event(
         DebugEvent::GetVirtualViewStates => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting virtualized view states",
                 None,
             );
@@ -20922,7 +20861,7 @@ fn serve_debug_event(
         DebugEvent::GetVirtualViewLayout { dom_id, node_id } => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting virtualized view layout",
                 None,
             );
@@ -21198,7 +21137,7 @@ fn serve_debug_event(
                     files,
                     drag_data: None,   // TODO: convert DragData to BTreeMap
                     drag_effect: None, // TODO: convert DragEffect
-                    debug: alloc::format!("{:?}", drag_ctx),
+                    debug: alloc::format!("{drag_ctx:?}"),
                 }
             } else {
                 DragContextResponse {
@@ -21233,36 +21172,33 @@ fn serve_debug_event(
                 ref_count: app_data.get_ref_count(),
             };
 
-            if !app_data.can_serialize() {
+            if app_data.can_serialize() {
+                if let Some(json) = serialize_refany_to_json(app_data) {
+                    // Convert our Json type to serde_json::Value for the response
+                    let value = json.to_serde_value();
+                    let response = AppStateResponse {
+                        metadata,
+                        state: value,
+                        error: None,
+                    };
+                    send_ok(request, None, Some(ResponseData::AppState(response)));
+                } else {
+                    let response = AppStateResponse {
+                        metadata,
+                        state: serde_json::Value::Null,
+                        error: Some(RefAnyError::SerdeError(
+                            "Serialization returned null".to_string(),
+                        )),
+                    };
+                    send_ok(request, None, Some(ResponseData::AppState(response)));
+                }
+            } else {
                 let response = AppStateResponse {
                     metadata,
                     state: serde_json::Value::Null,
                     error: Some(RefAnyError::NotSerializable),
                 };
                 send_ok(request, None, Some(ResponseData::AppState(response)));
-            } else {
-                match serialize_refany_to_json(app_data) {
-                    Some(json) => {
-                        // Convert our Json type to serde_json::Value for the response
-                        let value = json.to_serde_value();
-                        let response = AppStateResponse {
-                            metadata,
-                            state: value,
-                            error: None,
-                        };
-                        send_ok(request, None, Some(ResponseData::AppState(response)));
-                    }
-                    None => {
-                        let response = AppStateResponse {
-                            metadata,
-                            state: serde_json::Value::Null,
-                            error: Some(RefAnyError::SerdeError(
-                                "Serialization returned null".to_string(),
-                            )),
-                        };
-                        send_ok(request, None, Some(ResponseData::AppState(response)));
-                    }
-                }
             }
         }
 
@@ -21344,7 +21280,36 @@ fn serve_debug_event(
                                 ref_count: refany.get_ref_count(),
                             };
 
-                            if !refany.can_serialize() {
+                            if refany.can_serialize() {
+                                if let Some(json) = serialize_refany_to_json(refany) {
+                                    let value = json.to_serde_value();
+                                    let response = NodeDatasetResponse {
+                                        node_id: *node_id,
+                                        metadata,
+                                        dataset: value,
+                                        error: None,
+                                    };
+                                    send_ok(
+                                        request,
+                                        None,
+                                        Some(ResponseData::NodeDataset(response)),
+                                    );
+                                } else {
+                                    let response = NodeDatasetResponse {
+                                        node_id: *node_id,
+                                        metadata,
+                                        dataset: serde_json::Value::Null,
+                                        error: Some(RefAnyError::SerdeError(
+                                            "Serialization returned null".to_string(),
+                                        )),
+                                    };
+                                    send_ok(
+                                        request,
+                                        None,
+                                        Some(ResponseData::NodeDataset(response)),
+                                    );
+                                }
+                            } else {
                                 let response = NodeDatasetResponse {
                                     node_id: *node_id,
                                     metadata,
@@ -21352,42 +21317,10 @@ fn serve_debug_event(
                                     error: Some(RefAnyError::NotSerializable),
                                 };
                                 send_ok(request, None, Some(ResponseData::NodeDataset(response)));
-                            } else {
-                                match serialize_refany_to_json(refany) {
-                                    Some(json) => {
-                                        let value = json.to_serde_value();
-                                        let response = NodeDatasetResponse {
-                                            node_id: *node_id,
-                                            metadata,
-                                            dataset: value,
-                                            error: None,
-                                        };
-                                        send_ok(
-                                            request,
-                                            None,
-                                            Some(ResponseData::NodeDataset(response)),
-                                        );
-                                    }
-                                    None => {
-                                        let response = NodeDatasetResponse {
-                                            node_id: *node_id,
-                                            metadata,
-                                            dataset: serde_json::Value::Null,
-                                            error: Some(RefAnyError::SerdeError(
-                                                "Serialization returned null".to_string(),
-                                            )),
-                                        };
-                                        send_ok(
-                                            request,
-                                            None,
-                                            Some(ResponseData::NodeDataset(response)),
-                                        );
-                                    }
-                                }
                             }
                         }
                         None => {
-                            send_err(request, alloc::format!("Node {} has no dataset", node_id));
+                            send_err(request, alloc::format!("Node {node_id} has no dataset"));
                         }
                     }
                 } else {
@@ -21411,7 +21344,7 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!(
                     "Debug key down: {} (shift={}, ctrl={}, alt={})",
                     key, modifiers.shift, modifiers.ctrl, modifiers.alt
@@ -21551,7 +21484,7 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!(
                     "Debug key up: {} (shift={}, ctrl={}, alt={})",
                     key, modifiers.shift, modifiers.ctrl, modifiers.alt
@@ -21607,8 +21540,8 @@ fn serve_debug_event(
         DebugEvent::TextInput { text } => {
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
-                format!("Received text input via debug server: '{}'", text),
+                EventLoop,
+                format!("Received text input via debug server: '{text}'"),
                 None,
             );
 
@@ -21908,8 +21841,7 @@ fn serve_debug_event(
                         .layout_results
                         .get(&dom_id)
                         .and_then(|lr| lr.styled_dom.node_data.get(node_id.index()))
-                        .map(|nd| nd.is_contenteditable())
-                        .unwrap_or(false);
+                        .is_some_and(azul_core::dom::NodeData::is_contenteditable);
 
                     // Get text content - extract from NodeType::Text if available
                     let text_content = callback_info
@@ -22010,7 +21942,7 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Info,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!("[E2E] RunE2eTests: executing {} test(s)", tests.len()),
                 None,
             );
@@ -22081,8 +22013,7 @@ fn serve_debug_event(
             let node_count = layout_window
                 .layout_results
                 .get(&dom_id)
-                .map(|lr| lr.styled_dom.node_data.as_ref().len())
-                .unwrap_or(0);
+                .map_or(0, |lr| lr.styled_dom.node_data.as_ref().len());
 
             // The StyledDom hierarchy is a FLAT DFS array: a node's first child
             // is DERIVED as `id + 1`, so a node's children are a contiguous run.
@@ -22097,7 +22028,7 @@ fn serve_debug_event(
             let on_rightmost_spine = layout_window
                 .layout_results
                 .get(&dom_id)
-                .map(|lr| {
+                .is_some_and(|lr| {
                     let h = lr.styled_dom.node_hierarchy.as_container();
                     let mut cur = parent_node_id;
                     loop {
@@ -22109,15 +22040,13 @@ fn serve_debug_event(
                         }
                         cur = parent;
                     }
-                })
-                .unwrap_or(false);
+                });
 
             if parent_node_id.index() >= node_count {
                 send_err(
                     request,
                     format!(
-                        "Parent node {} not found (total nodes: {})",
-                        parent_id, node_count
+                        "Parent node {parent_id} not found (total nodes: {node_count})"
                     ),
                 );
             } else if !on_rightmost_spine {
@@ -22188,13 +22117,12 @@ fn serve_debug_event(
             let node_count = layout_window
                 .layout_results
                 .get(&dom_id)
-                .map(|lr| lr.styled_dom.node_data.as_ref().len())
-                .unwrap_or(0);
+                .map_or(0, |lr| lr.styled_dom.node_data.as_ref().len());
 
             if target_node_id.index() >= node_count || *node_id == 0 {
                 send_err(
                     request,
-                    format!("Cannot delete node {} (root or out of range)", node_id),
+                    format!("Cannot delete node {node_id} (root or out of range)"),
                 );
             } else {
                 callback_info.delete_node(dom_id, target_node_id);
@@ -22259,11 +22187,10 @@ fn serve_debug_event(
             let node_count = layout_window
                 .layout_results
                 .get(&dom_id)
-                .map(|lr| lr.styled_dom.node_data.as_ref().len())
-                .unwrap_or(0);
+                .map_or(0, |lr| lr.styled_dom.node_data.as_ref().len());
 
             if target_node_id.index() >= node_count {
-                send_err(request, format!("Node {} not found", node_id));
+                send_err(request, format!("Node {node_id} not found"));
             } else {
                 let dom_node_id = DomNodeId {
                     dom: dom_id,
@@ -22318,11 +22245,10 @@ fn serve_debug_event(
             let node_count = layout_window
                 .layout_results
                 .get(&dom_id)
-                .map(|lr| lr.styled_dom.node_data.as_ref().len())
-                .unwrap_or(0);
+                .map_or(0, |lr| lr.styled_dom.node_data.as_ref().len());
 
             if target_node_id.index() >= node_count {
-                send_err(request, format!("Node {} not found", node_id));
+                send_err(request, format!("Node {node_id} not found"));
             } else {
                 // "omit to keep current" — the variant's own doc comment. The
                 // handler did the OPPOSITE: `set_node_ids_and_classes` REPLACES
@@ -22359,7 +22285,7 @@ fn serve_debug_event(
                 } else if let Some(existing) = current_id {
                     ids_and_classes.push(IdOrClass::Id(existing));
                 }
-                for class in classes.iter() {
+                for class in classes {
                     ids_and_classes
                         .push(IdOrClass::Class(azul_css::AzString::from(class.as_str())));
                 }
@@ -22415,11 +22341,10 @@ fn serve_debug_event(
             let node_count = layout_window
                 .layout_results
                 .get(&dom_id)
-                .map(|lr| lr.styled_dom.node_data.as_ref().len())
-                .unwrap_or(0);
+                .map_or(0, |lr| lr.styled_dom.node_data.as_ref().len());
 
             if target_node_id.index() >= node_count {
-                send_err(request, format!("Node {} not found", node_id));
+                send_err(request, format!("Node {node_id} not found"));
             } else {
                 use azul_css::props::property::{
                     parse_combined_css_property, CombinedCssPropertyType,
@@ -22567,7 +22492,7 @@ fn serve_debug_event(
         DebugEvent::ResolveFunctionPointers { addresses } => {
             let mut resolved = Vec::new();
 
-            for addr_str in addresses.iter() {
+            for addr_str in addresses {
                 // Support both decimal and hex (0x...) addresses
                 let address = if addr_str.starts_with("0x") || addr_str.starts_with("0X") {
                     usize::from_str_radix(&addr_str[2..], 16).unwrap_or(0)
@@ -22596,7 +22521,7 @@ fn serve_debug_event(
         }
 
         DebugEvent::GetComponentRegistry => {
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let registry = build_component_registry(&map_guard);
             drop(map_guard);
             send_ok(
@@ -22607,7 +22532,7 @@ fn serve_debug_event(
         }
 
         DebugEvent::GetLibraries => {
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let registry = build_component_registry(&map_guard);
             drop(map_guard);
             let libraries = registry
@@ -22630,7 +22555,7 @@ fn serve_debug_event(
         }
 
         DebugEvent::GetLibraryComponents { library } => {
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let registry = build_component_registry(&map_guard);
             drop(map_guard);
             if let Some(lib) = registry.libraries.iter().find(|l| l.name == *library) {
@@ -22648,8 +22573,7 @@ fn serve_debug_event(
                 send_err(
                     request,
                     format!(
-                        "Library '{}' not found. Available: {:?}",
-                        library, available
+                        "Library '{library}' not found. Available: {available:?}"
                     ),
                 );
             }
@@ -22676,7 +22600,7 @@ fn serve_debug_event(
                     );
                 }
                 Err(e) => {
-                    send_err(request, format!("Export failed: {}", e));
+                    send_err(request, format!("Export failed: {e}"));
                 }
             }
         }
@@ -22701,7 +22625,7 @@ fn serve_debug_event(
                     match azul_layout::zip::zip_create_from_files(zip_entries, &config) {
                         Ok(zip_bytes) => {
                             let base64_str = azul_layout::callbacks::base64_encode(&zip_bytes);
-                            let data_uri = format!("data:application/zip;base64,{}", base64_str);
+                            let data_uri = format!("data:application/zip;base64,{base64_str}");
                             send_ok(
                                 request,
                                 None,
@@ -22716,12 +22640,12 @@ fn serve_debug_event(
                             );
                         }
                         Err(e) => {
-                            send_err(request, format!("ZIP creation failed: {:?}", e));
+                            send_err(request, format!("ZIP creation failed: {e:?}"));
                         }
                     }
                 }
                 Err(e) => {
-                    send_err(request, format!("Export failed: {}", e));
+                    send_err(request, format!("Export failed: {e}"));
                 }
             }
         }
@@ -22762,7 +22686,7 @@ fn serve_debug_event(
                     css: AzString::from(c.css.as_str()),
                     source: ComponentSource::UserDefined,
                     data_model: ComponentDataModel {
-                        name: AzString::from(format!("{}Data", display_name_str).as_str()),
+                        name: AzString::from(format!("{display_name_str}Data").as_str()),
                         description: AzString::from(c.description.as_str()),
                         fields: ComponentDataFieldVec::from_vec(validated_fields),
                     },
@@ -22778,16 +22702,7 @@ fn serve_debug_event(
                 defs.push(def);
             }
 
-            if !validation_errors.is_empty() {
-                send_err(
-                    request,
-                    format!(
-                        "Validation errors in library '{}': {}",
-                        lib_name,
-                        validation_errors.join("; ")
-                    ),
-                );
-            } else {
+            if validation_errors.is_empty() {
                 let new_lib = ComponentLibrary {
                     name: AzString::from(lib_name.as_str()),
                     version: AzString::from(lib_json.version.as_str()),
@@ -22800,7 +22715,7 @@ fn serve_debug_event(
                 };
 
                 // Insert or replace in the component map
-                let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
                 let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs)
                     .into_library_owned_vec();
@@ -22825,13 +22740,22 @@ fn serve_debug_event(
                     })),
                 );
                 needs_update = true;
+            } else {
+                send_err(
+                    request,
+                    format!(
+                        "Validation errors in library '{}': {}",
+                        lib_name,
+                        validation_errors.join("; ")
+                    ),
+                );
             }
         }
 
         DebugEvent::ExportComponentLibrary {
             library: lib_name_opt,
         } => {
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let registry = build_component_registry(&map_guard);
             drop(map_guard);
 
@@ -22847,9 +22771,8 @@ fn serve_debug_event(
                     send_err(
                         request,
                         format!(
-                            "Library '{}' not found or is not exportable (builtin/compiled \
-                             libraries cannot be exported)",
-                            name
+                            "Library '{name}' not found or is not exportable (builtin/compiled \
+                             libraries cannot be exported)"
                         ),
                     );
                 } else {
@@ -22883,7 +22806,7 @@ fn serve_debug_event(
                                     description: f.description.clone(),
                                 })
                                 .collect();
-                            for s in c.callback_slots.iter() {
+                            for s in &c.callback_slots {
                                 fields.push(ExportedDataField {
                                     name: s.name.clone(),
                                     field_type: s.callback_type.clone(),
@@ -22912,7 +22835,7 @@ fn serve_debug_event(
             };
             use azul_css::corety::AzString;
 
-            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             // Check if library already exists
             if map_guard
                 .libraries
@@ -22920,7 +22843,7 @@ fn serve_debug_event(
                 .any(|l| l.name.as_str() == name.as_str())
             {
                 drop(map_guard);
-                send_err(request, format!("Library '{}' already exists", name));
+                send_err(request, format!("Library '{name}' already exists"));
             } else {
                 let new_lib = ComponentLibrary {
                     name: AzString::from(name.as_str()),
@@ -22945,7 +22868,7 @@ fn serve_debug_event(
         DebugEvent::DeleteLibrary { name } => {
             use azul_core::xml::ComponentLibraryVec;
 
-            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
             let mut libs =
                 core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
@@ -22953,23 +22876,23 @@ fn serve_debug_event(
 
             // Only allow deletion of modifiable libraries
             if let Some(lib) = libs.iter().find(|l| l.name.as_str() == name.as_str()) {
-                if !lib.modifiable {
-                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
-                    drop(map_guard);
-                    send_err(
-                        request,
-                        format!("Library '{}' is not modifiable and cannot be deleted", name),
-                    );
-                } else {
+                if lib.modifiable {
                     libs.retain(|l| l.name.as_str() != name.as_str());
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
                     send_ok(request, None, None);
+                } else {
+                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_err(
+                        request,
+                        format!("Library '{name}' is not modifiable and cannot be deleted"),
+                    );
                 }
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, format!("Library '{}' not found", name));
+                send_err(request, format!("Library '{name}' not found"));
             }
         }
 
@@ -22986,7 +22909,7 @@ fn serve_debug_event(
             };
             use azul_css::corety::AzString;
 
-            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
             let mut libs =
                 core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
@@ -22998,7 +22921,7 @@ fn serve_debug_event(
                 if !lib.modifiable {
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
-                    send_err(request, format!("Library '{}' is not modifiable", library));
+                    send_err(request, format!("Library '{library}' is not modifiable"));
                 } else if lib
                     .components
                     .iter()
@@ -23011,8 +22934,7 @@ fn serve_debug_event(
                     send_err(
                         request,
                         format!(
-                            "Component '{}' already exists in library '{}'",
-                            name, library
+                            "Component '{name}' already exists in library '{library}'"
                         ),
                     );
                 } else {
@@ -23025,7 +22947,7 @@ fn serve_debug_event(
                         css: AzString::from_const_str(""),
                         source: ComponentSource::UserDefined,
                         data_model: ComponentDataModel {
-                            name: AzString::from(format!("{}Data", display).as_str()),
+                            name: AzString::from(format!("{display}Data").as_str()),
                             description: AzString::from_const_str(""),
                             fields: ComponentDataFieldVec::from_const_slice(&[]),
                         },
@@ -23043,7 +22965,7 @@ fn serve_debug_event(
                     if let Err(e) = installed {
                         map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                         drop(map_guard);
-                        send_err(request, format!("create_component '{}': {}", name, e));
+                        send_err(request, format!("create_component '{name}': {e}"));
                         return needs_update;
                     }
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
@@ -23057,14 +22979,14 @@ fn serve_debug_event(
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, format!("Library '{}' not found", library));
+                send_err(request, format!("Library '{library}' not found"));
             }
         }
 
         DebugEvent::DeleteComponent { library, name } => {
             use azul_core::xml::ComponentLibraryVec;
 
-            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
             let mut libs =
                 core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
@@ -23073,11 +22995,7 @@ fn serve_debug_event(
                 .iter_mut()
                 .find(|l| l.name.as_str() == library.as_str())
             {
-                if !lib.modifiable {
-                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
-                    drop(map_guard);
-                    send_err(request, format!("Library '{}' is not modifiable", library));
-                } else {
+                if lib.modifiable {
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
                         .into_library_owned_vec();
                     comps.retain(|c| c.id.name.as_str() != name.as_str());
@@ -23090,11 +23008,15 @@ fn serve_debug_event(
                         needs_update = true;
                     }
                     send_ok(request, None, None);
+                } else {
+                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_err(request, format!("Library '{library}' is not modifiable"));
                 }
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, format!("Library '{}' not found", library));
+                send_err(request, format!("Library '{library}' not found"));
             }
         }
 
@@ -23110,7 +23032,7 @@ fn serve_debug_event(
             use azul_core::xml::ComponentLibraryVec;
             use azul_css::corety::AzString;
 
-            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
             let mut libs =
                 core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
@@ -23119,11 +23041,7 @@ fn serve_debug_event(
                 .iter_mut()
                 .find(|l| l.name.as_str() == library.as_str())
             {
-                if !lib.modifiable {
-                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
-                    drop(map_guard);
-                    send_err(request, format!("Library '{}' is not modifiable", library));
-                } else {
+                if lib.modifiable {
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
                         .into_library_owned_vec();
                     if let Some(comp) = comps
@@ -23152,7 +23070,7 @@ fn serve_debug_event(
                                     drop(map_guard);
                                     send_err(
                                         request,
-                                        format!("Validation error in component '{}': {}", name, e),
+                                        format!("Validation error in component '{name}': {e}"),
                                     );
                                     return needs_update;
                                 }
@@ -23169,7 +23087,7 @@ fn serve_debug_event(
                                 drop(map_guard);
                                 send_err(
                                     request,
-                                    format!("render_tree of component '{}': {}", name, e),
+                                    format!("render_tree of component '{name}': {e}"),
                                 );
                                 return needs_update;
                             }
@@ -23187,14 +23105,18 @@ fn serve_debug_event(
                         drop(map_guard);
                         send_err(
                             request,
-                            format!("Component '{}' not found in library '{}'", name, library),
+                            format!("Component '{name}' not found in library '{library}'"),
                         );
                     }
+                } else {
+                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_err(request, format!("Library '{library}' is not modifiable"));
                 }
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, format!("Library '{}' not found", library));
+                send_err(request, format!("Library '{library}' not found"));
             }
         }
 
@@ -23212,7 +23134,7 @@ fn serve_debug_event(
             override_lang,
         } => {
             // --- 1. Look up the component ---
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let comp_found = map_guard
                 .libraries
                 .iter()
@@ -23228,15 +23150,12 @@ fn serve_debug_event(
                 .cloned();
             drop(map_guard);
 
-            let comp = match comp_found {
-                Some(c) => c,
-                None => {
-                    send_err(
-                        request,
-                        format!("Component '{}' not found in library '{}'", name, library),
-                    );
-                    return needs_update;
-                }
+            let Some(comp) = comp_found else {
+                send_err(
+                    request,
+                    format!("Component '{name}' not found in library '{library}'"),
+                );
+                return needs_update;
             };
 
             // --- 2. Override data_model defaults with provided args ---
@@ -23244,7 +23163,7 @@ fn serve_debug_event(
                 match override_data_model_defaults(&comp.data_model, args.as_ref()) {
                     Ok(v) => v,
                     Err(e) => {
-                        send_err(request, format!("Invalid args for '{}': {}", name, e));
+                        send_err(request, format!("Invalid args for '{name}': {e}"));
                         return needs_update;
                     }
                 };
@@ -23252,7 +23171,7 @@ fn serve_debug_event(
             // --- 3. Render the component to a StyledDom ---
             // The palette thumbnail's path: a builtin element shows its
             // configured preview, form controls as widgets.
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let rendered = super::builder::preview_styled_dom(
                 callback_info,
                 library.as_str(),
@@ -23327,7 +23246,7 @@ fn serve_debug_event(
                 Ok(result) => {
                     // Base64-encode the PNG data
                     let base64_str = azul_layout::callbacks::base64_encode(&result.png_data);
-                    let data_uri = format!("data:image/png;base64,{}", base64_str);
+                    let data_uri = format!("data:image/png;base64,{base64_str}");
                     send_ok(
                         request,
                         None,
@@ -23339,14 +23258,14 @@ fn serve_debug_event(
                     );
                 }
                 Err(e) => {
-                    send_err(request, format!("Preview render failed: {}", e));
+                    send_err(request, format!("Preview render failed: {e}"));
                 }
             }
         }
 
         DebugEvent::GetComponentRenderTree { library, name } => {
             // Look up the component
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let comp_found = map_guard
                 .libraries
                 .iter()
@@ -23378,7 +23297,7 @@ fn serve_debug_event(
                         drop(map_guard);
                         send_err(
                             request,
-                            format!("Failed to build data model for '{}': {}", name, e),
+                            format!("Failed to build data model for '{name}': {e}"),
                         );
                         return needs_update;
                     }
@@ -23389,7 +23308,7 @@ fn serve_debug_event(
                     azul_core::xml::ResultStyledDomRenderDomError::Ok(sd) => sd,
                     azul_core::xml::ResultStyledDomRenderDomError::Err(e) => {
                         drop(map_guard);
-                        send_err(request, format!("render_fn failed for '{}': {:?}", name, e));
+                        send_err(request, format!("render_fn failed for '{name}': {e:?}"));
                         return needs_update;
                     }
                 };
@@ -23402,7 +23321,7 @@ fn serve_debug_event(
                 drop(map_guard);
                 send_err(
                     request,
-                    format!("Component '{}' not found in library '{}'", name, library),
+                    format!("Component '{name}' not found in library '{library}'"),
                 );
             }
         }
@@ -23414,7 +23333,7 @@ fn serve_debug_event(
             language,
         } => {
             // E4: Return the source code of render_fn or compile_fn
-            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let comp_found = map_guard
                 .libraries
                 .iter()
@@ -23435,12 +23354,10 @@ fn serve_debug_event(
                     "render_fn" => {
                         // For user-defined components, the source is stored; for builtins, return a
                         // description
-                        comp.render_fn_source
-                            .as_ref()
-                            .map(|s| s.as_str().to_string())
-                            .unwrap_or_else(|| {
-                                format!("// Built-in render function for '{}'", name)
-                            })
+                        comp.render_fn_source.as_ref().map_or_else(
+                            || format!("// Built-in render function for '{name}'"),
+                            |s| s.as_str().to_string(),
+                        )
                     }
                     // The component as code in any language: the same printers
                     // as "Component → code" (`ComponentDef::codegen`, no
@@ -23448,7 +23365,7 @@ fn serve_debug_event(
                     // protocol's old name for it.
                     "compile_fn" | "code" => {
                         let lang = language.as_deref().unwrap_or("rust");
-                        let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                        let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                         let result = super::export::component_code(&map_guard, library, name, lang);
                         drop(map_guard);
                         match result {
@@ -23456,7 +23373,7 @@ fn serve_debug_event(
                             Err(e) => format!("// {e}"),
                         }
                     }
-                    _ => format!("// Unknown source_type: {}", source_type),
+                    _ => format!("// Unknown source_type: {source_type}"),
                 };
                 send_ok(
                     request,
@@ -23468,7 +23385,7 @@ fn serve_debug_event(
             } else {
                 send_err(
                     request,
-                    format!("Component '{}' not found in library '{}'", name, library),
+                    format!("Component '{name}' not found in library '{library}'"),
                 );
             }
         }
@@ -23479,7 +23396,7 @@ fn serve_debug_event(
             source,
         } => {
             // E4: Store the render_fn source code (hot-replacement not yet supported)
-            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+            let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let empty_libs = azul_core::xml::ComponentLibraryVec::from_const_slice(&[]);
             let mut libs =
                 core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
@@ -23488,11 +23405,7 @@ fn serve_debug_event(
                 .iter_mut()
                 .find(|l| l.name.as_str() == library.as_str())
             {
-                if !lib.modifiable {
-                    map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
-                    drop(map_guard);
-                    send_err(request, format!("Library '{}' is not modifiable", library));
-                } else {
+                if lib.modifiable {
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
                         .into_library_owned_vec();
                     if let Some(comp) = comps
@@ -23520,13 +23433,17 @@ fn serve_debug_event(
                         lib.components = comps.into();
                         map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                         drop(map_guard);
-                        send_err(request, format!("Component '{}' not found", name));
+                        send_err(request, format!("Component '{name}' not found"));
                     }
+                } else {
+                    map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_err(request, format!("Library '{library}' is not modifiable"));
                 }
             } else {
                 map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, format!("Library '{}' not found", library));
+                send_err(request, format!("Library '{library}' not found"));
             }
         }
 
@@ -23573,7 +23490,7 @@ fn serve_debug_event(
             };
             match result {
                 Ok(_) => send_ok(request, None, None),
-                Err(e) => send_err(request, format!("Failed to open {}: {}", file, e)),
+                Err(e) => send_err(request, format!("Failed to open {file}: {e}")),
             }
         }
 
@@ -23603,7 +23520,7 @@ fn serve_debug_event(
             attrs,
         } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let layout_window = callback_info.get_layout_window();
                 let live = layout_window
                     .layout_results
@@ -23630,7 +23547,7 @@ fn serve_debug_event(
             index,
         } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let layout_window = callback_info.get_layout_window();
                 let live = layout_window
                     .layout_results
@@ -23647,7 +23564,7 @@ fn serve_debug_event(
 
         DebugEvent::BuilderDelete { node } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let layout_window = callback_info.get_layout_window();
                 let live = layout_window
                     .layout_results
@@ -23664,7 +23581,7 @@ fn serve_debug_event(
 
         DebugEvent::BuilderSetAttribute { node, name, value } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let layout_window = callback_info.get_layout_window();
                 let live = layout_window
                     .layout_results
@@ -23693,6 +23610,7 @@ fn serve_debug_event(
                 let guard = scratch(callback_info);
                 let active = guard.builder.is_active();
                 let stylesheet = guard.builder.export_document(live).stylesheet.clone();
+                drop(guard);
                 (active, stylesheet)
             };
             let mut json = super::export::css_rules_json(&stylesheet);
@@ -23705,7 +23623,7 @@ fn serve_debug_event(
 
         DebugEvent::BuilderSetStylesheet { css } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let layout_window = callback_info.get_layout_window();
                 let live = layout_window
                     .layout_results
@@ -23733,7 +23651,7 @@ fn serve_debug_event(
 
         DebugEvent::BuilderUndo => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 scratch(callback_info).builder.undo(&map_guard)
             };
             if finish_builder_op(request, callback_info, result) {
@@ -23743,7 +23661,7 @@ fn serve_debug_event(
 
         DebugEvent::BuilderRedo => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 scratch(callback_info).builder.redo(&map_guard)
             };
             if finish_builder_op(request, callback_info, result) {
@@ -23766,7 +23684,7 @@ fn serve_debug_event(
             keep_subtree,
         } => {
             let result = {
-                let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let mut map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let layout_window = callback_info.get_layout_window();
                 let live = layout_window
                     .layout_results
@@ -23795,7 +23713,7 @@ fn serve_debug_event(
             dark,
         } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 scratch(callback_info).builder.thumbnail(
                     callback_info,
                     &map_guard,
@@ -24028,7 +23946,7 @@ fn serve_debug_event(
             css,
         } => {
             let result = super::export::CodeMode::parse(mode.as_deref()).and_then(|mode| {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 super::export::html_to_code(
                     html,
                     &map_guard,
@@ -24078,7 +23996,7 @@ fn serve_debug_event(
             language,
         } => {
             let result = {
-                let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
+                let map_guard = component_map.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 super::export::component_code(&map_guard, library, name, language)
             };
             match result {
@@ -24103,7 +24021,7 @@ fn serve_debug_event(
         _ => {
             log(
                 LogLevel::Warn,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!("Unhandled: {:?}", request.event),
                 None,
             );
@@ -24129,7 +24047,7 @@ pub struct ScreenshotKey {
 ///
 /// A native screenshot is an OS capture plus a PNG encode (miniz deflate)
 /// on the UI thread. The builder page asks for one whenever it refreshes,
-/// and an idle AzBuilder spent its CPU re-capturing and re-encoding a
+/// and an idle `AzBuilder` spent its CPU re-capturing and re-encoding a
 /// window that had not presented a single frame since the last request.
 /// While the generation is unchanged the screen is too (bar the OS-drawn
 /// title bar), so the cached bytes are the answer.
@@ -24195,7 +24113,6 @@ mod screenshot_cache_tests {
         assert_eq!(shoot(&mut cache, 7), "png-7", "same generation, same bytes");
         assert_eq!(shoot(&mut cache, 7), "png-7");
         assert_eq!(shoot(&mut cache, 8), "png-8", "a presented frame captures again");
-        drop(shoot);
         assert_eq!(captures, 2, "three requests at one generation capture once");
     }
 
@@ -24256,7 +24173,7 @@ pub const DEBUG_POLL_SETTLE_MS: u64 = 1000;
 /// the UI thread, so something has to look. It looks at
 /// [`DEBUG_POLL_BUSY_MS`] while requests keep coming or a scenario is
 /// suspended between ticks, and drops to [`DEBUG_POLL_IDLE_MS`] after
-/// [`DEBUG_POLL_SETTLE_MS`] of quiet: an AzBuilder nobody drives no longer
+/// [`DEBUG_POLL_SETTLE_MS`] of quiet: an `AzBuilder` nobody drives no longer
 /// wakes 60 times a second. The first request after a quiet spell waits at
 /// most one idle period.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24295,7 +24212,7 @@ impl DebugPollPace {
     /// One tick. `worked`: a request was served or a scenario is still
     /// suspended. Returns the new interval when the timer must be re-armed
     /// at a different rate.
-    pub fn on_tick(&mut self, worked: bool) -> Option<u64> {
+    pub const fn on_tick(&mut self, worked: bool) -> Option<u64> {
         if worked {
             self.quiet_ms = 0;
             if self.busy {
@@ -24351,7 +24268,7 @@ pub fn take_debug_request_wake() -> bool {
 /// tweens (the CSS transitions), a scrolled box eases and its bar fades. The
 /// frame is not stale - the display list is current - it is in motion, and
 /// read as a still it shows "two layouts at once" (SMALL6, 2026-10-03:
-/// AzShells' S4 after a picker click carried 26 sliding nodes for ~300 ms).
+/// `AzShells`' S4 after a picker click carried 26 sliding nodes for ~300 ms).
 #[cfg(feature = "std")]
 #[must_use]
 pub fn window_still_moving(layout_window: &azul_layout::window::LayoutWindow) -> Option<String> {
@@ -24741,7 +24658,7 @@ pub struct DebugWakeSeen {
 impl DebugWakeSeen {
     /// Is `generation` an announcement this window has not re-armed for
     /// yet? Remembers it.
-    pub fn take_at(&mut self, generation: u64) -> bool {
+    pub const fn take_at(&mut self, generation: u64) -> bool {
         if generation == self.seen {
             return false;
         }
@@ -24798,7 +24715,7 @@ mod debug_request_wake_tests {
     /// no longer a 4-per-second wake-up of an idle app.
     #[test]
     fn an_idle_debug_server_polls_at_most_every_two_seconds() {
-        assert!(DEBUG_POLL_IDLE_MS >= 2000, "{DEBUG_POLL_IDLE_MS} ms");
+        const { assert!(DEBUG_POLL_IDLE_MS >= 2000, "the idle poll is every two seconds at most") }
     }
 
     /// HEADLESS6 (CAL3 / MAIL2): the window a request is forwarded to must
@@ -25509,14 +25426,14 @@ fn write_shot_to_dir(dir: Option<&std::path::Path>, data_uri: &str) {
     let Some(dir) = dir else {
         return;
     };
-    let _ = std::fs::create_dir_all(dir);
+    drop(std::fs::create_dir_all(dir));
     // Numbers the files ONE process writes into the one `AZ_E2E_SHOT_DIR` (process configuration), in
     // the order the scenario asked for them, whichever window took them.
     static SHOT_N: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
-    let n = SHOT_N.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    let n = SHOT_N.fetch_add(1, Ordering::Relaxed);
     let raw = data_uri.rsplit(',').next().unwrap_or("");
     if let Ok(bytes) = base64_decode_for_shot(raw) {
-        let _ = std::fs::write(dir.join(format!("shot-{n:03}.png")), bytes);
+        drop(std::fs::write(dir.join(format!("shot-{n:03}.png")), bytes));
     }
 }
 
@@ -25556,9 +25473,9 @@ fn base64_decode_for_shot(input: &str) -> Result<Vec<u8>, ()> {
 mod assert_stderr_tests {
     use super::*;
 
-    /// The diagnostics ring is GLOBAL, so these must not run concurrently —
-    /// one clearing it mid-assert makes another flake. This bit once already:
-    /// the tests passed individually and failed as a group.
+    // The diagnostics ring is GLOBAL, so these must not run concurrently —
+    // one clearing it mid-assert makes another flake. This bit once already:
+    // the tests passed individually and failed as a group.
     // Workspace-wide: see azul_core::diagnostics::test_lock.
 
     /// `assert_stderr` reads the diagnostics ring every engine lint writes to.
@@ -25849,7 +25766,9 @@ mod selection_state_tests {
 
         let state = selection_state(&lw, |_, _| None);
 
-        let reported: Vec<(Option<u64>, Vec<(String, Option<usize>, Option<usize>)>)> = state
+        // (node id, [(selection type, start, end)]) of each selection.
+        type Reported = Vec<(Option<u64>, Vec<(String, Option<usize>, Option<usize>)>)>;
+        let reported: Reported = state
             .selections
             .iter()
             .map(|s| {

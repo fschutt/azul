@@ -83,7 +83,9 @@ for app in "$@"; do
     marker="$work/marker-$name"; touch "$marker"
     # Launch with the app's console attached (its stdout and stderr: a Rust panic, the engine's own log lines): the launch
     # command stays until the app ends, so it runs in the background and its being gone is a verdict of its own.
-    SIMCTL_CHILD_RUST_BACKTRACE=1 xcrun simctl launch --console "$udid" "$bid" >"$dir/console.log" 2>&1 &
+    # AZ_STARTUP=1 (SIMCTL_CHILD_ reaches the app's environment): at its first present the app writes `[startup] ...` lines and ONE
+    # `[startup-json] {...}` line with first_present_ms to its console; scripts/ci/smoke_verdict.py reads it as information
+    SIMCTL_CHILD_RUST_BACKTRACE=1 SIMCTL_CHILD_AZ_STARTUP=1 xcrun simctl launch --console "$udid" "$bid" >"$dir/console.log" 2>&1 &
     launch_pid=$!
     sleep 3
     cat "$dir/console.log"
@@ -152,7 +154,7 @@ import json, sys
 path, label, how, xy, alive, fatal = sys.argv[1:]
 json.dump({"label": label, "found": "by its " + how, "at": xy, "alive": alive == "1", "fatal": fatal or None}, open(path, "w"), indent=2)
 PY
-        verdict_args+=(--tap "$dir/tap.json")
+        verdict_args+=(--tap "$dir/tap.json" --tap-before "$dir/screenshot.png" --tap-after "$dir/screenshot-after-tap.png")
       else
         echo "idb is not installed: \"$tap_label\" is not pressed"
       fi
@@ -189,9 +191,10 @@ PY
     xcrun simctl uninstall "$udid" "$bid" >/dev/null 2>&1 || true
   fi
   [ -f "$dir/baseline.png" ] && verdict_args+=(--baseline "$dir/baseline.png" --after "$dir/screenshot-2.png")
+  [ -f "$dir/console.log" ] && verdict_args+=(--startup-log "$dir/console.log")
   # THE pass line: scripts/ci/smoke_verdict.py (alive twice, on the screen, drawn, no fatal line); nothing else decides
   python3 "$(dirname "$0")/smoke_verdict.py" --out "$dir/result.json" --app "$name" --id "$bid" --alive "$alive" --alive-after "$alive_after" \
-    --fatal "$fatal" --rust-lines "${rust_lines:-0}" ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1
+    --fatal "$fatal" --rust-lines "${rust_lines:-0}" --band 0.075,0.965 ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1
 done
 python3 - "$out" <<'PY'
 import json, pathlib, sys
