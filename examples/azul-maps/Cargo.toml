@@ -31,7 +31,6 @@ csv = "1.4"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "android-activity", "map-tiles"] }
 ctor = "0.2"
 
 [lib]
@@ -42,9 +41,6 @@ crate-type = ["rlib", "cdylib"]
 [[bin]]
 name = "AzMaps"
 path = "src/main.rs"
-
-[target.'cfg(target_os = "ios")'.dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "map-tiles"] }
 
 # What macOS shows when AzMaps first asks for a permission (azul-doc's `bundle macos` writes
 # them into the Info.plist). Without the two speech keys a spoken destination is refused.

@@ -117,6 +117,7 @@ pub mod recorder_patch;
 pub mod recorder_policy;
 pub mod recorder_probe;
 pub mod recorder_screen;
+pub mod recorder_ticks;
 pub mod recorder_ui;
 pub mod recorder_settings;
 pub mod recorder_track;
@@ -166,11 +167,16 @@ pub mod whiteboard_drag;
 pub mod whiteboard_export;
 pub mod whiteboard_geom;
 pub mod whiteboard_git;
+pub mod whiteboard_glue;
 pub mod whiteboard_hash;
 pub mod whiteboard_input;
+pub mod whiteboard_io;
 pub mod whiteboard_jump;
 pub mod whiteboard_json;
 pub mod whiteboard_lasso;
+pub mod whiteboard_page;
+pub mod whiteboard_plug;
+pub mod whiteboard_place;
 pub mod whiteboard_render;
 pub mod whiteboard_settings;
 pub mod whiteboard_store;
@@ -374,6 +380,9 @@ pub struct AppState {
     /// goes through [`Self::recorder`], the hook, which reaches the recording that is going. (Not `recording`: that is the
     /// voice clip being made.)
     pub session_recorder: Option<recorder_ui::RecorderApp>,
+    /// The whiteboard of the workspace: its panel and what the app keeps beside it (`whiteboard_plug`). In a `RefCell`: the
+    /// layout builds the window from a shared reference to this state, and the panel wants to be built from a mutable one.
+    pub wb: std::cell::RefCell<whiteboard_plug::Glue>,
 }
 
 impl AppState {
@@ -413,6 +422,7 @@ impl AppState {
         kit: RefAny,
         data_root: PathBuf,
     ) -> Self {
+        let wb = std::cell::RefCell::new(whiteboard_plug::Glue::new(&root, &data_root));
         Self {
             source,
             tree,
@@ -483,6 +493,7 @@ impl AppState {
             saving: false,
             save_pending: false,
             session_recorder: None,
+            wb,
         }
     }
 
@@ -561,6 +572,8 @@ impl AppState {
     /// The tree starts afresh from the source's root: listed now, the first file open.
     fn start_workspace(&mut self) {
         self.workspace += 1;
+        // the board of the workspace that was left was kept by `whiteboard_plug::leave`; this workspace has its own
+        self.wb = std::cell::RefCell::new(whiteboard_plug::Glue::new(&self.root, &self.data_root));
         if let Some(old) = self.census_stop.take() {
             old.store(true, std::sync::atomic::Ordering::Relaxed);
         }
@@ -1220,6 +1233,13 @@ impl AppState {
         self.open.as_ref()
     }
 
+    /// A conversation begins: its note is kept with the revision the workspace is at now (what its suggestions will be made against;
+    /// the patch of its resolution says it), read from the files of `.git`.
+    pub fn start_conversation(&mut self, mut note: Note) {
+        note.talk.base = patch_store::base_of(&self.root);
+        self.notes.push(note);
+    }
+
     /// Where the lines of `page` are drawn: the lines the suggestions of the conversations would put in (the ones that wait
     /// and the ones that were taken) are rows of the page, which grows by them; nothing else moves (page breaks are stable).
     /// A page nobody put lines in is plain.
@@ -1501,6 +1521,8 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
     progress_store::load(&data, &mut info);
     // What was marked on the first file in an earlier run comes back.
     load_session(&data, &mut info);
+    // The whiteboard of the workspace comes back.
+    whiteboard_plug::start(&data, &mut info);
     Update::DoNothing
 }
 
@@ -1673,8 +1695,9 @@ extern "C" fn on_folder_chosen(mut data: RefAny, mut info: CallbackInfo, result:
         return Update::DoNothing;
     };
     let folder = PathBuf::from(path.inner.as_str());
-    // The file being left is kept first (its archive is built now).
+    // The file being left is kept first (its archive is built now), and so is the board of the workspace.
     save_session(&data, &mut info);
+    whiteboard_plug::leave(&data, &mut info);
     let kit_ref = {
         let Some(mut s) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
@@ -1690,6 +1713,7 @@ extern "C" fn on_folder_chosen(mut data: RefAny, mut info: CallbackInfo, result:
     census::start(&mut info, &data);
     progress_store::load(&data, &mut info);
     load_session(&data, &mut info);
+    whiteboard_plug::start(&data, &mut info);
     info.trigger_all_virtual_view_rerender();
     Update::RefreshDom
 }
@@ -1747,10 +1771,16 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let overlay = layout::is_overlay(window_width(&info));
         let mut folded = false;
         let mut closed_conversation = false;
+        let mut board_let_go = false;
         let acted = data.downcast_mut::<AppState>().is_some_and(|mut s| {
             // What listens stops first; then the conversation that is open closes; a tree that covers the pages folds
             // away on the next Escape (one that pushes them is part of the layout and stays).
             if s.voice.request_stop(dictation::Cause::Key) {
+                return true;
+            }
+            // A loop that waits for the whiteboard (or is carried to it) is let go of, the board's own popovers close.
+            if whiteboard_plug::escape(s.wb.get_mut()) {
+                board_let_go = true;
                 return true;
             }
             if s.open_conv.take().is_some() {
@@ -1768,7 +1798,7 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
             persist_panels(&mut data, &mut info);
             start_slide(&data, &mut info);
         }
-        if closed_conversation {
+        if closed_conversation || board_let_go {
             info.trigger_all_virtual_view_rerender();
         }
         return if acted { Update::RefreshDom } else { Update::DoNothing };
@@ -1807,6 +1837,10 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     });
     if typing {
         return Update::DoNothing;
+    }
+    // The board's own keys (Delete, Mod+Z, Mod+Y) when the last press was on its panel.
+    if let Some(update) = whiteboard_plug::on_key(&mut data, &mut info, key) {
+        return update;
     }
     let undo_key = matches!(key, VirtualKeyCode::Z) && mods.primary_down();
     let redo_key = (undo_key && mods.shift) || (matches!(key, VirtualKeyCode::Y) && mods.primary_down());
@@ -2008,6 +2042,16 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
     // The pen set down: a dictation it left behind ends (the stroke is the new thing it does). The window is
     // not rebuilt for it now: a stroke begins, and the dictation's own end message rebuilds it.
     voice::pointer(&mut data, &mut info, Some(true));
+    // A press on the grip of a loop that waits to be taken to the whiteboard is no stroke; one inside it begins one as
+    // always, and is let go of when it is held.
+    let pressed = if sampled.eraser {
+        whiteboard_page::Pressed::Elsewhere
+    } else {
+        whiteboard_page::press(&mut data, &mut info, page, whiteboard_geom::Pt::new(sampled.point.x, sampled.point.y))
+    };
+    if pressed == whiteboard_page::Pressed::Grip {
+        return Update::DoNothing;
+    }
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
@@ -2078,6 +2122,18 @@ fn ink_move(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     };
     let page = ui::page_of(info);
     log_pointer(data, info, pointer::Kind::Move, page, &sampled);
+    // A press on a loop that waits for the whiteboard: held it is no stroke, and moved on it carries the loop to the bar.
+    match whiteboard_page::motion(data, info) {
+        (whiteboard_page::Moved::Ordinary, _) => {}
+        (whiteboard_page::Moved::Carrying, update) => return update,
+        (whiteboard_page::Moved::Lifted, update) => {
+            if let Some(mut s) = data.downcast_mut::<AppState>() {
+                s.stroke_drop();
+            }
+            ui::redraw_ink(info, ink::Layer::Pen);
+            return update;
+        }
+    }
     // Where the pen is, drawing or hovering: the dwell times its rest (and a dictation it has
     // moved away from ends). The window is not rebuilt for that while a stroke is live: a rebuilt window
     // replaces the pen's layer under the stroke.
@@ -2125,14 +2181,28 @@ pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update 
     }
     // The pointer lifted: it rests where it was (not a move: nothing of a dictation ends).
     voice::pointer(&mut data, &mut info, Some(false));
-    end_stroke(&mut data, &mut info)
+    // A loop that was carried is dropped where the pointer is.
+    let carried = whiteboard_page::release(&mut data, &mut info);
+    let ended = end_stroke(&mut data, &mut info);
+    if carried {
+        Update::RefreshDom
+    } else {
+        ended
+    }
 }
 
 /// Every release in the window: a stroke whose release the pen layer did not hear (the pointer was off
 /// the page, over the margin, between two pages) ends all the same.
 pub extern "C" fn on_window_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
     log_window(&mut data, &mut info, pointer::Kind::WindowUp);
-    end_stroke(&mut data, &mut info)
+    // The button was let go over the bar, off the page: a loop that was carried is dropped there.
+    let carried = whiteboard_page::release(&mut data, &mut info);
+    let ended = end_stroke(&mut data, &mut info);
+    if carried {
+        Update::RefreshDom
+    } else {
+        ended
+    }
 }
 
 /// The pointer left the window: a stroke live under a pointer that is not pressed ends.
@@ -2154,6 +2224,8 @@ pub extern "C" fn on_focus_lost(mut data: RefAny, mut info: CallbackInfo) -> Upd
     }
     // The microphone opened ahead of a dictation closes with the window going to the back.
     voice::window_deactivated(&mut data);
+    // A loop that was carried to the whiteboard is put down where it lies.
+    whiteboard_page::let_go(&mut data, &mut info);
     end_stroke(&mut data, &mut info)
 }
 
@@ -2226,6 +2298,8 @@ fn finish_stroke(data: &mut RefAny, info: &mut CallbackInfo, ended: pointer::End
             };
             save_session(data, info);
             arm_idle_timer(info, data.clone(), timer_id);
+            // A loop round some lines waits to be taken to the whiteboard.
+            whiteboard_page::stroke_kept(data, info);
             Update::DoNothing
         }
     }

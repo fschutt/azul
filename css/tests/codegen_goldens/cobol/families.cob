@@ -38,6 +38,8 @@
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextAlignLastValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextTransformValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleDirectionValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextDecorationColorValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextDecorationThicknessValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleHyphenationLanguageValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleExclusionMarginValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `CaretWidthValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)

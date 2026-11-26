@@ -110,26 +110,6 @@ a.docs-card.is-missing .docs-card-file::after {
     .docs-content .release-builder { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* ---- Demos: nested OS-group lists ---- */
-.docs-content .release-demos {
-    list-style: none;
-    padding-left: 0;
-}
-.docs-content .release-demos > li {
-    margin-bottom: 18px;
-}
-.docs-content .release-demos ul {
-    list-style: none;
-    padding-left: 20px;
-    margin: 6px 0 8px;
-}
-.docs-content .release-demos li {
-    font-size: 16px;
-}
-.docs-content .release-demos pre {
-    margin: 8px 0 12px;
-}
-
 /* ---- "Jump to" strip -------------------------------------------------
    The label sat at the browser's default size because nothing claimed it,
    which put it a third smaller than the prose around it. */
@@ -144,49 +124,168 @@ a.docs-card.is-missing .docs-card-file::after {
     margin-bottom: 6px;
 }
 
-/* ---- Downloads by platform -------------------------------------------
-   Seven platform groups stacked one under another made the release page
-   enormous for what is, per group, four short links. They are columns
-   now: auto-fit means the row count follows the width instead of a
-   breakpoint, and no group is ever alone on a line at desktop widths.
-   The Docker group keeps the full measure - it holds code blocks, not
-   links. */
-.release-demos {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 22px 30px;
-    list-style: none;
-    margin: 0 0 28px;
-    padding: 0;
+/* ---- Demos: one table, a row per app and a column per built file ----
+   Nine columns do not fit a phone, so the table sits in a box that scrolls
+   sideways and the page itself never does. The box takes the keyboard
+   (tabindex in the markup). The widths are fixed, not up to the content: the
+   app's column is 190px and the eight file columns share the rest of a 760px
+   table, so on a wide screen it fills the measure of the page without a
+   scrollbar, and a long description wraps in its own cell instead of taking
+   the width of the others. Where the screen is wide enough for the app's
+   name to leave room for the columns, the name stays in view while they
+   scroll. Everything is a token, so light and dark follow the page. */
+.docs-content .release-demo-table {
+    overflow-x: auto;
+    margin: 12px 0 28px;
+    background: var(--fl-sur);
+    border: 1px solid var(--fl-bd);
+    border-radius: var(--fl-r);
 }
-
-.release-demos > .release-os > strong {
-    display: block;
-    margin-bottom: 6px;
-    font-family: var(--font-caps);
-    font-weight: 700;
-    font-variant: all-small-caps;
-    letter-spacing: 0.1em;
-    color: var(--fl-soft1);
-}
-
-.release-demos > .release-os > ul {
-    list-style: none;
+.docs-content .release-demo-table table {
+    /* the shared table rule clips and rounds; the box does that here, and a
+       clipping table would be the scroller a sticky name sticks to */
+    overflow: visible;
+    table-layout: fixed;
+    min-width: 760px;
     margin: 0;
+    border: 0;
+    border-radius: 0;
+    font-size: 15px;
+}
+.docs-content .release-demo-table th,
+.docs-content .release-demo-table td {
+    padding: 8px 6px;
+    overflow-wrap: anywhere;
+}
+.docs-content .release-demo-table thead th {
+    padding: 8px 4px;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    text-align: center;
+    vertical-align: bottom;
+}
+.docs-content .release-demo-table thead th:first-child {
+    width: 190px;
+    padding-left: 12px;
+    text-align: left;
+}
+/* the small line under a heading: what the file is for */
+.docs-content .release-demo-table th small {
+    display: block;
+    margin-top: 3px;
+    font-family: var(--font-serif);
+    font-size: 12.5px;
+    font-weight: 400;
+    font-variant: normal;
+    letter-spacing: 0;
+    line-height: 1.3;
+    color: var(--color-text-light);
+}
+
+/* the app: its name, what it is, what it needs */
+.docs-content .release-demo-table th.demo-app {
+    padding-left: 12px;
+    font-family: var(--font-serif);
+    font-size: 16px;
+    font-weight: 400;
+    font-variant: normal;
+    letter-spacing: 0;
+    text-align: left;
+    vertical-align: top;
+    color: var(--color-text);
+    background: var(--fl-sur);
+    border-bottom: 1px solid var(--fl-sep2);
+}
+.docs-content .release-demo-table tbody tr:nth-child(even) th.demo-app {
+    background: var(--fl-strip);
+}
+.docs-content .release-demo-table tbody tr:last-child th.demo-app {
+    border-bottom: none;
+}
+.docs-content .release-demo-table .demo-app strong,
+.docs-content .release-demo-table .demo-app span {
+    display: block;
+}
+.docs-content .release-demo-table .demo-desc {
+    margin-top: 2px;
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--color-text-light);
+}
+.docs-content .release-demo-table .demo-needs {
+    margin-top: 3px;
+    font-size: 13px;
+    font-style: italic;
+    line-height: 1.35;
+    color: var(--color-text-light);
+}
+
+/* the cells */
+.docs-content .release-demo-table td {
+    text-align: center;
+    vertical-align: middle;
+}
+/* the app is not built for this platform at all: a dash */
+.docs-content .release-demo-table td.demo-none {
+    color: var(--fl-soft2);
+}
+/* A build the manifest lists as failing: no link, the reason in small text
+   (the dimmed look of .is-missing is for links; a reason has to stay readable). */
+.docs-content .release-demo-table td.is-missing {
+    color: var(--color-text-light);
+}
+.docs-content .release-demo-table .demo-na {
+    display: block;
+    font-size: 13.5px;
+}
+.docs-content .release-demo-table .demo-reason {
+    display: block;
+    margin-top: 2px;
+    font-size: 12.5px;
+    line-height: 1.35;
+}
+/* A link the deploy found dead (scripts/prune_dead_release_links.py) is a span of the same cell. When its
+   build failed the span carries the first error of it, which can be long in a cell this narrow: the cell
+   shows the first lines and the whole text is the title of the span. */
+.docs-content .release-demo-table .release-link-missing {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 5;
+    line-clamp: 5;
+    overflow: hidden;
+    font-size: 13px;
+}
+
+@media (max-width: 800px) {
+    /* a phone shows the app's name and the next column or two; the rest scrolls */
+    .docs-content .release-demo-table table { min-width: 720px; }
+    .docs-content .release-demo-table thead th:first-child { width: 160px; }
+}
+@media (min-width: 801px) {
+    .docs-content .release-demo-table th.demo-app,
+    .docs-content .release-demo-table thead th:first-child {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        box-shadow: 1px 0 0 var(--fl-sep);
+    }
+    .docs-content .release-demo-table thead th:first-child {
+        z-index: 2;
+    }
+}
+
+/* ---- Demos: the web (Docker) rows under the table ----
+   One row under another: the command carries the whole URL of the Dockerfile
+   and scrolls inside its own box where the column is narrower than it. */
+.docs-content .release-demos-web {
+    list-style: none;
+    margin: 8px 0 28px;
     padding: 0;
 }
-
-.release-demos > .release-os > ul > li { margin: 0 0 2px; }
-
-.release-demos > .release-os-web {
-    grid-column: 1 / -1;
-    margin-top: 4px;
+.docs-content .release-demos-web > li {
+    margin: 0 0 14px;
+    font-size: 16px;
 }
-
-.release-demos > .release-os-web > ul {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: 12px 24px;
+.docs-content .release-demos-web pre {
+    margin: 4px 0 0;
 }
-
-.release-demos > .release-os-web pre { margin: 4px 0 0; }

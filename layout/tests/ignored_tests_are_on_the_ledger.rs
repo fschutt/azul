@@ -110,12 +110,28 @@ const LEDGER: &[Row] = &[
         reason: "needs a Mac on a network that carries multicast and the Local Network permission (X-EDGE-C-2)",
     },
     Row {
+        file: "dll/src/desktop/extra/iroh/bonjour_test.rs",
+        test: "bonjour_lists_what_the_mdns_lookup_announces_with_its_text",
+        kind: Kind::Hardware,
+        id: None,
+        owner: "dll/iroh",
+        reason: "needs a Mac on a network that carries multicast and the Local Network permission (X-EDGE-C-2)",
+    },
+    Row {
         file: "dll/src/desktop/extra/iroh/engine_test.rs",
         test: "two_endpoints_find_each_other_by_id_over_real_mdns",
         kind: Kind::Hardware,
         id: None,
         owner: "dll/iroh",
         reason: "needs a network that carries multicast between two endpoints of one process; a CI runner's does not (X-EDGE-C-2)",
+    },
+    Row {
+        file: "dll/src/desktop/extra/iroh/engine_test.rs",
+        test: "two_endpoints_list_each_other_over_real_mdns",
+        kind: Kind::Hardware,
+        id: None,
+        owner: "dll/iroh",
+        reason: "needs a network that carries multicast between two endpoints of one process, and a wait for an announcement to expire; a CI runner's network does not (X-EDGE-C-2)",
     },
     Row {
         file: "dll/src/desktop/extra/screencap/dmabuf.rs",
@@ -364,9 +380,11 @@ const COUNTS: &[(Kind, usize)] = &[
     (Kind::Diagnostic, 5),
     // + the built-in speech recogniser's real-engine test (dll/tests/speech_builtin_engine.rs): 11 -> 12.
     // + the two real-network tests of iroh's local discovery (extra/iroh/engine_test.rs, bonjour_test.rs): 12 -> 14.
-    // + the real desktop of a Mac (extra/desktop_state/desktop_state_test.rs): 14 -> 15.
-    // + the speech model fetched from the real server (dll/tests/speech_model_download.rs): 15 -> 16.
-    (Kind::Hardware, 16),
+    // + the listing of the endpoints of the local network over real mDNS (extra/iroh/engine_test.rs): 14 -> 15.
+    // + the Bonjour watch of an iPhone over real mDNS (extra/iroh/bonjour_test.rs): 15 -> 16.
+    // + the real desktop of a Mac (extra/desktop_state/desktop_state_test.rs): 16 -> 17.
+    // + the speech model fetched from the real server (dll/tests/speech_model_download.rs): 17 -> 18.
+    (Kind::Hardware, 18),
 ];
 
 /// The crates whose sources are scanned (`src/` and `tests/` of each).

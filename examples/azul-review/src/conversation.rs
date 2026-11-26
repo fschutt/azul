@@ -174,6 +174,9 @@ pub struct Conversation {
     pub logged: bool,
     /// The name of the patch file the last resolution wrote.
     pub patch: Option<String>,
+    /// The workspace's git revision when the conversation began (what its suggestions were made against): none where there is
+    /// no repository or the conversation began before the revision was kept.
+    pub base: Option<String>,
 }
 
 impl Default for Phase {

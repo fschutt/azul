@@ -58,6 +58,8 @@ contains
   ! dropped a value these bindings cannot build: `StyleTextAlignLastValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleTextTransformValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleDirectionValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  ! dropped a value these bindings cannot build: `StyleTextDecorationColorValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  ! dropped a value these bindings cannot build: `StyleTextDecorationThicknessValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleHyphenationLanguageValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleExclusionMarginValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `CaretWidthValue` is an ABI-opaque blob in the Fortran bindings (no constructor)

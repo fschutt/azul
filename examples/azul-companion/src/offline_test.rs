@@ -58,3 +58,12 @@ fn everything_the_screens_can_ask_of_it_is_harmless() {
     assert!(phone.view().files.error.is_some() && !phone.view().files.loading(), "a folder cannot be listed with no Mac");
     assert_eq!(phone.view().session, Session::Unpaired);
 }
+
+#[test]
+fn cancelling_the_search_goes_back_to_the_start_and_the_search_is_over() {
+    let mut phone = OfflinePhone::new();
+    phone.retry(0);
+    phone.cancel(10);
+    assert_eq!(phone.view().session, Session::Unpaired);
+    assert!(!phone.poll(SEARCH_MS * 2));
+}

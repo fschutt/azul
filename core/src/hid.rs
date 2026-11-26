@@ -169,12 +169,25 @@ impl_vec_partialeq!(HidReport, HidReportVec);
 pub struct HidManager {
     devices: Vec<HidDevice>,
     pending: Vec<HidReport>,
+    has_listeners: bool,
 }
 
 impl HidManager {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The relayout walk reports whether any node of the window listens for `HidReport`.
+    pub const fn set_has_listeners(&mut self, has: bool) {
+        self.has_listeners = has;
+    }
+
+    /// `true` while a node listens for `HidReport`: the first use of the HID devices, which the capability pump
+    /// enumerates for (and polls) only once something uses them.
+    #[must_use]
+    pub const fn has_listeners(&self) -> bool {
+        self.has_listeners
     }
 
     /// Replace the enumerated device list. Called by the backend at startup
@@ -210,6 +223,19 @@ impl HidManager {
 #[cfg(test)]
 mod instance_tests {
     use super::*;
+
+    /// A manager listens for nothing until the relayout walk says a node does, and is told again at every walk (a node
+    /// that stopped listening ends it); the listener flag is no part of what the manager holds of devices and reports.
+    #[test]
+    fn a_manager_listens_for_what_the_relayout_walk_says() {
+        let mut m = HidManager::new();
+        assert!(!m.has_listeners(), "nothing listens in a new window");
+        m.set_has_listeners(true);
+        assert!(m.has_listeners());
+        m.set_has_listeners(false);
+        assert!(!m.has_listeners(), "told again, it follows");
+        assert!(m.devices().is_empty() && m.reports().is_empty());
+    }
 
     /// Two identical pads (same vendor and product) with different serials
     /// get different, reconnect-stable ids; the same pad gets the same id

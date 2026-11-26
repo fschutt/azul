@@ -2,9 +2,10 @@
 //! takes it to the right bar. A pure state machine on an injected clock (the milliseconds the caller
 //! passes in) and on the pointer's samples; no window, no timer, no azul.
 //!
-//! - A recognised loop ([`crate::whiteboard_lasso`]) ARMS its region for [`ARM_MS`]. Armed, the
-//!   region has a visible grip on its outline (top right) and answers [`ArmedRegions::armed_region_at`]
-//!   (the lines it covers and its outline as an SVG shape: what a pen resting over it is about).
+//! - A recognised loop ([`crate::whiteboard_lasso`]) ARMS its region for [`ARM_MS`] (a setting: [`ARM_MIN_MS`] to
+//!   [`ARM_MAX_MS`], [`ArmedRegions::set_lifetime_ms`]). Armed, the region has a visible grip on its outline (top right) and
+//!   answers [`ArmedRegions::armed_region_at`] (the lines it covers and its outline as an SVG shape: what a pen resting over
+//!   it is about). How much of its time is left is [`ArmedRegion::fraction_left`]: the ring the page draws round the grip.
 //! - A plain press inside the region still inks: striking a word, underlining it, a quick slash are what
 //!   a person does inside a loop they just drew, and a drag that began like any other press would steal
 //!   exactly those strokes. The region is LIFTED by pressing its grip (at once), or by pressing and
@@ -16,8 +17,12 @@
 
 use crate::whiteboard_geom::{point_in_polygon, svg_path, Pt, Rect, Size};
 
-/// How long a recognised loop stays armed, ms.
+/// How long a recognised loop stays armed unless the setting says otherwise, ms.
 pub const ARM_MS: u64 = 8_000;
+/// The shortest and the longest a loop may stay armed (the setting is held to these): less is no time to reach for the
+/// grip, more leaves the page covered with loops nobody means any more.
+pub const ARM_MIN_MS: u64 = 2_000;
+pub const ARM_MAX_MS: u64 = 60_000;
 /// The side of the grip on the region's outline, px.
 pub const GRIP_PX: f32 = 22.0;
 /// How long a press inside the region is held before it lifts the region, ms.
@@ -58,6 +63,8 @@ pub struct ArmedRegion {
     pub last_line: u32,
     pub stroke_id: u64,
     pub armed_at_ms: u64,
+    /// How long it stays armed from `armed_at_ms`, ms (what the setting said when it was armed).
+    pub lifetime_ms: u64,
     /// The grip: on the outline at the top right, kept on the page.
     pub grip: Rect,
 }
@@ -72,22 +79,60 @@ impl ArmedRegion {
     /// When the region stops being armed.
     #[must_use]
     pub const fn expires_at_ms(&self) -> u64 {
-        self.armed_at_ms + ARM_MS
+        self.armed_at_ms.saturating_add(self.lifetime_ms)
     }
 
     fn live(&self, now_ms: u64) -> bool {
         now_ms < self.expires_at_ms()
     }
+
+    /// How much of its time is left at `now_ms`: 1 when it was armed, 0 when it is up (what a ring round the grip shows,
+    /// sweeping from a full circle to nothing).
+    #[must_use]
+    pub fn fraction_left(&self, now_ms: u64) -> f32 {
+        if self.lifetime_ms == 0 {
+            return 0.0;
+        }
+        let spent = now_ms.saturating_sub(self.armed_at_ms);
+        (1.0 - spent as f64 / self.lifetime_ms as f64).clamp(0.0, 1.0) as f32
+    }
+
+    /// The seconds left at `now_ms`, rounded up (what a screen reader says: "5 seconds left"); 0 when it is up.
+    #[must_use]
+    pub const fn seconds_left(&self, now_ms: u64) -> u64 {
+        self.expires_at_ms().saturating_sub(now_ms).div_ceil(1_000)
+    }
 }
 
 /// The regions armed now.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ArmedRegions {
     list: Vec<ArmedRegion>,
     next_id: RegionId,
+    /// How long a region armed from now on stays armed, ms.
+    lifetime_ms: u64,
+}
+
+impl Default for ArmedRegions {
+    fn default() -> Self {
+        Self { list: Vec::new(), next_id: 0, lifetime_ms: ARM_MS }
+    }
 }
 
 impl ArmedRegions {
+    /// How long a region armed now stays armed, ms.
+    #[must_use]
+    pub const fn lifetime_ms(&self) -> u64 {
+        self.lifetime_ms
+    }
+
+    /// How long the regions armed from now on stay armed (held to [`ARM_MIN_MS`]..=[`ARM_MAX_MS`]); what it is now. The
+    /// regions that are armed keep the time they were given.
+    pub fn set_lifetime_ms(&mut self, ms: u64) -> u64 {
+        self.lifetime_ms = ms.clamp(ARM_MIN_MS, ARM_MAX_MS);
+        self.lifetime_ms
+    }
+
     /// Arms a loop at `now_ms`; the newest region answers first, and past [`MAX_ARMED`] the oldest goes.
     pub fn arm(&mut self, armed: Armed, page: Size, now_ms: u64) -> RegionId {
         self.next_id += 1;
@@ -115,6 +160,7 @@ impl ArmedRegions {
             last_line: armed.last_line,
             stroke_id: armed.stroke_id,
             armed_at_ms: now_ms,
+            lifetime_ms: self.lifetime_ms,
             grip,
         });
         while self.list.len() > MAX_ARMED {
@@ -125,8 +171,14 @@ impl ArmedRegions {
 
     /// Lets go of the regions whose time is up; whether any went.
     pub fn expire(&mut self, now_ms: u64) -> bool {
+        self.expire_except(now_ms, None)
+    }
+
+    /// The same, but the region `keep` stays whatever its time (the one the pointer holds or carries: it is not let go of
+    /// under the hand; its time is up as soon as the pointer lets it go).
+    pub fn expire_except(&mut self, now_ms: u64, keep: Option<RegionId>) -> bool {
         let before = self.list.len();
-        self.list.retain(|r| r.live(now_ms));
+        self.list.retain(|r| r.live(now_ms) || Some(r.id) == keep);
         self.list.len() != before
     }
 
@@ -377,6 +429,15 @@ impl Drag {
     #[must_use]
     pub const fn is_active(&self) -> bool {
         !matches!(self.phase, Phase::Idle)
+    }
+
+    /// The region the press that is followed is on (held, or carried).
+    #[must_use]
+    pub const fn region(&self) -> Option<RegionId> {
+        match self.phase {
+            Phase::Idle => None,
+            Phase::Pressed { region, .. } | Phase::Dragging { region, .. } => Some(region),
+        }
     }
 
     /// The region the pointer carries, and where.

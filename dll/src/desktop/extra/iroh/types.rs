@@ -1,7 +1,10 @@
 //! Plain data of the `azul.iroh` API, shared by the native engine and the wasm stub.
 
 use azul_core::tls::TrustRoots;
-use azul_css::{impl_option, AzString, OptionStringVec, StringVec, U8Vec};
+use azul_css::{
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_partialeq, AzString,
+    OptionStringVec, StringVec, U8Vec,
+};
 
 /// Where an endpoint may relay traffic when no direct UDP path to a peer exists.
 #[repr(C)]
@@ -44,6 +47,15 @@ pub struct IrohConfig {
     pub alpn: AzString,
     /// Relay server URL, used when `relay_mode` is `Custom`.
     pub relay_url: AzString,
+    /// What this endpoint says about itself to the computers on the local network, next to its
+    /// endpoint id and its addresses: a short text the apps agree on (a project id, a display
+    /// name). Empty (the default): nothing but the id and the addresses is announced. At most 245
+    /// bytes of UTF-8 (what a DNS TXT string holds after its key): control characters and
+    /// bidirectional overrides are removed, a longer text is cut at a character boundary and
+    /// `IrohEndpoint::local_discovery_status` says so. Announced only while `local_discovery` is
+    /// on and the endpoint announces itself (see [`IrohConfig::with_local_discovery`]), to the
+    /// local link and nowhere else; `IrohEndpoint::set_advertised` changes it while bound.
+    pub advertised: AzString,
     /// 32-byte secret key that fixes the endpoint id. Empty generates a new identity.
     pub secret_key: U8Vec,
     /// Relay fallback for peers without a direct path.
@@ -71,6 +83,7 @@ impl IrohConfig {
             relay_mode: IrohRelayMode::Default,
             relay_only: false,
             relay_url: AzString::from_const_str(""),
+            advertised: AzString::from_const_str(""),
             secret_key: U8Vec::from_const_slice(&[]),
             trust_roots: TrustRoots::app_default(),
             allowed_peers: OptionStringVec::None,
@@ -131,6 +144,14 @@ impl IrohConfig {
         self
     }
 
+    /// Returns the config that tells the computers on the local network `text` about this
+    /// endpoint (see [`IrohConfig::advertised`]): an app that finds its other instances there
+    /// puts a short project id and a display name in it. Nothing is announced by default.
+    pub fn with_advertised(mut self, text: AzString) -> Self {
+        self.advertised = text;
+        self
+    }
+
     /// Returns the config with local-network discovery switched on or off. On (the default), the
     /// endpoint finds peers on the local network by their endpoint id alone (mDNS), so a phone
     /// finds a Mac whose address changed without the ticket's saved addresses or a relay, and it
@@ -162,6 +183,13 @@ pub enum IrohEventKind {
     Message,
     /// A bind, dial or transport failure. `text` describes it.
     Error,
+    /// An endpoint on the local network announced itself, or what it announced changed. `text`
+    /// is its endpoint id, `data` the text it advertises (UTF-8, may be empty);
+    /// `IrohEndpoint::nearby_peers` has its addresses. It is never dialed by itself.
+    NearbyAppeared,
+    /// An endpoint that was reported as `NearbyAppeared` is no longer announcing itself. `text`
+    /// is its endpoint id.
+    NearbyGone,
 }
 
 impl Default for IrohEventKind {
@@ -223,6 +251,42 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq]
 );
+
+/// One endpoint on the local network, as `IrohEndpoint::nearby_peers` lists it: what it
+/// announced, cut down (see [`IrohConfig::advertised`]) and not dialed.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct IrohNearbyPeer {
+    /// Its endpoint id: what `IrohEndpoint::connect` takes to dial it.
+    pub endpoint_id: AzString,
+    /// What it advertises about itself (its `IrohConfig::advertised`), cleaned; empty when it
+    /// advertises nothing.
+    pub advertised: AzString,
+    /// The `ip:port` addresses it announced that a dial can use, at most 16.
+    pub addresses: StringVec,
+}
+
+impl_option!(
+    IrohNearbyPeer,
+    OptionIrohNearbyPeer,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+impl_vec!(
+    IrohNearbyPeer,
+    IrohNearbyPeerVec,
+    IrohNearbyPeerVecDestructor,
+    IrohNearbyPeerVecDestructorType,
+    IrohNearbyPeerVecSlice,
+    OptionIrohNearbyPeer
+);
+impl_vec_debug!(IrohNearbyPeer, IrohNearbyPeerVec);
+impl_vec_clone!(
+    IrohNearbyPeer,
+    IrohNearbyPeerVec,
+    IrohNearbyPeerVecDestructor
+);
+impl_vec_partialeq!(IrohNearbyPeer, IrohNearbyPeerVec);
 
 /// Path and throughput statistics of one connection.
 #[repr(C)]
