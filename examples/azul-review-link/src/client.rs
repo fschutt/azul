@@ -138,6 +138,8 @@ pub struct PhoneClient<L: Link> {
     next_dial: Option<Millis>,
     /// "Find my Mac" without a pairing code ends then.
     search_until: Option<Millis>,
+    /// The Mac announced itself on the local network: the next dial is by its key (the engine finds its address).
+    dial_by_key: bool,
     next_request: u32,
     viewport_seq: u32,
     gestures: Pacer<Step>,
@@ -194,6 +196,7 @@ impl<L: Link> PhoneClient<L> {
             was_up: false,
             next_dial,
             search_until: None,
+            dial_by_key: false,
             next_request: 1,
             viewport_seq: 0,
             gestures: Pacer::new(VIEWPORT_MAX_HZ),
@@ -305,21 +308,35 @@ impl<L: Link> PhoneClient<L> {
         (RECONNECT_FIRST_MS << attempt.saturating_sub(1).min(8)).min(RECONNECT_MAX_MS)
     }
 
+    /// What can be dialed to reach the Mac: the addresses it was reached at (the newest first), then its key: the engine finds a peer of
+    /// the local network by its key alone, also after its address changed, so the key is the way back when every address is stale.
+    fn dial_candidates(&self) -> Vec<String> {
+        let mut candidates = self.addresses.candidates().to_vec();
+        if let Some(mac) = &self.stored.mac {
+            if !mac.mac_id.is_empty() && !candidates.contains(&mac.mac_id) {
+                candidates.push(mac.mac_id.clone());
+            }
+        }
+        candidates
+    }
+
     /// Dials the Mac (the offer's ticket, or the next saved address).
     fn dial(&mut self, now: Millis) {
         self.next_dial = None;
         let ticket = match &self.goal {
             Goal::Pairing(offer) => offer.ticket.clone(),
             Goal::Saved => {
-                let candidates = self.addresses.candidates();
-                if candidates.is_empty() {
-                    // nothing to dial: the phone cannot find the Mac by itself, only a new pairing (or the Mac announcing itself) helps
+                let candidates = self.dial_candidates();
+                let Some(last) = candidates.len().checked_sub(1) else {
+                    // no address and no key: only a new pairing helps
                     self.diag("the phone has no address of the Mac".to_string());
                     self.show(Session::Failed { kind: FailureKind::AddressChanged });
                     self.next_dial = Some(now + RECONNECT_SLOW_MS);
                     return;
-                }
-                candidates[self.attempt as usize % candidates.len()].clone()
+                };
+                // the Mac announced itself: its key is the way (the last candidate); else the addresses are tried in turn
+                let index = if std::mem::take(&mut self.dial_by_key) { last } else { self.attempt as usize % candidates.len() };
+                candidates[index].clone()
             }
             Goal::Nobody => return,
         };
@@ -769,10 +786,8 @@ impl<L: Link> PhoneClient<L> {
             if self.goal != Goal::Saved || self.halted || Some(&near.endpoint_id) != known.as_ref() || !matches!(self.conn, Conn::Down) {
                 continue;
             }
-            // the Mac announced itself: its addresses are the newest there are, and the wait is over
-            for address in near.addresses.iter().rev().filter(|a| is_valid_ticket(a)) {
-                self.addresses.remember(address);
-            }
+            // the Mac announced itself: the wait is over, and its key is the way (the engine knows its address now)
+            self.dial_by_key = true;
             self.attempt = 0;
             self.next_dial = Some(now);
         }
@@ -1015,6 +1030,7 @@ impl<L: Link> PhoneApi for PhoneClient<L> {
         self.halted = false;
         self.attempt = 0;
         self.search_until = None;
+        self.dial_by_key = false;
         self.next_dial = Some(now);
         self.show(Session::Searching { attempt: 1 });
         Ok(())
@@ -1052,6 +1068,10 @@ impl<L: Link> PhoneApi for PhoneClient<L> {
                 self.goal = Goal::Saved;
                 self.halted = false;
                 self.next_dial = Some(now);
+                // the name of the Mac the aborted pairing met is not the name of the one the phone is paired with
+                if let Some(mac) = &self.stored.mac {
+                    self.view.mac_name.clone_from(&mac.name);
+                }
                 self.show(Session::Searching { attempt: 1 });
             }
             Goal::Pairing(_) | Goal::Nobody => {
@@ -1076,6 +1096,7 @@ impl<L: Link> PhoneApi for PhoneClient<L> {
         self.goal = Goal::Nobody;
         self.halted = false;
         self.attempt = 0;
+        self.dial_by_key = false;
         self.was_up = false;
         self.next_dial = None;
         self.search_until = None;

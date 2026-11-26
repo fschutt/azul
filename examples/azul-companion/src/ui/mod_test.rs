@@ -88,7 +88,8 @@ impl PhoneApi for TestApi {
 
     fn begin_pairing(&mut self, _now: Millis, offer: &str) -> Result<(), OfferError> {
         self.calls.lock().unwrap().push(Call::BeginPairing(offer.to_string()));
-        Ok(())
+        // the real answer: the text is an offer or it says why not
+        azul_review_link::pairing::PairingOffer::parse(offer).map(|_| ())
     }
 
     fn retry(&mut self, _now: Millis) {
@@ -556,4 +557,55 @@ fn a_cancelled_gesture_ends_at_the_mac_and_the_hint_can_be_dismissed() {
     root.ui.hint = true;
     root.perform(3, Action::DismissHint);
     assert!(!root.ui.hint);
+}
+
+// ---- pasting the pairing code
+
+fn offer_text() -> String {
+    azul_review_link::pairing::PairingOffer { ticket: "t-1".into(), secret: [3; 16] }.to_text()
+}
+
+fn toast_key(root: &Root) -> Option<&str> {
+    root.ui.toast.as_ref().map(|t| t.0.as_str())
+}
+
+#[test]
+fn the_text_of_an_offer_from_the_clipboard_starts_the_pairing() {
+    let (mut root, calls) = root_with(PhoneView::new());
+    root.ui.pair_again = true;
+    root.perform(0, Action::PairPaste(format!("  {}\n", offer_text())));
+    assert_eq!(taken(&calls), [Call::BeginPairing(format!("  {}\n", offer_text()))], "the text goes as it is: the connection trims it");
+    assert_eq!(toast_key(&root), None);
+    assert!(!root.ui.pair_again, "the pairing screen of a Mac that could not be reached is over");
+}
+
+#[test]
+fn nothing_on_the_clipboard_says_so_and_asks_nothing_of_the_connection() {
+    let (mut root, calls) = root_with(PhoneView::new());
+    for text in ["", "   \n\t "] {
+        root.perform(0, Action::PairPaste(text.into()));
+        assert_eq!(toast_key(&root), Some("pair-paste-empty"), "{text:?}");
+    }
+    assert!(taken(&calls).is_empty());
+}
+
+#[test]
+fn a_text_that_is_no_offer_says_why_in_words() {
+    let good = offer_text();
+    let mut damaged = good.clone();
+    // the check of the offer is the third part: a changed digit is a damaged offer
+    let at = good.splitn(3, ':').take(2).map(|p| p.len() + 1).sum::<usize>();
+    let flipped = if damaged.as_bytes()[at] == b'0' { "1" } else { "0" };
+    damaged.replace_range(at..=at, flipped);
+    for (text, key) in [
+        ("hello there".to_string(), "pair-paste-not-offer"),
+        ("azrv9:00:00:x".to_string(), "pair-paste-version"),
+        (damaged, "pair-paste-damaged"),
+        ("x".repeat(5_000), "pair-paste-toolong"),
+    ] {
+        let (mut root, calls) = root_with(PhoneView::new());
+        root.perform(0, Action::PairPaste(text.clone()));
+        assert_eq!(toast_key(&root), Some(key), "{}", &text[..text.len().min(20)]);
+        assert_eq!(taken(&calls).len(), 1, "the connection was asked and said no");
+    }
 }

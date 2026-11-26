@@ -42,9 +42,14 @@ pub struct FieldCtx {
 }
 
 /// A tap (a click, a press of Enter or Space on a focused key): does what the key says.
-pub extern "C" fn on_act(mut data: RefAny, _info: CallbackInfo) -> Update {
+pub extern "C" fn on_act(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some((mut root_ref, action)) = data.downcast_ref::<ActCtx>().map(|c| (c.root.clone(), c.action.clone())) else {
         return Update::DoNothing;
+    };
+    // "Paste pairing code": the text is on the system clipboard now
+    let action = match action {
+        Action::PairPaste(_) => Action::PairPaste(clipboard_text(&info)),
+        other => other,
     };
     let Some(mut root) = root_ref.downcast_mut::<Root>() else {
         return Update::DoNothing;
@@ -55,6 +60,11 @@ pub extern "C" fn on_act(mut data: RefAny, _info: CallbackInfo) -> Update {
     } else {
         Update::DoNothing
     }
+}
+
+/// The text the system clipboard holds (empty when it holds none).
+fn clipboard_text(info: &CallbackInfo) -> String {
+    info.get_system_clipboard().into_option().map(|content| content.plain_text.as_str().to_string()).unwrap_or_default()
 }
 
 /// A callback that carries the app and an action, for a node that is no key (a long press on one).

@@ -5,9 +5,9 @@
 
 use std::time::{Duration, Instant};
 
-use azul::iroh::{IrohEvent, IrohEventKind, IrohPeerStats, IrohRelayMode};
+use azul::iroh::{IrohEvent, IrohEventKind, IrohNearbyPeer, IrohPeerStats, IrohRelayMode};
 use azul::str::String as AzString;
-use azul::vec::U8Vec;
+use azul::vec::{StringVec, U8Vec};
 
 use super::*;
 use crate::client::{ClientConfig, PhoneClient};
@@ -26,36 +26,111 @@ fn event(kind: IrohEventKind, peer: u64, text: &str, data: &[u8], track: u32) ->
 
 #[test]
 fn a_ready_event_is_the_ticket() {
-    assert_eq!(link_event(&event(IrohEventKind::Ready, 0, "the-ticket", &[], 0)), LinkEvent::Ready { ticket: "the-ticket".into() });
+    assert_eq!(link_event(&event(IrohEventKind::Ready, 0, "the-ticket", &[], 0)), Some(LinkEvent::Ready { ticket: "the-ticket".into() }));
 }
 
 #[test]
 fn a_connection_is_a_peer_handle_and_the_remote_key() {
-    assert_eq!(link_event(&event(IrohEventKind::PeerConnected, 3, "abcd", &[], 0)), LinkEvent::Connected { peer: 3, id: "abcd".into() });
-    assert_eq!(link_event(&event(IrohEventKind::PeerDisconnected, 3, "closed", &[], 0)), LinkEvent::Disconnected { peer: 3, reason: "closed".into() });
+    assert_eq!(link_event(&event(IrohEventKind::PeerConnected, 3, "abcd", &[], 0)), Some(LinkEvent::Connected { peer: 3, id: "abcd".into() }));
+    assert_eq!(link_event(&event(IrohEventKind::PeerDisconnected, 3, "closed", &[], 0)), Some(LinkEvent::Disconnected { peer: 3, reason: "closed".into() }));
 }
 
 #[test]
 fn a_message_is_reliable_and_a_frame_is_newest_wins_on_its_track() {
-    assert_eq!(link_event(&event(IrohEventKind::Message, 2, "", &[1, 2, 3], 0)), LinkEvent::Received { peer: 2, bytes: vec![1, 2, 3], delivery: Delivery::Reliable });
-    assert_eq!(link_event(&event(IrohEventKind::Frame, 2, "", &[9], 2)), LinkEvent::Received { peer: 2, bytes: vec![9], delivery: Delivery::Latest(2) });
+    assert_eq!(link_event(&event(IrohEventKind::Message, 2, "", &[1, 2, 3], 0)), Some(LinkEvent::Received { peer: 2, bytes: vec![1, 2, 3], delivery: Delivery::Reliable }));
+    assert_eq!(link_event(&event(IrohEventKind::Frame, 2, "", &[9], 2)), Some(LinkEvent::Received { peer: 2, bytes: vec![9], delivery: Delivery::Latest(2) }));
     assert_eq!(
         link_event(&event(IrohEventKind::Frame, 2, "", &[9], 70_000)),
-        LinkEvent::Received { peer: 2, bytes: vec![9], delivery: Delivery::Latest(u8::MAX) },
+        Some(LinkEvent::Received { peer: 2, bytes: vec![9], delivery: Delivery::Latest(u8::MAX) }),
         "a track the protocol does not have is the last of them, whatever the peer says"
     );
 }
 
 #[test]
 fn an_error_is_a_failure_and_one_the_system_caused_says_so() {
-    assert_eq!(link_event(&event(IrohEventKind::Error, 0, "no answer from abcd", &[], 0)), LinkEvent::Failed { text: "no answer from abcd".into() });
-    for text in ["Operation not permitted (os error 1)", "bind: Permission denied", "the Local Network switch is off"] {
-        let LinkEvent::Failed { text: said } = link_event(&event(IrohEventKind::Error, 0, text, &[], 0)) else {
+    assert_eq!(link_event(&event(IrohEventKind::Error, 0, "no answer from abcd", &[], 0)), Some(LinkEvent::Failed { text: "no answer from abcd".into() }));
+    for text in [
+        "Operation not permitted (os error 1)",
+        "bind: Permission denied",
+        "the Local Network switch is off",
+        "the lookup of the Mac failed: kDNSServiceErr_PolicyDenied",
+    ] {
+        let Some(LinkEvent::Failed { text: said }) = link_event(&event(IrohEventKind::Error, 0, text, &[], 0)) else {
             panic!("a failure was expected");
         };
         assert!(said.starts_with(PERMISSION_PREFIX), "{said}");
         assert!(said.ends_with(text), "the engine's words stay: {said}");
     }
+}
+
+fn advert_text() -> String {
+    crate::advert::encode(&crate::advert::Advert { project: crate::advert::project_hash("the repo"), name: "Studio Mac".into(), user: String::new(), role: Some(crate::frame::Role::Host) })
+}
+
+#[test]
+fn an_announcement_of_the_local_network_is_a_neighbour_with_its_text_and_the_addresses_the_engine_lists() {
+    let announced = event(IrohEventKind::NearbyAppeared, 0, "abcd", advert_text().as_bytes(), 0);
+    let Some(NearbyEvent::Appeared(near)) = nearby_event(&announced, vec!["192.168.1.5:4000".into()]) else {
+        panic!("an announcement was expected");
+    };
+    assert_eq!(near.endpoint_id, "abcd");
+    assert_eq!(near.addresses, ["192.168.1.5:4000"]);
+    assert_eq!(near.advert.map(|a| (a.name, a.role)), Some(("Studio Mac".to_string(), Some(crate::frame::Role::Host))));
+}
+
+#[test]
+fn what_a_stranger_announces_is_a_neighbour_without_an_advert_and_never_a_crash() {
+    for bytes in [&b"some other app's text"[..], &[0xff, 0xfe, 0x00][..], &[][..]] {
+        let Some(NearbyEvent::Appeared(near)) = nearby_event(&event(IrohEventKind::NearbyAppeared, 0, "abcd", bytes, 0), Vec::new()) else {
+            panic!("an announcement was expected");
+        };
+        assert_eq!((near.endpoint_id.as_str(), near.advert), ("abcd", None));
+    }
+}
+
+#[test]
+fn a_neighbour_that_goes_is_named_by_its_key_and_nothing_else_is_news() {
+    assert_eq!(nearby_event(&event(IrohEventKind::NearbyGone, 0, "abcd", &[], 0), Vec::new()), Some(NearbyEvent::Gone("abcd".into())));
+    for kind in [IrohEventKind::Ready, IrohEventKind::PeerConnected, IrohEventKind::Frame, IrohEventKind::Message, IrohEventKind::Error] {
+        assert_eq!(nearby_event(&event(kind, 1, "x", b"y", 1), Vec::new()), None, "{kind:?}");
+    }
+    // and an announcement is not a connection
+    assert_eq!(link_event(&event(IrohEventKind::NearbyAppeared, 0, "abcd", b"text", 0)), None);
+    assert_eq!(link_event(&event(IrohEventKind::NearbyGone, 0, "abcd", &[], 0)), None);
+}
+
+#[test]
+fn a_neighbour_the_engine_lists_is_read_the_same_way() {
+    let listed = IrohNearbyPeer { endpoint_id: AzString::from("abcd"), advertised: AzString::from(advert_text().as_str()), addresses: StringVec::from_vec(vec![AzString::from("10.0.0.2:5000"), AzString::from("[fe80::1]:5000")]) };
+    let near = neighbour(&listed);
+    assert_eq!(near.endpoint_id, "abcd");
+    assert_eq!(near.addresses, ["10.0.0.2:5000", "[fe80::1]:5000"]);
+    assert_eq!(near.advert.map(|a| a.name), Some("Studio Mac".to_string()));
+}
+
+#[test]
+fn an_advertised_text_is_part_of_what_is_bound_and_a_link_without_neighbours_has_none() {
+    let Ok(link) = IrohLink::bind(&IrohOptions { advertised: Some(advert_text()), ..IrohOptions::default() }) else {
+        return;
+    };
+    let mut discovery = link.discovery();
+    assert!(discovery.nearby().is_empty(), "nobody else announces on this test's endpoint");
+    assert!(discovery.poll(0).is_empty());
+    assert!(!link.discovery_status().is_empty(), "the engine says what it does for the local network");
+}
+
+#[test]
+fn an_app_can_extend_the_config_and_bind_it() {
+    // the same key through `config` and `bind_config` is the same endpoint as through `bind`
+    let key = [9u8; 32];
+    let Ok(first) = IrohLink::bind(&IrohOptions { secret_key: Some(key), ..IrohOptions::default() }) else {
+        return;
+    };
+    let id = first.local_id();
+    drop(first);
+    let config = IrohLink::config(&IrohOptions { secret_key: Some(key), ..IrohOptions::default() }).with_max_frame_bytes(1_000_000);
+    let again = IrohLink::bind_config(config).expect("a config made from the options binds");
+    assert_eq!(again.local_id(), id);
 }
 
 #[test]
@@ -74,13 +149,13 @@ fn the_engines_numbers_become_the_links() {
 
 #[test]
 fn the_defaults_are_no_relay_and_a_new_key() {
-    assert_eq!(IrohOptions::default(), IrohOptions { secret_key: None, relay: false });
+    assert_eq!(IrohOptions::default(), IrohOptions { secret_key: None, relay: false, advertised: None });
 }
 
 // ---- the transport (needs the engine)
 
 fn quiet() -> IrohOptions {
-    IrohOptions { secret_key: None, relay: false }
+    IrohOptions::default()
 }
 
 /// A bound link, or `None` when this libazul has no iroh engine (the test is skipped, or fails when the run says the engine must be there).

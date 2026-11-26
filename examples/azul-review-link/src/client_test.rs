@@ -547,6 +547,20 @@ fn cancelling_a_new_pairing_leaves_the_old_mac_and_looks_for_it_again() {
 }
 
 #[test]
+fn cancelling_a_pairing_with_another_mac_brings_back_the_name_of_the_one_the_phone_is_paired_with() {
+    let mut rig = Rig::saved();
+    let other = PairingOffer { ticket: "another-macs-ticket".into(), secret: [4; 16] };
+    rig.phone.begin_pairing(rig.now, &other.to_text()).expect("an offer");
+    rig.connect_as(1, &"ee".repeat(16));
+    rig.link.frame(1, &Frame::Hello(Hello { role: Role::Host, protocol: 1, min_protocol: 1, app_version: "0.1.0".into(), name: "Other Mac".into(), ticket: String::new() }));
+    rig.poll();
+    assert!(matches!(rig.session(), Session::Pairing { ref mac_name, .. } if mac_name == "Other Mac"), "{:?}", rig.session());
+    rig.phone.cancel(rig.now);
+    assert_eq!(rig.phone.view().mac_name, "Studio Mac");
+    assert_eq!(rig.session(), Session::Searching { attempt: 1 });
+}
+
+#[test]
 fn cancelling_the_search_for_the_kept_mac_stops_it_and_says_it_was_not_found() {
     let mut rig = Rig::saved();
     rig.poll();
@@ -885,8 +899,16 @@ fn a_dial_that_cannot_even_start_is_a_failed_dial() {
 }
 
 #[test]
-fn a_paired_phone_with_no_address_at_all_says_the_address_changed_and_does_not_dial() {
+fn a_paired_phone_with_no_saved_address_dials_the_macs_key() {
     let mut rig = Rig::with_store(MemoryStore::with(Stored { secret_key: None, mac: Some(SavedMac { mac_id: MAC_ID.into(), name: "Studio Mac".into(), tickets: vec![] }) }));
+    rig.poll();
+    assert_eq!(rig.link.connects(), [MAC_ID], "the engine finds a Mac of the local network by its key");
+}
+
+#[test]
+fn a_paired_phone_with_no_address_and_no_key_says_the_address_changed_and_does_not_dial() {
+    // (a store never holds such a Mac: a Mac without a key is not read; this is the phone's own last line of defence)
+    let mut rig = Rig::with_store(MemoryStore::with(Stored { secret_key: None, mac: Some(SavedMac { mac_id: String::new(), name: "Studio Mac".into(), tickets: vec![] }) }));
     rig.advance(20_000);
     assert!(rig.link.connects().is_empty());
     assert_eq!(rig.failed(), Some(FailureKind::AddressChanged));
@@ -996,11 +1018,22 @@ fn a_mac_that_is_down_is_tried_again_and_found_when_it_comes_back() {
 }
 
 #[test]
-fn a_mac_whose_address_changed_is_found_through_discovery_without_waiting() {
+fn a_mac_whose_address_changed_is_found_again_by_its_key_on_the_next_try() {
+    let mut duo = Duo::paired();
+    duo.net.set_knobs(Knobs { latency_ms: 1, discovery: true, ..Knobs::default() });
+    duo.net.change_address("mac");
+    duo.net.kill_connections(duo.now, "mac");
+    // the saved address leads nowhere; the second try is by the Mac's key, and the local network finds it
+    duo.wait(RECONNECT_FIRST_MS + 400 + RECONNECT_FIRST_MS * 2 + 200);
+    assert!(duo.phone.is_active(), "{:?}", duo.session());
+}
+
+#[test]
+fn a_mac_whose_address_changed_on_a_network_with_no_discovery_says_so_and_is_found_when_it_announces_itself() {
     let mut duo = Duo::paired();
     duo.net.change_address("mac");
     duo.net.kill_connections(duo.now, "mac");
-    // the old address leads nowhere: six failed dials and the phone says so
+    // the old address leads nowhere and a key is no address here: six failed dials and the phone says so
     for _ in 0..400 {
         duo.wait(1_000);
         if duo.session() == (Session::Failed { kind: FailureKind::AddressChanged }) {
@@ -1009,13 +1042,39 @@ fn a_mac_whose_address_changed_is_found_through_discovery_without_waiting() {
     }
     assert_eq!(duo.session(), Session::Failed { kind: FailureKind::AddressChanged });
     // another Mac announces itself: not ours, nothing happens
-    duo.discovery.appear(Nearby::from_announcement(&MockNet::key("stranger"), "", vec![format!("mt-{}-1", MockNet::key("stranger"))]));
+    duo.discovery.appear(Nearby::from_announcement(&MockNet::key("stranger"), "", vec![]));
     duo.step(50);
     assert_eq!(duo.session(), Session::Failed { kind: FailureKind::AddressChanged });
-    // ours announces itself at its new address: dialed at once
-    duo.discovery.appear(Nearby::from_announcement(&Duo::host_key(), "", vec![format!("mt-{}-2", Duo::host_key())]));
+    // the network can find it now, and ours announces itself: dialed at once, by its key
+    duo.net.set_knobs(Knobs { latency_ms: 1, discovery: true, ..Knobs::default() });
+    duo.discovery.appear(Nearby::from_announcement(&Duo::host_key(), "", vec!["192.168.1.7:4000".into()]));
     duo.step(60);
     assert!(duo.phone.is_active(), "{:?}", duo.session());
+}
+
+#[test]
+fn the_macs_key_is_the_last_thing_the_phone_dials_after_the_addresses_it_saved() {
+    let mut store = saved_mac();
+    store.mac.as_mut().expect("a Mac").tickets = vec!["first-ticket".into(), "second-ticket".into()];
+    let mut rig = Rig::with_store(MemoryStore::with(store));
+    for _ in 0..4 {
+        rig.poll();
+        rig.link.say(LinkEvent::Failed { text: "no answer".into() });
+        rig.advance(RECONNECT_MAX_MS + 100);
+    }
+    assert_eq!(rig.link.connects()[..4], ["first-ticket", "second-ticket", MAC_ID, "first-ticket"], "the key after the addresses, then round again");
+}
+
+#[test]
+fn a_mac_that_announces_itself_is_dialed_by_its_key_at_once() {
+    let mut rig = Rig::saved();
+    rig.poll();
+    rig.link.say(LinkEvent::Failed { text: "no answer".into() });
+    rig.poll();
+    assert_eq!(rig.link.connects(), [MAC_TICKET]);
+    rig.discovery.appear(Nearby::from_announcement(MAC_ID, "", vec![]));
+    rig.poll();
+    assert_eq!(rig.link.connects(), [MAC_TICKET, MAC_ID], "no waiting for the backoff, and not the saved address again");
 }
 
 #[test]

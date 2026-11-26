@@ -8,6 +8,7 @@ use std::time::Instant;
 use azul_review_link::frame::{is_safe_relative_path, AgentFinished, ButtonSet, Focus, Haptic, Phase, QuickButton, Rect, ReplyStatus};
 use azul_review_link::limits::Capped;
 use azul_review_link::link::Millis;
+use azul_review_link::pairing::OfferError;
 use azul_review_link::phone::PhoneApi;
 use azul_review_link::view::{PhoneView, Session};
 use azul_review_link::viewport::{apply_gesture_in, resolve_focus, PanDirection, Space};
@@ -61,6 +62,8 @@ pub enum Action {
     ForgetNo,
     PairFind,
     PairScan,
+    /// "Paste pairing code": the pairing text AzReview showed, from the clipboard (the shell fills it in when the key is tapped).
+    PairPaste(String),
     PairCancel,
     PairRetry,
     PairStart,
@@ -107,6 +110,8 @@ pub struct Ui {
     pub pair_card: bool,
     /// The pairing screen is open over a Mac that cannot be reached ("Pair again").
     pub pair_again: bool,
+    /// The screens are drawn as the phone's own app draws them (a scene of the layout study: the simulator shows less on the pairing screen).
+    pub device_look: bool,
     /// What the session was at the last look (a pairing that just went through shows the card).
     pub last_session: SessionKind,
     /// When each button's last status was first seen (the green tick goes away after a while).
@@ -177,6 +182,7 @@ impl Ui {
             hint: true,
             pair_card: false,
             pair_again: false,
+            device_look: false,
             last_session: SessionKind::Unpaired,
             status_seen: [None; 4],
             suppress_click_until: 0,
@@ -329,6 +335,23 @@ impl Root {
         changed
     }
 
+    /// Starts pairing with the text from the clipboard. The key of the words that say why it was not an offer, when it was not.
+    fn pair_with_text(&mut self, now: Millis, text: &str) -> Result<(), &'static str> {
+        if text.trim().is_empty() {
+            return Err("pair-paste-empty");
+        }
+        match self.api.begin_pairing(now, text) {
+            Ok(()) => {
+                self.ui.pair_again = false;
+                Ok(())
+            }
+            Err(OfferError::NotAnOffer) => Err("pair-paste-not-offer"),
+            Err(OfferError::WrongVersion) => Err("pair-paste-version"),
+            Err(OfferError::BadSecret | OfferError::BadCheck | OfferError::BadTicket) => Err("pair-paste-damaged"),
+            Err(OfferError::TooLong) => Err("pair-paste-toolong"),
+        }
+    }
+
     /// Does what a tap asks. True when the DOM must be built again.
     pub fn perform(&mut self, now: Millis, action: Action) -> bool {
         match action {
@@ -460,6 +483,12 @@ impl Root {
             }
             Action::PairFind | Action::PairRetry => {
                 self.api.retry(now);
+                true
+            }
+            Action::PairPaste(text) => {
+                if let Err(key) = self.pair_with_text(now, &text) {
+                    self.ui.toast = Some((String::from(key), now));
+                }
                 true
             }
             Action::PairScan => {

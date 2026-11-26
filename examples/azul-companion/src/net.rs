@@ -98,11 +98,14 @@ pub fn connect_in(dir: Option<&Path>, app_version: &str) -> Net {
     let mut store = store_in(dir, &mut notes);
     let (key, said) = load_identity(store.as_mut(), &mut OsEntropy);
     notes.extend(said);
-    match IrohLink::bind(&IrohOptions { secret_key: Some(key), relay: false }) {
+    match IrohLink::bind(&IrohOptions { secret_key: Some(key), ..IrohOptions::default() }) {
         Ok(link) => {
             let id = link.local_id();
             let config = ClientConfig { phone_name: phone_name(&id), app_version: app_version.to_string() };
-            Net { api: Box::new(PhoneClient::new(link, config, store)), notes }
+            // the phone announces nothing (an iPhone only looks); it learns from the local network when its Mac appears
+            let discovery = link.discovery();
+            notes.push(format!("the local network: {}", link.discovery_status()));
+            Net { api: Box::new(PhoneClient::new(link, config, store).with_discovery(Box::new(discovery))), notes }
         }
         Err(why) => {
             notes.push(format!("the network did not start: {why}"));

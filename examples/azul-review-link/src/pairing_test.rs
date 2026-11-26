@@ -228,3 +228,10 @@ fn a_ticket_is_letters_digits_dashes_and_underscores_and_not_longer_than_any_tic
     assert!(is_valid_ticket(&"a".repeat(MAX_TICKET_BYTES)));
     assert!(!is_valid_ticket(&"a".repeat(MAX_TICKET_BYTES + 1)));
 }
+
+#[test]
+fn the_sample_offer_in_the_simulators_instructions_is_a_good_offer() {
+    // RUN.txt of the simulator tells the user to copy this line and paste it with "Paste pairing code"
+    let sample = "azrv1:01010101010101010101010101010101:61a8c0b3:sim-demo-ticket";
+    assert_eq!(PairingOffer::parse(sample), Ok(PairingOffer { ticket: "sim-demo-ticket".into(), secret: [1; PAIRING_SECRET_BYTES] }));
+}

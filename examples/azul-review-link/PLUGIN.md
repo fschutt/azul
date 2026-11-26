@@ -34,7 +34,9 @@ The link mode of `azul-dll` (link-dynamic or link-static) is AzReview's own choi
 use azul_review_link::iroh_link::{IrohLink, IrohOptions};
 
 // the Mac's key must be the same at every start: a phone knows its Mac by it. First start: None, then keep what link.secret_key() says.
-let link = IrohLink::bind(&IrohOptions { secret_key: settings.companion_key, relay: false })?;
+// `advertised` is what the Mac says about itself on the local network (below): the phone finds the Mac by it.
+let advertised = Some(advert::encode(&Advert { project: advert::project_hash(&repo_identity), name: mac_name.clone(), user: String::new(), role: Some(Role::Host) }));
+let link = IrohLink::bind(&IrohOptions { secret_key: settings.companion_key, advertised, ..IrohOptions::default() })?;
 if settings.companion_key.is_none() {
     settings.companion_key = link.secret_key();   // [u8; 32]: save it with the other settings, readable by the user only
 }
@@ -47,7 +49,13 @@ host.set_screens(vec![ScreenInfo { id: ScreenId::MAIN, owner: host.node_id().to_
 
 `IrohLink::bind` fails when the library has no iroh engine or no socket can be opened: AzReview then shows the companion as off with
 the text of the error (it never blocks AzReview from starting). Relay servers are off: the companion is for a desk, not for the
-internet; the engine's local-network discovery is on.
+internet; the engine's local-network discovery is on (the engine announces the Mac's key on the local network, and a phone that
+dials the key finds the Mac at its current address).
+
+`IrohOptions::advertised` is the short text the endpoint announces on the local network (`advert.rs` encodes the project and the display
+name; at most 245 bytes; never a secret): a phone that is paired with this Mac sees it appear there and dials it by its key at once,
+also after the Mac's address changed. An app that needs more of the engine's config (a port) takes it from `IrohLink::config(&options)`,
+adds to it and binds it with `IrohLink::bind_config(config)`.
 
 `MockLink` (from `mock`) replaces `IrohLink` in AzReview's own tests (section 12).
 
@@ -173,7 +181,10 @@ collaborator only the screen it controls, nobody a screen of another node. No se
 crate; the types are there so that other peers and screens fit later.
 
 `advert.rs` is the text a node announces on the local network (`azreview/1;p=<project hash>;n=<name>;u=<user>;r=<role>`, at most 245
-bytes, total in both directions). It is not wired to the endpoint's discovery yet; the format is fixed so that it can be.
+bytes, total in both directions), the one the engine's `IrohConfig::with_advertised` carries (section 2). The phone reads the
+announcements through `IrohLink::discovery()` (the engine's `NearbyAppeared` / `NearbyGone` events and `nearby_peers()` behind the
+`Discovery` seam of `discovery.rs`): a Mac of the key it was paired with that appears is dialed by that key at once. Besides that it
+dials the addresses it saved, and the Mac's key as the last of them.
 
 ## 11. What the phone cannot do
 
