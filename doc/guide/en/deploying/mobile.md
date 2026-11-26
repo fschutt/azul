@@ -212,6 +212,22 @@ ctor = "0.2"
 
 That is the *entire* difference from a desktop app.
 
+### One process per activity, and the app's folders
+
+- `libazul` takes your window options once per process (the constructor above runs at `dlopen`), so it cannot be
+  started a second time in the same process. `AzulActivity` therefore **ends the process when the activity is
+  destroyed**: BACK, then the launcher icon, is a cold start. The manifest lists every configuration change
+  (rotation, screen size, font size, bold text, locale, layout direction, dark mode, ...), so none of them recreates
+  the activity; the app sees them in its window state (size, dpi, the system style) at its next layout.
+- An Android app process has no `HOME` and no `XDG_*` variables. `AzulActivity` sets `HOME` and `XDG_DATA_HOME` to
+  `getFilesDir()`, `XDG_CONFIG_HOME` to `files/config`, and `XDG_CACHE_HOME` and `TMPDIR` to `getCacheDir()` before the
+  library loads (what the caller set is kept), so `FilePath::get_data_dir()`, `get_config_dir()` and
+  `get_cache_dir()` answer, and `std::env::temp_dir()` is writable. `libazul` logs one line
+  `[Android] app dirs: HOME=... (writable)` at `AZ_LOG=info` (an error line when one is not writable).
+- `WindowCreateOptions::create_callback` runs once per window, when the window's surface first exists (Android's first
+  `InitWindow`: the real size and density are in the window state) and before its first layout, as on the desktop
+  shells. Start the timers and workers that live as long as the window there.
+
 ### Package the APK (no Android Studio)
 
 You need **NDK 27**, **build-tools 34** (`aapt2`, `zipalign`, `apksigner`) and a
