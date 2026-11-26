@@ -7,7 +7,15 @@
 //! strip can only be scrolled to a place that is in the pages as they are laid out: the scroll waits a moment for them (`settle_later`).
 //! What the phone is told (`publish`) is the pen state of `companion_pen`.
 
-use azul::{error::CustomE2eOpResult, json::Json, prelude::*, str::String as AzString, task::TerminateTimer, time::SystemTimeDiff};
+use azul::{
+    dom::{DomId, DomNodeId},
+    error::CustomE2eOpResult,
+    json::Json,
+    prelude::*,
+    str::String as AzString,
+    task::TerminateTimer,
+    time::SystemTimeDiff,
+};
 use azul_appkit::ui as kit;
 use azul_review_link::{
     frame::{Entry, EntryKind, FileState, Focus, PageSurface, PenState, Phase, Rect, ReplyStatus, Rows, Surface, ViewportOp},

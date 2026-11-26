@@ -7,6 +7,7 @@
 
 use azul::{
     callbacks::{SegmentedOnChangeCallbackType, TextInputOnFocusLostCallbackType, TextInputOnTextInputCallbackType},
+    dom::{AccessibilityInfo, AccessibilityRole},
     prelude::*,
     str::String as AzString,
     widgets::{OnTextInputReturn, Segmented, SegmentedState, TextInput, TextInputState, TextInputValid},
