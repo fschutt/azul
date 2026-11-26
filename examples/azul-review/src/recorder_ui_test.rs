@@ -3,11 +3,12 @@
 
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc,
     },
+    time::{Duration, Instant},
 };
 
 use azul::dom::NodeType;
@@ -17,7 +18,8 @@ use super::*;
 use crate::{
     recorder::Deps,
     recorder_clock::{Clock, MockClock},
-    recorder_codec::MockFactory,
+    recorder_codec::{MockFactory, PixelFormat, RawFrame},
+    recorder_export_job::{video_path, Failure, Made, Renderer},
     recorder_host::Facts,
     recorder_manifest::{AppInfo, HostInfo, Workspace},
     recorder_settings::RecorderSettings,
@@ -47,11 +49,17 @@ fn rig(settings: RecorderSettings) -> (Host, Tmp) {
 }
 
 fn app_rig(settings: RecorderSettings) -> (RecorderApp, Tmp) {
+    let (app, tmp, _clock) = app_rig_with_clock(settings);
+    (app, tmp)
+}
+
+fn app_rig_with_clock(settings: RecorderSettings) -> (RecorderApp, Tmp, MockClock) {
     static NEXT: AtomicU32 = AtomicU32::new(0);
     let dir = std::env::temp_dir().join(format!("azreview-ui-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     let clock = MockClock::at(0);
+    let moved = clock.clone();
     let deps = Deps {
         unix_ms: Box::new(|| 1_764_108_000_000),
         make_clock: Box::new(move |_| Arc::new(clock.clone()) as Arc<dyn Clock>),
@@ -68,7 +76,7 @@ fn app_rig(settings: RecorderSettings) -> (RecorderApp, Tmp) {
         decimal: '.',
         hotkey: String::from("Cmd+Shift+P"),
     };
-    (RecorderApp::new(RecorderHost::new(settings, facts, deps)), Tmp(dir))
+    (RecorderApp::new(RecorderHost::new(settings, facts, deps)), Tmp(dir), moved)
 }
 
 fn quiet() -> RecorderSettings {
@@ -209,3 +217,75 @@ fn opening_a_file_while_recording_is_an_event_of_the_recording() {
     assert!(line.contains("\"file\":\"src/b.rs\"") && line.contains("\"lines\":2"), "{line}");
     assert_eq!(events.matches("\"nav.file\"").count(), 1, "the file opened before the recording is not in it");
 }
+
+/// A renderer that makes a video when the test lets it, and stops when it is told to.
+struct Waits(Arc<AtomicBool>);
+
+impl Renderer for Waits {
+    fn render(&mut self, session: &Path, cancel: &AtomicBool, progress: &mut dyn FnMut(f64)) -> Result<Made, Failure> {
+        progress(0.5);
+        while !self.0.load(Ordering::SeqCst) {
+            if cancel.load(Ordering::SeqCst) {
+                return Err(Failure::Cancelled);
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let file = video_path(session);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, vec![0_u8; 3_000_000]).unwrap();
+        Ok(Made { file, bytes: 3_000_000, notes: Vec::new() })
+    }
+}
+
+fn until_texts(host: &Host, what: &str, want: impl Fn(&[String]) -> bool) -> Dom {
+    let from = Instant::now();
+    loop {
+        let dom = hud_dom(host, None);
+        if want(&texts(&dom)) {
+            return dom;
+        }
+        assert!(from.elapsed() < Duration::from_secs(5), "{what}: {:?}", texts(&dom));
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+/// A recording of the list has the buttons the panel decides, and its export is in the window in words: not offered
+/// while the recording has no video, a cancel and how far it is while it is made, then the video named and offered.
+///
+/// Mutation: a row without its buttons; an export line that is not drawn; the delete button left while it is exported.
+#[test]
+fn a_row_of_the_list_has_its_buttons_and_says_how_its_export_stands() {
+    crate::l10n::in_english();
+    let (app, _tmp, clock) = app_rig_with_clock(quiet());
+    let (host, release) = (Host { app: RefAny::new(app), with }, Arc::new(AtomicBool::new(false)));
+    let r = Arc::clone(&release);
+    host.run(|app| app.host.set_renderer(Box::new(move || Box::new(Waits(Arc::clone(&r))))));
+    // A finished recording with a screen in it.
+    host.run(|app| {
+        assert!(app.host.start(ALL, Devices::default(), DISPLAY, &[DISPLAY]));
+        for i in 0..20_u8 {
+            clock.advance_ms(100);
+            app.host.screen_frame(RawFrame { width: 1920, height: 1248, format: PixelFormat::Rgba8, bytes: vec![i; 1920 * 1248 * 4] }, 1.0);
+            app.host.tick();
+        }
+        app.host.stop();
+    })
+    .expect("an app");
+    let name = host.run(|app| app.host.rows()[0].name.clone()).unwrap();
+
+    // Idle: start and the camera, and the row's export, show folder and delete.
+    let dom = hud_dom(&host, None);
+    assert_eq!(buttons(&dom), 5, "start, the camera, and the row's export, show folder, delete");
+    assert!(!texts(&dom).iter().any(|t| t.contains("rec-export")), "nothing exported: nothing said of it: {:?}", texts(&dom));
+
+    // Made: the cancel replaces the export and the delete goes, and it says how far it is.
+    assert_eq!(host.run(|app| app.host.export(&name)), Some(true));
+    let dom = until_texts(&host, "the export reports", |t| t.iter().any(|t| t == "azreview-rec-export-running"));
+    assert_eq!(buttons(&dom), 4, "start, the camera, cancel the export, show folder");
+
+    // Done: the video is named, and can be opened, and made again.
+    release.store(true, Ordering::SeqCst);
+    let dom = until_texts(&host, "the video is made", |t| t.iter().any(|t| t == "azreview-rec-export-done"));
+    assert_eq!(buttons(&dom), 6, "start, the camera, export again, open the video, show folder, delete");
+}
+

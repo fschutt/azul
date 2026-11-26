@@ -34,7 +34,7 @@ use crate::{
     recorder::{DesktopSample, FrontApp},
     recorder_codec::{PixelFormat, RawFrame},
     recorder_host::{Accesses, Devices, DisplayFacts, RecorderHost, Wants, RECORDER_CONSUMER},
-    recorder_panel::{Access, Do, Dot, Hud, Note, Row, Severity},
+    recorder_panel::{export_notes, export_text, Access, Do, Dot, Hud, Note, Row, RowDo, Severity},
 };
 
 /// How often the recorder is given its tick, milliseconds.
@@ -76,6 +76,8 @@ struct Shown {
     notes: usize,
     wants: Wants,
     rows: usize,
+    /// How each export stands (see [`RecorderHost::export_marks`]): the list is drawn again when one changes.
+    exports: Vec<(String, u8)>,
 }
 
 /// How the callbacks of the window reach the recorder in the app's state.
@@ -111,7 +113,7 @@ struct Press {
 struct RowPress {
     host: Host,
     name: String,
-    delete: bool,
+    what: RowDo,
 }
 
 /// What the window draws, copied out of the recorder (so that nothing is borrowed while the DOM is built).
@@ -353,11 +355,10 @@ fn label_of(key: &str) -> AzString {
     label(key)
 }
 
-/// A recording of the list: when, how long, how big, how it stands, and what can be done with it.
+/// A recording of the list: when, how long, how big, how it stands, what is known of its video, and what can be done
+/// with it (the buttons are the row's own, as [`crate::recorder_panel`] decides them).
 fn row_dom(host: &Host, row: &Row) -> Dom {
     let facts = format!("{} · {} · {}", row.when, row.length, row.size);
-    let reveal = RefAny::new(RowPress { host: host.clone(), name: row.name.clone(), delete: false });
-    let delete = RefAny::new(RowPress { host: host.clone(), name: row.name.clone(), delete: true });
     let mut line = Dom::create_div()
         .with_css("display: flex; flex-direction: column; gap: 2px; padding: 4px 0px; border-top: 1px solid system:separator;")
         .with_child(Dom::create_span_with_text(facts.as_str()).with_css("font-family: monospace; font-size: 12px;"))
@@ -365,12 +366,18 @@ fn row_dom(host: &Host, row: &Row) -> Dom {
     if let Some(problem) = &row.problem {
         line.add_child(text_line(problem, note_css(Severity::Warning)));
     }
-    line.with_child(
-        Dom::create_div()
-            .with_css("display: flex; flex-direction: row; gap: 6px;")
-            .with_child(Button::create(label("azreview-rec-reveal")).with_on_click(reveal, on_row as ButtonOnClickCallbackType).dom())
-            .with_child(Button::create(label("azreview-rec-delete")).with_on_click(delete, on_row as ButtonOnClickCallbackType).dom()),
-    )
+    if let Some(export) = export_text(&row.export) {
+        line.add_child(text_line(&export, note_css(Severity::Info)));
+    }
+    for note in export_notes(&row.export) {
+        line.add_child(text_line(&note, note_css(Severity::Info)));
+    }
+    let mut buttons = Dom::create_div().with_css("display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px;");
+    for b in &row.actions {
+        let press = RefAny::new(RowPress { host: host.clone(), name: row.name.clone(), what: b.what });
+        buttons.add_child(Button::create(label_of(&b.label.key)).with_on_click(press, on_row as ButtonOnClickCallbackType).dom());
+    }
+    line.with_child(buttons)
 }
 
 // ---- what the window does ----
@@ -496,17 +503,33 @@ extern "C" fn on_preview(mut data: RefAny, info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-extern "C" fn on_row(mut data: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_row(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(p) = data.downcast_ref::<RowPress>() else { return Update::DoNothing };
-    let (host, name, delete) = (p.host.clone(), p.name.clone(), p.delete);
+    let (host, name, what) = (p.host.clone(), p.name.clone(), p.what);
     drop(p);
-    host.run(|app| {
-        if delete {
+    host.run(|app| match what {
+        RowDo::Reveal => {
+            if let Some(path) = app.host.path_of(&name) {
+                let _ = azul_appkit::files::open_external(&path.to_string_lossy());
+            }
+        }
+        RowDo::Delete => {
             app.host.delete(&name);
-        } else if let Some(path) = app.host.path_of(&name) {
-            let _ = azul_appkit::files::open_external(&path.to_string_lossy());
+        }
+        RowDo::Export => {
+            app.host.export(&name);
+        }
+        RowDo::CancelExport => app.host.cancel_export(&name),
+        RowDo::OpenVideo => {
+            if let Some(video) = app.host.video_of(&name) {
+                let _ = azul_appkit::files::open_external(&video.to_string_lossy());
+            }
         }
     });
+    // The export's progress is drawn from the timer: it runs while the window is open, recording or not.
+    if what == RowDo::Export {
+        ensure_timer(&host, &mut info);
+    }
     Update::RefreshDom
 }
 
@@ -549,6 +572,7 @@ extern "C" fn on_tick(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallba
             notes: app.host.recent().count() + hud.notes.len(),
             wants: app.host.wants(),
             rows: app.host.rows().len(),
+            exports: app.host.export_marks(),
         };
         let changed = now != app.shown;
         app.shown = now;
