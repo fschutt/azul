@@ -16,8 +16,8 @@ use crate::mock::{Knobs, MockLink, MockNet};
 use crate::pairing::SeededEntropy;
 use crate::store::MemoryStore;
 
-const MAC_ID: &str = "ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12";
-const PHONE_ID: &str = "cd34cd34cd34cd34cd34cd34cd34cd34cd34cd34cd34cd34cd34cd34cd34cd34";
+const MAC_ID: &str = "ab12ab12ab12ab12ab12ab12ab12ab12";
+const PHONE_ID: &str = "cd34cd34cd34cd34cd34cd34cd34cd34";
 const MAC_TICKET: &str = "mac-ticket-1";
 
 // ---- a link played by hand
@@ -583,7 +583,7 @@ fn a_paired_phone_dials_its_mac_at_the_first_poll_and_is_served_after_the_hellos
 #[test]
 fn a_connection_to_another_key_than_the_pairing_made_is_not_served() {
     let mut rig = Rig::saved();
-    rig.connect_as(1, &"ee".repeat(32));
+    rig.connect_as(1, &"ee".repeat(16));
     assert_eq!(rig.link.disconnected(), [1], "the stranger is let go");
     assert!(rig.link.sent().is_empty(), "and told nothing");
     assert!(!rig.phone.is_active());
