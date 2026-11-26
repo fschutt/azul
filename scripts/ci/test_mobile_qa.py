@@ -671,6 +671,28 @@ class IosScenarioTests(unittest.TestCase):
         self.assertFalse(steps["07-background-10s"].ok)
         self.assertTrue(any("no GL command between" in f for f in self.failed(steps["07-background-10s"])))
 
+    def test_a_memory_warning_on_the_gpu_is_answered_with_the_renderer_caches_released(self):
+        class Warned(FakeIOS):
+            released = True
+
+            def gui_menu(self, menu, item):
+                if self.released:
+                    self.append_to_process_console("[iOS GPU] memory pressure: the renderer's caches are released")
+                return True, ""
+
+        steps, _dev, _run = self.run_steps("09", device=Warned, backend="gpu")
+        self.assertTrue(steps["09-memory-warning"].ok, self.failed(steps["09-memory-warning"]))
+
+        class Deaf(Warned):
+            released = False
+
+        steps, _dev, _run = self.run_steps("09", device=Deaf, backend="gpu")
+        self.assertFalse(steps["09-memory-warning"].ok)
+        self.assertTrue(any("released the renderer's caches" in f for f in self.failed(steps["09-memory-warning"])))
+        # the menu item that could not be pressed (the runner refused osascript) is no failure of the engine
+        steps, _dev, _run = self.run_steps("09", backend="gpu")
+        self.assertTrue(steps["09-memory-warning"].ok, self.failed(steps["09-memory-warning"]))
+
     def test_the_default_run_makes_no_gl_check_and_asks_the_app_for_nothing(self):
         steps, dev, _run = self.run_steps("07")
         self.assertTrue(steps["07-background-10s"].ok, self.failed(steps["07-background-10s"]))
