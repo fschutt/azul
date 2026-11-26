@@ -63,6 +63,8 @@ pub mod session_end;
 pub mod style_discovery;
 /// A closing window hands the app's background threads to a window that stays open.
 pub mod thread_handover;
+/// Which presses may start a text selection by dragging (a finger scrolls).
+pub mod touch_selection;
 pub mod transient;
 /// `<webview>`: the backend trait every platform's native web view
 /// implements, the headless one, and the pump that runs them.
