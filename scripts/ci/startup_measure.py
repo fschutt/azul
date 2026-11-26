@@ -47,6 +47,27 @@ def parse_timeline(text):
     return headline
 
 
+def parse_timelines(text):
+    """Every timeline of a text that holds several (a logcat of ten cold starts, a console log): a `[startup-json]`
+    line begins one, the `[startup-marks]` line after it gives it its marks. In order of appearance."""
+    found = []
+    for line in text.splitlines():
+        for marker in ("[startup-json] ", "[startup-marks] "):
+            at = line.find(marker)
+            if at < 0:
+                continue
+            try:
+                value = json.loads(line[at + len(marker):])
+            except json.JSONDecodeError:
+                continue
+            if marker.startswith("[startup-json"):
+                value.setdefault("marks", [])
+                found.append(value)
+            elif found and not found[-1]["marks"]:
+                found[-1]["marks"] = value
+    return found
+
+
 def with_steps(marks):
     """[(name, thread, at_ms, step_ms)] in order; the step counts from the previous mark of the same thread."""
     last = {}
@@ -134,7 +155,9 @@ def fmt(value, width=10, digits=3):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--exe", required=True, help="the app binary")
+    ap.add_argument("--exe", default=None, help="the app binary (not needed with --from-log)")
+    ap.add_argument("--from-log", action="append", default=[],
+                    help="read the timelines of this text file (a logcat, a console log; repeatable) instead of starting the app")
     ap.add_argument("--runs", type=int, default=9)
     ap.add_argument("--env", action="append", default=[], help="KEY=VALUE added to the environment (repeatable)")
     ap.add_argument("--cwd", default=None)
@@ -154,11 +177,18 @@ def main():
     for pair in args.env:
         key, _, value = pair.partition("=")
         env[key] = value
-    cmd = list(args.wrap) + [args.exe]
+    cmd = list(args.wrap) + [args.exe] if args.exe else []
+    if not args.exe and not args.from_log:
+        ap.error("--exe or --from-log is needed")
 
     load_before = os.getloadavg()
     runs = []
-    for i in range(args.runs):
+    for path in args.from_log:
+        with open(path, errors="replace") as f:
+            for timeline in parse_timelines(f.read()):
+                runs.append({"i": len(runs) + 1, "exit": "log", "wall_ms": None, "timeline": timeline})
+                print(f"timeline {len(runs)} of {path}: first_present {timeline.get('first_present_ms', '-')} ms")
+    for i in range(0 if args.from_log else args.runs):
         code, wall_ms, text = run_once(cmd, env, args.cwd, args.timeout)
         timeline = parse_timeline(text)
         runs.append({"i": i + 1, "exit": code, "wall_ms": round(wall_ms, 1), "timeline": timeline})
@@ -178,10 +208,10 @@ def main():
 
     firsts = [r["timeline"]["first_present_ms"] for r in good]
     warm = firsts[1:] if len(firsts) > 1 else []
-    walls = [r["wall_ms"] for r in good]
+    walls = [r["wall_ms"] for r in good if r["wall_ms"] is not None]
     summary = {
         "label": args.label,
-        "exe": args.exe,
+        "exe": args.exe or ", ".join(args.from_log),
         "runs": len(runs),
         "runs_with_timeline": len(good),
         "load_before": load_before[0],
@@ -224,11 +254,12 @@ def main():
         })
 
     print()
-    print(f"# {args.label or os.path.basename(args.exe)}: {len(good)} of {len(runs)} runs with a timeline; load {load_before[0]:.2f} before, {load_after[0]:.2f} after")
+    print(f"# {args.label or os.path.basename(args.exe or args.from_log[0])}: {len(good)} of {len(runs)} runs with a timeline; load {load_before[0]:.2f} before, {load_after[0]:.2f} after")
     print(f"first run (cold)        first_present {summary['first_run_first_present_ms']:.1f} ms")
     if warm:
         print(f"median of the others    first_present {summary['median_first_present_ms_warm']:.1f} ms (min {min(warm):.1f}, max {max(warm):.1f}, n={len(warm)})")
-    print(f"median wall (spawn..exit)               {summary['median_wall_ms']:.1f} ms")
+    if summary["median_wall_ms"] is not None:
+        print(f"median wall (spawn..exit)               {summary['median_wall_ms']:.1f} ms")
     if summary["before_library_ms_median"] is not None:
         print(f"before the library (OS floor + main)    {summary['before_library_ms_median']:.1f} ms  [{summary['process_start_source']}]")
     print(f"layout passes begun (median)            {summary['layout_passes_median']}")
