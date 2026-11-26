@@ -13,7 +13,9 @@
        and dropped lower on the bar;
     5. an arrow is drawn from the rim of one cutout to the other; double click on a cutout jumps to its
        lines (`WBDEMO_JUMP <file> <first> <last> Fresh`);
-    6. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 3`: the
+    6. Delete takes the selected cutout and its arrow off the board in one step, Mod+Z brings both back,
+       Shift+Mod+Z takes them off again, Mod+Z once more (the board is kept after each);
+    7. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 3`: the
        two cutouts and the arrow).
 
 With `--window cpu` (or `gpu`) it runs in a real window, at the display's scale, and the screenshots are the
@@ -305,6 +307,22 @@ def body(args, logs, out):
         app.frame(2)
         shoot(app, os.path.join(out, "6-jumped.png"))
         print("[azwhiteboard] jump: %s" % jump)
+
+        # Delete takes the selected cutout and the arrow on it off the board as ONE step; Mod+Z brings both back,
+        # Shift+Mod+Z takes them off again, and one more Mod+Z leaves the board as it was kept.
+        def items():
+            return len(read_board(board_file(data_dir))[0]["items"])
+
+        app.key("Delete")
+        app.until("the cutout and its arrow are off the board", lambda: items() == 1)
+        shoot(app, os.path.join(out, "7-deleted.png"))
+        app.key("z", primary=True)
+        app.until("one step back brings both", lambda: items() == 3)
+        app.key("z", primary=True, shift=True)
+        app.until("one step forward takes them off again", lambda: items() == 1)
+        app.key("z", primary=True)
+        app.until("and back for the restart", lambda: items() == 3)
+        shoot(app, os.path.join(out, "8-restored.png"))
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise
@@ -320,7 +338,7 @@ def body(args, logs, out):
         for i in (1, 2):
             if not app.rect("__azreview_whiteboard-cutout-%d" % i):
                 raise Failure("cutout %d did not come back" % i)
-        shoot(app, os.path.join(out, "7-restarted.png"))
+        shoot(app, os.path.join(out, "9-restarted.png"))
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise

@@ -11,7 +11,7 @@ use std::{collections::BTreeMap, time::Instant};
 
 use azul::{
     callbacks::{RenderImageCallbackInfo, TextAreaOnFocusLostCallbackType, TextAreaOnTextInputCallbackType},
-    dom::{AccessibilityInfo, AccessibilityRole, DomNodeId, NodeId, RenderImageCallback},
+    dom::{AccessibilityInfo, AccessibilityRole, DomNodeId, NodeId, RenderImageCallback, VirtualKeyCode},
     image::{Brush, ImageRef, RawImage, RawImageFormat},
     prelude::*,
     str::String as AzString,
@@ -713,6 +713,21 @@ pub enum Key {
     Escape,
     Undo,
     Redo,
+}
+
+/// The panel's key for a press of `code` (`None` for a key it does not answer). `primary` is the platform's
+/// shortcut modifier (Cmd on macOS, Ctrl elsewhere): Delete and Backspace take the selection off, Escape lets go,
+/// Mod+Z steps back, Shift+Mod+Z and Mod+Y forward.
+#[must_use]
+pub fn key_of(code: VirtualKeyCode, primary: bool, shift: bool) -> Option<Key> {
+    match code {
+        VirtualKeyCode::Delete | VirtualKeyCode::Back if !primary => Some(Key::Delete),
+        VirtualKeyCode::Escape => Some(Key::Escape),
+        VirtualKeyCode::Z if primary && shift => Some(Key::Redo),
+        VirtualKeyCode::Z if primary => Some(Key::Undo),
+        VirtualKeyCode::Y if primary => Some(Key::Redo),
+        _ => None,
+    }
 }
 
 /// Lets the app say where the surface node is (for a script that clicks it).

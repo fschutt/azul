@@ -302,6 +302,20 @@ fn the_keys_of_the_panel_take_the_selection_off_and_let_go_and_take_a_step_back(
 }
 
 #[test]
+fn the_panels_keys_are_delete_escape_and_the_two_steps_and_nothing_else() {
+    use VirtualKeyCode as K;
+    assert_eq!(key_of(K::Delete, false, false), Some(Key::Delete));
+    assert_eq!(key_of(K::Back, false, false), Some(Key::Delete));
+    assert_eq!(key_of(K::Back, true, false), None, "Mod+Backspace is not Delete");
+    assert_eq!(key_of(K::Escape, false, false), Some(Key::Escape));
+    assert_eq!(key_of(K::Z, true, false), Some(Key::Undo));
+    assert_eq!(key_of(K::Z, true, true), Some(Key::Redo));
+    assert_eq!(key_of(K::Y, true, false), Some(Key::Redo));
+    assert_eq!(key_of(K::Z, false, false), None, "a plain Z is a letter, not a step");
+    assert_eq!(key_of(K::A, true, false), None);
+}
+
+#[test]
 fn a_label_is_typed_in_a_text_area_under_its_cutout_while_it_is_being_edited() {
     crate::l10n::in_english();
     let host = host();

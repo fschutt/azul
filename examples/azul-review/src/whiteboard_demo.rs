@@ -3,14 +3,15 @@
 //! (its outline and its grip show); press the grip, or press and hold inside the loop, then drag it onto the
 //! bar: the cutout is drawn by the CPU renderer on a Thread and lies where it was dropped. Drag a rim to
 //! draw an arrow, drag the body to move, the corner to resize, double-click to jump back to the lines
-//! (they flash); the board is kept in the data folder and comes back at the next start.
+//! (they flash), Delete takes the selection off, Mod+Z steps back; the board is kept in the data folder and
+//! comes back at the next start.
 //!
 //! It is the whiteboard's own test window until the review window has its right bar: everything it does
 //! goes through [`Whiteboard`] and [`crate::whiteboard_ui`], the very calls the review window makes.
 //! `scripts/azwhiteboard_e2e.py` drives it. stdout, for scripts: `WBDEMO_ARMED <first> <last>`,
 //! `WBDEMO_HELD` (a press inside a loop was held), `WBDEMO_LIFTED` (the region follows the pointer),
 //! `WBDEMO_DROPPED`, `WBDEMO_RENDERED <w>x<h> | <why>`, `WBDEMO_SAVED <path>`,
-//! `WBDEMO_LOADED <items>`, `WBDEMO_JUMP <file> <first> <last> <freshness>`.
+//! `WBDEMO_LOADED <items>`, `WBDEMO_JUMP <file> <first> <last> <freshness>`, `WBDEMO_KEY <key> <items>`.
 
 use std::path::PathBuf;
 
@@ -158,6 +159,43 @@ extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_css("position: relative; width: 100%; height: 100%; overflow: hidden; background: #e9e5dc; margin: 0px;")
         .with_child(page)
         .with_child(bar)
+        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), data.clone(), on_key)
+}
+
+/// The panel's keys (Delete, Escape, the two steps): what the review window routes to the panel when the
+/// whiteboard has the keyboard.
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(code) = info.get_current_keyboard_state().current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    let mods = info.get_key_modifiers();
+    let Some(key) = whiteboard_ui::key_of(code, mods.primary_down(), mods.shift) else {
+        return Update::DoNothing;
+    };
+    info.prevent_default();
+    let acted = {
+        let Some(mut d) = data.downcast_mut::<Demo>() else {
+            return Update::DoNothing;
+        };
+        let acted = whiteboard_ui::on_key(&mut d.panel, key);
+        if acted {
+            say(&format!("WBDEMO_KEY {key:?} {}", d.panel.wb.board.len()));
+        }
+        acted
+    };
+    if !acted {
+        return Update::DoNothing;
+    }
+    on_changed(&mut data, &mut info);
+    redraw_surface(&mut info);
+    Update::RefreshDom
+}
+
+/// A new frame of the bar's surface (the arrows are drawn on it, the cutouts are nodes of the new DOM).
+fn redraw_surface(info: &mut CallbackInfo) {
+    if let Some(node) = whiteboard_ui::surface_node(info) {
+        kit::redraw_image(info, node);
+    }
 }
 
 fn page_dom(demo: &Demo, app: &RefAny) -> Dom {
