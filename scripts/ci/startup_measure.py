@@ -17,6 +17,7 @@ import os
 import statistics
 import subprocess
 import sys
+import threading
 import time
 
 
@@ -63,18 +64,68 @@ def median(values):
     return statistics.median(values) if values else None
 
 
-def run_once(cmd, env, cwd, timeout):
+def timeline_complete(line):
+    """True for the line that ends the app's timeline output: the `[startup-marks]` line, or (the older single line)
+    a `[startup-json]` line that carries its marks."""
+    return "[startup-marks] " in line or ("[startup-json] " in line and '"marks"' in line)
+
+
+def run_once(cmd, env, cwd, timeout, grace=0.5):
+    """Starts the app and reads its output (stdout and stderr in the order written). An app that exits by itself after
+    its first frame (AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER) is waited for; one that does not (a shell that has no such
+    exit) is ended `grace` seconds after its timeline was complete. Returns (exit code or "ended-after-timeline" or
+    "timeout", wall ms from the spawn to the exit, or to the timeline's last line for an ended app, the output)."""
     started = time.monotonic()
+    proc = subprocess.Popen(cmd, env=env, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, errors="replace")
+    lines = []
+    seen = {"complete_at": None, "exit_at": None, "code": None}
+
+    def read():
+        for line in proc.stdout:
+            lines.append(line)
+            if seen["complete_at"] is None and timeline_complete(line):
+                seen["complete_at"] = time.monotonic()
+
+    def wait():
+        seen["code"] = proc.wait()
+        seen["exit_at"] = time.monotonic()
+
+    readers = [threading.Thread(target=read, daemon=True), threading.Thread(target=wait, daemon=True)]
+    for t in readers:
+        t.start()
+    code = None
+    while seen["exit_at"] is None:
+        now = time.monotonic()
+        if seen["complete_at"] is not None and now - seen["complete_at"] > grace:
+            code = "ended-after-timeline"
+            break
+        if now - started > timeout:
+            code = "timeout"
+            break
+        time.sleep(0.01)
+    if code is not None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+    else:
+        code = seen["code"]
+    for t in readers:
+        t.join(timeout=3)
     try:
-        proc = subprocess.run(cmd, env=env, cwd=cwd, capture_output=True, text=True, timeout=timeout)
-        code = proc.returncode
-        text = proc.stdout + "\n" + proc.stderr
-    except subprocess.TimeoutExpired as err:
-        code = "timeout"
-        text = (err.stdout or b"").decode("utf-8", "replace") if isinstance(err.stdout, bytes) else (err.stdout or "")
-        text += "\n" + ((err.stderr or b"").decode("utf-8", "replace") if isinstance(err.stderr, bytes) else (err.stderr or ""))
-    wall_ms = (time.monotonic() - started) * 1000.0
-    return code, wall_ms, text
+        proc.stdout.close()
+    except OSError:
+        pass
+    if seen["exit_at"] is not None and code not in ("ended-after-timeline", "timeout"):
+        wall_ms = (seen["exit_at"] - started) * 1000.0
+    elif seen["complete_at"] is not None:
+        wall_ms = (seen["complete_at"] - started) * 1000.0
+    else:
+        wall_ms = (time.monotonic() - started) * 1000.0
+    return code, wall_ms, "".join(lines)
 
 
 def fmt(value, width=10, digits=3):

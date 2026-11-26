@@ -61,5 +61,43 @@ class Steps(unittest.TestCase):
         self.assertIsNone(sm.median([None]))
 
 
+FAKE_APP = """
+import json, sys, time
+mode = sys.argv[1]
+print("noise on stdout")
+if mode != "silent":
+    print("[startup-json] " + json.dumps({HEADLINE!r}), file=sys.stderr, flush=True)
+    print("[startup-marks] " + json.dumps({MARKS!r}), file=sys.stderr, flush=True)
+if mode == "exits":
+    sys.exit(0)
+time.sleep(60)
+"""
+
+
+class RunOnce(unittest.TestCase):
+    """An app that exits after its first frame is waited for; one that does not is ended after its timeline."""
+
+    def run_fake(self, mode, timeout=20.0):
+        source = FAKE_APP.replace("{HEADLINE!r}", repr(HEADLINE)).replace("{MARKS!r}", repr(MARKS))
+        return sm.run_once([sys.executable, "-c", source, mode], dict(os.environ), None, timeout, grace=0.3)
+
+    def test_an_app_that_exits_by_itself_keeps_its_exit_code(self):
+        code, wall_ms, text = self.run_fake("exits")
+        self.assertEqual(code, 0)
+        self.assertEqual(sm.parse_timeline(text)["first_present_ms"], 301.25)
+        self.assertLess(wall_ms, 10_000)
+
+    def test_an_app_that_never_exits_is_ended_a_moment_after_its_timeline(self):
+        code, wall_ms, text = self.run_fake("stays")
+        self.assertEqual(code, "ended-after-timeline")
+        self.assertEqual(sm.parse_timeline(text)["layout_passes"], 2)
+        self.assertLess(wall_ms, 15_000, "it did not wait for the sixty seconds of the app")
+
+    def test_an_app_that_prints_no_timeline_runs_into_the_timeout(self):
+        code, _wall_ms, text = self.run_fake("silent", timeout=1.0)
+        self.assertEqual(code, "timeout")
+        self.assertIsNone(sm.parse_timeline(text))
+
+
 if __name__ == "__main__":
     unittest.main()
