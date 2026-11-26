@@ -305,7 +305,7 @@ fn st_joined(parts: &[ConcatPart<'_>]) -> String {
 /// The keywords of the selector of item `name` with parameters `params`,
 /// one per parameter (`renderCardTitle`, `text`, ..): the first joins the
 /// item's name.
-fn keywords<'a>(name: &Ident, params: impl IntoIterator<Item = &'a Ident>) -> Vec<String> {
+fn keywords<'a>(name: &'a Ident, params: impl IntoIterator<Item = &'a Ident>) -> Vec<String> {
     let name = name.lower_camel();
     params
         .into_iter()

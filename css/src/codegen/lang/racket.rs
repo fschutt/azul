@@ -99,7 +99,7 @@ fn wrapper(class: &str, c_method: &str) -> String {
 }
 
 /// `(f a b)`, one argument per line when `broken`.
-fn form(f: String, args: Vec<Doc>, broken: bool) -> Doc {
+fn form(f: &str, args: Vec<Doc>, broken: bool) -> Doc {
     if args.is_empty() {
         return Doc::text(format!("({f})"));
     }
@@ -140,17 +140,17 @@ impl ExprSyntax for Racket {
     }
 
     fn string(&self, s: &str) -> Doc {
-        form("string->azul-string".to_string(), vec![Doc::text(quoted(s))], false)
+        form("string->azul-string", vec![Doc::text(quoted(s))], false)
     }
 
     fn call(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
-        form(wrapper(class, &snake_to_lower_camel(method)), args, broken)
+        form(&wrapper(class, &snake_to_lower_camel(method)), args, broken)
     }
 
     fn variant(&self, ty: &str, shape: EnumShape, variant: &str, args: Vec<Doc>, broken: bool) -> Doc {
         match shape {
             EnumShape::CLike => Doc::text(format!("Az{ty}_{variant}")),
-            EnumShape::Tagged => form(wrapper(ty, &variant_ctor_method(variant)), args, broken),
+            EnumShape::Tagged => form(&wrapper(ty, &variant_ctor_method(variant)), args, broken),
             // By field name: see `CSS_UNION`.
             EnumShape::TaggedShadowed | EnumShape::Generic { .. } => {
                 let vs = format!("Az{ty}_Variant_{variant}");
@@ -164,26 +164,26 @@ impl ExprSyntax for Racket {
                     parts.push(Doc::text(format!("set-{vs}-payload!")));
                     parts.push(payload);
                 }
-                form("css-union".to_string(), parts, broken)
+                form("css-union", parts, broken)
             }
         }
     }
 
     fn strukt(&self, ty: &str, fields: Vec<(String, Doc)>, broken: bool) -> Doc {
         let values = fields.into_iter().map(|(_, v)| v).collect();
-        form(format!("make-Az{ty}"), values, broken)
+        form(&format!("make-Az{ty}"), values, broken)
     }
 
     fn vec(&self, ty: &str, elem: &str, items: Vec<Doc>, broken: bool) -> Doc {
         if items.is_empty() {
-            return form(wrapper(ty, "create"), Vec::new(), false);
+            return form(&wrapper(ty, "create"), Vec::new(), false);
         }
         form(
-            "css-vec".to_string(),
+            "css-vec",
             vec![
                 Doc::text(wrapper(ty, "copyFromPtr")),
                 Doc::text(format!("_Az{elem}")),
-                form("list".to_string(), items, broken),
+                form("list", items, broken),
             ],
             broken,
         )
@@ -191,7 +191,7 @@ impl ExprSyntax for Racket {
 
     fn unsupported(&self, what: &str) -> Doc {
         form(
-            "error".to_string(),
+            "error",
             vec![Doc::text(quoted(&format!("not expressible: {what}")))],
             false,
         )
@@ -206,16 +206,16 @@ impl ExprSyntax for Racket {
     fn method(&self, recv: Doc, class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
         let mut all = vec![recv];
         all.extend(args);
-        form(wrapper(class, &snake_to_lower_camel(method)), all, layout.node_tall)
+        form(&wrapper(class, &snake_to_lower_camel(method)), all, layout.node_tall)
     }
 
     fn param(&self, name: &Ident) -> Doc {
-        form("string->azul-string".to_string(), vec![Doc::text(rkt_param(name))], false)
+        form("string->azul-string", vec![Doc::text(rkt_param(name))], false)
     }
 
     /// `(string->azul-string (string-append "by " author))`.
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
-        form("string->azul-string".to_string(), vec![string_append(parts)], false)
+        form("string->azul-string", vec![string_append(parts)], false)
     }
 
     fn item_call_limitation(&self) -> Option<&'static str> {
@@ -224,7 +224,7 @@ impl ExprSyntax for Racket {
 
     /// `(render-card "Hi" title)`: another function of the module.
     fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
-        form(fn_name_of(item), args, broken)
+        form(&fn_name_of(item), args, broken)
     }
 
     /// A Racket string: a literal, a parameter passed on, or
@@ -248,7 +248,7 @@ fn string_append(parts: &[ConcatPart<'_>]) -> Doc {
             ConcatPart::Param(i) => Doc::text(rkt_param(i)),
         })
         .collect();
-    form("string-append".to_string(), args, false)
+    form("string-append", args, false)
 }
 
 /// `(name [title "Hello"] ..)`: parameters are optional with their

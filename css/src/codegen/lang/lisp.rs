@@ -159,7 +159,7 @@ fn raw_fn(c_name: &str) -> String {
 }
 
 /// `(f a b)`, one argument per line when `broken`.
-fn form(f: String, args: Vec<Doc>, broken: bool) -> Doc {
+fn form(f: &str, args: Vec<Doc>, broken: bool) -> Doc {
     if args.is_empty() {
         return Doc::text(format!("({f})"));
     }
@@ -189,18 +189,18 @@ impl ExprSyntax for Lisp {
     }
 
     fn string(&self, s: &str) -> Doc {
-        form("css-str".to_string(), vec![Doc::text(lisp_lit(s))], false)
+        form("css-str", vec![Doc::text(lisp_lit(s))], false)
     }
 
     fn call(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
-        form(raw_fn(&format!("Az{class}_{}", snake_to_lower_camel(method))), args, broken)
+        form(&raw_fn(&format!("Az{class}_{}", snake_to_lower_camel(method))), args, broken)
     }
 
     fn variant(&self, ty: &str, shape: EnumShape, variant: &str, args: Vec<Doc>, broken: bool) -> Doc {
         match shape {
             EnumShape::CLike => Doc::text(format!(":{}", kebab(variant))),
             EnumShape::Tagged => form(
-                raw_fn(&format!("Az{ty}_{}", variant_ctor_method(variant))),
+                &raw_fn(&format!("Az{ty}_{}", variant_ctor_method(variant))),
                 args,
                 broken,
             ),
@@ -217,19 +217,19 @@ impl ExprSyntax for Lisp {
             items.push(Doc::text(format!("'azul-internal::{}", kebab(&k))));
             items.push(v);
         }
-        form("list".to_string(), items, broken)
+        form("list", items, broken)
     }
 
     fn vec(&self, ty: &str, elem: &str, items: Vec<Doc>, broken: bool) -> Doc {
         if items.is_empty() {
-            return form(raw_fn(&format!("Az{ty}_create")), Vec::new(), false);
+            return form(&raw_fn(&format!("Az{ty}_create")), Vec::new(), false);
         }
         form(
-            "css-vec".to_string(),
+            "css-vec",
             vec![
                 Doc::text(format!("#'{}", raw_fn(&format!("Az{ty}_copyFromPtr")))),
                 Doc::text(format!("'azul-internal::{}", kebab_az(elem))),
-                form("list".to_string(), items, broken),
+                form("list", items, broken),
             ],
             broken,
         )
@@ -265,19 +265,19 @@ impl ExprSyntax for Lisp {
         let mut all = vec![recv];
         all.extend(args);
         form(
-            raw_fn(&format!("Az{class}_{}", snake_to_lower_camel(method))),
+            &raw_fn(&format!("Az{class}_{}", snake_to_lower_camel(method))),
             all,
             layout.node_tall,
         )
     }
 
     fn param(&self, name: &Ident) -> Doc {
-        form("css-str".to_string(), vec![Doc::text(lisp_param(name))], false)
+        form("css-str", vec![Doc::text(lisp_param(name))], false)
     }
 
     /// `(css-str (concatenate 'string "by " author))`.
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
-        form("css-str".to_string(), vec![concatenate(parts)], false)
+        form("css-str", vec![concatenate(parts)], false)
     }
 
     fn item_call_limitation(&self) -> Option<&'static str> {
@@ -286,7 +286,7 @@ impl ExprSyntax for Lisp {
 
     /// `(render-card "Hi" title)`: another function of the package.
     fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
-        form(fn_name_of(item), args, broken)
+        form(&fn_name_of(item), args, broken)
     }
 
     /// A Lisp string: a literal, a parameter passed on, or
@@ -308,7 +308,7 @@ fn concatenate(parts: &[ConcatPart<'_>]) -> Doc {
         ConcatPart::Lit(s) => Doc::text(lisp_lit(s)),
         ConcatPart::Param(i) => Doc::text(lisp_param(i)),
     }));
-    form("concatenate".to_string(), args, false)
+    form("concatenate", args, false)
 }
 
 /// ` (&optional (title "Hello") ..)`'s lambda list: `()` without parameters.
@@ -527,6 +527,8 @@ fn asd(name: &str, description: &str, module: &str) -> String {
 /// invoker writes back), and the window options and `AzApp_run` cross as
 /// raw 8-byte words (CFFI's struct translation cannot rebuild their
 /// unions).
+// `{value}` is a placeholder of the main-file text, filled by `str::replace`: not a format string.
+#[allow(clippy::literal_string_with_formatting_args)]
 fn lisp_app_main(m: &Module) -> String {
     let Some(app) = &m.app else {
         return String::new();

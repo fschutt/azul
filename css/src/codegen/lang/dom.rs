@@ -257,15 +257,13 @@ pub fn c_family_registration(
         block_comment_safe(&lib.name),
         block_comment_safe(&az_str(&lib.name))
     );
-    if n == 0 {
-        s.push_str("    AzComponentLibrary lib;\n");
-    } else {
+    if n != 0 {
         let _ = writeln!(s, "    AzComponentDef defs[{n}];");
         for (i, d) in defs.iter().enumerate() {
             let _ = writeln!(s, "    defs[{i}] = {d};");
         }
-        s.push_str("    AzComponentLibrary lib;\n");
     }
+    s.push_str("    AzComponentLibrary lib;\n");
     let _ = writeln!(s, "    lib.name = {};", az_str(&lib.name));
     let _ = writeln!(s, "    lib.version = {};", az_str(&lib.version));
     let _ = writeln!(s, "    lib.description = {};", az_str("Exported from AzBuilder"));

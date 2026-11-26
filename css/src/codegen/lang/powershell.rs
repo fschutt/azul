@@ -94,7 +94,7 @@ fn ps_string(s: &str) -> String {
 }
 
 /// `[Type]@{ k = v; .. }`.
-fn hashtable(ty: String, fields: Vec<Doc>, broken: bool) -> Doc {
+fn hashtable(ty: &str, fields: Vec<Doc>, broken: bool) -> Doc {
     Doc::cat(vec![
         Doc::text(format!("[{ty}]")),
         Doc::list("@{", fields, "; ", "}", true, broken, false),
@@ -158,10 +158,10 @@ impl ExprSyntax for PowerShell {
                     inner.push(Doc::cat(vec![Doc::text("payload = "), payload]));
                 }
                 hashtable(
-                    format!("Azul.Az{ty}"),
+                    &format!("Azul.Az{ty}"),
                     vec![Doc::cat(vec![
                         Doc::text(format!("{variant} = ")),
-                        hashtable(format!("Azul.Az{ty}Variant_{variant}"), inner, broken),
+                        hashtable(&format!("Azul.Az{ty}Variant_{variant}"), inner, broken),
                     ])],
                     broken,
                 )
@@ -174,7 +174,7 @@ impl ExprSyntax for PowerShell {
             .into_iter()
             .map(|(k, v)| Doc::cat(vec![Doc::text(format!("{k} = ")), v]))
             .collect();
-        hashtable(format!("Azul.Az{ty}"), fields, broken)
+        hashtable(&format!("Azul.Az{ty}"), fields, broken)
     }
 
     fn vec(&self, ty: &str, elem: &str, items: Vec<Doc>, broken: bool) -> Doc {
@@ -334,6 +334,8 @@ fn fn_name(item: &Item) -> String {
 /// script block (registered with the C# layer's host invoker) writes the
 /// root item (inside a `body` unless it builds the body itself) into the
 /// engine's return slot; the app and the window go through the C API.
+// `{value}` is a placeholder of the main-file text, filled by `str::replace`: not a format string.
+#[allow(clippy::literal_string_with_formatting_args)]
 fn ps_app_main(m: &Module) -> String {
     let Some(app) = &m.app else {
         return String::new();

@@ -110,6 +110,7 @@ impl AppMarkup {
 }
 
 /// What [`project_files`] writes.
+#[derive(Debug)]
 pub struct ProjectSpec<'a> {
     /// The window title.
     pub title: &'a str,

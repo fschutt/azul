@@ -485,6 +485,8 @@ impl CodegenBackend for Java {
 
 /// The Maven build of a project whose jar is `artifact` and whose `main` is
 /// `com.azul.<main>`.
+// `{artifact}` and `{main}` are placeholders of the POM text, filled by `str::replace`: not a format string.
+#[allow(clippy::literal_string_with_formatting_args)]
 fn pom(artifact: &str, main: &str) -> String {
     POM.replace("{artifact}", artifact).replace("{main}", main)
 }

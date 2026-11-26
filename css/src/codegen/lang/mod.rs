@@ -349,6 +349,11 @@ pub fn is_tall(s: &dyn ExprSyntax, e: &Expr) -> bool {
 }
 
 /// An item's value, or why this language cannot build it at all.
+///
+/// # Errors
+/// The reason, in one line of text: the item is DOM construction in a language
+/// without DOM export, or its value holds something this language's bindings
+/// cannot build.
 pub fn item_doc(s: &dyn ExprSyntax, item: &super::ir::Item) -> Result<Doc, String> {
     if let Some(reason) = item_dom_blocker(s, item) {
         return Err(reason);

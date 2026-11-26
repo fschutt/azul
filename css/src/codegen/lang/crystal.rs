@@ -164,13 +164,13 @@ fn apply(f: String, args: Vec<Doc>, broken: bool) -> Doc {
 }
 
 /// The raw lib struct of a struct literal (a struct nested in a struct).
-fn lib_struct(s: &Crystal, ty: &str, fields: &[(String, Expr)], broken: bool) -> Doc {
+fn lib_struct(s: Crystal, ty: &str, fields: &[(String, Expr)], broken: bool) -> Doc {
     let fields: Vec<Doc> = fields
         .iter()
         .map(|(k, v)| {
             Doc::cat(vec![
                 Doc::text(format!("{}: ", field_name(k))),
-                s.field_value(v, expr_doc(s, v)),
+                s.field_value(v, expr_doc(&s, v)),
             ])
         })
         .collect();
@@ -272,7 +272,7 @@ impl ExprSyntax for Crystal {
                 shape: EnumShape::Tagged | EnumShape::TaggedShadowed | EnumShape::Generic { .. },
                 ..
             } => Doc::cat(vec![value, Doc::text(".__take")]),
-            Expr::Struct { ty, fields } => lib_struct(self, ty, fields, is_tall(self, field)),
+            Expr::Struct { ty, fields } => lib_struct(*self, ty, fields, is_tall(self, field)),
             Expr::Vec { ty, .. } => Doc::call(format!("Azul::Conv.in_{ty}"), vec![value], false),
             Expr::Str(_) => Doc::call("Azul::Native.az_string", vec![value], false),
             _ => value,

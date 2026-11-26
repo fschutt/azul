@@ -462,7 +462,7 @@ impl Expr {
     pub fn used_types(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         self.walk(&mut |e| match e {
-            Self::Call { class, .. } => out.push(class.clone()),
+            Self::Call { class, .. } | Self::Method { class, .. } => out.push(class.clone()),
             Self::Variant { ty, shape, .. } => {
                 out.push(ty.clone());
                 if let EnumShape::Generic { base, .. } = shape {
@@ -474,7 +474,6 @@ impl Expr {
                 out.push(ty.clone());
                 out.push(elem.clone());
             }
-            Self::Method { class, .. } => out.push(class.clone()),
             Self::Str(_) | Self::Concat(_) => out.push("String".to_string()),
             _ => {}
         });

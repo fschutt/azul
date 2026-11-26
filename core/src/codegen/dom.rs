@@ -320,6 +320,13 @@ pub struct Components<'a> {
     pub template: &'a dyn Fn(&ComponentDef) -> Option<Result<ComponentMarkup, String>>,
 }
 
+impl core::fmt::Debug for Components<'_> {
+    /// The template callback has nothing to print.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Components").finish_non_exhaustive()
+    }
+}
+
 impl<'a> Components<'a> {
     /// No templates: every component is exported as what it renders.
     #[must_use]
@@ -580,9 +587,9 @@ fn lower_item(
     reg: Option<&Registry<'_>>,
 ) -> Item {
     let css = parse_stylesheet(stylesheet);
-    let notes = RefCell::new(Vec::new());
-    let value = lower_roots(nodes, &css, params, reg, &notes);
-    for n in notes.into_inner() {
+    let collected = RefCell::new(Vec::new());
+    let value = lower_roots(nodes, &css, params, reg, &collected);
+    for n in collected.into_inner() {
         if !doc.contains(&n) {
             doc.push(n);
         }
@@ -813,14 +820,14 @@ fn split_template(raw: &str, params: &[FragmentParam]) -> Expr {
     while let Some(pos) = rest.find(['{', '}']) {
         lit.push_str(&rest[..pos]);
         let tail = &rest[pos..];
-        if tail.starts_with("{{") {
+        if let Some(after) = tail.strip_prefix("{{") {
             lit.push('{');
-            rest = &tail[2..];
+            rest = after;
             continue;
         }
-        if tail.starts_with("}}") {
+        if let Some(after) = tail.strip_prefix("}}") {
             lit.push('}');
-            rest = &tail[2..];
+            rest = after;
             continue;
         }
         if tail.starts_with('{') {
@@ -1001,13 +1008,12 @@ impl Lower<'_, '_> {
                 let args = args
                     .iter()
                     .map(|a| match a {
-                        CtorArg::Str(s) => self.text(s),
+                        // `OptSome`: only `ANoA11y` takes an OptionString (handled above).
+                        CtorArg::Str(s) | CtorArg::OptSome(s) => self.text(s),
                         CtorArg::Aria(s) => {
                             Expr::call("SmallAriaInfo", "label", vec![self.text(s)])
                         }
                         CtorArg::Float(f) => Expr::f32(*f),
-                        // Only `ANoA11y` takes an OptionString (handled above).
-                        CtorArg::OptSome(s) => self.text(s),
                         CtorArg::OptNone => Expr::str(""),
                     })
                     .collect();

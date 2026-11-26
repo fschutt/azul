@@ -362,15 +362,15 @@ impl CodegenBackend for D {
             );
         }
         main.push_str("}\n");
-        let mut files = Vec::new();
-        files.push(GeneratedFile {
-            path: "styles.d".to_string(),
-            contents: self.emit_module(m),
-        });
-        files.push(GeneratedFile {
-            path: "main.d".to_string(),
-            contents: main,
-        });
-        files
+        vec![
+            GeneratedFile {
+                path: "styles.d".to_string(),
+                contents: self.emit_module(m),
+            },
+            GeneratedFile {
+                path: "main.d".to_string(),
+                contents: main,
+            },
+        ]
     }
 }
