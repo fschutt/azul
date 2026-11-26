@@ -57,7 +57,8 @@ use azul_css::{
 use crate::text3;
 #[cfg(feature = "text_layout")]
 use crate::text3::cache::{
-    DecorationColor, InlineShape, LinePaint, LineThickness, PositionedItem,
+    DecorationColor, InlineShape, LineOffset, LinePaint, LineThickness, PositionedItem,
+    UnderlineBase,
 };
 use crate::{
     debug_info,
@@ -433,6 +434,8 @@ pub(crate) fn layer_value<T: Copy>(values: &[T], layers: usize, layer: usize) ->
 const APPROX_ASCENT_RATIO: f32 = 0.8;
 const APPROX_UNDERLINE_THICKNESS_RATIO: f32 = 0.08;
 const APPROX_UNDERLINE_OFFSET_RATIO: f32 = 0.12;
+/// Where the em box ends, below the baseline: the top of an underline set `under` the descenders.
+const APPROX_UNDER_POSITION_RATIO: f32 = 1.0 - APPROX_ASCENT_RATIO;
 const APPROX_STRIKETHROUGH_OFFSET_RATIO: f32 = 0.3;
 const APPROX_OVERLINE_OFFSET_RATIO: f32 = 0.85;
 const DEFAULT_A4_WIDTH_PT: f32 = 595.0;
@@ -13159,9 +13162,22 @@ where
                         // IME composition always gets underlined
                         let paint = glyph_run.text_decoration.underline_paint;
                         let thickness = thickness_of(&paint);
-                        // The top edge of the line is where the font puts it: a thicker line
-                        // grows downwards.
-                        let underline_y = baseline_y + (font_size * APPROX_UNDERLINE_OFFSET_RATIO);
+                        // The top edge of the line is where the font puts it - or, `under`,
+                        // where the em box ends - moved by `text-underline-offset`: a thicker
+                        // line grows downwards.
+                        let place = glyph_run.text_decoration.underline_place;
+                        let initial = match place.base {
+                            UnderlineBase::Under => font_size * APPROX_UNDER_POSITION_RATIO,
+                            // `from-font` names the place of the face; none is read yet
+                            UnderlineBase::Auto | UnderlineBase::FromFont => {
+                                font_size * APPROX_UNDERLINE_OFFSET_RATIO
+                            }
+                        };
+                        let offset = match place.offset {
+                            LineOffset::Px(px) => px.get(),
+                            LineOffset::Auto => 0.0,
+                        };
+                        let underline_y = baseline_y + initial + offset;
                         let underline_bounds = LogicalRect::new(
                             LogicalPosition::new(decoration_start_x, underline_y),
                             LogicalSize::new(decoration_width, thickness),
