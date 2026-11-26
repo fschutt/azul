@@ -473,15 +473,6 @@ pub fn regenerate_layout(
                     rust_fontconfig::OperatingSystem::current(),
                 ) {
                     SystemUiFontCheck::Found => {}
-                    SystemUiFontCheck::GenericMissing => {
-                        crate::plog_warn!(
-                            "[fonts] the `system-ui` font family resolves to no scanned font (the \
-                             OS reports {:?} as its UI font): text set in the system UI font \
-                             falls back to the last-resort fonts. Check the scanned font \
-                             directories.",
-                            ui.as_str()
-                        );
-                    }
                     SystemUiFontCheck::PrimaryMissing(family) => {
                         crate::plog_warn!(
                             "[fonts] the system UI font {:?} was NOT found by the font scan (the \

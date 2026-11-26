@@ -162,17 +162,16 @@ pub mod loading {
     /// What [`check_system_ui_font`] found.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum SystemUiFontCheck {
-        /// The system UI font of the platform is a scanned font, and `system-ui` resolves to it.
+        /// The system UI font of the platform is a scanned font.
         Found,
-        /// `system-ui` resolves to no scanned font: UI text is set in the last-resort fonts.
-        GenericMissing,
         /// The first family of the platform's UI font list (the desktop's own font on Linux) is
-        /// in no scanned font - the name is carried -; `system-ui` resolves to the rest of its
-        /// list, so UI text is set in another font than the platform draws its UI in.
+        /// in no scanned font - the name is carried -: `system-ui` resolves to the rest of its
+        /// list, or to the generic fallbacks, so UI text is set in another font than the one the
+        /// platform draws its UI in.
         PrimaryMissing(String),
     }
 
-    /// Whether the text set in the system UI font finds its font in `cache`.
+    /// Whether the system UI font of the platform is in `cache`.
     ///
     /// Text in `system:ui` or `system-ui` is set in the `system-ui` generic family, which the
     /// cache resolves through its list for the platform ([`browser_generic_families`]): "System
@@ -188,19 +187,8 @@ pub mod loading {
         detected: &str,
         os: OperatingSystem,
     ) -> SystemUiFontCheck {
-        use rust_fontconfig::{FcPattern, FcWeight, PatternMatch};
+        use rust_fontconfig::FcPattern;
 
-        let mut trace = Vec::new();
-        let chain = cache.resolve_font_chain(
-            &[GenericFamily::SystemUi.as_css().to_string()],
-            FcWeight::Normal,
-            PatternMatch::DontCare,
-            PatternMatch::DontCare,
-            &mut trace,
-        );
-        if !chain.css_fallbacks.iter().any(|group| !group.fonts.is_empty()) {
-            return SystemUiFontCheck::GenericMissing;
-        }
         let primary = if os == OperatingSystem::Linux && !detected.trim().is_empty() {
             Some(detected.trim().to_string())
         } else {
@@ -216,7 +204,7 @@ pub mod loading {
                 name: Some(primary.clone()),
                 ..Default::default()
             };
-            if cache.query(&pattern, &mut trace).is_none() {
+            if cache.query(&pattern, &mut Vec::new()).is_none() {
                 return SystemUiFontCheck::PrimaryMissing(primary);
             }
         }

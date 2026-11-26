@@ -53,11 +53,11 @@ fn macos_without_system_font_says_which_family_the_list_starts_with() {
 }
 
 #[test]
-fn a_cache_without_any_family_of_the_list_resolves_nothing() {
+fn a_cache_without_any_family_of_the_list_says_the_first_one_is_missing() {
     let fonts = manager(&[], OperatingSystem::MacOS);
     assert_eq!(
         check_system_ui_font(&fonts.fc_cache, ".AppleSystemUIFont", OperatingSystem::MacOS),
-        SystemUiFontCheck::GenericMissing
+        SystemUiFontCheck::PrimaryMissing("System Font".to_string())
     );
 }
 

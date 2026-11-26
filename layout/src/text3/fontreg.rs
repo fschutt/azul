@@ -115,6 +115,10 @@ impl core::fmt::Debug for RegisteredFonts {
             .field("app_faces", &self.app_faces.read().map_or(0, |faces| faces.len()))
             .field("faces", &self.faces.read().map_or(0, |faces| faces.len()))
             .field("generation", &self.generation())
+            .field(
+                "system_ui_font_checked",
+                &self.system_ui_font_checked.load(Ordering::Acquire),
+            )
             .finish()
     }
 }
