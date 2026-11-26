@@ -58,6 +58,8 @@ use crate::{
 
 pub mod accessibility;
 pub mod clipboard;
+/// The phone's language (`NSLocale.preferredLanguages`).
+mod locale;
 mod text_input;
 /// `<webview>`: `WKWebView`s, `WebKit.framework` loaded at the first one.
 mod webview;
@@ -1781,6 +1783,9 @@ extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object
     // does both; unpausing twice is a harmless idempotent setter).
     unsafe { set_display_link_paused(false) };
     if let Some(window) = unsafe { azul_ios_window() } {
+        // The language the person may have changed meanwhile (Settings, the Simulator): the style
+        // carries it and the engine translates again.
+        locale::adopt_language(window);
         // Force a redraw so the layer contents are fresh after
         // returning from background.
         window
@@ -2078,6 +2083,13 @@ impl IOSWindow {
         app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
         font_registry: Option<Arc<FcFontRegistry>>,
     ) -> Result<Self, WindowError> {
+        // The phone's own language, before the window takes its style: the style `App::create` made of
+        // the platform defaults says en-US for every phone, and a German phone showed English.
+        if let Some(language) =
+            locale::language_of_phone(config.localization.known_languages.as_slice())
+        {
+            config.system_style.language = language;
+        }
         crate::desktop::shell2::common::resolve_initial_background_color(
             &mut options,
             &config.system_style,
