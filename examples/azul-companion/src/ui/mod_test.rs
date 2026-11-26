@@ -647,10 +647,21 @@ fn a_second_tap_on_the_demo_key_changes_nothing_and_leaving_brings_the_real_conn
 fn the_windows_setup_is_asked_for_by_two_callbacks_and_done_once_in_either_order() {
     let (mut root, _calls) = root_with(PhoneView::new());
     assert!(!root.window_ready);
-    assert!(root.first_window_ready(), "the first to say the window is ready does the setup");
+    assert_eq!(root.window_setup(), WindowSetup { timer: true, connect: false }, "the first to say the window is ready starts the timer");
     assert!(root.window_ready);
-    assert!(!root.first_window_ready(), "the second finds it done");
-    assert!(!root.first_window_ready(), "and so does every later mount of the screens");
+    assert_eq!(root.window_setup(), WindowSetup { timer: false, connect: false }, "the second finds it done");
+    assert_eq!(root.window_setup(), WindowSetup { timer: false, connect: false }, "and so does every later mount of the screens");
+}
+
+#[test]
+fn the_phones_own_app_makes_its_connection_in_that_one_setup_and_never_again() {
+    let (mut root, _calls) = root_with(PhoneView::new());
+    root.connect_later = true;
+    assert_eq!(root.window_setup(), WindowSetup { timer: true, connect: true });
+    // the connection was asked for once: a second word that the window is ready does not ask again, whether or not it has been made
+    assert_eq!(root.window_setup(), WindowSetup { timer: false, connect: false });
+    root.connect_now(Box::new(TestApi { view: PhoneView::new(), calls: Arc::new(Mutex::new(Vec::new())) }));
+    assert_eq!(root.window_setup(), WindowSetup { timer: false, connect: false });
 }
 
 // ---- the real connection comes when the window exists

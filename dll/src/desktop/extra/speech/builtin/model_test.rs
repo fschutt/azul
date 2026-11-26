@@ -24,6 +24,15 @@ pub(crate) static TEST_MODEL: ModelSource = ModelSource {
     licence: "Apache-2.0 by its card",
 };
 
+/// The same model at a plain address.
+static PLAIN_MODEL: ModelSource = ModelSource {
+    file_name: "plain-0123456789ab.cact",
+    url: "http://models.example.org/path/plain.cact",
+    sha256: GOOD,
+    bytes: 3000,
+    licence: "Apache-2.0 by its card",
+};
+
 pub(crate) fn body() -> Vec<u8> {
     (0..3000usize).map(|i| (i % 251) as u8).collect()
 }
@@ -381,6 +390,21 @@ fn no_folder_is_a_state_and_naming_one_lets_the_consent_given_before_count() {
     assert_eq!(store.folder().as_deref(), Some(dir.as_path()));
     store.set_folder(None);
     assert_eq!(store.state().phase, ModelPhase::NoFolder, "no folder of the platform's either");
+    drop(std::fs::remove_dir_all(&dir));
+}
+
+/// Nothing is fetched over a plain connection, whoever allowed it; the pinned model's address is https.
+#[test]
+fn nothing_is_fetched_over_a_plain_connection() {
+    let dir = scratch("plain");
+    let fake = Fake::new(body());
+    let store = ModelStore::new(&PLAIN_MODEL, Arc::clone(&fake) as Arc<dyn ModelFetch>, Some(dir.clone()));
+    store.set_policy(DownloadPolicy::Automatic);
+    store.request();
+    let state = wait_for(&store, "the refusal", |s| s.phase == ModelPhase::Failed);
+    assert!(state.message.contains("https"), "{}", state.message);
+    assert_eq!(fake.calls(), 0, "the transport is not even asked");
+    assert!(WHISTLE.url.starts_with("https://"));
     drop(std::fs::remove_dir_all(&dir));
 }
 
