@@ -188,6 +188,7 @@ azreview-agents-none = No agents are working.
 azreview-resize-tree = Change the width of the file tree
 azreview-resize-panel = Change the width of the whiteboard
 azreview-menu-view = View
+azreview-speech-chain = Speech recognisers, in the order they are asked
 azreview-chip-working = an agent is working
 azreview-chip-suggested = a suggestion waits
 azreview-chip-done = done

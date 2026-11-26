@@ -188,6 +188,7 @@ azreview-agents-none = Kein Agent arbeitet.
 azreview-resize-tree = Breite des Dateibaums ändern
 azreview-resize-panel = Breite des Whiteboards ändern
 azreview-menu-view = Ansicht
+azreview-speech-chain = Spracherkenner in der Reihenfolge, in der sie gefragt werden
 azreview-chip-working = ein Agent arbeitet
 azreview-chip-suggested = ein Vorschlag wartet
 azreview-chip-done = erledigt

@@ -50,6 +50,8 @@ pub const RIGHT_BAR: AzString = AzString::from_const_str("__azreview_right-bar")
 pub const RIGHT_TOGGLE: AzString = AzString::from_const_str("__azreview_right-toggle");
 pub const RIGHT_PANEL: AzString = AzString::from_const_str("__azreview_right-panel");
 pub const RIGHT_GRIP: AzString = AzString::from_const_str("__azreview_right-grip");
+/// The settings page's list of the recognisers and their state.
+pub const SPEECH_STATUS: AzString = AzString::from_const_str("__azreview_speech-status");
 /// The bottom bar of the agents at work.
 pub const BOTTOM_BAR: AzString = AzString::from_const_str("__azreview_agents-bar");
 /// What the tree shows of a file's conversations: an agent at work (the spinner), a suggestion waiting, all done.

@@ -332,12 +332,31 @@ pub fn settings_section(s: &AppState, app: &RefAny) -> kit::AppSection {
                 .dom()
                 .with_id(ids::SETTING_QUIET),
         ))
-        .with_child(kit::note("azreview-dictation-note"));
+        .with_child(kit::note("azreview-dictation-note"))
+        .with_child(speech_status(s));
     kit::AppSection {
         category: 0,
         title: t("azreview-category-dictation"),
         content,
     }
+}
+
+/// The recognisers the dictation asks, in the order it asks them, each with its state in the speech session's own
+/// words (which one answers, which is not set up, which was refused and why).
+fn speech_status(s: &AppState) -> Dom {
+    let mut col = Dom::create_div()
+        .with_id(ids::SPEECH_STATUS)
+        .with_css("display: flex; flex-direction: column; gap: 2px; padding: 10px 0px; font-size: 11px; color: system:secondary-text;");
+    col.add_child(Dom::create_span_with_text(label("azreview-speech-chain")).with_css("font-weight: 600;"));
+    if let Some(speech) = &s.voice.speech {
+        let lines = speech.recognizers();
+        for i in 0..lines.len() {
+            if let azul::option::OptionString::Some(line) = lines.c_get(i) {
+                col.add_child(Dom::create_span_with_text(line.as_str()));
+            }
+        }
+    }
+    col
 }
 
 /// Sets one value of the dictation: the window's copy, then the settings file.

@@ -165,3 +165,12 @@ fn the_dictation_settings_have_a_row_for_each_choice_and_the_nearest_preset_is_l
     assert_eq!(nearest(&REST_PRESETS, 2_400), 2, "between two: the nearer");
     assert_eq!(nearest(&SILENCE_PRESETS, 12_000), 1);
 }
+
+#[test]
+fn the_settings_section_lists_the_recognisers_and_with_no_session_only_says_what_the_list_is() {
+    let s = app();
+    let section = settings_section(&s, &RefAny::new(0u8));
+    let said = texts(&section.content);
+    assert!(said.iter().any(|t| t.contains("Speech recognisers")), "{said:?}");
+    assert!(with_id(&section.content, "__azreview_speech-status").is_some());
+}
