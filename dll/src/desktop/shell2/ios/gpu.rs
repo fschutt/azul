@@ -19,6 +19,7 @@ use std::{
 use azul_core::{
     callbacks::RelayoutReason,
     gl::{GlContextPtr, OptionGlContextPtr},
+    glconst,
     window::RendererType,
 };
 use azul_layout::window_state::WindowCreateOptions;
@@ -103,7 +104,13 @@ pub(super) struct IosGpu {
     started: Instant,
     /// The first frame of this renderer has been reported (once).
     first_frame_reported: bool,
+    /// How many of the first frames said what the framebuffer held before it was shown ([`DIAGNOSTIC_FRAMES`]).
+    diagnostic_frames: u8,
 }
+
+/// The first frames of a window say what the framebuffer holds before it is shown and what `glGetError` thinks of the
+/// frame: "WebRender drew nothing" and "the layer does not show what it drew" are different faults.
+const DIAGNOSTIC_FRAMES: u8 = 3;
 
 impl IosGpu {
     fn new(request: GpuRequest, plan: FailPlan) -> Self {
@@ -121,6 +128,7 @@ impl IosGpu {
             reported: false,
             started: Instant::now(),
             first_frame_reported: false,
+            diagnostic_frames: 0,
         }
     }
 }
@@ -746,6 +754,21 @@ impl IOSWindow {
             }
         };
         let draw_calls = results.stats.total_draw_calls as u64;
+        if gpu.diagnostic_frames < DIAGNOSTIC_FRAMES {
+            gpu.diagnostic_frames += 1;
+            if let Some(gl) = gpu.gl.as_ref() {
+                drawable.bind();
+                log_info!(
+                    LogCategory::Rendering,
+                    "[iOS GPU] frame {}: {} draw calls, framebuffer {}x{}: {}",
+                    gpu.diagnostic_frames,
+                    draw_calls,
+                    width,
+                    height,
+                    framebuffer_sample(gl, width, height)
+                );
+            }
+        }
         drawable.present(context)?;
         let render_us = elapsed_us(started);
         self.present_log.note(Some(render_us));
@@ -856,6 +879,28 @@ fn plist_backend() -> Option<String> {
         }
         Some(CStr::from_ptr(bytes).to_string_lossy().into_owned())
     }
+}
+
+/// What the bound framebuffer holds at five places (RGBA in hex) and what `glGetError` says.
+fn framebuffer_sample(gl: &GenericGlContext, width: i32, height: i32) -> String {
+    let places = [
+        (10, 10),
+        (width / 2, height / 2),
+        (width - 10, height - 10),
+        (width / 2, height / 4),
+        (width / 2, height * 3 / 4),
+    ];
+    let mut text = String::new();
+    for (x, y) in places {
+        let (x, y) = (x.max(0), y.max(0));
+        let mut pixel = [0_u8; 4];
+        gl.read_pixels_into_buffer(x, y, 1, 1, glconst::RGBA, glconst::UNSIGNED_BYTE, &mut pixel);
+        text.push_str(&format!(
+            "({x},{y})={:02x}{:02x}{:02x}{:02x} ",
+            pixel[0], pixel[1], pixel[2], pixel[3]
+        ));
+    }
+    format!("{text}glGetError=0x{:04x}", gl.get_error())
 }
 
 /// What a panic said (`panic!("...")` carries a `&str` or a `String`).
