@@ -26027,80 +26027,6 @@
                             "returns": null
                         },
                         "repr": "C"
-                    },
-                    "FrameTapCallback": {
-                        "doc": [
-                            "A frame tap's function, as the functions of the C interface take it."
-                        ],
-                        "external": "azul_layout::frame_tap::FrameTapCallback",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "cb": {
-                                    "type": "FrameTapCallbackType"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "create": {
-                                "doc": [
-                                    "A function (of Rust or of C) as a tap's callback."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "cb": "FrameTapCallbackType"
-                                    }
-                                ],
-                                "fn_body": "azul_layout::frame_tap::FrameTapCallback::create(cb)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "FrameTapInfo": {
-                        "doc": [
-                            "What a window's frame tap hears of one frame: its size and scale, the whole of it or the rectangles that changed (device pixels, x, y, width, height one after the other), and its pixels (RGBA, borrowed until the tap returns)."
-                        ],
-                        "external": "azul_layout::frame_tap::FrameTapInfo",
-                        "custom_impls": [
-                            "Debug"
-                        ],
-                        "derive": [
-                            "Clone"
-                        ],
-                        "struct_fields": [
-                            {
-                                "width": {
-                                    "type": "u32"
-                                },
-                                "height": {
-                                    "type": "u32"
-                                },
-                                "stride": {
-                                    "type": "usize"
-                                },
-                                "scale": {
-                                    "type": "f32"
-                                },
-                                "full": {
-                                    "type": "bool"
-                                },
-                                "damage": {
-                                    "type": "I32VecRef"
-                                },
-                                "pixels": {
-                                    "type": "U8VecRef"
-                                }
-                            }
-                        ],
-                        "repr": "C"
                     }
                 }
             },
@@ -40007,6 +39933,43 @@
                                 "Ended": {}
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "FrameTapCallback": {
+                        "doc": [
+                            "A frame tap's function, as the functions of the C interface take it."
+                        ],
+                        "external": "azul_layout::frame_tap::FrameTapCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "From",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "FrameTapCallbackType"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A function (of Rust or of C) as a tap's callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cb": "FrameTapCallbackType"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::frame_tap::FrameTapCallback::create(cb)"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
@@ -61897,6 +61860,68 @@
                                 "StyleFontVariationSettings"
                             ]
                         }
+                    },
+                    "DesktopState": {
+                        "doc": [
+                            "The desktop's state, polled: the app in front, the pointer on the desktop, whether the screen is locked and whether the display sleeps. Cheap enough to ask ten or twenty times a second from the thread that asks; no permission of the system is needed. macOS today; where a platform has no reading every field is 'not known' and the screen is not locked. In a headless or E2E test run it is what the file named by AZ_DESKTOP_STATE_FILE says. It reads the app's bundle id and name, the pointer's place, the lock and the display's sleep and nothing else (no window titles or contents, no keys, no clicks, no list of the other apps), and keeps and sends nothing: an app that asks says so to the person."
+                        ],
+                        "external": "azul_dll::unified::desktop_state::DesktopState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "front_bundle": {
+                                    "type": "OptionString",
+                                    "doc": [
+                                        "The bundle id of the app in front (com.apple.Safari); none where it is not known."
+                                    ]
+                                },
+                                "front_name": {
+                                    "type": "OptionString",
+                                    "doc": [
+                                        "The name of the app in front."
+                                    ]
+                                },
+                                "pointer": {
+                                    "type": "OptionScreenPosition",
+                                    "doc": [
+                                        "The pointer's place on the desktop, points from the top left of the primary display; none where it is not known."
+                                    ]
+                                },
+                                "locked": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "The screen is locked, or the screen saver shows."
+                                    ]
+                                },
+                                "display_asleep": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "The main display is asleep."
+                                    ]
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "query": {
+                                "doc": [
+                                    "The desktop now."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::desktop_state::DesktopState::query()"
+                            },
+                            "headless": {
+                                "doc": [
+                                    "What a headless or E2E run reports when no script says otherwise: nothing known, nothing locked."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::desktop_state::DesktopState::headless()"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -116137,6 +116162,44 @@
                                 "None": {},
                                 "First": {},
                                 "Second": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FrameTapInfo": {
+                        "doc": [
+                            "What a window's frame tap hears of one frame: its size and scale, the whole of it or the rectangles that changed (device pixels, x, y, width, height one after the other), and its pixels (RGBA, borrowed until the tap returns)."
+                        ],
+                        "external": "azul_layout::frame_tap::FrameTapInfo",
+                        "custom_impls": [
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "width": {
+                                    "type": "u32"
+                                },
+                                "height": {
+                                    "type": "u32"
+                                },
+                                "stride": {
+                                    "type": "usize"
+                                },
+                                "scale": {
+                                    "type": "f32"
+                                },
+                                "full": {
+                                    "type": "bool"
+                                },
+                                "damage": {
+                                    "type": "I32VecRef"
+                                },
+                                "pixels": {
+                                    "type": "U8VecRef"
+                                }
                             }
                         ],
                         "repr": "C"
@@ -209277,68 +209340,6 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_idle_on_mains(min_idle_secs)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "DesktopState": {
-                        "doc": [
-                            "The desktop's state, polled: the app in front, the pointer on the desktop, whether the screen is locked and whether the display sleeps. Cheap enough to ask ten or twenty times a second from the thread that asks; no permission of the system is needed. macOS today; where a platform has no reading every field is 'not known' and the screen is not locked. In a headless or E2E test run it is what the file named by AZ_DESKTOP_STATE_FILE says. It reads the app's bundle id and name, the pointer's place, the lock and the display's sleep and nothing else (no window titles or contents, no keys, no clicks, no list of the other apps), and keeps and sends nothing: an app that asks says so to the person."
-                        ],
-                        "external": "azul_dll::unified::desktop_state::DesktopState",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "front_bundle": {
-                                    "type": "OptionString",
-                                    "doc": [
-                                        "The bundle id of the app in front (com.apple.Safari); none where it is not known."
-                                    ]
-                                },
-                                "front_name": {
-                                    "type": "OptionString",
-                                    "doc": [
-                                        "The name of the app in front."
-                                    ]
-                                },
-                                "pointer": {
-                                    "type": "OptionScreenPosition",
-                                    "doc": [
-                                        "The pointer's place on the desktop, points from the top left of the primary display; none where it is not known."
-                                    ]
-                                },
-                                "locked": {
-                                    "type": "bool",
-                                    "doc": [
-                                        "The screen is locked, or the screen saver shows."
-                                    ]
-                                },
-                                "display_asleep": {
-                                    "type": "bool",
-                                    "doc": [
-                                        "The main display is asleep."
-                                    ]
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "query": {
-                                "doc": [
-                                    "The desktop now."
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_dll::unified::desktop_state::DesktopState::query()"
-                            },
-                            "headless": {
-                                "doc": [
-                                    "What a headless or E2E run reports when no script says otherwise: nothing known, nothing locked."
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_dll::unified::desktop_state::DesktopState::headless()"
                             }
                         },
                         "repr": "C"
