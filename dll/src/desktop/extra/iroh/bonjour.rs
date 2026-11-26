@@ -36,8 +36,8 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use super::{
     discovery::{Held, LocalDiscovery, LocalLookup},
     dns_wire::{
-        assemble, describe_error, instance_fullname, instance_label, ip_from_sockaddr, parse_srv,
-        DOMAIN, SERVICE_TYPE,
+        assemble, describe_error, host_key, instance_fullname, instance_label, ip_from_sockaddr,
+        parse_srv, DOMAIN, SERVICE_TYPE,
     },
 };
 
@@ -203,7 +203,7 @@ struct Worker {
     srv_started: bool,
     /// The host names whose addresses were asked for.
     asked: BTreeSet<String>,
-    /// SRV target to port; host name to its addresses.
+    /// SRV target to port; host name to its addresses (both keyed by [`host_key`]).
     ports: BTreeMap<String, u16>,
     hosts: BTreeMap<String, Vec<IpAddr>>,
     /// The addresses already handed to the stream.
@@ -361,11 +361,12 @@ impl Worker {
         let Some(srv) = parse_srv(rdata) else {
             return;
         };
-        self.ports.insert(srv.target.clone(), srv.port);
-        if !self.asked.insert(srv.target.clone()) {
+        let target = host_key(&srv.target);
+        self.ports.insert(target.clone(), srv.port);
+        if !self.asked.insert(target.clone()) {
             return;
         }
-        let Ok(host) = CString::new(srv.target) else {
+        let Ok(host) = CString::new(target) else {
             return;
         };
         let mut query: DnsServiceRef = self.connection;
@@ -392,7 +393,7 @@ impl Worker {
     /// One address of a host: remember it, and when it adds to what the stream has had, hand the
     /// stream the whole picture (an iroh dial merges the addresses of every item it gets).
     fn address_found(&mut self, host: &str, ip: IpAddr, more_coming: bool) {
-        let known = self.hosts.entry(host.to_string()).or_default();
+        let known = self.hosts.entry(host_key(host)).or_default();
         if !known.contains(&ip) {
             known.push(ip);
         }
@@ -419,7 +420,8 @@ unsafe fn c_text(text: *const c_char) -> Option<String> {
     if text.is_null() {
         return None;
     }
-    Some(CStr::from_ptr(text).to_string_lossy().into_owned())
+    // SAFETY: not null, and NUL-terminated for the length of the call (the contract above).
+    Some(unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned())
 }
 
 extern "C" fn on_browse(

@@ -163,7 +163,11 @@ pub(super) fn describe_error(code: i32) -> String {
 /// hand a name back in another case or without its root dot than the SRV record carried it in; two
 /// spellings of one host must find each other.
 pub(super) fn host_key(name: &str) -> String {
-    name.to_string()
+    let mut key = name.to_ascii_lowercase();
+    if !key.ends_with('.') {
+        key.push('.');
+    }
+    key
 }
 
 /// The socket addresses of one peer: for every SRV target its port with the addresses found for
