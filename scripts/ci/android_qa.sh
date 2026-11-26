@@ -99,9 +99,11 @@ for mode in "${mode_list[@]}"; do
   if [ "$session" = qa ] || [ "$session" = both ]; then
     python3 "$here/mobile_qa.py" android --out "$d" --apk "$apk" --package "$pkg" --activity "${act:-}" \
       --label "$label" --gpu "$mode" ${AZ_QA_POINTS:+--points "$AZ_QA_POINTS"} \
-      ${AZ_QA_SERIES:+--series "$AZ_QA_SERIES"} ${floor_apk:+--floor-apk "$floor_apk"} 2>&1 | tee "$d/qa.log"
+      ${AZ_QA_SERIES:+--series "$AZ_QA_SERIES"} ${floor_apk:+--floor-apk "$floor_apk"} \
+      ${AZ_QA_EXPECT_GPU:+--expect-gpu} ${AZ_QA_ONLY:+--only "$AZ_QA_ONLY"} 2>&1 | tee "$d/qa.log"
   fi
-  if [ "$session" = e2e ] || [ "$session" = both ]; then
+  # the e2e session runs on the FIRST mode only (it does not depend on how the emulator composes the window)
+  if { [ "$session" = e2e ] || [ "$session" = both ]; } && [ "$mode" = "${mode_list[0]}" ]; then
     scen=()
     for f in ${AZ_QA_SCENARIOS:-}; do scen+=(--scenario "$f"); done
     python3 "$here/mobile_e2e.py" android --out "$d/e2e" --apk "$apk" --package "$pkg" --activity "${act:-}" \
