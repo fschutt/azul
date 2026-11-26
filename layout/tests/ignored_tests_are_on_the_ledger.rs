@@ -102,6 +102,14 @@ const LEDGER: &[Row] = &[
         reason: "needs a Mac on a network that carries multicast and the Local Network permission (X-EDGE-C-2)",
     },
     Row {
+        file: "dll/src/desktop/extra/iroh/bonjour_test.rs",
+        test: "bonjour_lists_what_the_mdns_lookup_announces_with_its_text",
+        kind: Kind::Hardware,
+        id: None,
+        owner: "dll/iroh",
+        reason: "needs a Mac on a network that carries multicast and the Local Network permission (X-EDGE-C-2)",
+    },
+    Row {
         file: "dll/src/desktop/extra/iroh/engine_test.rs",
         test: "two_endpoints_find_each_other_by_id_over_real_mdns",
         kind: Kind::Hardware,
@@ -357,7 +365,8 @@ const COUNTS: &[(Kind, usize)] = &[
     // + the built-in speech recogniser's real-engine test (dll/tests/speech_builtin_engine.rs): 11 -> 12.
     // + the two real-network tests of iroh's local discovery (extra/iroh/engine_test.rs, bonjour_test.rs): 12 -> 14.
     // + the listing of the endpoints of the local network over real mDNS (extra/iroh/engine_test.rs): 14 -> 15.
-    (Kind::Hardware, 15),
+    // + the Bonjour watch of an iPhone over real mDNS (extra/iroh/bonjour_test.rs): 15 -> 16.
+    (Kind::Hardware, 16),
 ];
 
 /// The crates whose sources are scanned (`src/` and `tests/` of each).

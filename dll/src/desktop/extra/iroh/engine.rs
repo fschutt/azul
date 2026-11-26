@@ -353,6 +353,9 @@ impl Engine {
                 "; the advertised text was cut from {cut} to {MAX_ADVERTISED_BYTES} bytes"
             ));
         }
+        if let Some(reason) = self.nearby.trouble() {
+            text.push_str(&format!("; looking for nearby endpoints failed: {reason}"));
+        }
         let refused = self.nearby.refused();
         if refused > 0 {
             text.push_str(&format!(
