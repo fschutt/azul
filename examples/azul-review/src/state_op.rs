@@ -95,6 +95,8 @@ pub fn state_json(s: &AppState) -> String {
             "disarms": s.voice.disarms,
         },
         "whiteboard": whiteboard_json(s),
+        // whether the phone companion is on and what it is doing (never its key)
+        "companion": s.companion.try_borrow().map_or(serde_json::Value::Null, |g| g.json()),
         "conversations": {
             "open": s.open_conv,
             "bar_all": s.bar_all,

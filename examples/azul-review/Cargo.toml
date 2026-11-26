@@ -20,6 +20,10 @@ serde_json = "1"
 # SHA-256 of the lines a code reference of a whiteboard covers, so that a published board can be checked against the file at
 # its revision (whiteboard_hash.rs): the same sha2 0.10 that Cargo.lock holds already (azul-dll's own dependencies).
 sha2 = "0.10"
+# What AzReview and the phone companion say to each other (the host a Mac runs, the pairing, the iroh link behind the feature
+# `azul`): a workspace crate, so Cargo.lock gains the edge from AzReview to it and no external crate (its sha2 and hmac are in the lock
+# already). Nothing listens until the user turns the companion on (companion_plug.rs).
+azul-review-link = { path = "../azul-review-link", features = ["azul"] }
 
 [lib]
 name = "azul_review"

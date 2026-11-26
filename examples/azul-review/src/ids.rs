@@ -74,3 +74,9 @@ pub const BOTTOM_BAR: AzString = AzString::from_const_str("__azreview_agents-bar
 pub const FILE_MARK_WORKING: AzString = AzString::from_const_str("__azreview_file-mark-working");
 pub const FILE_MARK_SUGGESTED: AzString = AzString::from_const_str("__azreview_file-mark-suggested");
 pub const FILE_MARK_DONE: AzString = AzString::from_const_str("__azreview_file-mark-done");
+/// The settings page's switch of the phone companion (Off / On), the line that says what it is doing and the note about what it is.
+pub const SETTING_COMPANION: AzString = AzString::from_const_str("__azreview_setting-companion");
+pub const COMPANION_STATUS: AzString = AzString::from_const_str("__azreview_companion-status");
+pub const COMPANION_NOTE: AzString = AzString::from_const_str("__azreview_companion-note");
+/// The key on the first screen (no folder yet) that goes to the settings of the phone companion.
+pub const COMPANION_FIRST_RUN: AzString = AzString::from_const_str("__azreview_companion-first-run");

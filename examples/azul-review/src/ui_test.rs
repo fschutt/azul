@@ -380,7 +380,7 @@ fn the_presenter_and_the_picture_in_picture_have_their_slots_and_nothing_is_in_t
 fn the_settings_page_has_the_dictation_section_and_room_for_the_others() {
     let s = reviewing("/work/proj");
     let sections = settings_sections(&s, &RefAny::new(0u8));
-    assert_eq!(sections.len(), 2, "the dictation's and the whiteboard's; the agents', recorder's and speech panels come after them");
+    assert_eq!(sections.len(), 3, "the dictation's, the whiteboard's and the phone companion's; the agents', recorder's and speech panels come after them");
 }
 
 // ---- a page of long lines, a file of many pages ----

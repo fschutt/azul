@@ -327,6 +327,7 @@ version = "0.1.0"
 dependencies = [
  "azul-appkit",
  "azul-dll",
+ "azul-review-link",
  "serde",
  "serde_json",
  "sha2 0.10.9",

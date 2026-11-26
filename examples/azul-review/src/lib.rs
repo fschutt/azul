@@ -69,6 +69,9 @@ pub mod chips_op;
 pub mod code;
 pub mod agent_window;
 pub mod column;
+pub mod companion_io;
+pub mod companion_plug;
+pub mod companion_store;
 pub mod conv_ui;
 pub mod conversation;
 pub mod conversation_request;
@@ -386,6 +389,9 @@ pub struct AppState {
     /// The whiteboard of the workspace: its panel and what the app keeps beside it (`whiteboard_plug`). In a `RefCell`: the
     /// layout builds the window from a shared reference to this state, and the panel wants to be built from a mutable one.
     pub wb: std::cell::RefCell<whiteboard_plug::Glue>,
+    /// The phone companion: whether it is on (off until the user turns it on), the host a phone talks to, what is kept of it
+    /// (`companion_plug`). Kept across the folders the window reviews: the phones stay connected while the folder changes.
+    pub companion: std::cell::RefCell<companion_plug::Glue>,
 }
 
 impl AppState {
@@ -426,6 +432,7 @@ impl AppState {
         data_root: PathBuf,
     ) -> Self {
         let wb = std::cell::RefCell::new(whiteboard_plug::Glue::new(&root, &data_root));
+        let companion = std::cell::RefCell::new(companion_plug::Glue::new(companion_store::store_path(&data_root, ABOUT.app_folder)));
         Self {
             source,
             tree,
@@ -497,6 +504,7 @@ impl AppState {
             save_pending: false,
             session_recorder: None,
             wb,
+            companion,
         }
     }
 
@@ -1353,7 +1361,7 @@ pub fn run() {
     let start_w = args.size.map_or(WINDOW_DEFAULT.0, |size| size.0);
     // A `--shot` run is a fixture: it never takes the folder the user last reviewed.
     let remember = args.shot.is_none();
-    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &["dictation"], args);
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &["dictation", "phone"], args);
     startup::phase("kit");
     // The words first: everything from here is said in the language chosen (Settings,
     // `--language`; the system's otherwise).
@@ -1539,6 +1547,8 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
     load_session(&data, &mut info);
     // The whiteboard of the workspace comes back.
     whiteboard_plug::start(&data, &mut info);
+    // What the phone companion kept is read; when the user had turned it on it is bound after the first frame (off: nothing listens).
+    companion_plug::start(&data, &mut info);
     Update::DoNothing
 }
 

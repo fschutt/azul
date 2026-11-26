@@ -1099,7 +1099,11 @@ fn overlay_slot(_s: &AppState, _data: &RefAny) -> Option<Dom> {
 
 /// The sections of the settings page, in order: the dictation's, then what the other modules add.
 fn settings_sections(s: &AppState, data: &RefAny) -> Vec<kit::AppSection> {
-    vec![column::settings_section(s, data), crate::whiteboard_plug::settings_section(s, data)]
+    vec![
+        column::settings_section(s, data),
+        crate::whiteboard_plug::settings_section(s, data),
+        crate::companion_plug::settings_section(s, data),
+    ]
 }
 
 /// The bottom bar: the conversations of the open file, one chip each (a blue spinner while its agent works, yellow
@@ -1440,6 +1444,11 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
                 .with_child(Dom::create_icon("folder_open").with_css("font-size: 20px;"))
                 .with_child(Dom::create_span_with_text(name.as_str())),
         );
+        // The first screen (no folder yet) also says that a phone can be the touch pad of the desk: it leads to the settings of the
+        // companion, which is off until it is turned on there. Not shown once it is on.
+        if s.root.as_os_str().is_empty() && crate::companion_plug::first_run_shown(s) {
+            panel.add_child(crate::companion_plug::first_run_key(data));
+        }
         area.add_child(panel);
         return area;
     }

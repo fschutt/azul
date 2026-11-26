@@ -494,3 +494,15 @@ azreview-symbols-skip-binary = kein Text
 azreview-symbols-skip-generated = von einem Werkzeug erzeugt
 azreview-symbols-skip-minified = Zeilen, die niemand von Hand geschrieben hat
 azreview-symbols-skip-unreadable = konnte nicht gelesen werden
+
+# the phone companion (off until the user turns it on)
+azreview-category-phone = Telefon-Begleiter
+azreview-companion-when = Telefone dürfen sich verbinden
+azreview-companion-off = Aus
+azreview-companion-on = An
+azreview-companion-status-off = Aus. Nichts hört im Netzwerk zu.
+azreview-companion-status-starting = Wird gestartet ...
+azreview-companion-status-on = An. { $paired } von { $max } Telefonen sind gekoppelt, { $here } verbunden.
+azreview-companion-status-failed = Der Begleiter konnte nicht starten: { $why }
+azreview-companion-note = Ein Telefon kann das Touchpad dieses Schreibtischs sein: Es verschiebt und zoomt die Seite, auf der der Stift ist, zeigt die Dateien und drückt vier Schnelltasten. Es spricht mit diesem Computer nur über dein lokales Netzwerk (kein Internet, kein Relay), und nur Telefone, die du hier koppelst, können etwas tun. Nichts hört zu, bis du das einschaltest.
+azreview-companion-first-run = Hast du ein Telefon? Verbinde die Begleiter-App
