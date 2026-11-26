@@ -45,8 +45,42 @@ public class AzulActivity extends NativeActivity {
     private NativeGestureBridge gestureBridge;
     private AzulAccessibilityBridge accessibilityBridge;
 
+    /**
+     * The app's private folders, as the environment the Rust side reads them from.
+     *
+     * An app process has no HOME and no XDG_* variables, so `dirs::home_dir()` is None (dirs-sys' fallback
+     * through getpwuid is compiled out on Android) and so are `FilePath::get_data_dir()`,
+     * `get_cache_dir()` and `get_config_dir()`; `std::env::temp_dir()` is `/data/local/tmp`, which an app
+     * cannot write. An app that keeps a pairing, a cache or a database through them kept nothing. Set
+     * BEFORE the library loads: the app's load-time constructor (azul_android_init) runs inside
+     * System.loadLibrary and may already ask. {@code Os.setenv} (API 21) on the main thread before any
+     * native thread exists is the safe way to change the environment of a process; what the caller
+     * already set is kept.
+     */
+    private void prepareAppDirs() {
+        try {
+            java.io.File files = getFilesDir();   // /data/user/0/<package>/files, created if missing
+            java.io.File cache = getCacheDir();   // /data/user/0/<package>/cache
+            setenvIfUnset("HOME", files.getAbsolutePath());
+            setenvIfUnset("XDG_DATA_HOME", files.getAbsolutePath());
+            setenvIfUnset("XDG_CONFIG_HOME", new java.io.File(files, "config").getAbsolutePath());
+            setenvIfUnset("XDG_CACHE_HOME", cache.getAbsolutePath());
+            setenvIfUnset("TMPDIR", cache.getAbsolutePath());
+        } catch (Throwable t) {
+            android.util.Log.w("azul", "the app's folders are not in the environment: " + t);
+        }
+    }
+
+    private static void setenvIfUnset(String key, String value) throws android.system.ErrnoException {
+        String current = android.system.Os.getenv(key);
+        if (current == null || current.isEmpty()) {
+            android.system.Os.setenv(key, value, true);
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        prepareAppDirs();
         // NativeActivity dlopens the cdylib NATIVELY during super.onCreate —
         // which does NOT register it with this ClassLoader for Java
         // native-method resolution. Without an explicit System.loadLibrary,
@@ -90,13 +124,39 @@ public class AzulActivity extends NativeActivity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (!hasFocus || gestureBridge != null) {
+        if (hasFocus) {
+            attachBridges(0);
+        }
+    }
+
+    /** How often, and how far apart, the bridges ask whether android_main has published its window. */
+    private static final int ATTACH_RETRIES = 200;
+    private static final long ATTACH_RETRY_MS = 50L;
+
+    /**
+     * Attach the gesture, accessibility, text and gamepad bridges once the native side has
+     * published the object the Java side hands back to it on every call.
+     *
+     * android_main runs on its own thread and publishes that object only after it has built its
+     * window, while the first focus event of a launch arrives as soon as the activity is resumed.
+     * Waiting for "the next focus event" left an app that lost the race without a soft keyboard,
+     * insets, gestures and TalkBack until the user happened to pull the notification shade: so it
+     * asks again every 50 ms, for ten seconds.
+     */
+    private void attachBridges(final int attempt) {
+        if (gestureBridge != null || isFinishing() || isDestroyed()) {
             return;
         }
         long nativePtr = nativeGetWindowPointer();
         if (nativePtr == 0L) {
-            // android_main hasn't published the window yet — try again
-            // on the next focus event.
+            if (attempt < ATTACH_RETRIES) {
+                getWindow().getDecorView().postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        attachBridges(attempt + 1);
+                    }
+                }, ATTACH_RETRY_MS);
+            }
             return;
         }
         View decor = getWindow().getDecorView();
@@ -133,7 +193,11 @@ public class AzulActivity extends NativeActivity {
         // buttons and axes; what it cannot deliver is "a pad appeared", which
         // only InputManager.InputDeviceListener reports.
         AzulGamepad.attach(this);
-        AzulMediaSession.start(this);
+        // NOT AzulMediaSession.start(this) here: a media session is for an app that asked to be a media
+        // player (AppConfig::expose_system_media_controls; media_keys::ensure_started calls start from
+        // Rust then). Claiming it for every azul app made a widget demo appear on the lock screen as a
+        // player and take the hardware media buttons from the user's music app (emulator log:
+        // "MediaSessionStack: addSession ... com.azul.AzWidgets/azul").
     }
 
     /**
@@ -177,6 +241,15 @@ public class AzulActivity extends NativeActivity {
         if (event != null && AzulGamepad.onKey(event, event.getAction() == KeyEvent.ACTION_DOWN)) {
             return true;
         }
+        // A hardware keyboard's letters (and the keys `adb shell input text` injects) reached here after
+        // the IME and the native input queue passed them by: the character is Android's to read off the
+        // event, the decision whether it types is the shell's (android_core::keys).
+        if (event != null && event.getAction() == KeyEvent.ACTION_DOWN) {
+            long nativePtr = nativeGetWindowPointer();
+            if (nativePtr != 0L) {
+                NativeTextBridge.keyText(nativePtr, event);
+            }
+        }
         return super.dispatchKeyEvent(event);
     }
 
@@ -191,8 +264,9 @@ public class AzulActivity extends NativeActivity {
     @Override
     protected void onPause() {
         // Sensors and location keep draining the battery behind a backgrounded
-        // app unless something stops them; nothing did.
-        AzulSensors.stop(this);
+        // app unless something stops them; nothing did. Paused, not stopped: the
+        // app asked for the readings once and expects them again after onResume.
+        AzulSensors.pause(this);
         // A sign-in's Custom Tab covers the app: noted, so a return without the
         // redirect reads as a cancel (onResume).
         AzulAuthSession.onPause();
@@ -205,6 +279,8 @@ public class AzulActivity extends NativeActivity {
         // Back from a sign-in's Custom Tab without its redirect (that arrives in
         // onNewIntent, before onResume): the user closed the tab.
         AzulAuthSession.onResume();
+        // The readings the app asked for before the pause.
+        AzulSensors.resume(this);
     }
 
     @Override
@@ -212,10 +288,18 @@ public class AzulActivity extends NativeActivity {
         AzulGamepad.detach(this);
         AzulSensors.stop(this);
         AzulMediaSession.stop(this);
+        // Returns when the native side has finished: android_main has left its loop and dropped the
+        // app (NativeActivity waits for it).
         super.onDestroy();
+        // THE PROCESS ENDS WITH ITS ACTIVITY. libazul is not re-entrant: its load-time constructor
+        // hands the app's window options to android_main ONCE per process, and every JNI cookie, the
+        // input view and the bridges are per-process statics. A second activity in this process
+        // (BACK, then the launcher icon: the system keeps a finished app's process cached and starts
+        // the next launch in it) found no options, android_main returned at once and the user saw a
+        // black window that never drew. A cold start is what a launch from the launcher means for a
+        // native app (Unity, Godot and SDL activities do the same).
+        android.os.Process.killProcess(android.os.Process.myPid());
     }
-
-
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
@@ -227,6 +311,51 @@ public class AzulActivity extends NativeActivity {
         if (nativePtr != 0L) {
             pushUiMode(nativePtr);
         }
+    }
+
+    /**
+     * Rust -> Java: the icon colour of the system bars. A NativeActivity's window is the app's own
+     * surface and it reaches under the status and navigation bars; the bars draw their clock, battery
+     * and buttons on top in WHITE unless the window says its bars have a LIGHT background. The shell
+     * measures what it drew behind each bar and calls this when it changes.
+     *
+     * @param statusLight     the background behind the status bar is light: dark icons
+     * @param navigationLight the background behind the navigation bar is light: dark buttons
+     */
+    public static void setSystemBarsAppearance(final android.app.Activity activity, final boolean statusLight,
+                                               final boolean navigationLight) {
+        if (activity == null) {
+            return;
+        }
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                View decor = activity.getWindow().getDecorView();
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                    android.view.WindowInsetsController controller = decor.getWindowInsetsController();
+                    if (controller != null) {
+                        int light = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS;
+                        int lightNav = android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                        controller.setSystemBarsAppearance(statusLight ? light : 0, light);
+                        controller.setSystemBarsAppearance(navigationLight ? lightNav : 0, lightNav);
+                    }
+                } else {
+                    int flags = decor.getSystemUiVisibility();
+                    // SYSTEM_UI_FLAG_LIGHT_STATUS_BAR is API 23, ..._LIGHT_NAVIGATION_BAR API 26
+                    if (android.os.Build.VERSION.SDK_INT >= 23) {
+                        flags = statusLight
+                                ? (flags | View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR)
+                                : (flags & ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+                    }
+                    if (android.os.Build.VERSION.SDK_INT >= 26) {
+                        flags = navigationLight
+                                ? (flags | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR)
+                                : (flags & ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+                    }
+                    decor.setSystemUiVisibility(flags);
+                }
+            }
+        });
     }
 
     /** Map UI_MODE_NIGHT_MASK onto the codes the Rust side expects. */
@@ -259,6 +388,23 @@ public class AzulActivity extends NativeActivity {
     /** Implemented in Rust (dll/src/desktop/shell2/android/mod.rs). */
     private static native long nativeGetWindowPointer();
 
-    /** Implemented in Rust (dll/src/desktop/shell2/android/mod.rs). */
+    /**
+     * The system asks the app to give memory back (TRIM_MEMORY_RUNNING_LOW 10, RUNNING_CRITICAL 15,
+     * UI_HIDDEN 20, the background levels 40, 60, 80). NativeActivity forwards only onLowMemory to native
+     * code, so the level goes to the shell here.
+     */
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        long nativePtr = nativeGetWindowPointer();
+        if (nativePtr != 0L) {
+            nativeOnTrimMemory(nativePtr, level);
+        }
+    }
+
+    /** Implemented in Rust (dll/src/desktop/shell2/android/bridge.rs). */
+    private static native void nativeOnTrimMemory(long nativePtr, int level);
+
+    /** Implemented in Rust (dll/src/desktop/shell2/android/bridge.rs). */
     private static native void nativeOnUiModeChanged(long nativePtr, int nightMode);
 }

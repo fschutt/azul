@@ -109,6 +109,7 @@ dropped a value these bindings cannot build: the Smalltalk bindings define no cl
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariantCapsValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariantLigaturesValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariantEastAsianValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariantPositionValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontSynthesisValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontSynthesisValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontSynthesisValue` or its CssPropertyValue<T> payload
@@ -127,6 +128,7 @@ AzulStyles class >> styleShorthands [
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontVariantNumeric))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontVariantLigatures))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontVariantEastAsian))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontVariantPosition))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontKerning))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontOpticalSizing))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontVariationSettings))).

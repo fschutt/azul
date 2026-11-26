@@ -103,6 +103,7 @@ func StyleShorthands() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontVariantNumeric)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontVariantLigatures)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontVariantEastAsian)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontVariantPosition)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontKerning)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontOpticalSizing)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontVariationSettings)),
@@ -115,11 +116,12 @@ func StyleShorthands() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantCaps(azul.AzStyleFontVariantCapsValue_Exact(azul.StyleFontVariantCaps_Normal))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantLigatures(azul.AzStyleFontVariantLigaturesValue_Exact(azul.AzStyleFontVariantLigatures{Common: azul.StyleFontLigatureChoice_Unset, Discretionary: azul.StyleFontLigatureChoice_Unset, Historical: azul.StyleFontLigatureChoice_Unset, Contextual: azul.StyleFontLigatureChoice_Unset}))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantEastAsian(azul.AzStyleFontVariantEastAsianValue_Exact(azul.AzStyleFontVariantEastAsian{Jis78: true, Jis83: false, Jis90: false, Jis04: false, Simplified: false, Traditional: false, FullWidth: false, ProportionalWidth: false, Ruby: false}))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantPosition(azul.AzStyleFontVariantPositionValue_Exact(azul.StyleFontVariantPosition_Normal))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontSynthesisWeight(azul.AzStyleFontSynthesisValue_Exact(azul.StyleFontSynthesis_Auto))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontSynthesisStyle(azul.AzStyleFontSynthesisValue_Exact(azul.StyleFontSynthesis_Auto))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontSynthesisSmallCaps(azul.AzStyleFontSynthesisValue_Exact(azul.StyleFontSynthesis_None))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontSynthesisPosition(azul.AzStyleFontSynthesisValue_Exact(azul.StyleFontSynthesis_None))),
-	}[0], 26)
+	}[0], 28)
 }
 
 // CSS: .box

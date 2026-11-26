@@ -85,10 +85,11 @@ End Function
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontStretchValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontVariantLigaturesValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontVariantEastAsianValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontVariantPositionValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontSynthesisValue` (or for the CssPropertyValue<T> in its payload)
 Function StyleShorthands() As AzCssPropertyWithConditionsVec
     Dim t1(0 To 1) As AzStyleFontFamily
-    Dim t2(0 To 16) As AzCssPropertyWithConditions
+    Dim t2(0 To 17) As AzCssPropertyWithConditions
     t1(0) = AzStyleFontFamily_system(CssStr("Georgia"))
     t1(1) = AzStyleFontFamily_system(CssStr("serif"))
     t2(0) = AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_italic()))
@@ -99,16 +100,17 @@ Function StyleShorthands() As AzCssPropertyWithConditionsVec
     t2(5) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariantNumeric))
     t2(6) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariantLigatures))
     t2(7) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariantEastAsian))
-    t2(8) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontKerning))
-    t2(9) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontOpticalSizing))
-    t2(10) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariationSettings))
-    t2(11) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontFeatureSettings))
-    t2(12) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisWeight))
-    t2(13) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisStyle))
-    t2(14) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisSmallCaps))
-    t2(15) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisPosition))
-    t2(16) = AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric(Type<AzStyleFontVariantNumeric>(0, 1, 0, 0, 0, 0, 0, 0)))
-    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t2(0), 17)
+    t2(8) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariantPosition))
+    t2(9) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontKerning))
+    t2(10) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontOpticalSizing))
+    t2(11) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariationSettings))
+    t2(12) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontFeatureSettings))
+    t2(13) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisWeight))
+    t2(14) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisStyle))
+    t2(15) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisSmallCaps))
+    t2(16) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisPosition))
+    t2(17) = AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric(Type<AzStyleFontVariantNumeric>(0, 1, 0, 0, 0, 0, 0, 0)))
+    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t2(0), 18)
 End Function
 
 ' CSS: .box
