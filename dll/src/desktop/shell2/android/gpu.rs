@@ -12,6 +12,9 @@ use std::{ffi::c_void, path::PathBuf, sync::Arc};
 
 use azul_layout::window_state::WindowCreateOptions;
 
+#[cfg(feature = "ndk")]
+use crate::desktop::shell2::common::gpu_lifecycle::Surface;
+
 use super::{AndroidWindow, RenderBackend};
 use crate::{
     desktop::shell2::common::{
@@ -19,7 +22,6 @@ use crate::{
         gles_gpu::{
             request_for, trim_level_for_android, GlesGpu, GlesGpuConfig, GpuCtx, Outcome,
         },
-        gpu_lifecycle::Surface,
         gpu_renderer,
         gpu_select::{decide, FailPlan, GpuRequest},
     },

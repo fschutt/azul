@@ -51,8 +51,9 @@ use crate::{
 };
 
 #[cfg(target_os = "android")]
+#[link(name = "android")]
 extern "C" {
-    /// `ANativeWindow_setBuffersGeometry` (`libandroid`, linked by the build): with `0, 0` and the config's
+    /// `ANativeWindow_setBuffersGeometry` (`libandroid`): with `0, 0` and the config's
     /// `EGL_NATIVE_VISUAL_ID` the window keeps its own size and takes the pixel format its EGL surface draws in.
     fn ANativeWindow_setBuffersGeometry(
         window: *mut c_void,
