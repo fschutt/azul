@@ -9,6 +9,8 @@
 //! which is the clear colour of every real window.
 //!
 //! * `the_canvas_colour_is_not_the_page_colour` - the premise: a stale strip shows as the canvas colour, not as the page's.
+//! * `the_display_list_paints_the_page_under_the_whole_window_after_a_rotation` - the engine's screenshot clears to WHITE
+//!   (`CallbackInfo::render_screenshot`), so a page rect that stopped at the old width is invisible in it: the list itself is read.
 //! * `a_rotation_to_landscape_is_painted_like_a_full_repaint` - the backend's own repaint of a mixed resize.
 //! * `a_full_repaint_after_the_rotation_is_the_page` - what the Android shell asks for since `apply_surface_size` (A-36): the
 //!   backend's `force_full_repaint` before the frame of the new size.
@@ -21,12 +23,12 @@ use azul::desktop::shell2::{
 };
 use azul_core::{
     callbacks::{LayoutCallback, LayoutCallbackInfo, LayoutCallbackType},
-    dom::Dom,
+    dom::{Dom, DomId},
     icon::{IconProviderHandle, SharedIconProvider},
     refany::{OptionRefAny, RefAny},
     resources::AppConfig,
 };
-use azul_layout::window_state::WindowCreateOptions;
+use azul_layout::{solver3::display_list::DisplayListItem, window_state::WindowCreateOptions};
 use rust_fontconfig::FcFontCache;
 
 /// 252 dpi is the engine's dpi of a 420 dpi phone (`dpi_of_density(420)`): a frame factor of 2.625, so 400 x 800 logical px is
@@ -134,6 +136,26 @@ fn clear_colour(window: &HeadlessWindow) -> [u8; 4] {
     window.cpu_backend.last_clear_color.expect("a painted frame records its clear colour")
 }
 
+/// The first `Rect` of the window's display list - the canvas background (CSS 2.2 14.2) - as `(x, y, width, height)` in logical px.
+fn canvas_rect_of(window: &HeadlessWindow) -> (f32, f32, f32, f32) {
+    let lw = window.common.layout_window.as_ref().expect("a layout window");
+    let list = &lw
+        .layout_results
+        .get(&DomId::ROOT_ID)
+        .expect("the root DOM is laid out")
+        .display_list;
+    list.items
+        .iter()
+        .find_map(|item| match item {
+            DisplayListItem::Rect { bounds, .. } => {
+                let b = bounds.inner();
+                Some((b.origin.x, b.origin.y, b.size.width, b.size.height))
+            }
+            _ => None,
+        })
+        .expect("the page paints a background")
+}
+
 /// The page's own colour: a pixel of the body's padding, right of everything else, in a frame that was painted whole.
 fn page_colour(frame: &Frame) -> [u8; 4] {
     frame.pixel(frame.width - 4, frame.height / 2)
@@ -181,6 +203,20 @@ fn the_canvas_colour_is_not_the_page_colour() {
     );
 }
 
+/// The display list the rotation made paints the page under the whole window: its canvas rect is the window's, not the one the
+/// portrait window had. (The screenshot of the engine clears to white and would not show it if it were not.)
+#[test]
+fn the_display_list_paints_the_page_under_the_whole_window_after_a_rotation() {
+    let (mut window, _portrait) = portrait_painted();
+    assert_eq!(canvas_rect_of(&window), (0.0, 0.0, PORTRAIT.0, PORTRAIT.1), "premise: the portrait window's canvas");
+    rotate(&mut window);
+    assert_eq!(
+        canvas_rect_of(&window),
+        (0.0, 0.0, LANDSCAPE.0, LANDSCAPE.1),
+        "the canvas background of the list covers the landscape window (the portrait one was {PORTRAIT:?})"
+    );
+}
+
 /// The backend's own repaint of the mixed resize: the strip the rotation exposed is the page.
 ///
 /// Mutation: none to make; this is the observation of the emulator run (the strip right of the old width was the canvas
@@ -191,7 +227,12 @@ fn a_rotation_to_landscape_is_painted_like_a_full_repaint() {
     let page = page_colour(&portrait);
     rotate(&mut window);
     let incremental = paint(&mut window);
-    let how = format!("{:?}; it painted {}", window.cpu_backend.last_frame_damage, incremental.painted);
+    let how = format!(
+        "{:?}; it painted {}; the list's canvas rect is {:?}",
+        window.cpu_backend.last_frame_damage,
+        incremental.painted,
+        canvas_rect_of(&window)
+    );
     assert_eq!((incremental.width, incremental.height), (2100, 1050));
 
     // What the page looks like where the window did not exist before: right of the old width, next to the right edge.
