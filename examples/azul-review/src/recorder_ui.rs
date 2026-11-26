@@ -23,6 +23,7 @@ use azul::{
     misc::{Capability, PermissionState},
     prelude::*,
     screen::{ScreenCaptureConfig, ScreenCaptureSource},
+    shells::{ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     task::TerminateTimer,
     time::SystemTimeDiff,
@@ -356,7 +357,10 @@ pub fn hud_dom(host: &Host, hotkey_note: Option<String>) -> Dom {
                 .with_css("width: 1px; height: 1px; overflow: hidden; flex-shrink: 0;"),
         );
     }
-    Dom::create_body().with_child(page).with_callback(
+    // The window's ground and ink are the app theme's, in both modes, as the review window has them (`ShellThemeScope`: no
+    // UA margin, the full window height). A body with no ground drew a Mac in dark mode's near-white text on the default
+    // white: in a `--shot` of the demo the buttons and the hints were not there to be seen.
+    ShellThemeScope::create(page).with_accent(ShellThemeAccent::Slate).body().with_callback(
         EventFilter::Window(WindowEventFilter::CloseRequested),
         RefAny::new(Press { host: host.clone(), what: Do::Stop }),
         on_close,
