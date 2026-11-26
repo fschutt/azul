@@ -64,6 +64,10 @@ case "$kind" in
     dir="$(profile_dir release)"
     cp "$dir/libazul.so" "$out/libazul.so"
     "$ndkbin/llvm-strip" --strip-unneeded "$out/libazul.so"
+    # A device with 16 KiB pages (Android 15 and later) cannot load a library whose PT_LOAD segments are aligned to 4 KiB, NDK 27's
+    # default: the rustflags of the Android targets in .cargo/config.toml link it with 16 KiB, and this fails the lib job, with the
+    # file's name, when they did not take effect (RUSTFLAGS in the environment would replace them)
+    python3 scripts/android_elf_check.py "$out/libazul.so"
     ;;
   ios)
     # The oldest iOS the apps' Info.plist names (build-ios.sh MIN_OS): rustc and the C parts of the engine (cc-rs) both read it

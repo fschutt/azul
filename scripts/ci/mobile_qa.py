@@ -243,13 +243,18 @@ class Run:
             d.mkdir(parents=True, exist_ok=True)
         self.platform, self.meta, self.steps = platform, dict(meta), []
         self.t0 = time.time()
+        self.recover = None
 
-    def step(self, name, what, fn):
-        """Run `fn(step)`; an exception is the step's failure, never the run's."""
+    def step(self, name, what, fn, needs_app=False):
+        """Run `fn(step)`; an exception is the step's failure, never the run's. A step that `needs_app` is
+        preceded by `self.recover(step)` (when one is set): a step is judged on a live app, so the crash of an
+        earlier step is reported once, by that step, and does not fail every step after it."""
         s = Step(self, name, what)
         self.steps.append(s)
         print(f"--- {name}: {what}", flush=True)
         try:
+            if needs_app and self.recover is not None:
+                self.recover(s)
             fn(s)
         except Exception as e:  # noqa: BLE001
             s.error = f"{type(e).__name__}: {e}"
@@ -403,6 +408,7 @@ class Android:
                 except ValueError:
                     sig = None
                 if sig and not is_flat(sig) and (self.home_sig is None or sig_diff(sig, self.home_sig) > LAUNCHER_BELOW):
+                    self.last_sig = sig
                     return time.time() - t0
             time.sleep(1.0)
         return None
@@ -424,6 +430,7 @@ def android_scenarios(args):
     }
     P.update({k: tuple(v) for k, v in pts.items()})
     size = {"w": 1080, "h": 2400}
+    state = {"portrait": None}
 
     def at(key):
         fx, fy = P[key]
@@ -450,6 +457,24 @@ def android_scenarios(args):
 
     run.step("00-device", "the emulator is up and quiet (animations off, rotation locked to portrait)", s_device)
 
+    def recover(s):
+        """Before a step: the device settings back to normal, and the app running in front (started again when an
+        earlier step left it dead or away: that earlier step has already said so)."""
+        dev.sh("settings put system user_rotation 0")
+        dev.sh("settings put system font_scale 1.0")
+        dev.sh("wm density reset")
+        dev.sh("cmd uimode night no")
+        if dev.alive() and dev.foreground():
+            return
+        s.note(f"recovered: the app was {'not in front' if dev.alive() else 'dead'} before this step; started it again")
+        dev.launch(cold=True)
+        t = dev.wait_for_front(timeout=args.first_frame_timeout)
+        s.check("the app could be started again before this step", t is not None, f"first frame after {t:.1f} s" if t is not None else "no frame")
+        dev.settle(2.0)
+        state["portrait"] = dev.last_sig or state["portrait"]
+
+    run.recover = recover
+
     # ---- 1. the launcher baseline (what 'not the app' looks like)
     def s_home(s):
         dev.home()
@@ -469,14 +494,15 @@ def android_scenarios(args):
             out = dev.adb("install", "-r", "-t", args.apk, timeout=240)
             s.check("adb install succeeds", "Success" in out, out.strip()[-160:])
         dev.adb("logcat", "-c")
+        # the engine reads debug.az.env (KEY=VALUE;KEY=VALUE) at its start: AZ_LOG=info for its own lines, AZ_DUMP_PRESENT=1
+        # for one line per presented frame ("[Android] present partial - N of M rows")
+        dev.sh("setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1'")
         dev.sh(f"pm grant {args.package} android.permission.POST_NOTIFICATIONS")  # harmless when not requested
         info = dev.sh(f"dumpsys package {args.package} | grep -E 'versionName|versionCode|targetSdk|requested permissions' -A0")
         dev.save_log("package.txt", dev.sh(f"dumpsys package {args.package}"))
         s.note(" ".join(info.split())[:200])
 
     run.step("02-install", "install the APK, clear the log", s_install)
-
-    state = {"portrait": None}
 
     def s_cold(s):
         mark = dev.now_mark()
@@ -511,7 +537,7 @@ def android_scenarios(args):
         s.check("the app exposes labelled nodes to the accessibility service (TalkBack / uiautomator)", len(nodes) > 0,
                 f"{len(nodes)} nodes", required=False)
 
-    run.step("04-accessibility-tree", "what uiautomator sees of the window", s_ui_dump)
+    run.step("04-accessibility-tree", "what uiautomator sees of the window", s_ui_dump, needs_app=True)
 
     # ---- 3. touch
     def s_scroll(s):
@@ -530,7 +556,7 @@ def android_scenarios(args):
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
 
-    run.step("05-swipe-scroll", "a finger swipe scrolls the page and back", s_scroll)
+    run.step("05-swipe-scroll", "a finger swipe scrolls the page and back", s_scroll, needs_app=True)
 
     def s_tap_dark(s):
         mark = dev.now_mark()
@@ -544,7 +570,7 @@ def android_scenarios(args):
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
 
-    run.step("06-tap-mode-button", "a tap on the Mode switch (Dark) changes the page", s_tap_dark)
+    run.step("06-tap-mode-button", "a tap on the Mode switch (Dark) changes the page", s_tap_dark, needs_app=True)
 
     def s_keyboard(s):
         mark = dev.now_mark()
@@ -565,7 +591,7 @@ def android_scenarios(args):
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
 
-    run.step("07-keyboard", "tap a text field, type, hide the keyboard", s_keyboard)
+    run.step("07-keyboard", "tap a text field, type, hide the keyboard", s_keyboard, needs_app=True)
 
     # ---- 4. rotation
     def s_landscape(s):
@@ -589,7 +615,7 @@ def android_scenarios(args):
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
 
-    run.step("08-rotate", "landscape, a tap, portrait again", s_landscape)
+    run.step("08-rotate", "landscape, a tap, portrait again", s_landscape, needs_app=True)
 
     # ---- 5. leaving and coming back
     def s_home_resume(s):
@@ -610,7 +636,7 @@ def android_scenarios(args):
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
 
-    run.step("09-home-and-resume", "home, then the launcher icon: same process, same picture", s_home_resume)
+    run.step("09-home-and-resume", "home, then the launcher icon: same process, same picture", s_home_resume, needs_app=True)
 
     def s_background(s):
         mark = dev.now_mark()
@@ -628,7 +654,7 @@ def android_scenarios(args):
         s.check("the picture is the one from before", sig_diff(after, before) < 0.05, f"differs {sig_diff(after, before):.3f}", required=False)
         dev.no_crash_since(s, mark)
 
-    run.step("10-background-10s", "ten seconds in the background, then back", s_background)
+    run.step("10-background-10s", "ten seconds in the background, then back", s_background, needs_app=True)
 
     def s_memory(s):
         mark = dev.now_mark()
@@ -640,7 +666,7 @@ def android_scenarios(args):
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
 
-    run.step("11-memory-pressure", "onTrimMemory(RUNNING_CRITICAL) while in the foreground", s_memory)
+    run.step("11-memory-pressure", "onTrimMemory(RUNNING_CRITICAL) while in the foreground", s_memory, needs_app=True)
 
     # ---- 6. configuration changes
     def s_dark(s):
@@ -655,7 +681,7 @@ def android_scenarios(args):
         dev.look(s, "system-light-again")
         dev.no_crash_since(s, mark)
 
-    run.step("12-system-dark-mode", "the system switches to dark mode and back (a configuration change)", s_dark)
+    run.step("12-system-dark-mode", "the system switches to dark mode and back (a configuration change)", s_dark, needs_app=True)
 
     def s_font(s):
         mark = dev.now_mark()
@@ -669,7 +695,7 @@ def android_scenarios(args):
         dev.settle(2.5)
         dev.no_crash_since(s, mark)
 
-    run.step("13-font-scale", "the system font scale goes to 1.5 and back", s_font)
+    run.step("13-font-scale", "the system font scale goes to 1.5 and back", s_font, needs_app=True)
 
     def s_density(s):
         mark = dev.now_mark()
@@ -683,7 +709,7 @@ def android_scenarios(args):
         dev.alive_and_front(s, " after the reset")
         dev.no_crash_since(s, mark)
 
-    run.step("14-display-density", "the display density changes under the running app and back", s_density)
+    run.step("14-display-density", "the display density changes under the running app and back", s_density, needs_app=True)
 
     # ---- 7. leaving for good and coming back
     def s_back(s):
@@ -703,7 +729,7 @@ def android_scenarios(args):
         s.note(f"pid {pid0} -> {dev.pid() or '-'}")
         dev.no_crash_since(s, mark)
 
-    run.step("15-back-then-relaunch", "BACK leaves the app; starting it again must show it again", s_back)
+    run.step("15-back-then-relaunch", "BACK leaves the app; starting it again must show it again", s_back, needs_app=True)
 
     def s_cold2(s):
         mark = dev.now_mark()
@@ -718,7 +744,7 @@ def android_scenarios(args):
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
 
-    run.step("16-force-stop-cold-start", "kill the process, start again", s_cold2)
+    run.step("16-force-stop-cold-start", "kill the process, start again", s_cold2, needs_app=True)
 
     def s_kill_bg(s):
         mark = dev.now_mark()
@@ -735,7 +761,7 @@ def android_scenarios(args):
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
 
-    run.step("17-killed-in-background", "the system kills the app while it is in the background; the user returns", s_kill_bg)
+    run.step("17-killed-in-background", "the system kills the app while it is in the background; the user returns", s_kill_bg, needs_app=True)
 
     def s_monkey(s):
         mark = dev.now_mark()
@@ -747,7 +773,7 @@ def android_scenarios(args):
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
 
-    run.step("18-monkey", "300 random touches and drags (fixed seed)", s_monkey)
+    run.step("18-monkey", "300 random touches and drags (fixed seed)", s_monkey, needs_app=True)
 
     # ---- the logs
     def s_logs(s):
@@ -759,6 +785,12 @@ def android_scenarios(args):
         dev.save_log("window.txt", dev.sh("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp|Rotation|mDisplayRotation' | head -20"))
         bad = fatal_lines(full, args.package)
         s.check("no fatal line of the app in the whole log", not bad, bad[0][:240] if bad else "")
+        shown = [l.split("ActivityTaskManager:")[-1].strip() for l in full.splitlines() if "Displayed" in l and run.meta.get("package", "") in l]
+        if shown:
+            s.note("Displayed: " + " | ".join(x[:110] for x in shown[:6]))
+        present = [l for l in full.splitlines() if "present" in l and "rows" in l and "[Android]" in l]
+        partial = sum(1 for l in present if "present partial" in l)
+        s.note(f"{len(present)} present lines: {partial} partial, {len(present) - partial} full" + (f"; first: {present[0].split('RustStdoutStderr:')[-1].strip()[:100]}" if present else ""))
         rust = [l for l in full.splitlines() if "RustStdoutStderr" in l]
         s.note(f"{len(rust)} lines from the app's stdout/stderr; {len(full.splitlines())} log lines in all")
         warn = [l for l in rust if " W " in l or "WARN" in l or "ERROR" in l]
@@ -779,6 +811,7 @@ class IOS:
     def __init__(self, run, udid, bundle, exe, app_dir=None):
         self.run, self.udid, self.bundle, self.exe, self.app_dir = run, udid, bundle, exe, app_dir
         self.home_sig = None
+        self.last_sig = None
         self.dims = (0, 0)
         self.shot_count = 0
         self.launch_count = 0
@@ -875,6 +908,7 @@ class IOS:
                 for p in self.run.shots_dir.glob(f"{self.shot_count + 1:02d}-poll.png"):
                     p.unlink()
                 if sig and not is_flat(sig) and (self.home_sig is None or sig_diff(sig, self.home_sig) > LAUNCHER_BELOW):
+                    self.last_sig = sig
                     return time.time() - t0
             time.sleep(1.0)
         return None
@@ -946,6 +980,22 @@ def ios_scenarios(args):
 
     run.step("00-device", "the simulator is up; light appearance, medium text, a neutral status bar (9:41, full battery)", s_device)
 
+    def recover(s):
+        """Before a step: appearance and text size back to normal, the app running (started again when an earlier
+        step left it dead: that step has already said so)."""
+        dev.simctl("ui", args.udid, "appearance", "light")
+        dev.simctl("ui", args.udid, "content_size", "medium")
+        if dev.alive():
+            return
+        s.note("recovered: the app was dead before this step; started it again")
+        dev.launch(cold=True)
+        t = dev.wait_for_front(timeout=args.first_frame_timeout)
+        s.check("the app could be started again before this step", t is not None, f"first frame after {t:.1f} s" if t is not None else "no frame")
+        dev.settle(2.0)
+        state["portrait"] = dev.last_sig or state["portrait"]
+
+    run.recover = recover
+
     def s_home(s):
         dev.simctl("launch", args.udid, "com.apple.springboard")
         dev.settle(3.0)
@@ -1016,7 +1066,7 @@ def ios_scenarios(args):
         dev.settle(2.5)
         dev.look(s, "light-again")
 
-    run.step("05-dark-mode", "the system appearance switches to dark and back (a trait change under the running app)", s_appearance)
+    run.step("05-dark-mode", "the system appearance switches to dark and back (a trait change under the running app)", s_appearance, needs_app=True)
 
     def s_content_size(s):
         base = dev.look(s, "text-medium")
@@ -1028,7 +1078,7 @@ def ios_scenarios(args):
         dev.simctl("ui", args.udid, "content_size", "medium")
         dev.settle(2.5)
 
-    run.step("06-text-size", "the system text size goes to the largest accessibility size and back", s_content_size)
+    run.step("06-text-size", "the system text size goes to the largest accessibility size and back", s_content_size, needs_app=True)
 
     def s_background(s):
         pid0 = dev.pid()
@@ -1051,7 +1101,7 @@ def ios_scenarios(args):
         crashes = dev.crash_reports()
         s.check("the host wrote no crash report for the app", not crashes, ", ".join(crashes))
 
-    run.step("07-background-10s", "another app comes to the front for 10 s, then the app again: same process, same picture", s_background)
+    run.step("07-background-10s", "another app comes to the front for 10 s, then the app again: same process, same picture", s_background, needs_app=True)
 
     def s_rotate(s):
         before = dev.look(s, "before-rotate")
@@ -1070,7 +1120,7 @@ def ios_scenarios(args):
         s.check("back in portrait the picture is the first one again", sig_diff(again, before) < 0.10, f"differs {sig_diff(again, before):.3f}", required=False)
         dev.alive_step(s, " after rotating back")
 
-    run.step("08-rotate", "rotate the device left and back while the app runs (Simulator menu through osascript)", s_rotate)
+    run.step("08-rotate", "rotate the device left and back while the app runs (Simulator menu through osascript)", s_rotate, needs_app=True)
 
     def s_memory(s):
         before = dev.look(s, "before-memory-warning")
@@ -1081,7 +1131,7 @@ def ios_scenarios(args):
         dev.look(s, "after-memory-warning")
         dev.alive_step(s)
 
-    run.step("09-memory-warning", "Debug > Simulate Memory Warning while in the foreground", s_memory)
+    run.step("09-memory-warning", "Debug > Simulate Memory Warning while in the foreground", s_memory, needs_app=True)
 
     def s_cold2(s):
         dev.terminate()

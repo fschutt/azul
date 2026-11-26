@@ -275,31 +275,6 @@ def e2e_session(args):
 
     run.step("e30-touch", "in-process touch events as a swipe (and on Android a real one through adb)", s_touch)
 
-    # ---- keyboard
-    def s_keyboard(s):
-        try:
-            srv.op("scroll_into_view", text="TextInput", block="center", behavior="instant")
-            srv.op("wait_frame")
-            srv.op("click", text="Type something...")
-            srv.op("wait_frame")
-        except Exception as e:  # noqa: BLE001
-            s.note(f"click on the text field: {e}")
-        dev.settle(2.0)
-        device_shot(s, "text-field-clicked")
-        if args.platform == "android":
-            shown = dev.ime_shown()
-            s.check("a click on a text field raises the soft keyboard", shown, "input_method says " + ("shown" if shown else "hidden"), required=False)
-        srv.op("text_input", text="hello azul")
-        srv.op("wait_frame")
-        dev.settle(1.0)
-        device_shot(s, "text-typed")
-        if args.platform == "android" and dev.ime_shown():
-            dev.back()
-            dev.settle(1.5)
-            s.check("the keyboard hides again", not dev.ime_shown(), "")
-
-    run.step("e40-keyboard", "click a text field, type, hide the keyboard", s_keyboard)
-
     # ---- the server survives the lifecycle
     def s_lifecycle(s):
         if args.platform == "android":
@@ -334,6 +309,31 @@ def e2e_session(args):
 
     run.step("e50-lifecycle-with-the-server", "rotation and ten seconds in the background with the server running", s_lifecycle)
 
+    # ---- keyboard
+    def s_keyboard(s):
+        try:
+            srv.op("scroll_into_view", text="TextInput", block="center", behavior="instant")
+            srv.op("wait_frame")
+            srv.op("click", text="Type something...")
+            srv.op("wait_frame")
+        except Exception as e:  # noqa: BLE001
+            s.note(f"click on the text field: {e}")
+        dev.settle(2.0)
+        device_shot(s, "text-field-clicked")
+        if args.platform == "android":
+            shown = dev.ime_shown()
+            s.check("a click on a text field raises the soft keyboard", shown, "input_method says " + ("shown" if shown else "hidden"), required=False)
+        srv.op("text_input", text="hello azul")
+        srv.op("wait_frame")
+        dev.settle(1.0)
+        device_shot(s, "text-typed")
+        if args.platform == "android" and dev.ime_shown():
+            dev.back()
+            dev.settle(1.5)
+            s.check("the keyboard hides again", not dev.ime_shown(), "")
+
+    run.step("e60-keyboard", "click a text field, type, hide the keyboard", s_keyboard)
+
     def s_logs(s):
         if args.platform == "android":
             full = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
@@ -348,7 +348,7 @@ def e2e_session(args):
             bad = [l for l in text.splitlines() if "panicked" in l or "unexpected panic" in l]
             s.check("no panic on the console", not bad, bad[0][:200] if bad else "")
 
-    run.step("e60-logs", "the log of the whole session", s_logs)
+    run.step("e70-logs", "the log of the whole session", s_logs)
     run.write()
     return run
 
