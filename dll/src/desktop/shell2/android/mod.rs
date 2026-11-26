@@ -33,6 +33,7 @@ use crate::{
     desktop::{
         shell2::{
             android_core::{
+                a11y_refresh::ScrollRefresh,
                 bars::{band_luma, BarsState},
                 ime::ImeMirror,
                 lifecycle::{frame_work, trim_plan, FrameWork, TRIM_MEMORY_UI_HIDDEN},
@@ -126,6 +127,13 @@ pub struct AndroidWindow {
     /// Something happened that the IME's mirror of the focused text may show (an event applied, input
     /// processed, a frame laid out): the loop publishes a new mirror at the end of the iteration.
     ime_dirty: bool,
+
+    /// What the published accessibility snapshot has not seen: the frames repainted from the existing layout (a scroll
+    /// moves every node without a layout, and the snapshot carries the bounds). Rebuilt once the repaints settle
+    /// (`android_core::a11y_refresh`).
+    a11y_scroll: ScrollRefresh,
+    /// The clock `a11y_scroll` counts on: the milliseconds since this window was made.
+    clock_start: std::time::Instant,
 
     /// A frame must be re-rastered and posted, but the layout is UNCHANGED.
     ///
@@ -256,6 +264,8 @@ impl AndroidWindow {
             selection_toolbar_shown: false,
             ime_dirty: false,
             needs_rerender: false,
+            a11y_scroll: ScrollRefresh::new(),
+            clock_start: std::time::Instant::now(),
             create_callback,
             touch_pan_last: None,
             primary_pointer_id: None,
@@ -325,6 +335,8 @@ impl AndroidWindow {
         let scale = self.common.current_window_state().size.dpi as f32 / 96.0;
         self.bridge.accessibility.update_snapshot(snapshot, scale);
         self.common.a11y_dirty = false;
+        // What the repaints since the last build owed is paid: this snapshot has the bounds as they are now.
+        self.a11y_scroll.note_rebuilt();
     }
     pub fn close(&mut self) {
         // See CommonWindowState::deinit_renderer — webrender requires it.
@@ -914,6 +926,11 @@ pub fn android_main(app: AndroidApp) {
                 window.needs_rerender = false;
                 window.rerender_cpu();
                 frame_dirty = true;
+                // A scroll moved every node under its container without a layout: the bounds the accessibility
+                // snapshot carries are behind until the repaints settle (rebuilt below, `android_core::a11y_refresh`).
+                window
+                    .a11y_scroll
+                    .note_repaint(u64::try_from(window.clock_start.elapsed().as_millis()).unwrap_or(u64::MAX));
             }
         }
 
@@ -930,6 +947,18 @@ pub fn android_main(app: AndroidApp) {
             let _ = render_frame(&mut window);
             // Where this frame put the `<webview>`s.
             let _ = crate::desktop::shell2::common::webview::sync(&mut window);
+        }
+
+        // THE ACCESSIBILITY SNAPSHOT after a scroll: TalkBack and uiautomator read the bounds of every node from the snapshot
+        // the last layout published, and a scroll moves the nodes without one (a dump after a scroll listed a key where it
+        // was drawn 96 px earlier). Rebuilt once the repaints have settled, and every half second while they go on.
+        #[cfg(feature = "a11y")]
+        {
+            let now_ms = u64::try_from(window.clock_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+            if window.a11y_scroll.is_due(now_ms) {
+                window.common.a11y_dirty = true;
+                window.refresh_accessibility_tree();
+            }
         }
 
         // THE SOFT KEYBOARD the engine asked for while it handled this iteration's events (a text field took
