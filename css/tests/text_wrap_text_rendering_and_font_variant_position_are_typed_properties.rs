@@ -1,7 +1,8 @@
 //! `text-wrap`, `text-rendering` and `font-variant-position` are typed, inherited properties:
 //! each keyword is its value, a name finds its type, `auto` of `text-rendering` is its own
 //! initial value (not the generic keyword, which an inherited `optimizeSpeed` would survive), and
-//! a keyword of another property is no value.
+//! a keyword of another property is no value (`none` and `auto` are left out of those: the parser
+//! reads them as the generic keywords for every property that has no typed one).
 
 use azul_css::{
     css::CssPropertyValue,
@@ -101,12 +102,9 @@ fn the_three_are_inherited() {
 #[test]
 fn a_keyword_of_another_property_is_no_value() {
     for (ty, bad) in [
-        (CssPropertyType::TextWrap, "auto"),
-        (CssPropertyType::TextWrap, "none"),
         (CssPropertyType::TextWrap, "wrap balance"),
         (CssPropertyType::TextWrap, "normal"),
         (CssPropertyType::FontVariantPosition, "superscript"),
-        (CssPropertyType::FontVariantPosition, "auto"),
         (CssPropertyType::TextRendering, "optimize-speed"),
         (CssPropertyType::TextRendering, "normal"),
     ] {
