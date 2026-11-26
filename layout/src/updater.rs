@@ -44,6 +44,13 @@ pub enum InstallKind {
     /// The binary path is not writable by this user and not recognizably
     /// package-managed (system-wide manual install).
     ReadOnly,
+    /// An app store delivers this program's updates: the App Store on iOS, Google Play on
+    /// Android, or any build made with the `store_app` feature (the Mac App Store, the Microsoft
+    /// Store). Always so on iOS and Android, whatever the path of the binary. A store forbids an
+    /// app to download code of its own (App Store Review Guideline 2.5.2, Google Play's Device and
+    /// Network Abuse policy), so such a build has no code that fetches or installs a program: a
+    /// check can say that a newer version exists, and the store brings it.
+    AppStore,
 }
 
 impl InstallKind {
@@ -131,7 +138,7 @@ impl InstallKind {
             Self::Snap => "snap refresh",
             Self::Flatpak => "flatpak update",
             Self::WindowsStore => "the Microsoft Store",
-            Self::UserWritable | Self::ReadOnly => "",
+            Self::UserWritable | Self::ReadOnly | Self::AppStore => "",
         }
     }
 }
@@ -6860,3 +6867,7 @@ mod tests {
 #[cfg(test)]
 #[path = "updater_settings_test.rs"]
 mod settings_tests;
+
+#[cfg(test)]
+#[path = "updater_store_test.rs"]
+mod store_tests;
