@@ -24,6 +24,9 @@ rules:
     ignore:
       - rust.yml
       - supply-chain.yml
+      # demos.yml is rust.yml's `demos` run mode: it caches the built libazul of a target (the engine is half an
+      # hour of runner time per target) and its publish job uploads to the release only when asked to
+      - demos.yml
 
   # issue_comment (ci-command.yml: starts CI for a "ci run" comment, only for owner, member or collaborator) and
   # workflow_run (ci-report.yml, post-release.yml: read the result of a finished run). Deliberate.
