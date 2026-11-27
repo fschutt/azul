@@ -63,3 +63,38 @@ pub fn state_line(gl: &GenericGlContext) -> String {
         gl.check_frame_buffer_status(glconst::FRAMEBUFFER)
     )
 }
+
+/// The extensions of the context that WebRender asks about, as present (`+`) or missing (`-`), and how many the driver lists: what the
+/// device layer chose its formats, its upload paths and its text rendering from.
+#[must_use]
+pub fn extensions_line(gl: &GenericGlContext) -> String {
+    const ASKED: [&str; 12] = [
+        "GL_EXT_color_buffer_float",
+        "GL_EXT_color_buffer_half_float",
+        "GL_EXT_texture_format_BGRA8888",
+        "GL_EXT_blend_func_extended",
+        "GL_EXT_buffer_storage",
+        "GL_EXT_texture_storage",
+        "GL_EXT_copy_image",
+        "GL_OES_EGL_image_external_essl3",
+        "GL_KHR_blend_equation_advanced",
+        "GL_KHR_debug",
+        "GL_EXT_disjoint_timer_query",
+        "GL_QCOM_tiled_rendering",
+    ];
+    let mut count = [0_i32];
+    // SAFETY: a query that writes one integer into a slice of one.
+    unsafe { gl.get_integer_v(glconst::NUM_EXTENSIONS, &mut count) };
+    let count = u32::try_from(count[0].max(0)).unwrap_or(0);
+    let names: Vec<String> = (0..count)
+        .map(|i| super::gles_probe::clean_driver_string(&gl.get_string_i(glconst::EXTENSIONS, i)))
+        .collect();
+    let marks: Vec<String> = ASKED
+        .iter()
+        .map(|name| {
+            let present = names.iter().any(|n| n == name);
+            format!("{}{}", if present { '+' } else { '-' }, name.trim_start_matches("GL_"))
+        })
+        .collect();
+    format!("{} extensions; {}", names.len(), marks.join(" "))
+}

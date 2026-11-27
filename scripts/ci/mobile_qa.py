@@ -1277,6 +1277,28 @@ def android_scenarios(args):
     run.step("03c-gpu-failure-injection", "AZ_BACKEND=gpu with AZ_GPU_FAIL=<stage> for every stage: the app still draws, on the CPU, and the log names the stage",
              s_gpu_fail, needs_app=True)
 
+    # ---- 3d. one gpu start per AZ_QA_VARIANTS entry: a comma list of single AZ_* assignments (AZ_GPU_EXPERIMENT=instancing_off,
+    # ...): what a test build's switch does to the window, in ONE emulator boot. Nothing runs when the variable is empty.
+    variants = [v.strip() for v in os.environ.get("AZ_QA_VARIANTS", "").split(",") if v.strip()]
+
+    def s_variants(s):
+        for variant in variants:
+            dev.sh(f"setprop debug.az.env '{render_env(f'AZ_BACKEND=gpu;{variant}')}'")
+            dev.adb("logcat", "-c")
+            dev.launch(cold=True)
+            time.sleep(25.0)        # a software GL compiles WebRender's programs in the first frame: 6 to 9 s
+            name = variant.replace("=", "-").replace(",", "+")
+            sig, _w, _h, fname = dev.capture(f"variant-{name}")
+            s.shots.append(fname)
+            flat = flat_fraction(sig)
+            s.note(f"variant {variant}: " + ("the window shows a picture" if flat < FLAT_FRACTION else "the window is flat (nothing drawn)")
+                   + f" ({flat:.4f} of the samples share one colour)")
+            dev.save_log(f"engine-variant-{name}.txt", engine_lines(dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)))
+        dev.sh(f"setprop debug.az.env '{render_env(base_backend)}'")
+
+    if variants:
+        run.step("03d-gpu-variants", "one gpu start per AZ_QA_VARIANTS entry: the picture and the engine's lines of each", s_variants, needs_app=True)
+
     def backend_still(s):
         """Run with --backend gpu: after every step that needs the app, the engine's LAST `[render]` line still says gpu. A surface
         that was lost and made again, a context that was rebuilt, must not have put the window on the CPU renderer without a word."""

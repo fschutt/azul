@@ -700,6 +700,7 @@ impl GlesGpu {
             return Err(GpuFallback::new(GpuStage::Functions, "no function table"));
         };
         let reports_damage = session.info().caps.buffer_age;
+        log_info!(LogCategory::Rendering, "[render] {}", gles_trace::extensions_line(&gl));
         // The first surface is shown before WebRender is made (its programs compile in the first frame, seconds on a cold start).
         self.prime_surface(ctx);
         // A renderer made before had keys of its own: the window's registries are cleared for the new one.
