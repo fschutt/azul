@@ -30,7 +30,7 @@ use rust_fontconfig::FcFontCache;
 use super::{
     event::{CommonWindowState, SharedUndoManager},
     gles_gpu::{GlesGpu, GlesGpuConfig, GpuCtx, Outcome},
-    gles_host_test::{assert_same_text_page, grayscale_glyph_cache, page, REQUIRE},
+    gles_host_test::{assert_same_text_page, grayscale_glyph_cache, not_asked_for, page, REQUIRE},
     gpu_lifecycle::{Phase, Surface, TrimLevel},
     gpu_renderer,
     gpu_select::{FailPlan, GpuRequest, GpuStage, Ran},
@@ -174,6 +174,9 @@ fn up(
     request: GpuRequest,
     plan: &str,
 ) -> Option<(GlesGpu, Surface)> {
+    if not_asked_for(test) {
+        return None;
+    }
     let mut gpu = gpu(request, plan);
     let surface = surface_at(DPI);
     let mut ctx = GpuCtx {
@@ -306,6 +309,9 @@ fn a_lost_context_is_rebuilt_and_a_second_one_without_a_frame_falls_back() {
 #[test]
 fn a_failure_at_each_stage_falls_back_naming_it_and_leaves_nothing() {
     let test = "a_failure_at_each_stage_falls_back_naming_it_and_leaves_nothing";
+    if not_asked_for(test) {
+        return;
+    }
     for stage in [
         GpuStage::Library,
         GpuStage::Context,

@@ -20,6 +20,7 @@ ls /usr/lib/x86_64-linux-gnu | grep -E 'libEGL|libGLESv2|libgbm' | head -20
 
 export EGL_PLATFORM=surfaceless
 export AZ_REQUIRE_GLES=1
+export AZ_GLES_HOST_TESTS=1   # the GLES host tests are off unless asked for: a whole `cargo test -p azul-dll --lib` runs no real GL context
 export AZ_GPU_PIXELS_DIR="$PWD/target/gles-host"
 mkdir -p "$AZ_GPU_PIXELS_DIR"
 

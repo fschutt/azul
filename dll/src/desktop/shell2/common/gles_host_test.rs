@@ -77,6 +77,25 @@ pub(super) fn phone_text() -> TextRendering {
 /// The variable that turns "no OpenGL ES here" from a skip into a failure.
 pub(super) const REQUIRE: &str = "AZ_REQUIRE_GLES";
 
+/// The variable that turns the GLES host tests on. They make real EGL contexts and compile WebRender's programs on a software GL (seconds
+/// each, every core), which a whole `cargo test -p azul-dll --lib` running its tests on parallel threads must not do: `scripts/ci/gles_host.sh`
+/// runs them, one process each, with this variable (and `AZ_REQUIRE_GLES`) set. Without it a test says so on stderr and passes.
+pub(super) const ENABLE: &str = "AZ_GLES_HOST_TESTS";
+
+/// Whether the GLES host tests are asked for (`AZ_GLES_HOST_TESTS` or `AZ_REQUIRE_GLES` is set).
+pub(super) fn enabled() -> bool {
+    std::env::var_os(ENABLE).is_some() || std::env::var_os(REQUIRE).is_some()
+}
+
+/// The first line of a GLES host test: `true` (and a note on stderr) when the tests are not asked for and this one must return.
+pub(super) fn not_asked_for(test: &str) -> bool {
+    if enabled() {
+        return false;
+    }
+    eprintln!("SKIPPED {test}: the GLES host tests are off; set {ENABLE}=1 (scripts/ci/gles_host.sh does)");
+    true
+}
+
 /// An OpenGL ES 3 context on a pbuffer-less surfaceless display, current on this thread.
 struct OffscreenGles {
     session: EglSession,
@@ -108,6 +127,9 @@ impl Drop for OffscreenGles {
 /// The context of a test, or `None` with the reason on stderr: a machine with no OpenGL ES 3 does not run the test,
 /// and does not pretend that it did. With `AZ_REQUIRE_GLES` set the missing context is a failure.
 fn gles_or_skip(test: &str) -> Option<OffscreenGles> {
+    if not_asked_for(test) {
+        return None;
+    }
     match OffscreenGles::open() {
         Ok(gles) => Some(gles),
         Err(reason) => {
