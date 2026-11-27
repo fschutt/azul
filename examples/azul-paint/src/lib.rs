@@ -1,6 +1,7 @@
 use azul::{
     callbacks::{
-        CallbackType, DialogOnCloseCallbackType, RenderImageCallbackInfo, StandardDialogOnEventCallbackType,
+        ButtonOnClickCallbackType, CallbackType, DialogOnCloseCallbackType, RenderImageCallbackInfo,
+        StandardDialogOnEventCallbackType,
     },
     css::PhysicalSizeU32,
     dialog::{FileDialog, FileOpenResult},
@@ -15,8 +16,8 @@ use azul::{
     vec::{F32VecRef, StringVec, U8VecRef},
     shells::ShellThemeScope,
     widgets::{
-        AboutDialog, CloseGuardEvent, CloseGuardEventKind, Dialog, DialogState, StandardDialogEvent,
-        Titlebar,
+        AboutDialog, Button, CloseGuardEvent, CloseGuardEventKind, Dialog, DialogState,
+        StandardDialogEvent, Titlebar,
     },
 };
 use azul_appkit::{
@@ -1065,6 +1066,42 @@ const ROOT: &str = "display: flex; flex-direction: column; height: 100%; margin:
 /// The column in the theme scope: the title row, the header, the canvas.
 const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
 
+/// The window width under which the screen is a phone's (portrait): the header says what the
+/// strokes are and nothing about a pen (a stylus's live values are a tablet's), and the commands
+/// the menu bar holds on a desktop - a phone has no menu bar - are keys under the canvas.
+const COMPACT_WIDTH: f32 = 600.0;
+/// The keys under the canvas of a phone, in the header's dark.
+const TOOLBAR: &str = "display: flex; flex-direction: row; justify-content: space-around; \
+                       align-items: center; flex-shrink: 0; padding: 6px 8px; background: #2b2b2b; \
+                       @theme(flora) { background: system:window-background; border-top: 1px \
+                       solid system:separator; }";
+
+/// A key of the phone's toolbar: an icon, named for a screen reader.
+fn tool(data: &RefAny, icon: &str, name: &str, on_click: ButtonOnClickCallbackType) -> Dom {
+    Button::create("")
+        .with_icon(icon)
+        .with_on_click(data.clone(), on_click)
+        .dom()
+        .with_accessibility_name(label(name))
+}
+
+/// The keys of the phone's toolbar: undo, redo, clear, the effect, the export, the settings.
+fn toolbar(data: &RefAny) -> Dom {
+    Dom::create_div()
+        .with_css(TOOLBAR)
+        .with_child(tool(data, "undo", "azpaint-undo", on_undo as ButtonOnClickCallbackType))
+        .with_child(tool(data, "redo", "azpaint-redo", on_redo as ButtonOnClickCallbackType))
+        .with_child(tool(data, "delete", "azpaint-clear", on_clear as ButtonOnClickCallbackType))
+        .with_child(tool(
+            data,
+            "auto_fix_high",
+            "azpaint-toggle-effect",
+            on_toggle_mode as ButtonOnClickCallbackType,
+        ))
+        .with_child(tool(data, "save_alt", "azpaint-export-png", on_export as ButtonOnClickCallbackType))
+        .with_child(tool(data, "settings", "azpaint-settings", on_settings_open as ButtonOnClickCallbackType))
+}
+
 /// The app theme is flora or a spin of it ("flora:green").
 fn is_flora(theme: &str) -> bool {
     theme == "flora" || theme.starts_with("flora:")
@@ -1072,6 +1109,9 @@ fn is_flora(theme: &str) -> bool {
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     azul_appkit::l10n::begin_layout(&info);
+    // A phone's portrait screen (the answer is recorded: a rotation that flips it builds the
+    // window again).
+    let compact = info.window_width_less_than(COMPACT_WIDTH);
     // Reading the theme makes a switch rebuild the window (the title row is
     // flora's own chrome under flora).
     let flora = is_flora(info.get_theme().as_str());
@@ -1102,6 +1142,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_child(Dom::create_p_with_text(title.as_str()));
     header.add_child(Dom::create_div().with_css("flex-grow: 1;"));
     match hud {
+        // A phone says nothing of a pen that is not there (the sentence is longer than the screen).
+        None if compact => {}
         Some(h) => {
             header.add_child(Dom::create_p_with_text(
                 format!(
@@ -1126,16 +1168,18 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             header.add_child(Dom::create_p_with_text(label("azpaint-no-pen")));
         }
     }
-    header.add_child(
-        Dom::create_div()
-            .with_css("width: 140px; margin-left: 12px;")
-            .with_child(
-                azul::widgets::ProgressBar::create(last_pressure)
-                    .with_height(azul::css::PixelValue::px(12.0))
-                    .dom()
-                    .with_marker(azul::option::OptionString::Some(ids::PRESSURE)),
-            ),
-    );
+    if !compact || hud.is_some() {
+        header.add_child(
+            Dom::create_div()
+                .with_css("width: 140px; margin-left: 12px;")
+                .with_child(
+                    azul::widgets::ProgressBar::create(last_pressure)
+                        .with_height(azul::css::PixelValue::px(12.0))
+                        .dom()
+                        .with_marker(azul::option::OptionString::Some(ids::PRESSURE)),
+                ),
+        );
+    }
 
     let cache = RefAny::new(CanvasCache {
         paint: data.clone(),
@@ -1254,6 +1298,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     } else {
         column.add_child(header);
         column.add_child(canvas);
+        // A phone has no menu bar in any orientation (the commands it holds are these keys), and a
+        // narrow window of any machine has too little room for the header and a menu.
+        if compact || cfg!(any(target_os = "android", target_os = "ios")) {
+            column.add_child(toolbar(&data));
+        }
         if about_open {
             column.add_child(about_dialog(&data));
         }
