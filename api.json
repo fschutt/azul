@@ -21987,6 +21987,32 @@
                                     "type": "String"
                                 },
                                 "fn_body": "object.get_window_id().into()"
+                            },
+                            "get_fluent_localizer": {
+                                "doc": [
+                                    "The window's own Fluent localizer, as the layout pass hands it to a `layout()` callback",
+                                    "(`LayoutCallbackInfo.get_fluent_localizer` of the C API): the one the pass translates the DOM's",
+                                    "`AzString::tr` texts with, made from the app's `AppConfig::fluent_locales`. A handle is a",
+                                    "counted reference (`Clone` takes one, the bundles are shared) and is `Send` and `Sync`, so",
+                                    "words said with it are the window's words on any thread - which is the point of asking: an",
+                                    "app says some words as plain text, in the callback (a placeholder, an accessible name, a",
+                                    "widget's label, which the widget measures and wraps), and a library that keeps its own state",
+                                    "per thread loses it when the loop runs on another thread than the one the app started on",
+                                    "(Android: the app starts on the thread that loads the library, the loop runs on the",
+                                    "activity's thread). `None` for an app that registered no translations.",
+                                    "",
+                                    "Does not declare a dependency on the locale: `get_locale()` does, and a layout that says",
+                                    "words reads it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionFluentLocalizerHandle"
+                                },
+                                "fn_body": "azul_layout::fluent::fluent_localizer_of(layout_callback_info)"
                             }
                         },
                         "repr": "C"
@@ -191820,6 +191846,22 @@
                                 "None": {},
                                 "Some": {
                                     "type": "IcuDateTime"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionFluentLocalizerHandle": {
+                        "external": "azul_layout::fluent::OptionFluentLocalizerHandle",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "FluentLocalizerHandle"
                                 }
                             }
                         ],
