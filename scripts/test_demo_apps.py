@@ -17,6 +17,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -1239,6 +1240,13 @@ class AfterTapTest(unittest.TestCase):
 class ApkGateTest(unittest.TestCase):
     """verify_apk is the gate of a built APK: what the phone checks before it runs anything, and that every library of it can be
     loaded on a device with 16 KiB pages (scripts/android_elf_check.py)."""
+
+    def setUp(self):
+        # verify_apk runs apksigner and aapt2 of the SDK's build-tools when the machine has them (ubuntu-latest has: its preflight job
+        # ran them on these made-up APKs, which have no manifest, and failed); these tests are about the ELF check, so they see no SDK
+        patcher = mock.patch.dict(os.environ, {"ANDROID_HOME": "", "ANDROID_SDK_ROOT": ""})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def make_apk(self, root, aligns, name="AzX.apk"):
         sys.path.insert(0, str(HERE))
