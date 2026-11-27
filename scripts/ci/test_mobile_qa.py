@@ -527,6 +527,28 @@ class StartupLinesTests(unittest.TestCase):
         self.assertIsNone(q.median_start(["nothing"]))
 
 
+class PickTargetTests(unittest.TestCase):
+    # AzWidgets' real dump: the label above the field and the field carry the same name
+    DUMP = ("<hierarchy>"
+            '<node index="0" text="" class="android.widget.TextView" content-desc="TextInput" clickable="false" focusable="false" bounds="[110,813][970,850]">'
+            '<node index="0" text="" class="android.widget.TextView" content-desc="TextInput" clickable="false" focusable="false" bounds="[0,0][0,0]" /></node>'
+            '<node index="1" text="" class="android.widget.EditText" content-desc="TextInput" clickable="false" focusable="true" bounds="[118,871][962,986]">'
+            "</node>"
+            '<node index="2" text="" class="android.widget.RadioButton" content-desc="Dark" clickable="true" focusable="true" bounds="[519,251][588,291]" />'
+            '<node index="3" text="" class="android.widget.TextView" content-desc="Dark" clickable="false" focusable="false" bounds="[519,251][588,291]" />'
+            "</hierarchy>")
+
+    def test_the_field_is_picked_before_the_label_with_the_same_name(self):
+        self.assertEqual(q.pick_target(self.DUMP, "TextInput"), (540, 928))
+
+    def test_an_interactive_node_is_picked_before_a_plain_one(self):
+        self.assertEqual(q.pick_target(self.DUMP, "Dark"), (553, 271))
+
+    def test_a_name_that_is_not_there_or_has_no_box_is_none(self):
+        self.assertIsNone(q.pick_target(self.DUMP, "Nothing"))
+        self.assertIsNone(q.pick_target('<node content-desc="Zero" bounds="[0,0][0,0]" />', "Zero"))
+
+
 class CheckedTests(unittest.TestCase):
     XML = ('''<hierarchy><node index="2" text="" class="android.widget.RadioButton" content-desc="Dark" checkable="true" checked="true" clickable="true" bounds="[519,251][588,291]">'''
            '''<node index="0" text="" class="android.widget.TextView" content-desc="Dark" checkable="false" checked="false" bounds="[519,251][588,291]" />'''

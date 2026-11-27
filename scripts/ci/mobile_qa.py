@@ -426,6 +426,28 @@ def node_checked(xml_text, label):
     return None
 
 
+def pick_target(xml_text, label):
+    """The centre (x, y) of the node of a `uiautomator dump` a person would TOUCH for `label`: of the nodes named `label` (text or
+    content-desc) that have a box, the editable field (`EditText`) first, then a focusable or clickable one, then the first. A field and
+    the label above it carry the same name in AzWidgets ('TextInput' is a span and an EditText): the first match is the label, and a
+    tap on a label focuses nothing. -> (x, y) or None."""
+    found = []
+    for order, m in enumerate(re.finditer(r"<node\b([^>]*)>", xml_text)):
+        attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', m.group(1)))
+        if label not in (attrs.get("content-desc"), attrs.get("text")):
+            continue
+        b = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", attrs.get("bounds", ""))
+        if not b:
+            continue
+        l, t, r, bt = (int(v) for v in b.groups())
+        if r <= l or bt <= t:
+            continue
+        editable = attrs.get("class", "").endswith("EditText")
+        interactive = attrs.get("focusable") == "true" or attrs.get("clickable") == "true"
+        found.append((0 if editable else 1 if interactive else 2, order, ((l + r) // 2, (t + bt) // 2)))
+    return min(found)[2] if found else None
+
+
 def parse_bounds(xml_text):
     """[(label, cx, cy)] for the nodes of a `uiautomator dump` that carry a text or a content description."""
     found = []
@@ -883,10 +905,8 @@ class Android:
     def find_label(self, label):
         """The centre of the first on-screen accessibility node named `label` (uiautomator dump of the window), or None."""
         self.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
-        for name, cx, cy in parse_bounds(self.sh("cat /sdcard/qa-ui.xml")):
-            if name == label and cx > 0 and cy > 0:
-                return cx, cy
-        return None
+        at = pick_target(self.sh("cat /sdcard/qa-ui.xml"), label)
+        return at if at and at[0] > 0 and at[1] > 0 else None
 
     def tap_label(self, label, fallback=None):
         """Tap the node named `label`; when the tree does not show it, tap `fallback` (x, y) instead. -> (x, y, how)"""
