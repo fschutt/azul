@@ -292,6 +292,11 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         Some(w) => w,
         None => return,
     };
+    // A GPU window shows what its `CAEAGLLayer` shows; this view's own layer has no content to set, and the
+    // frame is drawn by the display tick (`gpu_tick`), not inside Core Animation's display pass.
+    if window.backend == RenderBackend::Gpu {
+        return;
+    }
     present_pending_frame(window, layer);
 }
 
@@ -303,11 +308,6 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
 /// runs, not from Core Animation's decision to ask. Assigning `layer.contents` outside `displayLayer:` is a plain
 /// main-thread property write; the commit is the run loop's.
 fn present_pending_frame(window: &mut IOSWindow, layer: *mut Object) {
-    // A GPU window shows what its `CAEAGLLayer` shows; this view's own layer has no content to set, and the frame
-    // is drawn by the display tick (`gpu_tick`), which also pumps the web views and runs the layout.
-    if window.backend == RenderBackend::Gpu {
-        return;
-    }
     // `<webview>`s first: their reports (a delegate asked for this pass) may
     // ask for a rebuild or a repaint, which this pass then makes.
     window.pump_webviews_if_any();
@@ -458,8 +458,6 @@ fn present_pending_frame(window: &mut IOSWindow, layer: *mut Object) {
                     frames_now.saturating_add(1),
                     core::sync::atomic::Ordering::Relaxed,
                 );
-                // the frame times of a scroll are measured here and in the GPU path's present alike
-                window.present_log.note(None);
                 if frames_at_last_present.is_none() {
                     log_info!(
                         LogCategory::Window,
@@ -468,6 +466,8 @@ fn present_pending_frame(window: &mut IOSWindow, layer: *mut Object) {
                         ph
                     );
                 }
+                // the frame times of a scroll are measured here and in the GPU path's present alike
+                window.present_log.note(None);
                 // The first frame is handed to the layer: marks `first_present` once and prints the table
                 // when the timeline is on (AZ_STARTUP=1); a test of a bool otherwise.
                 window
@@ -1493,11 +1493,12 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
             // the GPU window's frame: what is owed is laid out, sent and drawn here, in the tick
             window.gpu_tick();
         } else if window.common.regeneration_pending() || window.needs_rerender {
-            // A frame is owed (a layout the window was born owing, a regeneration a callback asked for, a repaint): produce it
-            // HERE, at the screen's refresh rate, instead of asking Core Animation to call `displayLayer:` and waiting for it.
-            // The first launch on the Simulator ran this tick (the debug server's timer ticked) and never laid out nor drew
-            // anything: the request for the frame was the only thing between a pending layout and the screen, and it did not
-            // arrive. `present()` stays the way every OTHER path (a touch, a gesture, a webview report) asks for a frame.
+            // A frame is owed (a layout the window was born owing, a regeneration a callback asked for, a repaint): produce
+            // it HERE, at the screen's refresh rate, instead of asking Core Animation to call `displayLayer:` and waiting
+            // for it. The first launch on the Simulator ran this tick (the debug server's timer ticked) and never laid out
+            // nor drew anything: the request for the frame was the only thing between a pending layout and the screen, and
+            // it did not arrive. `present()` stays the way every OTHER path (a touch, a gesture, a webview report) asks for
+            // a frame.
             let layer: *mut Object = unsafe { msg_send![view, layer] };
             present_pending_frame(window, layer);
         }

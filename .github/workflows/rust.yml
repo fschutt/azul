@@ -3096,6 +3096,22 @@ jobs:
         with:
           os: ${{ runner.os }}
 
+      # The prod-release build of azul-dll is ONE codegen unit with thin LTO, and this one adds the generated Python
+      # module (~250k lines): the Linux runner (16 GB) lost its connection to the server in the middle of the
+      # optimisation ('The hosted runner lost communication with the server', release run 45803150843, after 16
+      # minutes; the same job had passed in 32 minutes a day earlier). Swap keeps the peak from killing the runner.
+      - name: Add swap (Linux)
+        if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
+        run: |
+          set -x
+          free -h
+          df -h /mnt / | tail -2
+          sudo fallocate -l 12G /mnt/azul-swap
+          sudo chmod 600 /mnt/azul-swap
+          sudo mkswap /mnt/azul-swap
+          sudo swapon /mnt/azul-swap
+          free -h
+
       - name: Build Python extension
         if: steps.cache-valid.outputs.skip != 'true'
         run: cargo build --profile prod-release -p azul-dll --lib --features="python-extension" --target-dir target/pyext

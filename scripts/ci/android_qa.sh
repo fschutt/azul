@@ -128,8 +128,10 @@ for mode in "${mode_list[@]}"; do
       mkdir -p "$d/apps"
       # AZ_QA_TAPS: lines `<apk name>=<button label>`: step 03e presses that button of that app
       xtap="$(printf '%s\n' "${AZ_QA_TAPS:-}" | sed -n "s/^$xn=//p" | head -n 1)"
+      # AZ_QA_ONLY_FOR: lines `<apk name>=<steps>`: the steps of THAT app instead of AZ_QA_ONLY_EXTRA (AzCompanion's UI is dark by design: no dark-mode step)
+      xonly="$(printf '%s\n' "${AZ_QA_ONLY_FOR:-}" | sed -n "s/^$xn=//p" | head -n 1)"
       python3 "$here/mobile_qa.py" android --out "$d/apps/$xn" --apk "$xapk" --package "$xpkg" --activity "${xact:-}" \
-        --label "$xn" --gpu "$mode" --only "${AZ_QA_ONLY_EXTRA:-03,08,09,12,13}" ${xtap:+--tap-label "$xtap"} 2>&1 | tee "$d/apps/$xn.log"
+        --label "$xn" --gpu "$mode" --only "${xonly:-${AZ_QA_ONLY_EXTRA:-03,08,09,12,13}}" ${xtap:+--tap-label "$xtap"} 2>&1 | tee "$d/apps/$xn.log"
     done
   fi
   if [ "$session" = audit ] && [ "$mode" = "${mode_list[0]}" ]; then

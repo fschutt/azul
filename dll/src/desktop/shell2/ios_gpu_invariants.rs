@@ -137,25 +137,26 @@ fn the_uikit_lifecycle_reaches_the_machine() {
     }
 }
 
-/// The CPU path is what it was for a CPU window: the body of `displayLayer:` (`present_pending_frame`, which the display
-/// tick calls too) does nothing for a GPU window (its layer has no content to set and the frame is the display tick's
-/// `gpu_tick`), `present()` does not ask Core Animation for a display pass for it, and the CPU raster is for the CPU
-/// backend only.
+/// The CPU path is what it was for a CPU window: `displayLayer:` does nothing for a GPU window (its layer has no
+/// content to set and the frame is the display tick's), `present()` does not ask Core Animation for a display
+/// pass for it, and the CPU raster is for the CPU backend only.
 ///
 /// Mutation: a GPU window whose `displayLayer:` still rasters on the CPU (two renderers drawing one window).
 #[test]
 fn a_gpu_window_is_not_drawn_by_the_cpu_path() {
-    let frame = function_body(SHELL, "fn present_pending_frame");
-    let guard = frame
+    let display_layer = function_body(SHELL, "extern \"C\" fn display_layer");
+    let guard = display_layer
         .find("window.backend == RenderBackend::Gpu")
-        .expect("present_pending_frame names the GPU backend");
-    let first_work = frame
-        .find("pump_webviews_if_any")
-        .expect("present_pending_frame pumps the web views");
-    assert!(guard < first_work, "the GPU window leaves the CPU frame before any work");
+        .expect("display_layer names the GPU backend");
+    // the frame function (the CPU path's whole work: the web views' pump, the layout, the raster, the blit) is what
+    // `displayLayer:` hands the frame to, and the display tick calls it for a CPU window too
+    let first_work = display_layer
+        .find("present_pending_frame(")
+        .expect("display_layer hands the frame to the one frame function");
+    assert!(guard < first_work, "the GPU window leaves displayLayer: before any work");
     assert!(
-        function_body(SHELL, "extern \"C\" fn display_layer").contains("present_pending_frame(window, layer)"),
-        "displayLayer: is the body of present_pending_frame"
+        function_body(SHELL, "fn present_pending_frame").contains("pump_webviews_if_any"),
+        "the frame function pumps the web views first"
     );
 
     let present = function_body(SHELL, "pub fn present");
@@ -163,8 +164,8 @@ fn a_gpu_window_is_not_drawn_by_the_cpu_path() {
         .find("RenderBackend::Gpu")
         .expect("present names the GPU backend");
     let request = present
-        .find("request_display")
-        .expect("present asks for a display pass");
+        .find("request_display(")
+        .expect("present asks for a display pass (of the view's layer)");
     assert!(guard < request, "a GPU window asks for no display pass");
 
     let layout = function_body(SHELL, "pub fn regenerate_layout_inner");
@@ -273,8 +274,7 @@ fn the_console_orders_the_gl_commands_around_the_background() {
 /// "It never costs you the window": WebRender asserts about its GL context in places, and a panic that leaves
 /// `display_tick` (an `extern "C"` function) ends the process. The two calls that can panic, making the renderer and
 /// drawing a frame, are caught and become the failure of their stage (`renderer`, `frame`): the machine then rebuilds
-/// once and falls back to the CPU renderer. This holds where panics unwind; the shipped profile is `panic = "abort"`,
-/// where `catch_unwind` is inert (the engine ledger G9 says so), and the guard is then the source's promise, not a protection.
+/// once and falls back to the CPU renderer.
 ///
 /// Mutation: either call made without `catch_unwind`.
 #[test]

@@ -248,7 +248,7 @@ FALLBACK_LINE = re.compile(r"\[render\] gpu unavailable at (\w+): (.*?); drawing
 # The GPU path's first picture: iOS says `[iOS GPU] first frame 1206x2622: ...`, and every phone writes `[render] frames n=..` lines while
 # frames follow one another. On a software GL the first GL frame comes 9-10 s after the start (every WebRender shader is compiled at first
 # use) and the window is BLACK until then: a screenshot before that line is not a picture of the GPU path.
-GPU_FIRST_FRAME = re.compile(r"\[(?:iOS|Android) GPU\] first frame \d+x\d+|\[render\] frames n=\d+")
+GPU_FIRST_FRAME = re.compile(r"\[(?:iOS|Android) GPU\] first frame \d+x\d+|\[render\] first GPU frame: [\d.]+ ms|\[render\] frames n=\d+")
 
 
 def gpu_frame_presented(text):
@@ -724,7 +724,7 @@ def device_is_software(device):
     return bool(device and SOFTWARE_DEVICE.search(device))
 
 
-GPU_FIRST_FRAME_SECONDS = 120
+GPU_FIRST_FRAME_SECONDS = 240       # the emulator's software GL takes a minute or two for the first GL frame (every shader compiles at first use)
 GPU_SILENCE_SECONDS = 20       # an app asked for the GPU that says nothing of its renderer in this time has no GPU path to wait for
 GPU_FALLBACK_SECONDS = 150     # a fallback that comes after a first frame (a context lost twice) needs two first frames of a software GL
 IDLE_SECONDS = 5.0         # an idle window is watched this long for frames lines (a window that draws while nothing moves) ...
@@ -732,19 +732,26 @@ IDLE_SETTLE_SECONDS = 3.0  # ... after the frames of its start have followed one
 SWIPE_SECONDS = 4.0        # the scripted swipe of the render-mode step: at least three full seconds of frames lines
 
 
-def wait_for_gpu_frame(read_log, seconds, sleep=time.sleep, clock=time.time):
+def wait_for_gpu_frame(read_log, seconds, sleep=time.sleep, clock=time.time, silence=20.0):
     """After a `gpu` launch: wait until the engine's log (`read_log()` -> text) says the GPU path presented a frame, up to `seconds`.
-    -> seconds waited when it did, 0.0 when the log says the request fell back to the CPU (nothing to wait for) or names no GPU path at all,
-    None when the time ran out first."""
+    -> seconds waited when it did, 0.0 when there is nothing to wait for (the log says the request fell back to the CPU, the CPU present
+    path is writing its frames, or the engine has said nothing about a renderer and nothing at all for `silence` seconds: a build without a
+    GPU path), None when the time ran out first."""
     t0 = clock()
+    last_len, last_change = -1, t0
     while True:
         text = read_log()
         ran, _requested, _device = backend_ran(text)
         if gpu_frame_presented(text):
             return clock() - t0
-        if ran == "cpu":
+        if ran == "cpu" or (ran == "unknown" and "[Android] present" in text):
             return 0.0
-        if clock() - t0 >= seconds:
+        now = clock()
+        if len(text) != last_len:
+            last_len, last_change = len(text), now
+        elif ran == "unknown" and now - last_change >= silence:
+            return 0.0
+        if now - t0 >= seconds:
             return None
         sleep(1.0)
 
@@ -1991,19 +1998,12 @@ class IOS:
         t0 = time.time()
         if self.process_backend in ("gpu", "auto"):
             # The first frame of a GL renderer on a software GL comes late (every shader is compiled at its first use: ten seconds on
-            # the Simulator) and the window is black until then. A black window with the status bar on it is not "flat" to the picture
-            # test below, so it would be taken for the page and the picture of the GPU run would be taken too early. The engine says
-            # when its first GPU frame is out, or that the GPU path ended and the CPU draws: wait for that first. An app that says
-            # nothing of its renderer within GPU_SILENCE_SECONDS has no GPU path to wait for: the picture decides, as for the CPU.
-            def said_something(text):
-                return "[render]" in text or "[iOS GPU]" in text
-
-            def is_ready(text):
-                return gpu_frame_presented(text) or bool(gpu_fallbacks(text)) or backend_ran(text)[0] == "cpu"
-
-            if self.wait_for_console(said_something, min(timeout, GPU_SILENCE_SECONDS)) is not None:
-                if self.wait_for_console(is_ready, max(1.0, timeout - (time.time() - t0)), every=2.0) is None:
-                    return None       # the GPU path began and its first frame never came
+            # the Simulator) and the window is black until then: the picture of a GPU run taken before it is a black window (the third
+            # macOS run's was). The engine says when its first GPU frame is out, or that the GPU path ended and the CPU draws: wait for
+            # that first (`wait_for_gpu_frame`: 0.0 = nothing to wait for, a fallback or a build with no GPU path; None = the time ran
+            # out). Then the picture decides, as for the CPU renderer.
+            if wait_for_gpu_frame(self.process_console, timeout, sleep=time.sleep, clock=time.time, silence=GPU_SILENCE_SECONDS) is None:
+                return None       # the GPU path began and its first frame never came
         seen_alive = False
         started = time.time()
         rest = max(5.0, timeout - (started - t0))

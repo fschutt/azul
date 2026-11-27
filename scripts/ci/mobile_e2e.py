@@ -608,19 +608,35 @@ def e2e_session(args):
         s.note("window: " + json.dumps(srv.op("get_state"))[:200])
         x, y0, y1 = w * 0.5, h * 0.7, h * 0.3
         scale = args.logical_scale or state.get("scale") or 1.0
-        srv.op("touch_start", id=1, x=x / scale, y=y0 / scale)
-        srv.op("wait_frame")
+        answers = []                       # what the server said to every touch op: kept, so that a swipe that does not scroll can be read afterwards
+        answers.append(("touch_start", srv.op("touch_start", id=1, x=x / scale, y=y0 / scale)))
+        answers.append(("wait_frame", srv.op("wait_frame")))
         for k in range(1, 9):
-            srv.op("touch_move", id=1, x=x / scale, y=(y0 + (y1 - y0) * k / 8) / scale)
-            srv.op("wait_frame")           # one move per frame: the engine reads the touch STATE once a frame
-        srv.op("touch_end", id=1)
-        srv.op("wait_frame")
+            answers.append(("touch_move", srv.op("touch_move", id=1, x=x / scale, y=(y0 + (y1 - y0) * k / 8) / scale)))
+            answers.append(("wait_frame", srv.op("wait_frame")))           # one move per frame: the engine reads the touch STATE once a frame
+        answers.append(("touch_end", srv.op("touch_end", id=1)))
+        answers.append(("wait_frame", srv.op("wait_frame")))
+        (run.logs_dir / "touch-answers.json").write_text(json.dumps({"scale": scale, "from": [x / scale, y0 / scale], "to": [x / scale, y1 / scale],
+                                                                      "answers": [{"op": o, "answer": a} for o, a in answers]}), encoding="utf-8")
         dev.settle(1.5)
         after = device_shot(s, "after-touch-swipe")
         s.check("an in-process touch swipe scrolls the page", q.sig_diff(after, before) > q.SAME_BELOW, f"differs {q.sig_diff(after, before):.3f}")
         st1 = srv.op("get_scroll_states")
         (run.logs_dir / "scroll-after.json").write_text(json.dumps(st1), encoding="utf-8")
         s.check("the scroll states changed", st1 != st0, "", required=False)
+        if st1 == st0:
+            # the touch path did nothing: does the engine scroll at all? (the server's own scroll op on the page's scroller)
+            try:
+                states = la.scroll_states(st1)
+                page = next((x for x in states if x.get("max_scroll_y", 0) > 100), None)
+                if page:
+                    srv.op("scroll_node_by", node_id=page["node_id"], delta_x=0.0, delta_y=300.0)
+                    srv.op("wait_frame")
+                    moved = la.scroll_states(srv.op("get_scroll_states")) != states
+                    s.check("the server's own scroll op moves the page (the engine scrolls; only the touch path does not)", moved,
+                            f"scroller node {page['node_id']}, scroll_y {page.get('scroll_y')}", required=False)
+            except Exception as ex:  # noqa: BLE001
+                s.note(f"scroll_node_by: {str(ex)[:120]}")
         if args.platform == "android":
             dev.swipe(w * 0.5, h * 0.3, w * 0.5, h * 0.7, 350)   # a real finger the other way, through the OS
             dev.settle(1.5)
