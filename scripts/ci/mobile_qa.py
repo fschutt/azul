@@ -245,6 +245,17 @@ def backend_ran(text):
 FALLBACK_LINE = re.compile(r"\[render\] gpu unavailable at (\w+): (.*?); drawing on the CPU")
 
 
+# The GPU path's first picture: iOS says `[iOS GPU] first frame 1206x2622: ...`, and every phone writes `[render] frames n=..` lines while
+# frames follow one another. On a software GL the first GL frame comes 9-10 s after the start (every WebRender shader is compiled at first
+# use) and the window is BLACK until then: a screenshot before that line is not a picture of the GPU path.
+GPU_FIRST_FRAME = re.compile(r"\[(?:iOS|Android) GPU\] first frame \d+x\d+|\[render\] first GPU frame: [\d.]+ ms|\[render\] frames n=\d+")
+
+
+def gpu_frame_presented(text):
+    """Does the engine's log say that the GPU path presented a frame?"""
+    return bool(GPU_FIRST_FRAME.search(text or ""))
+
+
 def gpu_fallbacks(text):
     """-> [(stage, cause)]: every fallback line of the engine's log, in order."""
     found = []
@@ -698,9 +709,26 @@ def device_is_software(device):
     return bool(device and SOFTWARE_DEVICE.search(device))
 
 
-GPU_FIRST_FRAME_SECONDS = 120
+GPU_FIRST_FRAME_SECONDS = 240       # the emulator's software GL takes a minute or two for the first GL frame (every shader compiles at first use)
 IDLE_SECONDS = 4.0         # an idle window is watched this long for frames lines (a window that draws while nothing moves)
 SWIPE_SECONDS = 4.0        # the scripted swipe of the render-mode step: at least three full seconds of frames lines
+
+
+def wait_for_gpu_frame(read_log, seconds, sleep=time.sleep, clock=time.time):
+    """After a `gpu` launch: wait until the engine's log (`read_log()` -> text) says the GPU path presented a frame, up to `seconds`.
+    -> seconds waited when it did, 0.0 when the log says the request fell back to the CPU (nothing to wait for) or names no GPU path at all,
+    None when the time ran out first."""
+    t0 = clock()
+    while True:
+        text = read_log()
+        ran, _requested, _device = backend_ran(text)
+        if gpu_frame_presented(text):
+            return clock() - t0
+        if ran == "cpu":
+            return 0.0
+        if clock() - t0 >= seconds:
+            return None
+        sleep(1.0)
 
 
 def first_frame_timeout_for(mode, base):
@@ -779,10 +807,11 @@ def report_modes(run, step, results, expect_gpu, platform, hardware=False):
         step.shots.append(fname)
         verdict = d["share"] < MAX_DIFFERING_SHARE and d["mean_abs"] < MAX_MEAN_DIFF
         run.render_diff = {"share": d["share"], "mean_abs": d["mean_abs"], "max_abs": d["max_abs"], "bbox": d["bbox"], "ok": verdict, "image": fname}
-        step.check("the cpu and gpu pictures agree", verdict,
+        same_renderer = cpu["ran"] == gpu["ran"]
+        step.check("the cpu and gpu pictures agree" if not same_renderer else "the two pictures agree (both ran the same renderer: live content may differ)", verdict,
                    f"{d['share'] * 100:.2f} % of the pixels differ by more than {PIXEL_TOLERANCE}/255 (limit {MAX_DIFFERING_SHARE * 100:.0f} %), "
                    f"mean |diff| {d['mean_abs']:.2f}/255 (limit {MAX_MEAN_DIFF}), max {d['max_abs']}"
-                   + (f", box {d['bbox']}" if d["bbox"] else ""))
+                   + (f", box {d['bbox']}" if d["bbox"] else ""), required=not same_renderer)
         step.note("the cpu-vs-gpu comparison runs on " + (f"{ran_pair(cpu, gpu)}" ))
     elif cpu and gpu:
         step.check("the cpu and gpu pictures could be compared", False, "no pixels or different sizes", required=False)
@@ -1132,6 +1161,10 @@ def android_scenarios(args):
             dev.adb("logcat", "-c")
             dev.launch(cold=True)
             t = dev.wait_for_front(timeout=first_frame_timeout_for(mode, args.first_frame_timeout))
+            if mode == "gpu" and t is not None:
+                g = wait_for_gpu_frame(lambda: dev.adb("logcat", "-d", "-v", "threadtime", timeout=120), first_frame_timeout_for(mode, args.first_frame_timeout))
+                s.note("AZ_BACKEND=gpu: " + ("the engine says the GPU path presented a frame after " + f"{g:.1f} s more" if g else
+                       ("the request fell back to the CPU (or names no GPU path): nothing to wait for" if g == 0.0 else "no GPU frame line within the wait: the picture may be black")))
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_BACKEND-{mode}")
             rgba, dims = dev.last_rgba, dev.dims
@@ -2097,6 +2130,10 @@ def ios_scenarios(args):
                 extra["AZ_DEBUG"] = str(args.debug_port)
             dev.launch(extra_env=extra, cold=True)
             t = dev.wait_for_front(timeout=first_frame_timeout_for(mode, args.first_frame_timeout))
+            if mode == "gpu" and t is not None:
+                g = wait_for_gpu_frame(dev.console_text, first_frame_timeout_for(mode, args.first_frame_timeout))
+                s.note("AZ_BACKEND=gpu: " + ("the engine says the GPU path presented a frame after " + f"{g:.1f} s more" if g else
+                       ("the request fell back to the CPU: nothing to wait for" if g == 0.0 else "no GPU frame line within the wait: the picture may be black")))
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_BACKEND-{mode}")
             full = dev.last_rgba_full()

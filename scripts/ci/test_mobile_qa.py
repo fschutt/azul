@@ -326,7 +326,7 @@ class ModeComparisonTests(unittest.TestCase):
 
     def test_a_gpu_request_waits_long_for_its_first_frame(self):
         # the first GL frame on a software renderer compiles every shader: two minutes are normal there, not a missing picture
-        self.assertEqual(q.first_frame_timeout_for("gpu", 45), 120)
+        self.assertEqual(q.first_frame_timeout_for("gpu", 45), 240)
         self.assertEqual(q.first_frame_timeout_for("gpu", 300), 300)       # a longer wish stays
         self.assertEqual(q.first_frame_timeout_for("cpu", 45), 45)
         self.assertEqual(q.first_frame_timeout_for("auto", 45), 45)
@@ -539,6 +539,37 @@ class CheckedTests(unittest.TestCase):
     def test_a_name_that_is_not_checkable_or_not_there_is_none(self):
         self.assertIsNone(q.node_checked(self.XML, "Nothing"))
         self.assertIsNone(q.node_checked('<node content-desc="Label" checkable="false" checked="false" />', "Label"))
+
+
+class GpuFrameWaitTests(unittest.TestCase):
+    CONTRACT = "[       400us][Info][Rendering] [render] backend=gpu requested=gpu device=Apple Software Renderer"
+    FIRST = "[  9685704us][Info][Rendering] [iOS GPU] first frame 1206x2622: 21 draw calls, drawn in 1285 ms, 9653 ms after the GPU path began"
+    FRAMES = "[ 13049292us][Info][Rendering] [render] frames n=10 over_ms=1087 interval_ms median=110.3 p95=229.6 max=229.6 draw_ms median=99.2 p95=884.6"
+
+    def test_the_first_frame_line_of_either_phone_or_a_frames_line_says_a_frame_went_out(self):
+        self.assertTrue(q.gpu_frame_presented(self.CONTRACT + "\n" + self.FIRST))
+        self.assertTrue(q.gpu_frame_presented(self.FRAMES))
+        self.assertTrue(q.gpu_frame_presented("I RustStdoutStderr: [Android GPU] first frame 1080x2400: 20 draw calls"))
+        # the shared GPU code's own line (common/gles_gpu.rs), the one an Android GPU run writes
+        self.assertTrue(q.gpu_frame_presented("I RustStdoutStderr: [ 5123us][Info][Rendering] [render] first GPU frame: 1285.4 ms (WebRender compiles its programs in it)"))
+        self.assertFalse(q.gpu_frame_presented("[render] drawing the first frame at 1080x2400 px: WebRender compiles the programs it needs in it"))
+        self.assertFalse(q.gpu_frame_presented(self.CONTRACT))
+        self.assertFalse(q.gpu_frame_presented(""))
+
+    def test_the_wait_ends_at_the_first_frame_line(self):
+        logs = iter([self.CONTRACT, self.CONTRACT, self.CONTRACT + "\n" + self.FIRST])
+        clock = iter(range(0, 100))
+        waited = q.wait_for_gpu_frame(lambda: next(logs), 120, sleep=lambda _s: None, clock=lambda: next(clock))
+        self.assertIsNotNone(waited)
+        self.assertGreater(waited, 0)
+
+    def test_a_request_that_fell_back_to_the_cpu_is_not_waited_for(self):
+        fell_back = "[render] gpu unavailable at probe: x; drawing on the CPU\n[render] backend=cpu requested=gpu device=software"
+        self.assertEqual(q.wait_for_gpu_frame(lambda: fell_back, 120, sleep=lambda _s: None), 0.0)
+
+    def test_the_wait_gives_up_after_the_time_and_says_so(self):
+        clock = iter(range(0, 1000))
+        self.assertIsNone(q.wait_for_gpu_frame(lambda: self.CONTRACT, 5, sleep=lambda _s: None, clock=lambda: next(clock)))
 
 
 class FlatTests(unittest.TestCase):

@@ -61,8 +61,10 @@ printf '%s\n' "$badging" >"$out/badging.txt"
 floor_apk=""
 if [ "${AZ_FLOOR:-}" = 1 ]; then
   yes | sdkmanager --install "platforms;android-34" >>"$out/sdkmanager.log" 2>&1 || true
-  if JAVA_HOME="${JAVA_HOME_17_X64:-${JAVA_HOME:-}}" bash "$here/../floor-apk/build.sh" "$out/AzFloor-android.apk" >"$out/floor-build.log" 2>&1; then
-    floor_apk="$out/AzFloor-android.apk"
+  # an ABSOLUTE path: the floor script makes its work directory next to the APK and cd's into it (a relative demo-out/qa/floor-work.X broke the zip)
+  out_abs="$(cd "$out" && pwd)"
+  if JAVA_HOME="${JAVA_HOME_17_X64:-${JAVA_HOME:-}}" bash "$here/../floor-apk/build.sh" "$out_abs/AzFloor-android.apk" >"$out/floor-build.log" 2>&1; then
+    floor_apk="$out_abs/AzFloor-android.apk"
   else
     echo "the floor APK did not build:"; tail -n 8 "$out/floor-build.log"
   fi
@@ -126,8 +128,10 @@ for mode in "${mode_list[@]}"; do
       mkdir -p "$d/apps"
       # AZ_QA_TAPS: lines `<apk name>=<button label>`: step 03e presses that button of that app
       xtap="$(printf '%s\n' "${AZ_QA_TAPS:-}" | sed -n "s/^$xn=//p" | head -n 1)"
+      # AZ_QA_ONLY_FOR: lines `<apk name>=<steps>`: the steps of THAT app instead of AZ_QA_ONLY_EXTRA (AzCompanion's UI is dark by design: no dark-mode step)
+      xonly="$(printf '%s\n' "${AZ_QA_ONLY_FOR:-}" | sed -n "s/^$xn=//p" | head -n 1)"
       python3 "$here/mobile_qa.py" android --out "$d/apps/$xn" --apk "$xapk" --package "$xpkg" --activity "${xact:-}" \
-        --label "$xn" --gpu "$mode" --only "${AZ_QA_ONLY_EXTRA:-03,08,09,12,13}" ${xtap:+--tap-label "$xtap"} 2>&1 | tee "$d/apps/$xn.log"
+        --label "$xn" --gpu "$mode" --only "${xonly:-${AZ_QA_ONLY_EXTRA:-03,08,09,12,13}}" ${xtap:+--tap-label "$xtap"} 2>&1 | tee "$d/apps/$xn.log"
     done
   fi
   if [ "$session" = audit ] && [ "$mode" = "${mode_list[0]}" ]; then
