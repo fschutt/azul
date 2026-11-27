@@ -148,18 +148,24 @@ fn a_gpu_window_is_not_drawn_by_the_cpu_path() {
     let guard = display_layer
         .find("window.backend == RenderBackend::Gpu")
         .expect("display_layer names the GPU backend");
+    // the frame function (the CPU path's whole work: the web views' pump, the layout, the raster, the blit) is what
+    // `displayLayer:` hands the frame to, and the display tick calls it for a CPU window too
     let first_work = display_layer
-        .find("pump_webviews_if_any")
-        .expect("display_layer pumps the web views");
+        .find("present_pending_frame(")
+        .expect("display_layer hands the frame to the one frame function");
     assert!(guard < first_work, "the GPU window leaves displayLayer: before any work");
+    assert!(
+        function_body(SHELL, "fn present_pending_frame").contains("pump_webviews_if_any"),
+        "the frame function pumps the web views first"
+    );
 
     let present = function_body(SHELL, "pub fn present");
     let guard = present
         .find("RenderBackend::Gpu")
         .expect("present names the GPU backend");
     let request = present
-        .find("setNeedsDisplay")
-        .expect("present asks for a display pass");
+        .find("request_display(")
+        .expect("present asks for a display pass (of the view's layer)");
     assert!(guard < request, "a GPU window asks for no display pass");
 
     let layout = function_body(SHELL, "pub fn regenerate_layout_inner");
@@ -228,7 +234,7 @@ fn a_gpu_frame_is_asked_of_the_machine() {
 /// Mutation: a renderer that presents without noting it (its frame times are missing from the comparison).
 #[test]
 fn both_renderers_note_their_presents() {
-    assert!(function_body(SHELL, "extern \"C\" fn display_layer").contains("present_log.note(None)"));
+    assert!(function_body(SHELL, "fn present_pending_frame").contains("present_log.note(None)"));
     assert!(function_body(GPU, "fn gpu_draw_frame").contains("present_log.note(Some(render_us))"));
 }
 
