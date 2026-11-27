@@ -192,18 +192,37 @@ fn synthesis(
     ]
 }
 
-/// The four longhands of `font-variant`, in order: numeric, caps, ligatures, East Asian.
+/// The five longhands of `font-variant`, in order: numeric, caps, ligatures, East Asian, position
+/// (`normal`: a value that says none of its keywords).
 fn variant(
     numeric: StyleFontVariantNumeric,
     caps: StyleFontVariantCaps,
     ligatures: StyleFontVariantLigatures,
     east_asian: StyleFontVariantEastAsian,
 ) -> Vec<CssProperty> {
+    variant_at(
+        numeric,
+        caps,
+        ligatures,
+        east_asian,
+        StyleFontVariantPosition::Normal,
+    )
+}
+
+/// [`variant`] with the `font-variant-position` the value names.
+fn variant_at(
+    numeric: StyleFontVariantNumeric,
+    caps: StyleFontVariantCaps,
+    ligatures: StyleFontVariantLigatures,
+    east_asian: StyleFontVariantEastAsian,
+    position: StyleFontVariantPosition,
+) -> Vec<CssProperty> {
     vec![
         CssProperty::font_variant_numeric(numeric),
         CssProperty::font_variant_caps(caps),
         CssProperty::font_variant_ligatures(ligatures),
         CssProperty::font_variant_east_asian(east_asian),
+        CssProperty::font_variant_position(position),
     ]
 }
 
@@ -255,10 +274,11 @@ static FONT_NAMED: [CssPropertyType; 7] = [
 ];
 
 /// The longhands `font` resets to their initial value, after the seven it names, in order.
-static FONT_RESETS: [CssPropertyType; 11] = [
+static FONT_RESETS: [CssPropertyType; 12] = [
     CssPropertyType::FontVariantNumeric,
     CssPropertyType::FontVariantLigatures,
     CssPropertyType::FontVariantEastAsian,
+    CssPropertyType::FontVariantPosition,
     CssPropertyType::FontKerning,
     CssPropertyType::FontOpticalSizing,
     CssPropertyType::FontVariationSettings,
@@ -270,11 +290,12 @@ static FONT_RESETS: [CssPropertyType; 11] = [
 ];
 
 /// The longhands `font-variant` sets, in order.
-static FONT_VARIANT_ORDER: [CssPropertyType; 4] = [
+static FONT_VARIANT_ORDER: [CssPropertyType; 5] = [
     CssPropertyType::FontVariantNumeric,
     CssPropertyType::FontVariantCaps,
     CssPropertyType::FontVariantLigatures,
     CssPropertyType::FontVariantEastAsian,
+    CssPropertyType::FontVariantPosition,
 ];
 
 /// The longhands `font-synthesis` sets, in order.
@@ -285,13 +306,13 @@ static FONT_SYNTHESIS_ORDER: [CssPropertyType; 4] = [
     CssPropertyType::FontSynthesisPosition,
 ];
 
-/// All eighteen longhands of `font`, in the order it returns them.
+/// All nineteen longhands of `font`, in the order it returns them.
 fn font_order() -> Vec<CssPropertyType> {
     FONT_NAMED.iter().chain(FONT_RESETS.iter()).copied().collect()
 }
 
 /// What `font` expands to: the seven longhands it names (an omitted one is the CSS-wide `initial`)
-/// and then the eleven it resets.
+/// and then the twelve it resets.
 fn font_expansion(
     style: Option<StyleFontStyle>,
     caps: Option<StyleFontVariantCaps>,
@@ -1450,7 +1471,7 @@ fn font_synthesis_with_a_css_wide_keyword_reaches_its_four_longhands() {
 
 #[cfg(feature = "parser")]
 #[test]
-fn font_variant_with_a_css_wide_keyword_reaches_its_four_longhands() {
+fn font_variant_with_a_css_wide_keyword_reaches_its_five_longhands() {
     for &(text, keyword) in CSS_WIDE_KEYWORDS.iter() {
         let props = expand("font-variant", text)
             .unwrap_or_else(|()| panic!("`font-variant: {text}` must parse"));
@@ -1467,7 +1488,7 @@ fn font_variant_with_a_css_wide_keyword_reaches_its_four_longhands() {
 
 #[cfg(feature = "parser")]
 #[test]
-fn font_variant_normal_resets_all_four_longhands_and_none_turns_the_ligatures_off() {
+fn font_variant_normal_resets_all_five_longhands_and_none_turns_the_ligatures_off() {
     assert_eq!(
         expand("font-variant", "normal"),
         Ok(variant(
@@ -1562,7 +1583,7 @@ fn font_variant_rejects_two_values_of_one_group_of_the_new_longhands() {
     }
 }
 
-/// `font: inherit` (and `initial`, `unset`, `revert`) sets all eighteen longhands the shorthand
+/// `font: inherit` (and `initial`, `unset`, `revert`) sets all nineteen longhands the shorthand
 /// reaches, in the order it expands in.
 #[cfg(feature = "parser")]
 #[test]
@@ -1570,7 +1591,7 @@ fn font_with_a_css_wide_keyword_reaches_every_longhand_it_sets() {
     for &(text, keyword) in CSS_WIDE_KEYWORDS.iter() {
         let props =
             expand("font", text).unwrap_or_else(|()| panic!("`font: {text}` must parse"));
-        assert_eq!(props.len(), 18, "`font: {text}`");
+        assert_eq!(props.len(), 19, "`font: {text}`");
         assert_eq!(types_of(&props), font_order(), "`font: {text}`");
         for prop in &props {
             assert_eq!(
@@ -1585,7 +1606,7 @@ fn font_with_a_css_wide_keyword_reaches_every_longhand_it_sets() {
 
 #[cfg(feature = "parser")]
 #[test]
-fn font_inherit_is_inherit_on_all_eighteen_longhands() {
+fn font_inherit_is_inherit_on_all_nineteen_longhands() {
     let props = expand("font", "inherit").expect("`font: inherit` parses");
     let expected: Vec<CssProperty> = [
         CssPropertyType::FontStyle,
@@ -1598,6 +1619,7 @@ fn font_inherit_is_inherit_on_all_eighteen_longhands() {
         CssPropertyType::FontVariantNumeric,
         CssPropertyType::FontVariantLigatures,
         CssPropertyType::FontVariantEastAsian,
+        CssPropertyType::FontVariantPosition,
         CssPropertyType::FontKerning,
         CssPropertyType::FontOpticalSizing,
         CssPropertyType::FontVariationSettings,
@@ -1946,4 +1968,42 @@ fn every_font_property_reads_hostile_text_of_a_couple_hundred_kilobytes_in_bound
         slowest.0,
         slowest.1
     );
+}
+
+/// `sub` and `super` are the keywords of `font-variant-position`: `font-variant` sets it, and every
+/// value that does not say one resets it to `normal`.
+#[cfg(feature = "parser")]
+#[test]
+fn font_variant_sets_the_position_it_names_and_resets_it_otherwise() {
+    assert_eq!(
+        expand("font-variant", "sub"),
+        Ok(variant_at(
+            StyleFontVariantNumeric::NORMAL,
+            StyleFontVariantCaps::Normal,
+            StyleFontVariantLigatures::NORMAL,
+            StyleFontVariantEastAsian::NORMAL,
+            StyleFontVariantPosition::Subscript,
+        ))
+    );
+    assert_eq!(
+        expand("font-variant", "small-caps super"),
+        Ok(variant_at(
+            StyleFontVariantNumeric::NORMAL,
+            StyleFontVariantCaps::SmallCaps,
+            StyleFontVariantLigatures::NORMAL,
+            StyleFontVariantEastAsian::NORMAL,
+            StyleFontVariantPosition::Superscript,
+        ))
+    );
+    assert_eq!(
+        expand("font-variant", "small-caps"),
+        Ok(variant(
+            StyleFontVariantNumeric::NORMAL,
+            StyleFontVariantCaps::SmallCaps,
+            StyleFontVariantLigatures::NORMAL,
+            StyleFontVariantEastAsian::NORMAL,
+        )),
+        "a value that names no position resets it"
+    );
+    assert!(expand("font-variant", "sub super").is_err(), "one position keyword stands");
 }

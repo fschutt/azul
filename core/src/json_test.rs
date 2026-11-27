@@ -1250,3 +1250,62 @@ mod autotest_generated {
         assert!(Json::jq_all_recursive(&deep, &"/*".repeat(600)).is_empty());
     }
 }
+
+// ======================================================================
+// The order of an object's keys is the document's, not the alphabet's
+// ======================================================================
+#[cfg(test)]
+#[cfg(feature = "serde-json")]
+mod key_order_tests {
+    use super::*;
+
+    fn names(keys: Vec<AzString>) -> Vec<String> {
+        keys.iter().map(|k| k.as_str().to_string()).collect()
+    }
+
+    #[test]
+    fn keys_and_text_keep_the_order_of_the_document() {
+        let doc = r#"{"zebra":1,"apple":{"y":1,"x":2},"mango":[{"b":1,"a":2}]}"#;
+        let json = Json::parse(doc).expect("parse");
+        assert_eq!(names(json.keys()), ["zebra", "apple", "mango"]);
+        // the compact text is the document's, nested objects included
+        assert_eq!(json.to_json_string().as_str(), doc);
+        assert_eq!(
+            names(json.get_key("apple").expect("apple").keys()),
+            ["y", "x"]
+        );
+        let pairs = json.to_object().expect("an object");
+        let order: Vec<&str> = pairs.as_ref().iter().map(|p| p.key.as_str()).collect();
+        assert_eq!(order, ["zebra", "apple", "mango"]);
+        // the pretty text too
+        let pretty = json.to_string_pretty();
+        let (z, a, m) = (
+            pretty.as_str().find("zebra").expect("zebra"),
+            pretty.as_str().find("apple").expect("apple"),
+            pretty.as_str().find("mango").expect("mango"),
+        );
+        assert!(z < a && a < m, "{}", pretty.as_str());
+        // and what was written can be read again in the same order
+        let again = Json::parse(json.to_json_string().as_str()).expect("parse again");
+        assert_eq!(names(again.keys()), ["zebra", "apple", "mango"]);
+    }
+
+    #[test]
+    fn an_object_made_from_pairs_keeps_the_order_of_the_pairs() {
+        let pairs = JsonKeyValueVec::from_vec(vec![
+            JsonKeyValue::create(AzString::from("b"), Json::integer(1)),
+            JsonKeyValue::create(AzString::from("a"), Json::integer(2)),
+            JsonKeyValue::create(AzString::from("c"), Json::integer(3)),
+        ]);
+        let object = Json::object(pairs);
+        assert_eq!(names(object.keys()), ["b", "a", "c"]);
+        assert_eq!(object.to_json_string().as_str(), r#"{"b":1,"a":2,"c":3}"#);
+    }
+
+    #[test]
+    fn a_duplicate_key_keeps_its_first_place_and_takes_the_last_value() {
+        let json = Json::parse(r#"{"z":0,"a":1,"b":2,"a":3}"#).expect("parse");
+        assert_eq!(names(json.keys()), ["z", "a", "b"]);
+        assert_eq!(json.get_key("a").expect("a"), Json::integer(3));
+    }
+}

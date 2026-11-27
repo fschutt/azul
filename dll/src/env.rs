@@ -104,16 +104,16 @@ pub struct AndroidProperties {
 }
 
 impl AndroidProperties {
-    /// The properties of this process: `getprop` (no argument lists every property) run once on
-    /// Android, none elsewhere.
+    /// The properties of this process: the `debug.az.*` entries of the system's property area, read
+    /// through bionic on Android, none elsewhere. No process is spawned: this used to run `getprop`
+    /// (which forks, executes a binary and lists every property of the phone), once per reader, and
+    /// a start makes several readers (`AppConfig::create`, `App::create`, the services that have no
+    /// app): the startup timeline counted them (2026-11-26).
     #[cfg(target_os = "android")]
     #[must_use]
     pub fn read() -> Self {
-        std::process::Command::new("getprop")
-            .output()
-            .ok()
-            .map(|out| Self::from_listing(&String::from_utf8_lossy(&out.stdout)))
-            .unwrap_or_default()
+        let entries = bionic::debug_az_entries();
+        Self::from_entries(entries.iter().map(|(name, value)| (name.as_str(), value.as_str())))
     }
 
     /// No properties: only Android has them.
@@ -127,11 +127,16 @@ impl AndroidProperties {
     /// other line, an entry with an empty value and a name that is only the prefix are skipped.
     #[must_use]
     pub fn from_listing(listing: &str) -> Self {
+        Self::from_entries(listing.lines().filter_map(split_property))
+    }
+
+    /// The `debug.az.*` entries of `(name, value)` pairs, as the system's property area gives them
+    /// ([`Self::from_listing`] is the same for the text of `getprop`): every other name, an entry
+    /// with an empty value and a name that is only the prefix are skipped.
+    #[must_use]
+    pub fn from_entries<'a>(entries: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
         let mut properties = Self::default();
-        for line in listing.lines() {
-            let Some((name, value)) = split_property(line) else {
-                continue;
-            };
+        for (name, value) in entries {
             let Some(suffix) = name.strip_prefix("debug.az.") else {
                 continue;
             };
@@ -177,6 +182,73 @@ fn parse_pairs(raw: &str) -> BTreeMap<String, String> {
         .filter(|(key, _)| !key.is_empty())
         .map(|(key, value)| (key.to_owned(), value.to_owned()))
         .collect()
+}
+
+/// The system's property area on Android, read through bionic (`<sys/system_properties.h>`):
+/// `__system_property_foreach` passes every property to a callback and `__system_property_read`
+/// copies its name and value out. Both exist at every API level (the NDK header marks only the
+/// callback-based reader as API 26); the name buffer is `PROP_NAME_MAX` (32) bytes, which holds
+/// `debug.az.<name>`, and the value buffer `PROP_VALUE_MAX` (92): the limit of `setprop` itself.
+#[cfg(target_os = "android")]
+mod bionic {
+    use core::ffi::{c_char, c_int, c_void, CStr};
+
+    /// `struct prop_info`: opaque, only ever passed back to bionic.
+    #[repr(C)]
+    pub struct PropInfo {
+        _opaque: [u8; 0],
+    }
+
+    const PROP_NAME_MAX: usize = 32;
+    const PROP_VALUE_MAX: usize = 92;
+    /// The prefix of the properties the engine reads.
+    const PREFIX: &str = "debug.az.";
+
+    extern "C" {
+        fn __system_property_foreach(
+            callback: unsafe extern "C" fn(*const PropInfo, *mut c_void),
+            cookie: *mut c_void,
+        ) -> c_int;
+        fn __system_property_read(
+            info: *const PropInfo,
+            name: *mut c_char,
+            value: *mut c_char,
+        ) -> c_int;
+    }
+
+    /// Called by bionic once per property: keeps the `debug.az.*` ones.
+    unsafe extern "C" fn collect(info: *const PropInfo, cookie: *mut c_void) {
+        let mut name = [0 as c_char; PROP_NAME_MAX];
+        let mut value = [0 as c_char; PROP_VALUE_MAX];
+        // SAFETY: `info` comes from bionic, the buffers have the sizes it documents.
+        let length = unsafe { __system_property_read(info, name.as_mut_ptr(), value.as_mut_ptr()) };
+        if length < 0 {
+            return;
+        }
+        // SAFETY: bionic NUL-terminates both buffers.
+        let (name, value) = unsafe {
+            (
+                CStr::from_ptr(name.as_ptr()).to_string_lossy().into_owned(),
+                CStr::from_ptr(value.as_ptr()).to_string_lossy().into_owned(),
+            )
+        };
+        if name.starts_with(PREFIX) {
+            // SAFETY: `cookie` is the `&mut Vec` of `debug_az_entries`, alive for the whole walk.
+            let entries = unsafe { &mut *cookie.cast::<Vec<(String, String)>>() };
+            entries.push((name, value));
+        }
+    }
+
+    /// The `debug.az.*` properties as `(name, value)`; empty when the walk fails.
+    pub fn debug_az_entries() -> Vec<(String, String)> {
+        let mut entries: Vec<(String, String)> = Vec::new();
+        // SAFETY: the callback only reads what bionic hands it and pushes into `entries`, which
+        // outlives the call.
+        unsafe {
+            __system_property_foreach(collect, core::ptr::addr_of_mut!(entries).cast::<c_void>());
+        }
+        entries
+    }
 }
 
 #[cfg(test)]

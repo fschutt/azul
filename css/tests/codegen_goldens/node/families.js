@@ -103,6 +103,7 @@ function styleShorthands() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontVariantNumeric)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontVariantLigatures)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontVariantEastAsian)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontVariantPosition)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontKerning)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontOpticalSizing)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontVariationSettings)),
@@ -115,11 +116,12 @@ function styleShorthands() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantCaps({ Exact: { tag: 6, payload: azul.StyleFontVariantCaps.Normal } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantLigatures({ Exact: { tag: 6, payload: { common: azul.StyleFontLigatureChoice.Unset, discretionary: azul.StyleFontLigatureChoice.Unset, historical: azul.StyleFontLigatureChoice.Unset, contextual: azul.StyleFontLigatureChoice.Unset } } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantEastAsian({ Exact: { tag: 6, payload: { jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, full_width: false, proportional_width: false, ruby: false } } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantPosition({ Exact: { tag: 6, payload: azul.StyleFontVariantPosition.Normal } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontSynthesisWeight({ Exact: { tag: 6, payload: azul.StyleFontSynthesis.Auto } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontSynthesisStyle({ Exact: { tag: 6, payload: azul.StyleFontSynthesis.Auto } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontSynthesisSmallCaps({ Exact: { tag: 6, payload: azul.StyleFontSynthesis.None } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontSynthesisPosition({ Exact: { tag: 6, payload: azul.StyleFontSynthesis.None } })),
-    ], 26));
+    ], 28));
 }
 
 // CSS: .box

@@ -84,7 +84,7 @@ fn style_text() azul.AzCssPropertyWithConditionsVec {
 // CSS: .shorthands
 fn style_shorthands() azul.AzCssPropertyWithConditionsVec {
 	mut t1 := [2]azul.AzStyleFontFamily{}
-	mut t2 := [26]azul.AzCssPropertyWithConditions{}
+	mut t2 := [28]azul.AzCssPropertyWithConditions{}
 	t1[0] = C.AzStyleFontFamily_system(azul.az_str('Georgia'))
 	t1[1] = C.AzStyleFontFamily_system(azul.az_str('serif'))
 	t2[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_italic()))
@@ -97,23 +97,25 @@ fn style_shorthands() azul.AzCssPropertyWithConditionsVec {
 	t2[7] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontVariantNumeric))
 	t2[8] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontVariantLigatures))
 	t2[9] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontVariantEastAsian))
-	t2[10] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontKerning))
-	t2[11] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontOpticalSizing))
-	t2[12] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontVariationSettings))
-	t2[13] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontFeatureSettings))
-	t2[14] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontSynthesisWeight))
-	t2[15] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontSynthesisStyle))
-	t2[16] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontSynthesisSmallCaps))
-	t2[17] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontSynthesisPosition))
-	t2[18] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantNumeric(azul.AzStyleFontVariantNumeric{ lining_nums: false, oldstyle_nums: true, proportional_nums: false, tabular_nums: false, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false }))
-	t2[19] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(azul.AzStyleFontVariantCapsValue{ Exact: azul.AzStyleFontVariantCapsValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontVariantCaps.Normal } }))
-	t2[20] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantLigatures(azul.AzStyleFontVariantLigaturesValue{ Exact: azul.AzStyleFontVariantLigaturesValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontVariantLigatures{ common: azul.AzStyleFontLigatureChoice.Unset, discretionary: azul.AzStyleFontLigatureChoice.Unset, historical: azul.AzStyleFontLigatureChoice.Unset, contextual: azul.AzStyleFontLigatureChoice.Unset } } }))
-	t2[21] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantEastAsian(azul.AzStyleFontVariantEastAsianValue{ Exact: azul.AzStyleFontVariantEastAsianValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontVariantEastAsian{ jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, full_width: false, proportional_width: false, ruby: false } } }))
-	t2[22] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisWeight(azul.AzStyleFontSynthesisValue{ Exact: azul.AzStyleFontSynthesisValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontSynthesis.Auto } }))
-	t2[23] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisStyle(azul.AzStyleFontSynthesisValue{ Exact: azul.AzStyleFontSynthesisValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontSynthesis.Auto } }))
-	t2[24] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisSmallCaps(azul.AzStyleFontSynthesisValue{ Exact: azul.AzStyleFontSynthesisValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontSynthesis.None } }))
-	t2[25] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisPosition(azul.AzStyleFontSynthesisValue{ Exact: azul.AzStyleFontSynthesisValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontSynthesis.None } }))
-	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t2[0] }, 26)
+	t2[10] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontVariantPosition))
+	t2[11] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontKerning))
+	t2[12] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontOpticalSizing))
+	t2[13] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontVariationSettings))
+	t2[14] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontFeatureSettings))
+	t2[15] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontSynthesisWeight))
+	t2[16] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontSynthesisStyle))
+	t2[17] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontSynthesisSmallCaps))
+	t2[18] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(azul.AzCssPropertyType.FontSynthesisPosition))
+	t2[19] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantNumeric(azul.AzStyleFontVariantNumeric{ lining_nums: false, oldstyle_nums: true, proportional_nums: false, tabular_nums: false, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false }))
+	t2[20] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(azul.AzStyleFontVariantCapsValue{ Exact: azul.AzStyleFontVariantCapsValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontVariantCaps.Normal } }))
+	t2[21] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantLigatures(azul.AzStyleFontVariantLigaturesValue{ Exact: azul.AzStyleFontVariantLigaturesValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontVariantLigatures{ common: azul.AzStyleFontLigatureChoice.Unset, discretionary: azul.AzStyleFontLigatureChoice.Unset, historical: azul.AzStyleFontLigatureChoice.Unset, contextual: azul.AzStyleFontLigatureChoice.Unset } } }))
+	t2[22] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantEastAsian(azul.AzStyleFontVariantEastAsianValue{ Exact: azul.AzStyleFontVariantEastAsianValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontVariantEastAsian{ jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, full_width: false, proportional_width: false, ruby: false } } }))
+	t2[23] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantPosition(azul.AzStyleFontVariantPositionValue{ Exact: azul.AzStyleFontVariantPositionValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontVariantPosition.Normal } }))
+	t2[24] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisWeight(azul.AzStyleFontSynthesisValue{ Exact: azul.AzStyleFontSynthesisValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontSynthesis.Auto } }))
+	t2[25] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisStyle(azul.AzStyleFontSynthesisValue{ Exact: azul.AzStyleFontSynthesisValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontSynthesis.Auto } }))
+	t2[26] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisSmallCaps(azul.AzStyleFontSynthesisValue{ Exact: azul.AzStyleFontSynthesisValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontSynthesis.None } }))
+	t2[27] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisPosition(azul.AzStyleFontSynthesisValue{ Exact: azul.AzStyleFontSynthesisValueVariant_Exact{ tag: 6, payload: azul.AzStyleFontSynthesis.None } }))
+	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t2[0] }, 28)
 }
 
 // CSS: .box

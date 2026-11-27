@@ -212,12 +212,27 @@ pub fn write_payload(payload: &ClipboardPayload) -> bool {
 /// answer here is a Paste button that does nothing - or a missing one when
 /// there IS something to paste.
 ///
-/// Reads the pasteboard rather than caching: another app can put something
+/// Asks the pasteboard rather than caching: another app can put something
 /// there while this one is in the background, and a cached answer would be
 /// stale exactly when the user came back to paste it.
+///
+/// `hasStrings`, NOT a read of `string`: UIKit validates the edit menu's actions (and key
+/// commands) over and over, and every one of those validations read the whole pasteboard
+/// contents - a copy of whatever is on it, possibly megabytes, and the read that iOS 14+
+/// reports to the user as "pasted from" (and iOS 16+ asks permission for) when it comes from
+/// another app, with no paste in sight. Apple's own words for `UIPasteboard.hasStrings`: "Do not
+/// use the `string` or `strings` properties to determine whether a pasteboard contains string
+/// data, because doing so consumes resources needlessly."
 #[must_use]
 pub fn has_text() -> bool {
-    get_clipboard_content().is_some_and(|t| !t.is_empty())
+    unsafe {
+        let pb = general();
+        if pb.is_null() {
+            return false;
+        }
+        let has_strings: bool = msg_send![pb, hasStrings];
+        has_strings
+    }
 }
 
 pub fn get_clipboard_content() -> Option<String> {

@@ -35,6 +35,7 @@ use azul_core::tls::TrustRoots;
 use super::{
     discovery::{self, Held, LocalDiscovery, LocalDiscoveryState, Wanted},
     nearby::{advertised_text, Nearby, NearbyPeer, MAX_ADVERTISED_BYTES, MAX_NEARBY_PEERS},
+    platform::{require_context, OsPlatform, Platform},
     types::{IrohConfig, IrohEvent, IrohEventKind, IrohPeerStats, IrohRelayMode},
 };
 
@@ -235,6 +236,17 @@ impl Engine {
         config: &IrohConfig,
         discovery: &dyn LocalDiscovery,
     ) -> Result<Engine, String> {
+        Self::bind_on(config, discovery, &OsPlatform)
+    }
+
+    /// [`Engine::bind_with`] on the platform `platform` (the system's, or a test's): before anything
+    /// runs, a platform that has not got what the engine needs refuses (see `platform`).
+    pub(super) fn bind_on(
+        config: &IrohConfig,
+        discovery: &dyn LocalDiscovery,
+        platform: &dyn Platform,
+    ) -> Result<Engine, String> {
+        require_context(platform)?;
         let runtime = runtime()?;
         let alpn = config.alpn.as_str().as_bytes().to_vec();
         if alpn.is_empty() {

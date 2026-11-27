@@ -16,6 +16,8 @@
 /// The playback counterpart to `MicrophoneWidget` (capture). See
 /// `audio/mod.rs`.
 pub mod audio;
+/// `AVAudioSession` on iOS: the category a sink or a microphone needs, set before its engine is built.
+pub mod audio_session;
 /// Sign-in sessions (OAuth 2.0 for native apps): `ASWebAuthenticationSession` on Apple, the
 /// system browser with a loopback listener on the desktops, a Custom Tab on Android, a fake
 /// in headless runs. See `auth_session/mod.rs`.
@@ -45,6 +47,9 @@ pub mod gamepad;
 pub mod geolocation;
 pub mod haptics;
 pub mod hid;
+/// What the app's own `Info.plist` says (the purpose strings the protected APIs need), so a request
+/// that would stop the process is refused with a diagnostic instead.
+pub mod info_plist;
 /// Peer-to-peer QUIC connections (`IrohEndpoint`) and forwarder selection; the engine needs the `iroh` feature.
 pub mod iroh;
 pub mod keyring;

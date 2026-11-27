@@ -657,51 +657,89 @@ fn schema_family(gnome_schema: &str) -> Vec<String> {
     out
 }
 
-/// Which schema family this desktop answers on, resolved ONCE.
+/// The GSettings one discovery reads, with ONE process per schema.
 ///
-/// 0 = not yet probed, 1 = GNOME, 2 = Cinnamon, 3 = MATE, 4 = none of them.
+/// `gsettings get <schema> <key>` is a process per key (it loads GLib and dconf: 5 to 15 ms each, on the
+/// window's thread, before the first frame), and a GNOME session was asked thirty keys of three schemas.
+/// `gsettings list-recursively <schema>` answers every key of a schema at once: a schema is read on first use
+/// and each key is looked up in what it printed (`style_discovery::parse_gsettings_listing`).
 ///
-/// Resolved once and then obeyed, rather than "try each family per key":
-/// trying per key costs a spawn per family per MISS, and every key that is
-/// absent everywhere (the deprecated GNOME keys we still ask for) paid the
-/// full three. Probing once is one spawn for the whole run — startup spawned
-/// 136 `gsettings` processes before this.
-static SCHEMA_FAMILY: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
-
-/// Probe key: present in every one of the three families, so it identifies
-/// which one this desktop actually answers on.
-const SCHEMA_PROBE_KEY: &str = "font-name";
-
-fn resolve_schema_family() -> usize {
-    use core::sync::atomic::Ordering;
-    let cached = SCHEMA_FAMILY.load(Ordering::Relaxed);
-    if cached != 0 {
-        return cached;
-    }
-    let probes = schema_family("org.gnome.desktop.interface");
-    let mut found = 4; // none
-    for (i, schema) in probes.iter().enumerate() {
-        if gsettings_get_raw(schema, SCHEMA_PROBE_KEY).is_some() {
-            found = i + 1;
-            break;
-        }
-    }
-    SCHEMA_FAMILY.store(found, Ordering::Relaxed);
-    found
+/// The schema FAMILY (GNOME, Cinnamon or MATE, see [`schema_family`]) is found by the first of those reads: the
+/// first family whose interface schema answers is the one this desktop speaks (a schema that is not installed
+/// does not list), resolved ONCE and then obeyed, rather than "try each family per key": trying per key cost a
+/// spawn per family per MISS, and startup spawned 136 `gsettings` processes before that was fixed. Owned by the
+/// discovery that made it (`discover`), passed down: no static.
+struct Gsettings {
+    /// 0 = not resolved yet, 1 = GNOME, 2 = Cinnamon, 3 = MATE, 4 = none of them (a bare KDE/Wayland session).
+    family: core::cell::Cell<usize>,
+    /// The keys of each schema read so far, by the GNOME name it was asked by (a schema that did not answer holds
+    /// an empty table: it is not asked again).
+    schemas: core::cell::RefCell<
+        alloc::collections::BTreeMap<String, alloc::collections::BTreeMap<String, String>>,
+    >,
 }
 
-/// Read a desktop setting by its GNOME schema name, transparently accepting
-/// the Cinnamon and MATE spellings of the same schema.
-fn gsettings_get(schema: &str, key: &str) -> Option<String> {
-    let family = resolve_schema_family();
-    if family == 4 {
-        // No GSettings desktop at all (a bare KDE/Wayland session): asking
-        // would be one failed spawn per key, forever.
-        return None;
+impl Gsettings {
+    fn new() -> Self {
+        Self {
+            family: core::cell::Cell::new(0),
+            schemas: core::cell::RefCell::new(alloc::collections::BTreeMap::new()),
+        }
     }
-    let candidates = schema_family(schema);
-    let idx = (family - 1).min(candidates.len() - 1);
-    gsettings_get_raw(&candidates[idx], key)
+
+    /// `gsettings list-recursively <schema>`: the keys of the schema, or `None` when the process did not answer
+    /// (no `gsettings`, no such schema).
+    fn list(schema: &str) -> Option<alloc::collections::BTreeMap<String, String>> {
+        use std::process::{Command, Stdio};
+        let out = Command::new("gsettings")
+            .args(["list-recursively", schema])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        out.status.success().then(|| {
+            crate::desktop::shell2::common::style_discovery::parse_gsettings_listing(
+                &String::from_utf8_lossy(&out.stdout),
+            )
+        })
+    }
+
+    /// Finds the family this desktop answers on; the interface schema it listed is kept for the questions about it.
+    fn resolve_family(&self) {
+        let interface = "org.gnome.desktop.interface";
+        let mut found = 4; // none
+        for (i, candidate) in schema_family(interface).iter().enumerate() {
+            if let Some(keys) = Self::list(candidate) {
+                self.schemas.borrow_mut().insert(interface.to_owned(), keys);
+                found = i + 1;
+                break;
+            }
+        }
+        self.family.set(found);
+    }
+
+    /// Read a desktop setting by its GNOME schema name, transparently accepting the Cinnamon and MATE spellings of
+    /// the same schema.
+    fn get(&self, schema: &str, key: &str) -> Option<String> {
+        if self.family.get() == 0 {
+            self.resolve_family();
+        }
+        let family = self.family.get();
+        if family == 4 {
+            // No GSettings desktop at all (a bare KDE/Wayland session): asking would be one failed spawn per key.
+            return None;
+        }
+        if !self.schemas.borrow().contains_key(schema) {
+            let candidates = schema_family(schema);
+            let idx = (family - 1).min(candidates.len() - 1);
+            let keys = Self::list(&candidates[idx]).unwrap_or_default();
+            self.schemas.borrow_mut().insert(schema.to_owned(), keys);
+        }
+        self.schemas
+            .borrow()
+            .get(schema)
+            .and_then(|keys| keys.get(key).cloned())
+    }
 }
 
 /// Populate additional Linux-specific fields in `style` via `gsettings` CLI
@@ -710,6 +748,7 @@ fn discover_linux_extras(
     style: &mut SystemStyle,
     env: &PlatformEnv,
     desktop_env: &DesktopEnvironment,
+    gs: &Gsettings,
 ) {
     // Ask the desktop's OWN store first. XFCE keeps none of this in
     // gsettings, and a machine that once ran KDE or GNOME still has THEIR
@@ -730,34 +769,34 @@ fn discover_linux_extras(
     // `caret_blink_ms` from 1200 back to the built-in 530, which then showed
     // up as the app repainting twice a second at a rate nobody configured.
     if !de_answered {
-        discover_gsettings_appearance(style);
+        discover_gsettings_appearance(style, gs);
     }
 
     apply_env_cursor_fallbacks(style, env);
     // The GTK config file is the floor under every desktop and every bare WM.
     gtk_ini_extras(style, env);
 
-    discover_shared_behaviour(style);
+    discover_shared_behaviour(style, gs);
 }
 
 /// The icon / cursor / widget-theme / titlebar-button block, from the GNOME
 /// schemas. Used by the desktops that have no reader of their own.
-fn discover_gsettings_appearance(style: &mut SystemStyle) {
+fn discover_gsettings_appearance(style: &mut SystemStyle, gs: &Gsettings) {
     // Icon theme
-    if let Some(icon) = gsettings_get("org.gnome.desktop.interface", "icon-theme") {
+    if let Some(icon) = gs.get("org.gnome.desktop.interface", "icon-theme") {
         style.linux.icon_theme = OptionString::Some(icon.into());
     }
     // Cursor theme + size
-    if let Some(cursor) = gsettings_get("org.gnome.desktop.interface", "cursor-theme") {
+    if let Some(cursor) = gs.get("org.gnome.desktop.interface", "cursor-theme") {
         style.linux.cursor_theme = OptionString::Some(cursor.into());
     }
-    if let Some(size_s) = gsettings_get("org.gnome.desktop.interface", "cursor-size") {
+    if let Some(size_s) = gs.get("org.gnome.desktop.interface", "cursor-size") {
         if let Ok(sz) = size_s.parse::<u32>() {
             style.linux.cursor_size = sz;
         }
     }
     // GTK theme
-    if let Some(gtk) = gsettings_get("org.gnome.desktop.interface", "gtk-theme") {
+    if let Some(gtk) = gs.get("org.gnome.desktop.interface", "gtk-theme") {
         style.linux.gtk_theme = OptionString::Some(gtk.into());
     }
     // Button layout (determines button side for CSD).
@@ -768,7 +807,7 @@ fn discover_gsettings_appearance(style: &mut SystemStyle) {
     // and the controls are on the RIGHT. `starts_with(':')` reads that as
     // "left", so every default desktop was reported as buttons-on-left and CSD
     // drew its controls on the wrong side.
-    if let Some(layout) = gsettings_get("org.gnome.desktop.wm.preferences", "button-layout") {
+    if let Some(layout) = gs.get("org.gnome.desktop.wm.preferences", "button-layout") {
         style.metrics.titlebar.button_side = titlebar_side_from_layout(&layout);
         // Which buttons exist at all: a `:close`-only session must not get
         // minimize/maximize drawn into its titlebar.
@@ -782,9 +821,9 @@ fn discover_gsettings_appearance(style: &mut SystemStyle) {
 /// The desktop-INDEPENDENT tail: animation, sound, menu/toolbar hints and the
 /// caret blink. Asked of gsettings on every desktop, so it must run whether or
 /// not a desktop-specific reader answered the appearance block above.
-fn discover_shared_behaviour(style: &mut SystemStyle) {
+fn discover_shared_behaviour(style: &mut SystemStyle, gs: &Gsettings) {
     // ── Animation metrics ────────────────────────────────────────────
-    if let Some(anim_s) = gsettings_get("org.gnome.desktop.interface", "enable-animations") {
+    if let Some(anim_s) = gs.get("org.gnome.desktop.interface", "enable-animations") {
         let enabled = anim_s.trim() != "false";
         style.animation.animations_enabled = enabled;
         if !enabled {
@@ -794,23 +833,23 @@ fn discover_shared_behaviour(style: &mut SystemStyle) {
     }
 
     // ── Audio metrics ────────────────────────────────────────────────
-    if let Some(ev) = gsettings_get("org.gnome.desktop.sound", "event-sounds") {
+    if let Some(ev) = gs.get("org.gnome.desktop.sound", "event-sounds") {
         style.audio.event_sounds_enabled = ev.trim() != "false";
     }
-    if let Some(inp) = gsettings_get("org.gnome.desktop.sound", "input-feedback-sounds") {
+    if let Some(inp) = gs.get("org.gnome.desktop.sound", "input-feedback-sounds") {
         style.audio.input_feedback_sounds_enabled = inp.trim() != "false";
     }
 
     // ── Visual hints ─────────────────────────────────────────────────
     // Note: these keys are deprecated in newer GNOME (3.28+) but still
     // respected by many GTK apps.  Safe to query; returns None if absent.
-    if let Some(v) = gsettings_get("org.gnome.desktop.interface", "menus-have-icons") {
+    if let Some(v) = gs.get("org.gnome.desktop.interface", "menus-have-icons") {
         style.visual_hints.show_menu_images = v.trim() != "false";
     }
-    if let Some(v) = gsettings_get("org.gnome.desktop.interface", "buttons-have-icons") {
+    if let Some(v) = gs.get("org.gnome.desktop.interface", "buttons-have-icons") {
         style.visual_hints.show_button_images = v.trim() != "false";
     }
-    if let Some(v) = gsettings_get("org.gnome.desktop.interface", "toolbar-style") {
+    if let Some(v) = gs.get("org.gnome.desktop.interface", "toolbar-style") {
         style.visual_hints.toolbar_style = match v.trim() {
             "text" => ToolbarStyle::TextOnly,
             "both" => ToolbarStyle::TextBelowIcon,
@@ -820,12 +859,12 @@ fn discover_shared_behaviour(style: &mut SystemStyle) {
     }
 
     // ── Input extras (caret blink) ───────────────────────────────────
-    if let Some(blink) = gsettings_get("org.gnome.desktop.interface", "cursor-blink") {
+    if let Some(blink) = gs.get("org.gnome.desktop.interface", "cursor-blink") {
         if blink.trim() == "false" {
             style.input.caret_blink_rate_ms = 0;
         }
     }
-    if let Some(blink_time) = gsettings_get("org.gnome.desktop.interface", "cursor-blink-time") {
+    if let Some(blink_time) = gs.get("org.gnome.desktop.interface", "cursor-blink-time") {
         if let Ok(ms) = blink_time.trim().parse::<u32>() {
             style.input.caret_blink_rate_ms = ms;
         }
@@ -1472,13 +1511,13 @@ fn gtk_ini_extras(style: &mut SystemStyle, env: &PlatformEnv) {
     }
 }
 
-fn discover_gnome_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
+fn discover_gnome_style(env: &PlatformEnv, gs: &Gsettings) -> Result<SystemStyle, ()> {
     // Check color-scheme first (GNOME 42+)
     let color_scheme =
-        gsettings_get("org.gnome.desktop.interface", "color-scheme").unwrap_or_default();
+        gs.get("org.gnome.desktop.interface", "color-scheme").unwrap_or_default();
 
     let is_dark = color_scheme.contains("prefer-dark")
-        || gsettings_get("org.gnome.desktop.interface", "gtk-theme")
+        || gs.get("org.gnome.desktop.interface", "gtk-theme")
             .map(|t| t.to_lowercase().contains("dark"))
             .unwrap_or(false);
 
@@ -1489,7 +1528,7 @@ fn discover_gnome_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
     };
 
     // Font discovery
-    if let Some(font_str) = gsettings_get("org.gnome.desktop.interface", "font-name") {
+    if let Some(font_str) = gs.get("org.gnome.desktop.interface", "font-name") {
         // Format is typically "Cantarell 11" or "Ubuntu Regular 11"
         if let Some((name, size)) = parse_font_name_and_size(&font_str) {
             style.fonts.ui_font = OptionString::Some(name.into());
@@ -1499,7 +1538,7 @@ fn discover_gnome_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
         }
     }
 
-    if let Some(mono_str) = gsettings_get("org.gnome.desktop.interface", "monospace-font-name") {
+    if let Some(mono_str) = gs.get("org.gnome.desktop.interface", "monospace-font-name") {
         if let Some((name, size)) = parse_font_name_and_size(&mono_str) {
             style.fonts.monospace_font = OptionString::Some(name.into());
             style.fonts.monospace_font_size = OptionF32::Some(size);
@@ -1508,7 +1547,7 @@ fn discover_gnome_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
         }
     }
 
-    if let Some(title_str) = gsettings_get("org.gnome.desktop.wm.preferences", "titlebar-font") {
+    if let Some(title_str) = gs.get("org.gnome.desktop.wm.preferences", "titlebar-font") {
         if let Some((name, size)) = parse_font_name_and_size(&title_str) {
             style.fonts.title_font = OptionString::Some(name.into());
             style.fonts.title_font_size = OptionF32::Some(size);
@@ -1523,7 +1562,7 @@ fn discover_gnome_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
     // every GTK app at 125 % and azul at 100 %, which is the complaint that
     // reads as "the fonts are tiny in this app". Applied to each detected
     // size, so it composes with whatever the font settings said.
-    let text_scale = gsettings_get("org.gnome.desktop.interface", "text-scaling-factor")
+    let text_scale = gs.get("org.gnome.desktop.interface", "text-scaling-factor")
         .and_then(|v| v.trim().parse::<f32>().ok())
         .filter(|f| *f > 0.0 && (*f - 1.0).abs() > f32::EPSILON);
     if let Some(scale) = text_scale {
@@ -1541,7 +1580,7 @@ fn discover_gnome_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
 
     // ── Font rendering hints ────────────────────────────────────────
     // What the desktop asked for, rather than what the rasteriser guessed.
-    if let Some(aa) = gsettings_get("org.gnome.desktop.interface", "font-antialiasing") {
+    if let Some(aa) = gs.get("org.gnome.desktop.interface", "font-antialiasing") {
         match aa.trim() {
             "none" => {
                 style.text_rendering.font_smoothing_enabled = false;
@@ -1560,7 +1599,7 @@ fn discover_gnome_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
         }
     }
     if style.text_rendering.subpixel_type != SubpixelType::None {
-        if let Some(order) = gsettings_get("org.gnome.desktop.interface", "font-rgba-order") {
+        if let Some(order) = gs.get("org.gnome.desktop.interface", "font-rgba-order") {
             style.text_rendering.subpixel_type = match order.trim() {
                 "bgr" => SubpixelType::Bgr,
                 "vrgb" => SubpixelType::VRgb,
@@ -1575,7 +1614,7 @@ fn discover_gnome_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
     // Which SIDE the close button is on decides the side; which buttons appear
     // at all decides the set — a GNOME session with `:close` alone must not
     // get minimize/maximize drawn into its CSD.
-    if let Some(layout) = gsettings_get("org.gnome.desktop.wm.preferences", "button-layout") {
+    if let Some(layout) = gs.get("org.gnome.desktop.wm.preferences", "button-layout") {
         style.metrics.titlebar.button_side = titlebar_side_from_layout(&layout);
         style.metrics.titlebar.buttons.has_close = layout.contains("close");
         style.metrics.titlebar.buttons.has_minimize = layout.contains("minimize");
@@ -1589,7 +1628,7 @@ fn discover_gnome_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
     // GNOME/Cinnamon/MATE publish this directly: overlay scrollbars are the
     // thin ones that appear on hover and fade; turning them off means the
     // classic always-visible bar that reserves space.
-    if let Some(overlay) = gsettings_get("org.gnome.desktop.interface", "overlay-scrolling") {
+    if let Some(overlay) = gs.get("org.gnome.desktop.interface", "overlay-scrolling") {
         style.scrollbar_preferences.visibility = if overlay.trim() == "false" {
             ScrollbarVisibility::Always
         } else {
@@ -1614,7 +1653,7 @@ fn discover_gnome_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
     };
 
     // Accent color (GNOME 47+)
-    if let Some(accent) = gsettings_get("org.gnome.desktop.interface", "accent-color") {
+    if let Some(accent) = gs.get("org.gnome.desktop.interface", "accent-color") {
         // GNOME accent-color is a named color like "blue", "teal", "green", etc.
         let color = match accent.trim() {
             "blue" => Some(ColorU::new_rgb(53, 132, 228)),
@@ -1639,7 +1678,7 @@ fn discover_gnome_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
 /// Discover system style from KDE Plasma via `kreadconfig5` / `kreadconfig6`.
 ///
 /// Queries kdeglobals for theme, fonts, and color scheme.
-fn discover_kde_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
+fn discover_kde_style(env: &PlatformEnv, gs: &Gsettings) -> Result<SystemStyle, ()> {
     // The parsed config files, in precedence order: kcminputrc, the user's
     // kdeglobals, the `.colors` file of the scheme it names, and the
     // system-wide defaults. NOTHING is spawned — `kreadconfig` reads these
@@ -1985,7 +2024,7 @@ fn discover_kde_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
     }
     // A GTK theme name, when the session has one, is the better answer for
     // GTK-hosted chrome and overwrites the QStyle above.
-    if let Some(gtk) = gsettings_get("org.gnome.desktop.interface", "gtk-theme") {
+    if let Some(gtk) = gs.get("org.gnome.desktop.interface", "gtk-theme") {
         style.linux.gtk_theme = OptionString::Some(gtk.into());
     }
 
@@ -1997,7 +2036,7 @@ fn discover_kde_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
 /// Checks for pywal `colors.json`, parses Hyprland/Sway/i3 configs for
 /// rounding, borders, and accent colors.  Falls back to gsettings for the
 /// GTK font if available.
-fn discover_riced_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
+fn discover_riced_style(env: &PlatformEnv, gs: &Gsettings) -> Result<SystemStyle, ()> {
     let home = env.home().ok_or(())?;
 
     let is_hyprland = env.hyprland_instance_signature.is_some();
@@ -2052,7 +2091,7 @@ fn discover_riced_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
 
     // ── GTK font fallback via gsettings ─────────────────────────────
     if style.fonts.ui_font.is_none() {
-        if let Some(font_str) = gsettings_get("org.gnome.desktop.interface", "font-name") {
+        if let Some(font_str) = gs.get("org.gnome.desktop.interface", "font-name") {
             if let Some((name, size)) = parse_font_name_and_size(&font_str) {
                 style.fonts.ui_font = OptionString::Some(name.into());
                 style.fonts.ui_font_size = OptionF32::Some(size);
@@ -2262,8 +2301,8 @@ fn detect_linux_version() -> OsVersion {
 // ── Accessibility queries ───────────────────────────────────────────────
 
 /// Detect GNOME reduced-motion preference via `gsettings`.
-fn detect_gnome_reduced_motion() -> BoolCondition {
-    match gsettings_get("org.gnome.desktop.interface", "enable-animations") {
+fn detect_gnome_reduced_motion(gs: &Gsettings) -> BoolCondition {
+    match gs.get("org.gnome.desktop.interface", "enable-animations") {
         Some(val) => {
             if val.trim() == "false" {
                 BoolCondition::True // reduced motion IS preferred
@@ -2276,8 +2315,8 @@ fn detect_gnome_reduced_motion() -> BoolCondition {
 }
 
 /// Detect GNOME high-contrast theme via `gsettings`.
-fn detect_gnome_high_contrast() -> BoolCondition {
-    match gsettings_get("org.gnome.desktop.interface", "high-contrast") {
+fn detect_gnome_high_contrast(gs: &Gsettings) -> BoolCondition {
+    match gs.get("org.gnome.desktop.interface", "high-contrast") {
         Some(val) => {
             if val.trim() == "true" {
                 BoolCondition::True
@@ -2287,7 +2326,7 @@ fn detect_gnome_high_contrast() -> BoolCondition {
         }
         None => {
             // Also check if the GTK theme name contains "HighContrast"
-            match gsettings_get("org.gnome.desktop.interface", "gtk-theme") {
+            match gs.get("org.gnome.desktop.interface", "gtk-theme") {
                 Some(theme) if theme.contains("HighContrast") => BoolCondition::True,
                 _ => BoolCondition::False,
             }
@@ -2454,6 +2493,8 @@ pub(crate) fn discover(
 ) -> SystemStyle {
     // The desktop the session names, asked ONCE: every step below keys on it.
     let desktop_env = azul_css::system::detect_linux_desktop_env(env);
+    // The GSettings of this discovery: a schema is read with one process, on its first question.
+    let gs = Gsettings::new();
 
     // ── 1. Try XDG Desktop Portal (D-Bus) ───────────────────────────
     let portal_result = query_xdg_portal(env);
@@ -2492,9 +2533,9 @@ pub(crate) fn discover(
     // The portal is only allowed to speak for the second case.
     let mut desktop_answered = false;
     let mut style = if force_riced {
-        let found = discover_riced_style(env)
-            .or_else(|_| discover_kde_style(env))
-            .or_else(|_| discover_gnome_style(env));
+        let found = discover_riced_style(env, &gs)
+            .or_else(|_| discover_kde_style(env, &gs))
+            .or_else(|_| discover_gnome_style(env, &gs));
         desktop_answered = found.is_ok();
         found.unwrap_or_else(|_| defaults::gnome_adwaita_light())
     } else {
@@ -2507,18 +2548,18 @@ pub(crate) fn discover(
         // user is actually in.
         let found = match linux_settings_source(&desktop_env) {
             LinuxSettingsSource::KdeConfig => {
-                discover_kde_style(env).or_else(|_| discover_gnome_style(env))
+                discover_kde_style(env, &gs).or_else(|_| discover_gnome_style(env, &gs))
             }
             LinuxSettingsSource::Gsettings => {
-                discover_gnome_style(env).or_else(|_| discover_kde_style(env))
+                discover_gnome_style(env, &gs).or_else(|_| discover_kde_style(env, &gs))
             }
             LinuxSettingsSource::Xfconf => discover_xfce_style()
-                .or_else(|_| discover_gnome_style(env))
-                .or_else(|_| discover_riced_style(env)),
+                .or_else(|_| discover_gnome_style(env, &gs))
+                .or_else(|_| discover_riced_style(env, &gs)),
             LinuxSettingsSource::LxqtConfig | LinuxSettingsSource::Riced => {
-                discover_riced_style(env)
-                    .or_else(|_| discover_gnome_style(env))
-                    .or_else(|_| discover_kde_style(env))
+                discover_riced_style(env, &gs)
+                    .or_else(|_| discover_gnome_style(env, &gs))
+                    .or_else(|_| discover_kde_style(env, &gs))
             }
         };
         desktop_answered = found.is_ok();
@@ -2561,7 +2602,7 @@ pub(crate) fn discover(
     }
 
     // ── 3. Fill in extras and metadata ──────────────────────────────
-    discover_linux_extras(&mut style, env, &desktop_env);
+    discover_linux_extras(&mut style, env, &desktop_env, &gs);
     // The titlebar is the desktop's, and so is its type: whatever the store
     // above reported for the window title now reaches the metrics a CSD
     // titlebar is built from.
@@ -2575,12 +2616,12 @@ pub(crate) fn discover(
 
     // Accessibility — try GNOME first, then KDE
     if style.prefers_reduced_motion == BoolCondition::False {
-        style.prefers_reduced_motion = detect_gnome_reduced_motion();
+        style.prefers_reduced_motion = detect_gnome_reduced_motion(&gs);
     }
     if style.prefers_reduced_motion == BoolCondition::False {
         style.prefers_reduced_motion = detect_kde_reduced_motion();
     }
-    style.prefers_high_contrast = detect_gnome_high_contrast();
+    style.prefers_high_contrast = detect_gnome_high_contrast(&gs);
 
     // The user's stylesheets (`~/.azul/css/<theme>/`, and the legacy
     // `$XDG_CONFIG_HOME/azul/styles/<exe>.css`) are not a system style: the

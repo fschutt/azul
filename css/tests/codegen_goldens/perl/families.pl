@@ -92,6 +92,7 @@ sub style_text {
 # dropped a value these bindings cannot build: `StyleFontVariantCapsValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleFontVariantLigaturesValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleFontVariantEastAsianValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontVariantPositionValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleFontSynthesisValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleFontSynthesisValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleFontSynthesisValue` is a fake-layout record in the Perl bindings (tag + byte blob)
@@ -105,6 +106,7 @@ sub style_shorthands {
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontVariantNumeric())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontVariantLigatures())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontVariantEastAsian())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontVariantPosition())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontKerning())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontOpticalSizing())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontVariationSettings())),

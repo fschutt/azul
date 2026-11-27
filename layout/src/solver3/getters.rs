@@ -2249,14 +2249,16 @@ pub(crate) const RARE_TEXT_FLAGS: u64 = azul_css::compact_cache::DOM_HAS_FONT_VA
     | azul_css::compact_cache::DOM_HAS_TEXT_DECORATION_THICKNESS
     | azul_css::compact_cache::DOM_HAS_TEXT_UNDERLINE_OFFSET
     | azul_css::compact_cache::DOM_HAS_TEXT_UNDERLINE_POSITION
+    | azul_css::compact_cache::DOM_HAS_HANGING_PUNCTUATION
     | azul_css::compact_cache::DOM_HAS_TEXT_COMBINE_UPRIGHT;
 
 /// A hash of what a node asks through the text properties that have no compact slot (the
 /// [`RARE_TEXT_FLAGS`]): the variation settings and the optical sizing
 /// ([`font_variation_inputs_hash`]), the kerning, the ligatures, the East Asian forms, the
 /// numeric and caps variants, the feature settings, the synthesis switches, the position forms,
-/// the rendering hint, the colour, the thickness and the place of the decoration lines and the
-/// combining of digits. The cache of the collected inline content of a formatting
+/// the rendering hint, the colour, the thickness and the place of the decoration lines, the
+/// hanging of punctuation and the combining of digits. The cache of the collected inline content
+/// of a formatting
 /// context folds it in for a document that declares one of them (it keys on the nodes and on the
 /// compact cache, which holds none of these), so that a restyle that moves only one - another
 /// stylesheet over the same nodes - collects the text in its new style. A property the document
@@ -2368,6 +2370,12 @@ pub(crate) fn rare_text_inputs_hash(
     if declared(flags::DOM_HAS_TEXT_UNDERLINE_POSITION) {
         cache
             .get_text_underline_position(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_HANGING_PUNCTUATION) {
+        cache
+            .get_hanging_punctuation(node_data, &node_id, node_state)
             .and_then(|v| v.get_property())
             .hash(&mut hasher);
     }
@@ -4601,6 +4609,7 @@ fn style_inputs_of(
                 | compact::DOM_HAS_FONT_SYNTHESIS
                 | compact::DOM_HAS_FONT_VARIANT_POSITION
                 | compact::DOM_HAS_TEXT_RENDERING
+                | compact::DOM_HAS_HANGING_PUNCTUATION
                 | compact::DOM_HAS_TEXT_COMBINE_UPRIGHT,
         )
     {
@@ -5139,11 +5148,14 @@ pub fn own_text_decoration(
         return lines;
     }
     let lines = lines.painted(decoration_paint_of(styled_dom, dom_id, node_state, viewport));
-    if lines.underline {
+    let lines = if lines.underline() {
         lines.placed(underline_place_of(styled_dom, dom_id, node_state, viewport))
     } else {
         lines
-    }
+    };
+    // The lines are the box's: what their place and thickness are parts of is ITS font size,
+    // whatever the font size of the text they are drawn under.
+    lines.sized(get_element_font_size_in_viewport(styled_dom, dom_id, node_state, viewport))
 }
 
 /// The decorations the text of the inline formatting context rooted at
@@ -5186,7 +5198,13 @@ pub fn propagated_text_decoration(
     let mut node = Some(ifc_root);
     while let Some(id) = node {
         let state = &styled_nodes[id].styled_node_state;
-        decoration = decoration.with(own_text_decoration(styled_dom, id, state, viewport));
+        // Boxes of blocks stand on the baseline of the line: no raise to tell apart. The runs
+        // that carry these lines read the raise of their own box (`TextDecoration::within`).
+        decoration = decoration.within(
+            Some(0.0),
+            &own_text_decoration(styled_dom, id, state, viewport),
+            Some(0.0),
+        );
         let out_of_flow = matches!(
             crate::solver3::positioning::get_position_type(styled_dom, Some(id)),
             LayoutPosition::Absolute | LayoutPosition::Fixed
@@ -5652,6 +5670,30 @@ pub fn get_style_properties_for_state_with(
         Vec::new()
     };
 
+    // `hanging-punctuation` (inherited), read only on a DOM that declares it: the marks the line
+    // breaker and the positioning of a line let hang outside it.
+    let hanging_punctuation = if declared(azul_css::compact_cache::DOM_HAS_HANGING_PUNCTUATION) {
+        cache
+            .get_hanging_punctuation(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+            .map_or_else(
+                crate::text3::cache::HangingPunctuation::default,
+                |h| crate::text3::cache::HangingPunctuation {
+                    first: h.first,
+                    last: h.last,
+                    end: if h.force_end {
+                        crate::text3::cache::HangEnd::Force
+                    } else if h.allow_end {
+                        crate::text3::cache::HangEnd::Allow
+                    } else {
+                        crate::text3::cache::HangEnd::None
+                    },
+                },
+            )
+    } else {
+        crate::text3::cache::HangingPunctuation::default()
+    };
+
     // `text-rendering: optimizeSpeed` (inherited), read only on a DOM that declares it: the pair
     // adjustments and the common ligatures are off where `font-kerning` and
     // `font-variant-ligatures` say nothing (as Chrome draws it); every other value leaves the
@@ -5810,6 +5852,7 @@ pub fn get_style_properties_for_state_with(
         font_features,
         writing_mode,
         text_combine_upright,
+        hanging_punctuation,
         // The inline boxes around the text are the paint's to fill in.
         ..Default::default()
     }

@@ -87,7 +87,7 @@ end
 
 -- CSS: .shorthands
 function M.style_shorthands()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[26]', {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[28]', {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_italic())),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(ffi.new('AzStyleFontVariantCapsValue', { Exact = { tag = 6, payload = C.AzStyleFontVariantCaps_SmallCaps } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_number(C.AzFloatValue_create(350.0)))),
@@ -105,6 +105,7 @@ function M.style_shorthands()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariantNumeric)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariantLigatures)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariantEastAsian)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariantPosition)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontKerning)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontOpticalSizing)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariationSettings)),
@@ -117,11 +118,12 @@ function M.style_shorthands()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(ffi.new('AzStyleFontVariantCapsValue', { Exact = { tag = 6, payload = C.AzStyleFontVariantCaps_Normal } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantLigatures(ffi.new('AzStyleFontVariantLigaturesValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontVariantLigatures', { common = C.AzStyleFontLigatureChoice_Unset, discretionary = C.AzStyleFontLigatureChoice_Unset, historical = C.AzStyleFontLigatureChoice_Unset, contextual = C.AzStyleFontLigatureChoice_Unset }) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantEastAsian(ffi.new('AzStyleFontVariantEastAsianValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontVariantEastAsian', { jis78 = true, jis83 = false, jis90 = false, jis04 = false, simplified = false, traditional = false, full_width = false, proportional_width = false, ruby = false }) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantPosition(ffi.new('AzStyleFontVariantPositionValue', { Exact = { tag = 6, payload = C.AzStyleFontVariantPosition_Normal } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisWeight(ffi.new('AzStyleFontSynthesisValue', { Exact = { tag = 6, payload = C.AzStyleFontSynthesis_Auto } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisStyle(ffi.new('AzStyleFontSynthesisValue', { Exact = { tag = 6, payload = C.AzStyleFontSynthesis_Auto } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisSmallCaps(ffi.new('AzStyleFontSynthesisValue', { Exact = { tag = 6, payload = C.AzStyleFontSynthesis_None } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisPosition(ffi.new('AzStyleFontSynthesisValue', { Exact = { tag = 6, payload = C.AzStyleFontSynthesis_None } }))),
-    }), 26)
+    }), 28)
 end
 
 -- CSS: .box

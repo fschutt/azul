@@ -77,53 +77,44 @@ fn pop_handle(request_id: u64) -> Option<FilePickerHandle> {
         .and_then(|mut g| g.remove(&request_id))
 }
 
-/// Convert a UTI-style extension descriptor (e.g. "*.png", "png", "image/png")
-/// into a `UTType *`. iOS 14+ class methods are preferred for known types;
-/// arbitrary extensions fall back to `[UTType typeWithFilenameExtension:]`.
-/// Returns null for descriptors that map to nothing.
+/// `+[UTType typeWithIdentifier:]` for a uniform type identifier; null when the framework has no
+/// such type (or is not loaded).
+///
+/// `UTType`'s well-known types are Objective-C global constants (`UTTypePNG`, `UTTypeData`,
+/// `UTTypeFolder`), NOT class methods: `+[UTType png]`, `+[UTType data]` and `+[UTType folder]`
+/// do not exist, and this file sent them (`performSelector:` with a selector registered from
+/// `"png\0"`, which panics before it is sent) - so every use of the picker aborted.
+#[cfg(target_os = "ios")]
+unsafe fn ut_type_with_identifier(identifier: &str) -> *mut Object {
+    let Some(cls) = Class::get("UTType") else {
+        return ptr::null_mut();
+    };
+    let ns = nsstring_from_str(identifier);
+    msg_send![cls, typeWithIdentifier: ns]
+}
+
+/// Convert a filter descriptor (e.g. "*.png", "png", "image/png") into a `UTType *`
+/// ([`uti_query_for_descriptor`] decides how to ask). Returns null for descriptors that map to
+/// nothing.
 #[cfg(target_os = "ios")]
 unsafe fn ut_type_for_descriptor(descriptor: &str) -> *mut Object {
-    let cls = class!(UTType);
-    // Strip leading "*." / "."
-    let trimmed = descriptor
-        .trim_start_matches('*')
-        .trim_start_matches('.')
-        .to_ascii_lowercase();
+    use crate::desktop::shell2::common::ios_logic::{uti_query_for_descriptor, UtiQuery};
 
-    // Common types via UTType class methods.
-    let class_method = match trimmed.as_str() {
-        "png" => Some("png"),
-        "jpg" | "jpeg" => Some("jpeg"),
-        "pdf" => Some("pdf"),
-        "gif" => Some("gif"),
-        "txt" | "text" => Some("plainText"),
-        "json" => Some("json"),
-        "html" | "htm" => Some("html"),
-        "xml" => Some("xml"),
-        "zip" => Some("zip"),
-        "mov" => Some("movie"),
-        "mp4" => Some("mpeg4Movie"),
-        "mp3" => Some("mp3"),
-        "wav" => Some("wav"),
-        "svg" => Some("svg"),
-        _ => None,
+    let Some(cls) = Class::get("UTType") else {
+        return ptr::null_mut();
     };
-
-    if let Some(method) = class_method {
-        let sel = objc::runtime::Sel::register(&format!("{}\0", method));
-        let t: *mut Object = msg_send![cls, performSelector: sel];
-        if !t.is_null() {
-            return t;
+    match uti_query_for_descriptor(descriptor) {
+        None => ptr::null_mut(),
+        Some(UtiQuery::Identifier(identifier)) => ut_type_with_identifier(identifier),
+        Some(UtiQuery::Extension(extension)) => {
+            let ns = nsstring_from_str(&extension);
+            msg_send![cls, typeWithFilenameExtension: ns]
+        }
+        Some(UtiQuery::MimeType(mime)) => {
+            let ns = nsstring_from_str(&mime);
+            msg_send![cls, typeWithMIMEType: ns]
         }
     }
-
-    if trimmed.is_empty() {
-        return ptr::null_mut();
-    }
-
-    let ns_ext = nsstring_from_str(&trimmed);
-    let t: *mut Object = msg_send![cls, typeWithFilenameExtension: ns_ext];
-    t
 }
 
 #[cfg(target_os = "ios")]
@@ -174,7 +165,7 @@ unsafe fn build_uttype_array(filter_descriptors: &OptionStringVec) -> *mut Objec
     }
 
     if resolved.is_empty() {
-        let data_t: *mut Object = msg_send![class!(UTType), data];
+        let data_t = ut_type_with_identifier(crate::desktop::shell2::common::ios_logic::UTI_DATA);
         if !data_t.is_null() {
             resolved.push(data_t);
         }
@@ -204,11 +195,9 @@ extern "C" fn document_picker_did_pick(
 ) {
     unsafe {
         let request_id: u64 = *this.get_ivar("requestID");
-        let handle = pop_handle(request_id);
-        if handle.is_none() {
+        let Some(handle) = pop_handle(request_id) else {
             return;
-        }
-        let handle = handle.unwrap();
+        };
 
         if urls.is_null() {
             handle.set_status(FilePickerStatus::Cancelled);
@@ -223,6 +212,14 @@ extern "C" fn document_picker_did_pick(
         let mut paths: Vec<AzString> = Vec::with_capacity(count);
         for i in 0..count {
             let url: *mut Object = msg_send![urls, objectAtIndex: i];
+            // A URL picked IN PLACE (`asCopy:NO`: the directory picker) is security-scoped: it can
+            // only be read between `startAccessingSecurityScopedResource` and the matching stop.
+            // The caller gets a bare path, so the access is started here and kept for the life of
+            // the process (what an app that keeps a folder open wants); for a copy in the app's
+            // own tmp (`asCopy:YES`) the call answers NO and changes nothing.
+            if !url.is_null() {
+                let _started: bool = msg_send![url, startAccessingSecurityScopedResource];
+            }
             if let Some(p) = url_to_path_string(url) {
                 paths.push(AzString::from(p));
             }
@@ -250,12 +247,17 @@ extern "C" fn document_picker_was_cancelled(this: &Object, _cmd: Sel, _picker: *
 }
 
 #[cfg(target_os = "ios")]
-fn get_or_create_delegate_class() -> &'static Class {
+fn get_or_create_delegate_class() -> Option<&'static Class> {
     static ONCE: Once = Once::new();
     static mut CLS: *const Class = ptr::null();
     ONCE.call_once(|| unsafe {
-        let superclass = class!(NSObject);
-        let mut decl = ClassDecl::new("AzulDocumentPickerDelegate", superclass).unwrap();
+        // The next free name when this one is taken (see `shell2::ios::declare_class`), `None`
+        // when even that fails: the picker then reports an error instead of aborting the app.
+        let Some(mut decl) =
+            crate::desktop::shell2::ios::declare_class("AzulDocumentPickerDelegate", class!(NSObject))
+        else {
+            return;
+        };
         decl.add_ivar::<u64>("requestID");
         decl.add_method(
             sel!(documentPicker:didPickDocumentsAtURLs:),
@@ -267,7 +269,8 @@ fn get_or_create_delegate_class() -> &'static Class {
         );
         CLS = decl.register();
     });
-    unsafe { &*CLS }
+    // SAFETY: a registered class is never freed; null when it could not be declared.
+    unsafe { CLS.as_ref() }
 }
 
 #[cfg(target_os = "ios")]
@@ -375,7 +378,13 @@ pub fn dispatch_open_file(
         let _: () = msg_send![picker, setAllowsMultipleSelection: allow_multiple];
 
         // Construct delegate.
-        let delegate_cls = get_or_create_delegate_class();
+        let Some(delegate_cls) = get_or_create_delegate_class() else {
+            let _ = pop_handle(request_id);
+            handle.set_status(FilePickerStatus::Error(AzString::from(
+                "the file picker's delegate class could not be declared",
+            )));
+            return;
+        };
         let delegate_alloc: *mut Object = msg_send![delegate_cls, alloc];
         let delegate: *mut Object = msg_send![delegate_alloc, init];
         (*delegate).set_ivar::<u64>("requestID", request_id);
@@ -440,9 +449,8 @@ pub fn dispatch_open_directory(
 
         // Single-element `[UTType folder]` content-type array. `asCopy:NO`
         // because a directory is opened in place — the returned URL is
-        // security-scoped, so callers that read its contents must bracket
-        // access with start/stopAccessingSecurityScopedResource.
-        let folder_t: *mut Object = msg_send![class!(UTType), folder];
+        // security-scoped; the delegate starts the access (the caller only gets a path).
+        let folder_t = ut_type_with_identifier(crate::desktop::shell2::common::ios_logic::UTI_FOLDER);
         let arr_cls = class!(NSArray);
         let types_array: *mut Object = if folder_t.is_null() {
             msg_send![arr_cls, array]
@@ -472,7 +480,13 @@ pub fn dispatch_open_directory(
 
         let _: () = msg_send![picker, setAllowsMultipleSelection: false];
 
-        let delegate_cls = get_or_create_delegate_class();
+        let Some(delegate_cls) = get_or_create_delegate_class() else {
+            let _ = pop_handle(request_id);
+            handle.set_status(FilePickerStatus::Error(AzString::from(
+                "the directory picker's delegate class could not be declared",
+            )));
+            return;
+        };
         let delegate_alloc: *mut Object = msg_send![delegate_cls, alloc];
         let delegate: *mut Object = msg_send![delegate_alloc, init];
         (*delegate).set_ivar::<u64>("requestID", request_id);

@@ -34,7 +34,10 @@ serde                   = { version = "1.0", features = ["derive"], optional = t
 # "number out of range" on literals near f64::MAX that are perfectly
 # representable. `Json::to_json_string` emits Rust's shortest round-trip
 # Display, so the write side is already exact — this makes the read side match.
-serde_json              = { version = "1.0", features = ["float_roundtrip"], optional = true }
+# `preserve_order`: an object's keys keep the order of the document (`Json::keys()`, `to_object()`,
+# `to_json_string()`, `to_string_pretty()`); without it serde_json's map is a BTreeMap and they come back
+# sorted alphabetically. indexmap is in the tree already.
+serde_json              = { version = "1.0", features = ["float_roundtrip", "preserve_order"], optional = true }
 url                     = { version = "2.5", default-features = false, optional = true }
 
 [features]

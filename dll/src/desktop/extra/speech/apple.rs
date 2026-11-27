@@ -1045,6 +1045,14 @@ impl AppleMicrophone {
         let Some(engine_cls) = class("AVAudioEngine") else {
             return Err((Outcome::Unavailable, "the audio engine's class is missing".to_string()));
         };
+        // iOS: the default audio session "disallows audio recording" (Apple), so the engine's
+        // input node reports zero Hz and the next check says "there is no microphone to listen
+        // with" every time. A session that can record is set up first (a no-op on macOS).
+        if let Err(why) = crate::desktop::extra::audio_session::activate(
+            crate::desktop::extra::audio_session::SessionUse::Record,
+        ) {
+            crate::plog_warn!("[speech] {why}: listening in the default session");
+        }
         let engine: *mut AnyObject = unsafe { msg_send![engine_cls, new] };
         if engine.is_null() {
             return Err((Outcome::Unavailable, "the audio engine could not be made".to_string()));

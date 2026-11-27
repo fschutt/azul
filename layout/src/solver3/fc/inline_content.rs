@@ -121,9 +121,26 @@ pub(super) fn collect_and_measure_inline_content<T: ParsedFontTrait>(
             PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
         );
         if around.has_lines() {
+            // The font size the `sub` and `super` of a run are measured against: the root's, as
+            // the line layout does (its strut).
+            let viewport = PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height);
+            let root_state = ctx.styled_dom.styled_nodes.as_container()[root].styled_node_state;
+            let root_font = crate::solver3::getters::get_element_font_size_in_viewport(
+                ctx.styled_dom,
+                root,
+                &root_state,
+                viewport,
+            );
             for item in &mut content {
                 if let InlineContent::Text(run) = item {
-                    let with = run.style.text_decoration.with(around);
+                    // The lines of the boxes around stand on the baseline of those boxes: they
+                    // are blocks (or the root), on the baseline of the line, which a raised run
+                    // is under.
+                    let with = run.style.text_decoration.within(
+                        run.style.vertical_align.plain_raise(root_font),
+                        &around,
+                        Some(0.0),
+                    );
                     if with != run.style.text_decoration {
                         Arc::make_mut(&mut run.style).text_decoration = with;
                     }
@@ -1384,9 +1401,13 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 // It aligns against THIS span, not the line (CSS 2.2 s10.8.1).
                 child_style.vertical_align = nested_align(child_style.vertical_align);
                 // And its text carries this span's lines (CSS Text Decoration
-                // 3 §2.1: an inline box decorates everything in it).
-                child_style.text_decoration =
-                    child_style.text_decoration.with(span_style.text_decoration);
+                // 3 §2.1: an inline box decorates everything in it), on the baseline
+                // of this span.
+                child_style.text_decoration = child_style.text_decoration.within(
+                    child_style.vertical_align.plain_raise(span_shift_font),
+                    &span_style.text_decoration,
+                    span_style.vertical_align.plain_raise(span_shift_font),
+                );
                 // And sits inside this span's box and the ones around it.
                 child_style.inline_boxes = span_style.inline_boxes.clone();
                 collect_inline_span_recursive(
@@ -1464,8 +1485,11 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
                 );
                 child_style.vertical_align = nested_align(child_style.vertical_align);
-                child_style.text_decoration =
-                    child_style.text_decoration.with(span_style.text_decoration);
+                child_style.text_decoration = child_style.text_decoration.within(
+                    child_style.vertical_align.plain_raise(span_shift_font),
+                    &span_style.text_decoration,
+                    span_style.vertical_align.plain_raise(span_shift_font),
+                );
                 child_style.inline_boxes = span_style.inline_boxes.clone();
                 collect_inline_span_recursive(
                     ctx,

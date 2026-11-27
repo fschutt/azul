@@ -295,7 +295,9 @@ unsafe fn make_element(
 ) -> *mut Object {
     use super::{CGPoint, CGRect, CGSize};
 
-    let cls = get_or_create_a11y_element_class();
+    let Some(cls) = get_or_create_a11y_element_class() else {
+        return core::ptr::null_mut();
+    };
     let alloc: *mut Object = msg_send![cls, alloc];
     if alloc.is_null() {
         return core::ptr::null_mut();
@@ -419,14 +421,17 @@ fn traits_for(element: &azul_layout::managers::a11y_snapshot::A11yElement) -> u6
 // ─── AzulA11yElement class ────────────────────────────────────────────
 
 #[cfg(feature = "a11y")]
-fn get_or_create_a11y_element_class() -> &'static Class {
+fn get_or_create_a11y_element_class() -> Option<&'static Class> {
     use std::sync::Once;
     static ONCE: Once = Once::new();
     static mut CLS: *const Class = core::ptr::null();
     ONCE.call_once(|| unsafe {
-        let superclass = class!(UIAccessibilityElement);
-        let mut decl = ClassDecl::new("AzulA11yElement", superclass)
-            .expect("AzulA11yElement class name already registered");
+        // `None` is a refused name even after `declare_class` tried the free ones: no element
+        // objects then (the screen reader sees an empty container), not a panic.
+        let Some(mut decl) = super::declare_class("AzulA11yElement", class!(UIAccessibilityElement))
+        else {
+            return;
+        };
         decl.add_ivar::<i64>(INDEX_IVAR);
 
         decl.add_method(
@@ -456,7 +461,8 @@ fn get_or_create_a11y_element_class() -> &'static Class {
 
         CLS = decl.register();
     });
-    unsafe { &*CLS }
+    // SAFETY: a registered class is never freed; null when it could not be declared.
+    unsafe { CLS.as_ref() }
 }
 
 /// Snapshot index stored on an element.

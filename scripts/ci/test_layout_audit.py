@@ -6,6 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import layout_audit as la  # noqa: E402
+import audit_compare as ac  # noqa: E402
 
 SCALE = 2.625
 
@@ -113,6 +114,38 @@ class AuditTests(unittest.TestCase):
         self.assertIn("clipping parent", why["Long label"])
         self.assertIn("window's right edge", why["Over the edge"])
 
+    def test_one_text_is_one_entry_even_when_a_button_a_paragraph_and_a_leaf_carry_it(self):
+        tree = [a11y(1, 1, "Button", "azmeet-join", 10, 100, 100, 16, clickable=True), a11y(2, 2, "Paragraph", "azmeet-join", 10, 100, 100, 16, parent=1),
+                a11y(3, 3, "Label", "azmeet-join", 0, 0, 0, 0, parent=2), a11y(4, 4, "Label", "azmeet-new-meeting", 0, 0, 0, 0)]
+        r = self.run_audit([node(i, "p", 0, 0, 1, 1) for i in range(1, 5)], tree)
+        self.assertEqual(r["raw_keys"]["count"], 2)
+        self.assertEqual([e["text"] for e in r["raw_keys"]["top"]], ["azmeet-join", "azmeet-new-meeting"])
+        self.assertEqual(r["raw_keys"]["top"][0]["w"], 100.0)           # the first with a box
+
+    def test_the_status_bar_and_the_cutout_of_one_strip_are_one_band(self):
+        dump = ("InsetsSource id=1 type=statusBars frame=[0,0][1080,128] visible=true\n"
+                "InsetsSource id=2 type=displayCutout frame=[0,0][1080,128] visible=true\n"
+                "InsetsSource id=3 type=navigationBars frame=[0,2274][1080,2400] visible=true\n")
+        bands = la.parse_system_bars(dump)["bands"]
+        self.assertEqual([(b["name"], b["rect"]) for b in bands], [("statusBars+displayCutout", (0, 0, 1080, 128)), ("navigationBars", (0, 2274, 1080, 2400))])
+
+    def test_a_text_that_is_a_message_id_is_listed(self):
+        tree = [a11y(1, 1, "Label", "azmeet-loading-key", 10, 100, 200, 20), a11y(2, 2, "Label", "Loading this device's key...", 10, 130, 200, 20),
+                a11y(3, 3, "Button", "menu-file-open", 10, 160, 100, 48, clickable=True), a11y(4, 4, "Label", "e-mail", 10, 220, 50, 20),
+                a11y(5, 5, "Label", "Save-as", 10, 250, 50, 20)]
+        r = self.run_audit([node(i, "p", 0, 0, 1, 1) for i in range(1, 6)], tree)
+        self.assertEqual(sorted(e["text"] for e in r["raw_keys"]["top"]), ["azmeet-loading-key", "menu-file-open"])
+        self.assertIn("texts are raw keys", la.summary_line(r))
+
+    def test_the_lists_say_which_widget_causes_most_of_them(self):
+        layout = [node(1, "button", 10, 10, 30, 30, classes=["__azul-native-button"]), node(2, "p", 10, 60, 30, 30, classes=["__azul-native-date-picker-day"]),
+                  node(3, "p", 10, 100, 30, 30, classes=["__azul-native-date-picker-day"]), node(4, "div", 10, 140, 30, 30)]
+        tree = [a11y(1, 1, "Button", "OK", 10, 10, 30, 30, clickable=True), a11y(2, 2, "Button", "1", 10, 60, 30, 30, clickable=True),
+                a11y(3, 3, "Button", "2", 10, 100, 30, 30, clickable=True), a11y(4, 4, "Button", "x", 10, 140, 30, 30, clickable=True)]
+        r = self.run_audit(layout, tree)
+        self.assertEqual(r["small_targets"]["by_widget"], {"date-picker-day": 2, "button": 1, "div": 1})
+        self.assertIn("by widget: date-picker-day 2, button 1, div 1", la.report_markdown([r]))
+
     def test_a_scroll_container_with_wider_content_is_the_page_that_scrolls_sideways(self):
         scroll = {"status": "ok", "data": {"type": "scroll_states", "value": {"scroll_states": [
             {"node_id": 27, "scroll_x": 0.0, "scroll_y": 4079.0, "content_width": 606.7, "content_height": 14189.0, "container_width": 411.4,
@@ -143,6 +176,56 @@ class AuditTests(unittest.TestCase):
         self.assertIn("# Layout audit: AzDemo", text)
         self.assertIn("Not measured: a text clipped inside its own box", text)
         self.assertIn("portrait: window 411.4 x 914.3 dp", text)
+
+
+class WordsTests(unittest.TestCase):
+    def tree(self, names):
+        return answer([a11y(i + 1, i, "Label", n, 0, i * 20, 100, 20) for i, n in enumerate(names)])
+
+    def test_a_language_that_arrived_changes_the_texts_of_the_same_nodes(self):
+        en = self.tree(["File", "Edit", "Azul Widget Showcase", "Save"])
+        de = self.tree(["Datei", "Bearbeiten", "Azul Widget Showcase", "Speichern"])
+        w = la.compare_words(en, de)
+        self.assertEqual((w["named"], w["changed"]), (4, 3))
+        self.assertEqual(w["sample"][0], ("File", "Datei"))
+        self.assertEqual(w["raw_keys_b"], [])
+
+    def test_message_ids_in_the_second_language_are_named(self):
+        en = self.tree(["File", "Loading"])
+        de = self.tree(["azpaint-file", "azpaint-loading-key"])
+        w = la.compare_words(en, de)
+        self.assertEqual(w["raw_keys_b"], ["azpaint-file", "azpaint-loading-key"])
+
+    def test_nothing_in_common_is_not_a_change(self):
+        w = la.compare_words(answer([]), self.tree(["a"]))
+        self.assertEqual((w["named"], w["changed"], w["share"]), (0, 0, 0.0))
+
+
+class CompareTests(unittest.TestCase):
+    def audit_of(self, tree, layout=None):
+        bars = la.parse_system_bars(WINDOW_DUMP)
+        return la.audit(answer(layout or [node(1, "button", 10, 10, 100, 50)]), answer(tree), STATE, bars, "portrait")
+
+    def test_a_box_is_the_same_box_after_it_moved_down_the_page(self):
+        b = [{"node": "button#a", "text": "Save", "x": 10.0, "y": 100.0, "w": 30.0, "h": 30.0}]
+        a = [{"node": "button#a", "text": "Save", "x": 10.0, "y": 140.0, "w": 30.4, "h": 30.2}]
+        self.assertEqual(ac.diff_lists(b, a), ([], []))
+
+    def test_what_is_gone_and_what_is_new_are_told_apart(self):
+        b = [{"node": "button#a", "text": "Save", "w": 30.0, "h": 30.0}, {"node": "p", "text": "Old", "w": 50.0, "h": 10.0}]
+        a = [{"node": "button#a", "text": "Save", "w": 48.0, "h": 48.0}, {"node": "p", "text": "Old", "w": 50.0, "h": 10.0}]
+        gone, new = ac.diff_lists(b, a)
+        self.assertEqual([k for k, _n in gone], [("button#a", "Save", 30, 30)])
+        self.assertEqual([k for k, _n in new], [("button#a", "Save", 48, 48)])
+
+    def test_the_comparison_names_the_lists_and_the_fixed_box(self):
+        before = {"AzPaint": {"portrait": self.audit_of([a11y(1, 1, "Button", "Undo", 10, 10, 30, 30, clickable=True)])}}
+        after = {"AzPaint": {"portrait": self.audit_of([a11y(1, 1, "Button", "Undo", 10, 80, 48, 48, clickable=True)], [node(1, "button", 10, 80, 48, 48)])}}
+        text = ac.compare(before, after)
+        self.assertIn("## AzPaint", text)
+        self.assertIn("| tappable nodes under 48 dp | 1 | 0 |", text)
+        self.assertIn("| tappable boxes under a bar | 1 | 0 |", text)
+        self.assertIn("gone: ", text)
 
 
 if __name__ == "__main__":

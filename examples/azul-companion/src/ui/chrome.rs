@@ -5,7 +5,7 @@ use azul_review_link::view::Session;
 
 use azul_review_link::frame::{AgentFinished, FinishKind};
 
-use super::kit::{column, div, px, text, Cx};
+use super::kit::{column, px, text, Cx};
 use super::{editor, files, pair, remote, settings, Screen};
 use crate::theme as th;
 
@@ -82,43 +82,37 @@ fn finished_words(cx: &Cx, done: &AgentFinished) -> String {
     cx.tf(key, &[("where", &place)])
 }
 
-/// A line over the top of the pad for a moment (an agent finished: the pad is where the eyes are, the buttons stay readable).
+/// A line over the top of the pad for a moment (an agent finished: the pad is where the eyes are, the buttons stay readable). The card
+/// is the node that lies over the screen, with nothing round it: there is no `pointer-events: none`, so a wrapper as wide as the screen would
+/// swallow the taps meant for what is under it, beside the card as well.
 fn banner(cx: &Cx, words: &str) -> Dom {
-    div(&format!(
-        "position: absolute; left: 0px; right: 0px; top: {}; display: flex; flex-direction: row; justify-content: center;",
-        px(cx.z.pad.y + 10.0)
-    ))
-    .with_child(text(
+    text(
         words,
         &format!(
-            "max-width: {}; padding: 10px 16px; border-radius: 18px; background: {}; color: {}; font-size: 14px; \
-             border: 1px solid {};",
-            px(cx.env.width - 48.0),
+            "position: absolute; left: 24px; right: 24px; top: {}; padding: 10px 16px; border-radius: 18px; background: {}; color: {}; \
+             font-size: 14px; text-align: center; border: 1px solid {};",
+            px(cx.z.pad.y + 10.0),
             th::SURFACE_HI,
             th::TEXT,
             th::SEPARATOR
         ),
-    ))
+    )
 }
 
-/// A line over the bottom of the screen for a moment.
+/// A line over the bottom of the screen for a moment (a card with nothing round it, as the banner).
 fn toast(cx: &Cx, words: &str) -> Dom {
     let lift = cx.env.insets.bottom + 78.0;
-    div(&format!(
-        "position: absolute; left: 0px; right: 0px; bottom: {}; display: flex; flex-direction: row; justify-content: center;",
-        px(lift)
-    ))
-    .with_child(text(
+    text(
         words,
         &format!(
-            "max-width: {}; padding: 10px 16px; border-radius: 18px; background: {}; color: {}; font-size: 14px; \
-             border: 1px solid {};",
-            px(cx.env.width - 48.0),
+            "position: absolute; left: 24px; right: 24px; bottom: {}; padding: 10px 16px; border-radius: 18px; background: {}; color: {}; \
+             font-size: 14px; text-align: center; border: 1px solid {};",
+            px(lift),
             th::SURFACE_HI,
             th::TEXT,
             th::SEPARATOR
         ),
-    ))
+    )
 }
 
 #[cfg(test)]

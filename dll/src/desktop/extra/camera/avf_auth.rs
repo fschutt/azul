@@ -35,6 +35,16 @@ fn media_label(media: &AVMediaType) -> &'static str {
     }
 }
 
+/// The `Info.plist` purpose string behind a media label ("camera" / "microphone").
+fn purpose_key(label: &str) -> &'static str {
+    use crate::desktop::extra::info_plist::keys;
+    if label == "microphone" {
+        keys::MICROPHONE
+    } else {
+        keys::CAMERA
+    }
+}
+
 /// Check (and, if the user was never asked, request) TCC access for `media`
 /// (`AVMediaTypeVideo` / `AVMediaTypeAudio`). Returns `true` when capture may
 /// proceed.
@@ -74,6 +84,19 @@ pub fn ensure_av_access(media: &AVMediaType) -> bool {
         }
         // STATUS_NOT_DETERMINED (or an unknown future value).
         _ => {
+            // A bundle without the purpose string is STOPPED by the system at the request: say
+            // which key is missing instead of asking (see `extra::info_plist`).
+            let key = purpose_key(label);
+            if crate::desktop::extra::info_plist::request_would_stop_the_process(key) {
+                crate::plog_error!(
+                    "[avf_auth] {}",
+                    crate::desktop::extra::info_plist::missing_key_message(
+                        &format!("The {label} permission request"),
+                        key
+                    )
+                );
+                return false;
+            }
             crate::plog_info!(
                 "[avf_auth] {} access not determined — requesting (OS prompt)…",
                 label
@@ -189,6 +212,20 @@ pub fn request_av_access_nonblocking(
             ));
         }
         _ => {
+            // Not asked: a bundle without the purpose string is stopped by the system at the
+            // request. The capability reads `Restricted` (unavailable) with the reason logged.
+            let key = purpose_key(label);
+            if crate::desktop::extra::info_plist::request_would_stop_the_process(key) {
+                crate::plog_error!(
+                    "[avf_auth] {}",
+                    crate::desktop::extra::info_plist::missing_key_message(
+                        &format!("The {label} permission request"),
+                        key
+                    )
+                );
+                results.push((capability, PermissionState::Restricted));
+                return;
+            }
             crate::plog_info!("[avf_auth] requesting {} access (async, OS prompt)…", label);
             results.push((capability, PermissionState::Requested));
             let results = results.clone();

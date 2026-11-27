@@ -118,6 +118,22 @@ fn start_push_only_sensors(channel: &std::sync::Arc<SensorChannel>) {
     use objc2_core_motion::{CMAltimeter, CMPedometer};
     use objc2_foundation::{NSDate, NSOperationQueue};
 
+    // Motion & Fitness data needs `NSMotionUsageDescription`: "If you don't include this key, your
+    // app will crash when it attempts to access motion data" (Apple). A bundle without it gets
+    // no barometer and no step counter - and the reason, not a crash and not a silent no-op.
+    {
+        use crate::desktop::extra::info_plist::{
+            keys, missing_key_message, request_would_stop_the_process,
+        };
+        if request_would_stop_the_process(keys::MOTION) {
+            crate::plog_warn!(
+                "[sensors] {}",
+                missing_key_message("The barometer and the step counter", keys::MOTION)
+            );
+            return;
+        }
+    }
+
     unsafe {
         if CMAltimeter::isRelativeAltitudeAvailable() {
             let altimeter = CMAltimeter::new();

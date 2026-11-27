@@ -33,10 +33,12 @@ use crate::{
     desktop::{
         shell2::{
             android_core::{
+                a11y_refresh::ScrollRefresh,
                 bars::{band_luma, BarsState},
                 ime::ImeMirror,
                 lifecycle::{frame_work, trim_plan, FrameWork, TRIM_MEMORY_UI_HIDDEN},
                 present::{rows_to_write, PresentState, RowDamage},
+                slop::{Lift as SlopLift, Move as SlopMove, TapSlop, TOUCH_SLOP_DP},
                 metrics::{self, dpi_of_density, logical_size},
                 touch::{mouse_effect, HitTest, Phase as TouchPhase},
                 ui_bridge::{RawGesture, UiEvent},
@@ -127,12 +129,27 @@ pub struct AndroidWindow {
     /// processed, a frame laid out): the loop publishes a new mirror at the end of the iteration.
     ime_dirty: bool,
 
+    /// What the published accessibility snapshot has not seen: the frames repainted from the existing layout (a scroll
+    /// moves every node without a layout, and the snapshot carries the bounds). Rebuilt once the repaints settle
+    /// (`android_core::a11y_refresh`).
+    a11y_scroll: ScrollRefresh,
+    /// The clock `a11y_scroll` counts on: the milliseconds since this window was made.
+    clock_start: std::time::Instant,
+    /// The touch slop of the primary contact (`android_core::slop`): a finger is a tap candidate until it has moved more
+    /// than 8 dp from where it landed; only then does it pan (and it clicks nothing when it lifts).
+    tap: TapSlop,
+
     /// A frame must be re-rastered and posted, but the layout is UNCHANGED.
     ///
     /// Android's `request_redraw()` equivalent, which it did not have: the only
     /// route to a presented frame was `regeneration_pending()`, so every input
     /// that changed a pixel had to claim it had changed the DOM.
     needs_rerender: bool,
+
+    /// `WindowCreateOptions::create_callback`, kept until the first `InitWindow` fires it (the shell used to
+    /// DROP it: an app that starts a timer or a worker there was dead on a phone). Taken out when it fires,
+    /// so it runs once per window lifetime.
+    create_callback: azul_layout::callbacks::OptionCallback,
 
     /// Last touch position of an in-progress one-finger pan, in logical px.
     ///
@@ -177,6 +194,9 @@ impl AndroidWindow {
             &config.system_style,
             app_shared.mode(),
         );
+        // The app's create callback, kept for the first InitWindow (every other shell fires it when its window
+        // exists; this one dropped it).
+        let create_callback = options.create_callback;
         // `WindowCreateOptions::window_state` is already a `FullWindowState`,
         // mirroring how `HeadlessWindow::new` consumes it. No constructor call.
         let full_window_state = options.window_state;
@@ -248,6 +268,10 @@ impl AndroidWindow {
             selection_toolbar_shown: false,
             ime_dirty: false,
             needs_rerender: false,
+            a11y_scroll: ScrollRefresh::new(),
+            clock_start: std::time::Instant::now(),
+            tap: TapSlop::default(),
+            create_callback,
             touch_pan_last: None,
             primary_pointer_id: None,
             pan_pointer_id: None,
@@ -316,6 +340,8 @@ impl AndroidWindow {
         let scale = self.common.current_window_state().size.dpi as f32 / 96.0;
         self.bridge.accessibility.update_snapshot(snapshot, scale);
         self.common.a11y_dirty = false;
+        // What the repaints since the last build owed is paid: this snapshot has the bounds as they are now.
+        self.a11y_scroll.note_rebuilt();
     }
     pub fn close(&mut self) {
         // See CommonWindowState::deinit_renderer — webrender requires it.
@@ -410,6 +436,7 @@ impl AndroidWindow {
             &mut debug_messages,
             relayout_reason,
             borrows.settings,
+            borrows.startup,
         )?;
 
         if let Some(msgs) = debug_messages {
@@ -442,11 +469,6 @@ impl AndroidWindow {
         // inert. `headless/mod.rs` already carries this exact fix and the same
         // explanation; both mobile backends were missing the one line.
         self.common.rebuild_cpu_hit_tester();
-
-        // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
-        // layout's reconciliation — the SAME step headless + X11 run. Without it,
-        // EventFilter::Component(AfterMount) callbacks never fire on Android (e.g.
-        // the MapWidget's first tile fetch never starts).
 
         // #27 native backbuffer: Android stays LEGACY by design.
         // `ANativeWindow_lock` rotates double/triple buffers with NO content
@@ -672,6 +694,9 @@ pub fn android_main(app: AndroidApp) {
         }
     };
 
+    // The startup timeline (`AZ_STARTUP=1`): the native thread has what `run()` stashed.
+    app_shared.startup().mark("android:android_main_entered");
+
     let mut window = match AndroidWindow::new(
         root_window,
         fc_cache,
@@ -691,6 +716,8 @@ pub fn android_main(app: AndroidApp) {
             return;
         }
     };
+
+    window.common.app.startup().mark("android:window_created");
 
     // Publish what the Java side may call into (`bridge::UiBridge`), NOT the window: the Java UI thread
     // holds the address on every callback, so it must be something that is safe to touch from there and
@@ -910,6 +937,11 @@ pub fn android_main(app: AndroidApp) {
                 window.needs_rerender = false;
                 window.rerender_cpu();
                 frame_dirty = true;
+                // A scroll moved every node under its container without a layout: the bounds the accessibility
+                // snapshot carries are behind until the repaints settle (rebuilt below, `android_core::a11y_refresh`).
+                window
+                    .a11y_scroll
+                    .note_repaint(u64::try_from(window.clock_start.elapsed().as_millis()).unwrap_or(u64::MAX));
             }
         }
 
@@ -926,6 +958,18 @@ pub fn android_main(app: AndroidApp) {
             let _ = render_frame(&mut window);
             // Where this frame put the `<webview>`s.
             let _ = crate::desktop::shell2::common::webview::sync(&mut window);
+        }
+
+        // THE ACCESSIBILITY SNAPSHOT after a scroll: TalkBack and uiautomator read the bounds of every node from the snapshot
+        // the last layout published, and a scroll moves the nodes without one (a dump after a scroll listed a key where it
+        // was drawn 96 px earlier). Rebuilt once the repaints have settled, and every half second while they go on.
+        #[cfg(feature = "a11y")]
+        {
+            let now_ms = u64::try_from(window.clock_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+            if window.a11y_scroll.is_due(now_ms) {
+                window.common.a11y_dirty = true;
+                window.refresh_accessibility_tree();
+            }
         }
 
         // THE SOFT KEYBOARD the engine asked for while it handled this iteration's events (a text field took
@@ -989,36 +1033,39 @@ fn trim_memory(window: &mut AndroidWindow, level: i32) {
     }
 }
 
-/// One log line with the app's private folders as the environment names them and whether each can be written
-/// (`AzulActivity.prepareAppDirs` sets them before the library loads): `FilePath::get_data_dir()` and the cache
-/// and temp folders of an app resolve through them. An error line (visible at the default log level) when one
-/// is not writable: an app that keeps a pairing or a cache through it keeps nothing.
+/// One log line with the app's private folders as the app sees them (`FilePath::get_home_dir()`, `get_data_dir()`,
+/// `get_cache_dir()` and `get_temp_dir()`: what `AzulActivity.prepareAppDirs` set in the environment before the library
+/// loaded) and whether each can be written. An error line (visible at the default log level) when one is missing or not
+/// writable: an app that keeps a pairing or a cache through it keeps nothing. The shell reads no environment itself: the
+/// folders come from the facade every app uses (`azul_layout::file`), the one place that knows where they are.
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn log_app_dirs() {
+    use azul_layout::file::FilePath;
+
     let mut all_ok = true;
-    let mut probe = |name: &str| -> String {
-        let Some(value) = std::env::var_os(name) else {
+    let mut probe = |label: &str, dir: Option<FilePath>| -> String {
+        let Some(dir) = dir else {
             all_ok = false;
-            return format!("{name}=<unset>");
+            return format!("{label}=<none>");
         };
-        let dir = std::path::PathBuf::from(&value);
+        let dir = std::path::PathBuf::from(dir.as_str());
         let file = dir.join(".azul-write-probe");
         let writable = std::fs::create_dir_all(&dir).is_ok()
             && std::fs::write(&file, b"x").is_ok()
             && std::fs::remove_file(&file).is_ok();
         all_ok &= writable;
         format!(
-            "{name}={} ({})",
+            "{label}={} ({})",
             dir.display(),
             if writable { "writable" } else { "NOT writable" }
         )
     };
     let line = format!(
         "[Android] app dirs: {} {} {} {}",
-        probe("HOME"),
-        probe("XDG_DATA_HOME"),
-        probe("XDG_CACHE_HOME"),
-        probe("TMPDIR"),
+        probe("home", FilePath::get_home_dir()),
+        probe("data", FilePath::get_data_dir()),
+        probe("cache", FilePath::get_cache_dir()),
+        probe("temp", Some(FilePath::get_temp_dir())),
     );
     if all_ok {
         log_info!(LogCategory::EventLoop, "{}", line);
@@ -1438,6 +1485,30 @@ fn has_surface(window: &AndroidWindow) -> bool {
     }
 }
 
+/// Writes the surface's logical size to the window state. A frame at a size that is not the one the
+/// last frame was painted at is painted IN FULL: across a size change the CPU backend keeps the corner
+/// the two sizes share and repaints what the relayout changed plus the strip a side gained
+/// (`CpuBackend::render_frame`, "a mixed resize"), and that is the one thing a rotation to landscape
+/// is. On the emulator run of AzWidgets the frame after the rotation had the page's white only up to
+/// the OLD width (x = 1080 px) and the canvas colour beyond it, while a render of the same display
+/// list from scratch (`take_screenshot`) was right and each of the three presents after the rotation
+/// wrote all 1080 rows: the picture was wrong in the retained frame, not in the present (QA run
+/// 45797870060, ledger A-36). A rotation, a split screen and a soft keyboard that resizes the window
+/// are each a relayout anyway, so the full frame costs next to nothing.
+#[cfg(all(target_os = "android", feature = "android-activity", feature = "ndk"))]
+fn apply_surface_size(window: &mut AndroidWindow, (logical_w, logical_h): (f32, f32)) {
+    let now = window.common.current_window_state().size.dimensions;
+    if now.width.to_bits() != logical_w.to_bits() || now.height.to_bits() != logical_h.to_bits() {
+        window.cpu_backend.force_full_repaint = true;
+    }
+    window
+        .common
+        .update_window_state(event::WindowStateSource::Os, |ws| {
+            ws.size.dimensions.width = logical_w;
+            ws.size.dimensions.height = logical_h;
+        });
+}
+
 /// The reason tag for a geometry/density-driven regeneration.
 ///
 /// `Resize` is what every desktop backend tags window resizes with — it is the
@@ -1505,6 +1576,8 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
     match event {
         PollEvent::Main(main_event) => match main_event {
             MainEvent::InitWindow { .. } => {
+                // The startup timeline (`AZ_STARTUP=1`): the surface exists (the first layout waits for it).
+                window.common.app.startup().mark("android:surface_created");
                 // Contract shape (snapshot → mutate → pass): Android never
                 // dispatched WindowResize/WindowDpiChanged — these arms wrote
                 // geometry with no snapshot and no pass, so the diff either
@@ -1550,12 +1623,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                             logical_w,
                             logical_h,
                         );
-                        window
-                            .common
-                            .update_window_state(event::WindowStateSource::Os, |ws| {
-                                ws.size.dimensions.width = logical_w;
-                                ws.size.dimensions.height = logical_h;
-                            });
+                        apply_surface_size(window, (logical_w, logical_h));
                         window.native_window = Some(nw);
                         // A surface that is new to the shell: its buffers hold nothing of ours.
                         window.present.surface_changed();
@@ -1565,6 +1633,17 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         // WindowResized) it tags the pass `Resize`.
                         let reason = resize_reason(window);
                         window.common.request_regeneration(reason);
+                        // The app's `WindowCreateOptions::create_callback`, ONCE per window lifetime, as the
+                        // desktop shells fire it: the window exists (the surface, its real size and density),
+                        // nothing is laid out yet. An app starts its timers, workers, locale and requests
+                        // here; the pass below applies what the callback asked for.
+                        let callback = core::mem::replace(
+                            &mut window.create_callback,
+                            azul_layout::callbacks::OptionCallback::None,
+                        );
+                        crate::desktop::shell2::common::create_callback::invoke_create_callback(
+                            window, callback,
+                        );
                     }
                 }
                 let _ = window.process_window_events(0);
@@ -1584,17 +1663,12 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 #[cfg(feature = "ndk")]
                 {
                     if let Some(nw) = window.native_window.as_ref() {
-                        let (logical_w, logical_h) = logical_size(
+                        let logical = logical_size(
                             nw.width(),
                             nw.height(),
                             window.common.current_window_state().size.dpi,
                         );
-                        window
-                            .common
-                            .update_window_state(event::WindowStateSource::Os, |ws| {
-                                ws.size.dimensions.width = logical_w;
-                                ws.size.dimensions.height = logical_h;
-                            });
+                        apply_surface_size(window, logical);
                     }
                 }
                 let reason = resize_reason(window);
@@ -1624,13 +1698,8 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                     window.cpu_backend.force_full_repaint = true;
                     #[cfg(feature = "ndk")]
                     if let Some(nw) = window.native_window.as_ref() {
-                        let (logical_w, logical_h) = logical_size(nw.width(), nw.height(), dpi);
-                        window
-                            .common
-                            .update_window_state(event::WindowStateSource::Os, |ws| {
-                                ws.size.dimensions.width = logical_w;
-                                ws.size.dimensions.height = logical_h;
-                            });
+                        let logical = logical_size(nw.width(), nw.height(), dpi);
+                        apply_surface_size(window, logical);
                     }
                     window.common.request_regeneration(reason);
                     let _ = window.process_window_events(0);
@@ -1943,12 +2012,56 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             primary_pos
         };
 
+        // THE TOUCH SLOP (`android_core::slop`). A finger (or a contact the platform did not name) that went down is a
+        // TAP CANDIDATE until it has moved more than 8 dp from where it landed: it scrolls nothing, the pointer stays where
+        // it landed and a lift inside the slop is a click THERE (a real finger jitters by a few pixels: the page scrolled by
+        // the jitter and the click was lost whenever the node under the finger changed). The move that crosses the slop
+        // makes it a pan for good, and the lift of a pan is no click: the mouse sees it as the end of an aborted gesture.
+        // A mouse, a stylus and an eraser have no slop.
+        let slop_at = |p: LogicalPosition| (p.x, p.y);
+        let mut slop_move: Option<SlopMove> = None;
+        let mut mouse_action = update.action;
+        match update.action {
+            MotionAction::Down => {
+                let tool = update
+                    .touch_points
+                    .iter()
+                    .find(|tp| i32::try_from(tp.id).ok() == primary_id)
+                    .map(|tp| tp.tool_type);
+                let applies = matches!(
+                    tool,
+                    None | Some(
+                        azul_core::window::TouchToolType::Finger | azul_core::window::TouchToolType::Unknown
+                    )
+                );
+                match primary_pos {
+                    Some(p) => window.tap.down(applies, slop_at(p), TOUCH_SLOP_DP),
+                    None => window.tap.cancel(),
+                }
+            }
+            MotionAction::Move => {
+                slop_move = primary_pos.map(|p| window.tap.moved(slop_at(p)));
+            }
+            MotionAction::Up => {
+                if matches!(window.tap.up(), SlopLift::Pan) {
+                    mouse_action = MotionAction::Cancel;
+                }
+            }
+            MotionAction::PointerUp if primary_lifting => {
+                if matches!(window.tap.up(), SlopLift::Pan) {
+                    mouse_action = MotionAction::Cancel;
+                }
+            }
+            MotionAction::Cancel => window.tap.cancel(),
+            _ => {}
+        }
+
         let hit_pos = {
             let ms = window.common.mouse_state_mut();
             // The field existed with no writer on any platform, so
             // `get_pointer_device_id()` answered 0 everywhere (9b-ii).
             ms.pointer_device_id = update.device_id;
-            match update.action {
+            match mouse_action {
                 MotionAction::Down => {
                     if let Some(p) = mouse_pos {
                         ms.cursor_position = CursorPosition::InWindow(p);
@@ -1964,9 +2077,12 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 }
                 MotionAction::Move | MotionAction::HoverMove => {
                     // `None` = the primary already lifted and only other
-                    // fingers are moving: the mouse does not follow them.
-                    if let Some(p) = mouse_pos {
-                        ms.cursor_position = CursorPosition::InWindow(p);
+                    // fingers are moving: the mouse does not follow them. Inside the touch slop the pointer stays where the
+                    // finger LANDED: a jitter is a click there.
+                    if !matches!(slop_move, Some(SlopMove::Hold)) {
+                        if let Some(p) = mouse_pos {
+                            ms.cursor_position = CursorPosition::InWindow(p);
+                        }
                     }
                 }
                 MotionAction::Up => {
@@ -2023,7 +2139,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         // Update CPU hit-tester at the new cursor; dispatch callbacks. A cancelled gesture hit-tests
         // NOWHERE and clears the hover chain, as a mouse leaving the window does on every desktop
         // shell (`android_core::touch`).
-        match mouse_effect(phase_of(update.action), primary_lifting).hit_test {
+        match mouse_effect(phase_of(mouse_action), primary_lifting).hit_test {
             HitTest::AtCursor => window.update_hit_test_at(hit_pos),
             HitTest::Nowhere => {
                 if let Some(lw) = window.common.layout_window.as_mut() {
@@ -2079,6 +2195,20 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 MotionAction::Move => {
                     let current = window.pan_pointer_id.and_then(position_of);
                     match current {
+                        // Inside the touch slop nothing scrolls and `touch_pan_last` stays where the finger landed.
+                        Some(_) if matches!(slop_move, Some(SlopMove::Hold)) => {
+                            (None, ScrollInputSource::TrackpadContinuous)
+                        }
+                        // The move that crossed it: the pan starts with the displacement BEYOND the slop, so the page
+                        // does not jump by the slop (Android's ScrollView: `deltaY -= mTouchSlop`).
+                        Some(current) if matches!(slop_move, Some(SlopMove::Start { .. })) => {
+                            window.touch_pan_last = Some(current);
+                            let delta = match slop_move {
+                                Some(SlopMove::Start { delta }) => Some(delta),
+                                _ => None,
+                            };
+                            (delta, ScrollInputSource::TrackpadContinuous)
+                        }
                         Some(current) => {
                             let d = window.touch_pan_last.map(|last| {
                                 // Finger delta, NOT the inverse. Dragging UP
@@ -2672,6 +2802,12 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
     // guard.drop() calls ANativeWindow_unlockAndPost: the frame is posted from here.
     drop(guard);
     window.present.posted(&plan);
+    // The startup timeline (`AZ_STARTUP=1`): the first frame is handed to the surface.
+    window
+        .common
+        .app
+        .startup()
+        .mark_first_present(|| format!("android cpu {}", if plan.dirty.is_some() { "partial" } else { "full" }));
     if let Some((status_light, navigation_light)) = bars_to_tell {
         set_system_bars_appearance(status_light, navigation_light);
     }

@@ -293,6 +293,7 @@ END PROGRAM STYLE-TEXT.
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleFontStretchValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleFontVariantLigaturesValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleFontVariantEastAsianValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleFontVariantPositionValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleFontSynthesisValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 IDENTIFICATION DIVISION.
 PROGRAM-ID. STYLE-SHORTHANDS.
@@ -357,13 +358,15 @@ COPY "azul.cpy".
 01  t49 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t50 USAGE TYAZ-CSS-PROPERTY.
 01  t51 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t52 USAGE TYAZ-STYLE-FONT-VARIANT-N-3b77.
-01  t53 USAGE TYAZ-CSS-PROPERTY.
-01  t54 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t55.
-    05  t55-item USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793 OCCURS 17 TIMES.
-01  t56 USAGE BINARY-DOUBLE UNSIGNED VALUE 17.
-01  t57 USAGE TYAZ-CSS-PROPERTY-WITH-CO-8550.
+01  t52 USAGE TYAZ-CSS-PROPERTY.
+01  t53 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t54 USAGE TYAZ-STYLE-FONT-VARIANT-N-3b77.
+01  t55 USAGE TYAZ-CSS-PROPERTY.
+01  t56 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t57.
+    05  t57-item USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793 OCCURS 18 TIMES.
+01  t58 USAGE BINARY-DOUBLE UNSIGNED VALUE 18.
+01  t59 USAGE TYAZ-CSS-PROPERTY-WITH-CO-8550.
 LINKAGE SECTION.
 01  ls-result USAGE TYAZ-CSS-PROPERTY-WITH-CO-8550.
 PROCEDURE DIVISION USING ls-result.
@@ -397,51 +400,54 @@ PROCEDURE DIVISION USING ls-result.
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t33 BY REFERENCE t32 END-CALL
     CALL "AzCssProperty_initialByref" USING BY REFERENCE t34 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-2188 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t35 BY REFERENCE t34 END-CALL
-    CALL "AzCssProperty_initialByref" USING BY REFERENCE t36 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-5da8 END-CALL
+    CALL "AzCssProperty_initialByref" USING BY REFERENCE t36 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-6b1b END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t37 BY REFERENCE t36 END-CALL
-    CALL "AzCssProperty_initialByref" USING BY REFERENCE t38 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-faf9 END-CALL
+    CALL "AzCssProperty_initialByref" USING BY REFERENCE t38 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-5da8 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t39 BY REFERENCE t38 END-CALL
-    CALL "AzCssProperty_initialByref" USING BY REFERENCE t40 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-b1d9 END-CALL
+    CALL "AzCssProperty_initialByref" USING BY REFERENCE t40 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-faf9 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t41 BY REFERENCE t40 END-CALL
-    CALL "AzCssProperty_initialByref" USING BY REFERENCE t42 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-6b20 END-CALL
+    CALL "AzCssProperty_initialByref" USING BY REFERENCE t42 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-b1d9 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t43 BY REFERENCE t42 END-CALL
-    CALL "AzCssProperty_initialByref" USING BY REFERENCE t44 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-b885 END-CALL
+    CALL "AzCssProperty_initialByref" USING BY REFERENCE t44 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-6b20 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t45 BY REFERENCE t44 END-CALL
-    CALL "AzCssProperty_initialByref" USING BY REFERENCE t46 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-3272 END-CALL
+    CALL "AzCssProperty_initialByref" USING BY REFERENCE t46 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-b885 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t47 BY REFERENCE t46 END-CALL
-    CALL "AzCssProperty_initialByref" USING BY REFERENCE t48 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-a5ba END-CALL
+    CALL "AzCssProperty_initialByref" USING BY REFERENCE t48 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-3272 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t49 BY REFERENCE t48 END-CALL
-    CALL "AzCssProperty_initialByref" USING BY REFERENCE t50 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-0156 END-CALL
+    CALL "AzCssProperty_initialByref" USING BY REFERENCE t50 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-a5ba END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t51 BY REFERENCE t50 END-CALL
-    MOVE 0 TO LINING-NUMS OF t52
-    MOVE 1 TO OLDSTYLE-NUMS OF t52
-    MOVE 0 TO PROPORTIONAL-NUMS OF t52
-    MOVE 0 TO TABULAR-NUMS OF t52
-    MOVE 0 TO DIAGONAL-FRACTIONS OF t52
-    MOVE 0 TO STACKED-FRACTIONS OF t52
-    MOVE 0 TO ORDINAL OF t52
-    MOVE 0 TO SLASHED-ZERO OF t52
-    CALL "AzCssProperty_fontVariantNumericByref" USING BY REFERENCE t53 BY REFERENCE t52 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t54 BY REFERENCE t53 END-CALL
-    MOVE t3 TO t55-item (1)
-    MOVE t8 TO t55-item (2)
-    MOVE t13 TO t55-item (3)
-    MOVE t18 TO t55-item (4)
-    MOVE t29 TO t55-item (5)
-    MOVE t31 TO t55-item (6)
-    MOVE t33 TO t55-item (7)
-    MOVE t35 TO t55-item (8)
-    MOVE t37 TO t55-item (9)
-    MOVE t39 TO t55-item (10)
-    MOVE t41 TO t55-item (11)
-    MOVE t43 TO t55-item (12)
-    MOVE t45 TO t55-item (13)
-    MOVE t47 TO t55-item (14)
-    MOVE t49 TO t55-item (15)
-    MOVE t51 TO t55-item (16)
-    MOVE t54 TO t55-item (17)
-    CALL "AzCssPropertyWithConditionsVec_copyFromPtrByref" USING BY REFERENCE t57 BY REFERENCE t55 BY VALUE t56 END-CALL
-    MOVE t57 TO ls-result
+    CALL "AzCssProperty_initialByref" USING BY REFERENCE t52 BY VALUE AZ-CSS-PROPERTY-TYPE-FONT-0156 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t53 BY REFERENCE t52 END-CALL
+    MOVE 0 TO LINING-NUMS OF t54
+    MOVE 1 TO OLDSTYLE-NUMS OF t54
+    MOVE 0 TO PROPORTIONAL-NUMS OF t54
+    MOVE 0 TO TABULAR-NUMS OF t54
+    MOVE 0 TO DIAGONAL-FRACTIONS OF t54
+    MOVE 0 TO STACKED-FRACTIONS OF t54
+    MOVE 0 TO ORDINAL OF t54
+    MOVE 0 TO SLASHED-ZERO OF t54
+    CALL "AzCssProperty_fontVariantNumericByref" USING BY REFERENCE t55 BY REFERENCE t54 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t56 BY REFERENCE t55 END-CALL
+    MOVE t3 TO t57-item (1)
+    MOVE t8 TO t57-item (2)
+    MOVE t13 TO t57-item (3)
+    MOVE t18 TO t57-item (4)
+    MOVE t29 TO t57-item (5)
+    MOVE t31 TO t57-item (6)
+    MOVE t33 TO t57-item (7)
+    MOVE t35 TO t57-item (8)
+    MOVE t37 TO t57-item (9)
+    MOVE t39 TO t57-item (10)
+    MOVE t41 TO t57-item (11)
+    MOVE t43 TO t57-item (12)
+    MOVE t45 TO t57-item (13)
+    MOVE t47 TO t57-item (14)
+    MOVE t49 TO t57-item (15)
+    MOVE t51 TO t57-item (16)
+    MOVE t53 TO t57-item (17)
+    MOVE t56 TO t57-item (18)
+    CALL "AzCssPropertyWithConditionsVec_copyFromPtrByref" USING BY REFERENCE t59 BY REFERENCE t57 BY VALUE t58 END-CALL
+    MOVE t59 TO ls-result
     GOBACK.
 END PROGRAM STYLE-SHORTHANDS.
 

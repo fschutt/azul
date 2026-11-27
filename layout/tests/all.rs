@@ -276,6 +276,8 @@ mod gpu_synchronize;
 mod h1_margin_em_resolution;
 #[path = "h1_p_margin_collapse.rs"]
 mod h1_p_margin_collapse;
+#[path = "hanging_punctuation_lets_a_mark_hang_outside_its_line.rs"]
+mod hanging_punctuation_lets_a_mark_hang_outside_its_line;
 #[path = "hover_manager.rs"]
 mod hover_manager;
 #[path = "initial_letter_makes_room_for_a_big_first_letter_in_the_first_lines.rs"]
@@ -492,6 +494,8 @@ mod test_style_tag_parsing;
 mod test_text_layout;
 #[path = "text_align_last_text_justify_and_text_indent_place_the_words_of_a_line.rs"]
 mod text_align_last_text_justify_and_text_indent_place_the_words_of_a_line;
+#[path = "a_decorating_box_draws_its_line_on_its_own_baseline_and_in_its_own_size.rs"]
+mod a_decorating_box_draws_its_line_on_its_own_baseline_and_in_its_own_size;
 #[path = "text_decoration_color_and_thickness_paint_the_lines_they_are_set_on.rs"]
 mod text_decoration_color_and_thickness_paint_the_lines_they_are_set_on;
 #[path = "text_rendering_optimize_speed_turns_the_kerning_and_the_ligatures_off.rs"]
@@ -1475,3 +1479,5 @@ mod a_scrollbar_fades_by_the_fade_css_of_its_box;
 mod a_line_before_a_forced_break_is_not_justified;
 #[path = "ignored_tests_are_on_the_ledger.rs"]
 mod ignored_tests_are_on_the_ledger;
+#[path = "a_typed_field_keeps_laying_out_when_the_page_shrinks_before_it.rs"]
+mod a_typed_field_keeps_laying_out_when_the_page_shrinks_before_it;

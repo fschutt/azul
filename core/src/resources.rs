@@ -3521,8 +3521,7 @@ impl Stamp {
     /// The stamp of `brush` on an image of `width` x `height` pixels in `format`; `None` when nothing would be
     /// painted whatever the dab: a radius that is not positive (or NaN), an empty image, a format other than
     /// 8-bit `RGBA8` / `BGRA8`.
-    // `!(r > 0.0)` intentionally also rejects NaN (`r <= 0.0` would not).
-    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    #[allow(clippy::neg_cmp_op_on_partial_ord)] // `!(r > 0.0)` intentionally also rejects NaN (`r <= 0.0` would not)
     fn new(width: usize, height: usize, format: RawImageFormat, brush: Brush) -> Option<Self> {
         let radius = brush.radius;
         if !(radius > 0.0) || width == 0 || height == 0 {

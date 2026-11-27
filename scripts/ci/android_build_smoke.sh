@@ -4,6 +4,7 @@
 # texts of the manifest ([app.smoke]: tap, expect, after_tap, after_tap_gone, probe_tap, probe_after).
 #
 #   bash scripts/ci/android_build_smoke.sh <App> [<App> ...]            e.g. AzCompanion, or AzWidgets AzMaps
+#   AZ_SMOKE_BOTH_WAYS=1 bash scripts/ci/android_build_smoke.sh <App>   also a second boot test without the probe (smoke-noprobe/)
 #
 # Everything lands in demo-out/: apps/*.apk, results/*.json (build), libs/*/libazul.info.json, smoke/<App>-android-x86_64/ (baseline.png,
 # screenshot*.png, logcat*.txt, ui-*.xml, tap.json, result.json: the one pass line and its reason) and smoke/summary.json.
@@ -70,3 +71,11 @@ bash scripts/ci/android_smoke.sh demo-out/smoke 20 demo-out/apps/*.apk || echo "
 for f in demo-out/smoke/*/result.json; do
   python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print(r["app"], "PASS" if r["pass"] else "FAIL", "-", r["reason"])' "$f"
 done
+# AZ_SMOKE_BOTH_WAYS=1: the same test once more in a fresh emulator session WITHOUT the first press with a short effect (the probe), so
+# the main key is pressed first in a fresh process: a key that works then and fails after the probe means the toast layer eats a press
+if [ "${AZ_SMOKE_BOTH_WAYS:-}" = "1" ]; then
+  AZ_SMOKE_NO_PROBE=1 bash scripts/ci/android_smoke.sh demo-out/smoke-noprobe 20 demo-out/apps/*.apk || echo "SMOKE (no probe): exit $?"
+  for f in demo-out/smoke-noprobe/*/result.json; do
+    python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print("NO PROBE:", r["app"], "PASS" if r["pass"] else "FAIL", "-", r["reason"])' "$f"
+  done
+fi

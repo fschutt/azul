@@ -113,7 +113,7 @@ for apk in "$@"; do
       # An app the manifest presses a button of gets the engine's info log (AZ_LOG=info, through the system property debug.az.log): what
       # a press did (an app that logs its taps: "tap <Action>") is then in the logcat of the run, tag azul
       if [ -n "$(python3 -c 'import json,os,sys; print(json.loads(os.environ.get("AZ_SMOKE_TAPS") or "{}").get(sys.argv[1], ""))' "${app%-android-x86_64}")" ]; then
-        adb shell setprop debug.az.log info >/dev/null 2>&1 || true
+        adb shell setprop debug.az.log "${AZ_SMOKE_LOG:-info}" >/dev/null 2>&1 || true   # AZ_SMOKE_LOG=debug: the shell's per-touch lines too
       fi
       adb shell am start -W -n "$pkg/$act" >"$dir/start.log" 2>&1 || true
       sleep "$wait_s"
@@ -139,6 +139,9 @@ for apk in "$@"; do
         # 5 s later, would never see). The picture and the accessibility dump of 1 s after it say whether a tap reaches the app's
         # callbacks at all; the toast has gone before the main press.
         probe_label="$(python3 "$(dirname "$0")/ui_find.py" --probe-label "${app%-android-x86_64}")"
+        # AZ_SMOKE_NO_PROBE=1: the main key is pressed FIRST, in a fresh process (to tell a toast layer that eats the next press from a key
+        # that does nothing: scripts/ci/android_build_smoke.sh runs both ways with AZ_SMOKE_BOTH_WAYS=1)
+        if [ "${AZ_SMOKE_NO_PROBE:-}" = "1" ]; then probe_label=""; fi
         probe_json="{}"
         if [ -n "$probe_label" ]; then
           if pxy="$(node_centre "$dir/ui-before.xml" "$probe_label")"; then
