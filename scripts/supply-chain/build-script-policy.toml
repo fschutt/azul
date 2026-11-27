@@ -1491,6 +1491,13 @@ review = "audited"
 reason = "builds bundled libjpeg-turbo C and assembles x86 SIMD .asm via NASM found on PATH, into OUT_DIR"
 reviewed = ["2.2.3:bce116251588265d8db2e9a0198a30cca945492b06ee8e25784dba801f7f3d93"]
 
+[crate."multiversion-macros"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "proc macro of multiversion (which the OpenEXR decoder of azul-layout's exr feature uses for CPU feature dispatch): its sources were read, it parses the attribute and the function with syn and writes the dispatching functions with quote, and touches no file, process, network or environment"
+reviewed = ["0.8.1:edbecf88e9df1313d4fbbcc5d83f78c2cfcdd4e6ec0b6238080f2a2e73627c31"]
+
 [crate."mvt-reader"]  # build-script
 allow = true
 risk = "low"
@@ -2253,6 +2260,13 @@ risk = "low"
 review = "audited"
 reason = "links the SystemConfiguration framework on apple targets; nothing else"
 reviewed = ["0.6.0:3134edddf0c2e21a16292825057acc8d62b207c94f82c73b212ed64569def17c"]
+
+[crate."target-features"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "build.rs read in full: it turns three text files that ship in the crate (include_str!: the rustc version, the target features and the CPUs) into generated.rs, generated.md and docs.rs in OUT_DIR, and reads CARGO_CFG_TARGET_FEATURE and CARGO_CFG_TARGET_ARCH to name the current target; no process, no network, no file outside OUT_DIR"
+reviewed = ["0.1.6:53d2c01c24ea09c1fd8b3c1104a52430c3ce5be6aac772fedee28c86289cb625"]
 
 [crate."target-lexicon"]  # build-script
 allow = true

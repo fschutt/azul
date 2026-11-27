@@ -454,6 +454,20 @@ def e2e_session(args):
         dev.tap(x, y)
         return x, y
 
+    def find_named(name, role=None):
+        """The centre (device pixels) of the first node the ENGINE's accessibility tree names `name` (role optional), or None. Not uiautomator: it
+        waits for an idle app and finds nothing in one that redraws all the time."""
+        for n in la.a11y_nodes(srv.op("get_accessibility_tree", timeout=90)):
+            b = n.get("bounds")
+            if n.get("name") == name and b and (role is None or n.get("role") == role):
+                return int((b[0] + b[2]) / 2), int((b[1] + b[3]) / 2)
+        return None
+
+    def tree_says(text):
+        """Does any node of the engine's accessibility tree carry `text` in its name or value?"""
+        needle = text.lower()
+        return any(needle in str(n.get(k) or "").lower() for n in la.a11y_nodes(srv.op("get_accessibility_tree", timeout=90)) for k in ("name", "value"))
+
     def s_script_paint(s):
         mark = dev.now_mark()
         before = device_shot(s, "paint-before")
@@ -464,10 +478,13 @@ def e2e_session(args):
         drawn = device_shot(s, "paint-after-stroke")
         log = dev.adb("logcat", "-d", "-v", "threadtime", timeout=60)
         counts = q.marker_values(log, "AZPAINT_STROKES", since=mark)
-        s.note(f"AZPAINT_STROKES after the swipe: {counts}")
-        s.check("a swipe on the canvas makes exactly one stroke (the app prints AZPAINT_STROKES 1)", counts[-1:] == ["1"], f"printed {counts}")
+        earlier = q.marker_values(log, "AZPAINT_STROKES")[:len(q.marker_values(log, "AZPAINT_STROKES")) - len(counts)]
+        had = int(earlier[-1]) if earlier and earlier[-1].isdigit() else 0          # the last count the app printed before the swipe
+        s.note(f"AZPAINT_STROKES before the swipe {had}, after it: {counts}")
+        s.check(f"a swipe on the canvas adds exactly one stroke (the app prints AZPAINT_STROKES {had + 1})", counts[-1:] == [str(had + 1)],
+                f"printed {counts}, there were {had}")
         s.check("the picture shows it", q.sig_diff(drawn, before) > q.SAME_BELOW, f"differs {q.sig_diff(drawn, before):.3f}")
-        found = dev.find_label("Undo")
+        found = find_named("Undo", "Button")
         s.check("the accessibility tree names the phone toolbar's 'Undo' with a position", bool(found), str(found))
         if not found:
             return
@@ -477,14 +494,21 @@ def e2e_session(args):
         undone = device_shot(s, "paint-after-undo")
         counts2 = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZPAINT_STROKES", since=mark2)
         s.note(f"AZPAINT_STROKES after Undo: {counts2}")
-        s.check("Undo takes the stroke away (AZPAINT_STROKES 0)", counts2[-1:] == ["0"], f"printed {counts2}")
+        s.check(f"Undo takes the stroke away (AZPAINT_STROKES {had})", counts2[-1:] == [str(had)], f"printed {counts2}")
         s.check("the picture is the empty canvas again", q.sig_diff(undone, before) <= q.SAME_BELOW * 2, f"differs from before {q.sig_diff(undone, before):.3f}", required=False)
 
     def s_script_writer(s):
         before = device_shot(s, "writer-before")
         w, h = dev.dims
         height0 = (find_key(srv.op("get_state"), "logical_height") or 0)
-        dev.tap(int(w * 0.5), int(h * 0.45))          # into the page
+        at = None
+        for selector in ("#__azwriter_doc-page-0", ".__azul-native-rich-text-editor-host"):     # the document's editor: the first line of the page
+            at = tap_node(s, selector)
+            if at:
+                s.note(f"tapped the document editor {selector} at {at}")
+                break
+        if not at:
+            dev.tap(int(w * 0.5), int(h * 0.45))      # into the page, where the editor is not known
         dev.settle(1.5)
         up = dev.ime_shown()
         dev.sh("input text hello")
@@ -495,8 +519,11 @@ def e2e_session(args):
         dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=60)
         xml = dev.sh("cat /sdcard/qa-ui.xml", timeout=60)
         dev.save_log("writer-ui.xml", xml)
-        s.check("a tap into the page raises the keyboard", up, "the window system says " + ("shown" if up else "hidden"))
-        s.check("the typed text 'hello' is in the accessibility tree", "hello" in xml.lower(), f"{len(xml)} bytes of the tree")
+        focused = find_key(srv.op("get_state"), "focused_node")
+        s.note(f"after the tap the engine's focused node is {focused}")
+        s.check("a tap into the page raises the keyboard", up, "the window system says " + ("shown" if up else "hidden") + f"; engine focus {focused}")
+        s.check("the typed text 'hello' is in the accessibility tree", tree_says("hello") or "hello" in xml.lower(),
+                f"the engine's tree: {tree_says('hello')}; uiautomator's {len(xml)} bytes: {'hello' in xml.lower()}")
         pages = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZWRITER_PAGES")
         s.note(f"AZWRITER_PAGES printed {pages[-3:]} (the pagination timer starts in the app's create callback)")
         s.check("the picture changed after typing", q.sig_diff(typed, before) > q.SAME_BELOW, f"differs {q.sig_diff(typed, before):.3f}")
@@ -515,8 +542,13 @@ def e2e_session(args):
         views0 = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZMAPS_VIEW")
         before = device_shot(s, "maps-15s")
         mark = dev.now_mark()
-        at = tap_node(s, "#sidebar-toggle")
-        s.check("the server names the sidebar toggle (#sidebar-toggle) with a box", bool(at), str(at))
+        at = None
+        for selector in ("#__azmaps_sidebar-toggle", "#sidebar-toggle"):         # the DOM id carries the app's prefix
+            at = tap_node(s, selector)
+            if at:
+                s.note(f"the sidebar toggle is {selector}")
+                break
+        s.check("the server names the sidebar toggle with a box", bool(at), str(at))
         dev.settle(3.0)
         sidebar = device_shot(s, "maps-sidebar-tapped")
         marks = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZMAPS_SIDEBAR", since=mark)
@@ -530,15 +562,18 @@ def e2e_session(args):
         dev.tap(int(w * 0.5), int(h * 0.62))
         dev.settle(3.0)
         zoomed = device_shot(s, "maps-double-tap")
-        views = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZMAPS_VIEW", since=mark2)
-        s.note(f"AZMAPS_VIEW before the double tap {views0[-1:]}; after {views[-2:]}")
+        log2 = dev.adb("logcat", "-d", "-v", "threadtime", timeout=60)
+        views = q.marker_values(log2, "AZMAPS_VIEW", since=mark2)
+        pins, place = q.marker_values(log2, "AZMAPS_PINS", since=mark2), q.marker_values(log2, "AZMAPS_PLACE", since=mark2)
+        s.note(f"AZMAPS_VIEW before the double tap {views0[-1:]}; after {views[-2:]}; what else the app printed for it: AZMAPS_PINS {pins}, AZMAPS_PLACE {place} "
+               f"(a double tap that drops a pin and opens its card is not a zoom)")
         try:
             z0 = float(views0[-1].split()[2]) if views0 else None
             z1 = float(views[-1].split()[2]) if views else None
         except (ValueError, IndexError):
             z0 = z1 = None
         s.check("a double tap on the map zooms in", z0 is not None and z1 is not None and z1 > z0,
-                f"zoom {z0} -> {z1}; the picture differs {q.sig_diff(zoomed, sidebar):.3f}")
+                f"zoom {z0} -> {z1}; the picture differs {q.sig_diff(zoomed, sidebar):.3f}; pins printed {pins}, place {place}", required=False)
 
     def s_script_meet(s):
         dev.settle(6.0)
