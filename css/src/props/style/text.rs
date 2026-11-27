@@ -5799,7 +5799,7 @@ mod autotest_generated {
             assert_error_round_trip!(parse_style_text_transform, "", "smallcaps");
             assert_error_round_trip!(parse_style_direction, "", "sideways");
             assert_error_round_trip!(parse_style_user_select, "", "some");
-            assert_error_round_trip!(parse_style_text_decoration, "", "blink");
+            assert_error_round_trip!(parse_style_text_decoration, "", "wavy");
             assert_error_round_trip!(parse_style_vertical_align, "", "bogus");
             assert_error_round_trip!(parse_style_unicode_bidi, "", "override");
             assert_error_round_trip!(parse_style_text_box_trim, "", "trim");

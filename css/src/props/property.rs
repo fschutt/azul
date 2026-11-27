@@ -5240,7 +5240,7 @@ pub fn parse_combined_css_property(
             .map_err(CssParsingError::InvalidValue),
         FontSynthesis => crate::props::basic::font_shorthand::parse_font_synthesis_shorthand(value)
             .map_err(CssParsingError::InvalidValue),
-        TextDecoration => crate::props::style::text::parse_text_decoration_shorthand(value)
+        TextDecoration => parse_text_decoration_shorthand(value)
             .map_err(CssParsingError::InvalidValue),
         Columns => {
             let mut props = Vec::new();

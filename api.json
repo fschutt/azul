@@ -49976,36 +49976,14 @@
                         ],
                         "enum_fields": [
                             {
-                                "None": {
-                                    "doc": [
-                                        "No decoration"
-                                    ]
-                                },
+                                "None": {},
+                                "Underline": {},
+                                "Overline": {},
+                                "LineThrough": {},
                                 "UnderlineOverline": {},
                                 "UnderlineLineThrough": {},
                                 "OverlineLineThrough": {},
                                 "UnderlineOverlineLineThrough": {}
-                            },
-                            {
-                                "Underline": {
-                                    "doc": [
-                                        "Underline"
-                                    ]
-                                }
-                            },
-                            {
-                                "Overline": {
-                                    "doc": [
-                                        "Line above text"
-                                    ]
-                                }
-                            },
-                            {
-                                "LineThrough": {
-                                    "doc": [
-                                        "Strike-through line"
-                                    ]
-                                }
                             }
                         ],
                         "repr": "C"
