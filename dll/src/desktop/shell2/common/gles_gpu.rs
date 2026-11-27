@@ -43,6 +43,7 @@ use super::{
     egl_pure::{egl_error_name, EglInt, SwapError, EGL_PBUFFER_BIT, EGL_WINDOW_BIT},
     event::CommonWindowState,
     frame_stats::FrameStats,
+    gles_trace,
     gpu_lifecycle::{Action, Event, GpuLifecycle, Phase, Surface, TrimLevel},
     gpu_renderer::{self, GpuDevice, InitParams, TextRendering},
     gpu_select::{decide, Decision, FailPlan, GpuFallback, GpuRequest, GpuStage, Ran},
@@ -83,32 +84,18 @@ fn set_window_format(window: *mut c_void, format: EglInt) -> i32 {
 /// The first presents of a renderer that are described in the log.
 const DESCRIBED_PRESENTS: u32 = 3;
 
-/// The pixels of the bound framebuffer at five places (the centre and the four quarter points), as `#rrggbbaa` each: what WebRender
-/// left in the back buffer before the swap.
-fn sample_pixels(gl: &gl_context_loader::GenericGlContext, size: (u32, u32)) -> String {
-    gl.bind_framebuffer(azul_core::glconst::FRAMEBUFFER, 0);
-    let at = |x: u32, y: u32| {
-        let mut rgba = [0_u8; 4];
-        gl.read_pixels_into_buffer(
-            i32::try_from(x).unwrap_or(0),
-            i32::try_from(y).unwrap_or(0),
-            1,
-            1,
-            azul_core::glconst::RGBA,
-            azul_core::glconst::UNSIGNED_BYTE,
-            &mut rgba,
-        );
-        format!("#{:02x}{:02x}{:02x}{:02x}", rgba[0], rgba[1], rgba[2], rgba[3])
-    };
-    let (w, h) = (size.0.max(4), size.1.max(4));
-    format!(
-        "centre {} quarters {} {} {} {}",
-        at(w / 2, h / 2),
-        at(w / 4, h / 4),
-        at(3 * w / 4, h / 4),
-        at(w / 4, 3 * h / 4),
-        at(3 * w / 4, 3 * h / 4)
-    )
+/// Whether the driver self-test (`gles_trace::selftest`) was asked for: `AZ_GPU_SELFTEST=1`, read from the environment the app has (on
+/// a phone the system property `debug.az.env`). Only a build with the cargo feature `test-hooks` (the QA variant, never a shipped app)
+/// reads it; any other build runs no self-test and reads nothing.
+#[cfg(feature = "test-hooks")]
+fn selftest_requested() -> bool {
+    azul_css::env::EnvSource::var(&crate::env::ProcessEnv::new(), "AZ_GPU_SELFTEST")
+        .is_some_and(|value| !value.is_empty() && value != "0")
+}
+
+#[cfg(not(feature = "test-hooks"))]
+const fn selftest_requested() -> bool {
+    false
 }
 
 /// Where the path finds its libraries and what it makes its surfaces of.
@@ -685,16 +672,21 @@ impl GlesGpu {
             .clear_color(unit(colour.r), unit(colour.g), unit(colour.b), unit(colour.a));
         functions.context.clear(azul_core::glconst::COLOR_BUFFER_BIT);
         let size = session.surface_size().unwrap_or(self.size_px);
+        // What the clear left, read back before the swap: the window's framebuffer must hold the colour it was cleared to.
+        functions.context.bind_framebuffer(azul_core::glconst::FRAMEBUFFER, 0);
+        functions.context.finish();
+        let held = gles_trace::read_pixel(&functions.context, size.0 / 2, size.1 / 2);
         match session.swap(None, size.1) {
             Ok(()) => log_info!(
                 LogCategory::Rendering,
-                "[render] the window surface ({}x{} px) is cleared to #{:02x}{:02x}{:02x}{:02x} and shown while the first frame is made",
+                "[render] the window surface ({}x{} px) is cleared to #{:02x}{:02x}{:02x}{:02x} (reads back {}) and shown while the first frame is made",
                 size.0,
                 size.1,
                 colour.r,
                 colour.g,
                 colour.b,
-                colour.a
+                colour.a,
+                held
             ),
             Err(error) => log_warn!(
                 LogCategory::Rendering,
@@ -722,6 +714,11 @@ impl GlesGpu {
             return Err(GpuFallback::new(GpuStage::Functions, "no function table"));
         };
         let reports_damage = session.info().caps.buffer_age;
+        if selftest_requested() {
+            for line in gles_trace::selftest(&gl, self.size_px) {
+                log_info!(LogCategory::Rendering, "[render] selftest: {}", line);
+            }
+        }
         // The first surface is shown before WebRender is made (its programs compile in the first frame, seconds on a cold start).
         self.prime_surface(ctx);
         // A renderer made before had keys of its own: the window's registries are cleared for the new one.
@@ -827,6 +824,20 @@ impl GlesGpu {
             );
             self.note("first_gpu_frame_started", &format!("{}x{}", size.0, size.1));
         }
+        // WebRender takes the framebuffer that is bound when it begins a frame as its default (`Device::begin_frame`): the window's, and
+        // nothing may be bound for pixel reads.
+        if let Some(functions) = self.functions.as_ref() {
+            functions.context.bind_buffer(azul_core::glconst::PIXEL_PACK_BUFFER, 0);
+            functions.context.bind_framebuffer(azul_core::glconst::FRAMEBUFFER, 0);
+            if self.presents < DESCRIBED_PRESENTS {
+                log_info!(
+                    LogCategory::Rendering,
+                    "[render] before present {}: {}",
+                    self.presents + 1,
+                    gles_trace::state_line(&functions.context)
+                );
+            }
+        }
         let outcome = gpu_renderer::render_frame(ctx.common, size, age)?;
         // What the draw cost the loop's thread: WebRender's commands for the frame, before the swap that may wait for the display.
         let draw_us = u64::try_from(started.elapsed().as_micros()).ok();
@@ -835,7 +846,7 @@ impl GlesGpu {
             // What WebRender drew and what the framebuffer holds before the swap: a window that stays empty shows here whether the
             // frame was empty, drawn black, or lost after the swap.
             let (pixels, gl_error) = self.functions.as_ref().map_or((String::new(), 0), |f| {
-                (sample_pixels(&f.context, size), f.context.get_error())
+                (gles_trace::sample_pixels(&f.context, size), f.context.get_error())
             });
             log_info!(
                 LogCategory::Rendering,

@@ -24,6 +24,10 @@ pub mod error;
 pub mod gl_loader;
 /// What an OpenGL ES context says about itself, read as a decision: version, software or emulated, WebRender's minimum.
 pub mod gles_probe;
+/// What the GL context and the pixels of a frame say where a black window must be told from one that draws, and the driver
+/// self-test (`AZ_GPU_SELFTEST=1`): reads only.
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub mod gles_trace;
 /// The GPU path of a window that draws with OpenGL ES over EGL: the executor of the lifecycle reducer (Android; and Linux for
 /// its host test).
 #[cfg(any(target_os = "android", target_os = "linux"))]
