@@ -273,7 +273,8 @@ fn the_console_orders_the_gl_commands_around_the_background() {
 /// "It never costs you the window": WebRender asserts about its GL context in places, and a panic that leaves
 /// `display_tick` (an `extern "C"` function) ends the process. The two calls that can panic, making the renderer and
 /// drawing a frame, are caught and become the failure of their stage (`renderer`, `frame`): the machine then rebuilds
-/// once and falls back to the CPU renderer.
+/// once and falls back to the CPU renderer. This holds where panics unwind; the shipped profile is `panic = "abort"`,
+/// where `catch_unwind` is inert (the engine ledger G9 says so), and the guard is then the source's promise, not a protection.
 ///
 /// Mutation: either call made without `catch_unwind`.
 #[test]

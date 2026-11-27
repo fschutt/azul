@@ -499,7 +499,10 @@ impl IOSWindow {
             ..WindowCreateOptions::default()
         };
         // WebRender asserts about its GL context in places; a panic here is a GPU that cannot be used, not a reason to end the
-        // app: it becomes the stage's failure and the window is drawn on the CPU
+        // app: it becomes the stage's failure and the window is drawn on the CPU. ONLY WHERE PANICS UNWIND: the shipped profile is
+        // `panic = "abort"` (Cargo.toml), where this guard is inert and a WebRender assertion ends the process; what protects a
+        // shipped app is the `probe` stage (ES 3.0, texture size) and the `shaders` stage (the engine's programs compile), both
+        // before the first frame (engine ledger G9).
         let created = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             webrender::create_webrender_instance(
                 gl.clone(),
@@ -739,7 +742,7 @@ impl IOSWindow {
         self.common.app.startup().mark_once("frame:first_render_begin");
         let started = Instant::now();
         // a panic while drawing leaves WebRender in an unknown state: it is a lost context (one rebuild, which leaks this
-        // renderer without a GL command, then the CPU), not the end of the app
+        // renderer without a GL command, then the CPU), not the end of the app (where panics unwind: see the guard above)
         let results = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| renderer.render(size, 0))) {
             Ok(Ok(results)) => results,
             Ok(Err(errors)) => {
