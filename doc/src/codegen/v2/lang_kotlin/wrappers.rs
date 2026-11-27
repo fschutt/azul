@@ -1385,7 +1385,10 @@ fn emit_kt_field_accessors(
         };
         // The JNA field: declared under its (keyword-escaped) api.json name;
         // `writeField` takes the plain name.
-        let jf = sanitize_kt_identifier(&f.name);
+        // (The JVM field's spelling is `kt_ffi_field_name`'s: a struct field named like a property of JNA's
+        // `Structure`, `pointer` for one, is declared with an underscore after it.)
+        let jvm_name = super::kt_ffi_field_name(&f.name);
+        let jf = sanitize_kt_identifier(&jvm_name);
         // A tuple struct's `_0` camel-cases to `0`, which is no Kotlin
         // identifier: such a field keeps its own name (`_0`, JVM `get_0`).
         let camel = snake_to_lower_camel(&f.name);
@@ -1463,17 +1466,17 @@ fn emit_kt_field_accessors(
             FieldShape::Prim { is_bool: true, .. } => {
                 set_body.push(overlay.clone());
                 set_body.push(format!("__ov.{} = (if (v) 1 else 0).toByte()", jf));
-                set_body.push(format!("__ov.writeField(\"{}\")", f.name));
+                set_body.push(format!("__ov.writeField(\"{}\")", jvm_name));
             }
             FieldShape::Prim { .. } => {
                 set_body.push(overlay.clone());
                 set_body.push(format!("__ov.{} = v", jf));
-                set_body.push(format!("__ov.writeField(\"{}\")", f.name));
+                set_body.push(format!("__ov.writeField(\"{}\")", jvm_name));
             }
             FieldShape::Enum { .. } => {
                 set_body.push(overlay.clone());
                 set_body.push(format!("__ov.{} = v.value", jf));
-                set_body.push(format!("__ov.writeField(\"{}\")", f.name));
+                set_body.push(format!("__ov.writeField(\"{}\")", jvm_name));
             }
             FieldShape::Str { ffi, native, delete } => {
                 set_body.push("val __bytes = v.toByteArray(Charsets.UTF_8)".to_string());

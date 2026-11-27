@@ -61,8 +61,10 @@ printf '%s\n' "$badging" >"$out/badging.txt"
 floor_apk=""
 if [ "${AZ_FLOOR:-}" = 1 ]; then
   yes | sdkmanager --install "platforms;android-34" >>"$out/sdkmanager.log" 2>&1 || true
-  if JAVA_HOME="${JAVA_HOME_17_X64:-${JAVA_HOME:-}}" bash "$here/../floor-apk/build.sh" "$out/AzFloor-android.apk" >"$out/floor-build.log" 2>&1; then
-    floor_apk="$out/AzFloor-android.apk"
+  # an ABSOLUTE path: the floor script makes its work directory next to the APK and cd's into it (a relative demo-out/qa/floor-work.X broke the zip)
+  out_abs="$(cd "$out" && pwd)"
+  if JAVA_HOME="${JAVA_HOME_17_X64:-${JAVA_HOME:-}}" bash "$here/../floor-apk/build.sh" "$out_abs/AzFloor-android.apk" >"$out/floor-build.log" 2>&1; then
+    floor_apk="$out_abs/AzFloor-android.apk"
   else
     echo "the floor APK did not build:"; tail -n 8 "$out/floor-build.log"
   fi
@@ -103,7 +105,7 @@ for mode in "${mode_list[@]}"; do
   if [ "$session" = qa ] || [ "$session" = both ]; then
     python3 "$here/mobile_qa.py" android --out "$d" --apk "$apk" --package "$pkg" --activity "${act:-}" \
       --label "$label" --gpu "$mode" ${AZ_QA_POINTS:+--points "$AZ_QA_POINTS"} \
-      $( [ "$mode" = "${mode_list[0]}" ] && echo ${AZ_QA_SERIES:+--series "$AZ_QA_SERIES"} ${floor_apk:+--floor-apk "$floor_apk"} ) \
+      $( [ "$mode" = "${mode_list[0]}" ] && echo ${AZ_QA_SERIES:+--series "$AZ_QA_SERIES"} ${floor_apk:+--floor-apk "$floor_apk"} ${AZ_QA_STARTUP:+--startup} ) \
       ${AZ_QA_EXPECT_GPU:+--expect-gpu} ${AZ_QA_ONLY:+--only "$AZ_QA_ONLY"} 2>&1 | tee "$d/qa.log"
   fi
   # the e2e session runs on the FIRST mode only (it does not depend on how the emulator composes the window)
@@ -131,6 +133,7 @@ for mode in "${mode_list[@]}"; do
     done
   fi
   if [ "$session" = audit ] && [ "$mode" = "${mode_list[0]}" ]; then
+    aport=8795
     for aapk in "$apk" ${AZ_QA_AUDIT_APKS:-}; do
       ab="$("$aapt2" dump badging "$aapk" 2>/dev/null || true)"
       apkg="$(echo "$ab" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
@@ -141,8 +144,12 @@ for mode in "${mode_list[@]}"; do
       case "$an" in AzPaint-*) ascript=paint ;; AzWriter-*) ascript=writer ;; AzMaps-*) ascript=maps ;; AzMeet-*) ascript=meet ;; esac
       echo "---- phone-fit audit of $an ($apkg)${ascript:+, script $ascript}"
       mkdir -p "$d/audit"
-      python3 "$here/mobile_e2e.py" android --out "$d/audit/$an" --apk "$aapk" --package "$apkg" --activity "${aact:-}" \
+      # one port per app, and the app of the session before is stopped: a debug server of the app before that still held the port
+      # would answer for the app in front of it (the audit of the wrong DOM)
+      python3 "$here/mobile_e2e.py" android --out "$d/audit/$an" --apk "$aapk" --package "$apkg" --activity "${aact:-}" --port "$aport" \
         --label "$an" --audit-only ${ascript:+--script "$ascript"} 2>&1 | tee "$d/audit/$an.log"
+      adb shell am force-stop "$apkg" >/dev/null 2>&1 || true
+      aport=$((aport + 1))
     done
   fi
   adb emu kill >/dev/null 2>&1 || true

@@ -324,82 +324,255 @@ pub struct UnderlinePlace {
     pub side: UnderlineSide,
 }
 
-/// The lines drawn over the text of a run (`text-decoration`), and how each kind is painted.
+/// A kind of line of a [`TextDecoration`] (`text-decoration-line`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LineKind {
+    /// Under the text.
+    Underline,
+    /// Through the text.
+    Strikethrough,
+    /// Over the text.
+    Overline,
+}
+
+/// Where a [`DecorationLine`] stands: on the baseline of the run it is drawn under, or on the
+/// baseline of a box around it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum LineStand {
+    /// The box of the run's own text sets the line: it stands on the baseline of the run and is a
+    /// part of the font size of the run.
+    #[default]
+    Run,
+    /// A box around the box of the run's own text sets the line, which is then drawn in the font
+    /// size and on the baseline of THAT box (CSS Text Decoration 3, 2.1: the line is the
+    /// decorating box's): a smaller or a raised box inside it does not move the line.
+    Around {
+        /// How far the baseline of that box is raised over the baseline of the line
+        /// (`vertical-align`), in px; `None` for an alignment that is no plain raise (`top`,
+        /// `middle`, ...), where the line stands on the baseline of the run.
+        raise: Option<azul_css::props::basic::FloatValue>,
+        /// How far BELOW the baseline of the run the baseline of that box is, in px: the raise of
+        /// the run less the raise of the box, `0` where either is no plain raise. The line of a
+        /// box around a superscript stands this far under the baseline of the superscript.
+        drop: azul_css::props::basic::FloatValue,
+    },
+}
+
+/// One line a box draws over the text under it (`text-decoration`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DecorationLine {
+    /// Under, through or over the text.
+    pub kind: LineKind,
+    /// How the line is painted: the paint of the box that sets it.
+    pub paint: LinePaint,
+    /// Where an underline is (the place of any other line is `UnderlinePlace::default`).
+    pub place: UnderlinePlace,
+    /// The font size of the box that sets the line, in px, a zoom applied: what the place of the
+    /// line and its `auto` thickness are parts of when it stands on the baseline of a box around
+    /// the run. `0` for a line no box of a document sets: the font size of the run.
+    pub font_size: azul_css::props::basic::FloatValue,
+    /// Whether the line is the run's own box's or a box around it.
+    pub stand: LineStand,
+}
+
+impl DecorationLine {
+    /// A line of `kind` that no box of a document sets (the editor's, the text API's): in the
+    /// colour of the text, in the font size of the run it is under and on its baseline.
+    #[must_use]
+    pub fn plain(kind: LineKind) -> Self {
+        Self {
+            kind,
+            paint: LinePaint::default(),
+            place: UnderlinePlace::default(),
+            font_size: azul_css::props::basic::FloatValue::default(),
+            stand: LineStand::Run,
+        }
+    }
+
+    /// This line as the line of a box around a run raised by `own_raise` px: the line of the box
+    /// of the run's own text, whose raise is `box_raise`, or - for a line that stands on the
+    /// baseline of a box around already - the line with the raise it has; the two raises make
+    /// its `drop`.
+    fn seen_from(mut self, own_raise: Option<f32>, box_raise: Option<f32>) -> Self {
+        use azul_css::props::basic::FloatValue;
+
+        let raise = match self.stand {
+            LineStand::Run => box_raise.map(FloatValue::new),
+            LineStand::Around { raise, .. } => raise,
+        };
+        // The raises are compared as the thousandths of a px they are kept in: the same raise
+        // twice makes no drop.
+        let drop = match (own_raise, raise) {
+            (Some(own), Some(boxed)) => FloatValue::new(FloatValue::new(own).get() - boxed.get()),
+            _ => FloatValue::default(),
+        };
+        self.stand = LineStand::Around { raise, drop };
+        self
+    }
+
+    /// Whether this line, a line of the run's own box, is drawn where `other`, the line of a box
+    /// around, would be: the same line, or the same kind, paint, place and size on the baseline
+    /// of the run. It is then one line.
+    fn covers(&self, other: &Self) -> bool {
+        if self == other {
+            return true;
+        }
+        matches!(self.stand, LineStand::Run)
+            && matches!(
+                other.stand,
+                LineStand::Around { drop, .. } if drop == azul_css::props::basic::FloatValue::default()
+            )
+            && self.kind == other.kind
+            && self.paint == other.paint
+            && self.place == other.place
+            && self.font_size == other.font_size
+    }
+}
+
+/// The lines drawn over the text of a run (`text-decoration`): one for every box that sets one
+/// and reaches the run, the line of the outermost box first (the order they are painted in).
 ///
-/// Each kind has the paint of the box that sets it, so that an underline of one box and a
-/// line-through of another are two lines of two paints under one run. The paint of a kind that is
-/// off is [`LinePaint::default`]; the place of the underline goes with the underline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+/// Every line has the paint of the box that sets it, and stands on the baseline of the run or on
+/// the one of the box ([`LineStand`]): the line of a box inside does not take the place of the
+/// line of the box around it. The lines are shared (`Arc`): a run without any costs a pointer.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct TextDecoration {
-    pub underline: bool,
-    pub strikethrough: bool,
-    pub overline: bool,
-    /// How the underline is painted.
-    pub underline_paint: LinePaint,
-    /// How the line-through is painted.
-    pub strikethrough_paint: LinePaint,
-    /// How the overline is painted.
-    pub overline_paint: LinePaint,
-    /// Where the underline is (the place of a line that is off is `UnderlinePlace::default`).
-    pub underline_place: UnderlinePlace,
+    /// `None` for no line, never an empty list.
+    lines: Option<Arc<[DecorationLine]>>,
 }
 
 impl TextDecoration {
-    /// Both sets of lines: a run's own (`self`) and those it carries from the boxes around it
-    /// (`outer`, `solver3::getters::propagated_text_decoration`). A kind both set is the inner
-    /// box's, with its paint.
-    #[must_use]
-    pub const fn with(self, outer: Self) -> Self {
-        let (underline, underline_paint, underline_place) = if self.underline {
-            (true, self.underline_paint, self.underline_place)
+    fn of(lines: Vec<DecorationLine>) -> Self {
+        if lines.is_empty() {
+            Self::default()
         } else {
-            (outer.underline, outer.underline_paint, outer.underline_place)
-        };
-        let (strikethrough, strikethrough_paint) = if self.strikethrough {
-            (true, self.strikethrough_paint)
-        } else {
-            (outer.strikethrough, outer.strikethrough_paint)
-        };
-        let (overline, overline_paint) = if self.overline {
-            (true, self.overline_paint)
-        } else {
-            (outer.overline, outer.overline_paint)
-        };
-        Self {
-            underline,
-            strikethrough,
-            overline,
-            underline_paint,
-            strikethrough_paint,
-            overline_paint,
-            underline_place,
+            Self {
+                lines: Some(lines.into()),
+            }
         }
+    }
+
+    /// The lines, the outermost box's first.
+    #[must_use]
+    pub fn lines(&self) -> &[DecorationLine] {
+        self.lines.as_deref().unwrap_or(&[])
     }
 
     /// Whether any kind of line is on.
     #[must_use]
     pub const fn has_lines(&self) -> bool {
-        self.underline || self.strikethrough || self.overline
+        self.lines.is_some()
     }
 
-    /// These lines, each kind that is on painted as `paint` says.
+    /// Whether a line of `kind` is on.
     #[must_use]
-    pub const fn painted(self, paint: LinePaint) -> Self {
-        Self {
-            underline_paint: if self.underline { paint } else { self.underline_paint },
-            strikethrough_paint: if self.strikethrough { paint } else { self.strikethrough_paint },
-            overline_paint: if self.overline { paint } else { self.overline_paint },
-            ..self
+    pub fn has(&self, kind: LineKind) -> bool {
+        self.lines().iter().any(|line| line.kind == kind)
+    }
+
+    /// Whether an underline is on.
+    #[must_use]
+    pub fn underline(&self) -> bool {
+        self.has(LineKind::Underline)
+    }
+
+    /// Whether a line-through is on.
+    #[must_use]
+    pub fn strikethrough(&self) -> bool {
+        self.has(LineKind::Strikethrough)
+    }
+
+    /// Whether an overline is on.
+    #[must_use]
+    pub fn overline(&self) -> bool {
+        self.has(LineKind::Overline)
+    }
+
+    /// These lines with the lines of `kind` on - a plain line of it, when there is none - or off.
+    #[must_use]
+    pub fn with_kind(&self, kind: LineKind, on: bool) -> Self {
+        if self.has(kind) == on {
+            return self.clone();
         }
+        let mut lines: Vec<DecorationLine> = self
+            .lines()
+            .iter()
+            .filter(|line| line.kind != kind)
+            .copied()
+            .collect();
+        if on {
+            lines.push(DecorationLine::plain(kind));
+        }
+        Self::of(lines)
+    }
+
+    /// The lines of a run: those of its own box (`self`) and those of the boxes around it
+    /// (`outer`), the outermost first. Every decorating box draws its line (CSS Text Decoration
+    /// 3, 2.1): the line of a box inside does not take the place of the line of the box around
+    /// it, as it did.
+    ///
+    /// `own_raise` is how far `vertical-align` raises the run over the baseline of its line and
+    /// `outer_raise` how far it raises the box `outer` is the lines of
+    /// ([`VerticalAlign::plain_raise`]), so that a line of a box around stands on the baseline of
+    /// that box. A line of `outer` that the run's own box sets as well, in the same place, is
+    /// that line.
+    #[must_use]
+    pub fn within(&self, own_raise: Option<f32>, outer: &Self, outer_raise: Option<f32>) -> Self {
+        if !outer.has_lines() {
+            return self.clone();
+        }
+        let inner: Vec<DecorationLine> = self
+            .lines()
+            .iter()
+            .map(|line| match line.stand {
+                LineStand::Run => *line,
+                LineStand::Around { .. } => line.seen_from(own_raise, None),
+            })
+            .collect();
+        let mut lines: Vec<DecorationLine> =
+            Vec::with_capacity(inner.len() + outer.lines().len());
+        for line in outer.lines() {
+            let line = line.seen_from(own_raise, outer_raise);
+            if !inner.iter().any(|own| own.covers(&line)) && !lines.contains(&line) {
+                lines.push(line);
+            }
+        }
+        lines.extend(inner);
+        Self::of(lines)
+    }
+
+    /// These lines, each painted as `paint` says.
+    #[must_use]
+    pub fn painted(self, paint: LinePaint) -> Self {
+        self.changed(|line| line.paint = paint)
     }
 
     /// These lines, the underline - if it is on - at `place`.
     #[must_use]
-    pub const fn placed(self, place: UnderlinePlace) -> Self {
-        Self {
-            underline_place: if self.underline { place } else { self.underline_place },
-            ..self
+    pub fn placed(self, place: UnderlinePlace) -> Self {
+        self.changed(|line| {
+            if line.kind == LineKind::Underline {
+                line.place = place;
+            }
+        })
+    }
+
+    /// These lines as the lines of a box whose font size is `font_size_px`.
+    #[must_use]
+    pub fn sized(self, font_size_px: f32) -> Self {
+        let size = azul_css::props::basic::FloatValue::new(font_size_px);
+        self.changed(|line| line.font_size = size)
+    }
+
+    fn changed(self, change: impl Fn(&mut DecorationLine)) -> Self {
+        if !self.has_lines() {
+            return self;
         }
+        let mut lines = self.lines().to_vec();
+        for line in &mut lines {
+            change(line);
+        }
+        Self::of(lines)
     }
 
     /// Convert from CSS `StyleTextDecoration` enum to our internal representation.
@@ -412,18 +585,15 @@ impl TextDecoration {
         use azul_css::props::style::text::StyleTextDecoration;
         match css {
             StyleTextDecoration::None => Self::default(),
-            StyleTextDecoration::Underline => Self {
-                underline: true,
-                ..Self::default()
-            },
-            StyleTextDecoration::Overline => Self {
-                overline: true,
-                ..Self::default()
-            },
-            StyleTextDecoration::LineThrough => Self {
-                strikethrough: true,
-                ..Self::default()
-            },
+            StyleTextDecoration::Underline => {
+                Self::of(vec![DecorationLine::plain(LineKind::Underline)])
+            }
+            StyleTextDecoration::Overline => {
+                Self::of(vec![DecorationLine::plain(LineKind::Overline)])
+            }
+            StyleTextDecoration::LineThrough => {
+                Self::of(vec![DecorationLine::plain(LineKind::Strikethrough)])
+            }
         }
     }
 }
@@ -1105,7 +1275,7 @@ impl StyleProperties {
             new_style.line_height = val;
         }
         if let Some(val) = &partial.text_decoration {
-            new_style.text_decoration = *val;
+            new_style.text_decoration = val.clone();
         }
         if let Some(val) = &partial.font_features {
             new_style.font_features.clone_from(val);

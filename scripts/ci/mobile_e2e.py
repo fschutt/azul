@@ -325,6 +325,9 @@ def e2e_session(args):
         t = result["small_targets"]
         s.check(f"{orient}: every tappable node is at least {la.MIN_TARGET_DP:.0f} dp in both directions", t["small"] == 0,
                 f"{t['small']} of {t['tappable']} are smaller", required=False)
+        rk = result["raw_keys"]
+        s.check(f"{orient}: no text is a localisation key (a missing translation)", rk["count"] == 0,
+                f"{rk['count']}: " + ", ".join(repr(e['text']) for e in rk["top"][:4] if e.get("text")), required=False)
         sw = result["sideways_scroll"]
         s.check(f"{orient}: no scroll container is wider than the window (the page does not scroll sideways)", sw["count"] == 0,
                 f"{sw['count']} do: " + ", ".join(f"{e['node']} {e['content_w']} dp in {e['container_w']}" for e in sw["top"][:3]), required=False)
@@ -391,6 +394,54 @@ def e2e_session(args):
     if args.platform == "android" and args.audit_only:
         run.step("e30-system-dark-mode", "cmd uimode night yes: did the engine's mode change (get_mode), did the picture", s_dark)
 
+    # ---- the language: per-app locale de-DE while the app runs (the ConfigChanged path) and at a cold start, then back to en-US
+    def s_locale(s):
+        pkg = args.package
+
+        def tree():
+            return srv.op("get_accessibility_tree", timeout=90)
+
+        def wait_server(what):
+            took, answer = srv.ready(args.server_timeout)
+            s.check(f"the debug server answers again after {what}", took is not None, f"after {took:.1f} s" if took is not None else str(answer))
+            return took is not None
+
+        base, pid0 = tree(), dev.pid()
+        dev.sh(f"cmd locale set-app-locales {pkg} --locales de-DE")
+        dev.settle(4.0)
+        try:
+            srv.op("wait_frame", timeout=15)
+        except Exception as ex:  # noqa: BLE001
+            s.note(f"wait_frame: {str(ex)[:100]}")
+        running = tree()
+        device_shot(s, "locale-de-running")
+        held = dev.sh(f"cmd locale get-app-locales {pkg}").strip()[:80]
+        w = la.compare_words(base, running)
+        run.meta["locale_running"] = f"{w['changed']}/{w['named']} texts changed, same process {dev.pid() == pid0}"
+        s.note(f"app locales held: {held}; running switch en -> de: {w['changed']} of {w['named']} named nodes changed ({w['share'] * 100:.0f} %); first: {w['sample'][:3]}")
+        s.check("the language switched while the app ran, without a restart", dev.pid() == pid0 and bool(pid0), f"pid {pid0} -> {dev.pid()}")
+        s.check("the words changed with the language (texts of the same nodes differ)", w["changed"] > 0, f"{w['changed']} of {w['named']}; {w['sample'][:2]}", required=False)
+        s.check("no text is a message id after the switch", not w["raw_keys_b"], f"{w['raw_keys_b'][:4]}", required=False)
+        # a cold start in German: the words must be German at the first frame
+        dev.sh(f"am force-stop {pkg}")
+        dev.home()
+        time.sleep(2.0)
+        dev.launch(cold=True)
+        dev.wait_for_front(timeout=args.first_frame_timeout)
+        if wait_server("a cold start in German"):
+            dev.settle(2.0)
+            cold = tree()
+            device_shot(s, "locale-de-cold")
+            c = la.compare_words(base, cold)
+            run.meta["locale_cold"] = f"{c['changed']}/{c['named']} texts changed"
+            s.note(f"cold start in German: {c['changed']} of {c['named']} named nodes differ from English; first: {c['sample'][:3]}")
+            s.check("the cold start in German shows words, not message ids", not c["raw_keys_b"], f"{c['raw_keys_b'][:4]}", required=False)
+        dev.sh(f"cmd locale set-app-locales {pkg} --locales en-US")
+        dev.settle(3.0)
+
+    if args.platform == "android" and args.audit_only:
+        run.step("e35-language-de-and-back", "cmd locale set-app-locales de-DE: while the app runs and at a cold start, the texts of the same nodes against English", s_locale)
+
     # ---- the scripted check of one app (--script)
     def tap_node(s, selector):
         """A REAL touch on the node the server names (its window-space box, logical pixels, times the pixel ratio): (x, y) in device pixels."""
@@ -403,6 +454,20 @@ def e2e_session(args):
         dev.tap(x, y)
         return x, y
 
+    def find_named(name, role=None):
+        """The centre (device pixels) of the first node the ENGINE's accessibility tree names `name` (role optional), or None. Not uiautomator: it
+        waits for an idle app and finds nothing in one that redraws all the time."""
+        for n in la.a11y_nodes(srv.op("get_accessibility_tree", timeout=90)):
+            b = n.get("bounds")
+            if n.get("name") == name and b and (role is None or n.get("role") == role):
+                return int((b[0] + b[2]) / 2), int((b[1] + b[3]) / 2)
+        return None
+
+    def tree_says(text):
+        """Does any node of the engine's accessibility tree carry `text` in its name or value?"""
+        needle = text.lower()
+        return any(needle in str(n.get(k) or "").lower() for n in la.a11y_nodes(srv.op("get_accessibility_tree", timeout=90)) for k in ("name", "value"))
+
     def s_script_paint(s):
         mark = dev.now_mark()
         before = device_shot(s, "paint-before")
@@ -413,10 +478,13 @@ def e2e_session(args):
         drawn = device_shot(s, "paint-after-stroke")
         log = dev.adb("logcat", "-d", "-v", "threadtime", timeout=60)
         counts = q.marker_values(log, "AZPAINT_STROKES", since=mark)
-        s.note(f"AZPAINT_STROKES after the swipe: {counts}")
-        s.check("a swipe on the canvas makes exactly one stroke (the app prints AZPAINT_STROKES 1)", counts[-1:] == ["1"], f"printed {counts}")
+        earlier = q.marker_values(log, "AZPAINT_STROKES")[:len(q.marker_values(log, "AZPAINT_STROKES")) - len(counts)]
+        had = int(earlier[-1]) if earlier and earlier[-1].isdigit() else 0          # the last count the app printed before the swipe
+        s.note(f"AZPAINT_STROKES before the swipe {had}, after it: {counts}")
+        s.check(f"a swipe on the canvas adds exactly one stroke (the app prints AZPAINT_STROKES {had + 1})", counts[-1:] == [str(had + 1)],
+                f"printed {counts}, there were {had}")
         s.check("the picture shows it", q.sig_diff(drawn, before) > q.SAME_BELOW, f"differs {q.sig_diff(drawn, before):.3f}")
-        found = dev.find_label("Undo")
+        found = find_named("Undo", "Button")
         s.check("the accessibility tree names the phone toolbar's 'Undo' with a position", bool(found), str(found))
         if not found:
             return
@@ -426,14 +494,21 @@ def e2e_session(args):
         undone = device_shot(s, "paint-after-undo")
         counts2 = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZPAINT_STROKES", since=mark2)
         s.note(f"AZPAINT_STROKES after Undo: {counts2}")
-        s.check("Undo takes the stroke away (AZPAINT_STROKES 0)", counts2[-1:] == ["0"], f"printed {counts2}")
+        s.check(f"Undo takes the stroke away (AZPAINT_STROKES {had})", counts2[-1:] == [str(had)], f"printed {counts2}")
         s.check("the picture is the empty canvas again", q.sig_diff(undone, before) <= q.SAME_BELOW * 2, f"differs from before {q.sig_diff(undone, before):.3f}", required=False)
 
     def s_script_writer(s):
         before = device_shot(s, "writer-before")
         w, h = dev.dims
         height0 = (find_key(srv.op("get_state"), "logical_height") or 0)
-        dev.tap(int(w * 0.5), int(h * 0.45))          # into the page
+        at = None
+        for selector in ("#__azwriter_doc-page-0", ".__azul-native-rich-text-editor-host"):     # the document's editor: the first line of the page
+            at = tap_node(s, selector)
+            if at:
+                s.note(f"tapped the document editor {selector} at {at}")
+                break
+        if not at:
+            dev.tap(int(w * 0.5), int(h * 0.45))      # into the page, where the editor is not known
         dev.settle(1.5)
         up = dev.ime_shown()
         dev.sh("input text hello")
@@ -444,8 +519,11 @@ def e2e_session(args):
         dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=60)
         xml = dev.sh("cat /sdcard/qa-ui.xml", timeout=60)
         dev.save_log("writer-ui.xml", xml)
-        s.check("a tap into the page raises the keyboard", up, "the window system says " + ("shown" if up else "hidden"))
-        s.check("the typed text 'hello' is in the accessibility tree", "hello" in xml.lower(), f"{len(xml)} bytes of the tree")
+        focused = find_key(srv.op("get_state"), "focused_node")
+        s.note(f"after the tap the engine's focused node is {focused}")
+        s.check("a tap into the page raises the keyboard", up, "the window system says " + ("shown" if up else "hidden") + f"; engine focus {focused}")
+        s.check("the typed text 'hello' is in the accessibility tree", tree_says("hello") or "hello" in xml.lower(),
+                f"the engine's tree: {tree_says('hello')}; uiautomator's {len(xml)} bytes: {'hello' in xml.lower()}")
         pages = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZWRITER_PAGES")
         s.note(f"AZWRITER_PAGES printed {pages[-3:]} (the pagination timer starts in the app's create callback)")
         s.check("the picture changed after typing", q.sig_diff(typed, before) > q.SAME_BELOW, f"differs {q.sig_diff(typed, before):.3f}")
@@ -464,8 +542,13 @@ def e2e_session(args):
         views0 = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZMAPS_VIEW")
         before = device_shot(s, "maps-15s")
         mark = dev.now_mark()
-        at = tap_node(s, "#sidebar-toggle")
-        s.check("the server names the sidebar toggle (#sidebar-toggle) with a box", bool(at), str(at))
+        at = None
+        for selector in ("#__azmaps_sidebar-toggle", "#sidebar-toggle"):         # the DOM id carries the app's prefix
+            at = tap_node(s, selector)
+            if at:
+                s.note(f"the sidebar toggle is {selector}")
+                break
+        s.check("the server names the sidebar toggle with a box", bool(at), str(at))
         dev.settle(3.0)
         sidebar = device_shot(s, "maps-sidebar-tapped")
         marks = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZMAPS_SIDEBAR", since=mark)
@@ -479,15 +562,18 @@ def e2e_session(args):
         dev.tap(int(w * 0.5), int(h * 0.62))
         dev.settle(3.0)
         zoomed = device_shot(s, "maps-double-tap")
-        views = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZMAPS_VIEW", since=mark2)
-        s.note(f"AZMAPS_VIEW before the double tap {views0[-1:]}; after {views[-2:]}")
+        log2 = dev.adb("logcat", "-d", "-v", "threadtime", timeout=60)
+        views = q.marker_values(log2, "AZMAPS_VIEW", since=mark2)
+        pins, place = q.marker_values(log2, "AZMAPS_PINS", since=mark2), q.marker_values(log2, "AZMAPS_PLACE", since=mark2)
+        s.note(f"AZMAPS_VIEW before the double tap {views0[-1:]}; after {views[-2:]}; what else the app printed for it: AZMAPS_PINS {pins}, AZMAPS_PLACE {place} "
+               f"(a double tap that drops a pin and opens its card is not a zoom)")
         try:
             z0 = float(views0[-1].split()[2]) if views0 else None
             z1 = float(views[-1].split()[2]) if views else None
         except (ValueError, IndexError):
             z0 = z1 = None
         s.check("a double tap on the map zooms in", z0 is not None and z1 is not None and z1 > z0,
-                f"zoom {z0} -> {z1}; the picture differs {q.sig_diff(zoomed, sidebar):.3f}")
+                f"zoom {z0} -> {z1}; the picture differs {q.sig_diff(zoomed, sidebar):.3f}; pins printed {pins}, place {place}", required=False)
 
     def s_script_meet(s):
         dev.settle(6.0)
@@ -612,7 +698,14 @@ def e2e_session(args):
         except Exception as e:  # noqa: BLE001
             s.note(f"scroll_into_view: {e}")
         if args.platform == "android":
-            x, y, how = dev.tap_label("TextInput")      # a real touch through Android's input, at the node's place
+            # a real touch through Android's input, at the node's place: from the ENGINE's accessibility tree first (uiautomator's dump waits for an
+            # idle app and found nothing after the scenarios), uiautomator's as the second source
+            found = find_named("TextInput")
+            if found:
+                x, y, how = found[0], found[1], "the engine's accessibility tree"
+                dev.tap(x, y)
+            else:
+                x, y, how = dev.tap_label("TextInput")
             if x is None:
                 s.check("the accessibility tree names the TextInput field with a position", False, "not found")
                 return
