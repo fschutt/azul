@@ -620,7 +620,11 @@ def e2e_session(args):
                                                                       "answers": [{"op": o, "answer": a} for o, a in answers]}), encoding="utf-8")
         dev.settle(1.5)
         after = device_shot(s, "after-touch-swipe")
-        s.check("an in-process touch swipe scrolls the page", q.sig_diff(after, before) > q.SAME_BELOW, f"differs {q.sig_diff(after, before):.3f}")
+        # The server's touch ops only rewrite the window's touch state: the engine turns that into touch CALLBACKS. The one-finger pan that scrolls a
+        # page exists in the shells' real-finger paths (the Android shell's drain_input, the iOS touches), so an in-process swipe scrolls nothing on
+        # any platform (found by the Android shell agent): informational. The real finger of this step is the adb swipe below.
+        s.check("an in-process touch swipe scrolls the page (it does not by design: the pan lives in the shells' finger paths)", q.sig_diff(after, before) > q.SAME_BELOW,
+                f"differs {q.sig_diff(after, before):.3f}", required=False)
         st1 = srv.op("get_scroll_states")
         (run.logs_dir / "scroll-after.json").write_text(json.dumps(st1), encoding="utf-8")
         s.check("the scroll states changed", st1 != st0, "", required=False)
@@ -638,10 +642,15 @@ def e2e_session(args):
             except Exception as ex:  # noqa: BLE001
                 s.note(f"scroll_node_by: {str(ex)[:120]}")
         if args.platform == "android":
-            dev.swipe(w * 0.5, h * 0.3, w * 0.5, h * 0.7, 350)   # a real finger the other way, through the OS
+            # a real finger through the OS: up (the page scrolls down), then down again (it comes back)
+            dev.swipe(w * 0.5, h * 0.7, w * 0.5, h * 0.3, 350)
             dev.settle(1.5)
-            back = device_shot(s, "after-adb-swipe")
-            s.check("an adb swipe (a real touch through Android's input) scrolls it back", q.sig_diff(back, after) > q.SAME_BELOW, f"differs {q.sig_diff(back, after):.3f}")
+            down = device_shot(s, "after-adb-swipe-up")
+            s.check("an adb swipe up (a real touch through Android's input) scrolls the page", q.sig_diff(down, after) > q.SAME_BELOW, f"differs {q.sig_diff(down, after):.3f}")
+            dev.swipe(w * 0.5, h * 0.3, w * 0.5, h * 0.7, 350)
+            dev.settle(1.5)
+            back = device_shot(s, "after-adb-swipe-back")
+            s.check("an adb swipe down scrolls it back", q.sig_diff(back, down) > q.SAME_BELOW, f"differs {q.sig_diff(back, down):.3f}")
 
     full_step("e05-touch", "in-process touch events as a swipe (and on Android a real one through adb)", s_touch)
 
