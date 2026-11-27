@@ -15,6 +15,8 @@ not reach (or that the platform has no equivalent of) is a grey cell that says s
   5-cpu-against-gpu           AZ_BACKEND cpu / gpu / auto and the pixel diff of cpu against gpu
   6-phone-fit                 (only with --sheet 6-phone-fit, columns = the apps of an audit run: <out>/audit/<app>/shots) the engine's
                               frame and the device's frame of portrait and landscape, and the dark mode as the device shows it
+  7-six-apps                  (only with --six-app NAME=<android shots dir>,<ios shots dir>, once per app) one row per app: Android CPU, GPU,
+                              landscape and dark mode, then iOS CPU, GPU, landscape (turned upright) and dark appearance
 A cell is the picture at 216 x 480; the full pictures stay in the runs' shots/ directories.
 """
 import argparse
@@ -100,8 +102,12 @@ def find_shot(shots_dir, stems):
     return None
 
 
-def cell(shot, caption, work, name, missing_text):
+def cell(shot, caption, work, name, missing_text, rotate=0):
     out = work / f"{name}.png"
+    if shot is not None and rotate:
+        turned = work / f"{name}-turned.png"
+        magick(shot, "-rotate", rotate, turned)      # the Simulator's screenshot of a landscape app is the portrait framebuffer, sideways
+        shot = turned
     if shot is None:
         magick("-size", f"{CELL_W}x{CELL_H}", "xc:#383838", "-fill", "#aaaaaa", "-gravity", "center", "-pointsize", "14",
                "-annotate", "+0+0", missing_text, out)
@@ -152,6 +158,44 @@ def build(out_dir, columns, only=None):
     return made
 
 
+# row of the six-apps sheet: (caption, platform, stems, degrees to turn the picture)
+SIX_APP_CELLS = [
+    ("Android CPU", "android", ["AZ_BACKEND-cpu", "portrait"], 0),
+    ("Android GPU", "android", ["AZ_BACKEND-gpu"], 0),
+    ("Android landscape", "android", ["landscape"], 0),
+    ("Android dark", "android", ["system-dark"], 0),
+    ("iOS CPU", "ios", ["AZ_BACKEND-cpu", "portrait"], 0),
+    ("iOS GPU", "ios", ["AZ_BACKEND-gpu"], 0),
+    ("iOS landscape", "ios", ["landscape"], -90),
+    ("iOS dark", "ios", ["dark"], 0),
+]
+
+
+def build_six_apps(out_dir, apps):
+    """apps = [(name, android shots dir or '', ios shots dir or '')] -> contact-sheet-7-six-apps.png"""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="azgallery-"))
+    rows = []
+    for ri, (name, android_dir, ios_dir) in enumerate(apps):
+        parts = []
+        for ci, (caption, platform, stems, rotate) in enumerate(SIX_APP_CELLS):
+            directory = android_dir if platform == "android" else ios_dir
+            shot = find_shot(directory, stems) if directory else None
+            parts.append(cell(shot, caption, work, f"six-{ri}-{ci}", "no picture of this step in this run", rotate=rotate))
+        strip = work / f"six-{ri}-strip.png"
+        magick(*parts, "+append", strip)
+        label = work / f"six-{ri}-label.png"
+        magick("-size", "150x" + str(CELL_H + 26), "xc:#101010", "-fill", "white", "-gravity", "center", "-pointsize", "17", "-annotate", "+0+0", name, label)
+        row = work / f"six-{ri}-row.png"
+        magick(label, strip, "+append", row)
+        rows.append(row)
+    sheet = out_dir / "contact-sheet-7-six-apps.png"
+    magick(*rows, "-append", sheet)
+    print("wrote", sheet)
+    return sheet
+
+
 def wrap(text, width):
     words, lines, cur = text.replace("/", "/ ").split(), [], ""
     for w in words:
@@ -167,14 +211,25 @@ def wrap(text, width):
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--column", action="append", required=True, help='"title=path/to/shots"')
+    ap.add_argument("--column", action="append", default=[], help='"title=path/to/shots"')
+    ap.add_argument("--six-app", action="append", default=[], help='"AzMaps=<android shots dir>,<ios shots dir>" (either may be empty): the six-apps sheet')
     ap.add_argument("--sheet", action="append", default=[], help="only this sheet (its name, e.g. 6-phone-fit); default: every sheet but 6-phone-fit")
     args = ap.parse_args(argv)
     cols = []
     for c in args.column:
         title, _, path = c.rpartition("=")
         cols.append((title, path))
-    build(args.out, cols, only=args.sheet or None)
+    if cols:
+        build(args.out, cols, only=args.sheet or None)
+    if args.six_app:
+        apps = []
+        for a in args.six_app:
+            name, _, dirs = a.partition("=")
+            android_dir, _, ios_dir = dirs.partition(",")
+            apps.append((name, android_dir, ios_dir))
+        build_six_apps(args.out, apps)
+    if not cols and not args.six_app:
+        ap.error("give --column (the lifecycle sheets) or --six-app (the six-apps sheet)")
     return 0
 
 

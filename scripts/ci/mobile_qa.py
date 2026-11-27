@@ -248,7 +248,7 @@ FALLBACK_LINE = re.compile(r"\[render\] gpu unavailable at (\w+): (.*?); drawing
 # The GPU path's first picture: iOS says `[iOS GPU] first frame 1206x2622: ...`, and every phone writes `[render] frames n=..` lines while
 # frames follow one another. On a software GL the first GL frame comes 9-10 s after the start (every WebRender shader is compiled at first
 # use) and the window is BLACK until then: a screenshot before that line is not a picture of the GPU path.
-GPU_FIRST_FRAME = re.compile(r"\[(?:iOS|Android) GPU\] first frame \d+x\d+|\[render\] frames n=\d+")
+GPU_FIRST_FRAME = re.compile(r"\[(?:iOS|Android) GPU\] first frame \d+x\d+|\[render\] first GPU frame: [\d.]+ ms|\[render\] frames n=\d+")
 
 
 def gpu_frame_presented(text):
@@ -424,6 +424,28 @@ def node_checked(xml_text, label):
         if attrs.get("checkable") == "true" and label in (attrs.get("content-desc"), attrs.get("text")):
             return attrs.get("checked") == "true"
     return None
+
+
+def pick_target(xml_text, label):
+    """The centre (x, y) of the node of a `uiautomator dump` a person would TOUCH for `label`: of the nodes named `label` (text or
+    content-desc) that have a box, the editable field (`EditText`) first, then a focusable or clickable one, then the first. A field and
+    the label above it carry the same name in AzWidgets ('TextInput' is a span and an EditText): the first match is the label, and a
+    tap on a label focuses nothing. -> (x, y) or None."""
+    found = []
+    for order, m in enumerate(re.finditer(r"<node\b([^>]*)>", xml_text)):
+        attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', m.group(1)))
+        if label not in (attrs.get("content-desc"), attrs.get("text")):
+            continue
+        b = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", attrs.get("bounds", ""))
+        if not b:
+            continue
+        l, t, r, bt = (int(v) for v in b.groups())
+        if r <= l or bt <= t:
+            continue
+        editable = attrs.get("class", "").endswith("EditText")
+        interactive = attrs.get("focusable") == "true" or attrs.get("clickable") == "true"
+        found.append((0 if editable else 1 if interactive else 2, order, ((l + r) // 2, (t + bt) // 2)))
+    return min(found)[2] if found else None
 
 
 def parse_bounds(xml_text):
@@ -709,24 +731,31 @@ def device_is_software(device):
     return bool(device and SOFTWARE_DEVICE.search(device))
 
 
-GPU_FIRST_FRAME_SECONDS = 120
+GPU_FIRST_FRAME_SECONDS = 240       # the emulator's software GL takes a minute or two for the first GL frame (every shader compiles at first use)
 IDLE_SECONDS = 4.0         # an idle window is watched this long for frames lines (a window that draws while nothing moves)
 SWIPE_SECONDS = 4.0        # the scripted swipe of the render-mode step: at least three full seconds of frames lines
 
 
-def wait_for_gpu_frame(read_log, seconds, sleep=time.sleep, clock=time.time):
+def wait_for_gpu_frame(read_log, seconds, sleep=time.sleep, clock=time.time, silence=20.0):
     """After a `gpu` launch: wait until the engine's log (`read_log()` -> text) says the GPU path presented a frame, up to `seconds`.
-    -> seconds waited when it did, 0.0 when the log says the request fell back to the CPU (nothing to wait for) or names no GPU path at all,
-    None when the time ran out first."""
+    -> seconds waited when it did, 0.0 when there is nothing to wait for (the log says the request fell back to the CPU, the CPU present
+    path is writing its frames, or the engine has said nothing about a renderer and nothing at all for `silence` seconds: a build without a
+    GPU path), None when the time ran out first."""
     t0 = clock()
+    last_len, last_change = -1, t0
     while True:
         text = read_log()
         ran, _requested, _device = backend_ran(text)
         if gpu_frame_presented(text):
             return clock() - t0
-        if ran == "cpu":
+        if ran == "cpu" or (ran == "unknown" and "[Android] present" in text):
             return 0.0
-        if clock() - t0 >= seconds:
+        now = clock()
+        if len(text) != last_len:
+            last_len, last_change = len(text), now
+        elif ran == "unknown" and now - last_change >= silence:
+            return 0.0
+        if now - t0 >= seconds:
             return None
         sleep(1.0)
 
@@ -876,10 +905,8 @@ class Android:
     def find_label(self, label):
         """The centre of the first on-screen accessibility node named `label` (uiautomator dump of the window), or None."""
         self.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
-        for name, cx, cy in parse_bounds(self.sh("cat /sdcard/qa-ui.xml")):
-            if name == label and cx > 0 and cy > 0:
-                return cx, cy
-        return None
+        at = pick_target(self.sh("cat /sdcard/qa-ui.xml"), label)
+        return at if at and at[0] > 0 and at[1] > 0 else None
 
     def tap_label(self, label, fallback=None):
         """Tap the node named `label`; when the tree does not show it, tap `fallback` (x, y) instead. -> (x, y, how)"""
