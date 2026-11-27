@@ -13,6 +13,10 @@ tracked_files:
   - dll/build.rs
   - dll/Cargo.toml
   - dll/src/desktop/shell2/android/mod.rs
+  - dll/src/desktop/shell2/ios/gl.rs
+  - dll/src/desktop/shell2/ios/gpu.rs
+  - dll/src/desktop/shell2/common/gpu_select.rs
+  - dll/src/desktop/shell2/common/gpu_lifecycle.rs
   - dll/src/desktop/shell2/run.rs
   - scripts/build-android.sh
   - scripts/build-ios.sh
@@ -63,8 +67,7 @@ needs no SDK for any of them (see [Local testing](#local-testing)).
 
 ## How an Azul app maps onto each platform
 
-Everything — layout, rendering (the CPU renderer, or WebRender on the phone's GPU where
-[the platform has it](#rendering-on-the-phones-gpu-android)), callbacks, the
+Everything — layout, rendering (CPU or [GPU](#rendering-cpu-or-gpu-opengl-es)), callbacks, the
 [realtime-media](../system/realtime-media.md) / sensor / gamepad / geolocation device APIs
 — is identical to desktop. The one structural difference is the **entry point**:
 
@@ -118,9 +121,11 @@ when the archive was built (kept in `libazul.a.native-libs` next to it, which
 
 You do **not** need the full NDK or the iOS SDK. Both are mostly *link stubs*
 (empty `.so` API stubs / `.tbd` text stubs) plus headers, and Rust already ships
-its own linker (`rust-lld`). Azul renders on the **CPU** on mobile
-(`gl_context_ptr = None`), so there are no OpenGL ES / Metal libraries to link
-either. The entire system-library surface is:
+its own linker (`rust-lld`). Azul renders on the **CPU** on mobile unless you ask for
+the GPU, and the GPU path links no OpenGL ES library either: the app opens
+`OpenGLES.framework` (iOS) or `libEGL` / `libGLESv2` (Android) by name the first time a window
+asks for it (see [Rendering: CPU or GPU](#rendering-cpu-or-gpu-opengl-es)). The entire
+system-library surface is:
 
 | Platform | Links against | Notes |
 |---|---|---|
@@ -146,6 +151,123 @@ optional gesture bridge.
 > NDK / iOS-SDK install for convenience; the table above is the irreducible set
 > if you want to assemble a minimal cross-toolchain (e.g. to build iOS apps on
 > Linux). Extracting a minimal stub sysroot is a one-time step.
+
+## Rendering: CPU or GPU (OpenGL ES)
+
+A phone window draws with one of two renderers, chosen when the window is made:
+
+| `AZ_BACKEND` | What runs |
+|---|---|
+| `cpu` (the default, also when nothing is set) | The CPU renderer. No GL context is made; the frame is a pixmap handed to the system. |
+| `gpu` | WebRender on an **OpenGL ES 3.0** context, whatever the renderer is — a software one (the iOS Simulator's, the Android emulator's SwiftShader) included, which is how the GPU path is tested without a GPU. |
+| `auto` | As `gpu`, but only on a hardware renderer: a software OpenGL ES is slower than the CPU renderer, which `auto` then keeps. |
+
+An app can ask for the same from code (`WindowCreateOptions` →
+`window_state.renderer_options.hw_accel`: `Enabled` is `gpu`, `Disabled` is `cpu`); the
+environment variable wins over it. A phone app started from the home screen has no environment
+to set: on iOS the `Info.plist` key `AZBackend` (`gpu`, `auto` or `cpu`) says the same when
+`AZ_BACKEND` is not set — `/usr/libexec/PlistBuddy -c 'Add :AZBackend string gpu' MyApp.app/Info.plist`,
+then sign and install as usual. One libazul
+holds both renderers and chooses at run time: there is no second build and no cargo feature
+for the GPU path.
+
+**It never costs you the window.** If the GPU path cannot come up — no OpenGL ES 3.0, a context
+or a surface the system refuses, a shader the driver does not compile, a context lost twice
+without a frame in between — the window is drawn by the CPU renderer instead, and the log says
+so in one line that names the stage and the cause:
+
+```text
+[render] gpu unavailable at surface: -[EAGLContext renderbufferStorage:fromDrawable:] returned NO; drawing on the CPU
+```
+
+Every window writes, once, the line that says which renderer draws it (`AZ_LOG=info` shows it on
+the iOS console and in logcat; the phone QA of the repository reads it):
+
+```text
+[render] backend=gpu requested=gpu device=Apple Software Renderer
+[render] backend=cpu requested=auto device=software
+```
+
+The stages that can fail are `library`, `context`, `make_current`, `functions`, `probe`,
+`surface`, `renderer`, `document`, `shaders`, `frame` and `lost`. A **test** build (the
+`test-hooks` cargo feature; never a shipped app) can make one fail on purpose to see the fall back:
+`AZ_GPU_FAIL=surface` (every time), `AZ_GPU_FAIL=context:1` (once), `AZ_GPU_FAIL=lost:2` (the
+context is lost twice), a comma separated list for several.
+
+### iOS: OpenGL ES, and why not Metal
+
+The engine's only GPU renderer is WebRender, and the WebRender in this repository drives
+OpenGL (ES) and nothing else, so on iOS the GPU path is OpenGL ES 3.0 through `EAGLContext` and
+a `CAEAGLLayer` under the app's view. OpenGL ES has been **deprecated since iOS 12** (every
+symbol of `EAGL.h` is marked `OPENGLES_DEPRECATED(ios(2.0, 12.0))`), Apple says apps built with it
+continue to run, and the framework is still part of iOS 26's Simulator runtime. A Metal path
+needs either ANGLE (GLES on Metal) built for iOS or a Metal back end for WebRender; neither
+exists in the tree, so it is a tracked item and not a plan. `OpenGLES.framework` is opened by
+its path the first time a window asks for the GPU: nothing links it, an app that draws on the CPU never
+loads it, and the build scripts need no extra flag.
+
+What the iOS path does with the app's life, from Apple's rules for OpenGL ES: when the app is
+about to go inactive (`applicationWillResignActive:`) the display link is paused and every
+submitted command is finished (`glFinish`); in `applicationDidEnterBackground:` the last GL the
+app may issue runs, and from then on **no GL command is issued at all** (the system ends an app that
+does), whatever the app does; when the app is active again the frames resume with one full frame.
+A memory warning releases WebRender's caches (at once when the app is active, when it is back
+when it is not). A rotation or a new scale reallocates the layer's renderbuffer once.
+
+Requirements: OpenGL ES 3.0 (every iPhone since the 5s, which is every device iOS 16 runs on).
+Not verified without a phone: the speed of a real GPU, thermal behaviour, and the system's own
+termination of a background app that issues GL (the Simulator does not enforce it).
+
+To see it on your own phone, with the app installed (signed with your own profile) and the phone
+connected and trusted, one command on the Mac:
+
+```sh
+python3 scripts/ci/ios_phone_gpu.py "<the phone's name or id from `xcrun devicectl list devices`>" --bundle <your bundle id>
+```
+
+It starts the app three times (`cpu`, `gpu`, `auto`), keeps the console of each for 25 seconds (scroll
+the page with your finger meanwhile), and prints which renderer ran on which `GL_RENDERER`, why not
+the GPU if it fell back (`gpu unavailable at <stage>`), the first GPU frame and the frame times of what
+you scrolled. The two lines that say which renderer drew (and why not the GPU) are also in the unified
+log (Console.app) of an app started from the home screen with the `AZBackend` key set.
+
+### Android: EGL and OpenGL ES
+
+On Android the GPU path is an EGL window surface and an OpenGL ES 3 context made on the loop thread, with WebRender on
+it. `libEGL.so` and `libGLESv3.so` (`libGLESv2.so` on a device that has no v3 library) are opened by name the first time a
+window asks for the GPU: nothing links them, an app that draws on the CPU never loads them, and the APK needs no
+permission, no Java and no build flag. An app on a phone has no environment: `AZ_BACKEND` is read from the system
+property `debug.az.env` (`adb shell setprop debug.az.env 'AZ_BACKEND=gpu'`, then start the app again, see
+[Debugging](../debugging.md)).
+
+Requirements: OpenGL ES 3.0 or newer and a `GL_MAX_TEXTURE_SIZE` of at least 2048 (the `probe` stage says which one a
+driver misses). The emulator's GL is software (SwiftShader), so `auto` keeps the CPU renderer there, by design, and `gpu` is the
+value to test with.
+
+The window's life is the activity's:
+
+- The EGL surface is made when the system hands over the window (`InitWindow`), before any CPU frame is drawn on it (an
+  `ANativeWindow` has one producer: once the CPU path has posted a frame, EGL can no longer connect), and it is destroyed
+  when the system takes the window away (`TerminateWindow`), before the window is released. The context and the renderer
+  stay, so a rotation or coming back from the home screen does not compile the shaders again.
+- A new size or density resizes the frame; the swap interval is 1. A new surface is cleared to the window's colour and
+  shown at once, so the window is not black while WebRender compiles its programs in the first frame.
+- Text is grayscale on a phone in both renderers (`AppConfig::text_antialiasing`: the platform default there, as the CPU
+  renderer has always had it), so the two pictures of one window differ in the antialiasing of glyph edges and curves and
+  nowhere else; `AZ_TEXT_AA=lcd` asks for LCD text on the GPU path too.
+- `onTrimMemory` empties WebRender's caches from `RUNNING_LOW` on (`UI_HIDDEN`, the home button, included: the context and
+  the compiled programs stay, so coming back does not compile them again), and from `BACKGROUND` on, with no window on screen,
+  gives the renderer and the context back as well; they are made again when a window returns.
+- A lost context (the driver reset, the GPU was taken away) is rebuilt once and the frame drawn again; a second loss without
+  a good frame in between ends the GPU path, as any other failure does.
+- The compiled programs are kept between runs in the app's `cache` directory (`azul/shaders`, else `files/azul-shaders`), at
+  most 512 programs and 64 MB: a second start compiles nothing where the driver can save program binaries. The system may
+  empty a cache directory when storage runs low; the next start compiles again.
+
+The check that needs no phone is `scripts/ci/gles_host.sh` (WebRender on Mesa's OpenGL ES 3 compared with the CPU renderer's
+picture of the same page, and the whole lifecycle with real EGL); the one that needs one is
+`scripts/ci/android_phone_gpu.sh <apk>`, which starts the app with each renderer over USB and keeps the engine's `[render]`
+lines, a screenshot, the first-frame time, the frame times of a scroll and the memory of each.
 
 ## Building the native library
 
@@ -224,10 +346,15 @@ That is the *entire* difference from a desktop app.
   `getFilesDir()`, `XDG_CONFIG_HOME` to `files/config`, and `XDG_CACHE_HOME` and `TMPDIR` to `getCacheDir()` before the
   library loads (what the caller set is kept), so `FilePath::get_data_dir()`, `get_config_dir()` and
   `get_cache_dir()` answer, and `std::env::temp_dir()` is writable. `libazul` logs one line
-  `[Android] app dirs: HOME=... (writable)` at `AZ_LOG=info` (an error line when one is not writable).
+  `[Android] app dirs: home=... (writable) data=... cache=... temp=...` at `AZ_LOG=info` (an error line when one is missing or not writable).
 - `WindowCreateOptions::create_callback` runs once per window, when the window's surface first exists (Android's first
   `InitWindow`: the real size and density are in the window state) and before its first layout, as on the desktop
   shells. Start the timers and workers that live as long as the window there.
+- A finger is a *tap candidate* until it has moved more than the touch slop (8 dp, the engine's logical pixel) from where
+  it landed: inside the slop nothing scrolls, a release is a click at the landing point and a long press stays a long
+  press; the move that crosses it makes the contact a pan for good (the page does not jump by the slop) and its release
+  clicks nothing. A mouse, a stylus and an eraser have no slop. A widget a finger drags (a slider, a map, a paint canvas)
+  therefore starts to move 8 dp after the touch under a finger and at once under a stylus.
 
 ### Package the APK (no Android Studio)
 
@@ -283,67 +410,6 @@ rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384", "-Clink-arg=-Wl,-z,common-
 APK and names each one whose `PT_LOAD` alignment is below 16 KiB (`llvm-readelf -lW lib.so` shows
 the same column, `Align`). A `RUSTFLAGS` environment variable replaces the flags of the config
 file, so name them there too when you set one.
-
-### Rendering on the phone's GPU (Android)
-
-An Android window is drawn by the CPU renderer unless it asks for more: the layout becomes pixels in memory and
-`ANativeWindow_lock` posts them. The same `libazul.so` can draw with WebRender over OpenGL ES instead (the compositor
-the desktop OpenGL windows use, on an EGL surface of the window). There is no second library and no second build: the
-choice is made once, when the window is made, and the libraries (`libEGL.so`, `libGLESv3.so`) are opened at that time and
-not before, so an app that stays on the CPU renderer never touches them.
-
-| Asked for | What runs |
-|---|---|
-| nothing, `AZ_BACKEND=cpu`, `hw_accel` `Disabled` | the CPU renderer |
-| `AZ_BACKEND=gpu`, `hw_accel` `Enabled` | OpenGL ES on whatever driver the phone has, a software one included |
-| `AZ_BACKEND=auto` | OpenGL ES on a hardware GPU; on a software one (SwiftShader, llvmpipe: the emulator) the CPU renderer, and the log says why |
-
-`AZ_BACKEND` outranks the window's `renderer.hw_accel`. An app on a phone has no environment: the variable is read from
-the system property `debug.az.env` (`adb shell setprop debug.az.env 'AZ_BACKEND=gpu'`, then start the app again, see
-[Debugging](../debugging.md)). `gpu` is the value to test with: it forces the GL path even on the emulator's software GL, which
-is how a build without a phone is checked.
-
-The GPU path needs OpenGL ES 3.0 or newer and a `GL_MAX_TEXTURE_SIZE` of at least 2048. It adds no permission, no Java
-and nothing to the APK. A window that asked for the GPU and cannot have it is never blank and never crashes: it is a CPU
-window, and the log says so in one line that names the stage that failed and what the platform reported:
-
-```
-# a window that took the GPU
-[render] backend=gpu requested=auto device=Adreno (TM) 740
-
-# a window that asked for the GPU and could not have it
-[render] gpu unavailable at context: eglCreateContext failed (EGL_BAD_ALLOC 0x3003); drawing on the CPU
-[render] backend=cpu requested=gpu device=software
-```
-
-The `[render] backend=..` line is written once for every window and says which renderer drew it (`device=` is the GL renderer
-string of a GPU window). The stages are `library`, `context`, `make_current`, `functions`, `probe` (not OpenGL ES 3.0,
-a texture size below 2048, or `auto` meeting a software renderer), `surface`, `renderer`, `document`, `shaders`, `frame` and
-`lost` (the context was lost twice without a frame between). A test build (cargo feature `test-hooks`) makes any of them fail
-on purpose with `AZ_GPU_FAIL=<stage>[:n]`, which is how the fallbacks are tested on an emulator.
-
-The window's life is the activity's:
-
-- The EGL surface is made when the system hands over the window (`InitWindow`), before any CPU frame is drawn on it (an
-  `ANativeWindow` has one producer: once the CPU path has posted a frame, EGL can no longer connect), and it is destroyed
-  when the system takes the window away (`TerminateWindow`), before the window is released. The context and the renderer
-  stay, so coming back from the home screen or turning the phone does not compile the shaders again.
-- A new size or density resizes the frame; the swap interval is 1.
-- Text is grayscale on a phone in both renderers (`AppConfig::text_antialiasing`: the platform default there, as the CPU
-  renderer has always had it), so the two pictures of one window differ in the antialiasing of glyph edges and curves and
-  nowhere else; `AZ_TEXT_AA=lcd` asks for LCD text on the GPU path too.
-- `onTrimMemory` empties WebRender's caches from `RUNNING_LOW` on (`UI_HIDDEN`, the home button, included: the context and
-  the compiled programs stay, so coming back does not compile them again), and from `BACKGROUND` on, with no window on screen,
-  gives the renderer and the context back as well; they are made again when a window returns.
-- A lost context (the driver reset, the GPU was taken away) is rebuilt once and the frame drawn again; a second loss without
-  a good frame in between ends the GPU path, as any other failure does.
-- The compiled programs are kept between runs in the app's `cache` directory (`azul/shaders`, else `files/azul-shaders`), at
-  most 512 programs and 64 MB: a second start compiles nothing. The system may empty a cache directory when storage runs
-  low; the next start compiles again.
-
-The check that needs no phone is `scripts/ci/gles_host.sh` (WebRender on Mesa's OpenGL ES 3 compared with the CPU renderer's
-picture of the same page, and the whole lifecycle with real EGL); the one that needs one is
-`scripts/ci/android_phone_gpu.sh <apk>`, which runs the same steps over USB against a phone's real driver.
 
 ## iOS
 
