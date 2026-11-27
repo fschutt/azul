@@ -72,7 +72,9 @@ fn every_linux_notify_is_sent_without_waiting() {
 /// ("works in theory"). It must hop to the UI thread through the Java helper.
 #[test]
 fn the_android_permission_dialog_is_requested_on_the_ui_thread() {
-    let rust = top_level_fn_body(PERMISSION_ANDROID_RS, "fn request_permission(");
+    // The plural: ONE request for all the permissions of a capability (the Android shell review renamed
+    // `request_permission` to `request_permissions` when it took a list).
+    let rust = top_level_fn_body(PERMISSION_ANDROID_RS, "fn request_permissions(");
     assert!(
         !rust.contains("\"requestPermissions\""),
         "Activity.requestPermissions is called from android_main's thread:\n{rust}"

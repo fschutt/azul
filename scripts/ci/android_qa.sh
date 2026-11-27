@@ -61,8 +61,10 @@ printf '%s\n' "$badging" >"$out/badging.txt"
 floor_apk=""
 if [ "${AZ_FLOOR:-}" = 1 ]; then
   yes | sdkmanager --install "platforms;android-34" >>"$out/sdkmanager.log" 2>&1 || true
-  if JAVA_HOME="${JAVA_HOME_17_X64:-${JAVA_HOME:-}}" bash "$here/../floor-apk/build.sh" "$out/AzFloor-android.apk" >"$out/floor-build.log" 2>&1; then
-    floor_apk="$out/AzFloor-android.apk"
+  # an ABSOLUTE path: the floor script makes its work directory next to the APK and cd's into it (a relative demo-out/qa/floor-work.X broke the zip)
+  out_abs="$(cd "$out" && pwd)"
+  if JAVA_HOME="${JAVA_HOME_17_X64:-${JAVA_HOME:-}}" bash "$here/../floor-apk/build.sh" "$out_abs/AzFloor-android.apk" >"$out/floor-build.log" 2>&1; then
+    floor_apk="$out_abs/AzFloor-android.apk"
   else
     echo "the floor APK did not build:"; tail -n 8 "$out/floor-build.log"
   fi
