@@ -515,8 +515,8 @@ impl Glue {
         out
     }
 
-    /// What one event of the host asks of the app. The commands of a phone (the viewport, the files, the buttons) are answered as
-    /// "cannot" until they are wired; nothing a phone says is acted on without being understood.
+    /// What one event of the host asks of the app. What needs the window's own state (the viewport, the files, the quick buttons, "Continue
+    /// reviewing") becomes a [`Command`] for the poll timer to play; the rest (the pairing, the buttons a phone saved) the glue settles itself.
     fn handle(&mut self, host: &mut Station, now: Millis, event: HostEvent, out: &mut Polled) {
         match event {
             HostEvent::Ready { .. } => {

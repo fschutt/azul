@@ -14,7 +14,7 @@ use azul_review_link::{
 };
 
 use super::*;
-use crate::{agent_window::{Events, Finish, Finished}, lib_test::app_with_file};
+use crate::{agent_window::{Finish, Finished}, lib_test::app_with_file};
 
 fn loaded(stored: &Stored) -> Loaded {
     Loaded { text: Some(stored.to_json()), problem: None }

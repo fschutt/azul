@@ -30,7 +30,7 @@ use crate::{
     page_view::{Applied, Context, Geometry, Looking},
     symbols_source::DirEntry,
     tree, ui,
-    whiteboard_geom::{Pt, View},
+    whiteboard_geom::Pt,
     whiteboard_ui::SURFACE_ID,
     AppState,
 };
@@ -354,10 +354,10 @@ pub fn open_file(app: &RefAny, info: &mut CallbackInfo, peer: &str, request_id: 
         let open_already = s.file().is_some_and(|f| f.display == path);
         if open_already || s.open_path_listed(path) {
             let pages = s.file().map_or(1, crate::code::SourceFile::page_count);
-            let unseen = |s: &mut AppState| s.progress.entry(path).and_then(|e| (0..pages).find(|p| !e.seen.is_seen(*p)));
             let page = match line {
                 Some(line) => crate::code::SourceFile::page_of_line(line as usize),
-                None => unseen(&mut s).unwrap_or(0),
+                // the first page that was not seen (all seen: the first)
+                None => s.progress.entry(path).and_then(|e| (0..pages).find(|p| !e.seen.is_seen(*p))).unwrap_or(0),
             };
             let page = page.min(pages.saturating_sub(1));
             s.visible_page = page;

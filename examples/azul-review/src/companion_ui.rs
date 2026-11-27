@@ -164,7 +164,7 @@ pub fn pairing_bar(s: &AppState, app: &RefAny) -> Option<Dom> {
     Some(
         Dom::create_div()
             .with_id(ids::COMPANION_ASK)
-            .with_accessibility_name(AzString::from(said))
+            .with_accessibility_info(AccessibilityInfo::named(AzString::from(said), AccessibilityRole::Grouping))
             .with_css(
                 "display: flex; flex-direction: row; align-items: center; gap: 14px; flex-wrap: wrap; padding: 8px 14px; flex-shrink: 0; \
                  border-left: 4px solid system:accent; border-bottom: 1px solid system:separator; background: system:control-background; \

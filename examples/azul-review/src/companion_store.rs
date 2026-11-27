@@ -149,7 +149,7 @@ impl Stored {
             }
             key
         };
-        let mut stored = Stored { enabled: file.enabled, key, phones: Vec::new() };
+        let mut stored = Stored { enabled: file.enabled, key, phones: Vec::new(), prefs: HostSettings::default(), buttons: ButtonSet::defaults() };
         for phone in file.phones {
             if !is_peer_id(&phone.id) {
                 problems.push("a phone in the companion's file has no usable key and is left out".to_string());
