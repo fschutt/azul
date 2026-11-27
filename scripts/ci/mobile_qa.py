@@ -727,7 +727,8 @@ def device_is_software(device):
 GPU_FIRST_FRAME_SECONDS = 120
 GPU_SILENCE_SECONDS = 20       # an app asked for the GPU that says nothing of its renderer in this time has no GPU path to wait for
 GPU_FALLBACK_SECONDS = 150     # a fallback that comes after a first frame (a context lost twice) needs two first frames of a software GL
-IDLE_SECONDS = 4.0         # an idle window is watched this long for frames lines (a window that draws while nothing moves)
+IDLE_SECONDS = 5.0         # an idle window is watched this long for frames lines (a window that draws while nothing moves) ...
+IDLE_SETTLE_SECONDS = 3.0  # ... after the frames of its start have followed one another and stopped
 SWIPE_SECONDS = 4.0        # the scripted swipe of the render-mode step: at least three full seconds of frames lines
 
 
@@ -1998,7 +1999,7 @@ class IOS:
                 return "[render]" in text or "[iOS GPU]" in text
 
             def is_ready(text):
-                return first_gpu_frame(text) is not None or bool(gpu_fallbacks(text)) or backend_ran(text)[0] == "cpu"
+                return gpu_frame_presented(text) or bool(gpu_fallbacks(text)) or backend_ran(text)[0] == "cpu"
 
             if self.wait_for_console(said_something, min(timeout, GPU_SILENCE_SECONDS)) is not None:
                 if self.wait_for_console(is_ready, max(1.0, timeout - (time.time() - t0)), every=2.0) is None:
@@ -2197,16 +2198,22 @@ def ios_scenarios(args):
             if args.debug_port:
                 extra["AZ_DEBUG"] = str(args.debug_port)
             dev.launch(extra_env=extra, cold=True)
+            # (a `gpu` start is waited for until the engine says its GPU path presented a frame, or fell back: IOS.wait_for_front)
             t = dev.wait_for_front(timeout=first_frame_timeout_for(mode, args.first_frame_timeout))
-            if mode == "gpu" and t is not None:
-                g = wait_for_gpu_frame(dev.console_text, first_frame_timeout_for(mode, args.first_frame_timeout))
-                s.note("AZ_BACKEND=gpu: " + ("the engine says the GPU path presented a frame after " + f"{g:.1f} s more" if g else
-                       ("the request fell back to the CPU: nothing to wait for" if g == 0.0 else "no GPU frame line within the wait: the picture may be black")))
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_BACKEND-{mode}")
             full = dev.last_rgba_full()
             ran, requested, device = backend_ran(dev.console_text())
             s.check(f"AZ_BACKEND={mode}: the app draws", t is not None and not is_flat(sig), f"first frame after {t:.1f} s" if t is not None else "no frame")
+            if t is not None:
+                # Nothing has touched the app since its first frame: it must draw nothing now. The first frames of a start follow one another
+                # for a moment (IDLE_SETTLE_SECONDS lets them end); the swipe comes AFTER this, so its frames cannot be taken for an idle window's.
+                dev.settle(IDLE_SETTLE_SECONDS)
+                idle = dev.idle_windows(IDLE_SECONDS)
+                s.check(f"AZ_BACKEND={mode}: an idle window draws no frames ({IDLE_SECONDS:.0f} s with nothing touching it)", not idle,
+                        (f"{len(idle)} frames line(s) while idle, the last: n={idle[-1]['n']} median {idle[-1]['median']} ms: the window draws "
+                         "continuously while it shows the same picture") if idle else "no frames line",
+                        required=(mode == "gpu" and args.expect_gpu))
             frames = None
             if args.debug_port and t is not None:
                 state_answer = dev.server_up(args.debug_port)
@@ -2218,12 +2225,6 @@ def ios_scenarios(args):
                            f"each waits for a frame)" + ("" if frames else "; no frames line of a full second (fewer than 8 frames in a second)"))
                     if frames and frames.get("draw_median") is not None:
                         s.note(f"AZ_BACKEND={mode}: the draw alone takes median {frames['draw_median']:.1f} / p95 {frames['draw_p95']:.1f} ms")
-            if t is not None:
-                idle = dev.idle_windows(IDLE_SECONDS)
-                s.check(f"AZ_BACKEND={mode}: an idle window draws no frames ({IDLE_SECONDS:.0f} s with nothing touching it)", not idle,
-                        (f"{len(idle)} frames line(s) while idle, the last: n={idle[-1]['n']} median {idle[-1]['median']} ms: the window draws "
-                         "continuously while it shows the same picture") if idle else "no frames line",
-                        required=(mode == "gpu" and args.expect_gpu))
             rss = dev.rss_mb()
             if rss is not None:
                 run.meta[f"rss_mb_{mode}"] = round(rss)

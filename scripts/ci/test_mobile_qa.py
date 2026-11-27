@@ -653,6 +653,17 @@ class IosScenarioTests(unittest.TestCase):
         self.assertEqual((row["median"], row["p95"], row["n"]), ("16.9", "33.4", 118))
         self.assertEqual(run.meta["rss_mb_gpu"], 250)
 
+    def test_a_gpu_window_that_draws_while_nothing_touches_it_fails_the_idle_check(self):
+        class Busy(FakeIOS):
+            def idle_windows(self, seconds=4.0):
+                return q.swipe_windows(self.swipe[0] + "\n")       # a frames line of a full second, written with nothing touching the app
+
+        steps, _dev, _run = self.run_steps("04", device=Busy, expect_hooks=True, debug_port=8795)
+        bad = self.failed(steps["04-render-modes"])
+        self.assertTrue(any("AZ_BACKEND=gpu: an idle window draws no frames" in f for f in bad), bad)
+        # only the GPU run is required to be idle (the CPU and auto runs say it as information)
+        self.assertEqual(len([f for f in bad if "an idle window draws no frames" in f]), 1, bad)
+
     def test_a_fallback_that_comes_after_a_first_frame_is_waited_for_not_missed(self):
         class Late(FakeIOS):
             late = ("lost:2",)
