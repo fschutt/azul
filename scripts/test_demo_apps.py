@@ -411,10 +411,20 @@ class WorkflowContractTest(unittest.TestCase):
             seen += 1
         self.assertGreaterEqual(seen, 10)   # five libs, five apps
 
+    def test_no_expression_of_the_matrix_or_the_plan_is_expanded_into_a_script(self):
+        # zizmor's template-injection audit (the supply-chain workflow's zizmor job runs it on every workflow file): a `${{ }}` inside a
+        # `run:` block is pasted INTO the script, an environment variable is data. The matrix values of the plan reach the shell steps
+        # through `env:` (DEMO_KIND, DEMO_TARGET, DEMO_FEATURES, DEMO_LEG, DEMO_APPS, DEMO_LIB_FILE, DEMO_DEPLOYMENT_TARGET, DEMO_VARIANT).
+        for name, body in self.jobs().items():
+            for run in re.findall(r"(?ms)^        run: (.*?)(?=^        \S|^      - |\Z)", body):
+                self.assertNotIn("${{ matrix.", run, f"{name}: a matrix value is expanded into a script")
+                self.assertNotIn("${{ needs.plan.outputs.", run, f"{name}: a plan output is expanded into a script")
+
     def test_the_phone_app_jobs_pass_the_variant_and_the_publish_job_never_reads_the_qa_artifacts(self):
         jobs = self.jobs()
         for name in ("apps_android", "apps_ios"):
-            self.assertIn('--variant "${{ matrix.variant }}"', jobs[name], name)
+            self.assertIn('--variant "$DEMO_VARIANT"', jobs[name], name)
+            self.assertIn("DEMO_VARIANT: ${{ matrix.variant }}", jobs[name], name)
         self.assertIn("pattern: demoapps-*", jobs["publish"])
         self.assertNotIn("demoe2e", jobs["publish"])
         for entry in self.plan["apps_android"] + self.plan["apps_ios"]:

@@ -149,7 +149,11 @@ jobs:
           os: ${{ matrix.codegen_os }}
       - name: Build the library (${{ matrix.features }})
         if: steps.cache.outputs.cache-hit != 'true'
-        run: bash scripts/demo_lib.sh ${{ matrix.kind }} "${{ matrix.target }}" "${{ matrix.features }}" demo-lib-out
+        env:
+          DEMO_KIND: ${{ matrix.kind }}
+          DEMO_TARGET: ${{ matrix.target }}
+          DEMO_FEATURES: ${{ matrix.features }}
+        run: bash scripts/demo_lib.sh "$DEMO_KIND" "$DEMO_TARGET" "$DEMO_FEATURES" demo-lib-out
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact }}
@@ -201,7 +205,10 @@ jobs:
         env:
           # the oldest macOS rustc builds for on this CPU: the C parts of the engine (cc-rs) target it too
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
-        run: bash scripts/demo_lib.sh ${{ matrix.kind }} "${{ matrix.target }}" "${{ matrix.features }}" demo-lib-out
+          DEMO_KIND: ${{ matrix.kind }}
+          DEMO_TARGET: ${{ matrix.target }}
+          DEMO_FEATURES: ${{ matrix.features }}
+        run: bash scripts/demo_lib.sh "$DEMO_KIND" "$DEMO_TARGET" "$DEMO_FEATURES" demo-lib-out
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact }}
@@ -266,7 +273,11 @@ jobs:
       - name: Build the library (${{ matrix.features }})
         if: steps.cache.outputs.cache-hit != 'true'
         shell: bash
-        run: bash scripts/demo_lib.sh ${{ matrix.kind }} "${{ matrix.target }}" "${{ matrix.features }}" demo-lib-out
+        env:
+          DEMO_KIND: ${{ matrix.kind }}
+          DEMO_TARGET: ${{ matrix.target }}
+          DEMO_FEATURES: ${{ matrix.features }}
+        run: bash scripts/demo_lib.sh "$DEMO_KIND" "$DEMO_TARGET" "$DEMO_FEATURES" demo-lib-out
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact }}
@@ -318,7 +329,10 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
-        run: bash scripts/demo_lib.sh ${{ matrix.kind }} "${{ matrix.target }}" "${{ matrix.features }}" demo-lib-out
+          DEMO_KIND: ${{ matrix.kind }}
+          DEMO_TARGET: ${{ matrix.target }}
+          DEMO_FEATURES: ${{ matrix.features }}
+        run: bash scripts/demo_lib.sh "$DEMO_KIND" "$DEMO_TARGET" "$DEMO_FEATURES" demo-lib-out
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact }}
@@ -370,7 +384,11 @@ jobs:
           xcrun --sdk iphonesimulator --show-sdk-path
       - name: Build the library (${{ matrix.features }})
         if: steps.cache.outputs.cache-hit != 'true'
-        run: bash scripts/demo_lib.sh ${{ matrix.kind }} "${{ matrix.target }}" "${{ matrix.features }}" demo-lib-out
+        env:
+          DEMO_KIND: ${{ matrix.kind }}
+          DEMO_TARGET: ${{ matrix.target }}
+          DEMO_FEATURES: ${{ matrix.features }}
+        run: bash scripts/demo_lib.sh "$DEMO_KIND" "$DEMO_TARGET" "$DEMO_FEATURES" demo-lib-out
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact }}
@@ -422,9 +440,13 @@ jobs:
           name: ${{ matrix.lib_artifact }}
           path: libazul-prebuilt
       - name: Build ${{ matrix.apps }}
+        env:
+          DEMO_LEG: ${{ matrix.leg }}
+          DEMO_APPS: ${{ matrix.apps }}
+          DEMO_LIB_FILE: ${{ matrix.lib_file }}
         run: >-
-          python3 scripts/demo_build.py desktop --leg ${{ matrix.leg }} --apps "${{ matrix.apps }}"
-          --lib libazul-prebuilt/${{ matrix.lib_file }} --out demos-out --results demos-results --run-check
+          python3 scripts/demo_build.py desktop --leg "$DEMO_LEG" --apps "$DEMO_APPS"
+          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results --run-check
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -472,11 +494,17 @@ jobs:
           name: ${{ matrix.lib_artifact }}
           path: libazul-prebuilt
       - name: Build ${{ matrix.apps }}
+        env:
+          DEMO_LEG: ${{ matrix.leg }}
+          DEMO_APPS: ${{ matrix.apps }}
+          DEMO_LIB_FILE: ${{ matrix.lib_file }}
+          DEMO_TARGET: ${{ matrix.target }}
+          DEMO_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
         run: >-
-          python3 scripts/demo_build.py desktop --leg ${{ matrix.leg }} --apps "${{ matrix.apps }}"
-          --lib libazul-prebuilt/${{ matrix.lib_file }} --out demos-out --results demos-results
-          ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          --deployment-target ${{ matrix.deployment_target }}
+          python3 scripts/demo_build.py desktop --leg "$DEMO_LEG" --apps "$DEMO_APPS"
+          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results
+          ${DEMO_TARGET:+--target "$DEMO_TARGET"}
+          --deployment-target "$DEMO_DEPLOYMENT_TARGET"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -541,9 +569,13 @@ jobs:
           path: libazul-prebuilt
       - name: Build ${{ matrix.apps }}
         shell: bash
+        env:
+          DEMO_LEG: ${{ matrix.leg }}
+          DEMO_APPS: ${{ matrix.apps }}
+          DEMO_LIB_FILE: ${{ matrix.lib_file }}
         run: >-
-          python3 scripts/demo_build.py desktop --leg ${{ matrix.leg }} --apps "${{ matrix.apps }}"
-          --lib libazul-prebuilt/${{ matrix.lib_file }} --out demos-out --results demos-results
+          python3 scripts/demo_build.py desktop --leg "$DEMO_LEG" --apps "$DEMO_APPS"
+          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -604,9 +636,12 @@ jobs:
       - name: Build ${{ matrix.apps }}
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          DEMO_TARGET: ${{ matrix.target }}
+          DEMO_APPS: ${{ matrix.apps }}
+          DEMO_VARIANT: ${{ matrix.variant }}
         run: >-
-          python3 scripts/demo_build.py android --target ${{ matrix.target }} --apps "${{ matrix.apps }}"
-          --libs demo-libs --out demos-out --results demos-results --variant "${{ matrix.variant }}"
+          python3 scripts/demo_build.py android --target "$DEMO_TARGET" --apps "$DEMO_APPS"
+          --libs demo-libs --out demos-out --results demos-results --variant "$DEMO_VARIANT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -653,9 +688,13 @@ jobs:
           pattern: demolib-${{ matrix.leg }}-*
           path: demo-libs
       - name: Build ${{ matrix.apps }}
+        env:
+          DEMO_TARGET: ${{ matrix.target }}
+          DEMO_APPS: ${{ matrix.apps }}
+          DEMO_VARIANT: ${{ matrix.variant }}
         run: >-
-          python3 scripts/demo_build.py ios --target ${{ matrix.target }} --apps "${{ matrix.apps }}"
-          --libs demo-libs --out demos-out --results demos-results --variant "${{ matrix.variant }}"
+          python3 scripts/demo_build.py ios --target "$DEMO_TARGET" --apps "$DEMO_APPS"
+          --libs demo-libs --out demos-out --results demos-results --variant "$DEMO_VARIANT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -845,9 +884,12 @@ jobs:
           path: demo-all
           merge-multiple: true
       - name: The release assets
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          GIT_SHA: ${{ github.sha }}
         run: >-
           python3 scripts/demo_publish.py assemble --in demo-all --out release-assets
-          --version "${{ needs.plan.outputs.version }}" --sha "${{ github.sha }}"
+          --version "$VERSION" --sha "$GIT_SHA"
       # The status of the run rides along as demo-status.json: the website deploy reads it to say WHY a link of the page is
       # not available (scripts/prune_dead_release_links.py --demo-status).
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
