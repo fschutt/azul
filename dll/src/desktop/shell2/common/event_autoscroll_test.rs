@@ -4,7 +4,7 @@ use azul_core::geom::LogicalPosition;
 
 use super::*;
 
-const PRESS: LogicalPosition = LogicalPosition { x: 120.0, y: 523.0 };
+static PRESS: LogicalPosition = LogicalPosition { x: 120.0, y: 523.0 };
 
 fn at(dx: f32, dy: f32) -> LogicalPosition {
     LogicalPosition::new(PRESS.x + dx, PRESS.y + dy)
