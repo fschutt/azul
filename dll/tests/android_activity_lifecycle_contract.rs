@@ -176,3 +176,34 @@ fn resuming_posts_the_frame_the_shell_holds_once_whole() {
     assert!(arm.contains("present.redraw_needed()"), "Resume must post the held frame whole: {arm}");
     assert!(arm.contains("needs_rerender = true"), "and ask for the frame to be made again: {arm}");
 }
+
+/// A scroll moves every node under its container without a layout, and the accessibility snapshot carries the bounds
+/// (the demo pipeline's AzCompanion run 45787048273: the uiautomator dump after a scroll of 96 px was byte-identical to
+/// the one before, a key listed where it was no longer drawn). A repaint-only frame notes that the snapshot is behind, and
+/// the loop rebuilds it once the repaints settle (`android_core::a11y_refresh`); a rebuild settles the debt.
+///
+/// Mutation: no `note_repaint` in the repaint arm (the snapshot only ever followed a layout).
+#[test]
+fn the_accessibility_snapshot_is_rebuilt_after_the_repaints_of_a_scroll_settle() {
+    // the code without its comments and without whitespace: the calls are broken over lines
+    let src: String = read("dll/src/desktop/shell2/android/mod.rs")
+        .lines()
+        .map(|l| l.split("//").next().unwrap_or(""))
+        .collect::<String>()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    let repaint = src.find("FrameWork::Repaint=>").expect("the loop's repaint arm");
+    let arm = &src[repaint..repaint + src[repaint..].find("}}").expect("the end of the arm")];
+    assert!(
+        arm.contains("a11y_scroll.note_repaint("),
+        "a repaint-only frame must note that the accessibility snapshot is behind"
+    );
+    let due = src.find("a11y_scroll.is_due(").expect("the loop asks whether the snapshot is due");
+    let refresh = src[due..].find("refresh_accessibility_tree()").expect("and rebuilds it");
+    assert!(refresh < 120, "the rebuild follows the due check");
+    assert!(
+        src.contains("a11y_scroll.note_rebuilt()"),
+        "a published snapshot settles what the repaints owed (otherwise it is rebuilt again and again)"
+    );
+}

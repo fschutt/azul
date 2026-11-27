@@ -322,6 +322,132 @@ pub const fn frame_step(result: ProcessEventResult) -> FrameStep {
     }
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// What a touch phase does to the mouse the engine mirrors it with
+// ---------------------------------------------------------------------------------------------------------------
+
+use crate::desktop::shell2::android_core::slop::{Lift, Move};
+
+/// The distance a finger may wander before it is a pan, in points. The engine's logical pixel IS the point on iOS
+/// (the frame factor `dpi / 96` is the screen scale), so positions are compared with it as they are. UIKit's own pan
+/// recognizer starts after about this much.
+pub const TOUCH_SLOP_POINTS: f32 = 10.0;
+
+/// The phase of a `UITouch` event, as `handle_touch` reads it (`touchesBegan:` ... `touchesCancelled:`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TouchPhase {
+    /// `touchesBegan:withEvent:`
+    Began,
+    /// `touchesMoved:withEvent:`
+    Moved,
+    /// `touchesEnded:withEvent:`
+    Ended,
+    /// `touchesCancelled:withEvent:`: the system took the gesture over (a system alert, the notification
+    /// centre, an incoming call). UIResponder: "clean up any state"; it is no tap.
+    Cancelled,
+}
+
+/// Where the mirrored mouse's cursor goes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CursorPlan {
+    /// To the primary finger's position in this event.
+    Follow,
+    /// Where it is: a finger that is not the primary moved, or the primary is still inside the touch slop.
+    Stay,
+    /// To this point: where a tap LANDED, whatever the jitter of the finger before it lifted.
+    At((f32, f32)),
+    /// Out of the window at its last position: the gesture ended without a click.
+    Leave,
+}
+
+/// Where the engine's hit test is taken for the event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HitPlan {
+    /// At the cursor as this plan leaves it.
+    AtCursor,
+    /// Nowhere: the pointer left, no node is under it and the hover chain is cleared (what a mouse leaving the
+    /// window does on every desktop shell).
+    Nowhere,
+    /// The previous hit test stands (the pointer did not move).
+    Keep,
+}
+
+/// What a phase does to the mirrored mouse.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MousePlan {
+    /// The left button: `Some(down)` to set it, `None` to leave it.
+    pub left_down: Option<bool>,
+    /// The cursor.
+    pub cursor: CursorPlan,
+    /// The hit test.
+    pub hit: HitPlan,
+}
+
+/// The mouse's part of one touch phase. `primary_in_set`: this event carries the primary finger (the one the
+/// mouse mirrors); a second finger's phases are nothing to the mouse. `slop_move` is the answer of
+/// [`TapSlop::moved`](crate::desktop::shell2::android_core::slop::TapSlop::moved) for a move of the primary, `lift`
+/// that of [`TapSlop::up`](crate::desktop::shell2::android_core::slop::TapSlop::up) for its lift.
+///
+/// The rule is the one every touch toolkit has and the Android shell follows (`android_core::slop`,
+/// `android_core::touch`): a finger that went down is a tap candidate until it has moved more than the slop from where
+/// it landed, a lift inside the slop is a click at the landing point, the lift of a pan clicks nothing, and a
+/// cancelled gesture releases the button over nothing. This shell moved the pointer and scrolled by any move above a
+/// hundredth of a point (a real finger jitters by a few points: a plain tap scrolled the page, and the click was
+/// lost whenever the node under the finger changed) and treated a cancelled touch as an ended one (a click).
+#[must_use]
+pub fn mouse_plan(
+    phase: TouchPhase,
+    primary_in_set: bool,
+    slop_move: Option<Move>,
+    lift: Option<Lift>,
+) -> MousePlan {
+    const NOTHING: MousePlan = MousePlan {
+        left_down: None,
+        cursor: CursorPlan::Stay,
+        hit: HitPlan::Keep,
+    };
+    if !primary_in_set {
+        return NOTHING;
+    }
+    match phase {
+        TouchPhase::Began => MousePlan {
+            left_down: Some(true),
+            cursor: CursorPlan::Follow,
+            hit: HitPlan::AtCursor,
+        },
+        TouchPhase::Moved => match slop_move {
+            Some(Move::Hold) => NOTHING,
+            _ => MousePlan {
+                left_down: None,
+                cursor: CursorPlan::Follow,
+                hit: HitPlan::AtCursor,
+            },
+        },
+        TouchPhase::Ended => match lift {
+            Some(Lift::Pan) => MousePlan {
+                left_down: Some(false),
+                cursor: CursorPlan::Leave,
+                hit: HitPlan::Nowhere,
+            },
+            Some(Lift::Click { at: Some(landed) }) => MousePlan {
+                left_down: Some(false),
+                cursor: CursorPlan::At(landed),
+                hit: HitPlan::AtCursor,
+            },
+            Some(Lift::Click { at: None }) | None => MousePlan {
+                left_down: Some(false),
+                cursor: CursorPlan::Follow,
+                hit: HitPlan::AtCursor,
+            },
+        },
+        TouchPhase::Cancelled => MousePlan {
+            left_down: Some(false),
+            cursor: CursorPlan::Leave,
+            hit: HitPlan::Nowhere,
+        },
+    }
+}
+
 #[cfg(test)]
 #[path = "ios_logic_test.rs"]
 mod ios_logic_test;
