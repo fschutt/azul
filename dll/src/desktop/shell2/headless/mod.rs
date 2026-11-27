@@ -13380,6 +13380,10 @@ mod tests {
     // A click that rebuilds the page lays it out once (`tests/click_cost.rs`).
     mod click_cost;
 
+    // A press on selectable text near the edge of a scrolling box is a click: a press that has not moved
+    // starts no autoscroll (`tests/a_press_on_text_at_the_edge_of_a_scrolling_box_is_a_click.rs`, E41).
+    mod a_press_on_text_at_the_edge_of_a_scrolling_box_is_a_click;
+
     // A file drop is one event, a drag move one hover, however many passes they cost
     // (`tests/file_drop.rs`).
     mod file_drop;
