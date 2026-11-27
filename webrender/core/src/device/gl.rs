@@ -1110,6 +1110,10 @@ pub struct Device {
     /// the code it was.
     is_gles: bool,
 
+    /// EXPERIMENT: on an OpenGL ES context clear the depth with `glClearBufferfv` (true) or with `glClear(GL_DEPTH_BUFFER_BIT)` and the
+    /// context's own clear depth, 1.0 until somebody changes it (false).
+    es_depth_via_clear_buffer: bool,
+
     // Profiling removed - base_gl field deleted
 
     // device state
@@ -1484,6 +1488,7 @@ impl Device {
         dump_shader_source: Option<String>,
         surface_origin_is_top_left: bool,
         panic_on_gl_error: bool,
+        es_depth_via_clear_buffer: bool,
     ) -> Device {
         let mut max_texture_size = [0];
 
@@ -1968,6 +1973,7 @@ impl Device {
         Device {
             gl,
             is_gles,
+            es_depth_via_clear_buffer,
             crash_annotator,
             annotate_draw_call_crashes: false,
             resource_override_path,
@@ -3872,8 +3878,11 @@ impl Device {
                 }
                 assert_ne!(mask[0], 0);
             }
-            if self.is_gles {
+            if self.is_gles && self.es_depth_via_clear_buffer {
                 es_depth = Some(depth);
+            } else if self.is_gles {
+                // plain glClear: the clear depth of the context (WebRender always clears to 1.0, the initial value)
+                clear_bits |= gl::DEPTH_BUFFER_BIT;
             } else {
                 self.gl.clear_depth(depth as f64);
                 clear_bits |= gl::DEPTH_BUFFER_BIT;

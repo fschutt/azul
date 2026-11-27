@@ -293,6 +293,7 @@ fn apply_experiment(options: &mut webrender::WebRenderOptions) {
             "swizzle_off" => options.allow_texture_swizzling = false,
             "unoptimized" => options.use_optimized_shaders = false,
             "storage_off" => options.allow_texture_storage_support = false,
+            "depth_clear_plain" => options.es_depth_via_clear_buffer = false,
             "none" => {}
             other => {
                 crate::log_warn!(super::debug_server::LogCategory::Rendering, "[render] experiment: {} is unknown", other);

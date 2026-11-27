@@ -191,6 +191,8 @@ pub struct WebRenderOptions {
     /// If false, we'll duplicate the instance attributes per vertex and issue
     /// regular indexed draws instead.
     pub enable_instancing: bool,
+    /// EXPERIMENT: see `Device::es_depth_via_clear_buffer`.
+    pub es_depth_via_clear_buffer: bool,
     /// If true, we'll reject contexts backed by a software rasterizer, except
     /// Software WebRender.
     pub reject_software_rasterizer: bool,
@@ -273,6 +275,7 @@ impl Default for WebRenderOptions {
             // Disabling instancing means more vertex data to upload and potentially
             // process by the vertex shaders.
             enable_instancing: true,
+            es_depth_via_clear_buffer: true,
             reject_software_rasterizer: false,
             low_quality_pinch_zoom: false,
             max_shared_surface_size: 2048,
@@ -337,6 +340,7 @@ pub fn create_webrender_instance(
         options.dump_shader_source.take(),
         options.surface_origin_is_top_left,
         options.panic_on_gl_error,
+        options.es_depth_via_clear_buffer,
     );
 
     let color_cache_formats = device.preferred_color_formats();
