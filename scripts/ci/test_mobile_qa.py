@@ -567,6 +567,20 @@ class GpuFrameWaitTests(unittest.TestCase):
         fell_back = "[render] gpu unavailable at probe: x; drawing on the CPU\n[render] backend=cpu requested=gpu device=software"
         self.assertEqual(q.wait_for_gpu_frame(lambda: fell_back, 120, sleep=lambda _s: None), 0.0)
 
+    def test_a_build_without_a_gpu_path_is_not_waited_for(self):
+        # the Android CPU present path writing its frames: nothing to wait for
+        cpu_frames = "I RustStdoutStderr: [      900000us][Info][Rendering] [Android] present full - rows 0..2400 of 2400"
+        self.assertEqual(q.wait_for_gpu_frame(lambda: cpu_frames, 240, sleep=lambda _s: None), 0.0)
+        # an engine that names no renderer and says nothing for 20 s
+        clock = iter(range(0, 1000))
+        self.assertEqual(q.wait_for_gpu_frame(lambda: "[azul] logging enabled", 240, sleep=lambda _s: None, clock=lambda: next(clock)), 0.0)
+
+    def test_an_engine_that_keeps_talking_without_naming_a_renderer_is_waited_for(self):
+        count = iter(range(0, 1000))
+        clock = iter(range(0, 1000))
+        waited = q.wait_for_gpu_frame(lambda: "[azul] line " + "x" * next(count), 30, sleep=lambda _s: None, clock=lambda: next(clock))
+        self.assertIsNone(waited)
+
     def test_the_wait_gives_up_after_the_time_and_says_so(self):
         clock = iter(range(0, 1000))
         self.assertIsNone(q.wait_for_gpu_frame(lambda: self.CONTRACT, 5, sleep=lambda _s: None, clock=lambda: next(clock)))

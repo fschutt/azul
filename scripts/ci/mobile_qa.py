@@ -714,19 +714,26 @@ IDLE_SECONDS = 4.0         # an idle window is watched this long for frames line
 SWIPE_SECONDS = 4.0        # the scripted swipe of the render-mode step: at least three full seconds of frames lines
 
 
-def wait_for_gpu_frame(read_log, seconds, sleep=time.sleep, clock=time.time):
+def wait_for_gpu_frame(read_log, seconds, sleep=time.sleep, clock=time.time, silence=20.0):
     """After a `gpu` launch: wait until the engine's log (`read_log()` -> text) says the GPU path presented a frame, up to `seconds`.
-    -> seconds waited when it did, 0.0 when the log says the request fell back to the CPU (nothing to wait for) or names no GPU path at all,
-    None when the time ran out first."""
+    -> seconds waited when it did, 0.0 when there is nothing to wait for (the log says the request fell back to the CPU, the CPU present
+    path is writing its frames, or the engine has said nothing about a renderer and nothing at all for `silence` seconds: a build without a
+    GPU path), None when the time ran out first."""
     t0 = clock()
+    last_len, last_change = -1, t0
     while True:
         text = read_log()
         ran, _requested, _device = backend_ran(text)
         if gpu_frame_presented(text):
             return clock() - t0
-        if ran == "cpu":
+        if ran == "cpu" or (ran == "unknown" and "[Android] present" in text):
             return 0.0
-        if clock() - t0 >= seconds:
+        now = clock()
+        if len(text) != last_len:
+            last_len, last_change = len(text), now
+        elif ran == "unknown" and now - last_change >= silence:
+            return 0.0
+        if now - t0 >= seconds:
             return None
         sleep(1.0)
 
