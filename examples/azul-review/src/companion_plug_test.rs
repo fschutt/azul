@@ -431,11 +431,12 @@ fn a_code_is_good_for_as_long_as_the_host_keeps_its_window_open_and_a_phone_wait
     let polled = g.poll_at(now + PAIRING_WINDOW_MS + 1);
     assert!(g.offer().is_none(), "the code went out of date");
     assert!(polled.changed);
-    // a phone asks and the person does not answer
-    let (mut g, now) = listening(&net, &on());
+    // a phone asks and the person does not answer (on a network of its own: an endpoint says where it is once)
+    let other = MockNet::with_knobs(Knobs { latency_ms: 2, discovery: true, ..Knobs::default() });
+    let (mut g, now) = listening(&other, &on());
     g.begin_pairing(now).expect("a code");
     let text = g.offer().expect("open").text.clone();
-    let mut phone = new_phone(&net, "phone");
+    let mut phone = new_phone(&other, "phone");
     phone.begin_pairing(now, &text).expect("offer");
     let (_, now) = pump(&mut g, &mut phone, now, 300);
     assert!(g.asked().is_some());
@@ -640,7 +641,7 @@ fn buttons_changed_on_this_computer_are_cut_kept_and_sent_to_the_phones() {
     let net = net();
     let (mut g, mut phone, now) = with_phone(&net, Stored::default());
     let mut set = ButtonSet::defaults();
-    set.buttons[0].label = "A very long label that is cut".to_string();
+    set.buttons[0].label = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".to_string();
     set.buttons[0].text = "x".repeat(900);
     g.set_buttons(&set);
     assert_eq!(g.stored.buttons.buttons[0].label.chars().count(), azul_review_link::limits::MAX_LABEL_CHARS);

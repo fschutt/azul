@@ -203,9 +203,10 @@ fn a_folder_longer_than_a_frame_comes_in_pages() {
 }
 
 #[test]
-fn a_name_is_cut_to_what_a_name_may_be_and_each_row_has_the_state_the_tree_has_for_it() {
-    let long = "x".repeat(400);
-    let entries = vec![entry(&long, false), entry("busy.rs", false), entry("sub", true)];
+fn a_name_the_tree_would_not_show_is_left_out_and_each_row_has_the_state_the_tree_has_for_it() {
+    let at_the_cap = format!("{}.rs", "x".repeat(MAX_ENTRY_NAME_BYTES - 3));
+    let over = format!("{}.rs", "y".repeat(MAX_ENTRY_NAME_BYTES + 100));
+    let entries = vec![entry(&at_the_cap, false), entry(&over, false), entry("busy.rs", false), entry("sub", true)];
     let state = |name: &str, is_dir: bool| match (name, is_dir) {
         ("busy.rs", false) => FileState::Working,
         ("sub", true) => FileState::Clean,
@@ -215,7 +216,8 @@ fn a_name_is_cut_to_what_a_name_may_be_and_each_row_has_the_state_the_tree_has_f
     let by_name = |name: &str| rows.entries.iter().find(|e| e.name == name).map(|e| e.state);
     assert_eq!(by_name("busy.rs"), Some(FileState::Working));
     assert_eq!(by_name("sub"), Some(FileState::Clean));
-    assert!(rows.entries.iter().any(|e| e.name.len() <= MAX_ENTRY_NAME_BYTES && e.name.starts_with("xxx")), "the long name is cut");
+    assert!(rows.entries.iter().any(|e| e.name == at_the_cap), "a name at the cap is shown whole");
+    assert!(!rows.entries.iter().any(|e| e.name.starts_with("yyy")), "a name past it is left out, as the tree leaves it out");
     assert!(rows.entries.iter().all(|e| e.name.len() <= MAX_ENTRY_NAME_BYTES));
 }
 
