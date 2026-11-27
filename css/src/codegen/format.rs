@@ -864,7 +864,19 @@ impl_enum_fmt!(StyleTextAlign, Center, Left, Right, Justify, Start, End);
 
 impl_enum_fmt!(StyleUserSelect, Auto, Text, None, All);
 
-impl_enum_fmt!(StyleTextDecoration, None, Underline, Overline, LineThrough);
+impl_enum_fmt!(
+    StyleTextDecoration,
+    None,
+    Underline,
+    Overline,
+    LineThrough,
+    UnderlineOverline,
+    UnderlineLineThrough,
+    OverlineLineThrough,
+    UnderlineOverlineLineThrough
+);
+
+impl_enum_fmt!(StyleTextDecorationStyle, Solid, Double, Dotted, Dashed, Wavy);
 
 impl_enum_fmt!(
     DirectionCorner,

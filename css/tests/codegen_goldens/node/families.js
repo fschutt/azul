@@ -67,8 +67,12 @@ function styleText() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_direction({ Exact: { tag: 6, payload: azul.StyleDirection.Rtl } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_userSelect(azul.StyleUserSelect.None)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textDecoration(azul.StyleTextDecoration.Underline)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.TextDecorationStyle)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.TextDecorationColor)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.TextDecorationThickness)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textDecorationColor({ Exact: { tag: 6, payload: lib.AzStyleTextDecorationColor_color({ r: 204, g: 51, b: 0, a: 255 }) } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textDecorationThickness({ Exact: { tag: 6, payload: lib.AzStyleTextDecorationThickness_length(lib.AzPixelValue_px(2.0)) } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textDecorationStyle({ Exact: { tag: 6, payload: azul.StyleTextDecorationStyle.Wavy } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textUnderlineOffset({ Exact: { tag: 6, payload: lib.AzStyleTextUnderlineOffset_length(lib.AzPixelValue_px(3.0)) } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textUnderlinePosition({ Exact: { tag: 6, payload: azul.StyleTextUnderlinePosition.UnderLeft } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_hyphenationLanguage({ Exact: { tag: 6, payload: { inner: azul._azString("en-US") } } })),
@@ -80,7 +84,7 @@ function styleText() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_selectionColor({ inner: { r: 255, g: 255, b: 255, a: 255 } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_selectionRadius({ Exact: { tag: 6, payload: { inner: lib.AzPixelValue_px(3.0) } } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_font(lib.AzStyleFontFamilyVec_copyFromPtr([lib.AzStyleFontFamily_system(azul._azString("caption"))], 1))),
-    ], 67));
+    ], 71));
 }
 
 // CSS: .shorthands

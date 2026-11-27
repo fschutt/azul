@@ -592,6 +592,8 @@ def status(dirs, m=None, extra=None):
                                                "engine_crates", "first_error")}
                 if r.get("initializers") is not None:     # an Apple binary: the entries dyld_info lists (one: the ABI guard's)
                     cell["initializers"] = r["initializers"]
+                if r.get("page_aligned_libs") is not None:    # an APK: its libraries that passed the 16 KiB page check
+                    cell["page_aligned_libs"] = r["page_aligned_libs"]
             cell["staged"] = staged_name(a, col)      # the file the build stages and the asset the release serves: a failed or
             cell["release"] = release_name(a, col)    # missing cell has no `artifact`, and the page's link pruning needs the names
             if known:
@@ -661,9 +663,10 @@ def render_markdown(data):
         lines.append(f"| {r['app']} | " + " | ".join(cells) + f" | {engine} | {secs} | {'; '.join(sizes[:2])}{' ...' if len(sizes) > 2 else ''} |")
     files = [(r["app"], c, cell) for r in data["apps"] for c, cell in r["cells"].items() if cell.get("artifact")]
     if files:
-        with_apple = any(cell.get("symbols") or cell.get("initializers") is not None for _, _, cell in files)
+        with_apple = any(cell.get("symbols") or cell.get("initializers") is not None or cell.get("page_aligned_libs") is not None
+                         for _, _, cell in files)
         lines += ["", "### Files (what the release page links)", "",
-                  "| asset | platform | stripped | shipped | seconds | engine crates | sha256 |" + (" Apple checks |" if with_apple else ""),
+                  "| asset | platform | stripped | shipped | seconds | engine crates | sha256 |" + (" platform checks |" if with_apple else ""),
                   "|---|---|---|---|---|---|---|" + ("---|" if with_apple else "")]
         for app, col, cell in files:
             parts = []
@@ -673,6 +676,9 @@ def render_markdown(data):
             n = cell.get("initializers")
             if n is not None:    # dyld_info -inits: one is the generated ABI guard's load-time entry
                 parts.append(f"{n} initializer" + ("" if n == 1 else "s") + ("" if n else " (the ABI guard's entry is missing)"))
+            pages = cell.get("page_aligned_libs")
+            if pages is not None:    # scripts/android_elf_check.py: every PT_LOAD of every library of the APK aligned for 16 KiB pages
+                parts.append(f"16 KiB pages: {pages} librar{'y' if pages == 1 else 'ies'} aligned")
             apple_text = f" {'; '.join(parts) or '-'} |"
             lines.append(f"| {cell['artifact']} | {col} | {human(cell.get('size'))} | {human(cell.get('shipped_size'))} | "
                          f"{cell.get('seconds') or 0} | {len(cell.get('engine_crates') or [])} | `{str(cell.get('sha256') or '')[:12]}` |"
@@ -688,9 +694,10 @@ def render_markdown(data):
             lines.append(f"| {q.get('artifact') or q['app']} | {q['column']} | {what} | {human(q.get('size'))} | {q.get('seconds') or 0} |")
     if s["libs"]:
         lines += ["", "### The libazul every app of a target links (built once)", "",
-                  "| target | features | seconds | size |", "|---|---|---|---|"]
+                  "| target | features | seconds | size | checks |", "|---|---|---|---|---|"]
         for l in sorted(s["libs"], key=lambda l: (l.get("kind", ""), l.get("target", ""), l.get("features", ""))):
-            lines.append(f"| {l.get('target') or 'host'} ({l.get('kind')}) | {l.get('features')} | {l.get('seconds')} | {human(l.get('size'))} |")
+            checks = "16 KiB pages aligned" if l.get("page_aligned") else "-"
+            lines.append(f"| {l.get('target') or 'host'} ({l.get('kind')}) | {l.get('features')} | {l.get('seconds')} | {human(l.get('size'))} | {checks} |")
     if s["smoke"]:
         lines += ["", "### Boot tests", ""] + [f"- {k}: {v}" for k, v in sorted(s["smoke"].items())]
     if s["boot_failures"]:

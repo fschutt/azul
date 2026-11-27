@@ -1,0 +1,120 @@
+# .github/workflows/demos-publish.yml: publish the demo apps of a FINISHED `demos` run to the release, without building anything again.
+#
+#   gh workflow run demos-publish.yml --ref master -f run_id=<id of the demos run>                    a dry run: lists what would be uploaded
+#   gh workflow run demos-publish.yml --ref master -f run_id=<id of the demos run> -f dry_run=false   uploads it to the release
+#
+# The run is the one whose status table was read (the `demo-status` artifact of rust.yml's run_mode=demos): what is published is exactly
+# the files that run built and tested, under the names scripts/demo_apps.toml gives them (the release page links those names), plus
+# companion.json when AzCompanion's four files are there and demo-status.json, which lets the website deploy say WHY a link of the page
+# is not available. An app that did not build has no file and so no asset: the page then reads "not available" for it
+# (scripts/prune_dead_release_links.py). The QA builds (demoe2e-* artifacts: the debug server) are never read here.
+#
+# Nothing here signs: the iOS device apps are unsigned on purpose (AzReview signs them for the phone they are installed on) and the APKs
+# carry the fixed public debug key of scripts/android/debug.keystore. companion.json is unsigned too (scripts/demo_publish.py says so).
+
+name: demos-publish
+run-name: demos-publish ${{ inputs.run_id }}${{ inputs.dry_run && ' (dry run)' || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'The id of a finished `demos` run of this repository (rust.yml, run_mode=demos): its demoapps-* and demo-status artifacts are published'
+        required: true
+        type: string
+      dry_run:
+        description: 'List what would be uploaded and upload nothing (the default: say false to upload)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# One publication at a time: two uploads to the same release must not interleave.
+concurrency:
+  group: demos-publish
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+  NO_COLOR: "1"
+
+jobs:
+  publish:
+    name: Publish the apps of run ${{ inputs.run_id }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: The run is a finished demos run of this repository
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          case "$RUN_ID" in ''|*[!0-9]*) echo "::error::run_id must be the number of a run"; exit 1;; esac
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > run.json
+          status="$(jq -r '.status // ""' run.json)"
+          event="$(jq -r '.event // ""' run.json)"
+          path="$(jq -r '.path // ""' run.json)"
+          sha="$(jq -r '.head_sha // ""' run.json)"
+          echo "run $RUN_ID: $status, $event, $path, $(jq -r '.head_branch // ""' run.json) @ $sha ($(jq -r '.html_url // ""' run.json))"
+          [ -n "$sha" ] || { echo "::error::run $RUN_ID has no commit"; exit 1; }
+          [ "$status" = completed ] || { echo "::error::run $RUN_ID is $status, not completed"; exit 1; }
+          case "$path" in .github/workflows/rust.yml*) ;; *) echo "::error::run $RUN_ID is a run of $path, not of rust.yml"; exit 1;; esac
+          [ "$event" = workflow_dispatch ] || { echo "::error::run $RUN_ID was started by $event, not dispatched by hand (run_mode=demos)"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: demoapps-*
+          path: demo-all
+          merge-multiple: true
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: demo-status
+          path: demo-status
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: The release assets
+        env:
+          GIT_SHA: ${{ steps.run.outputs.sha }}
+        run: |
+          set -euo pipefail
+          version="$(python3 -c 'import sys; sys.path.insert(0, "scripts"); import demo_apps; print(demo_apps.azul_version())')"
+          [ -n "$version" ] || { echo "::error::AZUL_VERSION of rust.yml is empty"; exit 1; }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          python3 scripts/demo_publish.py assemble --in demo-all --out release-assets --version "$version" --sha "$GIT_SHA"
+          cp demo-status/demo-status.json release-assets/demo-status.json
+          python3 scripts/demo_publish.py list --out release-assets | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload them to the release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$VERSION" >/dev/null 2>&1 || gh release create "$VERSION" --title "Azul $VERSION" \
+            --notes "Azul $VERSION release. Binaries attached; docs and small assets at https://azul.rs/ui/release/$VERSION/."
+          cd release-assets
+          files=()
+          for f in *; do
+            [ "$f" = release-assets.json ] || files+=("$f")
+          done
+          [ "${#files[@]}" -gt 0 ] || { echo "::error::nothing to upload"; exit 1; }
+          gh release upload "$VERSION" "${files[@]}" --clobber
+          echo "uploaded ${#files[@]} assets to $VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: demo-release-assets
+          path: release-assets/release-assets.json
+          retention-days: 30
