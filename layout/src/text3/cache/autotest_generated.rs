@@ -1290,16 +1290,16 @@
         use azul_css::props::style::text::StyleTextDecoration;
         let none = TextDecoration::from_css(StyleTextDecoration::None);
         assert_eq!(none, TextDecoration::default());
-        assert!(!none.underline && !none.strikethrough && !none.overline);
+        assert!(!none.underline() && !none.strikethrough() && !none.overline());
 
         let u = TextDecoration::from_css(StyleTextDecoration::Underline);
-        assert!(u.underline && !u.strikethrough && !u.overline);
+        assert!(u.underline() && !u.strikethrough() && !u.overline());
 
         let o = TextDecoration::from_css(StyleTextDecoration::Overline);
-        assert!(!o.underline && !o.strikethrough && o.overline);
+        assert!(!o.underline() && !o.strikethrough() && o.overline());
 
         let lt = TextDecoration::from_css(StyleTextDecoration::LineThrough);
-        assert!(!lt.underline && lt.strikethrough && !lt.overline);
+        assert!(!lt.underline() && lt.strikethrough() && !lt.overline());
     }
 
     // =====================================================================
@@ -1439,12 +1439,7 @@
                 a: 255,
             },
             background_color: Some(ColorU::TRANSPARENT),
-            text_decoration: TextDecoration {
-                underline: true,
-                strikethrough: false,
-                overline: false,
-                ..TextDecoration::default()
-            },
+            text_decoration: TextDecoration::default().with_kind(LineKind::Underline, true),
             border: Some(InlineBorderInfo::default()),
             ..StyleProperties::default()
         };
