@@ -16,6 +16,8 @@ mod multicast_lock;
 #[cfg(az_iroh_engine)]
 mod nearby;
 #[cfg(az_iroh_engine)]
+mod platform;
+#[cfg(az_iroh_engine)]
 mod dns_wire;
 #[cfg(az_iroh_bonjour)]
 mod bonjour;
@@ -118,6 +120,8 @@ impl IrohEndpoint {
     }
 
     /// Binds an endpoint. On failure `is_bound` is false and the first `recv` returns the `Error` event.
+    /// On Android a bind before the activity exists (from the library's constructor, or from `main`)
+    /// fails that way too, and never aborts the process: bind from a callback once the window exists.
     pub fn bind(config: IrohConfig) -> Self {
         #[cfg(az_iroh_engine)]
         {

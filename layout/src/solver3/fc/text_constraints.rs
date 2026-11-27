@@ -211,8 +211,6 @@ pub struct LineStyle {
     pub initial_letter: Option<text3::cache::InitialLetter>,
     /// `line-clamp`: how many lines are kept.
     pub line_clamp: Option<std::num::NonZeroUsize>,
-    /// `hanging-punctuation`: whether punctuation hangs outside the line.
-    pub hanging_punctuation: bool,
     /// `text-wrap`: how the paragraph is broken into lines.
     pub text_wrap: azul_css::props::basic::font_variation::StyleTextWrap,
     /// `shape-inside`: the shape the lines flow within.
@@ -274,11 +272,10 @@ impl LineStyle {
         viewport: PhysicalSize,
     ) -> Self {
         use azul_css::compact_cache::{
-            DOM_HAS_HANGING_PUNCTUATION, DOM_HAS_HYPHENATION_LANGUAGE, DOM_HAS_HYPHENS,
-            DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN, DOM_HAS_LINE_BREAK,
-            DOM_HAS_LINE_CLAMP, DOM_HAS_OVERFLOW_WRAP, DOM_HAS_SHAPE_INSIDE,
-            DOM_HAS_TEXT_ALIGN_LAST, DOM_HAS_TEXT_JUSTIFY, DOM_HAS_TEXT_WRAP, DOM_HAS_UNICODE_BIDI,
-            DOM_HAS_WORD_BREAK,
+            DOM_HAS_HYPHENATION_LANGUAGE, DOM_HAS_HYPHENS, DOM_HAS_INITIAL_LETTER,
+            DOM_HAS_INITIAL_LETTER_ALIGN, DOM_HAS_LINE_BREAK, DOM_HAS_LINE_CLAMP,
+            DOM_HAS_OVERFLOW_WRAP, DOM_HAS_SHAPE_INSIDE, DOM_HAS_TEXT_ALIGN_LAST,
+            DOM_HAS_TEXT_JUSTIFY, DOM_HAS_TEXT_WRAP, DOM_HAS_UNICODE_BIDI, DOM_HAS_WORD_BREAK,
         };
         // DOM-level declared flags: if a bit is clear, no node in this DOM
         // declared the corresponding property → cascade walks always return
@@ -441,15 +438,6 @@ impl LineStyle {
             azul_css::props::basic::font_variation::StyleTextWrap::default()
         };
 
-        let hanging_punctuation = if dom_declared & DOM_HAS_HANGING_PUNCTUATION != 0 {
-            cache
-                .get_hanging_punctuation(node_data, &id, node_state)
-                .and_then(|s| s.get_property())
-                .is_some_and(azul_css::props::style::StyleHangingPunctuation::is_enabled)
-        } else {
-            false
-        };
-
         // The hyphenation language (CSS Text 3 5.4): azul's own
         // `-azul-hyphenation-language` where it is set - an override - else
         // the CONTENT LANGUAGE, the nearest `lang` attribute. Read only under
@@ -552,7 +540,6 @@ impl LineStyle {
             ),
             initial_letter,
             line_clamp,
-            hanging_punctuation,
             text_wrap,
             shape_inside,
             shape_box_height,
@@ -972,7 +959,6 @@ pub(super) fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         } else {
             None
         },
-        hanging_punctuation: style.hanging_punctuation,
         text_wrap,
         white_space_mode,
         segment_alignment: SegmentAlignment::Total,

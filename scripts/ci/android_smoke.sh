@@ -113,7 +113,7 @@ for apk in "$@"; do
       # An app the manifest presses a button of gets the engine's info log (AZ_LOG=info, through the system property debug.az.log): what
       # a press did (an app that logs its taps: "tap <Action>") is then in the logcat of the run, tag azul
       if [ -n "$(python3 -c 'import json,os,sys; print(json.loads(os.environ.get("AZ_SMOKE_TAPS") or "{}").get(sys.argv[1], ""))' "${app%-android-x86_64}")" ]; then
-        adb shell setprop debug.az.log info >/dev/null 2>&1 || true
+        adb shell setprop debug.az.log "${AZ_SMOKE_LOG:-info}" >/dev/null 2>&1 || true   # AZ_SMOKE_LOG=debug: the shell's per-touch lines too
       fi
       adb shell am start -W -n "$pkg/$act" >"$dir/start.log" 2>&1 || true
       sleep "$wait_s"

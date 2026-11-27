@@ -600,6 +600,87 @@ class PurposeStringsTest(unittest.TestCase):
         self.assertIn("AZ_IOS_SYMBOL_JSON", (HERE / "demo_build.py").read_text(encoding="utf-8"))
 
 
+class AbiGuardInitializerTest(unittest.TestCase):
+    """`xcrun dyld_info -inits` of an Apple binary lists its initializers (the entries of __init_offsets on iOS, __mod_init_func on macOS).
+    The generated ABI guard's load-time entry is ONE of them: dyld_info prints a Rust function pointer anonymously, so ONE entry is the
+    expected evidence and none is the failure to look for (the iOS shell agent, from a miniature of the guard)."""
+
+    ONE = "demo-out/apps/AzWidgets-macos [arm64]:\n    -inits:\n        0x00024068  <anon-00024068>\n"
+    TWO = ONE + "        0x00031010  _some_c_constructor\n"
+    NONE = "demo-out/apps/AzWidgets-macos [arm64]:\n    -inits:\n"
+
+    def test_the_entries_of_the_listing_are_counted(self):
+        self.assertEqual(demo_build.count_initializers(self.ONE), 1)
+        self.assertEqual(demo_build.count_initializers(self.TWO), 2)
+        self.assertEqual(demo_build.count_initializers(self.NONE), 0)
+        self.assertEqual(demo_build.count_initializers(""), 0)
+
+    def test_a_machine_without_the_tool_says_nothing(self):
+        self.assertIsNone(demo_build.apple_initializers("/no/such/binary", which=lambda name: None))
+
+    def test_the_count_travels_in_the_result_and_the_status_says_one_initializer(self):
+        m = demo_apps.load()
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "AzWidgets.ios-sim.result.json").write_text(json.dumps({
+                "app": "AzWidgets", "column": "ios-sim", "status": "built", "size": 2048, "shipped_size": 2048, "seconds": 60,
+                "engine_crates": [], "artifact": "AzWidgets-ios-sim.app.zip", "initializers": 1}))
+            (root / "AzMaps.ios-sim.result.json").write_text(json.dumps({
+                "app": "AzMaps", "column": "ios-sim", "status": "built", "size": 2048, "shipped_size": 2048, "seconds": 60,
+                "engine_crates": [], "artifact": "AzMaps-ios-sim.app.zip", "initializers": 0}))
+            data, md = demo_apps.status([root], m=m)
+        cell = next(r for r in data["apps"] if r["app"] == "AzWidgets")["cells"]["ios-sim"]
+        self.assertEqual(cell["initializers"], 1)
+        self.assertIn("1 initializer", md)
+        self.assertNotIn("1 initializers", md)
+        # none is the failure to look for
+        self.assertEqual(data["summary"]["abi_guard_missing"], ["AzMaps/ios-sim"])
+        self.assertIn("0 initializers", md)
+
+    def test_the_build_driver_counts_them_for_the_apple_binaries_only(self):
+        text = (HERE / "demo_build.py").read_text(encoding="utf-8")
+        self.assertIn("apple_initializers(", text)
+        self.assertIn('startswith("macos")', text)
+
+
+class SymbolGateStatusTest(unittest.TestCase):
+    """The numbers of scripts/ci/ios_symbol_gate.py (min_os, imports, unchecked, violations[...]) travel in the small results artifact as
+    <App>.<column>.symbols.json (AZ_IOS_SYMBOL_JSON) and the status table shows them next to the iOS files, as information."""
+
+    def test_the_counts_of_the_gate_are_in_the_cell_and_in_the_files_table(self):
+        m = demo_apps.load()
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "AzWidgets.ios-sim.result.json").write_text(json.dumps({
+                "app": "AzWidgets", "column": "ios-sim", "status": "built", "size": 2048, "shipped_size": 2048, "seconds": 60,
+                "engine_crates": [], "artifact": "AzWidgets-ios-sim.app.zip"}))
+            (root / "AzWidgets.ios-sim.symbols.json").write_text(json.dumps({
+                "min_os": "16.0", "imports": 412, "unchecked": 37, "violations": []}))
+            (root / "AzWidgets.ios-sim-e2e.symbols.json").write_text(json.dumps({"min_os": "16.0", "imports": 999, "unchecked": 1, "violations": []}))
+            (root / "broken.symbols.json").write_text("{not json")
+            data, md = demo_apps.status([root], m=m)
+        cell = next(r for r in data["apps"] if r["app"] == "AzWidgets")["cells"]["ios-sim"]
+        self.assertEqual(cell["symbols"], {"min_os": "16.0", "imports": 412, "unchecked": 37, "violations": 0})
+        self.assertIn("412 imports, 37 unchecked, 0 violations", md)
+        self.assertEqual(data["summary"]["symbol_violations"], [])
+
+    def test_a_violation_is_listed_by_app_and_column(self):
+        m = demo_apps.load()
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "AzMaps.ios-device.symbols.json").write_text(json.dumps({
+                "min_os": "16.0", "imports": 10, "unchecked": 0,
+                "violations": [{"name": "_AVCaptureDeviceTypeExternal", "lib": "AVFoundation", "weak": False, "why": "iOS 17.0"}]}))
+            data, _ = demo_apps.status([root], m=m)
+        self.assertEqual(data["summary"]["symbol_violations"], ["AzMaps/ios-device"])
+
+    def test_an_app_without_the_numbers_shows_nothing(self):
+        data, md = demo_apps.status([], m=demo_apps.load())
+        cell = next(r for r in data["apps"] if r["app"] == "AzWidgets")["cells"]["ios-sim"]
+        self.assertNotIn("symbols", cell)
+        self.assertNotIn("unchecked", md)
+
+
 class FeaturesCommandTest(unittest.TestCase):
     """`demo_apps.py features <leg> <variant>`: the cargo features of a library of the plan, for the scripts that build one by hand
     (scripts/ci/ios_build_qa.sh): the same string the workflow's lib job gets, android-activity included on Android."""
@@ -941,7 +1022,9 @@ class AfterTapTest(unittest.TestCase):
 
     def test_the_android_boot_test_turns_the_apps_info_log_on_for_an_app_with_a_press(self):
         text = (HERE / "ci" / "android_smoke.sh").read_text(encoding="utf-8")
-        self.assertIn("setprop debug.az.log info", text)    # AZ_LOG=info: the app's own lines of what a press did ("tap <Action>")
+        # AZ_LOG=info: the app's own lines of what a press did ("tap <Action>"); AZ_SMOKE_LOG=debug adds the shell's `[Android] motion
+        # <Down|Up> at (x,y) -> <result>` line per touch event
+        self.assertIn('setprop debug.az.log "${AZ_SMOKE_LOG:-info}"', text)
         self.assertIn("screenshot-probe.png", text)
         self.assertIn("--probe-label", text)
 

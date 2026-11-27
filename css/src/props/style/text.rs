@@ -733,6 +733,7 @@ impl FormatAsRustCode for StyleTextDecorationColor {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C, u8)]
 #[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: a length next to two keywords is the shape of its C binding (api.json)
 pub enum StyleTextDecorationThickness {
     /// `auto`: the thickness the font size suggests
     #[default]
@@ -778,6 +779,7 @@ impl FormatAsRustCode for StyleTextDecorationThickness {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C, u8)]
 #[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: a length next to a keyword is the shape of its C binding (api.json)
 pub enum StyleTextUnderlineOffset {
     /// `auto`: the place the font size suggests
     #[default]

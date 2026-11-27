@@ -11,7 +11,7 @@
 //! - `font` sets the style, the caps variant, the weight, the stretch, the size, the line height
 //!   and the family, and resets every other font longhand to `initial`. A system font keyword
 //!   (`caption`, `menu`, `system:ui`) sets the family-only `CssProperty::Font` instead.
-//! - `font-variant` sets the numeric, caps, ligature and East Asian longhands.
+//! - `font-variant` sets the numeric, caps, ligature, East Asian and position longhands.
 //! - `font-synthesis` sets the four `font-synthesis-*` longhands.
 
 #[cfg(feature = "parser")]
@@ -32,7 +32,7 @@ use crate::{
             font_variation::{
                 parse_style_font_stretch, parse_style_font_variant_east_asian,
                 parse_style_font_variant_ligatures, StyleFontStretch, StyleFontSynthesis,
-                StyleFontVariantEastAsian, StyleFontVariantLigatures,
+                StyleFontVariantEastAsian, StyleFontVariantLigatures, StyleFontVariantPosition,
             },
             parse::split_top_level,
         },
@@ -60,12 +60,10 @@ static FONT_SYNTHESIS_KEYWORDS: [&str; 4] = ["weight", "style", "small-caps", "p
 
 /// The keywords of the `font-variant-*` longhands azul has not, each with its group of the grammar.
 ///
-/// A group may stand once in a value (`sub super` is no value). The keywords are accepted and set
+/// A group may stand once in a value (`text emoji` is no value). The keywords are accepted and set
 /// nothing.
 #[cfg(feature = "parser")]
-static IGNORED_VARIANT_KEYWORDS: [(&str, &str); 6] = [
-    ("sub", "position"),
-    ("super", "position"),
+static IGNORED_VARIANT_KEYWORDS: [(&str, &str); 4] = [
     ("historical-forms", "historical-forms"),
     ("text", "emoji"),
     ("emoji", "emoji"),
@@ -340,7 +338,7 @@ fn exact_or_initial<T>(value: Option<T>) -> CssPropertyValue<T> {
 /// The longhands `font` sets, in the documented order.
 ///
 /// The style, the caps variant, the weight, the stretch, the size, the line height and the family,
-/// then the eleven longhands `font` resets. What the value left out, and every reset, is
+/// then the twelve longhands `font` resets. What the value left out, and every reset, is
 /// `initial`.
 #[cfg(feature = "parser")]
 fn font_properties(prefix: &FontPrefix, tail: FontTail) -> Vec<CssProperty> {
@@ -355,6 +353,7 @@ fn font_properties(prefix: &FontPrefix, tail: FontTail) -> Vec<CssProperty> {
         CssProperty::FontVariantNumeric(CssPropertyValue::Initial),
         CssProperty::FontVariantLigatures(CssPropertyValue::Initial),
         CssProperty::FontVariantEastAsian(CssPropertyValue::Initial),
+        CssProperty::FontVariantPosition(CssPropertyValue::Initial),
         CssProperty::FontKerning(CssPropertyValue::Initial),
         CssProperty::FontOpticalSizing(CssPropertyValue::Initial),
         CssProperty::FontVariationSettings(CssPropertyValue::Initial),
@@ -410,13 +409,14 @@ pub fn parse_font_shorthand(input: &str) -> Result<Vec<CssProperty>, InvalidValu
 
 // --- font-variant ---
 
-/// The four values of the `font-variant` longhands azul has.
+/// The five values of the `font-variant` longhands azul has.
 #[cfg(feature = "parser")]
 struct VariantValues {
     numeric: StyleFontVariantNumeric,
     caps: StyleFontVariantCaps,
     ligatures: StyleFontVariantLigatures,
     east_asian: StyleFontVariantEastAsian,
+    position: StyleFontVariantPosition,
 }
 
 #[cfg(feature = "parser")]
@@ -428,16 +428,18 @@ impl VariantValues {
             caps: StyleFontVariantCaps::Normal,
             ligatures: StyleFontVariantLigatures::NORMAL,
             east_asian: StyleFontVariantEastAsian::NORMAL,
+            position: StyleFontVariantPosition::Normal,
         }
     }
 
-    /// The longhands, in the order numeric, caps, ligatures, East Asian.
+    /// The longhands, in the order numeric, caps, ligatures, East Asian, position.
     fn properties(&self) -> Vec<CssProperty> {
         vec![
             CssProperty::FontVariantNumeric(CssPropertyValue::Exact(self.numeric)),
             CssProperty::FontVariantCaps(CssPropertyValue::Exact(self.caps)),
             CssProperty::FontVariantLigatures(CssPropertyValue::Exact(self.ligatures)),
             CssProperty::FontVariantEastAsian(CssPropertyValue::Exact(self.east_asian)),
+            CssProperty::FontVariantPosition(CssPropertyValue::Exact(self.position)),
         ]
     }
 }
@@ -530,6 +532,8 @@ struct VariantWords<'a> {
     ligatures: Vec<&'a str>,
     east_asian: Vec<&'a str>,
     caps: Option<StyleFontVariantCaps>,
+    /// The keyword of `font-variant-position` (`sub` or `super`), once.
+    position: Option<StyleFontVariantPosition>,
     /// The groups of the keywords without a longhand that have stood already.
     ignored: Vec<&'static str>,
 }
@@ -575,6 +579,21 @@ impl<'a> VariantWords<'a> {
             self.east_asian.push(word);
             return true;
         }
+        // `sub` and `super` are `font-variant-position`: one of them stands once.
+        let position = if word.eq_ignore_ascii_case("sub") {
+            Some(StyleFontVariantPosition::Subscript)
+        } else if word.eq_ignore_ascii_case("super") {
+            Some(StyleFontVariantPosition::Superscript)
+        } else {
+            None
+        };
+        if let Some(position) = position {
+            if self.position.is_some() {
+                return false;
+            }
+            self.position = Some(position);
+            return true;
+        }
         match ignored_group(word) {
             Some(group) if !self.ignored.contains(&group) => {
                 self.ignored.push(group);
@@ -604,6 +623,7 @@ impl<'a> VariantWords<'a> {
                 normal.east_asian,
                 parse_style_font_variant_east_asian,
             )?,
+            position: self.position.unwrap_or(normal.position),
         })
     }
 }
@@ -617,14 +637,14 @@ impl<'a> VariantWords<'a> {
 /// <numeric-fraction-values> || ordinal || slashed-zero || <east-asian-variant-values> ||
 /// <east-asian-width-values> || ruby || [ sub | super ] || [ text | emoji | unicode ] ]`.
 ///
-/// Returns four longhands, in this order: `font-variant-numeric`, `font-variant-caps`,
-/// `font-variant-ligatures` and `font-variant-east-asian`, all `Exact`: the ones the value does
-/// not name are `normal`. `none` is `none` for the ligatures and `normal` for the others.
+/// Returns five longhands, in this order: `font-variant-numeric`, `font-variant-caps`,
+/// `font-variant-ligatures`, `font-variant-east-asian` and `font-variant-position`, all `Exact`:
+/// the ones the value does not name are `normal`. `none` is `none` for the ligatures and `normal`
+/// for the others.
 ///
-/// The keywords of the longhands azul has not (`sub`, `super`, `historical-forms`, `text`,
-/// `emoji`, `unicode` and the functions `stylistic()`, `styleset()`, `character-variant()`,
-/// `swash()`, `ornaments()`, `annotation()`) are accepted and set nothing; of each group of them
-/// one may stand.
+/// The keywords of the longhands azul has not (`historical-forms`, `text`, `emoji`, `unicode` and
+/// the functions `stylistic()`, `styleset()`, `character-variant()`, `swash()`, `ornaments()`,
+/// `annotation()`) are accepted and set nothing; of each group of them one may stand.
 ///
 /// # Errors
 ///

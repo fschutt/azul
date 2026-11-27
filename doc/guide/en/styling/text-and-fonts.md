@@ -171,7 +171,7 @@ and last `font-feature-settings`, which has the last word. `font-feature-setting
 turns the kerning off and `"kern" 1` on again after `font-kerning: none`, and the pair
 adjustments of a font are applied once.
 
-`font-variant: sub` and `font-variant: super` are accepted and set nothing: use `font-variant-position`.
+`font-variant: sub` and `font-variant: super` set `font-variant-position`, and every `font-variant` value that names no position resets it to `normal`; so does the `font` shorthand.
 
 A `font-feature-settings` value keeps its first 64 distinct tags (`MAX_FONT_FEATURES`; a font has a
 few dozen features at most) and the stylesheet parser warns about more.
@@ -302,6 +302,7 @@ for the values.
 - `text-underline-offset` accepts `auto` (the initial value), a length, or a percentage (of one em): it moves the underline down from the place of the font size, up for a negative length. An `em` and a percentage are parts of the font size of the box that sets the line, a zoom scales a length, and one beyond 1,000 px either way is read as 1,000 px with a diagnostic. It moves no overline and no line-through.
 - `text-underline-position` accepts `auto` (the initial value), `from-font` or `under`, and `left` or `right`, each group at most once and in either order. `under` puts the top of the underline where the em box ends, below the descenders. `from-font` reads no metric of the face yet, so it is `auto`; `left` and `right` choose the side of vertical text, which the engine does not draw lines for yet (a horizontal line has no side).
 - Both are inherited (a box inside one that sets them is placed by them, `auto` ends them); the colour and the thickness are not, and each kind of line has the paint of the box that sets it: an underline of a block and a line-through of a span in it are two lines of two paints under the text of the span. A thicker underline or overline grows downwards from the place the font puts it, a thicker line-through around its middle.
+- Every box that sets a line draws it: a line is drawn in the font size and on the baseline of the box that sets it, whatever the text under it is like. A block with `text-decoration: underline` has one continuous underline at its baseline, also under a smaller, a bigger or a raised span in it (a superscript does not lift the line); a span inside that sets an underline of its own has a second one, in its own size and on its own baseline. The same line of two boxes on one baseline in one place is drawn once. A box that is aligned by `top`, `bottom`, `middle`, `text-top` or `text-bottom` is not a plain raise, and the lines of the boxes around it stand on its own baseline.
 - `text-shadow` accepts `<x> <y> [blur] [color]`. The text is painted between a push and a pop of the shadow in the display list, so both rasterizers draw the shadow under the glyphs.
 - `user-select` accepts `auto`, `text`, `none`, or `all`.
 - `vertical-align` accepts `baseline`, `top`, `middle`, `bottom`, `sub`, `super`, `text-top`, `text-bottom`, `<percentage>`, or `<length>`.
@@ -379,7 +380,7 @@ what they say. Each row says what the layout does today.
 |----------|-------|
 | `font-synthesis-style`, `font-synthesis-position` | parsed and inherited, with no consumer: a `font-style: italic` text in a family without an italic face is drawn upright (the engine fakes no slant, in neither rasterizer nor in a PDF), and a super- or subscript is not faked either |
 | `text-orientation: upright`, `sideways` | parsed; in a vertical block `upright` sets the line direction to left-to-right as the spec says, and no value turns a glyph: the text is `mixed` |
-| `hanging-punctuation` | parsed and kept by the cascade, not applied: the punctuation stays inside the line box |
+| `hanging-punctuation` | applied by the greedy line breaker and the positioning of every line; not by the breaker of `text-wrap: balance` and `pretty` (which count the mark in the line) and not by the intrinsic sizes (a box sized to its content holds the mark); the marks are the brackets and quotes and the stops and commas of Latin, CJK and fullwidth text |
 | `initial-letter` | makes room: the lines beside the first letter start after a box N lines high, and the letter is drawn at the size of the text, not bigger and not moved into the room |
 | `text-decoration-style`, `text-emphasis` | not properties: the lines of `text-decoration` are solid |
 | `text-underline-position: left`, `right`, the lines of a vertical writing mode | a line is a horizontal rectangle from the first glyph of a run to the end of its extent along x, so a line of vertical text is not drawn along the run, on the side `left` or `right` says |

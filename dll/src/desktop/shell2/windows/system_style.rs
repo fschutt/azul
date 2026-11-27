@@ -1,7 +1,8 @@
 //! Native Windows system style discovery via LoadLibrary + GetProcAddress.
 //!
-//! This module loads `User32.dll` at runtime (the accent comes from the
-//! registry via `reg`, see `discover_windows_cli_extras`),
+//! This module loads `User32.dll` at runtime (the accent, the dark mode, the build number and the
+//! accessibility flags come from the registry through `RegGetValueW`, the language from
+//! `GetUserDefaultLocaleName`: no process is started, see `native_reg_query`),
 //! queries system metrics, colours, and input timing, then immediately frees
 //! the library handles.
 //!
@@ -124,10 +125,22 @@ fn color_from_sys(u32: &FnGetSysColor, index: i32) -> ColorU {
 ///
 /// Falls back to `defaults::windows_11_light()` if any DLL fails to load.
 pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> azul_css::system::SystemStyle {
+    discover_timed(
+        known_languages,
+        &crate::desktop::startup_timeline::StartupTimeline::disabled(),
+    )
+}
+
+/// [`discover`] for the start of the app: each step of it is a mark of the startup timeline (`AZ_STARTUP=1`).
+pub(crate) fn discover_timed(
+    known_languages: &[azul_css::system::SystemLanguage],
+    startup: &crate::desktop::startup_timeline::StartupTimeline,
+) -> azul_css::system::SystemStyle {
     let u32_lib = match User32::load() {
         Some(l) => l,
         None => return defaults::windows_11_light(),
     };
+    startup.mark("style:user32_loaded");
 
     let mut style = defaults::windows_11_light();
 
@@ -292,14 +305,18 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     }
 
     style.platform = Platform::Windows;
+    startup.mark("style:metrics_and_colors_read");
 
-    // ── CLI fallback discovery ───────────────────────────────────────
+    // ── Registry and locale, read natively ───────────────────────────
     discover_windows_cli_extras(&mut style);
+    startup.mark("style:theme_and_accent_read");
     style.os_version = detect_windows_version();
+    startup.mark("style:version_read");
     style.language = azul_css::system::SystemLanguage::resolve(
         detect_language_windows().as_str(),
         known_languages,
     );
+    startup.mark("style:language_read");
 
     let rm = detect_windows_reduced_motion();
     if rm == BoolCondition::True {
@@ -344,58 +361,124 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
 
 // ── CLI fallback helpers ────────────────────────────────────────────────
 
-/// Spawn a subprocess and capture its stdout, returning `Err(())` on
-/// timeout or any other failure.
-fn run_command_with_timeout(program: &str, args: &[&str], timeout_ms: u64) -> Result<String, ()> {
-    use std::{
-        process::{Command, Stdio},
-        time::{Duration, Instant},
-    };
+// ── The registry and the locale, read natively ───────────────────────────
+//
+// This discovery used to run `reg.exe` for every registry value (seven processes) and PowerShell for the
+// language: each a process started on the window's thread before the first frame (30 to 100 ms for `reg`,
+// several hundred for PowerShell). The values are read with `RegGetValueW` and `GetUserDefaultLocaleName` now, and
+// handed, as the text `reg query` printed, to the same parsers
+// (`style_discovery::reg_value_text`, `azul_css::system::windows_accent`).
 
-    let mut child = Command::new(program)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .stdin(Stdio::null())
-        .spawn()
-        .map_err(|_| ())?;
+type FnRegGetValueW =
+    unsafe extern "system" fn(isize, *const u16, *const u16, u32, *mut u32, *mut c_void, *mut u32) -> i32;
+type FnGetUserDefaultLocaleName = unsafe extern "system" fn(*mut u16, i32) -> i32;
 
-    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+/// `HKEY_CURRENT_USER` and `HKEY_LOCAL_MACHINE`: predefined handles, sign-extended like the header's casts.
+const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
+const HKEY_LOCAL_MACHINE: isize = 0x8000_0002_u32 as i32 as isize;
+/// `RRF_RT_ANY`: whatever type the value has (a `REG_EXPAND_SZ` comes back expanded, as `REG_SZ`).
+const RRF_RT_ANY: u32 = 0x0000_ffff;
+/// The longest value read: the discovery reads numbers, short strings and a 32-byte palette.
+const REG_READ_MAX: usize = 1024;
+/// `LOCALE_NAME_MAX_LENGTH`.
+const LOCALE_NAME_MAX_LENGTH: usize = 85;
 
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if !status.success() {
-                    return Err(());
-                }
-                let output = child.wait_with_output().map_err(|_| ())?;
-                return String::from_utf8(output.stdout).map_err(|_| ());
-            }
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    return Err(());
-                }
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            Err(_) => return Err(()),
+/// A library of the system loaded for one read (like [`User32`]), with one function out of it.
+fn load_symbol(library: &[u8], symbol: &[u8]) -> Option<(*mut c_void, *mut c_void)> {
+    // SAFETY: both names are NUL-terminated byte strings; the handle is freed by the caller.
+    unsafe {
+        let handle = LoadLibraryA(library.as_ptr());
+        if handle.is_null() {
+            return None;
         }
+        let address = GetProcAddress(handle, symbol.as_ptr());
+        if address.is_null() {
+            FreeLibrary(handle);
+            return None;
+        }
+        Some((handle, address))
     }
+}
+
+/// One registry value of `hive` + `subkey`: its type and its bytes.
+fn registry_value(hive: isize, subkey: &str, name: &str) -> Option<(u32, Vec<u8>)> {
+    let (handle, address) = load_symbol(b"advapi32.dll\0", b"RegGetValueW\0")?;
+    // SAFETY: `address` is RegGetValueW of the loaded advapi32 (the signature is Microsoft's), the
+    // strings are NUL-terminated UTF-16, the buffer has the size passed with it.
+    let read = unsafe {
+        let reg_get_value: FnRegGetValueW = core::mem::transmute(address);
+        let wide = |text: &str| text.encode_utf16().chain(core::iter::once(0)).collect::<Vec<u16>>();
+        let (subkey, name) = (wide(subkey), wide(name));
+        let mut buffer = [0_u8; REG_READ_MAX];
+        let mut size = REG_READ_MAX as u32;
+        let mut value_type = 0_u32;
+        let status = reg_get_value(
+            hive,
+            subkey.as_ptr(),
+            name.as_ptr(),
+            RRF_RT_ANY,
+            &mut value_type,
+            buffer.as_mut_ptr().cast::<c_void>(),
+            &mut size,
+        );
+        (status == 0).then(|| (value_type, buffer[..(size as usize).min(REG_READ_MAX)].to_vec()))
+    };
+    // SAFETY: the handle came from LoadLibraryA above; nothing uses the function after this.
+    unsafe {
+        FreeLibrary(handle);
+    }
+    read
+}
+
+/// What `reg query <key> /v <name>` (or `reg query <key>`, for the values named) printed, from the registry API:
+/// `Err(())` when none of the values exists, as `reg` failed then.
+fn native_reg_query(key: &str, names: &[&str]) -> Result<String, ()> {
+    let (root, subkey) = key.split_once('\\').ok_or(())?;
+    let hive = match root {
+        "HKCU" | "HKEY_CURRENT_USER" => HKEY_CURRENT_USER,
+        "HKLM" | "HKEY_LOCAL_MACHINE" => HKEY_LOCAL_MACHINE,
+        _ => return Err(()),
+    };
+    let text: String = names
+        .iter()
+        .filter_map(|name| {
+            let (value_type, bytes) = registry_value(hive, subkey, name)?;
+            crate::desktop::shell2::common::style_discovery::reg_value_text(name, value_type, &bytes)
+        })
+        .collect();
+    if text.is_empty() {
+        Err(())
+    } else {
+        Ok(text)
+    }
+}
+
+/// The user's locale name (`de-DE`): what `(Get-Culture).Name` of PowerShell answers.
+fn user_locale_name() -> Option<String> {
+    let (handle, address) = load_symbol(b"kernel32.dll\0", b"GetUserDefaultLocaleName\0")?;
+    // SAFETY: `address` is GetUserDefaultLocaleName (the signature is Microsoft's); the buffer has the
+    // length passed with it.
+    let name = unsafe {
+        let get_name: FnGetUserDefaultLocaleName = core::mem::transmute(address);
+        let mut buffer = [0_u16; LOCALE_NAME_MAX_LENGTH];
+        let length = get_name(buffer.as_mut_ptr(), LOCALE_NAME_MAX_LENGTH as i32);
+        // The count includes the terminating NUL.
+        (length > 1).then(|| String::from_utf16_lossy(&buffer[..(length as usize - 1).min(LOCALE_NAME_MAX_LENGTH)]))
+    };
+    // SAFETY: the handle came from LoadLibraryA above.
+    unsafe {
+        FreeLibrary(handle);
+    }
+    name
 }
 
 /// Enhance an existing `SystemStyle` with registry-based dark-mode and
 /// accent-colour information obtained via the `reg` CLI.
 fn discover_windows_cli_extras(style: &mut azul_css::system::SystemStyle) {
     // ── Dark mode detection via registry ────────────────────────────
-    if let Ok(output) = run_command_with_timeout(
-        "reg",
-        &[
-            "query",
-            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-            "/v",
-            "AppsUseLightTheme",
-        ],
-        2000,
+    if let Ok(output) = native_reg_query(
+        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        &["AppsUseLightTheme"],
     ) {
         if output.contains("0x0") {
             style.mode = DarkLightMode::Dark;
@@ -412,21 +495,16 @@ fn discover_windows_cli_extras(style: &mut azul_css::system::SystemStyle) {
     // `azul_css::system::windows_accent` so it is tested on every platform.
     // The selection colours keep their own values: the accent is NOT
     // copied into `selection_background` any more.
-    let accent = run_command_with_timeout(
-        "reg",
-        &["query", windows_accent::EXPLORER_ACCENT_KEY],
-        2000,
+    let accent = native_reg_query(
+        windows_accent::EXPLORER_ACCENT_KEY,
+        &["AccentColorMenu", "AccentPalette"],
     )
     .ok()
     .and_then(|output| windows_accent::accent_from_reg_query(&output))
     .or_else(|| {
-        run_command_with_timeout(
-            "reg",
-            &["query", windows_accent::DWM_KEY, "/v", "AccentColor"],
-            2000,
-        )
-        .ok()
-        .and_then(|output| windows_accent::accent_from_reg_query(&output))
+        native_reg_query(windows_accent::DWM_KEY, &["AccentColor"])
+            .ok()
+            .and_then(|output| windows_accent::accent_from_reg_query(&output))
     });
     if let Some(accent) = accent {
         windows_accent::apply_accent(style, accent);
@@ -437,15 +515,9 @@ fn discover_windows_cli_extras(style: &mut azul_css::system::SystemStyle) {
 /// registry.  Returns a best-effort `OsVersion`; defaults to `WIN_10` when
 /// the build number cannot be determined.
 fn detect_windows_version() -> OsVersion {
-    let build_str = match run_command_with_timeout(
-        "reg",
-        &[
-            "query",
-            r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
-            "/v",
-            "CurrentBuildNumber",
-        ],
-        2000,
+    let build_str = match native_reg_query(
+        r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+        &["CurrentBuildNumber"],
     ) {
         Ok(s) => s,
         Err(_) => return OsVersion::WIN_10,
@@ -488,16 +560,7 @@ fn detect_windows_version() -> OsVersion {
 
 /// Check the `MinAnimate` registry key to detect reduced-motion preference.
 fn detect_windows_reduced_motion() -> BoolCondition {
-    if let Ok(output) = run_command_with_timeout(
-        "reg",
-        &[
-            "query",
-            r"HKCU\Control Panel\Desktop\WindowMetrics",
-            "/v",
-            "MinAnimate",
-        ],
-        2000,
-    ) {
+    if let Ok(output) = native_reg_query(r"HKCU\Control Panel\Desktop\WindowMetrics", &["MinAnimate"]) {
         // MinAnimate = "0" means animations are disabled
         if output.contains("\"0\"") || output.contains("    0") {
             return BoolCondition::True;
@@ -508,16 +571,7 @@ fn detect_windows_reduced_motion() -> BoolCondition {
 
 /// Check the `HighContrast` Flags registry value (bit 0 = HCF_HIGHCONTRASTON).
 fn detect_windows_high_contrast() -> BoolCondition {
-    if let Ok(output) = run_command_with_timeout(
-        "reg",
-        &[
-            "query",
-            r"HKCU\Control Panel\Accessibility\HighContrast",
-            "/v",
-            "Flags",
-        ],
-        2000,
-    ) {
+    if let Ok(output) = native_reg_query(r"HKCU\Control Panel\Accessibility\HighContrast", &["Flags"]) {
         // Flags is a REG_SZ decimal string.  Bit 0 set = high contrast on.
         if let Some(val) = output
             .split_whitespace()
@@ -532,32 +586,18 @@ fn detect_windows_high_contrast() -> BoolCondition {
     BoolCondition::False
 }
 
-/// Detect the Windows display language.  Tries PowerShell `(Get-Culture).Name`
-/// first, then falls back to the registry `LocaleName` value.
+/// Detect the Windows display language: the user's locale name from the system
+/// (`GetUserDefaultLocaleName`, what PowerShell's `(Get-Culture).Name` answers, without
+/// starting PowerShell), then the registry `LocaleName` value.
 fn detect_language_windows() -> AzString {
-    // Fast path: PowerShell
-    if let Ok(output) = run_command_with_timeout(
-        "powershell",
-        &["-NoProfile", "-Command", "(Get-Culture).Name"],
-        3000,
-    ) {
-        let lang = output.trim();
+    if let Some(lang) = user_locale_name() {
         if !lang.is_empty() {
-            return AzString::from(lang.to_string());
+            return AzString::from(lang);
         }
     }
 
     // Fallback: registry
-    if let Ok(output) = run_command_with_timeout(
-        "reg",
-        &[
-            "query",
-            r"HKCU\Control Panel\International",
-            "/v",
-            "LocaleName",
-        ],
-        2000,
-    ) {
+    if let Ok(output) = native_reg_query(r"HKCU\Control Panel\International", &["LocaleName"]) {
         // Last whitespace-delimited token is the locale string
         if let Some(locale) = output.split_whitespace().last() {
             if !locale.is_empty() {

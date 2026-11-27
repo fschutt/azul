@@ -504,6 +504,26 @@ def read_startchecks(dirs):
     return found
 
 
+def read_symbols(dirs):
+    """{(package, column): {min_os, imports, unchecked, violations}} from the <App>.<column>.symbols.json files the iOS builds leave
+    (scripts/ci/ios_symbol_gate.py through AZ_IOS_SYMBOL_JSON): the counts of its strong imports, `violations` as a number. The files
+    of the QA variant (<column>-e2e) are not the shipped cells'."""
+    found = {}
+    for d in dirs:
+        for f in sorted(pathlib.Path(d).rglob("*.symbols.json")):
+            stem = f.name[:-len(".symbols.json")]
+            package, _, column = stem.rpartition(".")
+            if column not in ARTIFACT_COLUMNS:
+                continue
+            try:
+                r = json.loads(f.read_text(encoding="utf-8"))
+                found[(package, column)] = {"min_os": r.get("min_os"), "imports": int(r.get("imports", 0)),
+                                            "unchecked": int(r.get("unchecked", 0)), "violations": len(r.get("violations") or [])}
+            except (ValueError, TypeError, AttributeError):
+                continue
+    return found
+
+
 def read_libs(dirs):
     """The libazul.info.json files the library jobs leave: [{kind, target, features, seconds, size, ...}]."""
     libs = []
@@ -554,6 +574,7 @@ def status(dirs, m=None, extra=None):
     results = read_results(dirs)
     smoke = read_smoke(dirs)
     starts = read_startchecks(dirs)
+    symbols = read_symbols(dirs)
     rows = []
     total_files = total_bytes = total_shipped = 0
     unexplained = []
@@ -569,6 +590,8 @@ def status(dirs, m=None, extra=None):
             else:
                 cell = {k: r.get(k) for k in ("status", "reason", "artifact", "sha256", "size", "shipped_size", "seconds",
                                                "engine_crates", "first_error")}
+                if r.get("initializers") is not None:     # an Apple binary: the entries dyld_info lists (one: the ABI guard's)
+                    cell["initializers"] = r["initializers"]
             cell["staged"] = staged_name(a, col)      # the file the build stages and the asset the release serves: a failed or
             cell["release"] = release_name(a, col)    # missing cell has no `artifact`, and the page's link pruning needs the names
             if known:
@@ -579,6 +602,8 @@ def status(dirs, m=None, extra=None):
             start = starts.get((a["package"], col))
             if start:
                 cell["start"] = start
+            if (a["package"], col) in symbols:
+                cell["symbols"] = symbols[(a["package"], col)]
             if cell["status"] in ("built", "reused"):
                 total_files += 1
                 total_bytes += cell.get("size") or 0
@@ -590,8 +615,12 @@ def status(dirs, m=None, extra=None):
     boot_failed = sorted(f"{r['app']}/{c}" for r in rows for c, cell in r["cells"].items()
                          if str(cell.get("boot", "")).startswith("BOOT FAILED"))
     libs = read_libs(dirs)
+    # a violation of the iOS symbol gate: a strong import newer than the oldest iOS the app claims (it fails the build too)
+    symbol_violations = sorted(f"{package}/{column}" for (package, column), s in symbols.items() if s["violations"])
+    # an Apple binary with NO initializer: the generated ABI guard's load-time entry is missing (one is the expected count)
+    abi_guard_missing = sorted(f"{r['app']}/{c}" for r in rows for c, cell in r["cells"].items() if cell.get("initializers") == 0)
     summary = {
-        "libs": libs,
+        "libs": libs, "symbol_violations": symbol_violations, "abi_guard_missing": abi_guard_missing,
         "assets": total_files, "bytes": total_bytes, "shipped_bytes": total_shipped,
         "artifacts_of_the_run": extra.get("artifacts"), "runner_minutes": extra.get("runner_minutes"),
         "unexplained_failures": unexplained, "boot_failures": boot_failed, "smoke": extra.get("smoke", {}),
@@ -632,11 +661,22 @@ def render_markdown(data):
         lines.append(f"| {r['app']} | " + " | ".join(cells) + f" | {engine} | {secs} | {'; '.join(sizes[:2])}{' ...' if len(sizes) > 2 else ''} |")
     files = [(r["app"], c, cell) for r in data["apps"] for c, cell in r["cells"].items() if cell.get("artifact")]
     if files:
+        with_apple = any(cell.get("symbols") or cell.get("initializers") is not None for _, _, cell in files)
         lines += ["", "### Files (what the release page links)", "",
-                  "| asset | platform | stripped | shipped | seconds | engine crates | sha256 |", "|---|---|---|---|---|---|---|"]
+                  "| asset | platform | stripped | shipped | seconds | engine crates | sha256 |" + (" Apple checks |" if with_apple else ""),
+                  "|---|---|---|---|---|---|---|" + ("---|" if with_apple else "")]
         for app, col, cell in files:
+            parts = []
+            sym = cell.get("symbols")
+            if sym:    # scripts/ci/ios_symbol_gate.py: strong imports newer than the oldest iOS the app claims
+                parts.append(f"{sym['imports']} imports, {sym['unchecked']} unchecked, {sym['violations']} violations")
+            n = cell.get("initializers")
+            if n is not None:    # dyld_info -inits: one is the generated ABI guard's load-time entry
+                parts.append(f"{n} initializer" + ("" if n == 1 else "s") + ("" if n else " (the ABI guard's entry is missing)"))
+            apple_text = f" {'; '.join(parts) or '-'} |"
             lines.append(f"| {cell['artifact']} | {col} | {human(cell.get('size'))} | {human(cell.get('shipped_size'))} | "
-                         f"{cell.get('seconds') or 0} | {len(cell.get('engine_crates') or [])} | `{str(cell.get('sha256') or '')[:12]}` |")
+                         f"{cell.get('seconds') or 0} | {len(cell.get('engine_crates') or [])} | `{str(cell.get('sha256') or '')[:12]}` |"
+                         + (apple_text if with_apple else ""))
     s = data["summary"]
     lines += ["", f"**{s['assets']} files, {human(s['bytes'])} stripped, {human(s['shipped_bytes'])} as shipped**; "
                   f"artifacts of the run: {s['artifacts_of_the_run']}; runner minutes: {s['runner_minutes']}."]
@@ -655,6 +695,10 @@ def render_markdown(data):
         lines += ["", "### Boot tests", ""] + [f"- {k}: {v}" for k, v in sorted(s["smoke"].items())]
     if s["boot_failures"]:
         lines += ["", "DO NOT BOOT: " + ", ".join(s["boot_failures"])]
+    if s.get("abi_guard_missing"):
+        lines += ["", "NO ABI GUARD INITIALIZER (dyld_info -inits lists none; one is expected): " + ", ".join(s["abi_guard_missing"])]
+    if s.get("symbol_violations"):
+        lines += ["", "iOS SYMBOL GATE VIOLATIONS: " + ", ".join(s["symbol_violations"])]
     if s["unexplained_failures"]:
         lines += ["", "UNEXPLAINED: " + ", ".join(s["unexplained_failures"])]
     return "\n".join(lines) + "\n"
