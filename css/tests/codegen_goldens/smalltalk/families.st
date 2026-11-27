@@ -67,6 +67,7 @@ dropped a value these bindings cannot build: the Smalltalk bindings define no cl
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleDirectionValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleTextDecorationColorValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleTextDecorationThicknessValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleTextDecorationStyleValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleTextUnderlineOffsetValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleTextUnderlinePositionValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleHyphenationLanguageValue` or its CssPropertyValue<T> payload
@@ -95,6 +96,9 @@ AzulStyles class >> styleText [
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyTabSize: (AzStyleTabSize new inner: (AzulNative azPixelValueEm: 4.0); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyUserSelect: (AzStyleUserSelect None))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyTextDecoration: (AzStyleTextDecoration Underline))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType TextDecorationStyle))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType TextDecorationColor))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType TextDecorationThickness))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyCaretColor: (AzCaretColor new inner: (AzColorU new r: 255; g: 0; b: 0; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyCaretAnimationDuration: (AzCaretAnimationDuration new inner: (AzCssDuration new inner: 500; unit: (AzCssDurationUnit Milliseconds); yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertySelectionBackgroundColor: (AzSelectionBackgroundColor new inner: (AzColorU new r: 51; g: 153; b: 255; a: 255; yourself); yourself))).

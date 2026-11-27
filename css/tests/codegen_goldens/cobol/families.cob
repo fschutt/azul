@@ -40,6 +40,7 @@
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleDirectionValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextDecorationColorValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextDecorationThicknessValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
+*> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextDecorationStyleValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextUnderlineOffsetValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleTextUnderlinePositionValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
 *> dropped a value these bindings cannot build: the COBOL copybook gives `StyleHyphenationLanguageValue` only a raw TAG + PAYLOAD-ANCHOR record (no constructor, no payload layout)
@@ -125,38 +126,44 @@ COPY "azul.cpy".
 01  t65 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t66 USAGE TYAZ-CSS-PROPERTY.
 01  t67 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t68 USAGE TYAZ-COLOR-U.
-01  t69 USAGE TYAZ-CARET-COLOR.
+01  t68 USAGE TYAZ-CSS-PROPERTY.
+01  t69 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
 01  t70 USAGE TYAZ-CSS-PROPERTY.
 01  t71 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t72 USAGE TYAZ-CSS-DURATION.
-01  t73 USAGE TYAZ-CARET-ANIMATION-DURATION.
-01  t74 USAGE TYAZ-CSS-PROPERTY.
-01  t75 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t76 USAGE TYAZ-COLOR-U.
-01  t77 USAGE TYAZ-SELECTION-BACKGROUND-ec6b.
-01  t78 USAGE TYAZ-CSS-PROPERTY.
-01  t79 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t80 USAGE TYAZ-COLOR-U.
-01  t81 USAGE TYAZ-SELECTION-COLOR.
-01  t82 USAGE TYAZ-CSS-PROPERTY.
-01  t83 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t84.
-    05  t84-start USAGE BINARY-DOUBLE UNSIGNED VALUE 0.
-    05  t84-len USAGE BINARY-DOUBLE UNSIGNED VALUE 7.
-    05  t84-bytes PIC X(7) VALUE "caption".
-01  t85 USAGE TYAZ-STRING.
-01  t86 USAGE TYAZ-STYLE-FONT-FAMILY.
-01  t87.
-    05  t87-item USAGE TYAZ-STYLE-FONT-FAMILY OCCURS 1 TIMES.
-01  t88 USAGE BINARY-DOUBLE UNSIGNED VALUE 1.
-01  t89 USAGE TYAZ-STYLE-FONT-FAMILY-VEC.
-01  t90 USAGE TYAZ-CSS-PROPERTY.
-01  t91 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
-01  t92.
-    05  t92-item USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793 OCCURS 21 TIMES.
-01  t93 USAGE BINARY-DOUBLE UNSIGNED VALUE 21.
-01  t94 USAGE TYAZ-CSS-PROPERTY-WITH-CO-8550.
+01  t72 USAGE TYAZ-CSS-PROPERTY.
+01  t73 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t74 USAGE TYAZ-COLOR-U.
+01  t75 USAGE TYAZ-CARET-COLOR.
+01  t76 USAGE TYAZ-CSS-PROPERTY.
+01  t77 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t78 USAGE TYAZ-CSS-DURATION.
+01  t79 USAGE TYAZ-CARET-ANIMATION-DURATION.
+01  t80 USAGE TYAZ-CSS-PROPERTY.
+01  t81 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t82 USAGE TYAZ-COLOR-U.
+01  t83 USAGE TYAZ-SELECTION-BACKGROUND-ec6b.
+01  t84 USAGE TYAZ-CSS-PROPERTY.
+01  t85 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t86 USAGE TYAZ-COLOR-U.
+01  t87 USAGE TYAZ-SELECTION-COLOR.
+01  t88 USAGE TYAZ-CSS-PROPERTY.
+01  t89 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t90.
+    05  t90-start USAGE BINARY-DOUBLE UNSIGNED VALUE 0.
+    05  t90-len USAGE BINARY-DOUBLE UNSIGNED VALUE 7.
+    05  t90-bytes PIC X(7) VALUE "caption".
+01  t91 USAGE TYAZ-STRING.
+01  t92 USAGE TYAZ-STYLE-FONT-FAMILY.
+01  t93.
+    05  t93-item USAGE TYAZ-STYLE-FONT-FAMILY OCCURS 1 TIMES.
+01  t94 USAGE BINARY-DOUBLE UNSIGNED VALUE 1.
+01  t95 USAGE TYAZ-STYLE-FONT-FAMILY-VEC.
+01  t96 USAGE TYAZ-CSS-PROPERTY.
+01  t97 USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793.
+01  t98.
+    05  t98-item USAGE TYAZ-CSS-PROPERTY-WITH-CO-b793 OCCURS 24 TIMES.
+01  t99 USAGE BINARY-DOUBLE UNSIGNED VALUE 24.
+01  t100 USAGE TYAZ-CSS-PROPERTY-WITH-CO-8550.
 LINKAGE SECTION.
 01  ls-result USAGE TYAZ-CSS-PROPERTY-WITH-CO-8550.
 PROCEDURE DIVISION USING ls-result.
@@ -230,61 +237,70 @@ PROCEDURE DIVISION USING ls-result.
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t65 BY REFERENCE t64 END-CALL
     CALL "AzCssProperty_textDecorationByref" USING BY REFERENCE t66 BY VALUE AZ-STYLE-TEXT-DECORATION-0cde END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t67 BY REFERENCE t66 END-CALL
-    MOVE 255 TO R OF t68
-    MOVE 0 TO G OF t68
-    MOVE 0 TO B OF t68
-    MOVE 255 TO A OF t68
-    MOVE t68 TO INNER OF t69
-    CALL "AzCssProperty_caretColorByref" USING BY REFERENCE t70 BY REFERENCE t69 END-CALL
+    CALL "AzCssProperty_initialByref" USING BY REFERENCE t68 BY VALUE AZ-CSS-PROPERTY-TYPE-TEXT-e344 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t69 BY REFERENCE t68 END-CALL
+    CALL "AzCssProperty_initialByref" USING BY REFERENCE t70 BY VALUE AZ-CSS-PROPERTY-TYPE-TEXT-bfb2 END-CALL
     CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t71 BY REFERENCE t70 END-CALL
-    MOVE 500 TO INNER OF t72
-    MOVE AZ-CSS-DURATION-UNIT-MILL-e105 TO UNIT-X OF t72
-    MOVE t72 TO INNER OF t73
-    CALL "AzCssProperty_caretAnimationDurationByref" USING BY REFERENCE t74 BY REFERENCE t73 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t75 BY REFERENCE t74 END-CALL
-    MOVE 51 TO R OF t76
-    MOVE 153 TO G OF t76
-    MOVE 255 TO B OF t76
-    MOVE 255 TO A OF t76
-    MOVE t76 TO INNER OF t77
-    CALL "AzCssProperty_selectionBackgroundColorByref" USING BY REFERENCE t78 BY REFERENCE t77 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t79 BY REFERENCE t78 END-CALL
-    MOVE 255 TO R OF t80
-    MOVE 255 TO G OF t80
-    MOVE 255 TO B OF t80
-    MOVE 255 TO A OF t80
-    MOVE t80 TO INNER OF t81
-    CALL "AzCssProperty_selectionColorByref" USING BY REFERENCE t82 BY REFERENCE t81 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t83 BY REFERENCE t82 END-CALL
-    CALL "AzString_copyFromBytesByref" USING BY REFERENCE t85 BY REFERENCE t84-bytes BY VALUE t84-start BY VALUE t84-len END-CALL
-    CALL "AzStyleFontFamily_systemByref" USING BY REFERENCE t86 BY REFERENCE t85 END-CALL
-    MOVE t86 TO t87-item (1)
-    CALL "AzStyleFontFamilyVec_copyFromPtrByref" USING BY REFERENCE t89 BY REFERENCE t87 BY VALUE t88 END-CALL
-    CALL "AzCssProperty_fontByref" USING BY REFERENCE t90 BY REFERENCE t89 END-CALL
-    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t91 BY REFERENCE t90 END-CALL
-    MOVE t4 TO t92-item (1)
-    MOVE t9 TO t92-item (2)
-    MOVE t20 TO t92-item (3)
-    MOVE t25 TO t92-item (4)
-    MOVE t28 TO t92-item (5)
-    MOVE t31 TO t92-item (6)
-    MOVE t33 TO t92-item (7)
-    MOVE t35 TO t92-item (8)
-    MOVE t38 TO t92-item (9)
-    MOVE t43 TO t92-item (10)
-    MOVE t48 TO t92-item (11)
-    MOVE t53 TO t92-item (12)
-    MOVE t58 TO t92-item (13)
-    MOVE t63 TO t92-item (14)
-    MOVE t65 TO t92-item (15)
-    MOVE t67 TO t92-item (16)
-    MOVE t71 TO t92-item (17)
-    MOVE t75 TO t92-item (18)
-    MOVE t79 TO t92-item (19)
-    MOVE t83 TO t92-item (20)
-    MOVE t91 TO t92-item (21)
-    CALL "AzCssPropertyWithConditionsVec_copyFromPtrByref" USING BY REFERENCE t94 BY REFERENCE t92 BY VALUE t93 END-CALL
-    MOVE t94 TO ls-result
+    CALL "AzCssProperty_initialByref" USING BY REFERENCE t72 BY VALUE AZ-CSS-PROPERTY-TYPE-TEXT-622b END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t73 BY REFERENCE t72 END-CALL
+    MOVE 255 TO R OF t74
+    MOVE 0 TO G OF t74
+    MOVE 0 TO B OF t74
+    MOVE 255 TO A OF t74
+    MOVE t74 TO INNER OF t75
+    CALL "AzCssProperty_caretColorByref" USING BY REFERENCE t76 BY REFERENCE t75 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t77 BY REFERENCE t76 END-CALL
+    MOVE 500 TO INNER OF t78
+    MOVE AZ-CSS-DURATION-UNIT-MILL-e105 TO UNIT-X OF t78
+    MOVE t78 TO INNER OF t79
+    CALL "AzCssProperty_caretAnimationDurationByref" USING BY REFERENCE t80 BY REFERENCE t79 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t81 BY REFERENCE t80 END-CALL
+    MOVE 51 TO R OF t82
+    MOVE 153 TO G OF t82
+    MOVE 255 TO B OF t82
+    MOVE 255 TO A OF t82
+    MOVE t82 TO INNER OF t83
+    CALL "AzCssProperty_selectionBackgroundColorByref" USING BY REFERENCE t84 BY REFERENCE t83 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t85 BY REFERENCE t84 END-CALL
+    MOVE 255 TO R OF t86
+    MOVE 255 TO G OF t86
+    MOVE 255 TO B OF t86
+    MOVE 255 TO A OF t86
+    MOVE t86 TO INNER OF t87
+    CALL "AzCssProperty_selectionColorByref" USING BY REFERENCE t88 BY REFERENCE t87 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t89 BY REFERENCE t88 END-CALL
+    CALL "AzString_copyFromBytesByref" USING BY REFERENCE t91 BY REFERENCE t90-bytes BY VALUE t90-start BY VALUE t90-len END-CALL
+    CALL "AzStyleFontFamily_systemByref" USING BY REFERENCE t92 BY REFERENCE t91 END-CALL
+    MOVE t92 TO t93-item (1)
+    CALL "AzStyleFontFamilyVec_copyFromPtrByref" USING BY REFERENCE t95 BY REFERENCE t93 BY VALUE t94 END-CALL
+    CALL "AzCssProperty_fontByref" USING BY REFERENCE t96 BY REFERENCE t95 END-CALL
+    CALL "AzCssPropertyWithConditions_simpleByref" USING BY REFERENCE t97 BY REFERENCE t96 END-CALL
+    MOVE t4 TO t98-item (1)
+    MOVE t9 TO t98-item (2)
+    MOVE t20 TO t98-item (3)
+    MOVE t25 TO t98-item (4)
+    MOVE t28 TO t98-item (5)
+    MOVE t31 TO t98-item (6)
+    MOVE t33 TO t98-item (7)
+    MOVE t35 TO t98-item (8)
+    MOVE t38 TO t98-item (9)
+    MOVE t43 TO t98-item (10)
+    MOVE t48 TO t98-item (11)
+    MOVE t53 TO t98-item (12)
+    MOVE t58 TO t98-item (13)
+    MOVE t63 TO t98-item (14)
+    MOVE t65 TO t98-item (15)
+    MOVE t67 TO t98-item (16)
+    MOVE t69 TO t98-item (17)
+    MOVE t71 TO t98-item (18)
+    MOVE t73 TO t98-item (19)
+    MOVE t77 TO t98-item (20)
+    MOVE t81 TO t98-item (21)
+    MOVE t85 TO t98-item (22)
+    MOVE t89 TO t98-item (23)
+    MOVE t97 TO t98-item (24)
+    CALL "AzCssPropertyWithConditionsVec_copyFromPtrByref" USING BY REFERENCE t100 BY REFERENCE t98 BY VALUE t99 END-CALL
+    MOVE t100 TO ls-result
     GOBACK.
 END PROGRAM STYLE-TEXT.
 

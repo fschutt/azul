@@ -12,7 +12,7 @@
 #               android   libazul.so
 #               ios       libazul.a + libazul.a.native-libs (the system libraries rustc says the archive
 #                         needs: dll/build_link.rs reads that file instead of guessing them)
-#             and libazul.info.json {kind, target, features, git, seconds, size, sha256}
+#             and libazul.info.json {kind, target, features, git, seconds, size, sha256, page_aligned (android)}
 #
 # Every app of the target links THIS file instead of compiling the engine again (the 2026-11-26 run
 # compiled azul-dll once per app and target: 6-11 minutes each on a macOS runner).
@@ -110,8 +110,11 @@ size="$(wc -c < "$lib" | tr -d ' ')"
 python3 - "$out/libazul.info.json" "$kind" "${target:-host}" "$features" "$(git rev-parse HEAD)" "$(( $(date +%s) - started ))" "$size" "$sum" "$(basename "$lib")" <<'PY'
 import json, sys
 path, kind, target, features, git, seconds, size, sha, name = sys.argv[1:]
-json.dump({"kind": kind, "target": target, "features": features, "git": git, "seconds": int(seconds),
-           "size": int(size), "sha256": sha, "file": name}, open(path, "w"), indent=2, sort_keys=True)
+info = {"kind": kind, "target": target, "features": features, "git": git, "seconds": int(seconds),
+        "size": int(size), "sha256": sha, "file": name}
+if kind == "android":
+    info["page_aligned"] = True   # scripts/android_elf_check.py ran above under `set -e`: every PT_LOAD of the library is aligned to 16 KiB
+json.dump(info, open(path, "w"), indent=2, sort_keys=True)
 PY
 ls -la "$out"
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
