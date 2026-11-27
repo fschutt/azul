@@ -326,7 +326,7 @@ class ModeComparisonTests(unittest.TestCase):
 
     def test_a_gpu_request_waits_long_for_its_first_frame(self):
         # the first GL frame on a software renderer compiles every shader: two minutes are normal there, not a missing picture
-        self.assertEqual(q.first_frame_timeout_for("gpu", 45), 120)
+        self.assertEqual(q.first_frame_timeout_for("gpu", 45), 240)
         self.assertEqual(q.first_frame_timeout_for("gpu", 300), 300)       # a longer wish stays
         self.assertEqual(q.first_frame_timeout_for("cpu", 45), 45)
         self.assertEqual(q.first_frame_timeout_for("auto", 45), 45)
@@ -527,6 +527,28 @@ class StartupLinesTests(unittest.TestCase):
         self.assertIsNone(q.median_start(["nothing"]))
 
 
+class PickTargetTests(unittest.TestCase):
+    # AzWidgets' real dump: the label above the field and the field carry the same name
+    DUMP = ("<hierarchy>"
+            '<node index="0" text="" class="android.widget.TextView" content-desc="TextInput" clickable="false" focusable="false" bounds="[110,813][970,850]">'
+            '<node index="0" text="" class="android.widget.TextView" content-desc="TextInput" clickable="false" focusable="false" bounds="[0,0][0,0]" /></node>'
+            '<node index="1" text="" class="android.widget.EditText" content-desc="TextInput" clickable="false" focusable="true" bounds="[118,871][962,986]">'
+            "</node>"
+            '<node index="2" text="" class="android.widget.RadioButton" content-desc="Dark" clickable="true" focusable="true" bounds="[519,251][588,291]" />'
+            '<node index="3" text="" class="android.widget.TextView" content-desc="Dark" clickable="false" focusable="false" bounds="[519,251][588,291]" />'
+            "</hierarchy>")
+
+    def test_the_field_is_picked_before_the_label_with_the_same_name(self):
+        self.assertEqual(q.pick_target(self.DUMP, "TextInput"), (540, 928))
+
+    def test_an_interactive_node_is_picked_before_a_plain_one(self):
+        self.assertEqual(q.pick_target(self.DUMP, "Dark"), (553, 271))
+
+    def test_a_name_that_is_not_there_or_has_no_box_is_none(self):
+        self.assertIsNone(q.pick_target(self.DUMP, "Nothing"))
+        self.assertIsNone(q.pick_target('<node content-desc="Zero" bounds="[0,0][0,0]" />', "Zero"))
+
+
 class CheckedTests(unittest.TestCase):
     XML = ('''<hierarchy><node index="2" text="" class="android.widget.RadioButton" content-desc="Dark" checkable="true" checked="true" clickable="true" bounds="[519,251][588,291]">'''
            '''<node index="0" text="" class="android.widget.TextView" content-desc="Dark" checkable="false" checked="false" bounds="[519,251][588,291]" />'''
@@ -539,6 +561,51 @@ class CheckedTests(unittest.TestCase):
     def test_a_name_that_is_not_checkable_or_not_there_is_none(self):
         self.assertIsNone(q.node_checked(self.XML, "Nothing"))
         self.assertIsNone(q.node_checked('<node content-desc="Label" checkable="false" checked="false" />', "Label"))
+
+
+class GpuFrameWaitTests(unittest.TestCase):
+    CONTRACT = "[       400us][Info][Rendering] [render] backend=gpu requested=gpu device=Apple Software Renderer"
+    FIRST = "[  9685704us][Info][Rendering] [iOS GPU] first frame 1206x2622: 21 draw calls, drawn in 1285 ms, 9653 ms after the GPU path began"
+    FRAMES = "[ 13049292us][Info][Rendering] [render] frames n=10 over_ms=1087 interval_ms median=110.3 p95=229.6 max=229.6 draw_ms median=99.2 p95=884.6"
+
+    def test_the_first_frame_line_of_either_phone_or_a_frames_line_says_a_frame_went_out(self):
+        self.assertTrue(q.gpu_frame_presented(self.CONTRACT + "\n" + self.FIRST))
+        self.assertTrue(q.gpu_frame_presented(self.FRAMES))
+        self.assertTrue(q.gpu_frame_presented("I RustStdoutStderr: [Android GPU] first frame 1080x2400: 20 draw calls"))
+        # the shared GPU code's own line (common/gles_gpu.rs), the one an Android GPU run writes
+        self.assertTrue(q.gpu_frame_presented("I RustStdoutStderr: [ 5123us][Info][Rendering] [render] first GPU frame: 1285.4 ms (WebRender compiles its programs in it)"))
+        self.assertFalse(q.gpu_frame_presented("[render] drawing the first frame at 1080x2400 px: WebRender compiles the programs it needs in it"))
+        self.assertFalse(q.gpu_frame_presented(self.CONTRACT))
+        self.assertFalse(q.gpu_frame_presented(""))
+
+    def test_the_wait_ends_at_the_first_frame_line(self):
+        logs = iter([self.CONTRACT, self.CONTRACT, self.CONTRACT + "\n" + self.FIRST])
+        clock = iter(range(0, 100))
+        waited = q.wait_for_gpu_frame(lambda: next(logs), 120, sleep=lambda _s: None, clock=lambda: next(clock))
+        self.assertIsNotNone(waited)
+        self.assertGreater(waited, 0)
+
+    def test_a_request_that_fell_back_to_the_cpu_is_not_waited_for(self):
+        fell_back = "[render] gpu unavailable at probe: x; drawing on the CPU\n[render] backend=cpu requested=gpu device=software"
+        self.assertEqual(q.wait_for_gpu_frame(lambda: fell_back, 120, sleep=lambda _s: None), 0.0)
+
+    def test_a_build_without_a_gpu_path_is_not_waited_for(self):
+        # the Android CPU present path writing its frames: nothing to wait for
+        cpu_frames = "I RustStdoutStderr: [      900000us][Info][Rendering] [Android] present full - rows 0..2400 of 2400"
+        self.assertEqual(q.wait_for_gpu_frame(lambda: cpu_frames, 240, sleep=lambda _s: None), 0.0)
+        # an engine that names no renderer and says nothing for 20 s
+        clock = iter(range(0, 1000))
+        self.assertEqual(q.wait_for_gpu_frame(lambda: "[azul] logging enabled", 240, sleep=lambda _s: None, clock=lambda: next(clock)), 0.0)
+
+    def test_an_engine_that_keeps_talking_without_naming_a_renderer_is_waited_for(self):
+        count = iter(range(0, 1000))
+        clock = iter(range(0, 1000))
+        waited = q.wait_for_gpu_frame(lambda: "[azul] line " + "x" * next(count), 30, sleep=lambda _s: None, clock=lambda: next(clock))
+        self.assertIsNone(waited)
+
+    def test_the_wait_gives_up_after_the_time_and_says_so(self):
+        clock = iter(range(0, 1000))
+        self.assertIsNone(q.wait_for_gpu_frame(lambda: self.CONTRACT, 5, sleep=lambda _s: None, clock=lambda: next(clock)))
 
 
 class FlatTests(unittest.TestCase):

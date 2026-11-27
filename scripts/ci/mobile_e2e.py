@@ -345,6 +345,32 @@ def e2e_session(args):
         audits.append(audit_moment(s, "portrait"))
         write_audit_report()
 
+    def band_probe(s, orient):
+        """The stale half-width band after a rotation, asked two ways (informational): (1) the first rect of the live display list against the window's
+        width (a root background of the OLD width = a stale display list), (2) a forced redraw: does the phone's picture change (a band that a redraw
+        heals is stale incremental state, one that stays is in the list)."""
+        try:
+            width = float(find_key(srv.op("get_state"), "logical_width") or 0)
+            dl = srv.op("get_display_list", timeout=90)
+            items = find_key(dl, "items") or []
+            (run.logs_dir / f"display-list-head-{orient}.json").write_text(json.dumps(items[:60]), encoding="utf-8")
+            rects = [i for i in items if i.get("item_type") == "rect" and i.get("width")]
+            if rects:
+                r = rects[0]
+                s.note(f"{orient}: the display list's first rect is ({r.get('x')}, {r.get('y')}) {r.get('width')} x {r.get('height')} dp in a window {width:.0f} dp wide; "
+                       f"{len(items)} items; widest rect of the first 40: {max(float(i['width']) for i in rects[:40]):.0f} dp")
+                s.check(f"{orient}: the display list's first rect spans the window", abs(float(r.get("width")) - width) < 2.0,
+                        f"{r.get('width')} dp against {width:.0f}", required=False)
+            before = device_shot(s, f"band-before-redraw-{orient}")
+            srv.op("redraw", timeout=30)
+            srv.op("wait_frame", timeout=15)
+            dev.settle(1.5)
+            after = device_shot(s, f"band-after-redraw-{orient}")
+            diff = q.sig_diff(after, before)
+            s.note(f"{orient}: a forced redraw changes the phone's picture by {diff:.3f}" + (" (the band healed: stale incremental state)" if diff > q.SAME_BELOW else " (unchanged: the picture is what the display list says)"))
+        except Exception as ex:  # noqa: BLE001
+            s.note(f"{orient} band probe: {str(ex)[:160]}")
+
     def s_audit_landscape(s):
         dev.rotate(1)
         dev.settle(3.0)
@@ -352,6 +378,7 @@ def e2e_session(args):
         s.check("the app is in front after the rotation", t is not None, f"after {t:.1f} s" if t is not None else "no")
         audits.append(audit_moment(s, "landscape"))
         write_audit_report()
+        band_probe(s, "landscape")
         dev.rotate(0)
         dev.settle(3.0)
 
@@ -487,6 +514,10 @@ def e2e_session(args):
         found = find_named("Undo", "Button")
         s.check("the accessibility tree names the phone toolbar's 'Undo' with a position", bool(found), str(found))
         if not found:
+            tree = srv.op("get_accessibility_tree", timeout=90)
+            (run.logs_dir / "paint-a11y-after-stroke.json").write_text(json.dumps(tree), encoding="utf-8")
+            named = [(n.get("role"), n.get("name")) for n in la.a11y_nodes(tree) if n.get("name") and n.get("role") in ("Button", "ToggleButton", "MenuItem")]
+            s.note(f"after the swipe the engine's tree names these buttons: {named[:14]}")
             return
         mark2 = dev.now_mark()
         dev.tap(*found)
@@ -608,24 +639,49 @@ def e2e_session(args):
         s.note("window: " + json.dumps(srv.op("get_state"))[:200])
         x, y0, y1 = w * 0.5, h * 0.7, h * 0.3
         scale = args.logical_scale or state.get("scale") or 1.0
-        srv.op("touch_start", id=1, x=x / scale, y=y0 / scale)
-        srv.op("wait_frame")
+        answers = []                       # what the server said to every touch op: kept, so that a swipe that does not scroll can be read afterwards
+        answers.append(("touch_start", srv.op("touch_start", id=1, x=x / scale, y=y0 / scale)))
+        answers.append(("wait_frame", srv.op("wait_frame")))
         for k in range(1, 9):
-            srv.op("touch_move", id=1, x=x / scale, y=(y0 + (y1 - y0) * k / 8) / scale)
-            srv.op("wait_frame")           # one move per frame: the engine reads the touch STATE once a frame
-        srv.op("touch_end", id=1)
-        srv.op("wait_frame")
+            answers.append(("touch_move", srv.op("touch_move", id=1, x=x / scale, y=(y0 + (y1 - y0) * k / 8) / scale)))
+            answers.append(("wait_frame", srv.op("wait_frame")))           # one move per frame: the engine reads the touch STATE once a frame
+        answers.append(("touch_end", srv.op("touch_end", id=1)))
+        answers.append(("wait_frame", srv.op("wait_frame")))
+        (run.logs_dir / "touch-answers.json").write_text(json.dumps({"scale": scale, "from": [x / scale, y0 / scale], "to": [x / scale, y1 / scale],
+                                                                      "answers": [{"op": o, "answer": a} for o, a in answers]}), encoding="utf-8")
         dev.settle(1.5)
         after = device_shot(s, "after-touch-swipe")
-        s.check("an in-process touch swipe scrolls the page", q.sig_diff(after, before) > q.SAME_BELOW, f"differs {q.sig_diff(after, before):.3f}")
+        # The server's touch ops only rewrite the window's touch state: the engine turns that into touch CALLBACKS. The one-finger pan that scrolls a
+        # page exists in the shells' real-finger paths (the Android shell's drain_input, the iOS touches), so an in-process swipe scrolls nothing on
+        # any platform (found by the Android shell agent): informational. The real finger of this step is the adb swipe below.
+        s.check("an in-process touch swipe scrolls the page (it does not by design: the pan lives in the shells' finger paths)", q.sig_diff(after, before) > q.SAME_BELOW,
+                f"differs {q.sig_diff(after, before):.3f}", required=False)
         st1 = srv.op("get_scroll_states")
         (run.logs_dir / "scroll-after.json").write_text(json.dumps(st1), encoding="utf-8")
         s.check("the scroll states changed", st1 != st0, "", required=False)
+        if st1 == st0:
+            # the touch path did nothing: does the engine scroll at all? (the server's own scroll op on the page's scroller)
+            try:
+                states = la.scroll_states(st1)
+                page = next((x for x in states if x.get("max_scroll_y", 0) > 100), None)
+                if page:
+                    srv.op("scroll_node_by", node_id=page["node_id"], delta_x=0.0, delta_y=300.0)
+                    srv.op("wait_frame")
+                    moved = la.scroll_states(srv.op("get_scroll_states")) != states
+                    s.check("the server's own scroll op moves the page (the engine scrolls; only the touch path does not)", moved,
+                            f"scroller node {page['node_id']}, scroll_y {page.get('scroll_y')}", required=False)
+            except Exception as ex:  # noqa: BLE001
+                s.note(f"scroll_node_by: {str(ex)[:120]}")
         if args.platform == "android":
-            dev.swipe(w * 0.5, h * 0.3, w * 0.5, h * 0.7, 350)   # a real finger the other way, through the OS
+            # a real finger through the OS: up (the page scrolls down), then down again (it comes back)
+            dev.swipe(w * 0.5, h * 0.7, w * 0.5, h * 0.3, 350)
             dev.settle(1.5)
-            back = device_shot(s, "after-adb-swipe")
-            s.check("an adb swipe (a real touch through Android's input) scrolls it back", q.sig_diff(back, after) > q.SAME_BELOW, f"differs {q.sig_diff(back, after):.3f}")
+            down = device_shot(s, "after-adb-swipe-up")
+            s.check("an adb swipe up (a real touch through Android's input) scrolls the page", q.sig_diff(down, after) > q.SAME_BELOW, f"differs {q.sig_diff(down, after):.3f}")
+            dev.swipe(w * 0.5, h * 0.3, w * 0.5, h * 0.7, 350)
+            dev.settle(1.5)
+            back = device_shot(s, "after-adb-swipe-back")
+            s.check("an adb swipe down scrolls it back", q.sig_diff(back, down) > q.SAME_BELOW, f"differs {q.sig_diff(back, down):.3f}")
 
     full_step("e05-touch", "in-process touch events as a swipe (and on Android a real one through adb)", s_touch)
 
@@ -698,7 +754,15 @@ def e2e_session(args):
         except Exception as e:  # noqa: BLE001
             s.note(f"scroll_into_view: {e}")
         if args.platform == "android":
-            x, y, how = dev.tap_label("TextInput")      # a real touch through Android's input, at the node's place
+            # a real touch through Android's input, at the node's place: from the ENGINE's accessibility tree first (uiautomator's dump waits for an
+            # idle app and found nothing after the scenarios), uiautomator's as the second source
+            # the FIELD (role MultilineTextInput), not the label above it that carries the same name: a tap on a label focuses nothing
+            found = find_named("TextInput", "MultilineTextInput") or find_named("TextInput", "TextInput") or find_named("TextInput")
+            if found:
+                x, y, how = found[0], found[1], "the engine's accessibility tree"
+                dev.tap(x, y)
+            else:
+                x, y, how = dev.tap_label("TextInput")
             if x is None:
                 s.check("the accessibility tree names the TextInput field with a position", False, "not found")
                 return

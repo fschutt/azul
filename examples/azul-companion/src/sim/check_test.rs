@@ -116,7 +116,7 @@ fn fitting_page(key: Zone) -> Vec<NodeBox> {
 
 #[test]
 fn a_page_made_to_fit_that_would_scroll_is_found() {
-    // the key ends at 818 = the bottom of the page: nothing beyond it
+    // the key ends at 752, above the page's end at 818: nothing beyond it
     let fits = fitting_page(zone(16.0, 700.0, 361.0, 52.0));
     assert!(!rules(&check(&fits, &env())).contains(&"page-overflow"), "{:?}", check(&fits, &env()));
     // 40 px past the page's end: it would scroll
@@ -126,7 +126,8 @@ fn a_page_made_to_fit_that_would_scroll_is_found() {
     assert_eq!(found.iter().find(|v| v.rule == "page-overflow").map(|v| v.node), Some(21));
     // a page that is not made to fit (no class) may scroll
     let mut plain = overflows.clone();
-    plain[plain.len() - 2].classes = vec!["az-scroll".to_string()];
+    let page = plain.len() - 2;
+    plain[page].classes = vec!["az-scroll".to_string()];
     assert!(!rules(&check(&plain, &env())).contains(&"page-overflow"));
 }
 

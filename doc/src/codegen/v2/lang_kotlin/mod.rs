@@ -459,9 +459,10 @@ fn emit_tagged_union(
             EnumVariantKind::Struct(fields) => {
                 for f in fields {
                     let (kt, default) = ref_kind_kt_field(&f.type_name, &f.ref_kind, ir);
-                    let fname = sanitize_kt_identifier(&f.name);
+                    let jvm_name = kt_ffi_field_name(&f.name);
+                    let fname = sanitize_kt_identifier(&jvm_name);
                     builder.line(&kt_jna_field(&fname, &kt, &default));
-                    field_names.push(format!("\"{}\"", f.name));
+                    field_names.push(format!("\"{}\"", jvm_name));
                 }
             }
         }
@@ -988,19 +989,21 @@ fn emit_struct_field(
             "Boolean" => format!("BooleanArray({})", count),
             _ => format!("arrayOfNulls({})", count),
         };
+        let jvm_name = kt_ffi_field_name(&f.name);
         builder.line(&format!(
             "@JvmField var {}: {} = {}",
-            sanitize_kt_identifier(&f.name),
+            sanitize_kt_identifier(&jvm_name),
             array_type,
             init
         ));
-        field_names.push(format!("\"{}\"", f.name));
+        field_names.push(format!("\"{}\"", jvm_name));
         return;
     }
 
     let (kt, default) = ref_kind_kt_field(&f.type_name, &f.ref_kind, ir);
-    builder.line(&kt_jna_field(&sanitize_kt_identifier(&f.name), &kt, &default));
-    field_names.push(format!("\"{}\"", f.name));
+    let jvm_name = kt_ffi_field_name(&f.name);
+    builder.line(&kt_jna_field(&sanitize_kt_identifier(&jvm_name), &kt, &default));
+    field_names.push(format!("\"{}\"", jvm_name));
 }
 
 // ============================================================================
@@ -1234,6 +1237,32 @@ pub fn kotlin_class_name(name: &str, ir: &CodegenIR) -> String {
     sanitize_kt_identifier(name)
 }
 
+/// What a JNA `Structure` answers to as a Kotlin PROPERTY: `getPointer()` is `.pointer`, `getAutoRead()`
+/// `.autoRead`, and so on. A struct FIELD declared under one of these names hides the property for
+/// every `raw.pointer` the wrappers write (`return Foo(raw.pointer)` then reads the field and not the
+/// native memory: `argument type mismatch: actual type is 'AzOptionScreenPosition', but 'Pointer' was
+/// expected`, the Maven job of 2026-11-26 on `DesktopState.pointer`).
+const JNA_STRUCTURE_PROPERTIES: &[&str] = &[
+    "pointer",
+    "autoRead",
+    "autoWrite",
+    "stringEncoding",
+    "fieldOrder",
+    "fieldList",
+];
+
+/// The name of the Kotlin (JVM) field a struct field is declared under: the api.json name, with an
+/// underscore after the names a JNA `Structure` already has as a property
+/// ([`JNA_STRUCTURE_PROPERTIES`]). The C layout is the order of the fields, not their names, so this
+/// changes nothing across the ABI; `getFieldOrder()` and `writeField(..)` name the SAME spelling.
+pub fn kt_ffi_field_name(name: &str) -> String {
+    if JNA_STRUCTURE_PROPERTIES.contains(&name) {
+        format!("{name}_")
+    } else {
+        name.to_string()
+    }
+}
+
 /// Hard reserved keywords in Kotlin that *cannot* be used as
 /// identifiers without backticks.
 pub fn is_kotlin_hard_keyword(name: &str) -> bool {
@@ -1339,6 +1368,50 @@ mod tests {
         assert!(!code(": Library"), "{kt}");
         assert!(!code("import com.sun.jna.Library"), "{kt}");
         assert!(!code(".INSTANCE."), "{kt}");
+    }
+
+    /// A struct field named like a property of JNA's `Structure` (`pointer` is `getPointer()`) hides
+    /// that property in every `raw.pointer` the wrappers write: `DesktopState.pointer` (an
+    /// `OptionScreenPosition`) made `return DesktopState(raw.pointer)` read the FIELD, and kotlinc
+    /// refused Azul.kt (`argument type mismatch: actual type is 'AzOptionScreenPosition', but
+    /// 'Pointer' was expected`; the Maven Central job of the release run of 2026-11-26). No field of
+    /// any generated structure takes such a name, and `getFieldOrder` names the spelling the field has.
+    #[test]
+    fn no_struct_field_hides_a_property_of_jnas_structure() {
+        let kt = generate(super::super::bug_classes::ir(), &CodegenConfig::c_header()).unwrap();
+        for line in kt.lines() {
+            let t = line.trim_start();
+            let Some(rest) = t
+                .strip_prefix("@JvmField var ")
+                .or_else(|| t.strip_prefix("lateinit var "))
+            else {
+                continue;
+            };
+            let name = rest.split(':').next().unwrap_or("").trim().trim_matches('`');
+            assert!(
+                !JNA_STRUCTURE_PROPERTIES.contains(&name),
+                "a structure field named `{name}` hides JNA's Structure.{name}:\n{line}"
+            );
+        }
+        let start = kt
+            .find("open class AzDesktopState : Structure() {")
+            .expect("AzDesktopState (it has the field `pointer`)");
+        let body = &kt[start..start + kt[start..].find("\n}\n").unwrap()];
+        assert!(body.contains(" pointer_: "), "the field keeps its name with an underscore:\n{body}");
+        assert!(
+            body.contains("\"pointer_\""),
+            "getFieldOrder names the spelling the field is declared under:\n{body}"
+        );
+        assert!(!body.contains("\"pointer\""), "{body}");
+    }
+
+    #[test]
+    fn only_the_names_jna_answers_to_are_changed() {
+        assert_eq!(kt_ffi_field_name("pointer"), "pointer_");
+        assert_eq!(kt_ffi_field_name("autoRead"), "autoRead_");
+        assert_eq!(kt_ffi_field_name("front_name"), "front_name");
+        assert_eq!(kt_ffi_field_name("ptr"), "ptr");
+        assert_eq!(kt_ffi_field_name("size"), "size", "`size` is a method of Structure, not a property");
     }
 
     /// A nested struct / union field is `lateinit`: JNA's `Structure`
