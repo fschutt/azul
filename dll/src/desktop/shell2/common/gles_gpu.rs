@@ -84,20 +84,6 @@ fn set_window_format(window: *mut c_void, format: EglInt) -> i32 {
 /// The first presents of a renderer that are described in the log.
 const DESCRIBED_PRESENTS: u32 = 3;
 
-/// Whether the driver self-test (`gles_trace::selftest`) was asked for: `AZ_GPU_SELFTEST=1`, read from the environment the app has (on
-/// a phone the system property `debug.az.env`). Only a build with the cargo feature `test-hooks` (the QA variant, never a shipped app)
-/// reads it; any other build runs no self-test and reads nothing.
-#[cfg(feature = "test-hooks")]
-fn selftest_requested() -> bool {
-    azul_css::env::EnvSource::var(&crate::env::ProcessEnv::new(), "AZ_GPU_SELFTEST")
-        .is_some_and(|value| !value.is_empty() && value != "0")
-}
-
-#[cfg(not(feature = "test-hooks"))]
-const fn selftest_requested() -> bool {
-    false
-}
-
 /// Where the path finds its libraries and what it makes its surfaces of.
 #[derive(Debug, Clone)]
 pub struct GlesGpuConfig {
@@ -714,11 +700,6 @@ impl GlesGpu {
             return Err(GpuFallback::new(GpuStage::Functions, "no function table"));
         };
         let reports_damage = session.info().caps.buffer_age;
-        if selftest_requested() {
-            for line in gles_trace::selftest(&gl, self.size_px) {
-                log_info!(LogCategory::Rendering, "[render] selftest: {}", line);
-            }
-        }
         // The first surface is shown before WebRender is made (its programs compile in the first frame, seconds on a cold start).
         self.prime_surface(ctx);
         // A renderer made before had keys of its own: the window's registries are cleared for the new one.

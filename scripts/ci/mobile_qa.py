@@ -291,8 +291,7 @@ def render_env(extra=""):
     """The value of the system property the engine reads its AZ_* knobs from (`debug.az.env`: KEY=VALUE;KEY=VALUE, ONE property
     that setprop replaces whole): the log level and the present dump every step wants, and `extra` (`AZ_BACKEND=gpu`)."""
     extra = extra.strip().strip(";").strip()
-    # AZ_QA_ENGINE_ENV: more KEY=VALUE pairs for the engine of EVERY start of the run (a diagnostic switch of a test build, e.g.
-    # AZ_GPU_SELFTEST=1, which asks the driver three questions before WebRender is made)
+    # AZ_QA_ENGINE_ENV: more KEY=VALUE pairs for the engine of EVERY start of the run (a diagnostic switch, e.g. AZ_LOG=debug)
     more = os.environ.get("AZ_QA_ENGINE_ENV", "").strip().strip(";").strip()
     return "AZ_LOG=info;AZ_DUMP_PRESENT=1" + (";" + more if more else "") + (";" + extra if extra else "")
 
