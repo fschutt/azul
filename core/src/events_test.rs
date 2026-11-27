@@ -3469,24 +3469,24 @@ mod autotest_generated {
 
         // Button up -> never a drag, even with a drag origin.
         let up = MouseState::default();
-        assert!(handle_mouse_move(&ev, Some(&ht), &up, Some(start), false).is_none());
+        assert!(handle_mouse_move(&ev, Some(&ht), &up, Some(start), None).is_none());
 
         // Button down but no drag origin -> not a drag either.
         let down = MouseState {
             left_down: true,
             ..MouseState::default()
         };
-        assert!(handle_mouse_move(&ev, Some(&ht), &down, None, false).is_none());
+        assert!(handle_mouse_move(&ev, Some(&ht), &down, None, None).is_none());
 
         // Button down + origin but nothing under the cursor -> STILL a drag:
         // reaching past the text (into padding, past the last line) is how a
         // selection gets extended, and the endpoint resolves against the
         // anchor block, not against whatever is under the pointer.
-        assert!(handle_mouse_move(&ev, None, &down, Some(start), false).is_some());
-        assert!(handle_mouse_move(&ev, Some(&empty_hit_test()), &down, Some(start), false).is_some());
+        assert!(handle_mouse_move(&ev, None, &down, Some(start), None).is_some());
+        assert!(handle_mouse_move(&ev, Some(&empty_hit_test()), &down, Some(start), None).is_some());
 
         // All three present -> a drag selection from origin to the current point.
-        match handle_mouse_move(&ev, Some(&ht), &down, Some(start), false) {
+        match handle_mouse_move(&ev, Some(&ht), &down, Some(start), None) {
             Some(InternalEventAction::AddAndPass(SystemChange::TextSelectionDrag {
                 start_position,
                 current_position,
@@ -5645,5 +5645,17 @@ mod press_pass_drag_tests {
             event(EventType::MouseDown, LogicalPosition::new(10.0, 10.0), 7),
         ];
         assert_eq!(selection_drags(&pass, at), vec![(at, at)]);
+    }
+
+    #[test]
+    fn a_press_elsewhere_in_the_pass_does_not_hide_the_move_to_the_anchor() {
+        // The anchor is where the press that latched it landed: a press of this pass at another point is no
+        // press at the anchor, and the move to the anchor is the drag back to it.
+        let anchor = LogicalPosition::new(120.0, 523.0);
+        let pass = [
+            event(EventType::MouseMove, anchor, PRIMARY_POINTER_SEAT),
+            event(EventType::MouseDown, LogicalPosition::new(10.0, 10.0), PRIMARY_POINTER_SEAT),
+        ];
+        assert_eq!(selection_drags(&pass, anchor), vec![(anchor, anchor)]);
     }
 }

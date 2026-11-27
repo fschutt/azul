@@ -5473,7 +5473,11 @@ pub fn default_input_interpreter(info: &InputInterpreterInfo<'_>) -> PreCallback
         click_count: info.state.click_count,
         focused_node: info.state.focused_node,
         drag_start_position: info.state.drag_start_position,
-        press_in_pass: info.events.iter().any(is_primary_press),
+        press_at: info
+            .events
+            .iter()
+            .find(|event| is_primary_press(event))
+            .map(|event| get_mouse_position_with_fallback(event, info.mouse_state)),
         focus_is_editable: info.state.focus_is_editable,
         has_selection: info.state.has_selection,
         focus_hears_paste: info.state.focus_hears_paste,
@@ -5548,10 +5552,10 @@ struct FilterContext<'a> {
     click_count: u8,
     focused_node: Option<DomNodeId>,
     drag_start_position: Option<LogicalPosition>,
-    /// The pass holds the PRESS of the primary pointer (a `MouseDown` of seat 0): the pointer's move in
-    /// it is the one that carried it to where the press happened, not a drag after the press
-    /// ([`handle_mouse_move`]).
-    press_in_pass: bool,
+    /// Where the PRESS of the primary pointer (a `MouseDown` of seat 0) of this pass happened, if the pass
+    /// holds one: the pointer's move in the same pass is the one that carried it there, not a drag after the
+    /// press ([`handle_mouse_move`]).
+    press_at: Option<LogicalPosition>,
     /// See `InputInterpreterState::focus_is_editable`.
     focus_is_editable: bool,
     /// See `InputInterpreterState::has_selection`.
@@ -5597,7 +5601,7 @@ fn process_event_for_internal(
             ctx.hit_test,
             ctx.mouse_state,
             ctx.drag_start_position,
-            ctx.press_in_pass,
+            ctx.press_at,
         ),
         EventType::KeyDown => {
             // A seat's key acts on THAT seat's focus (9b-ii-a-i-d).
@@ -5735,20 +5739,20 @@ fn is_primary_press(event: &SyntheticEvent) -> bool {
 
 /// Handle `MouseMove` event - detect drag selection
 ///
-/// `press_in_pass`: the pass that holds this move also holds the press of the primary pointer. A pointer
-/// that JUMPS to a point and presses there in one pass (a script's `mouse_down` with no `mouse_move`
-/// before it, a touchpad tap, a remote desktop) has a move in the pass of its press; the press latched
-/// the anchor of the selection at the point the pointer now stands on, and a drag from a point to the
-/// same point is no drag. It used to be one: the selection was "extended" to nothing, and its
-/// autoscroll started, which moved the box under the pointer between the press and the release (a
-/// click on text near the edge of a scrolling box was lost). A move to the anchor in any LATER pass is
-/// still a drag: it collapses the selection back to the anchor.
+/// `press_at`: where the primary pointer's press of THIS pass happened, if it has one. A pointer that
+/// JUMPS to a point and presses there in one pass (a script's `mouse_down` with no `mouse_move` before
+/// it, a touchpad tap, a remote desktop) has a move in the pass of its press; the press latched the
+/// anchor of the selection at the point the pointer now stands on, and a drag from a point to the same
+/// point is no drag. It used to be one: the selection was "extended" to nothing, and its autoscroll
+/// started, which moved the box under the pointer between the press and the release (a click on text
+/// near the edge of a scrolling box was lost). A move to the anchor in any LATER pass is still a drag:
+/// it collapses the selection back to the anchor.
 fn handle_mouse_move(
     event: &SyntheticEvent,
     _hit_test: Option<&FullHitTest>,
     mouse_state: &crate::window::MouseState,
     drag_start_position: Option<LogicalPosition>,
-    press_in_pass: bool,
+    press_at: Option<LogicalPosition>,
 ) -> Option<InternalEventAction> {
     if !mouse_state.left_down {
         return None;
@@ -5765,7 +5769,7 @@ fn handle_mouse_move(
     // the user was reaching for more of it.
     let current_position = get_mouse_position_with_fallback(event, mouse_state);
 
-    if press_in_pass && current_position == start_position {
+    if current_position == start_position && press_at == Some(start_position) {
         return None;
     }
 

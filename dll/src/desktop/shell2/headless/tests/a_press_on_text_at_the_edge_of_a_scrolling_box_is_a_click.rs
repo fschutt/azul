@@ -33,16 +33,16 @@ extern "C" fn count_click(
     azul_core::callbacks::Update::DoNothing
 }
 
-/// The key sits so that its centre is 3 px above the bottom edge of the box: 185 px of room above it in a
-/// column 200 px high, the key 24 px high.
+/// The key sits so that its centre is 3 px above the bottom edge of the box (a column 200 px high, the key 40 px
+/// high, as a button is): the pointer presses at the edge, and the words of the key are above it.
 const BOX_HEIGHT: f32 = 200.0;
-const KEY_TOP: f32 = 185.0;
-const KEY_HEIGHT: f32 = 24.0;
-const KEY_CENTRE_Y: f32 = KEY_TOP + KEY_HEIGHT / 2.0;
+const KEY_HEIGHT: f32 = 40.0;
+const KEY_CENTRE_Y: f32 = BOX_HEIGHT - 3.0;
+const KEY_TOP: f32 = KEY_CENTRE_Y - KEY_HEIGHT / 2.0;
 const POINTER_X: f32 = 100.0;
 
-/// `body > div.page (300 x 200, overflow-y: auto) > [185 px of room, div.key (24 px high, click: count, the words
-/// 'Try it without a Mac'), 600 px of room]`: the box scrolls, and the key is at its bottom edge.
+/// `body > div.page (300 x 200, overflow-y: auto) > [room above the key, div.key (40 px high, click: count, the
+/// words 'Try it without a Mac'), 600 px of room]`: the box scrolls, and the key is at its bottom edge.
 extern "C" fn page_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     use azul_core::{
         callbacks::{CoreCallback, CoreCallbackData},
@@ -55,7 +55,7 @@ extern "C" fn page_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .unwrap_or_default();
     let key = Dom::create_div()
         .with_class("key".into())
-        .with_css("width: 280px; height: 24px;")
+        .with_css(&format!("width: 280px; height: {KEY_HEIGHT}px;"))
         .with_callbacks(
             vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::Click),
@@ -74,7 +74,7 @@ extern "C" fn page_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         Dom::create_div()
             .with_class("page".into())
             .with_css("width: 300px; height: 200px; overflow-y: auto;")
-            .with_child(Dom::create_div().with_css("height: 185px;"))
+            .with_child(Dom::create_div().with_css(&format!("height: {KEY_TOP}px;")))
             .with_child(key)
             .with_child(Dom::create_div().with_css("height: 600px;")),
     )
@@ -150,8 +150,19 @@ fn clicks_of(state: &Arc<RefCell<RefAny>>) -> usize {
         .map_or(0, |page| page.clicks.load(Ordering::SeqCst))
 }
 
+/// The frames that follow a press, before anything is held against the autoscroll: the pass paints, and the layout
+/// that follows performs the reveal the press asked for (a press on text opens a caret, and a caret is shown). That
+/// is the press's own business, not the timer's: the box is measured for the autoscroll after it.
+fn settle(window: &mut HeadlessWindow) {
+    window.relayout_only().expect("the frame after the press");
+    window.common.display_list_dirty = false;
+    if let Some(lw) = window.common.layout_window.as_mut() {
+        let _ = lw.perform_pending_reveal(false);
+    }
+}
+
 /// THE REPORT: a press at the key's centre 3 px from the edge with the pointer jumping to it, the release at the
-/// same point a moment later. The box must not have moved, and the key is clicked.
+/// same point a moment later. The press starts no autoscroll, the timers move nothing, and the key is clicked.
 ///
 /// Mutation: the move in the pass of the press taken for a drag (the state before): the timer is armed by the
 /// press, the box scrolls ~40 px in four frames, the release lands below the key and there is no click.
@@ -169,22 +180,25 @@ fn a_press_that_jumps_to_selectable_text_at_the_edge_of_a_scrolling_box_is_a_cli
 
     scripted_pointer(&mut window, POINTER_X, KEY_CENTRE_Y, true);
     let armed = autoscroll_timer_armed(&window);
+    let after_press = page_offset(&window);
+    settle(&mut window);
+    let settled = page_offset(&window);
     tick(&mut window, 4);
-    let scrolled = page_offset(&window);
+    let after_ticks = page_offset(&window);
     scripted_pointer(&mut window, POINTER_X, KEY_CENTRE_Y, false);
     let clicks = clicks_of(&state);
 
     let facts = format!(
-        "autoscroll armed by the press: {armed}; the box scrolled by {scrolled} px in 4 frames; \
-         clicks after the release: {clicks}"
+        "autoscroll armed by the press: {armed}; the box at {after_press} px after the press, {settled} after the \
+         frame that follows it, {after_ticks} after four frames of the timers; clicks after the release: {clicks}"
     );
     assert!(
         !armed,
         "a press that has not moved started the autoscroll of the box it pressed in ({facts})"
     );
     assert!(
-        scrolled.abs() < f32::EPSILON,
-        "the box moved under a pointer that only pressed in it ({facts})"
+        (after_ticks - settled).abs() < f32::EPSILON,
+        "the timers moved the box under a pointer that only pressed in it ({facts})"
     );
     assert_eq!(clicks, 1, "a press and a release at one point are a click ({facts})");
 }
@@ -199,16 +213,24 @@ fn a_press_that_only_jitters_at_the_edge_of_a_scrolling_box_is_a_click() {
     let (state, mut window) = settled_window();
 
     scripted_pointer(&mut window, POINTER_X, KEY_CENTRE_Y, true);
+    let after_press = page_offset(&window);
     scripted_pointer(&mut window, POINTER_X + 2.0, KEY_CENTRE_Y, true);
+    let armed = autoscroll_timer_armed(&window);
+    settle(&mut window);
+    let settled = page_offset(&window);
     tick(&mut window, 4);
-    let scrolled = page_offset(&window);
+    let after_ticks = page_offset(&window);
     scripted_pointer(&mut window, POINTER_X + 2.0, KEY_CENTRE_Y, false);
     let clicks = clicks_of(&state);
 
-    let facts = format!("the box scrolled by {scrolled} px in 4 frames; clicks after the release: {clicks}");
+    let facts = format!(
+        "autoscroll timer armed by the jitter: {armed}; the box at {after_press} px after the press, {settled} after \
+         the jitter and the frame that follows it, {after_ticks} after four frames of the timers; clicks after the \
+         release: {clicks}"
+    );
     assert!(
-        scrolled.abs() < f32::EPSILON,
-        "a jitter of 2 px scrolled the box under the pointer ({facts})"
+        (after_ticks - settled).abs() < f32::EPSILON,
+        "a jitter of 2 px let the timers scroll the box under the pointer ({facts})"
     );
     assert_eq!(clicks, 1, "a press that jittered is still a click ({facts})");
 }
@@ -223,8 +245,10 @@ fn a_selection_drag_that_left_its_press_point_still_scrolls_the_box_at_its_edge(
     scripted_pointer(&mut window, POINTER_X, KEY_CENTRE_Y, true);
     scripted_pointer(&mut window, POINTER_X + 100.0, KEY_CENTRE_Y, true);
     let armed = autoscroll_timer_armed(&window);
+    settle(&mut window);
+    let settled = page_offset(&window);
     tick(&mut window, 4);
-    let scrolled = page_offset(&window);
+    let scrolled = page_offset(&window) - settled;
 
     assert!(armed, "a drag armed the autoscroll timer");
     assert!(
