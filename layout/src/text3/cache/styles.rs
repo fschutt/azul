@@ -276,11 +276,28 @@ pub enum LineThickness {
     Px(azul_css::props::basic::FloatValue),
 }
 
+/// How a line of a [`TextDecoration`] is drawn (`text-decoration-style`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum DecorationStyle {
+    /// One line.
+    #[default]
+    Solid,
+    /// Two lines.
+    Double,
+    /// A row of dots.
+    Dotted,
+    /// A row of dashes.
+    Dashed,
+    /// A wave.
+    Wavy,
+}
+
 /// How one kind of line of a [`TextDecoration`] is painted: the paint of the box that sets it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct LinePaint {
     pub color: DecorationColor,
     pub thickness: LineThickness,
+    pub style: DecorationStyle,
 }
 
 /// How far an underline is moved from its initial place (`text-underline-offset`).
@@ -576,26 +593,21 @@ impl TextDecoration {
         Self::of(lines)
     }
 
-    /// Convert from CSS `StyleTextDecoration` enum to our internal representation.
-    ///
-    /// Note: CSS text-decoration can have multiple values (underline line-through),
-    /// but the current azul-css parser only supports single values. This can be
-    /// extended in the future if CSS parsing is updated.
+    /// The lines of a box that sets the lines `css` names (`text-decoration-line`), each plain.
     #[must_use]
     pub fn from_css(css: azul_css::props::style::text::StyleTextDecoration) -> Self {
-        use azul_css::props::style::text::StyleTextDecoration;
-        match css {
-            StyleTextDecoration::None => Self::default(),
-            StyleTextDecoration::Underline => {
-                Self::of(vec![DecorationLine::plain(LineKind::Underline)])
-            }
-            StyleTextDecoration::Overline => {
-                Self::of(vec![DecorationLine::plain(LineKind::Overline)])
-            }
-            StyleTextDecoration::LineThrough => {
-                Self::of(vec![DecorationLine::plain(LineKind::Strikethrough)])
-            }
+        let (underline, overline, line_through) = css.lines();
+        let mut lines = Vec::new();
+        if underline {
+            lines.push(DecorationLine::plain(LineKind::Underline));
         }
+        if overline {
+            lines.push(DecorationLine::plain(LineKind::Overline));
+        }
+        if line_through {
+            lines.push(DecorationLine::plain(LineKind::Strikethrough));
+        }
+        Self::of(lines)
     }
 }
 

@@ -1485,6 +1485,30 @@ fn has_surface(window: &AndroidWindow) -> bool {
     }
 }
 
+/// Writes the surface's logical size to the window state. A frame at a size that is not the one the
+/// last frame was painted at is painted IN FULL: across a size change the CPU backend keeps the corner
+/// the two sizes share and repaints what the relayout changed plus the strip a side gained
+/// (`CpuBackend::render_frame`, "a mixed resize"), and that is the one thing a rotation to landscape
+/// is. On the emulator run of AzWidgets the frame after the rotation had the page's white only up to
+/// the OLD width (x = 1080 px) and the canvas colour beyond it, while a render of the same display
+/// list from scratch (`take_screenshot`) was right and each of the three presents after the rotation
+/// wrote all 1080 rows: the picture was wrong in the retained frame, not in the present (QA run
+/// 45797870060, ledger A-36). A rotation, a split screen and a soft keyboard that resizes the window
+/// are each a relayout anyway, so the full frame costs next to nothing.
+#[cfg(all(target_os = "android", feature = "android-activity", feature = "ndk"))]
+fn apply_surface_size(window: &mut AndroidWindow, (logical_w, logical_h): (f32, f32)) {
+    let now = window.common.current_window_state().size.dimensions;
+    if now.width.to_bits() != logical_w.to_bits() || now.height.to_bits() != logical_h.to_bits() {
+        window.cpu_backend.force_full_repaint = true;
+    }
+    window
+        .common
+        .update_window_state(event::WindowStateSource::Os, |ws| {
+            ws.size.dimensions.width = logical_w;
+            ws.size.dimensions.height = logical_h;
+        });
+}
+
 /// The reason tag for a geometry/density-driven regeneration.
 ///
 /// `Resize` is what every desktop backend tags window resizes with — it is the
@@ -1599,12 +1623,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                             logical_w,
                             logical_h,
                         );
-                        window
-                            .common
-                            .update_window_state(event::WindowStateSource::Os, |ws| {
-                                ws.size.dimensions.width = logical_w;
-                                ws.size.dimensions.height = logical_h;
-                            });
+                        apply_surface_size(window, (logical_w, logical_h));
                         window.native_window = Some(nw);
                         // A surface that is new to the shell: its buffers hold nothing of ours.
                         window.present.surface_changed();
@@ -1644,17 +1663,12 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 #[cfg(feature = "ndk")]
                 {
                     if let Some(nw) = window.native_window.as_ref() {
-                        let (logical_w, logical_h) = logical_size(
+                        let logical = logical_size(
                             nw.width(),
                             nw.height(),
                             window.common.current_window_state().size.dpi,
                         );
-                        window
-                            .common
-                            .update_window_state(event::WindowStateSource::Os, |ws| {
-                                ws.size.dimensions.width = logical_w;
-                                ws.size.dimensions.height = logical_h;
-                            });
+                        apply_surface_size(window, logical);
                     }
                 }
                 let reason = resize_reason(window);
@@ -1684,13 +1698,8 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                     window.cpu_backend.force_full_repaint = true;
                     #[cfg(feature = "ndk")]
                     if let Some(nw) = window.native_window.as_ref() {
-                        let (logical_w, logical_h) = logical_size(nw.width(), nw.height(), dpi);
-                        window
-                            .common
-                            .update_window_state(event::WindowStateSource::Os, |ws| {
-                                ws.size.dimensions.width = logical_w;
-                                ws.size.dimensions.height = logical_h;
-                            });
+                        let logical = logical_size(nw.width(), nw.height(), dpi);
+                        apply_surface_size(window, logical);
                     }
                     window.common.request_regeneration(reason);
                     let _ = window.process_window_events(0);

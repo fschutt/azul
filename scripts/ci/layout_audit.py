@@ -73,7 +73,11 @@ def parse_system_bars(text):
         if rect[2] - rect[0] <= 0 or rect[3] - rect[1] <= 0 or (name, rect) in seen:
             continue
         seen.add((name, rect))
-        bands.append({"name": name, "rect": rect})
+        same = next((b for b in bands if b["rect"] == rect), None)
+        if same:
+            same["name"] += "+" + name                  # the status bar and the display cutout are often one strip
+        else:
+            bands.append({"name": name, "rect": rect})
     if not bands and screen and app:
         w, h = screen
         l, t, r, b = app
@@ -134,6 +138,25 @@ def _entry(layout, a11y, rect, why):
     return out
 
 
+WIDGET_CLASS = __import__("re").compile(r"__azul-native-([a-z0-9-]+)")
+
+
+def widget_of(entry):
+    """The widget a listed node belongs to: the name in its `__azul-native-<widget>` class, else its tag."""
+    node = entry.get("node", "")
+    m = WIDGET_CLASS.search(node)
+    return m.group(1) if m else (__import__("re").split(r"[.#]", node)[0] or "?")
+
+
+def by_widget(entries):
+    """{widget: how many of the entries} the most frequent first: what to fix first when one widget causes most of a list."""
+    counts = {}
+    for e in entries:
+        w = widget_of(e)
+        counts[w] = counts.get(w, 0) + 1
+    return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
 def _outer(entries):
     """The entries that are not inside another entry's box: the offender, not every node inside it."""
     boxes = [(e, (e["x"], e["y"], e["x"] + e["w"], e["y"] + e["h"])) for e in entries]
@@ -183,7 +206,7 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
     for name, found in (("right", right), ("left", left)):
         found.sort(key=lambda e: (-e["w"], e["y"]))
         outer = _outer(found)
-        result[f"edge_{name}"] = {"count": len(found), "outer": len(outer), "top": outer}
+        result[f"edge_{name}"] = {"count": len(found), "outer": len(outer), "top": outer, "by_widget": by_widget(outer)}
 
     # -- under the bars (the a11y tree: device pixels)
     bands = (bars or {}).get("bands") or []
@@ -252,7 +275,7 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
     for e in small:
         roles[e.get("role") or "?"] = roles.get(e.get("role") or "?", 0) + 1
     result["small_targets"] = {"tappable": tappable_count, "no_bounds": unknown, "small": len(small), "inside_a_large_parent": covered,
-                               "by_role": roles, "top": small}
+                               "by_role": roles, "by_widget": by_widget(small), "top": small}
 
     # -- scroll containers wider than they are, and where every scroller stood when the boxes were read
     sideways, offsets = [], []
@@ -296,17 +319,24 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
         if why:
             cut.append(_entry(layout_by_id.get(a.get("node_id")), a, box, why))
     cut.sort(key=lambda e: (e["y"], e["x"]))
-    result["cut_text"] = {"count": len(cut), "top": cut}
+    result["cut_text"] = {"count": len(cut), "top": cut, "by_widget": by_widget(cut)}
 
     # -- text that is a localisation key
-    raw = []
+    raw, seen_text = [], {}
     for a in a11y:
         name = a.get("name")
         if a.get("hidden") or a.get("dom_id") not in (0, None) or not isinstance(name, str) or not RAW_KEY.match(name.strip()):
             continue
         b = a.get("bounds")
         box = tuple(v / scale for v in b) if b else (0.0, 0.0, 0.0, 0.0)
-        raw.append(_entry(layout_by_id.get(a.get("node_id")), a, box, "the text is a message id, not words"))
+        entry = _entry(layout_by_id.get(a.get("node_id")), a, box, "the text is a message id, not words")
+        # a button, its paragraph and the paragraph's text leaf carry one text: one entry, the first that has a box on the screen
+        at = seen_text.get(name)
+        if at is None:
+            seen_text[name] = len(raw)
+            raw.append(entry)
+        elif raw[at]["w"] == 0 and entry["w"] > 0:
+            raw[at] = entry
     result["raw_keys"] = {"count": len(raw), "top": raw}
     return result
 
@@ -325,6 +355,11 @@ def _table(entries, columns):
     return lines + ([f"... and {more} more (all of them are in layout-audit.json)"] if more else []) + [""]
 
 
+def _top_widgets(counts, limit=14):
+    items = list(counts.items())
+    return ", ".join(f"{w} {n}" for w, n in items[:limit]) + (f", and {len(items) - limit} more" if len(items) > limit else "")
+
+
 def report_markdown(audits, label=""):
     """One Markdown document for the audits of the orientations (a list of audit() results)."""
     out = [f"# Layout audit{': ' + label if label else ''}", ""]
@@ -337,6 +372,8 @@ def report_markdown(audits, label=""):
         for side in ("right", "left"):
             e = a[f"edge_{side}"]
             out += [f"### Boxes crossing the {side} edge: {e['count']} ({e['outer']} outermost)", ""]
+            if e.get("by_widget"):
+                out += ["by widget (outermost): " + _top_widgets(e["by_widget"]), ""]
             out += _table(e["top"], ["node", "role", "text", "x", "y", "w", "h", "why"])
         u = a["under_bars"]
         bands = ", ".join(f"{b['name']} {b['rect']}" for b in u["bands_px"]) or "none found"
@@ -346,10 +383,13 @@ def report_markdown(audits, label=""):
         s = a["small_targets"]
         out += [f"### Tappable nodes smaller than {MIN_TARGET_DP:.0f} dp: {s['small']} of {s['tappable']} "
                 f"({s['inside_a_large_parent']} more sit inside a large tappable parent; {s['no_bounds']} have no box)",
-                "", "by role: " + (", ".join(f"{r} {n}" for r, n in sorted(s["by_role"].items(), key=lambda kv: -kv[1])) or "none"), ""]
+                "", "by role: " + (", ".join(f"{r} {n}" for r, n in sorted(s["by_role"].items(), key=lambda kv: -kv[1])) or "none"), "",
+                "by widget: " + (_top_widgets(s.get("by_widget") or {}) or "none"), ""]
         out += _table(s["top"], ["node", "role", "text", "x", "y", "w", "h"])
         c = a["cut_text"]
         out += [f"### Text-bearing boxes that cross an edge: {c['count']}", ""]
+        if c.get("by_widget"):
+            out += ["by widget: " + _top_widgets(c["by_widget"]), ""]
         out += _table(c["top"], ["node", "role", "text", "x", "y", "w", "h", "why"])
         rk = a["raw_keys"]
         out += [f"### Text that is a localisation key instead of words: {rk['count']}", ""]

@@ -1873,6 +1873,7 @@ class IOS:
             self.process_launch = self.launch_count
         env = dict(os.environ)
         env["SIMCTL_CHILD_AZ_LOG"] = "info"
+        env["SIMCTL_CHILD_AZ_STARTUP"] = "1"        # the engine's own startup timeline: its last mark says where a start stops
         env["SIMCTL_CHILD_RUST_BACKTRACE"] = "1"
         for k, v in self.base_env.items():
             env["SIMCTL_CHILD_" + k] = v
