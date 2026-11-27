@@ -45,8 +45,16 @@ fn pieces(dl: &DisplayList) -> Vec<Piece> {
         .collect()
 }
 
-/// The stroked paths of the list: the points of each, its colour and its width.
-fn strokes(dl: &DisplayList) -> Vec<(Vec<(f32, f32)>, ColorU, f32)> {
+/// One stroked path of the list: its points, its colour and its width.
+#[derive(Debug)]
+struct Stroke {
+    points: Vec<(f32, f32)>,
+    color: ColorU,
+    width: f32,
+}
+
+/// The stroked paths of the list.
+fn strokes(dl: &DisplayList) -> Vec<Stroke> {
     dl.items
         .iter()
         .filter_map(|item| {
@@ -64,7 +72,7 @@ fn strokes(dl: &DisplayList) -> Vec<(Vec<(f32, f32)>, ColorU, f32)> {
                     }
                 }
             }
-            Some((points, *color, *width))
+            Some(Stroke { points, color: *color, width: *width })
         })
         .collect()
 }
@@ -147,7 +155,7 @@ fn a_wavy_line_is_one_stroked_wave() {
     assert!(pieces(&dl).is_empty(), "no rectangles: {:?}", pieces(&dl));
     let found = strokes(&dl);
     assert_eq!(found.len(), 1, "one path: {found:?}");
-    let (points, color, width) = &found[0];
+    let Stroke { points, color, width } = &found[0];
     assert_eq!(*color, RED);
     assert!(close(*width, 2.0), "as thick as the line: {width}");
     assert!(points.len() > 8, "a wave has many points: {}", points.len());

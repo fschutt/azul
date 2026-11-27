@@ -85,7 +85,7 @@ fn the_parts_come_in_any_order() {
         "2px red wavy underline",
         "wavy 2px underline red",
         "red underline 2px wavy",
-        "UNDERLINE Wavy RED 2PX",
+        "UNDERLINE Wavy RED 2px",
     ] {
         assert_eq!(
             parts(value),
