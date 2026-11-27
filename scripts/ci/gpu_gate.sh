@@ -10,6 +10,7 @@
 # 4. `cargo test -p azul-srcgate --no-fail-fast` (the source gates of the tree)
 # 5. the OpenGL ES host tests (scripts/ci/gles_host.sh: WebRender over Mesa's OpenGL ES 3 against the CPU renderer, the lifecycle
 #    executor with real EGL, the pure tests), one process per GL test; they are off in step 3 (AZ_GLES_HOST_TESTS)
+# 6. the guide: `azul-doc check` and `azul-doc check layout`
 #
 # Every step prints its own verdict line with the real exit code; the job exits 0 whatever they say, so that the runner keeps its build
 # cache (it saves it only for a job that succeeded). The last line is the verdict of all of them.
@@ -71,6 +72,18 @@ else
   echo "=== 5. the OpenGL ES host tests: not run, the test crate did not build ==="
   record "gles host tests (not run)" 1
 fi
+
+echo "=== 6. the guide: azul-doc check (double-drop invariant, guide links) and azul-doc check layout ==="
+cargo run -r -p azul-doc -- check >target/gate-doc-check.log 2>&1
+status=$?
+tail -n 12 target/gate-doc-check.log
+echo "gate: azul-doc check exit $status"
+record "azul-doc check" "$status"
+cargo run -r -p azul-doc -- check layout >target/gate-doc-layout.log 2>&1
+status=$?
+tail -n 12 target/gate-doc-layout.log
+echo "gate: azul-doc check layout exit $status"
+record "azul-doc check layout" "$status"
 
 echo "=== GPU GATE SUMMARY ==="
 echo "$summary"
