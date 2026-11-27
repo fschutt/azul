@@ -487,6 +487,10 @@ def e2e_session(args):
         found = find_named("Undo", "Button")
         s.check("the accessibility tree names the phone toolbar's 'Undo' with a position", bool(found), str(found))
         if not found:
+            tree = srv.op("get_accessibility_tree", timeout=90)
+            (run.logs_dir / "paint-a11y-after-stroke.json").write_text(json.dumps(tree), encoding="utf-8")
+            named = [(n.get("role"), n.get("name")) for n in la.a11y_nodes(tree) if n.get("name") and n.get("role") in ("Button", "ToggleButton", "MenuItem")]
+            s.note(f"after the swipe the engine's tree names these buttons: {named[:14]}")
             return
         mark2 = dev.now_mark()
         dev.tap(*found)
