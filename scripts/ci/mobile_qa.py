@@ -298,6 +298,21 @@ def summarize_frames(lines):
     return out
 
 
+# The engine says when the first frame of its GPU path is out (shell2/ios/gpu.rs):
+#     [iOS GPU] first frame 1206x2622: 21 draw calls, drawn in 1285 ms, 9653 ms after the GPU path began
+FIRST_GPU_FRAME_LINE = re.compile(r"\[iOS GPU\] first frame (\d+)x(\d+): (\d+) draw calls, drawn in (\d+) ms, (\d+) ms after the GPU path began")
+
+
+def first_gpu_frame(text):
+    """The engine's first GPU frame line -> {"w", "h", "draw_calls", "draw_ms", "since_ms"}, or None when there is none (yet)."""
+    for line in text.splitlines():
+        m = FIRST_GPU_FRAME_LINE.search(line)
+        if m:
+            return {"w": int(m.group(1)), "h": int(m.group(2)), "draw_calls": int(m.group(3)), "draw_ms": int(m.group(4)),
+                    "since_ms": int(m.group(5))}
+    return None
+
+
 # What proves that no GL command went out while the app was in the background: the GPU window writes a line when its GL commands
 # stop (after the last command of the answer to `didEnterBackground`) and one when they are allowed again (before the first command
 # of the answer to the return). A frame or a failed action between the two lines is a command in the background.
@@ -682,6 +697,8 @@ def device_is_software(device):
 
 
 GPU_FIRST_FRAME_SECONDS = 120
+GPU_SILENCE_SECONDS = 20       # an app asked for the GPU that says nothing of its renderer in this time has no GPU path to wait for
+GPU_FALLBACK_SECONDS = 150     # a fallback that comes after a first frame (a context lost twice) needs two first frames of a software GL
 IDLE_SECONDS = 4.0         # an idle window is watched this long for frames lines (a window that draws while nothing moves)
 SWIPE_SECONDS = 4.0        # the scripted swipe of the render-mode step: at least three full seconds of frames lines
 
@@ -1626,6 +1643,8 @@ class IOS:
         self.launch_count = 0
         # the launch that STARTED the running process: its console is the process's (a warm launch of a running app writes none)
         self.process_launch = 0
+        # the renderer the running process asked for (AZ_BACKEND of its cold launch; the e2e session sets it in the environment)
+        self.process_backend = ""
         self.started = time.strftime("%Y-%m-%dT%H:%M:%S")
         self.gui = False
         # what EVERY launch of this run sets in the app's environment (`--backend gpu`: AZ_BACKEND=gpu), under the extra_env of a launch
@@ -1846,6 +1865,8 @@ class IOS:
             env["SIMCTL_CHILD_" + k] = v
         for k, v in (extra_env or {}).items():
             env["SIMCTL_CHILD_" + k] = v
+        if cold:
+            self.process_backend = env.get("SIMCTL_CHILD_AZ_BACKEND", "").strip().lower()
         out_f = self.run.logs_dir / f"console-{self.launch_count}.out.txt"
         err_f = self.run.logs_dir / f"console-{self.launch_count}.err.txt"
         cmd = ["launch"] + (["--terminate-running-process"] if cold else []) + [f"--stdout={out_f}", f"--stderr={err_f}", self.udid, self.bundle]
@@ -1869,10 +1890,38 @@ class IOS:
     def open_other_app(self, bundle="com.apple.Preferences"):
         return self.fire("launch", self.udid, bundle)
 
-    def wait_for_front(self, timeout=45):
+    def wait_for_console(self, done, timeout, every=1.0):
+        """Poll the running process's console until `done(text)` is true. -> the seconds it took, or None at the timeout."""
         t0 = time.time()
+        while True:
+            if done(self.process_console()):
+                return time.time() - t0
+            if time.time() - t0 >= timeout:
+                return None
+            time.sleep(every)
+
+    def wait_for_front(self, timeout=45):
+        """Seconds from now until the app shows a picture (alive, not flat, not the home screen); None when it dies or does not."""
+        t0 = time.time()
+        if self.process_backend in ("gpu", "auto"):
+            # The first frame of a GL renderer on a software GL comes late (every shader is compiled at its first use: ten seconds on
+            # the Simulator) and the window is black until then. A black window with the status bar on it is not "flat" to the picture
+            # test below, so it would be taken for the page and the picture of the GPU run would be taken too early. The engine says
+            # when its first GPU frame is out, or that the GPU path ended and the CPU draws: wait for that first. An app that says
+            # nothing of its renderer within GPU_SILENCE_SECONDS has no GPU path to wait for: the picture decides, as for the CPU.
+            def said_something(text):
+                return "[render]" in text or "[iOS GPU]" in text
+
+            def is_ready(text):
+                return first_gpu_frame(text) is not None or bool(gpu_fallbacks(text)) or backend_ran(text)[0] == "cpu"
+
+            if self.wait_for_console(said_something, min(timeout, GPU_SILENCE_SECONDS)) is not None:
+                if self.wait_for_console(is_ready, max(1.0, timeout - (time.time() - t0)), every=2.0) is None:
+                    return None       # the GPU path began and its first frame never came
         seen_alive = False
-        while time.time() - t0 < timeout:
+        started = time.time()
+        rest = max(5.0, timeout - (started - t0))
+        while time.time() - started < rest:
             if self.alive():
                 seen_alive = True
                 try:
@@ -1884,7 +1933,7 @@ class IOS:
                     return time.time() - t0
             elif seen_alive:
                 return None           # it was running and is gone: it died, waiting longer shows nothing
-            elif time.time() - t0 > 15:
+            elif time.time() - started > 15:
                 return None           # it never started
             time.sleep(1.0)
         return None
@@ -2116,6 +2165,11 @@ def ios_scenarios(args):
             want = gpu_fail_stage(spec)
             dev.launch(extra_env={"AZ_BACKEND": "gpu", "AZ_GPU_FAIL": spec}, cold=True)      # a new console file for every launch
             t = dev.wait_for_front(timeout=first_frame_timeout_for("gpu", args.first_frame_timeout))
+            # The fallback line comes when the GPU path ends: at once for a stage that fails in the bring-up, but a context lost twice
+            # (`lost:2`) is lost AFTER a first frame, and the rebuilt renderer draws its own first frame (every shader compiled again on
+            # the new context: ten seconds each on a software GL) before the second loss ends it. Wait for the line, not for a time:
+            # a build that is known to have the hook (an earlier stage fell back) is given the time, the first stage only a moment.
+            dev.wait_for_console(lambda text: bool(gpu_fallbacks(text)), GPU_FALLBACK_SECONDS if injected else 8.0, every=2.0)
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_GPU_FAIL-{spec.replace(':', '-')}")
             text = dev.console_text()

@@ -461,6 +461,8 @@ class FakeIOS(q.IOS):
     what an engine with (or without) the GPU path and its failure hooks writes, so the step functions of `ios_scenarios` are
     tested as they are: the checks they make, the launches they make, the words they read."""
 
+    late = ()               # failure specs whose fallback line comes only after a few polls of the console (lost:2: two first frames later)
+    never = ()              # failure specs that never fall back (the GPU path runs on)
     hooks = True            # the engine honours AZ_GPU_FAIL (a mobile-e2e build)
     gpu = True              # the engine has the GPU path at all
     gl_lines = True         # the engine writes the GL stop / allow lines around a stay in the background
@@ -472,6 +474,8 @@ class FakeIOS(q.IOS):
         super().__init__(*a, **k)
         self.running = False
         self.launches = []
+        self.pending = []       # lines the engine writes after the next few polls of its console
+        self.polls = 0
         w, h = 40, 80
         top, bottom = (250, 250, 250, 255), (30, 60, 90, 255)
         app = bytes(top) * (w * (h // 2)) + bytes(bottom) * (w * (h - h // 2))
@@ -507,6 +511,17 @@ class FakeIOS(q.IOS):
 
     def wait_for_front(self, timeout=45):
         return 1.0
+
+    def wait_for_console(self, done, timeout, every=1.0):
+        """The scripted Simulator: a poll of the console is a step of the script (the pending lines arrive at the third), no clock."""
+        for _ in range(int(timeout / every) + 1):
+            if done(self.process_console()):
+                return 0.0
+            self.polls += 1
+            if self.polls == 3 and self.pending:
+                self.append_to_process_console(*self.pending)
+                self.pending = []
+        return None
 
     def rss_mb(self):
         return 250.0
@@ -544,7 +559,16 @@ class FakeIOS(q.IOS):
         spec = env.get("AZ_GPU_FAIL")
         lines = ["[iOS] application:didFinishLaunching: ok"]
         if mode in ("gpu", "auto") and self.gpu:
-            if spec and self.hooks:
+            if spec and self.hooks and spec in self.never:
+                lines += ["[render] backend=gpu requested=gpu device=Apple Software Renderer",
+                          "[iOS GPU] first frame 1206x2622: 41 draw calls, drawn in 900 ms, 9000 ms after the GPU path began"]
+            elif spec and self.hooks and spec in self.late:
+                lines += ["[render] backend=gpu requested=gpu device=Apple Software Renderer",
+                          "[iOS GPU] first frame 1206x2622: 41 draw calls, drawn in 900 ms, 9000 ms after the GPU path began"]
+                self.pending = [f"[render] gpu unavailable at {q.gpu_fail_stage(spec)}: injected by AZ_GPU_FAIL; drawing on the CPU",
+                                f"[render] backend=cpu requested={mode} device=software"]
+                self.polls = 0
+            elif spec and self.hooks:
                 lines += [f"[render] gpu unavailable at {q.gpu_fail_stage(spec)}: injected by AZ_GPU_FAIL; drawing on the CPU",
                           f"[render] backend=cpu requested={mode} device=software"]
             elif mode == "auto":
@@ -628,6 +652,23 @@ class IosScenarioTests(unittest.TestCase):
         row = [r for r in run.render_table if r["requested"] == "gpu"][0]
         self.assertEqual((row["median"], row["p95"], row["n"]), ("16.9", "33.4", 118))
         self.assertEqual(run.meta["rss_mb_gpu"], 250)
+
+    def test_a_fallback_that_comes_after_a_first_frame_is_waited_for_not_missed(self):
+        class Late(FakeIOS):
+            late = ("lost:2",)
+
+        steps, _dev, _run = self.run_steps("04", device=Late, expect_hooks=True)
+        self.assertTrue(steps["04b-gpu-fallback"].ok, self.failed(steps["04b-gpu-fallback"]))
+        self.assertTrue(any("AZ_GPU_FAIL=lost:2: the fallback line names the stage lost" in c["what"] and c["ok"] for c in steps["04b-gpu-fallback"].checks))
+
+    def test_a_gpu_path_that_does_not_fall_back_when_the_failure_is_injected_fails_the_stage(self):
+        class Never(FakeIOS):
+            never = ("lost:2",)
+
+        steps, _dev, _run = self.run_steps("04", device=Never, expect_hooks=True)
+        self.assertFalse(steps["04b-gpu-fallback"].ok)
+        bad = self.failed(steps["04b-gpu-fallback"])
+        self.assertTrue(any("lost:2" in f and "the fallback line names the stage lost" in f for f in bad), bad)
 
     def test_a_build_without_the_failure_hook_is_probed_once_and_fails_only_when_the_hook_is_expected(self):
         class NoHook(FakeIOS):
@@ -724,6 +765,127 @@ class IosScenarioTests(unittest.TestCase):
         import argparse
         steps, dev, _run = self.run_steps("07", backend="gpu", first_frame_timeout=45)
         self.assertEqual(_run.meta["backend"], "gpu")
+
+
+class FakeClock:
+    """A clock that moves only when somebody sleeps."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def time(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+class FakeTime:
+    """The `time` module of mobile_qa.py, with the fake clock for `time()` and `sleep()`."""
+
+    def __init__(self, clock):
+        self._clock = clock
+
+    def time(self):
+        return self._clock.time()
+
+    def sleep(self, seconds):
+        self._clock.sleep(seconds)
+
+    def __getattr__(self, name):
+        import time as real
+        return getattr(real, name)
+
+
+class ScriptedScreen(q.IOS):
+    """A real IOS (the wait of `wait_for_front` is the code under test) on a scripted screen and a scripted console."""
+
+    def __init__(self, *a, clock, events, page_at, **k):
+        super().__init__(*a, **k)
+        self.clock, self.events, self.page_at = clock, events, page_at
+        self.t_launch = clock.now
+        w, h = 40, 80
+        # a black window with the status bar on it: the one white row makes it "not flat" to the picture test (the real one: 99.56 %)
+        black = bytes((0, 0, 0, 255)) * (w * (h - 1)) + bytes((255, 255, 255, 255)) * w
+        page = bytes((250, 250, 250, 255)) * (w * (h // 2)) + bytes((30, 60, 90, 255)) * (w * (h - h // 2))
+        home = bytes((200, 40, 40, 255)) * (w * (h // 2)) + bytes((40, 40, 200, 255)) * (w * (h - h // 2))
+        self.sigs = {n: q.signature_rgba(px, w, h) for n, px in (("black", black), ("page", page), ("home", home))}
+        self.home_sig = self.sigs["home"]
+        self.dims = (w, h)
+
+    def alive(self):
+        return True
+
+    def process_console(self):
+        age = self.clock.now - self.t_launch
+        return "".join(line + "\n" for at, line in self.events if at <= age)
+
+    def capture(self, name, keep=True):
+        age = self.clock.now - self.t_launch
+        return self.sigs["page" if age >= self.page_at else "black"], self.dims[0], self.dims[1], ""
+
+
+class GpuWaitTests(unittest.TestCase):
+    """The wait for the first picture of a GPU start: the first GPU frame comes ten seconds late on a software GL and the black
+    window before it must not be taken for the page (the third macOS run took the picture of the GPU window at 3 s: black)."""
+
+    FRAME = "[iOS GPU] first frame 1206x2622: 21 draw calls, drawn in 1285 ms, 9653 ms after the GPU path began"
+
+    def wait(self, backend, events, page_at, timeout=120):
+        import tempfile
+        from unittest import mock
+        clock = FakeClock()
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(q, "time", FakeTime(clock)):
+            run = q.Run(d, "ios", {})
+            dev = ScriptedScreen(run, "U", "b", "e", clock=clock, events=events, page_at=page_at)
+            dev.process_backend = backend
+            return dev.wait_for_front(timeout=timeout)
+
+    def test_a_gpu_start_waits_for_the_engines_first_frame_not_for_a_non_flat_black_window(self):
+        events = [(0.2, "[render] backend=gpu requested=gpu device=Apple Software Renderer"), (9.6, self.FRAME)]
+        t = self.wait("gpu", events, page_at=9.7)
+        self.assertIsNotNone(t)
+        self.assertGreaterEqual(t, 9.6)       # a picture test alone would have said 'a first frame' at the first poll
+        self.assertLess(t, 14.0)
+
+    def test_a_cpu_start_is_judged_by_the_picture_alone(self):
+        for backend in ("", "cpu"):
+            t = self.wait(backend, [(0.1, "[render] backend=cpu requested=cpu device=software")], page_at=0.0)
+            self.assertLess(t, 2.0, backend)
+
+    def test_a_fallback_ends_the_wait_for_a_gpu_frame_that_will_never_come(self):
+        events = [(0.2, "[render] gpu unavailable at surface: injected by AZ_GPU_FAIL; drawing on the CPU"),
+                  (0.25, "[render] backend=cpu requested=gpu device=software")]
+        t = self.wait("gpu", events, page_at=2.5)
+        self.assertIsNotNone(t)
+        self.assertLess(t, 6.0)       # not the two minutes of a first GPU frame: the CPU renderer draws
+
+    def test_auto_on_a_software_gl_is_the_cpu_renderer_at_once(self):
+        events = [(0.1, "[render] gpu unavailable at probe: auto does not take the software renderer; drawing on the CPU"),
+                  (0.1, "[render] backend=cpu requested=auto device=software")]
+        self.assertLess(self.wait("auto", events, page_at=0.5), 4.0)
+
+    def test_a_build_with_no_gpu_path_says_nothing_and_the_picture_decides_after_a_moment(self):
+        t = self.wait("gpu", [], page_at=1.0)
+        self.assertIsNotNone(t)
+        self.assertGreaterEqual(t, q.GPU_SILENCE_SECONDS)
+        self.assertLess(t, q.GPU_SILENCE_SECONDS + 6.0)
+
+    def test_a_gpu_path_whose_first_frame_never_comes_is_no_first_frame(self):
+        events = [(0.2, "[render] backend=gpu requested=gpu device=Apple Software Renderer")]
+        self.assertIsNone(self.wait("gpu", events, page_at=1e9, timeout=60))
+
+    def test_the_console_wait_returns_when_the_line_comes_and_gives_up_at_the_timeout(self):
+        import tempfile
+        from unittest import mock
+        fallback = "[render] gpu unavailable at lost: the context was lost twice without a frame in between; drawing on the CPU"
+        clock = FakeClock()
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(q, "time", FakeTime(clock)):
+            dev = ScriptedScreen(q.Run(d, "ios", {}), "U", "b", "e", clock=clock, events=[(31.0, fallback)], page_at=0.0)
+            took = dev.wait_for_console(lambda text: bool(q.gpu_fallbacks(text)), q.GPU_FALLBACK_SECONDS, every=2.0)
+            self.assertTrue(31.0 <= took <= 33.0, took)
+            dev.events = []
+            self.assertIsNone(dev.wait_for_console(lambda text: bool(q.gpu_fallbacks(text)), 10, every=2.0))
 
 
 LOGCAT_START = """\
