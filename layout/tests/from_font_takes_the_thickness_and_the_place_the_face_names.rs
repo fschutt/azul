@@ -145,7 +145,9 @@ fn both_are_parts_of_the_font_size_of_the_box_that_sets_the_line() {
     }
 }
 
-/// A face that names no underline and no strike-through gives `auto`.
+/// A face that names no underline gives `auto`: the mock faces have none in their `post` table (0
+/// and 0), and `Azul Mock Mono` names a strike-through of 40 units, 0.8 px at 20 px, which is
+/// drawn 1 px thick, the least a line is.
 #[test]
 fn a_face_that_names_none_gives_auto() {
     let (base, found) = under(
@@ -154,9 +156,11 @@ fn a_face_that_names_none_gives_auto() {
          text-underline-position: from-font",
     );
     assert!(close(found[0].y - base, 2.4) && close(found[0].height, 1.6), "{found:?}");
+    let (_, found) = under(MONO, "text-decoration: overline; text-decoration-thickness: from-font");
+    assert!(close(found[0].height, 1.6), "{found:?}");
     let (_, found) = under(
         MONO,
         "text-decoration: line-through; text-decoration-thickness: from-font",
     );
-    assert!(close(found[0].height, 1.6), "{found:?}");
+    assert!(close(found[0].height, 1.0), "40 units of 1000 at 20 px, at least 1 px: {found:?}");
 }
