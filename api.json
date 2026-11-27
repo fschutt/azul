@@ -41158,6 +41158,9 @@
                                 "FontKerning": {
                                     "type": "StyleFontKerningValue"
                                 },
+                                "TextDecorationStyle": {
+                                    "type": "StyleTextDecorationStyleValue"
+                                },
                                 "TextUnderlineOffset": {
                                     "type": "StyleTextUnderlineOffsetValue"
                                 },
@@ -49977,7 +49980,11 @@
                                     "doc": [
                                         "No decoration"
                                     ]
-                                }
+                                },
+                                "UnderlineOverline": {},
+                                "UnderlineLineThrough": {},
+                                "OverlineLineThrough": {},
+                                "UnderlineOverlineLineThrough": {}
                             },
                             {
                                 "Underline": {
@@ -52701,6 +52708,7 @@
                                 "FontVariationSettings": {},
                                 "FontOpticalSizing": {},
                                 "FontKerning": {},
+                                "TextDecorationStyle": {},
                                 "TextUnderlineOffset": {},
                                 "TextUnderlinePosition": {},
                                 "TextDecorationColor": {},
@@ -55787,7 +55795,8 @@
                                 "InsetInline": {},
                                 "ListStyle": {},
                                 "FontVariant": {},
-                                "FontSynthesis": {}
+                                "FontSynthesis": {},
+                                "TextDecoration": {}
                             }
                         ],
                         "repr": "C"
@@ -62212,6 +62221,40 @@
                             "target": "CssPropertyValue",
                             "generic_args": [
                                 "StyleTextUnderlinePosition"
+                            ]
+                        }
+                    },
+                    "StyleTextDecorationStyle": {
+                        "external": "azul_css::props::style::text::StyleTextDecorationStyle",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Solid": {},
+                                "Double": {},
+                                "Dotted": {},
+                                "Dashed": {},
+                                "Wavy": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleTextDecorationStyleValue": {
+                        "external": "azul_css::props::property::StyleTextDecorationStyleValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextDecorationStyle"
                             ]
                         }
                     }
