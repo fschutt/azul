@@ -120,7 +120,7 @@ fn inline_pipeline_struct_sizes_are_pinned() {
     assert_size!(BidiRun, 168, "Stage 2 (bidi) output.");
     assert_size!(
         StyleProperties,
-        384,
+        296,
         "Shared behind an Arc, so one per distinct style - NOT per glyph. GREW 248 -> 256 \
          (2026-10-03, 753dbc393): InlineBorderInfo gained `margin_left` / `margin_right` (an \
          inline box's horizontal margins move the pen, CSS 2.2 s10.3.1), 60 -> 68 B. GREW \
@@ -138,7 +138,11 @@ fn inline_pipeline_struct_sizes_are_pinned() {
          `TextDecoration` is three flags and, per kind of line, a colour (currentcolor of the box, \
          read when the line is painted, or a colour), a thickness and, for the underline, its \
          offset and position - 104 B, by value in every glyph run too (a compaction to u16 / \
-         i16 units is 48 B: ledger E15, measure first)."
+         i16 units is 48 B: ledger E15, measure first). SHRANK 384 -> 296 (2026-11-26): \
+         `TextDecoration` is one pointer to the lines of the boxes that set them \
+         (`Option<Arc<[DecorationLine]>>`, 16 B; a line of a box around the run has its own \
+         place and size, ledger E14) - nothing for a run without a line, and the same 16 B in \
+         every glyph run where the paint of the three kinds was 104 B."
     );
 }
 

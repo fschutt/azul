@@ -114,6 +114,21 @@ class AuditTests(unittest.TestCase):
         self.assertIn("clipping parent", why["Long label"])
         self.assertIn("window's right edge", why["Over the edge"])
 
+    def test_one_text_is_one_entry_even_when_a_button_a_paragraph_and_a_leaf_carry_it(self):
+        tree = [a11y(1, 1, "Button", "azmeet-join", 10, 100, 100, 16, clickable=True), a11y(2, 2, "Paragraph", "azmeet-join", 10, 100, 100, 16, parent=1),
+                a11y(3, 3, "Label", "azmeet-join", 0, 0, 0, 0, parent=2), a11y(4, 4, "Label", "azmeet-new-meeting", 0, 0, 0, 0)]
+        r = self.run_audit([node(i, "p", 0, 0, 1, 1) for i in range(1, 5)], tree)
+        self.assertEqual(r["raw_keys"]["count"], 2)
+        self.assertEqual([e["text"] for e in r["raw_keys"]["top"]], ["azmeet-join", "azmeet-new-meeting"])
+        self.assertEqual(r["raw_keys"]["top"][0]["w"], 100.0)           # the first with a box
+
+    def test_the_status_bar_and_the_cutout_of_one_strip_are_one_band(self):
+        dump = ("InsetsSource id=1 type=statusBars frame=[0,0][1080,128] visible=true\n"
+                "InsetsSource id=2 type=displayCutout frame=[0,0][1080,128] visible=true\n"
+                "InsetsSource id=3 type=navigationBars frame=[0,2274][1080,2400] visible=true\n")
+        bands = la.parse_system_bars(dump)["bands"]
+        self.assertEqual([(b["name"], b["rect"]) for b in bands], [("statusBars+displayCutout", (0, 0, 1080, 128)), ("navigationBars", (0, 2274, 1080, 2400))])
+
     def test_a_text_that_is_a_message_id_is_listed(self):
         tree = [a11y(1, 1, "Label", "azmeet-loading-key", 10, 100, 200, 20), a11y(2, 2, "Label", "Loading this device's key...", 10, 130, 200, 20),
                 a11y(3, 3, "Button", "menu-file-open", 10, 160, 100, 48, clickable=True), a11y(4, 4, "Label", "e-mail", 10, 220, 50, 20),
@@ -121,6 +136,15 @@ class AuditTests(unittest.TestCase):
         r = self.run_audit([node(i, "p", 0, 0, 1, 1) for i in range(1, 6)], tree)
         self.assertEqual(sorted(e["text"] for e in r["raw_keys"]["top"]), ["azmeet-loading-key", "menu-file-open"])
         self.assertIn("texts are raw keys", la.summary_line(r))
+
+    def test_the_lists_say_which_widget_causes_most_of_them(self):
+        layout = [node(1, "button", 10, 10, 30, 30, classes=["__azul-native-button"]), node(2, "p", 10, 60, 30, 30, classes=["__azul-native-date-picker-day"]),
+                  node(3, "p", 10, 100, 30, 30, classes=["__azul-native-date-picker-day"]), node(4, "div", 10, 140, 30, 30)]
+        tree = [a11y(1, 1, "Button", "OK", 10, 10, 30, 30, clickable=True), a11y(2, 2, "Button", "1", 10, 60, 30, 30, clickable=True),
+                a11y(3, 3, "Button", "2", 10, 100, 30, 30, clickable=True), a11y(4, 4, "Button", "x", 10, 140, 30, 30, clickable=True)]
+        r = self.run_audit(layout, tree)
+        self.assertEqual(r["small_targets"]["by_widget"], {"date-picker-day": 2, "button": 1, "div": 1})
+        self.assertIn("by widget: date-picker-day 2, button 1, div 1", la.report_markdown([r]))
 
     def test_a_scroll_container_with_wider_content_is_the_page_that_scrolls_sideways(self):
         scroll = {"status": "ok", "data": {"type": "scroll_states", "value": {"scroll_states": [

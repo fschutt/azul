@@ -527,6 +527,70 @@ class StartupLinesTests(unittest.TestCase):
         self.assertIsNone(q.median_start(["nothing"]))
 
 
+class CheckedTests(unittest.TestCase):
+    XML = ('''<hierarchy><node index="2" text="" class="android.widget.RadioButton" content-desc="Dark" checkable="true" checked="true" clickable="true" bounds="[519,251][588,291]">'''
+           '''<node index="0" text="" class="android.widget.TextView" content-desc="Dark" checkable="false" checked="false" bounds="[519,251][588,291]" />'''
+           '''<node index="1" text="" class="android.widget.RadioButton" content-desc="System" checkable="true" checked="false" bounds="[1,2][3,4]" /></hierarchy>''')
+
+    def test_the_checkable_node_of_that_name_tells_if_it_is_checked(self):
+        self.assertTrue(q.node_checked(self.XML, "Dark"))
+        self.assertFalse(q.node_checked(self.XML, "System"))
+
+    def test_a_name_that_is_not_checkable_or_not_there_is_none(self):
+        self.assertIsNone(q.node_checked(self.XML, "Nothing"))
+        self.assertIsNone(q.node_checked('<node content-desc="Label" checkable="false" checked="false" />', "Label"))
+
+
+class GpuFrameWaitTests(unittest.TestCase):
+    CONTRACT = "[       400us][Info][Rendering] [render] backend=gpu requested=gpu device=Apple Software Renderer"
+    FIRST = "[  9685704us][Info][Rendering] [iOS GPU] first frame 1206x2622: 21 draw calls, drawn in 1285 ms, 9653 ms after the GPU path began"
+    FRAMES = "[ 13049292us][Info][Rendering] [render] frames n=10 over_ms=1087 interval_ms median=110.3 p95=229.6 max=229.6 draw_ms median=99.2 p95=884.6"
+
+    def test_the_first_frame_line_of_either_phone_or_a_frames_line_says_a_frame_went_out(self):
+        self.assertTrue(q.gpu_frame_presented(self.CONTRACT + "\n" + self.FIRST))
+        self.assertTrue(q.gpu_frame_presented(self.FRAMES))
+        self.assertTrue(q.gpu_frame_presented("I RustStdoutStderr: [Android GPU] first frame 1080x2400: 20 draw calls"))
+        self.assertFalse(q.gpu_frame_presented(self.CONTRACT))
+        self.assertFalse(q.gpu_frame_presented(""))
+
+    def test_the_wait_ends_at_the_first_frame_line(self):
+        logs = iter([self.CONTRACT, self.CONTRACT, self.CONTRACT + "\n" + self.FIRST])
+        clock = iter(range(0, 100))
+        waited = q.wait_for_gpu_frame(lambda: next(logs), 120, sleep=lambda _s: None, clock=lambda: next(clock))
+        self.assertIsNotNone(waited)
+        self.assertGreater(waited, 0)
+
+    def test_a_request_that_fell_back_to_the_cpu_is_not_waited_for(self):
+        fell_back = "[render] gpu unavailable at probe: x; drawing on the CPU\n[render] backend=cpu requested=gpu device=software"
+        self.assertEqual(q.wait_for_gpu_frame(lambda: fell_back, 120, sleep=lambda _s: None), 0.0)
+
+    def test_the_wait_gives_up_after_the_time_and_says_so(self):
+        clock = iter(range(0, 1000))
+        self.assertIsNone(q.wait_for_gpu_frame(lambda: self.CONTRACT, 5, sleep=lambda _s: None, clock=lambda: next(clock)))
+
+
+class FlatTests(unittest.TestCase):
+    def sig(self, fill, paint=()):
+        """A 40 x 80 signature of one colour with rectangles of another: paint = [(row0, row1, col0, col1, (r, g, b)), ...]."""
+        rows = [[fill] * q.COLS for _ in range(q.ROWS)]
+        for r0, r1, c0, c1, colour in paint:
+            for r in range(r0, r1):
+                for c in range(c0, c1):
+                    rows[r][c] = colour
+        return bytes(v for row in rows for px in row for v in px)
+
+    def test_a_black_window_with_a_clock_is_flat(self):
+        clock = [(1, 3, 3, 9, (255, 255, 255)), (1, 3, 30, 38, (255, 255, 255)), (76, 78, 14, 26, (255, 255, 255))]    # the status bar and the home indicator
+        self.assertTrue(q.is_flat(self.sig((0, 0, 0), clock)))
+
+    def test_content_between_the_bars_is_not_flat(self):
+        self.assertFalse(q.is_flat(self.sig((0, 0, 0), [(20, 30, 4, 36, (240, 240, 240))])))
+
+    def test_a_signature_of_another_size_is_counted_whole(self):
+        self.assertTrue(q.is_flat(bytes([9, 9, 9]) * 100))
+        self.assertFalse(q.is_flat(bytes([0, 0, 0]) * 50 + bytes([255, 255, 255]) * 50))
+
+
 class RunFolderTests(unittest.TestCase):
     def test_the_run_folder_is_absolute_even_when_it_was_given_relative(self):
         # `simctl launch --stdout=<path>` is opened by the Simulator's own launchd, whose root is not the runner's folder

@@ -372,6 +372,91 @@ class E2eVariantTest(unittest.TestCase):
                 demo_build.main(argv + ["--variant", "no-such-variant"])
 
 
+def tomllib_loads(text):
+    return demo_apps.tomllib.loads(text)
+
+
+class WorkflowContractTest(unittest.TestCase):
+    """.github/workflows/demos.yml reads the plan job's outputs and the fields of its matrix entries: a name that the plan does not
+    write is an empty value at run time, found hours into a run. The workflow is read as text (the standard library has no YAML)."""
+
+    def setUp(self):
+        self.path = demo_apps.ROOT / ".github" / "workflows" / "demos.yml"
+        self.text = self.path.read_text(encoding="utf-8")
+        self.plan = demo_apps.plan(demo_apps.load(), e2e=True)
+
+    def jobs(self):
+        """{job name: body text} of the `jobs:` section."""
+        body = self.text[self.text.index("\njobs:\n"):]
+        parts = re.split(r"(?m)^  ([A-Za-z_][\w-]*):[ \t]*$", body)
+        return {parts[i]: parts[i + 1] for i in range(1, len(parts) - 1, 2)}
+
+    def test_the_plan_job_hands_on_every_key_the_plan_writes(self):
+        outputs = set(re.findall(r"(?m)^      (\w+): \$\{\{ steps\.plan\.outputs\.(\w+) \}\}$", self.jobs()["plan"]))
+        self.assertTrue(all(a == b for a, b in outputs), outputs)
+        self.assertEqual({a for a, _ in outputs}, set(self.plan))
+
+    def test_every_matrix_field_a_job_reads_is_in_every_entry_of_its_plan_list(self):
+        seen = 0
+        for name, body in self.jobs().items():
+            m = re.search(r"matrix: \$\{\{ fromJSON\(needs\.plan\.outputs\.(\w+)\) \}\}", body)
+            if not m:
+                continue
+            key = m.group(1)
+            self.assertIn(key, self.plan, f"{name} reads a list the plan does not write")
+            fields = set(re.findall(r"matrix\.(\w+)", body))
+            for entry in self.plan[key]:
+                missing = sorted(fields - set(entry))
+                self.assertEqual(missing, [], f"{name}: matrix.{missing} is in no field of the plan's {key} entry {entry.get('id') or entry.get('leg')}")
+            seen += 1
+        self.assertGreaterEqual(seen, 10)   # five libs, five apps
+
+    def test_no_expression_of_the_matrix_or_the_plan_is_expanded_into_a_script(self):
+        # zizmor's template-injection audit (the supply-chain workflow's zizmor job runs it on every workflow file): a `${{ }}` inside a
+        # `run:` block is pasted INTO the script, an environment variable is data. The matrix values of the plan reach the shell steps
+        # through `env:` (DEMO_KIND, DEMO_TARGET, DEMO_FEATURES, DEMO_LEG, DEMO_APPS, DEMO_LIB_FILE, DEMO_DEPLOYMENT_TARGET, DEMO_VARIANT).
+        for name, body in self.jobs().items():
+            for run in re.findall(r"(?ms)^        run: (.*?)(?=^        \S|^      - |\Z)", body):
+                self.assertNotIn("${{ matrix.", run, f"{name}: a matrix value is expanded into a script")
+                self.assertNotIn("${{ needs.plan.outputs.", run, f"{name}: a plan output is expanded into a script")
+
+    def test_the_phone_app_jobs_pass_the_variant_and_the_publish_job_never_reads_the_qa_artifacts(self):
+        jobs = self.jobs()
+        for name in ("apps_android", "apps_ios"):
+            self.assertIn('--variant "$DEMO_VARIANT"', jobs[name], name)
+            self.assertIn("DEMO_VARIANT: ${{ matrix.variant }}", jobs[name], name)
+        self.assertIn("pattern: demoapps-*", jobs["publish"])
+        self.assertNotIn("demoe2e", jobs["publish"])
+        for entry in self.plan["apps_android"] + self.plan["apps_ios"]:
+            self.assertEqual(entry["artifact"].startswith("demoe2e-"), entry["variant"] == "mobile-e2e")
+
+    def test_the_boot_tests_read_only_the_shipped_apps(self):
+        jobs = self.jobs()
+        self.assertIn("name: demoapps-android-x86_64", jobs["smoke_android"])
+        self.assertIn("name: demoapps-ios-sim", jobs["smoke_ios"])
+
+    def test_the_transport_test_step_of_the_companion_names_a_feature_the_crate_has(self):
+        # `cargo test -p azul-review-link --features <f>` fails with "the package does not have that feature" when it has none: the
+        # step may only land together with (or after) the feature, which the companion agent's commit adds
+        rust = (demo_apps.ROOT / ".github" / "workflows" / "rust.yml").read_text(encoding="utf-8")
+        steps = re.findall(r"cargo test -p azul-review-link --lib --features (\S+)", rust)
+        self.assertEqual(len(steps), 1, "the dll_tests job runs the transport tests of the companion once")
+        crate = tomllib_loads((demo_apps.ROOT / "examples" / "azul-review-link" / "Cargo.toml").read_text(encoding="utf-8"))
+        self.assertIn(steps[0], crate["features"])
+        step = rust[rust.index("Run azul-review-link transport tests"):]
+        step = step[:step.index("\n      - name:")]
+        self.assertIn("AZ_REQUIRE_IROH_ENGINE: \"1\"", step)               # a libazul without the engine fails the tests, it does not skip them
+        self.assertIn("AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi", step)   # the libazul the job builds for the other link-dynamic tests
+        self.assertIn("zero_test_guard.sh --strict", step)
+
+    def test_rust_yml_hands_the_inputs_to_the_workflow_and_keeps_no_list_of_apps(self):
+        rust = (demo_apps.ROOT / ".github" / "workflows" / "rust.yml").read_text(encoding="utf-8")
+        self.assertIn("uses: ./.github/workflows/demos.yml", rust)
+        self.assertIn("publish: ${{ inputs.publish_demos }}", rust)
+        self.assertIn("e2e: ${{ inputs.demos_e2e }}", rust)
+        self.assertEqual(demo_apps.check(), [])
+
+
 class BuildTest(unittest.TestCase):
     def test_the_german_strings_are_written_escaped(self):
         app = {"ios": {"strings": {"de": {"K": 'a "b" \\ c\nd'}}}}
