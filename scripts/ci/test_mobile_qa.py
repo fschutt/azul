@@ -326,7 +326,7 @@ class ModeComparisonTests(unittest.TestCase):
 
     def test_a_gpu_request_waits_long_for_its_first_frame(self):
         # the first GL frame on a software renderer compiles every shader: two minutes are normal there, not a missing picture
-        self.assertEqual(q.first_frame_timeout_for("gpu", 45), 120)
+        self.assertEqual(q.first_frame_timeout_for("gpu", 45), 240)
         self.assertEqual(q.first_frame_timeout_for("gpu", 300), 300)       # a longer wish stays
         self.assertEqual(q.first_frame_timeout_for("cpu", 45), 45)
         self.assertEqual(q.first_frame_timeout_for("auto", 45), 45)
@@ -550,6 +550,9 @@ class GpuFrameWaitTests(unittest.TestCase):
         self.assertTrue(q.gpu_frame_presented(self.CONTRACT + "\n" + self.FIRST))
         self.assertTrue(q.gpu_frame_presented(self.FRAMES))
         self.assertTrue(q.gpu_frame_presented("I RustStdoutStderr: [Android GPU] first frame 1080x2400: 20 draw calls"))
+        # the shared GPU code's own line (common/gles_gpu.rs), the one an Android GPU run writes
+        self.assertTrue(q.gpu_frame_presented("I RustStdoutStderr: [ 5123us][Info][Rendering] [render] first GPU frame: 1285.4 ms (WebRender compiles its programs in it)"))
+        self.assertFalse(q.gpu_frame_presented("[render] drawing the first frame at 1080x2400 px: WebRender compiles the programs it needs in it"))
         self.assertFalse(q.gpu_frame_presented(self.CONTRACT))
         self.assertFalse(q.gpu_frame_presented(""))
 

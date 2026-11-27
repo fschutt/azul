@@ -248,7 +248,7 @@ FALLBACK_LINE = re.compile(r"\[render\] gpu unavailable at (\w+): (.*?); drawing
 # The GPU path's first picture: iOS says `[iOS GPU] first frame 1206x2622: ...`, and every phone writes `[render] frames n=..` lines while
 # frames follow one another. On a software GL the first GL frame comes 9-10 s after the start (every WebRender shader is compiled at first
 # use) and the window is BLACK until then: a screenshot before that line is not a picture of the GPU path.
-GPU_FIRST_FRAME = re.compile(r"\[(?:iOS|Android) GPU\] first frame \d+x\d+|\[render\] frames n=\d+")
+GPU_FIRST_FRAME = re.compile(r"\[(?:iOS|Android) GPU\] first frame \d+x\d+|\[render\] first GPU frame: [\d.]+ ms|\[render\] frames n=\d+")
 
 
 def gpu_frame_presented(text):
@@ -709,7 +709,7 @@ def device_is_software(device):
     return bool(device and SOFTWARE_DEVICE.search(device))
 
 
-GPU_FIRST_FRAME_SECONDS = 120
+GPU_FIRST_FRAME_SECONDS = 240       # the emulator's software GL takes a minute or two for the first GL frame (every shader compiles at first use)
 IDLE_SECONDS = 4.0         # an idle window is watched this long for frames lines (a window that draws while nothing moves)
 SWIPE_SECONDS = 4.0        # the scripted swipe of the render-mode step: at least three full seconds of frames lines
 
