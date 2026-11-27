@@ -203,7 +203,8 @@ text-decoration: underline;
 - `text-align` accepts `left`, `right`, `center`, `justify`, `start`, or `end`. Type `StyleTextAlign`.
 - `text-align-last` accepts `auto`, `start`, `end`, `left`, `right`, `center`, or `justify`. Type `StyleTextAlignLast`.
 - `text-justify` accepts `auto`, `none`, `inter-word`, `inter-character`, or `distribute`. Type `LayoutTextJustify`.
-- `text-decoration` accepts `none`, `underline`, `overline`, `line-through`, or combinations. Type `StyleTextDecoration`.
+- `text-decoration` is the shorthand of `text-decoration-line`, `-style`, `-color` and `-thickness`: `underline wavy red 2px`, each part at most once and in any order; a part it does not name is reset to its initial value. `text-decoration-line` accepts `none`, or any of `underline`, `overline` and `line-through` (`underline overline`); type `StyleTextDecoration`.
+- `text-decoration-style` accepts `solid` (the initial value), `double`, `dotted`, `dashed`, or `wavy`. Type `StyleTextDecorationStyle`. Not inherited.
 - `text-decoration-color` accepts `currentcolor` (the initial value) or a colour. Type `StyleTextDecorationColor`. Not inherited. The line is in the colour of the box that sets it, whatever the colour of the text under it.
 - `text-decoration-thickness` accepts `auto`, `from-font`, a length, or a percentage (of one em). Type `StyleTextDecorationThickness`. Not inherited. An `em` and a percentage are parts of the font size of the box that sets the line.
 - `text-underline-offset` accepts `auto` (the initial value), a length, or a percentage (of one em). Type `StyleTextUnderlineOffset`. Inherited. Moves an underline down from its place, up for a negative length; an overline and a line-through stay.

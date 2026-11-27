@@ -58,7 +58,7 @@ use crate::text3;
 #[cfg(feature = "text_layout")]
 use crate::text3::cache::{
     DecorationColor, DecorationLine, InlineShape, LineKind, LineOffset, LinePaint, LineStand,
-    LineThickness, PositionedItem, UnderlineBase,
+    DecorationStyle, LineThickness, PositionedItem, UnderlineBase,
 };
 use crate::{
     debug_info,
@@ -429,6 +429,38 @@ pub(crate) fn layer_value<T: Copy>(values: &[T], layers: usize, layer: usize) ->
     }
     let from_top = layers - 1 - layer;
     values.get(count - 1 - from_top % count).copied()
+}
+
+/// The most rectangles a dotted or dashed decoration line is cut into: a line that would need
+/// more is drawn solid.
+const MAX_DECORATION_PIECES: f32 = 4096.0;
+
+/// The pieces of a dotted or dashed decoration line `thickness` thick from `start_x` to `end_x`
+/// (`x_range`): the `(x, width)` of each rectangle; `None` for the other styles and for a line
+/// that would need more than [`MAX_DECORATION_PIECES`], which are one solid rectangle.
+///
+/// A dot is a square with a gap as wide as itself, a dash is three thicknesses long with a gap of
+/// two; the last piece is cut where the line ends.
+fn dash_pieces(style: DecorationStyle, thickness: f32, x_range: (f32, f32)) -> Option<Vec<(f32, f32)>> {
+    let (length, gap) = match style {
+        DecorationStyle::Dotted => (thickness, thickness),
+        DecorationStyle::Dashed => (3.0 * thickness, 2.0 * thickness),
+        DecorationStyle::Solid | DecorationStyle::Double | DecorationStyle::Wavy => return None,
+    };
+    let (start_x, end_x) = x_range;
+    let period = length + gap;
+    if !(thickness > 0.0 && period.is_finite() && end_x > start_x) {
+        return None;
+    }
+    if ((end_x - start_x) / period).ceil() > MAX_DECORATION_PIECES {
+        return None;
+    }
+    Some(
+        core::iter::successors(Some(start_x), |x| Some(x + period))
+            .take_while(|x| *x < end_x)
+            .map(|x| (x, length.min(end_x - x)))
+            .collect(),
+    )
 }
 
 const APPROX_ASCENT_RATIO: f32 = 0.8;
@@ -9038,6 +9070,100 @@ where
         builder.push_webview(dom_id, node_index, content_box, frame);
     }
 
+    /// Paints a `wavy` decoration line as a stroked wave from `x_range.0` to `x_range.1` around
+    /// the height `centre_y`, `thickness` thick: a polyline with a wave a thickness high either
+    /// way and four thicknesses long, round at its ends and corners. The renderers that stroke
+    /// a path (the CPU rasteriser, the PDF writer) draw it as it is and the GPU one through the
+    /// mask this makes. `false` when the build has no rasteriser for that mask or the line is
+    /// not worth a wave: the caller draws a solid line.
+    fn push_wavy_decoration(
+        &self,
+        builder: &mut DisplayListBuilder,
+        x_range: (f32, f32),
+        centre_y: f32,
+        thickness: f32,
+        color: ColorU,
+    ) -> bool {
+        use azul_core::svg::{
+            SvgLine, SvgLineCap, SvgLineJoin, SvgMultiPolygon, SvgPath, SvgPathElement,
+            SvgPathElementVec, SvgPathVec,
+        };
+        use azul_css::props::basic::SvgPoint;
+
+        let (start_x, end_x) = x_range;
+        let amplitude = thickness;
+        let wavelength = 4.0 * thickness;
+        let length = end_x - start_x;
+        // eight points to a wave
+        let step = wavelength / 8.0;
+        if !(thickness > 0.0 && step.is_finite() && length > 0.0)
+            || (length / step).ceil() > MAX_DECORATION_PIECES
+        {
+            return false;
+        }
+        let point_at = |x: f32| SvgPoint {
+            x,
+            y: amplitude.mul_add(
+                (core::f32::consts::TAU * (x - start_x) / wavelength).sin(),
+                centre_y,
+            ),
+        };
+        let mut points: Vec<SvgPoint> = core::iter::successors(Some(start_x), |x| Some(x + step))
+            .take_while(|x| *x < end_x)
+            .map(point_at)
+            .collect();
+        points.push(point_at(end_x));
+        let items: Vec<SvgPathElement> = points
+            .windows(2)
+            .map(|pair| {
+                SvgPathElement::Line(SvgLine {
+                    start: pair[0],
+                    end: pair[1],
+                })
+            })
+            .collect();
+        let path = SvgMultiPolygon {
+            rings: SvgPathVec::from_vec(vec![SvgPath {
+                items: SvgPathElementVec::from_vec(items),
+            }]),
+        };
+        // the stroke reaches a thickness past the wave's ends and crests
+        let bounds = LogicalRect::new(
+            LogicalPosition::new(start_x - thickness, centre_y - amplitude - thickness),
+            LogicalSize::new(thickness.mul_add(2.0, length), 2.0 * (amplitude + thickness)),
+        );
+        let outline = StrokeOutline {
+            cap: SvgLineCap::Round,
+            join: SvgLineJoin::Round,
+            ..StrokeOutline::default()
+        };
+        #[cfg(feature = "cpurender")]
+        let mask = self.ctx.pass_memo.svg_masks.borrow_mut().get_or_rasterise(
+            crate::solver3::svg_masks::MaskKind::Stroke,
+            &path,
+            &bounds,
+            None,
+            thickness,
+            outline.memo_hash(),
+            || rasterize_svg_stroke_to_r8(&path, &bounds, None, thickness, &outline),
+        );
+        #[cfg(not(feature = "cpurender"))]
+        let mask: Option<ImageRef> = None;
+        let Some(mask) = mask else {
+            return false;
+        };
+        builder.push_item(DisplayListItem::StrokedPath {
+            bounds: bounds.into(),
+            path,
+            view_box: None,
+            color,
+            width: thickness,
+            outline,
+            mask: Some(mask),
+        });
+        true
+    }
+
     /// Checks if a node has an image mask clip and pushes `PushImageMaskClip` if so.
     /// Returns true if a clip was pushed (caller must pop it).
     /// Paint this node's SVG stroke, if it has one.
@@ -13157,7 +13283,7 @@ where
                     // The lines of the boxes, the outermost box's first: each is painted over
                     // the one before. A line that two boxes both draw, in one place and one
                     // colour, is one line.
-                    let mut drawn: Vec<(LineKind, f32, f32, ColorU)> = Vec::new();
+                    let mut drawn: Vec<(LineKind, DecorationStyle, f32, f32, ColorU)> = Vec::new();
                     for line in glyph_run
                         .text_decoration
                         .lines()
@@ -13209,21 +13335,71 @@ where
                             LineKind::Overline => baseline - (size * APPROX_OVERLINE_OFFSET_RATIO),
                         };
                         let color = colour_of(&line.paint);
-                        let this = (line.kind, y, thickness, color);
-                        if drawn.contains(&this) {
-                            continue;
-                        }
-                        drawn.push(this);
-                        let bounds = LogicalRect::new(
-                            LogicalPosition::new(decoration_start_x, y),
-                            LogicalSize::new(decoration_width, thickness),
-                        );
-                        match line.kind {
-                            LineKind::Underline => builder.push_underline(bounds, color, thickness),
-                            LineKind::Strikethrough => {
-                                builder.push_strikethrough(bounds, color, thickness);
+                        // `double` is two lines as thick as the one, a thickness apart: the
+                        // second of an underline below the first, of an overline above it, and
+                        // one on each side of the place of the single line-through. The other
+                        // styles are one line at the place of the single one.
+                        let (tops, count) = match (line.paint.style, line.kind) {
+                            (DecorationStyle::Double, LineKind::Underline) => {
+                                ([y, y + 2.0 * thickness], 2)
                             }
-                            LineKind::Overline => builder.push_overline(bounds, color, thickness),
+                            (DecorationStyle::Double, LineKind::Overline) => {
+                                ([y - 2.0 * thickness, y], 2)
+                            }
+                            (DecorationStyle::Double, LineKind::Strikethrough) => {
+                                ([y - thickness, y + thickness], 2)
+                            }
+                            _ => ([y, y], 1),
+                        };
+                        for &top in tops.iter().take(count) {
+                            let this = (line.kind, line.paint.style, top, thickness, color);
+                            if drawn.contains(&this) {
+                                continue;
+                            }
+                            drawn.push(this);
+                            // A wave is a stroked path; where the build cannot stroke it for
+                            // the renderers that need the stroke raster it, the line is solid.
+                            if line.paint.style == DecorationStyle::Wavy {
+                                let amplitude = thickness;
+                                let centre = if line.kind == LineKind::Strikethrough {
+                                    top + thickness / 2.0
+                                } else {
+                                    top + amplitude + thickness / 2.0
+                                };
+                                if self.push_wavy_decoration(
+                                    builder,
+                                    (decoration_start_x, decoration_end_x),
+                                    centre,
+                                    thickness,
+                                    color,
+                                ) {
+                                    continue;
+                                }
+                            }
+                            // Dotted and dashed lines are rows of rectangles, a solid line is one.
+                            let pieces = dash_pieces(
+                                line.paint.style,
+                                thickness,
+                                (decoration_start_x, decoration_end_x),
+                            )
+                            .unwrap_or_else(|| vec![(decoration_start_x, decoration_width)]);
+                            for (x, width) in pieces {
+                                let bounds = LogicalRect::new(
+                                    LogicalPosition::new(x, top),
+                                    LogicalSize::new(width, thickness),
+                                );
+                                match line.kind {
+                                    LineKind::Underline => {
+                                        builder.push_underline(bounds, color, thickness);
+                                    }
+                                    LineKind::Strikethrough => {
+                                        builder.push_strikethrough(bounds, color, thickness);
+                                    }
+                                    LineKind::Overline => {
+                                        builder.push_overline(bounds, color, thickness);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
