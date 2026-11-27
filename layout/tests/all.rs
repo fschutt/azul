@@ -1481,3 +1481,5 @@ mod a_line_before_a_forced_break_is_not_justified;
 mod ignored_tests_are_on_the_ledger;
 #[path = "a_typed_field_keeps_laying_out_when_the_page_shrinks_before_it.rs"]
 mod a_typed_field_keeps_laying_out_when_the_page_shrinks_before_it;
+#[path = "a_rotated_window_paints_its_canvas_across_its_new_width.rs"]
+mod a_rotated_window_paints_its_canvas_across_its_new_width;
