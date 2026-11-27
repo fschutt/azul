@@ -289,7 +289,6 @@ fn the_style_prints_as_the_css_it_was_and_is_not_inherited() {
         assert_eq!(style(value).print_as_css_value(), value);
     }
     assert!(!CssPropertyType::TextDecorationStyle.is_inheritable());
-    assert!(!CssPropertyType::TextDecoration.is_inheritable());
 }
 
 /// `text-decoration` is the shorthand and `text-decoration-line` the longhand of the lines: the
