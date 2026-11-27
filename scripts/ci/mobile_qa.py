@@ -280,7 +280,10 @@ def render_env(extra=""):
     """The value of the system property the engine reads its AZ_* knobs from (`debug.az.env`: KEY=VALUE;KEY=VALUE, ONE property
     that setprop replaces whole): the log level and the present dump every step wants, and `extra` (`AZ_BACKEND=gpu`)."""
     extra = extra.strip().strip(";").strip()
-    return "AZ_LOG=info;AZ_DUMP_PRESENT=1" + (";" + extra if extra else "")
+    # AZ_QA_ENGINE_ENV: more KEY=VALUE pairs for the engine of EVERY start of the run (a diagnostic switch of a test build, e.g.
+    # AZ_GPU_SELFTEST=1, which asks the driver three questions before WebRender is made)
+    more = os.environ.get("AZ_QA_ENGINE_ENV", "").strip().strip(";").strip()
+    return "AZ_LOG=info;AZ_DUMP_PRESENT=1" + (";" + more if more else "") + (";" + extra if extra else "")
 
 
 def gpu_fail_stage(spec):
@@ -1169,6 +1172,12 @@ def android_scenarios(args):
             dev.sh(f"setprop debug.az.env '{render_env(f'AZ_BACKEND={mode}')}'")
             dev.adb("logcat", "-c")
             dev.launch(cold=True)
+            if mode == "gpu":
+                # the window while WebRender compiles its programs (the engine shows the window's own colour then) and after its first
+                # frame: pictures without a verdict, to see what the window holds at each point of the GPU start
+                for waited, label in ((3.0, "3s"), (5.0, "8s"), (5.0, "13s")):
+                    time.sleep(waited)
+                    s.shots.append(dev.capture(f"AZ_BACKEND-gpu-early-{label}")[3])
             t = dev.wait_for_front(timeout=first_frame_timeout_for(mode, args.first_frame_timeout))
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_BACKEND-{mode}")
