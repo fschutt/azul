@@ -9130,7 +9130,7 @@ where
         // the stroke reaches a thickness past the wave's ends and crests
         let bounds = LogicalRect::new(
             LogicalPosition::new(start_x - thickness, centre_y - amplitude - thickness),
-            LogicalSize::new(length + 2.0 * thickness, 2.0 * (amplitude + thickness)),
+            LogicalSize::new(thickness.mul_add(2.0, length), 2.0 * (amplitude + thickness)),
         );
         let outline = StrokeOutline {
             cap: SvgLineCap::Round,
