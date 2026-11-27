@@ -24,7 +24,7 @@ step() {
     echo "=== $name: $*"
     "$@" > "out/gate-$name.log" 2>&1
     local rc=$?
-    grep -E "^test result|^error(\[E[0-9]+\])?:|FAILED|panicked at|could not compile|^\[(ok|FAIL|skip)\]|^CHECK " "out/gate-$name.log" | head -60
+    grep -E "^test result|^error(\[E[0-9]+\])?:|^ +--> |FAILED|panicked at|could not compile|^\[(ok|FAIL|skip)\]|^CHECK " "out/gate-$name.log" | head -80
     echo "GATE $name: exit $rc"
     results+=("$name:$rc")
 }
@@ -56,8 +56,9 @@ layout)
     sudo apt-get install -y -qq fonts-liberation fonts-dejavu-core > /dev/null 2>&1
     export AZ_REQUIRE_TEST_FONTS=1
     features="azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server,azul-layout/updater"
-    step clippy-features cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --features "$features" -- -D warnings
-    step clippy cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets -- -D warnings
+    # --keep-going: every target is linted and every finding reported in ONE run (the lib failing first hides the test targets)
+    step clippy-features cargo clippy --keep-going -p azul-core -p azul-css -p azul-layout --all-targets --features "$features" -- -D warnings
+    step clippy cargo clippy --keep-going -p azul-core -p azul-css -p azul-layout --all-targets -- -D warnings
     step workspace cargo test -p azul-css -p azul-core -p azul-layout -p webrender --lib --tests --features "$features" --no-fail-fast
     guard workspace
     step css-io cargo test -p azul-css --features io --test test_system_style

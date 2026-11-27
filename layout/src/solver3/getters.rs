@@ -7479,7 +7479,7 @@ fn make_instances_in_parallel(
     wanted: &[(FontId, Vec<(rust_fontconfig::FcAxisTag, f32)>)],
 ) {
     let threads = std::thread::available_parallelism()
-        .map_or(1, |n| n.get())
+        .map_or(1, std::num::NonZeroUsize::get)
         .min(wanted.len())
         .min(8);
     if threads < 2 {

@@ -43,6 +43,9 @@ impl Sample {
 /// Linux start whose first window shows materials (twenty calls a pixel). A truncating conversion and one
 /// correction give the same bits for every `x`: an integer below 2^23 converts exactly, a larger `x` has no
 /// fraction, and zero (either sign), infinity and NaN are returned as they are.
+// clippy::inline_always (pedantic): this is the per-pixel helper whose library call is the cost it removes, so it must be
+// inlined whatever the optimizer thinks of a call site (a Linux perf profile: `floorf` was a fifth of a start).
+#[allow(clippy::inline_always)]
 #[inline(always)]
 pub(crate) fn floor(x: f32) -> f32 {
     if x.abs() < 8_388_608.0 && x != 0.0 {
