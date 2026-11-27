@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# The gate of a push of the startup work, in two halves that run side by side on two runners (each is a debug build of its own):
+#
+#   dll     the doc checker (`azul-doc check layout`), the WHOLE lib tests of azul-dll, the integration test of the transient
+#           windows (the docking of an inline panel), the source gates, and the type checks of the targets no runner builds
+#           natively (Windows, iOS, Android, macOS: scripts/ci/startup_check_targets.sh)
+#   layout  the CI's workspace test command for azul-css / azul-core / azul-layout / webrender (the same feature list, the
+#           fonts the layout tests measure), its three required-features steps, and both clippy lines with `-D warnings`
+#
+#   scripts/remote.sh run <sha> ubuntu-22.04 'bash scripts/ci/startup_push_gate.sh dll'    --codegen --artifacts 'out/gate-*.log'
+#   scripts/remote.sh run <sha> ubuntu-22.04 'bash scripts/ci/startup_push_gate.sh layout' --codegen --artifacts 'out/gate-*.log'
+#
+# The exit status of the script is the verdict: 0 only when every step of the half exited 0 (a step that ran no test at all is
+# no pass: scripts/zero_test_guard.sh). The last lines are `GATE <step>: exit <n>` for each step, so a log is read once.
+set +e
+part="${1:?the half to run: dll or layout}"
+mkdir -p out
+results=()
+
+# step <name> <command...>: runs the command with its output in out/gate-<name>.log, shows the lines that decide, keeps the exit status
+step() {
+    local name="$1"
+    shift
+    echo "=== $name: $*"
+    "$@" > "out/gate-$name.log" 2>&1
+    local rc=$?
+    grep -E "^test result|^error(\[E[0-9]+\])?:|FAILED|panicked at|could not compile|^\[(ok|FAIL|skip)\]|^CHECK " "out/gate-$name.log" | head -60
+    echo "GATE $name: exit $rc"
+    results+=("$name:$rc")
+}
+
+# guard <name>: the log of a test step ran tests (a `running 0 tests` everywhere is a red step, not a green one)
+guard() {
+    local name="$1"
+    ./scripts/zero_test_guard.sh "out/gate-$name.log" > "out/gate-$name-guard.log" 2>&1
+    local rc=$?
+    tail -3 "out/gate-$name-guard.log"
+    echo "GATE $name-guard: exit $rc"
+    results+=("$name-guard:$rc")
+}
+
+echo "=== runner: $(uname -a), cores $(nproc), disk $(df -h . | tail -1 | awk '{print $4" free"}')"
+case "$part" in
+dll)
+    sudo apt-get install -y -qq libv4l-dev fonts-dejavu-core > /dev/null 2>&1
+    step check-layout cargo run -r -p azul-doc -- check layout
+    step targets bash scripts/ci/startup_check_targets.sh
+    step dll-lib cargo test -p azul-dll --lib --no-fail-fast
+    guard dll-lib
+    step dll-transient cargo test -p azul-dll --test transient_window_layout
+    guard dll-transient
+    step srcgate cargo test -p azul-srcgate --no-fail-fast
+    guard srcgate
+    ;;
+layout)
+    sudo apt-get install -y -qq fonts-liberation fonts-dejavu-core > /dev/null 2>&1
+    export AZ_REQUIRE_TEST_FONTS=1
+    features="azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server,azul-layout/updater"
+    step clippy-features cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --features "$features" -- -D warnings
+    step clippy cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets -- -D warnings
+    step workspace cargo test -p azul-css -p azul-core -p azul-layout -p webrender --lib --tests --features "$features" --no-fail-fast
+    guard workspace
+    step css-io cargo test -p azul-css --features io --test test_system_style
+    step e2e-json cargo test -p azul-layout --test e2e_json --features e2e-server
+    step core-hooks cargo test -p azul-core --features test-hooks --test run_mode_hooks
+    ;;
+*)
+    echo "unknown half: $part (dll or layout)"
+    exit 2
+    ;;
+esac
+
+echo "=== the verdicts of the half '$part'"
+status=0
+for r in "${results[@]}"; do
+    echo "GATE ${r%%:*}: exit ${r##*:}"
+    [ "${r##*:}" = "0" ] || status=1
+done
+echo "GATE $part: $([ "$status" = "0" ] && echo PASSED || echo FAILED)"
+exit "$status"
