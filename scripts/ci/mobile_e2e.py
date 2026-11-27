@@ -345,6 +345,32 @@ def e2e_session(args):
         audits.append(audit_moment(s, "portrait"))
         write_audit_report()
 
+    def band_probe(s, orient):
+        """The stale half-width band after a rotation, asked two ways (informational): (1) the first rect of the live display list against the window's
+        width (a root background of the OLD width = a stale display list), (2) a forced redraw: does the phone's picture change (a band that a redraw
+        heals is stale incremental state, one that stays is in the list)."""
+        try:
+            width = float(find_key(srv.op("get_state"), "logical_width") or 0)
+            dl = srv.op("get_display_list", timeout=90)
+            items = find_key(dl, "items") or []
+            (run.logs_dir / f"display-list-head-{orient}.json").write_text(json.dumps(items[:60]), encoding="utf-8")
+            rects = [i for i in items if i.get("item_type") == "rect" and i.get("width")]
+            if rects:
+                r = rects[0]
+                s.note(f"{orient}: the display list's first rect is ({r.get('x')}, {r.get('y')}) {r.get('width')} x {r.get('height')} dp in a window {width:.0f} dp wide; "
+                       f"{len(items)} items; widest rect of the first 40: {max(float(i['width']) for i in rects[:40]):.0f} dp")
+                s.check(f"{orient}: the display list's first rect spans the window", abs(float(r.get("width")) - width) < 2.0,
+                        f"{r.get('width')} dp against {width:.0f}", required=False)
+            before = device_shot(s, f"band-before-redraw-{orient}")
+            srv.op("redraw", timeout=30)
+            srv.op("wait_frame", timeout=15)
+            dev.settle(1.5)
+            after = device_shot(s, f"band-after-redraw-{orient}")
+            diff = q.sig_diff(after, before)
+            s.note(f"{orient}: a forced redraw changes the phone's picture by {diff:.3f}" + (" (the band healed: stale incremental state)" if diff > q.SAME_BELOW else " (unchanged: the picture is what the display list says)"))
+        except Exception as ex:  # noqa: BLE001
+            s.note(f"{orient} band probe: {str(ex)[:160]}")
+
     def s_audit_landscape(s):
         dev.rotate(1)
         dev.settle(3.0)
@@ -352,6 +378,7 @@ def e2e_session(args):
         s.check("the app is in front after the rotation", t is not None, f"after {t:.1f} s" if t is not None else "no")
         audits.append(audit_moment(s, "landscape"))
         write_audit_report()
+        band_probe(s, "landscape")
         dev.rotate(0)
         dev.settle(3.0)
 
