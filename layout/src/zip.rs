@@ -2140,3 +2140,7 @@ mod autotest_generated {
         }
     }
 }
+
+#[cfg(all(test, feature = "zip"))]
+#[path = "zip_deflate64_test.rs"]
+mod deflate64_tests;

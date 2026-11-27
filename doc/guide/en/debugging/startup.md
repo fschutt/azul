@@ -41,7 +41,7 @@ After the table come two lines for a script: `[startup-json] {...}` (the headlin
 ## Reading the table
 
 ```text
-[startup] timeline: process start from sysctl kern.proc.pid (resolution 1 us), origin = App::create entry 2.1 ms after it
+[startup] timeline: process start from sysctl KERN_PROC_PID (resolution 1 us), origin = App::create entry 2.1 ms after it
 [startup]   #      at_ms       +ms  thread                 mark
 [startup]   0      0.000         -  -                      process_start
 [startup]   1      2.104     2.104  main                   library_entered
