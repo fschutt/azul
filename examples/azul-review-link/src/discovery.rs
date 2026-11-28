@@ -38,6 +38,24 @@ pub enum NearbyEvent {
     Gone(String),
 }
 
+/// The most announcements of the local network a discovery keeps for a poll that has not come yet (the oldest give way).
+pub const MAX_NEWS: usize = 256;
+
+/// Puts `news` at the end of `queue`, which keeps at most [`MAX_NEWS`] entries: when it is full the oldest goes. A neighbourhood that
+/// announces itself without end must not grow the queue without end, and the newest news says what is true now.
+pub fn push_news(queue: &mut Vec<NearbyEvent>, news: NearbyEvent) {
+    if queue.len() >= MAX_NEWS {
+        queue.remove(0);
+    }
+    queue.push(news);
+}
+
+/// The addresses of the neighbour with key `id` among `listed` (none when it is not listed).
+#[must_use]
+pub fn addresses_of(listed: &[Nearby], id: &str) -> Vec<String> {
+    listed.iter().find(|n| n.endpoint_id == id).map(|n| n.addresses.clone()).unwrap_or_default()
+}
+
 /// A way to find peers on the local network.
 pub trait Discovery {
     /// Who is nearby now.
