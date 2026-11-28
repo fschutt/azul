@@ -222,6 +222,38 @@ pub const fn preview_edge(hand: Handedness) -> Edge {
 pub const RAIL_WIDTH: f32 = 18.0;
 /// The size of the icons in the rail, px (12 to 14 in the wireframe).
 pub const RAIL_ICON_PX: f32 = 13.0;
+/// The most the user's text size (the system's accessibility setting) may grow the TEXT of the family's chrome:
+/// the glyphs and digits of the collapsed rail (an 18 px column of 16 px faces), the bottom pane's bar (a 28 px
+/// detent) and the location block of the tab band (106 px). Their boxes are fixed px, a glyph at three times its
+/// size would break them. Everything else of the family (the rows, the headers, the right dock, the sheet) grows
+/// with the text without a cap. A cap below 1.0 reads as 1.0 (it limits growth only).
+pub const CHROME_TEXT_SCALE_MAX: f32 = 1.3;
+
+/// The declaration of [`CHROME_TEXT_SCALE_MAX`] for the CSS of the ROOT of a chrome subtree: the custom property
+/// `--azul-text-scale-max` inherits, and the engine caps the scale of every font size, absolute line height and
+/// spacing under the node at it (one per subtree, written where the subtree's root is built).
+#[must_use]
+pub fn chrome_text_cap() -> String {
+    format!("--azul-text-scale-max: {CHROME_TEXT_SCALE_MAX};")
+}
+
+/// Whether a node's own style declares the property `ty` unconditionally (what the tests of the widgets ask).
+#[cfg(test)]
+pub(crate) fn declares(style: &azul_css::css::Css, ty: azul_css::props::property::CssPropertyType) -> bool {
+    style.iter_inline_properties().any(|(p, conditions)| p.get_type() == ty && conditions.as_ref().is_empty())
+}
+
+/// Whether a node's own style declares the chrome cap (what the tests of the widgets that set it ask).
+#[cfg(test)]
+pub(crate) fn declares_chrome_cap(style: &azul_css::css::Css) -> bool {
+    use azul_css::css::CssDeclaration;
+    style.rules.as_ref().iter().any(|rule| {
+        rule.declarations.as_ref().iter().any(|d| {
+            matches!(d, CssDeclaration::CustomProperty(c)
+                if c.name.as_str() == "azul-text-scale-max" && c.value.as_str() == "1.3")
+        })
+    })
+}
 /// How far every button of the rail reaches inward over the main view, invisibly, px (16 to 20
 /// in the wireframe): what is hit is wider than what is drawn.
 pub const RAIL_SLOP: f32 = 18.0;

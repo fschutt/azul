@@ -1037,3 +1037,38 @@ fn the_root_has_the_dom_id_the_app_gave_in_every_state_and_none_otherwise() {
         assert!(!plain.root.get_ids_and_classes().as_ref().iter().any(|c| c.as_id().is_some()), "{state:?}");
     }
 }
+
+// ---- the text size of the user: the rail is chrome, the rows follow the text ----
+
+use crate::widgets::sidebar_layout::{declares, declares_chrome_cap};
+use azul_css::props::property::CssPropertyType;
+
+#[test]
+fn the_rail_caps_the_text_size_of_its_glyphs_and_the_expanded_sidebar_follows_the_text() {
+    let rail = mail().with_state(SidebarState::Rail).dom();
+    assert!(declares_chrome_cap(&rail.root.style), "the rail is chrome: its glyphs keep to the 18 px column");
+    let expanded = mail().with_state(SidebarState::Expanded).dom();
+    assert!(!declares_chrome_cap(&expanded.root.style), "the expanded rows grow with the user's text");
+}
+
+#[test]
+fn a_row_and_a_section_title_are_as_tall_as_their_text_needs_above_a_floor() {
+    let dom = mail().with_state(SidebarState::Expanded).dom();
+    for class in [SIDEBAR_ROW_CLASS, SIDEBAR_SECTION_CLASS] {
+        let nodes = all(&dom, class);
+        assert!(!nodes.is_empty(), "{class}: there are some");
+        for node in nodes {
+            assert!(declares(&node.root.style, CssPropertyType::MinHeight), "{class}: a floor");
+            assert!(!declares(&node.root.style, CssPropertyType::Height), "{class}: not a fixed height");
+        }
+    }
+}
+
+#[test]
+fn the_outline_lists_carry_the_name_of_the_sidebar() {
+    for state in [SidebarState::Rail, SidebarState::Expanded] {
+        let dom = mail().with_label(AzString::from("Mail folders")).with_state(state).dom();
+        let list = first(&dom, SIDEBAR_LIST_CLASS).expect("the list");
+        assert_eq!(name_of(list), "Mail folders", "{state:?}: a list a screen reader reads has a name");
+    }
+}

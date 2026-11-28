@@ -996,6 +996,8 @@ mod focusing_a_search_field_by_its_id_focuses_its_text;
 mod a_button_fades_into_its_hover_face;
 #[path = "a_button_is_a_touch_target_on_a_phone.rs"]
 mod a_button_is_a_touch_target_on_a_phone;
+#[path = "a_buttons_label_never_loses_its_contrast_while_its_face_changes.rs"]
+mod a_buttons_label_never_loses_its_contrast_while_its_face_changes;
 #[path = "a_hovered_button_passes_through_the_faces_in_between.rs"]
 mod a_hovered_button_passes_through_the_faces_in_between;
 #[path = "a_rebuild_under_the_pointer_starts_no_transition.rs"]

@@ -290,21 +290,34 @@ struct FileRef {
     file: usize,
 }
 
-/// The preview the Preview shows: the file at the top of the list, its kind and size.
+/// The preview the Preview shows: the file at the top of the list, its kind and size. On a desktop
+/// the picture over the text; in a phone's bottom pane (130 px at its peek) the picture beside it, so
+/// that the item fits the pane without a scrollbar of its own.
 fn the_preview(demo: &SidebarDemo) -> Dom {
     let (name, kind, size) = FILES[demo.file.min(FILES.len() - 1)];
-    Dom::create_div()
-        .with_css("display: flex; flex-direction: column; gap: 6px; padding: 12px 14px;")
-        .with_child(
-            Dom::create_div()
-                .with_css(
-                    "display: flex; align-items: center; justify-content: center; height: 72px; \
-                     border-radius: 6px; background: rgba(127, 127, 127, 0.16); font-size: 12px;",
-                )
-                .with_child(Dom::create_icon("insert_drive_file").with_css("font-size: 32px;")),
-        )
+    let phone = demo.form == 1;
+    let picture = Dom::create_div()
+        .with_css(if phone {
+            "display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 64px; \
+             height: 64px; border-radius: 6px; background: rgba(127, 127, 127, 0.16);"
+        } else {
+            "display: flex; align-items: center; justify-content: center; width: 100%; height: 72px; \
+             border-radius: 6px; background: rgba(127, 127, 127, 0.16);"
+        })
+        .with_child(Dom::create_icon("insert_drive_file").with_css("font-size: 32px;"));
+    let text = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; gap: 4px; min-width: 0px;")
         .with_child(Dom::create_p_with_text(name).with_css("margin: 0px; font-weight: 700;").with_class("sidebar-demo-preview-name"))
-        .with_child(Dom::create_p_with_text(format!("{kind} - {size}")).with_css("margin: 0px; font-size: 12px; opacity: 0.75;"))
+        .with_child(Dom::create_p_with_text(format!("{kind} - {size}")).with_css("margin: 0px; font-size: 12px; opacity: 0.75;"));
+    Dom::create_div()
+        .with_css(if phone {
+            "display: flex; flex-direction: row; align-items: center; gap: 12px; padding: 8px 12px; \
+             box-sizing: border-box; width: 100%;"
+        } else {
+            "display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; box-sizing: border-box; width: 100%;"
+        })
+        .with_child(picture)
+        .with_child(text)
 }
 
 /// What sits behind the Preview's first (?): the properties of the file.
@@ -518,6 +531,13 @@ pub(crate) fn sidebar_section(data: &RefAny, demo: &SidebarDemo, theme: UiTheme)
                             .with_id("sidebar-preview-toggle"),
                     )
                     .with_child(
+                        Button::with_type("Reset the demo", ButtonType::Default)
+                            .with_theme(theme)
+                            .with_on_click(data.clone(), on_reset as ButtonOnClickCallbackType)
+                            .dom()
+                            .with_id("sidebar-reset"),
+                    )
+                    .with_child(
                         Button::with_type("Reset the Preview's size", ButtonType::Default)
                             .with_theme(theme)
                             .with_on_click(data.clone(), on_preview_reset as ButtonOnClickCallbackType)
@@ -589,6 +609,12 @@ extern "C" fn on_surface(mut data: RefAny, _: CallbackInfo) -> Update {
 
 extern "C" fn on_preview_open(mut data: RefAny, _: CallbackInfo) -> Update {
     keep(&mut data, |s| s.sidebar.preview_open = !s.sidebar.preview_open)
+}
+
+/// Every switch and every state of the demo back to what the section starts as (a scenario starts
+/// from it: the scenarios of one file share one running app).
+extern "C" fn on_reset(mut data: RefAny, _: CallbackInfo) -> Update {
+    keep(&mut data, |s| s.sidebar = SidebarDemo::default())
 }
 
 /// The app moves the pane by itself: the size is the default again (the Preview obeys, although the

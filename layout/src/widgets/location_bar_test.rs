@@ -263,3 +263,20 @@ fn the_default_block_has_no_name() {
     assert!(has_class(&dom, LOCATION_CLASS));
     assert_eq!(text_of(first(&dom, LOCATION_NAME_CLASS).expect("the name")), "");
 }
+
+// ---- the text size of the user ----
+
+use crate::widgets::sidebar_layout::{declares, declares_chrome_cap};
+use azul_css::props::property::CssPropertyType;
+
+#[test]
+fn the_block_keeps_its_text_to_the_tab_band_and_a_parent_link_is_as_tall_as_its_text_needs() {
+    let dom = bar().dom();
+    assert!(declares_chrome_cap(&dom.root.style), "the band is a fixed 106 px");
+    let crumbs = all(&dom, LOCATION_CRUMB_CLASS);
+    assert!(!crumbs.is_empty());
+    for crumb in crumbs {
+        assert!(declares(&crumb.root.style, CssPropertyType::MinHeight));
+        assert!(!declares(&crumb.root.style, CssPropertyType::Height));
+    }
+}

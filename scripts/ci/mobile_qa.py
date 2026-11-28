@@ -667,7 +667,12 @@ class Run:
             bad = [c for c in s.checks if not c["ok"] and c["required"]]
             res = "PASS" if s.ok else "FAIL"
             why = "; ".join(f"{c['what']} ({c['detail']})" if c["detail"] else c["what"] for c in bad) or s.error
-            lines.append(f"| {s.name} | {res} | {s.seconds:.0f} | {s.what} | {(why if not s.ok else '; '.join(s.notes))[:300]} |")
+            shown = "; ".join(s.notes)
+            # an informational check that FAILED must not hide behind PASS (the page that ignored the system text size did, from the first run on)
+            info_bad = [c for c in s.checks if not c["ok"] and not c["required"]]
+            if s.ok and info_bad:
+                shown = "INFO FAILED: " + "; ".join(f"{c['what']} ({c['detail']})" if c["detail"] else c["what"] for c in info_bad)[:170] + (f"; {shown}" if shown else "")
+            lines.append(f"| {s.name} | {res} | {s.seconds:.0f} | {s.what} | {(why if not s.ok else shown)[:300]} |")
         # The standing section every run fills the same way (the GPU work reads and writes the same columns):
         # one row per AZ_BACKEND request, which renderer RAN, and the numbers per backend
         if self.render_table:
@@ -700,6 +705,10 @@ def displayed_ms(text, package=""):
 
 # WP-S's startup fix (2026-11-28: the activity holds the window's first draw until the engine's first present) moves the SYSTEM's launch metric from the blank
 # starting window to the first Azul picture. The note stands under every table that shows it, and both metrics stay in the table, so old and new runs compare.
+# The system text size: no phone shell reads it (css/src/system.rs AccessibilitySettings.text_scale_factor is filled by none and read by no layout code), so the picture does
+# not change with it. The step passes (its check is informational) and says so in its note, where qa.md shows it: it hid behind PASS until 2026-11-28.
+TEXT_SIZE_IGNORED = "THE PAGE DID NOT CHANGE with {what} (the picture differs {diff:.3f}): the engine ignores the system text size"
+
 STARTUP_METRIC_NOTE = ("Displayed and TotalTime are the system's metric: with the startup fix (the activity holds the window's first draw until the engine's first "
                        "present) it means 'the first Azul picture' and no longer 'the blank window at about 0.4 s', so it jumps by the first-layout time on every app "
                        "(not a regression); compare the engine timeline's first_present and the black frames after the starting window; both metrics stay in the table.")
@@ -1751,6 +1760,8 @@ def android_scenarios(args):
         dev.settle(3.0)
         big = dev.look(s, "font-1.5")
         s.check("the page reacts to the font scale", sig_diff(big, base) > SAME_BELOW, f"differs {sig_diff(big, base):.3f}", required=False)
+        if not sig_diff(big, base) > SAME_BELOW:
+            s.note(TEXT_SIZE_IGNORED.format(what="font scale 1.5", diff=sig_diff(big, base)))      # an informational check that fails must not hide behind PASS
         dev.alive_and_front(s)
         dev.sh("settings put system font_scale 1.0")
         dev.settle(2.5)
@@ -2504,6 +2515,8 @@ def ios_scenarios(args):
         dev.settle(3.0)
         big = dev.look(s, "text-accessibility-xxxl")
         s.check("the page reacts to the text size", sig_diff(big, base) > SAME_BELOW, f"differs {sig_diff(big, base):.3f}", required=False)
+        if not sig_diff(big, base) > SAME_BELOW:
+            s.note(TEXT_SIZE_IGNORED.format(what="the largest accessibility text size", diff=sig_diff(big, base)))
         dev.alive_step(s)
         dev.simctl("ui", args.udid, "content_size", "medium")
         dev.settle(2.5)

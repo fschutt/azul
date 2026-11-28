@@ -412,19 +412,6 @@ pub fn dispatch_open_file(
     handle.set_status(FilePickerStatus::Cancelled);
 }
 
-pub fn dispatch_save_file(handle: FilePickerHandle, _title: AzString, _default_path: OptionString) {
-    // Deferred — needs an API decision, not just mechanical wiring.
-    // iOS has no "choose a destination then hand me a path to write"
-    // dialog: `UIDocumentPickerViewController initForExportingURLs:` only
-    // *exports files that already exist*. This signature carries a
-    // suggested title but no source file/bytes, so a faithful iOS save
-    // needs either (a) the dialog API to carry the source URL/bytes, or
-    // (b) the caller to write into a directory chosen via the now-real
-    // `dispatch_open_directory` below. Until that's settled, resolve to
-    // Cancelled rather than ship an export of an empty placeholder.
-    handle.set_status(FilePickerStatus::Cancelled);
-}
-
 /// Directory picker via `UIDocumentPickerViewController
 /// initForOpeningContentTypes:[UTTypeFolder] asCopy:NO`. Reuses the same
 /// delegate + `nativeOnResult` readback as the open-file path; the

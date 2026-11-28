@@ -34,6 +34,14 @@
         "op": "wait_frame"
       },
       {
+        "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-sidebar-rail"
       },
@@ -60,10 +68,8 @@
         "selector": ".__azul-native-sidebar-toggle"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_exists",
@@ -86,10 +92,8 @@
         "selector": ".__azul-native-sidebar-toggle"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_exists",
@@ -108,10 +112,8 @@
         "selector": "#sidebar-state-handle"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_exists",
@@ -122,10 +124,8 @@
         "selector": ".__azul-native-sidebar-grab"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_exists",
@@ -177,13 +177,19 @@
       },
       {
         "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "click",
         "selector": "#sidebar-state-expanded"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_exists",
@@ -198,10 +204,8 @@
         "text": "Azul Drive"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -216,10 +220,8 @@
         "selector": ".__azul-native-sidebar-disclosure"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -234,10 +236,8 @@
         "text": "Favourites"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -260,10 +260,8 @@
         "text": "Favourites"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -278,10 +276,8 @@
         "selector": ".__azul-native-sidebar-help"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -329,13 +325,19 @@
       },
       {
         "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "click",
         "selector": "#sidebar-state-expanded"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "scroll_into_view",
@@ -355,10 +357,8 @@
         "text": "64 % full"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -409,13 +409,19 @@
       },
       {
         "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "click",
         "selector": "#sidebar-form-phone"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "scroll_into_view",
@@ -451,10 +457,8 @@
         "selector": ".__azul-native-sidebar-toggle"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_exists",
@@ -472,10 +476,8 @@
         "text": "Fonts"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_exists",
@@ -490,20 +492,16 @@
         "selector": ".__azul-native-sidebar-toggle"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "click",
         "text": "Photos"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -555,13 +553,19 @@
       },
       {
         "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "click",
         "selector": "#sidebar-form-phone"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "scroll_into_view",
@@ -577,10 +581,8 @@
         "selector": "#sidebar-sheet-open"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_exists",
@@ -598,10 +600,8 @@
         "text": "Rename"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -620,20 +620,16 @@
         "selector": "#sidebar-sheet-open"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "click",
         "selector": ".__azul-native-action-sheet-scrim"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -648,10 +644,8 @@
         "selector": "#sidebar-form-desktop"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "scroll_into_view",
@@ -667,10 +661,8 @@
         "selector": "#sidebar-sheet-open"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_not_exists",
@@ -713,6 +705,14 @@
         "op": "wait_frame"
       },
       {
+        "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-preview-right"
       },
@@ -729,10 +729,8 @@
         "selector": ".__azul-native-preview-grip"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "key_down",
@@ -743,10 +741,8 @@
         "key": "Left"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -765,10 +761,8 @@
         "key": "Left"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -787,10 +781,8 @@
         "key": "Right"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -809,10 +801,8 @@
         "key": "Left"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_layout",
@@ -826,10 +816,8 @@
         "selector": "#sidebar-preview-reset"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_layout",
@@ -843,10 +831,8 @@
         "selector": "#sidebar-preview-toggle"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_not_exists",
@@ -857,10 +843,8 @@
         "selector": "#sidebar-preview-toggle"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_exists",
@@ -904,13 +888,19 @@
       },
       {
         "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "click",
         "selector": "#sidebar-form-phone"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "scroll_into_view",
@@ -942,10 +932,8 @@
         "key": "Up"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -964,10 +952,8 @@
         "key": "Down"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -986,10 +972,8 @@
         "key": "Home"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -1008,10 +992,8 @@
         "key": "Return"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -1033,10 +1015,8 @@
         "selector": ".__azul-native-preview-grip"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_layout",
@@ -1050,10 +1030,8 @@
         "selector": ".__azul-native-preview-grip"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_layout",
@@ -1099,6 +1077,14 @@
         "op": "wait_frame"
       },
       {
+        "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-location-crumb"
       },
@@ -1123,10 +1109,8 @@
         "selector": ".__azul-native-location-pen"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -1154,25 +1138,8 @@
         "key": "x"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "x",
-        "text": "x"
-      },
-      {
-        "op": "key_up",
-        "key": "x"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -1228,44 +1195,57 @@
       {
         "op": "scroll_into_view",
         "selector": "#sidebar-demo-frame",
-        "block": "center",
+        "block": "start",
         "behavior": "instant"
       },
       {
         "op": "wait_frame"
       },
       {
+        "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-grip",
+        "property": "x",
+        "expected": 597,
+        "tolerance": 2
+      },
+      {
         "op": "mouse_move",
         "x": 602,
-        "y": 450
+        "y": 300
       },
       {
         "op": "mouse_down",
         "x": 602,
-        "y": 450,
+        "y": 300,
         "button": "left"
       },
       {
         "op": "mouse_move",
         "x": 552,
-        "y": 450
+        "y": 300
       },
       {
         "op": "mouse_move",
         "x": 502,
-        "y": 450
+        "y": 300
       },
       {
         "op": "mouse_up",
         "x": 502,
-        "y": 450,
+        "y": 300,
         "button": "left"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -1305,7 +1285,7 @@
       {
         "op": "scroll_into_view",
         "selector": "#sidebar-demo-frame",
-        "block": "center",
+        "block": "start",
         "behavior": "instant"
       },
       {
@@ -1313,55 +1293,66 @@
       },
       {
         "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "click",
         "selector": "#sidebar-form-phone"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "scroll_into_view",
         "selector": "#sidebar-demo-frame",
-        "block": "center",
+        "block": "start",
         "behavior": "instant"
       },
       {
         "op": "wait_frame"
       },
       {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-grip",
+        "property": "y",
+        "expected": 733,
+        "tolerance": 3
+      },
+      {
         "op": "mouse_move",
         "x": 100,
-        "y": 714
+        "y": 747
       },
       {
         "op": "mouse_down",
         "x": 100,
-        "y": 714,
+        "y": 747,
         "button": "left"
       },
       {
         "op": "mouse_move",
         "x": 100,
-        "y": 664
+        "y": 697
       },
       {
         "op": "mouse_move",
         "x": 100,
-        "y": 614
+        "y": 647
       },
       {
         "op": "mouse_up",
         "x": 100,
-        "y": 614,
+        "y": 647,
         "button": "left"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -1408,6 +1399,14 @@
         "op": "wait_frame"
       },
       {
+        "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-sidebar-quick"
       },
@@ -1420,10 +1419,8 @@
         "selector": ".__azul-native-sidebar-quick-button"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -1442,10 +1439,8 @@
         "selector": ".__azul-native-sidebar-quick-button"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -1464,10 +1459,8 @@
         "selector": "#sidebar-state-expanded"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_not_exists",
@@ -1511,13 +1504,19 @@
       },
       {
         "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "click",
         "selector": ".__azul-native-sidebar-slop"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "find_node_by_text",
@@ -1564,6 +1563,14 @@
         "op": "wait_frame"
       },
       {
+        "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-sidebar-status-badge"
       },
@@ -1572,10 +1579,8 @@
         "selector": ".__azul-native-sidebar-status-badge"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -1625,6 +1630,14 @@
         "op": "wait_frame"
       },
       {
+        "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-preview-help"
       },
@@ -1637,10 +1650,8 @@
         "selector": ".__azul-native-preview-help"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -1658,10 +1669,8 @@
         "selector": "#sidebar-banner-toggle"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_exists",
@@ -1683,581 +1692,12 @@
         "selector": "#sidebar-banner-toggle"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "assert_not_exists",
         "selector": ".__azul-native-preview-banner"
-      }
-    ]
-  },
-  {
-    "name": "azul_widgets_geometry_probe_desktop",
-    "description": "Reads the geometry of the frame's parts on a desktop (every assertion passes and says what it measured): the numbers the pointer scenarios are written from.",
-    "only_on": [
-      "linux",
-      "windows",
-      "macos"
-    ],
-    "steps": [
-      {
-        "op": "resize",
-        "width": 1100,
-        "height": 900
-      },
-      {
-        "op": "set_mode",
-        "mode": "light"
-      },
-      {
-        "op": "set_theme",
-        "theme": "flora"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "scroll_into_view",
-        "selector": "#sidebar-demo-frame",
-        "block": "center",
-        "behavior": "instant"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "assert_layout",
-        "selector": "#sidebar-demo-frame",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": "#sidebar-demo-frame",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": "#sidebar-demo-frame",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": "#sidebar-demo-frame",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-rail",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-rail",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-rail",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-rail",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-slop",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-slop",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-slop",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-slop",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-quick-button",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-quick-button",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-quick-button",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-quick-button",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-toggle",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-toggle",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-toggle",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-toggle",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-pane",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-pane",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-pane",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-pane",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-grip",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-grip",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-grip",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-grip",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-right",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-right",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-right",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-right",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-main",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-main",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-main",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-main",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      }
-    ]
-  },
-  {
-    "name": "azul_widgets_geometry_probe_phone",
-    "description": "Reads the geometry of the frame's parts on a phone (every assertion passes and says what it measured).",
-    "only_on": [
-      "linux",
-      "windows",
-      "macos"
-    ],
-    "steps": [
-      {
-        "op": "resize",
-        "width": 411,
-        "height": 900
-      },
-      {
-        "op": "set_mode",
-        "mode": "light"
-      },
-      {
-        "op": "set_theme",
-        "theme": "flora"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "scroll_into_view",
-        "selector": "#sidebar-demo-frame",
-        "block": "center",
-        "behavior": "instant"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "click",
-        "selector": "#sidebar-form-phone"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "scroll_into_view",
-        "selector": "#sidebar-demo-frame",
-        "block": "center",
-        "behavior": "instant"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "assert_layout",
-        "selector": "#sidebar-demo-frame",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": "#sidebar-demo-frame",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": "#sidebar-demo-frame",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": "#sidebar-demo-frame",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-rail",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-rail",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-rail",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-rail",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-rail",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-rail",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-rail",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-sidebar-rail",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-pane",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-pane",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-pane",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-pane",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-grip",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-grip",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-grip",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-grip",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-bottom",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-bottom",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-bottom",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-preview-bottom",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-header",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-header",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-header",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-header",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-body",
-        "property": "x",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-body",
-        "property": "y",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-body",
-        "property": "width",
-        "expected": 0,
-        "tolerance": 100000
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-body",
-        "property": "height",
-        "expected": 0,
-        "tolerance": 100000
       }
     ]
   }
