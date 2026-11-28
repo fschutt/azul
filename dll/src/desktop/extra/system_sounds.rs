@@ -44,9 +44,7 @@ pub fn play(route: &SoundRoute) -> SoundOutcome {
 
 /// The player has no function of this name on this platform.
 fn unsupported(name: &str) -> SoundOutcome {
-    SoundOutcome::Failed(format!(
-        "this platform has no desktop player for {name}"
-    ))
+    SoundOutcome::Failed(format!("this platform has no desktop player for {name}"))
 }
 
 #[cfg(target_os = "macos")]
@@ -128,11 +126,12 @@ fn play_effect(name: &str) -> SoundOutcome {
             Ok(lib) => lib,
             Err(e) => return SoundOutcome::Failed(format!("cannot open user32.dll: {e}")),
         };
-        let beep: libloading::Symbol<'_, unsafe extern "system" fn(u32) -> i32> =
-            match lib.get(b"MessageBeep\0") {
-                Ok(beep) => beep,
-                Err(e) => return SoundOutcome::Failed(format!("user32.dll has no MessageBeep: {e}")),
-            };
+        let beep: libloading::Symbol<'_, unsafe extern "system" fn(u32) -> i32> = match lib
+            .get(b"MessageBeep\0")
+        {
+            Ok(beep) => beep,
+            Err(e) => return SoundOutcome::Failed(format!("user32.dll has no MessageBeep: {e}")),
+        };
         if beep(kind) != 0 {
             SoundOutcome::Played
         } else {

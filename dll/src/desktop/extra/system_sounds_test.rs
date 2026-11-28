@@ -23,7 +23,10 @@ fn every_windows_route_names_a_kind_the_player_knows() {
             );
         }
     }
-    assert_eq!(named, 6, "Info, Question, Warning, Error, DropReject and Bell");
+    assert_eq!(
+        named, 6,
+        "Info, Question, Warning, Error, DropReject and Bell"
+    );
     assert_eq!(message_beep_kind("MB_OK"), Some(0x00));
     assert_eq!(message_beep_kind("MB_ICONHAND"), Some(0x10));
     assert_eq!(message_beep_kind("MB_ICONQUESTION"), Some(0x20));
@@ -47,7 +50,9 @@ fn a_route_that_is_not_a_desktop_effect_is_a_failure_that_names_it() {
         on,
     );
     match play(&android) {
-        SoundOutcome::Failed(why) => assert!(why.contains("ringtone:android:notification"), "{why}"),
+        SoundOutcome::Failed(why) => {
+            assert!(why.contains("ringtone:android:notification"), "{why}")
+        }
         other => panic!("expected a failure, got {other:?}"),
     }
 }
