@@ -1360,16 +1360,21 @@ def slash(args, logs, out, binary):
             raise Failure("a column of the page is %.3f px, not 6.6: a word is found %.1f px off at column 40"
                           % (cw, abs(cw - 6.6) * 40))
 
-        # The slash: down, two moves, up - as quick as the debug server's requests are. The rects of the lines are in the
+        # The slash: down, two moves, up, quick (see the pauses below). The rects of the lines are in the
         # pages' own DOM (a VirtualView's), whose origin is the strip's corner: the pointer is in the window's.
         strip = app.rect(STRIP)
         x0 = strip["x"] + line["x"] + SLASH_COLS[0] * cw
         x1 = strip["x"] + line["x"] + SLASH_COLS[1] * cw
         y = strip["y"] + line["y"] + line["height"] / 2.0
+        # The recogniser wants 30 to 250 ms between the first sample and the last: a pause of 25 ms before each move keeps the stroke inside
+        # that on a build whose requests are answered in a few ms (without them it was too quick, 2 runs of 5).
         app.must("mouse_move", x=x0, y=y)
         app.must("mouse_down", x=x0, y=y)
+        time.sleep(0.025)
         app.must("mouse_move", x=(x0 + x1) / 2.0, y=y - 1.0)
+        time.sleep(0.025)
         app.must("mouse_move", x=x1 - 4.0, y=y)
+        time.sleep(0.01)
         app.must("mouse_up", x=x1, y=y)
         app.frame(3)
         log = [e for e in app.must("azreview_pointer_log")["data"]["value"]["result"]["events"]
@@ -2039,9 +2044,9 @@ def review_session(args, logs, out, binary):
             if review_op(app, action) != want:
                 raise Failure("the op %s did not lead to %s" % (action, want))
         expect("the op", "stopped", 6, 6)
-        answer = app.must("azreview_review", action="hover")["data"]["value"]["result"]
-        if answer.get("success") or "start" not in str(answer.get("error")):
-            raise Failure("an action the op does not know was not refused in words: %s" % answer)
+        refused = app.op("azreview_review", action="hover")
+        if not (isinstance(refused, dict) and refused.get("status") == "error" and "start" in str(refused.get("message"))):
+            raise Failure("an action the op does not know was not refused in words: %s" % refused)
         no_lint(app, "the review session run")
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
