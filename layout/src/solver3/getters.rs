@@ -7211,14 +7211,23 @@ fn await_system_fonts<T: ParsedFontTrait>(
     }
 }
 
-/// The characters of `chars` a face has to draw: the ones that are no space, no control and no format character
-/// (`needs_own_glyph`, the question the chain's coverage is judged by).
+/// The characters of `chars` a face in memory has to draw for the system's fonts to be left alone: the ones that are no
+/// space, no control and no format character (`needs_own_glyph`, the question the chain's coverage is judged by), and no
+/// private-use character. A private-use code point means what the font it is set in says: an icon font's glyph (Material
+/// Icons' `U+E145`, an embedded face the DOM names by reference, not by family) or an app's own face. The system's fonts do
+/// not draw it for a stack that opens with faces in memory, and a stack that opens with a system family is asked for
+/// whatever its characters are: without this exception every icon of an app made the stacks of its text wait.
 fn chars_needing_a_glyph(chars: &std::collections::BTreeSet<char>) -> Vec<char> {
     chars
         .iter()
         .copied()
-        .filter(|c| crate::text3::cache::needs_own_glyph(*c))
+        .filter(|c| crate::text3::cache::needs_own_glyph(*c) && !is_private_use(*c))
         .collect()
+}
+
+/// Whether `c` is in a private-use area (U+E000..U+F8FF, U+F0000..U+FFFFD, U+100000..U+10FFFD).
+const fn is_private_use(c: char) -> bool {
+    matches!(c as u32, 0xE000..=0xF8FF | 0xF_0000..=0xF_FFFD | 0x10_0000..=0x10_FFFD)
 }
 
 /// What the faces in memory of one stack do with the characters a face has to draw.

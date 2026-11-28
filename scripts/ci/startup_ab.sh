@@ -52,13 +52,20 @@ git fetch -q --depth=1 origin "$A" 2>&1 | tail -2
 build() {
     git checkout -q "$1" || { echo "BUILD $2: cannot check out $1"; return 1; }
     echo "=== build $2 at $(git rev-parse --short HEAD)"
-    cargo build --release -p azul-dll --features build-dll 2>&1 | tail -3
+    # A build that fails stops the job: the library of the OTHER build would be copied for it (a first version of this
+    # script measured one build twice, A's library failing to compile against the bindings generated at B)
+    cargo build --release -p azul-dll --features build-dll > "out/build-$2-lib.log" 2>&1 \
+        || { tail -40 "out/build-$2-lib.log"; echo "BUILD $2: the library did not build (A and B must have the same api.json)"; exit 3; }
+    tail -2 "out/build-$2-lib.log"
     mkdir -p "$RUNNER_TEMP/cabi-$2"
     cp "target/release/$lib" "$RUNNER_TEMP/cabi-$2/" && cp "target/release/$lib" "out/$2/"
     for app in $apps; do
-        AZ_LINK_PATH="$RUNNER_TEMP/cabi-$2" cargo build --release -p "$app" 2>&1 | tail -3
+        AZ_LINK_PATH="$RUNNER_TEMP/cabi-$2" cargo build --release -p "$app" > "out/build-$2-$app.log" 2>&1 \
+            || { tail -40 "out/build-$2-$app.log"; echo "BUILD $2: $app did not build"; exit 3; }
+        tail -1 "out/build-$2-$app.log"
         cp "target/release/$app" "out/$2/"
     done
+    cksum "out/$2/$lib" | sed "s/^/    library of $2 (checksum, size): /"
 }
 build "$B" B
 build "$A" A

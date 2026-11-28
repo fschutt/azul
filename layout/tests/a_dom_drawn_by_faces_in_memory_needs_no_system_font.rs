@@ -258,6 +258,18 @@ fn a_gate_that_is_not_pending_is_never_asked() {
 }
 
 #[test]
+fn a_private_use_character_is_the_icon_fonts_and_is_not_asked_of_the_faces_in_memory() {
+    // An icon is a glyph of an embedded face at U+E145 or the like, in a DOM whose text is drawn by the faces in memory:
+    // no face in memory has it and no system face draws it, so the stacks of the text are not made to wait for it.
+    let asked = primary_asks(&[("Mem", latin())], &page("Mem", "", "", "Add \u{e145} item"));
+    assert!(asked.is_empty(), "asked {asked:?}");
+    // The same character does not hide a character that IS owed to the system.
+    let asked = primary_asks(&[("Mem", latin())], &page("Mem", "", "", "Add \u{e145} 漢"));
+    assert_eq!(asked.len(), 1, "asked {asked:?}");
+    assert!(asked[0].1.contains("U+6F22"), "the reason is {:?}", asked[0].1);
+}
+
+#[test]
 fn a_manager_without_a_gate_never_waits() {
     let file = std::fs::read(static_face_path()).expect("the face is checked in");
     let mut manager = Manager::new(FcFontCache::default()).expect("font manager");
