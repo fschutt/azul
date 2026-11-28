@@ -1,44 +1,49 @@
-//! The window: azul's S6 `RecordsShell` around the interpreted views.
+//! The window: azul's widget family (`AppFrame`: the sidebar, the tab ribbon, the body, the Preview,
+//! the status line) around the interpreted views.
 //!
-//! - the title row (`NoTitle` + appkit's `Titlebar`), the section tabs (the
-//!   views' `menu`), the page (the routed view: a `table` view is azul's
-//!   DataTable, a `detail` view a header with tabs and named panels, the
-//!   reports / run / import pages their panels), the record form in the
-//!   shell's form pane (`form` views) or a modal (`form_modal` views), the
-//!   status bar;
-//! - every change of the state queues its files ([`crate::app::State`]);
-//!   [`pump`] hands the queue to azul-appkit's file thread one batch at a
-//!   time, [`on_files`] hears the answers (and the load, and an import file);
+//! - [`frame`]: the frame, the form factor (desktop or phone), the settings page under a title row;
+//! - [`sidebar`], [`location`], [`ribbon`], [`preview`], [`sheet`]: the family's widgets, each built
+//!   from the app's model (`crate::nav` is the plain data they are made of);
+//! - the page (the routed view: a `table` view is azul's DataTable, a `detail` view a slim header
+//!   with tabs and named panels, the reports / run / import pages their panels, a `form` view the
+//!   body itself, a `form_modal` view a modal; [`states`] are the designed empty states);
+//! - every change of the state queues its files ([`crate::app::State`]); [`pump`] hands the queue
+//!   to azul-appkit's file thread one batch at a time, [`on_files`] hears the answers (and the
+//!   load, and an import file);
 //! - a CloseGuard holds a window close while a form has unsaved edits.
 //!
-//! On stdout, for scripts (`scripts/azerp_e2e.py`): `AZERP_READY <assets>`
-//! when the records are in, `AZERP_PAGE <path>` after a navigation,
-//! `AZERP_FORM <view>` when a form opens, `AZERP_SAVED <key>` /
-//! `AZERP_REMOVED <key>` per file written, `AZERP_REFUSED <field>: <why>`
-//! for a form that was not saved, `AZERP_EXPORTED <key>`, `AZERP_ASK_DELETE <id>` when Delete
-//! asks "Delete A-0001?" (only its Delete button deletes).
+//! On stdout, for scripts (`scripts/azerp_e2e.py`, the scenario files): `AZERP_READY <assets>`
+//! when the records are in, `AZERP_PAGE <path>` after a navigation, `AZERP_FORM <view>` when a form
+//! opens, `AZERP_SELECTED <id>` when the selection moves to a record, `AZERP_SAVED <key>` /
+//! `AZERP_REMOVED <key>` per file written, `AZERP_REFUSED <field>: <why>` for a form that was not
+//! saved, `AZERP_EXPORTED <key>`, `AZERP_SAMPLE <n>` when the sample register was written,
+//! `AZERP_ASK_DELETE <id>` when Delete asks "Delete A-0001?" (only its Delete button deletes).
 
 pub mod detail;
 pub mod form;
+pub mod frame;
+pub mod location;
 pub mod panels;
+pub mod preview;
+pub mod ribbon;
+pub mod sheet;
+pub mod sidebar;
+pub mod states;
 pub mod table;
 
 use std::path::PathBuf;
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CloseGuardDirtyCheckCallbackType, CloseGuardOnEventCallbackType,
-        ModalOnCloseCallbackType, StandardDialogOnEventCallbackType, TabOnClickCallbackType,
+        ButtonOnClickCallbackType, ModalOnCloseCallbackType, StandardDialogOnEventCallbackType,
     },
     dom::VirtualKeyCode,
     prelude::*,
-    shells::{RecordsShell, ShellEmptyState, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     widgets::{
-        Button, ButtonType, CloseGuard, CloseGuardDocumentState, CloseGuardEvent,
-        CloseGuardEventKind, DataTableView, MessageBox, MessageBoxKind, Modal, ModalState,
-        StandardDialogEvent, StandardDialogEventKind, StatusBar, StatusBarSegment, TabHeader,
-        TabHeaderState,
+        Button, ButtonType, CloseGuardDocumentState, CloseGuardEvent, CloseGuardEventKind,
+        DataTableView, FormFactor, MessageBox, MessageBoxKind, Modal, ModalState, SidebarState,
+        StandardDialogEvent, StandardDialogEventKind, StatusBar, StatusBarSegment,
     },
 };
 use azul_appkit::{
@@ -50,11 +55,13 @@ use azul_pim::write_queue::Write;
 
 use crate::{
     app::State,
-    ids, money, reports, store,
+    follow::Follow,
+    ids, metrics, money, reports,
+    store::{self, Kind},
     views::{
         fill_path,
-        spec::{self, ActionKind},
-        Params, View, ViewKind,
+        spec::{self, ActionKind, ActionSpec},
+        Params, ViewKind,
     },
 };
 
@@ -62,10 +69,6 @@ use crate::{
 pub const TAG_LOAD: u64 = 1;
 pub const TAG_WRITE: u64 = 2;
 pub const TAG_IMPORT: u64 = 3;
-
-/// The px the chrome takes over and under a page's table (title row, tab
-/// row, the page's title and tools, the status bar).
-pub const CHROME_HEIGHT: f32 = 168.0;
 
 /// A column that fills the rest of its parent.
 pub const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
@@ -75,14 +78,20 @@ pub struct Erp {
     /// azul-appkit's kit (settings, data root, the settings page).
     pub kit: RefAny,
     pub state: State,
-    /// The page table's view (sort, filter, scroll); reset with the page.
+    /// The page table's view (sort, filter, scroll, selection); reset with the page.
     pub table: DataTableView,
     /// A detail tab's table (the schedule, an embedded table).
     pub inner_table: DataTableView,
     /// The page the tables' views belong to.
     pub table_page: String,
+    /// The record kind the page's table lists.
+    pub table_kind: Option<Kind>,
+    /// The record id of each row of the page table (the app's row order).
+    pub row_ids: Vec<String>,
     /// The path each row of the page table opens.
     pub row_paths: Vec<String>,
+    /// The Preview and the selection follow the table's top edge: what the scroll has done.
+    pub follow: Follow,
     pub window: (f32, f32),
     /// The batch of writes the file thread has.
     pub in_flight: Vec<Write>,
@@ -95,6 +104,19 @@ pub struct Erp {
     /// What is typed in a record field of the open form (its ReferencePicker
     /// filters by it): `(field, text)`.
     pub reference_query: Option<(String, String)>,
+    /// Desktop or phone: `AZERP_FORM`, else the window decides.
+    pub form: FormFactor,
+    /// The sidebar: the rail, expanded, or the 16 px handle.
+    pub sidebar: SidebarState,
+    /// Whether the module's section of the sidebar is open.
+    pub module_open: bool,
+    /// Whether the Preview shows, and the size the drag left it at (0: the default).
+    pub preview_open: bool,
+    pub preview_size: f32,
+    /// The ribbon's tab (0 is File, the location).
+    pub ribbon_tab: usize,
+    /// The phone's action sheet is open for the selected record.
+    pub sheet_open: bool,
 }
 
 impl Erp {
@@ -102,19 +124,30 @@ impl Erp {
     #[must_use]
     pub fn new(kit: RefAny, state: State, sample: bool, window: (f32, f32)) -> Erp {
         let page = state.page.clone();
+        let form = frame::form_of(std::env::var(frame::FORM_VAR).ok().as_deref());
         Erp {
             kit,
             state,
             table: DataTableView::create(),
             inner_table: DataTableView::create(),
             table_page: page,
+            table_kind: None,
+            row_ids: Vec::new(),
             row_paths: Vec::new(),
+            follow: Follow::new(),
             window,
             in_flight: Vec::new(),
             sample,
             pending_import: None,
             asking: false,
             reference_query: None,
+            form,
+            sidebar: frame::initial_sidebar(form, frame::touch_platform()),
+            module_open: true,
+            preview_open: true,
+            preview_size: 0.0,
+            ribbon_tab: 0,
+            sheet_open: false,
         }
     }
 
@@ -125,6 +158,35 @@ impl Erp {
         kit.downcast_ref::<Kit>()
             .map(|k| k.data_root.clone())
             .unwrap_or_default()
+    }
+}
+
+/// The room the page's table has now (`metrics`): the root, the sidebar's column, the Preview's size,
+/// the ribbon and the status line.
+#[must_use]
+pub(crate) fn metrics_room(
+    s: &Erp,
+    root: (f32, f32),
+    phone: bool,
+    sidebar: f32,
+    preview: bool,
+) -> metrics::Room {
+    let dragged = preview::clamped_size(s.preview_size);
+    let preview_px = if !preview {
+        0.0
+    } else if dragged > 0.0 {
+        dragged
+    } else if phone {
+        metrics::PREVIEW_PEEK
+    } else {
+        metrics::PREVIEW_WIDTH
+    };
+    metrics::Room {
+        root,
+        phone,
+        sidebar,
+        preview: preview_px,
+        footer: true,
     }
 }
 
@@ -216,11 +278,7 @@ fn loaded(s: &mut Erp, outcomes: &[FileOutcome]) {
         eprintln!("[AzERP] {} left alone: {}", skipped.key, skipped.reason);
     }
     if s.sample {
-        let mut new_id = mint;
-        let n = s.state.seed_sample(&mut new_id);
-        if n > 0 {
-            println!("AZERP_SAMPLE {n}");
-        }
+        states::load_sample(s);
     }
     if let Some((name, text)) = s.pending_import.take() {
         s.state.start_import(&name, &text);
@@ -278,7 +336,7 @@ fn import_read(s: &mut Erp, outcomes: &[FileOutcome]) {
 
 // ==== The window ====
 
-/// The window: the RecordsShell in the theme scope, the form, the guard.
+/// The window: the frame in the theme scope, the form, the guard.
 pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // The window's language for every word this pass says.
     l10n::begin_layout(&info);
@@ -300,55 +358,48 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         s.table = DataTableView::create();
         s.inner_table = DataTableView::create();
         s.table_page = s.state.page.clone();
+        s.follow.reset();
+        s.sheet_open = false;
     }
-    let shell = if kit::settings_open(&s.kit) {
-        RecordsShell::create(Dom::create_div(), kit::settings_page(&s.kit, Vec::new()))
-    } else {
-        let tabs = section_tabs(s, &app);
-        let page = page(s, &app);
-        let mut shell = RecordsShell::create(tabs, page);
-        if let Some(pane) = form::side_pane(s, &app) {
-            shell = shell.with_form(pane);
-        }
-        shell
+    frame::window(s, &app, &info)
+}
+
+/// The page: the routed view.
+fn page(s: &mut Erp, app: &RefAny, room: &metrics::Room, phone: bool, keyboard: f32) -> Dom {
+    if !s.state.loaded {
+        return states::loading();
+    }
+    // an open `form` view is the body itself
+    if let Some(form) = form::page(s, app, keyboard) {
+        return form;
+    }
+    let Some((view, params)) = s.state.route().map(|r| (r.view.clone(), r.params.clone())) else {
+        return states::quiet("construction", &t("azerp-nothing-here"), &s.state.page);
     };
-    let mut column = Dom::create_div().with_css(COLUMN).with_child(
-        shell
-            .office_shell()
-            .with_title_row(kit::title_row(crate::SPEC.name))
-            .with_status_bar(status_bar(s))
-            .dom(),
-    );
-    if let Some(modal) = form::modal(s, &app) {
-        column.add_child(modal);
+    match view.kind {
+        ViewKind::Table | ViewKind::TableEmbedded => table::page(s, app, &view, room, phone),
+        ViewKind::Detail => detail::page(s, app, &view, &params, room, phone),
+        ViewKind::Report => panels::reports(s, room),
+        ViewKind::Wizard => panels::run(s, app, &view),
+        ViewKind::Custom => panels::import(s, app),
+        _ => states::no_screen(&view),
     }
-    if let Some(question) = delete_question(s, &app) {
-        column.add_child(question);
-    }
-    // A form with edits is not lost to the close button: the guard asks.
-    let content = if s.state.form.is_some() {
-        CloseGuard::create(column, "")
-            .with_question(t("azerp-close-question"), t("azerp-close-text"))
-            .with_labels(
-                t("azerp-save"),
-                t("azerp-close-discard"),
-                t("kit-button-cancel"),
-            )
-            .with_dirty_check(app.clone(), dirty_check as CloseGuardDirtyCheckCallbackType)
-            .with_asking(s.asking)
-            .with_on_event(app.clone(), on_guard as CloseGuardOnEventCallbackType)
-            .dom()
-    } else {
-        column
-    };
-    ShellThemeScope::create(content)
-        .with_accent(ShellThemeAccent::Slate)
-        .body()
-        .with_callback(
-            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
-            app.clone(),
-            on_key,
-        )
+}
+
+/// The commands of the page the window shows: its view's actions (a form's Save and Cancel when a
+/// form is open over it are the form's own: this is the page beneath).
+#[must_use]
+pub(crate) fn page_actions(s: &Erp) -> Vec<ActionSpec> {
+    s.state
+        .route()
+        .map(|r| spec::actions(&r.view.actions, &s.state.labels))
+        .unwrap_or_default()
+}
+
+/// An empty state: an icon, one line and a line of detail.
+#[must_use]
+pub fn empty(title: &str, detail: &str) -> Dom {
+    states::quiet("inventory_2", title, detail)
 }
 
 /// "Delete A-0001?": azul's `MessageBox` (a question: Delete, Cancel - the default) in a
@@ -406,65 +457,9 @@ extern "C" fn on_delete_dismissed(
     mut info: CallbackInfo,
     _state: ModalState,
 ) -> Update {
-    with_erp(&mut data, &mut info, |s, _info| s.state.answer_delete(false))
-}
-
-/// The section tabs: the views' menu; the active one is the section the
-/// page is in.
-fn section_tabs(s: &Erp, app: &RefAny) -> Dom {
-    let menu = &s.state.views.menu;
-    let labels: Vec<AzString> = menu
-        .iter()
-        .map(|m| AzString::from(s.state.labels.get(&m.key)))
-        .collect();
-    let active = menu
-        .iter()
-        .enumerate()
-        .filter(|(_, m)| s.state.page.starts_with(m.path.as_str()))
-        .max_by_key(|(_, m)| m.path.len())
-        .map_or(0, |(i, _)| i);
-    Dom::create_div()
-        .with_id(ids::TABS)
-        .with_css(
-            "display: flex; flex-direction: row; align-items: center; padding: 2px 8px 0px 8px;",
-        )
-        .with_child(
-            TabHeader::create(labels)
-                .with_active_tab(active)
-                .with_on_click(app.clone(), on_section as TabOnClickCallbackType)
-                .dom(),
-        )
-}
-
-/// The page: the routed view.
-fn page(s: &mut Erp, app: &RefAny) -> Dom {
-    if !s.state.loaded {
-        return empty(
-            &t("azerp-reading-register"),
-            &t("azerp-reading-register-detail"),
-        );
-    }
-    let Some((view, params)) = s.state.route().map(|r| (r.view.clone(), r.params.clone())) else {
-        return empty(&t("azerp-nothing-here"), &s.state.page);
-    };
-    match view.kind {
-        ViewKind::Table | ViewKind::TableEmbedded => table::page(s, app, &view),
-        ViewKind::Detail => detail::page(s, app, &view, &params),
-        ViewKind::Report => panels::reports(s, app, &view),
-        ViewKind::Wizard => panels::run(s, app, &view),
-        ViewKind::Custom => panels::import(s, app, &view),
-        _ => empty(&t("azerp-no-screen"), &view.id),
-    }
-}
-
-/// An empty state.
-#[must_use]
-pub fn empty(title: &str, detail: &str) -> Dom {
-    ShellEmptyState::create(title)
-        .with_icon("inventory_2")
-        .with_detail(detail)
-        .dom()
-        .with_id(ids::EMPTY)
+    with_erp(&mut data, &mut info, |s, _info| {
+        s.state.answer_delete(false)
+    })
 }
 
 /// A column of `children`.
@@ -488,9 +483,15 @@ pub const PROBLEM_INK: &str = "color: system:danger;";
 /// flora it is the label ink, unfaded.
 pub const QUIET_FLORA: &str = "@theme(flora) { opacity: 1; color: system:secondary-text; }";
 /// A heading inside a panel under flora: flora's label (capitals in the label ink).
-pub const LABEL_FLORA: &str = "@theme(flora) { font-size: 11px; font-weight: bold; \
+pub const LABEL_FLORA: &str = "@theme(flora) { font-size: 0.6875rem; font-weight: bold; \
                                text-transform: uppercase; letter-spacing: 0.12em; color: \
                                system:secondary-text; }";
+/// A status pill: a quiet badge; under flora flora.css's `.pill` at the house radius, its edge the
+/// theme's, its label in the label ink's capitals.
+pub const PILL_CSS: &str = "padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; border: 1px solid #8888; \
+                            @theme(flora) { border-radius: 3px; border: 1px solid system:separator; \
+                            color: system:secondary-text; font-size: 0.6875rem; font-weight: bold; \
+                            text-transform: uppercase; letter-spacing: 0.07em; }";
 
 /// What a button made from a view action carries.
 pub struct ActionRef {
@@ -528,25 +529,8 @@ pub fn action_button(app: &RefAny, action: &spec::ActionSpec, params: &Params) -
         .with_css("margin-left: 6px;")
 }
 
-/// A page's title and its tool buttons (the view's `actions`).
-#[must_use]
-pub fn page_header(s: &Erp, app: &RefAny, view: &View, title: &str, params: &Params) -> Dom {
-    let mut row = Dom::create_div()
-        .with_id(ids::TOOLS)
-        .with_css("display: flex; flex-direction: row; align-items: center; padding: 8px 12px;")
-        .with_child(
-            text(title)
-                .with_id(ids::PAGE_TITLE)
-                .with_css("font-size: 16px; font-weight: 600; flex-grow: 1;"),
-        );
-    for action in spec::actions(&view.actions, &s.state.labels) {
-        row.add_child(action_button(app, &action, params));
-    }
-    row
-}
-
 /// Runs a view action.
-fn run_action(s: &mut Erp, kind: &ActionKind, params: &Params) {
+pub(crate) fn run_action(s: &mut Erp, kind: &ActionKind, params: &Params) {
     match kind {
         ActionKind::Link(pattern) => {
             let path = fill_path(pattern, params);
@@ -599,26 +583,7 @@ extern "C" fn on_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
     })
 }
 
-extern "C" fn on_section(
-    mut data: RefAny,
-    mut info: CallbackInfo,
-    state: TabHeaderState,
-) -> Update {
-    with_erp(&mut data, &mut info, |s, _info| {
-        let path = s
-            .state
-            .views
-            .menu
-            .get(state.active_tab)
-            .map(|m| m.path.clone());
-        if let Some(path) = path {
-            s.state.open(&path);
-            println!("AZERP_PAGE {}", s.state.page);
-        }
-    })
-}
-
-/// The status bar: the register's count and value, the writes, the notice.
+/// The status line: the register's count and value, the writes, the notice.
 fn status_bar(s: &Erp) -> Dom {
     let totals = reports::totals(&s.state.book, s.state.today);
     let mut segments = vec![
@@ -648,11 +613,34 @@ fn status_bar(s: &Erp) -> Dom {
                 .with_marker(ids::STATUS_NOTICE),
         );
     }
-    StatusBar::create(segments).dom()
+    StatusBar::create(segments).dom().with_id(ids::STATUS)
 }
 
-/// The kit's keys (Mod+, settings, F1 shortcuts, Escape); Escape closes an
-/// open form; Back (Alt+Left) goes back.
+/// One step back: what Escape undoes - and a phone's Back, which the shell sends as an Escape to a
+/// window that claims it: the open sheet, then the open form, then the page before. `true` = it did
+/// something, so the key is the app's.
+fn back_step(s: &mut Erp) -> bool {
+    if s.sheet_open {
+        s.sheet_open = false;
+        return true;
+    }
+    if s.state.form.is_some() {
+        s.state.cancel_form();
+        return true;
+    }
+    if s.state.confirm_delete.is_some() {
+        return false;
+    }
+    if !s.state.back.is_empty() {
+        s.state.go_back();
+        println!("AZERP_PAGE {}", s.state.page);
+        return true;
+    }
+    false
+}
+
+/// The kit's keys (Mod+, settings, F1 shortcuts, Escape); Escape takes one step back (the
+/// sheet, the form, the page before).
 extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(kit_ref) = data.downcast_ref::<Erp>().map(|s| s.kit.clone()) else {
         return Update::DoNothing;
@@ -666,7 +654,15 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         .into_option();
     match key {
         Some(VirtualKeyCode::Escape) => {
-            with_erp(&mut data, &mut info, |s, _| s.state.cancel_form())
+            let stepped = data
+                .downcast_mut::<Erp>()
+                .is_some_and(|mut s| back_step(&mut *s));
+            if stepped {
+                info.prevent_default();
+                Update::RefreshDom
+            } else {
+                Update::DoNothing
+            }
         }
         _ => Update::DoNothing,
     }

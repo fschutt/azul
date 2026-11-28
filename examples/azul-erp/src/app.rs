@@ -76,6 +76,13 @@ pub struct ImportDraft {
     pub preview: csv_io::Import,
 }
 
+/// The record the Preview shows: its kind and its id.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Selected {
+    pub kind: Kind,
+    pub id: String,
+}
+
 /// The app's state.
 pub struct State {
     pub views: ViewFile,
@@ -104,6 +111,9 @@ pub struct State {
     pub queue: WriteQueue,
     /// "Delete A-0001?" waits for an answer: the asset's id.
     pub confirm_delete: Option<String>,
+    /// The record of the page's table the selection is on: what the Preview shows (and what the
+    /// ribbon's record commands and the phone's action sheet act on).
+    pub selected: Option<Selected>,
 }
 
 impl State {
@@ -127,7 +137,30 @@ impl State {
             skipped: Vec::new(),
             queue: WriteQueue::new(),
             confirm_delete: None,
+            selected: None,
         }
+    }
+
+    /// The Preview shows the record of kind `kind` with id `id` (the row the selection is on).
+    pub fn select(&mut self, kind: Kind, id: &str) {
+        self.selected = Some(Selected {
+            kind,
+            id: id.to_string(),
+        });
+    }
+
+    /// The Preview shows no record.
+    pub fn clear_selection(&mut self) {
+        self.selected = None;
+    }
+
+    /// The id of the selected asset, when the selection is one.
+    #[must_use]
+    pub fn selected_asset(&self) -> Option<&str> {
+        self.selected
+            .as_ref()
+            .filter(|s| s.kind == Kind::Asset)
+            .map(|s| s.id.as_str())
     }
 
     /// The page's route.
@@ -182,6 +215,7 @@ impl State {
         }
         self.tab = 0;
         self.form = None;
+        self.selected = None;
     }
 
     /// The form texts of the `R` record `id`.
@@ -245,6 +279,7 @@ impl State {
             self.page = previous;
             self.tab = 0;
             self.form = None;
+            self.selected = None;
         }
     }
 
@@ -551,6 +586,7 @@ impl State {
         self.back.clear();
         self.tab = 0;
         self.form = None;
+        self.selected = None;
         self.notice = t_args("azerp-deleted", &[("number", Arg::from(number))]);
     }
 
@@ -1085,7 +1121,10 @@ mod tests {
         s.ask_delete(&id);
         assert_eq!(s.confirm_delete.as_deref(), Some(id.as_str()));
         assert!(s.book.get::<Asset>(&id).is_some());
-        assert!(written(&mut s).is_empty(), "nothing is deleted before the answer");
+        assert!(
+            written(&mut s).is_empty(),
+            "nothing is deleted before the answer"
+        );
 
         s.answer_delete(false);
         assert!(s.confirm_delete.is_none());
@@ -1249,3 +1288,7 @@ mod tests {
         let _ = (ViewKind::Table, Kind::Asset, model::VERSION);
     }
 }
+
+#[cfg(test)]
+#[path = "app_select_test.rs"]
+mod app_select_test;

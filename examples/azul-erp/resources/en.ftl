@@ -31,7 +31,7 @@ azerp-not-built = "{ $name }" is not built yet.
 azerp-tab-table-missing = The table of this tab is missing.
 azerp-table-no-records = This table reads no records.
 azerp-nothing-recorded-asset = Nothing recorded for this asset yet.
-azerp-add-first = Add the first one with the button above.
+azerp-add-first = Add the first one with the button below.
 azerp-nothing-recorded = Nothing is recorded yet.
 azerp-none-yet = { $title }: none yet
 azerp-date-placeholder = YYYY-MM-DD
@@ -41,6 +41,72 @@ azerp-delete-ask = Delete { $number }?
 azerp-delete-what = { $number } { $name }, with its maintenance and check-out records.
 azerp-delete-detail = The files are removed from the data folder. This cannot be undone.
 azerp-delete = Delete
+
+## The window's frame (the widget family: sidebar, ribbon, Preview, empty states)
+
+azerp-modules = Modules
+azerp-module-assets = Assets
+azerp-help = Help
+azerp-quick-import = Import CSV
+azerp-quick-export = Export CSV
+azerp-quick-new = New
+azerp-sync = Sync
+azerp-sync-saved = All saved
+azerp-sync-saved-detail = Every change is saved as a file in your data folder.
+azerp-sync-saving = Saving...
+azerp-overdue = Overdue
+azerp-overdue-detail =
+    { $checkouts ->
+        [0] No check-outs
+        [one] 1 check-out
+       *[other] { $checkouts } check-outs
+    } and { $services ->
+        [0] no services
+        [one] 1 service
+       *[other] { $services } services
+    } past their day.
+azerp-tab-file = File
+azerp-tab-home = Home
+azerp-tab-reports = Reports
+azerp-tab-view = View
+azerp-group-list = List
+azerp-group-form = Form
+azerp-group-record = Record
+azerp-group-report = Report
+azerp-group-depreciation = Depreciation
+azerp-group-panes = Panes
+azerp-open = Open
+azerp-select-first = Select a record
+azerp-select-first-why = Select a record in the table first.
+azerp-select-asset-why = Select an asset in the register first.
+azerp-cmd-open-reports = Reports
+azerp-cmd-export-register = Export CSV
+azerp-cmd-run = Depreciation run
+azerp-cmd-export-schedule = Export schedule
+azerp-cmd-preview = Preview
+azerp-cmd-navigation-pane = Navigation
+azerp-preview = Preview
+azerp-preview-nothing = No record selected
+azerp-preview-nothing-detail = Select a row of the table to see the record here.
+azerp-preview-properties = Properties
+azerp-schedule-line = { $year }: { $depreciation } written off, { $closing } left
+azerp-more-lines = ... and { $count } more
+azerp-banner-checkout-overdue =
+    { $days ->
+        [one] Overdue: { $custodian }, 1 day
+       *[other] Overdue: { $custodian }, { $days } days
+    }
+azerp-banner-checkout-overdue-detail =
+    { $days ->
+        [one] Checked out to { $custodian }, due on { $due }: 1 day late.
+       *[other] Checked out to { $custodian }, due on { $due }: { $days } days late.
+    }
+azerp-banner-service-overdue = Service overdue since { $when }
+azerp-banner-service-due = Service due on { $when }
+azerp-banner-service-detail = This asset is serviced every { $every } months; the next service is { $when }.
+azerp-no-screen-detail = The ERP's view { $view } is a { $kind } view; AzERP draws tables, record pages, forms, reports, wizards and the CSV import so far.
+azerp-load-sample = Load sample data
+azerp-empty-first = Add the first record, import a CSV file, or load sample data to look around.
 
 ## The records' words
 

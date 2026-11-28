@@ -48,13 +48,22 @@ fn open_view<'a>(s: &'a Erp, kind: ViewKind) -> Option<(&'a View, &'a FormDraft)
     (view.kind == kind).then_some((view, draft))
 }
 
-/// The form pane of the RecordsShell (an open `form` view).
+/// The page of an open `form` view: the form fills the body (the location says which form it is),
+/// its fields scroll, and the room the soft keyboard takes (`keyboard` px, 0 while none is up) is
+/// kept under the last field so that it can be scrolled into view.
 #[must_use]
-pub fn side_pane(s: &Erp, app: &RefAny) -> Option<Dom> {
+pub fn page(s: &Erp, app: &RefAny, keyboard: f32) -> Option<Dom> {
     let (view, draft) = open_view(s, ViewKind::Form)?;
-    Some(form_dom(s, app, view, draft).with_css(
-        "display: flex; flex-direction: column; padding: 12px; width: 360px; overflow-y: auto;",
-    ))
+    let lift = if keyboard.is_finite() && keyboard > 0.0 {
+        keyboard.min(2_000.0)
+    } else {
+        0.0
+    };
+    Some(form_dom(s, app, view, draft).with_css(format!(
+        "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; max-width: 44rem; \
+         padding: 12px 14px {}px 14px; overflow-y: auto;",
+        12.0 + lift
+    )))
 }
 
 /// The modal of an open `form_modal` view.
@@ -63,10 +72,9 @@ pub fn modal(s: &Erp, app: &RefAny) -> Option<Dom> {
     let (view, draft) = open_view(s, ViewKind::FormModal)?;
     let title = view.title(&s.state.labels, draft.editing);
     Some(
-        Modal::create(
-            form_dom(s, app, view, draft)
-                .with_css("display: flex; flex-direction: column; min-width: 360px;"),
-        )
+        Modal::create(form_dom(s, app, view, draft).with_css(
+            "display: flex; flex-direction: column; min-width: 22.5rem; max-width: 100%;",
+        ))
         .with_title(title.as_str())
         .with_open(true)
         .with_on_close(app.clone(), on_modal_close as ModalOnCloseCallbackType)
@@ -75,12 +83,10 @@ pub fn modal(s: &Erp, app: &RefAny) -> Option<Dom> {
     )
 }
 
-/// The form: the title, a row per visible field, the problems, the buttons.
+/// The form: a row per visible field, the problems, the buttons. Its title is not in it: the page
+/// has the location, the modal its own title.
 fn form_dom(s: &Erp, app: &RefAny, view: &View, draft: &FormDraft) -> Dom {
-    let title = view.title(&s.state.labels, draft.editing);
-    let mut children = vec![text(&title)
-        .with_id(ids::FORM_TITLE)
-        .with_css("font-size: 15px; font-weight: 600; padding-bottom: 6px;")];
+    let mut children: Vec<Dom> = Vec::new();
     let fields = spec::fields(&view.fields, &s.state.labels);
     for f in fields.iter().filter(|f| spec::visible(f, &draft.values)) {
         let value = draft.values.get(&f.name).cloned().unwrap_or_default();
@@ -101,11 +107,14 @@ fn form_dom(s: &Erp, app: &RefAny, view: &View, draft: &FormDraft) -> Dom {
         children.push(
             column(general.iter().map(|why| text(why)).collect())
                 .with_id(ids::FORM_PROBLEMS)
-                .with_css(format!("padding: 6px 0px; font-size: 12px; {}", super::PROBLEM_INK)),
+                .with_css(format!(
+                    "padding: 6px 0px; font-size: 0.75rem; {}",
+                    super::PROBLEM_INK
+                )),
         );
     }
     let mut buttons = Dom::create_div().with_css(
-        "display: flex; flex-direction: row; justify-content: flex-end; padding-top: 10px;",
+        "display: flex; flex-direction: row; justify-content: flex-end; flex-wrap: wrap; gap: 6px; padding-top: 10px;",
     );
     for action in spec::actions(&view.actions, &s.state.labels) {
         let id = match action.kind {
@@ -136,18 +145,14 @@ fn field_row(label: &str, control: Dom, problem: Option<&str>) -> Dom {
     let mut row = Dom::create_div()
         .with_class(ids::FIELD_ROW)
         .with_css("display: flex; flex-direction: column; padding: 4px 0px;")
-        .with_child(
-            text(label)
-                .with_class(ids::FIELD_LABEL)
-                .with_css(format!(
-                    "font-size: 12px; opacity: 0.8; padding-bottom: 2px; {}",
-                    super::QUIET_FLORA
-                )),
-        )
+        .with_child(text(label).with_class(ids::FIELD_LABEL).with_css(format!(
+            "font-size: 0.75rem; opacity: 0.8; padding-bottom: 2px; {}",
+            super::QUIET_FLORA
+        )))
         .with_child(control);
     if let Some(why) = problem {
         row.add_child(text(why).with_css(format!(
-            "font-size: 12px; padding-top: 2px; {}",
+            "font-size: 0.75rem; padding-top: 2px; {}",
             super::PROBLEM_INK
         )));
     }
@@ -228,8 +233,14 @@ fn money_input(app: &RefAny, f: &FieldSpec, value: &str) -> Dom {
     .with_allow_negative(f.min.map_or(true, |min| min < 0))
     .with_placeholder("0.00")
     .with_accessibility_name(f.label.as_str())
-    .with_on_change(field_ref(app, f), on_money as MoneyInputOnChangeCallbackType)
-    .with_on_commit(field_ref(app, f), on_money as MoneyInputOnCommitCallbackType);
+    .with_on_change(
+        field_ref(app, f),
+        on_money as MoneyInputOnChangeCallbackType,
+    )
+    .with_on_commit(
+        field_ref(app, f),
+        on_money as MoneyInputOnCommitCallbackType,
+    );
     if let Some(min) = f.min {
         input = input.with_min(min.saturating_mul(money::MINOR_PER_MAJOR));
     }
@@ -291,7 +302,10 @@ fn reference_picker(
             }),
             on_reference as ReferencePickerOnEventCallbackType,
         );
-    if let Some(i) = choices.iter().position(|(v, _)| !v.is_empty() && v == value) {
+    if let Some(i) = choices
+        .iter()
+        .position(|(v, _)| !v.is_empty() && v == value)
+    {
         picker = picker.with_selected(i as u64);
     }
     if let Some((field, query)) = &s.reference_query {

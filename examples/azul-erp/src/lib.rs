@@ -26,11 +26,13 @@
 //! - [`reports`]: totals by category and location, depreciation per year,
 //!   maintenance due, overdue check-outs.
 //!
-//! The window is azul's S6 `RecordsShell`: the title row, the section tabs
-//! (Register, Categories, Locations, Maintenance, Check-outs, Reports), the
-//! record table (azul's DataTable), the record form in the side pane, the
-//! status bar. Records are read on an azul `Thread` at start and written
-//! through azul-pim's write queue as azul-appkit file jobs.
+//! The window is azul's widget family (`AppFrame`), the same on a desktop and on a phone: the
+//! sidebar lists the modules and their pages (Register, Categories, Locations, Maintenance,
+//! Check-outs, Reports) with their counts, the tab ribbon (File is the location, then Home, Reports,
+//! View) holds the commands the views name, the body is the record table (azul's DataTable,
+//! virtualised) or the record's page or a form, the Preview shows the selected record (its details
+//! behind (?) buttons), the status line says what is saved. Records are read on an azul `Thread` at
+//! start and written through azul-pim's write queue as azul-appkit file jobs.
 
 /// The app's state without a window: navigation, forms, what changes write.
 pub mod app;
@@ -38,17 +40,27 @@ pub mod app;
 pub mod csv_io;
 /// Straight-line and declining-balance schedules, the book value on a day.
 pub mod depreciation;
+/// What the window's tests share: the sample register as a state, the app on it.
+#[cfg(test)]
+#[path = "fixtures_test.rs"]
+pub(crate) mod fixtures_test;
+/// The Preview and the selection follow the row at the table's top edge.
+pub mod follow;
 /// The DOM ids and classes (`__azerp_` prefix), each defined once.
 pub mod ids;
 /// AzERP's words in English and German.
 mod l10n;
 #[cfg(test)]
 mod l10n_tests;
+/// The room the window gives the table, as plain arithmetic.
+pub mod metrics;
 /// The records (asset, category, location, maintenance entry, check-out)
 /// and their files.
 pub mod model;
 /// Amounts in integer minor units.
 pub mod money;
+/// What the sidebar, the rail's quick access, the sheet and a phone's table are made of.
+pub mod nav;
 /// Totals by category and location, the depreciation forecast,
 /// maintenance due, overdue check-outs.
 pub mod reports;
@@ -56,7 +68,7 @@ pub mod reports;
 pub mod sample;
 /// The data tree (`erp/<kind>/<uuid>.json`) and the records in memory.
 pub mod store;
-/// The window: the RecordsShell around the interpreted views.
+/// The window: the widget family around the interpreted views.
 pub mod ui;
 /// The view-JSON interpreter (first slice): the ERP's view dialect, routing,
 /// labels, view -> columns / fields / tabs / steps, records by field name.
@@ -74,7 +86,7 @@ use chrono::NaiveDate;
 // ==== The app's facts ====
 
 /// The screens `--screen` opens, and the paths they are.
-pub const SCREENS: [&str; 9] = [
+pub static SCREENS: [&str; 9] = [
     "register",
     "categories",
     "locations",
@@ -101,7 +113,7 @@ pub fn screen_path(screen: &str) -> &'static str {
     }
 }
 
-pub const SPEC: AppSpec = AppSpec {
+pub static SPEC: AppSpec = AppSpec {
     name: "AzERP",
     binary: "AzERP",
     summary: "asset management: the register, depreciation, maintenance, check-out / check-in, CSV, reports",
@@ -109,7 +121,7 @@ pub const SPEC: AppSpec = AppSpec {
     files_help: "a .csv file of assets to import",
 };
 
-pub const ABOUT: AboutInfo = AboutInfo {
+pub static ABOUT: AboutInfo = AboutInfo {
     name: "AzERP",
     version: env!("CARGO_PKG_VERSION"),
     summary: "The ERP's asset management on azul: fixed assets with straight-line and declining-balance \
@@ -122,7 +134,7 @@ pub const ABOUT: AboutInfo = AboutInfo {
 
 /// The keyboard shortcuts the settings page lists: the groups and what the keys do are keys of
 /// AzERP's words.
-pub const SHORTCUTS: [Shortcut; 6] = [
+pub static SHORTCUTS: [Shortcut; 6] = [
     Shortcut::new(
         "azerp-shortcuts-register",
         "Up  Down  Page Up  Page Down",
@@ -148,7 +160,7 @@ pub const SHORTCUTS: [Shortcut; 6] = [
 ];
 
 /// The settings page's own categories (none: the kit's are enough).
-const APP_CATEGORIES: [&str; 0] = [];
+static APP_CATEGORIES: [&str; 0] = [];
 
 /// The day the app works on: `AZERP_TODAY` (`YYYY-MM-DD`, for scripts that
 /// need the same book values every run), else today.

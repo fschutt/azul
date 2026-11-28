@@ -1,20 +1,27 @@
-//! A `detail` view: the header (the record's `title_field`, its
-//! `subtitle_field`, its `status_field` as a pill, the header actions whose
-//! `condition` holds), the tabs, and the tab's panel - a named one
-//! (`FixedAssetOverviewPanel`, `DepreciationSchedulePanel`) or an
-//! `EmbeddedTable` of another view, filtered to this record.
+//! A `detail` view: a record's own page - a slim header (its `subtitle_field`, its `status_field`
+//! as a pill), the tabs, and the tab's panel: a named one (`FixedAssetOverviewPanel`,
+//! `DepreciationSchedulePanel`) or an `EmbeddedTable` of another view, filtered to this record.
+//!
+//! The record's name is the location's big line (`ui/location.rs`) and the record's commands
+//! (Edit, Check out, Check in, Log maintenance, Dispose, Export schedule, Delete) are the
+//! ribbon's Home tab: the page itself holds only what is of the record.
 
 use azul::{
-    callbacks::{ButtonOnClickCallbackType, DataTableOnEventCallbackType, TabOnClickCallbackType},
+    callbacks::{DataTableOnEventCallbackType, TabOnClickCallbackType},
     prelude::*,
     str::String as AzString,
     widgets::{DataTableEvent, TabHeader, TabHeaderState},
 };
 use azul_appkit::l10n::t;
 
-use super::{action_button, column, empty, panels, table, text, with_erp, Erp, CHROME_HEIGHT};
+use super::{
+    column, panels, states,
+    table::{self, TableSpec},
+    text, with_erp, Erp,
+};
 use crate::{
     ids,
+    metrics::{self, Room},
     model::Asset,
     views::{
         api_filter,
@@ -24,70 +31,50 @@ use crate::{
     },
 };
 
-/// The px a detail's header and tab row take over a tab's table.
-pub const HEADER_HEIGHT: f32 = 96.0;
+/// The px a detail's slim header and tab row take over a tab's table.
+pub const HEADER_HEIGHT: f32 = 84.0;
+
+/// The record's name, the big line of the location: the header's `title_field`.
+#[must_use]
+pub fn title_of(s: &Erp, view: &View, params: &Params) -> String {
+    let id = params.get("id").cloned().unwrap_or_default();
+    let Some(asset) = s.state.book.get::<Asset>(&id) else {
+        return t("azerp-asset-gone");
+    };
+    match &view.header {
+        Some(h) => asset.value(&h.title_field, &s.state.ctx()).display(),
+        None => view.title(&s.state.labels, false),
+    }
+}
 
 /// The page of a `detail` view (assets: the one record kind with one).
-pub fn page(s: &Erp, app: &RefAny, view: &View, params: &Params) -> Dom {
+pub fn page(s: &Erp, app: &RefAny, view: &View, params: &Params, room: &Room, phone: bool) -> Dom {
     let id = params.get("id").cloned().unwrap_or_default();
     let Some(asset) = s.state.book.get::<Asset>(&id).cloned() else {
-        return empty(&t("azerp-asset-gone"), &id);
+        return states::quiet("inventory_2", &t("azerp-asset-gone"), &id);
     };
     let ctx = s.state.ctx();
     let labels = &s.state.labels;
     let mut header = Dom::create_div()
         .with_id(ids::DETAIL)
-        .with_css("display: flex; flex-direction: row; align-items: center; padding: 8px 12px;")
-        .with_child(
-            Button::create(t("azerp-back"))
-                .with_icon("arrow_back")
-                .with_on_click(app.clone(), on_back as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::BACK),
+        .with_css(
+            "display: flex; flex-direction: row; align-items: center; gap: 10px; padding: 8px 14px; min-height: 2.25rem;",
         );
     if let Some(h) = &view.header {
-        let title = asset.value(&h.title_field, &ctx).display();
-        let mut heading = text(&title)
-            .with_id(ids::DETAIL_TITLE)
-            .with_css("font-size: 16px; font-weight: 600; padding-left: 12px;");
         if let Some(sub) = &h.subtitle_field {
-            heading = Dom::create_div()
-                .with_css("display: flex; flex-direction: row; align-items: baseline;")
-                .with_child(heading)
-                .with_child(
-                    text(&asset.value(sub, &ctx).display())
-                        .with_css(format!(
-                            "padding-left: 8px; font-size: 13px; opacity: 0.7; {}",
-                            super::QUIET_FLORA
-                        )),
-                );
+            header.add_child(
+                text(&asset.value(sub, &ctx).display())
+                    .with_id(ids::DETAIL_TITLE)
+                    .with_css(format!("font-size: 0.8125rem; {}", super::QUIET_FLORA)),
+            );
         }
-        header.add_child(heading);
         if let Some(status) = &h.status_field {
             header.add_child(
                 text(&asset.value(status, &ctx).display())
                     .with_id(ids::DETAIL_STATUS)
                     .with_class(ids::PILL)
-                    // Under flora flora.css's `.pill`: a quiet badge at the house radius,
-                    // its edge the theme's, its label in the label ink's capitals.
-                    .with_css(
-                        "margin-left: 10px; padding: 2px 8px; border-radius: 10px; font-size: 12px; \
-                         border: 1px solid #8888; @theme(flora) { border-radius: 3px; border: 1px \
-                         solid system:separator; color: system:secondary-text; font-size: 11px; \
-                         font-weight: bold; text-transform: uppercase; letter-spacing: 0.07em; }",
-                    ),
+                    .with_css(super::PILL_CSS),
             );
-        }
-        header.add_child(Dom::create_div().with_css("flex-grow: 1;"));
-        let value_of = |name: &str| asset.value(name, &ctx).form_text();
-        for action in spec::actions(&h.actions, labels) {
-            let shows = action
-                .condition
-                .as_deref()
-                .map_or(true, |c| spec::eval_condition(c, &value_of));
-            if shows {
-                header.add_child(action_button(app, &action, params));
-            }
         }
     }
     let tabs = spec::tabs(view, labels);
@@ -98,7 +85,7 @@ pub fn page(s: &Erp, app: &RefAny, view: &View, params: &Params) -> Dom {
         .collect();
     let tab_row = Dom::create_div()
         .with_id(ids::DETAIL_TABS)
-        .with_css("padding: 0px 12px;")
+        .with_css("padding: 0px 14px; overflow-x: auto;")
         .with_child(
             TabHeader::create(tab_titles)
                 .with_active_tab(active)
@@ -108,9 +95,16 @@ pub fn page(s: &Erp, app: &RefAny, view: &View, params: &Params) -> Dom {
     let panel = match tabs.get(active) {
         Some(tab) => match tab.component.as_str() {
             "FixedAssetOverviewPanel" => panels::overview(s, &asset),
-            "DepreciationSchedulePanel" => panels::schedule(s, app, &asset),
-            "EmbeddedTable" => embedded(s, app, tab.view.as_deref().unwrap_or(""), params),
-            other => empty(&t("azerp-panel-not-built"), other),
+            "DepreciationSchedulePanel" => panels::schedule(s, app, &asset, room, phone),
+            "EmbeddedTable" => embedded(
+                s,
+                app,
+                tab.view.as_deref().unwrap_or(""),
+                params,
+                room,
+                phone,
+            ),
+            other => states::quiet("construction", &t("azerp-panel-not-built"), other),
         },
         None => Dom::create_div(),
     };
@@ -118,14 +112,22 @@ pub fn page(s: &Erp, app: &RefAny, view: &View, params: &Params) -> Dom {
 }
 
 /// An `EmbeddedTable` tab: the view's table, only this record's rows.
-fn embedded(s: &Erp, app: &RefAny, view_id: &str, params: &Params) -> Dom {
+fn embedded(
+    s: &Erp,
+    app: &RefAny,
+    view_id: &str,
+    params: &Params,
+    room: &Room,
+    phone: bool,
+) -> Dom {
     let Some(view) = s.state.views.view(view_id) else {
-        return empty(&t("azerp-tab-table-missing"), view_id);
+        return states::quiet("table_chart", &t("azerp-tab-table-missing"), view_id);
     };
     let Some(kind) = view.kind_of_records() else {
-        return empty(&t("azerp-table-no-records"), view_id);
+        return states::quiet("table_chart", &t("azerp-table-no-records"), view_id);
     };
-    let columns = spec::columns(view, &s.state.labels);
+    let (width, height) = metrics::table(room, HEADER_HEIGHT);
+    let columns = table::columns_for(view, &s.state.labels, phone, width);
     let filter = view
         .api
         .get
@@ -138,16 +140,18 @@ fn embedded(s: &Erp, app: &RefAny, view_id: &str, params: &Params) -> Dom {
         &s.state.ctx(),
     );
     if grid.is_empty() {
-        return empty(&t("azerp-nothing-recorded-asset"), "");
+        return states::quiet("inventory_2", &t("azerp-nothing-recorded-asset"), "");
     }
-    let size = (s.window.0, s.window.1 - CHROME_HEIGHT - HEADER_HEIGHT);
     table::grid_table(
-        ids::EMBEDDED,
-        &view.id,
-        &columns,
+        TableSpec {
+            id: ids::EMBEDDED,
+            name: &view.id,
+            columns: &columns,
+            view: s.inner_table.clone(),
+            size: (width, height),
+            phone,
+        },
         grid,
-        s.inner_table.clone(),
-        size,
         app,
         on_inner_event as DataTableOnEventCallbackType,
     )
@@ -172,9 +176,6 @@ extern "C" fn on_tab(mut data: RefAny, mut info: CallbackInfo, state: TabHeaderS
     })
 }
 
-extern "C" fn on_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_erp(&mut data, &mut info, |s, _info| {
-        s.state.go_back();
-        println!("AZERP_PAGE {}", s.state.page);
-    })
-}
+#[cfg(test)]
+#[path = "detail_test.rs"]
+mod detail_test;

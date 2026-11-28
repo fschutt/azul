@@ -26,17 +26,20 @@ use azul_appkit::{
 use chrono::Datelike;
 
 use super::{
-    column, detail, empty, mint, page_header, table, text, with_erp, Erp, CHROME_HEIGHT, TAG_IMPORT,
+    column, detail, mint, states,
+    table::{self, TableSpec},
+    text, with_erp, Erp, TAG_IMPORT,
 };
 use crate::{
     csv_io::Field,
     depreciation, ids,
+    metrics::{self, Room},
     model::Asset,
     money, reports,
     views::{
         rows::{Grid, ViewRecord},
         spec::{self, ActionKind, ColumnSpec, ColumnType},
-        Params, View,
+        View,
     },
 };
 
@@ -44,22 +47,22 @@ use crate::{
 fn fact(label: &str, value: &str) -> Dom {
     Dom::create_div()
         .with_class(ids::FIELD_ROW)
-        .with_css("display: flex; flex-direction: row; padding: 3px 0px;")
+        .with_css("display: flex; flex-direction: row; gap: 10px; padding: 3px 0px;")
         .with_child(
             text(label)
                 .with_class(ids::FIELD_LABEL)
                 .with_css(format!(
-                    "width: 200px; flex-shrink: 0; font-size: 13px; opacity: 0.75; {}",
+                    "flex-basis: 40%; max-width: 12.5rem; flex-shrink: 0; font-size: 0.8125rem; opacity: 0.75; {}",
                     super::QUIET_FLORA
                 )),
         )
-        .with_child(text(value).with_css("font-size: 13px;"))
+        .with_child(text(value).with_css("font-size: 0.8125rem; flex-grow: 1; min-width: 0px; overflow-wrap: anywhere;"))
 }
 
 /// A heading inside a panel (flora's label under flora).
 fn heading(title: &str) -> Dom {
     text(title).with_css(format!(
-        "font-size: 13px; font-weight: 600; padding: 12px 0px 4px 0px; {}",
+        "font-size: 0.8125rem; font-weight: 600; padding: 12px 0px 4px 0px; {}",
         super::LABEL_FLORA
     ))
 }
@@ -113,7 +116,7 @@ pub fn overview(s: &Erp, asset: &Asset) -> Dom {
     }
     column(rows)
         .with_id(ids::OVERVIEW)
-        .with_css("padding: 8px 16px; overflow-y: auto;")
+        .with_css("padding: 8px 14px; overflow-y: auto;")
 }
 
 // ==== DepreciationSchedulePanel ====
@@ -159,10 +162,11 @@ fn schedule_columns() -> Vec<ColumnSpec> {
 
 /// The asset's schedule as a table, and its book value year by year as a line.
 #[allow(clippy::cast_precision_loss)] // chart coordinates, not money arithmetic
-pub fn schedule(s: &Erp, app: &RefAny, asset: &Asset) -> Dom {
+pub fn schedule(s: &Erp, app: &RefAny, asset: &Asset, room: &Room, phone: bool) -> Dom {
     let rows = depreciation::schedule(asset);
     if rows.is_empty() {
-        return empty(
+        return states::quiet(
+            "inventory_2",
             &t("azerp-nothing-to-depreciate"),
             &t("azerp-nothing-to-depreciate-detail"),
         );
@@ -188,17 +192,17 @@ pub fn schedule(s: &Erp, app: &RefAny, asset: &Asset) -> Dom {
         ]);
     }
     let chart_height = 180.0;
-    let size = (
-        s.window.0,
-        s.window.1 - CHROME_HEIGHT - detail::HEADER_HEIGHT - chart_height,
-    );
+    let (width, height) = metrics::table(room, detail::HEADER_HEIGHT + chart_height);
     let table = table::grid_table(
-        ids::SCHEDULE_TABLE,
-        &t("azerp-schedule"),
-        &schedule_columns(),
+        TableSpec {
+            id: ids::SCHEDULE_TABLE,
+            name: &t("azerp-schedule"),
+            columns: &schedule_columns(),
+            view: s.inner_table.clone(),
+            size: (width, height),
+            phone,
+        },
         grid,
-        s.inner_table.clone(),
-        size,
         app,
         detail::on_inner_event as DataTableOnEventCallbackType,
     );
@@ -211,17 +215,13 @@ pub fn schedule(s: &Erp, app: &RefAny, asset: &Asset) -> Dom {
         .enumerate()
         .map(|(i, r)| ChartPoint::create(i as f64, r.closing as f64 / 100.0))
         .collect();
-    let chart = Chart::create(
-        ChartKind::Line,
-        (s.window.0 - 48.0).max(240.0),
-        chart_height,
-    )
-    .with_title(t("azerp-chart-year-end-value"))
-    .with_axis_titles(t("azerp-col-year"), t("azerp-book-value"))
-    .with_categories(years)
-    .with_added_series(ChartSeries::create(t("azerp-book-value"), points))
-    .dom()
-    .with_id(ids::SCHEDULE_CHART);
+    let chart = Chart::create(ChartKind::Line, (width - 16.0).max(240.0), chart_height)
+        .with_title(t("azerp-chart-year-end-value"))
+        .with_axis_titles(t("azerp-col-year"), t("azerp-book-value"))
+        .with_categories(years)
+        .with_added_series(ChartSeries::create(t("azerp-book-value"), points))
+        .dom()
+        .with_id(ids::SCHEDULE_CHART);
     column(vec![table, chart]).with_id(ids::SCHEDULE)
 }
 
@@ -231,18 +231,19 @@ pub fn schedule(s: &Erp, app: &RefAny, asset: &Asset) -> Dom {
 fn card(caption: &str, value: &str) -> Dom {
     Dom::create_div()
         .with_css(
-            "display: flex; flex-direction: column; padding: 8px 16px 8px 0px; min-width: 140px;",
+            "display: flex; flex-direction: column; padding: 8px 16px 8px 0px; min-width: 8.75rem;",
         )
-        .with_child(text(caption).with_css(format!("font-size: 12px; opacity: 0.75; {}", super::QUIET_FLORA)))
-        .with_child(text(value).with_css("font-size: 18px; font-weight: 600;"))
+        .with_child(text(caption).with_css(format!(
+            "font-size: 0.75rem; opacity: 0.75; {}",
+            super::QUIET_FLORA
+        )))
+        .with_child(text(value).with_css("font-size: 1.125rem; font-weight: 600;"))
 }
 
 /// The reports: the register's figures, the book value by category, the
 /// depreciation forecast, the services due, the overdue check-outs.
 #[allow(clippy::cast_precision_loss)] // chart coordinates, not money arithmetic
-pub fn reports(s: &Erp, app: &RefAny, view: &View) -> Dom {
-    let title = view.title(&s.state.labels, false);
-    let header = page_header(s, app, view, &title, &Params::new());
+pub fn reports(s: &Erp, room: &Room) -> Dom {
     let book = &s.state.book;
     let today = s.state.today;
     let totals = reports::totals(book, today);
@@ -268,7 +269,13 @@ pub fn reports(s: &Erp, app: &RefAny, view: &View) -> Dom {
         ))
         .with_child(card(&t("azerp-disposed"), &totals.disposed.to_string()));
 
-    let width = ((s.window.0 - 64.0) / 2.0).max(240.0);
+    // two charts side by side where the body is wide enough, one under the other on a phone
+    let (body_width, _) = metrics::body(room);
+    let width = if body_width >= 760.0 {
+        ((body_width - 48.0) / 2.0).max(240.0)
+    } else {
+        (body_width - 32.0).max(240.0)
+    };
     let groups = reports::by_category(book, today);
     let names: Vec<AzString> = groups
         .iter()
@@ -344,15 +351,14 @@ pub fn reports(s: &Erp, app: &RefAny, view: &View) -> Dom {
             ],
         )));
     }
-    let body = column(vec![
+    column(vec![
         figures,
         charts,
         column(due).with_id(ids::REPORT_DUE),
         column(late).with_id(ids::REPORT_OVERDUE),
     ])
     .with_id(ids::REPORTS)
-    .with_css("padding: 0px 16px; overflow-y: auto;");
-    column(vec![header, body])
+    .with_css("padding: 8px 14px; overflow-y: auto;")
 }
 
 // ==== The depreciation run (DepreciationRunPreview) ====
@@ -360,7 +366,6 @@ pub fn reports(s: &Erp, app: &RefAny, view: &View) -> Dom {
 /// The wizard: the year, then the preview and "Run and post".
 pub fn run(s: &Erp, app: &RefAny, view: &View) -> Dom {
     let labels = &s.state.labels;
-    let title = view.title(labels, false);
     let steps = spec::steps(view, labels);
     let step = s.state.run_step.min(steps.len().saturating_sub(1));
     let step_title = steps
@@ -376,15 +381,10 @@ pub fn run(s: &Erp, app: &RefAny, view: &View) -> Dom {
             )
         })
         .unwrap_or_default();
-    let mut children = vec![
-        text(&title)
-            .with_id(ids::PAGE_TITLE)
-            .with_css("font-size: 16px; font-weight: 600;"),
-        text(&step_title).with_css(format!(
-            "font-size: 13px; opacity: 0.75; padding-bottom: 8px; {}",
-            super::QUIET_FLORA
-        )),
-    ];
+    let mut children = vec![text(&step_title).with_id(ids::PAGE_TITLE).with_css(format!(
+        "font-size: 0.8125rem; opacity: 0.75; padding-bottom: 8px; {}",
+        super::QUIET_FLORA
+    ))];
     if step == 0 {
         children.push(
             Dom::create_div()
@@ -457,7 +457,7 @@ pub fn run(s: &Erp, app: &RefAny, view: &View) -> Dom {
     }
     column(children)
         .with_id(ids::RUN)
-        .with_css("padding: 12px 16px; overflow-y: auto;")
+        .with_css("padding: 12px 14px; overflow-y: auto;")
 }
 
 extern "C" fn on_run_year(
@@ -508,15 +508,9 @@ struct ColumnRef {
 }
 
 /// The import: choose a file, map its columns, see what it would do, import.
-pub fn import(s: &Erp, app: &RefAny, view: &View) -> Dom {
-    let title = view.title(&s.state.labels, false);
+pub fn import(s: &Erp, app: &RefAny) -> Dom {
     let mut children = vec![Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; padding-bottom: 8px;")
-        .with_child(
-            text(&title)
-                .with_id(ids::PAGE_TITLE)
-                .with_css("font-size: 16px; font-weight: 600; flex-grow: 1;"),
-        )
         .with_child(
             Button::create(t("azerp-choose-csv"))
                 .with_icon("upload_file")
@@ -528,7 +522,7 @@ pub fn import(s: &Erp, app: &RefAny, view: &View) -> Dom {
         children.push(text(&t("azerp-import-help")));
         return column(children)
             .with_id(ids::IMPORT)
-            .with_css("padding: 12px 16px; overflow-y: auto;");
+            .with_css("padding: 12px 14px; overflow-y: auto;");
     };
     let p = &draft.preview;
     children.push(
@@ -595,7 +589,7 @@ pub fn import(s: &Erp, app: &RefAny, view: &View) -> Dom {
     );
     column(children)
         .with_id(ids::IMPORT)
-        .with_css("padding: 12px 16px; overflow-y: auto;")
+        .with_css("padding: 12px 14px; overflow-y: auto;")
 }
 
 extern "C" fn on_import_choose(mut data: RefAny, _info: CallbackInfo) -> Update {

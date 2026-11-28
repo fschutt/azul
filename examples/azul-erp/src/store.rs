@@ -260,6 +260,18 @@ impl Book {
             .find(|a| a.number.trim().eq_ignore_ascii_case(number))
     }
 
+    /// How many records of kind `kind` there are.
+    #[must_use]
+    pub fn count(&self, kind: Kind) -> usize {
+        match kind {
+            Kind::Asset => self.assets.len(),
+            Kind::Category => self.categories.len(),
+            Kind::Location => self.locations.len(),
+            Kind::Maintenance => self.maintenance.len(),
+            Kind::Checkout => self.checkouts.len(),
+        }
+    }
+
     /// The asset's maintenance log, the newest entry first.
     #[must_use]
     pub fn maintenance_of(&self, asset: &str) -> Vec<&MaintenanceEntry> {

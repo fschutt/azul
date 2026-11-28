@@ -16,6 +16,23 @@ macro_rules! names {
 }
 
 names! {
+    /// The window's frame (azul's `AppFrame`), its sidebar, its tab ribbon, its Preview and the
+    /// status line.
+    FRAME = "frame";
+    SIDEBAR = "sidebar";
+    RIBBON = "ribbon";
+    PREVIEW = "preview";
+    STATUS = "status";
+    /// The Preview's "Open" button, its card and the card's status pill.
+    PREVIEW_OPEN = "preview-open";
+    PREVIEW_CARD = "preview-card";
+    PREVIEW_STATUS = "preview-status";
+    /// The designed empty state's buttons: a first record, the CSV import, the sample register.
+    EMPTY_NEW = "empty-new";
+    EMPTY_IMPORT = "empty-import";
+    LOAD_SAMPLE = "load-sample";
+    /// The settings page's container.
+    SETTINGS = "settings";
     /// The section tabs (the RecordsShell's tab row: the views' menu).
     TABS = "tabs";
     /// The page's tool row (the view's actions).

@@ -475,6 +475,25 @@ fn grid_of<R: ViewRecord + Record>(
     g
 }
 
+/// The values of the fields `fields` of the record of `kind` with `id`, in the order of `fields`;
+/// `None` when there is no such record.
+#[must_use]
+pub fn values_of(kind: Kind, id: &str, fields: &[&str], ctx: &Ctx) -> Option<Vec<Value>> {
+    match kind {
+        Kind::Asset => values_in(ctx.book.get::<Asset>(id), fields, ctx),
+        Kind::Category => values_in(ctx.book.get::<Category>(id), fields, ctx),
+        Kind::Location => values_in(ctx.book.get::<Location>(id), fields, ctx),
+        Kind::Maintenance => values_in(ctx.book.get::<MaintenanceEntry>(id), fields, ctx),
+        Kind::Checkout => values_in(ctx.book.get::<Checkout>(id), fields, ctx),
+    }
+}
+
+/// [`values_of`] over one record.
+fn values_in<R: ViewRecord>(record: Option<&R>, fields: &[&str], ctx: &Ctx) -> Option<Vec<Value>> {
+    let record = record?;
+    Some(fields.iter().map(|f| record.value(f, ctx)).collect())
+}
+
 /// The choices of a `Reference` field: `(id, name)` of the records its
 /// `api` path names, by name; the first choice is "(none)" with id "".
 #[must_use]

@@ -31,7 +31,7 @@ azerp-not-built = „{ $name }“ ist noch nicht gebaut.
 azerp-tab-table-missing = Die Tabelle dieser Registerkarte fehlt.
 azerp-table-no-records = Diese Tabelle liest keine Datensätze.
 azerp-nothing-recorded-asset = Für diese Anlage ist noch nichts erfasst.
-azerp-add-first = Füge den ersten mit der Schaltfläche oben hinzu.
+azerp-add-first = Füge den ersten mit der Schaltfläche unten hinzu.
 azerp-nothing-recorded = Es ist noch nichts erfasst.
 azerp-none-yet = { $title }: noch keine
 azerp-date-placeholder = JJJJ-MM-TT
@@ -41,6 +41,72 @@ azerp-delete-ask = { $number } löschen?
 azerp-delete-what = { $number } { $name } mit seinen Wartungs- und Ausleihdatensätzen.
 azerp-delete-detail = Die Dateien werden aus dem Datenordner entfernt. Das kann nicht rückgängig gemacht werden.
 azerp-delete = Löschen
+
+## The window's frame (the widget family: sidebar, ribbon, Preview, empty states)
+
+azerp-modules = Module
+azerp-module-assets = Anlagen
+azerp-help = Hilfe
+azerp-quick-import = CSV importieren
+azerp-quick-export = CSV exportieren
+azerp-quick-new = Neu
+azerp-sync = Sync
+azerp-sync-saved = Alles gespeichert
+azerp-sync-saved-detail = Jede Änderung ist als Datei in deinem Datenordner gespeichert.
+azerp-sync-saving = Speichern...
+azerp-overdue = Überfällig
+azerp-overdue-detail =
+    { $checkouts ->
+        [0] Keine Ausleihe
+        [one] 1 Ausleihe
+       *[other] { $checkouts } Ausleihen
+    } und { $services ->
+        [0] keine Wartung
+        [one] 1 Wartung
+       *[other] { $services } Wartungen
+    } über dem Fälligkeitstag.
+azerp-tab-file = Datei
+azerp-tab-home = Start
+azerp-tab-reports = Berichte
+azerp-tab-view = Ansicht
+azerp-group-list = Liste
+azerp-group-form = Formular
+azerp-group-record = Datensatz
+azerp-group-report = Bericht
+azerp-group-depreciation = Abschreibung
+azerp-group-panes = Bereiche
+azerp-open = Öffnen
+azerp-select-first = Datensatz wählen
+azerp-select-first-why = Wähle zuerst einen Datensatz in der Tabelle.
+azerp-select-asset-why = Wähle zuerst eine Anlage im Anlagenverzeichnis.
+azerp-cmd-open-reports = Berichte
+azerp-cmd-export-register = CSV exportieren
+azerp-cmd-run = Abschreibungslauf
+azerp-cmd-export-schedule = Plan exportieren
+azerp-cmd-preview = Vorschau
+azerp-cmd-navigation-pane = Navigation
+azerp-preview = Vorschau
+azerp-preview-nothing = Kein Datensatz gewählt
+azerp-preview-nothing-detail = Wähle eine Zeile der Tabelle, um den Datensatz hier zu sehen.
+azerp-preview-properties = Eigenschaften
+azerp-schedule-line = { $year }: { $depreciation } abgeschrieben, { $closing } übrig
+azerp-more-lines = ... und { $count } weitere
+azerp-banner-checkout-overdue =
+    { $days ->
+        [one] Überfällig: { $custodian }, 1 Tag
+       *[other] Überfällig: { $custodian }, { $days } Tage
+    }
+azerp-banner-checkout-overdue-detail =
+    { $days ->
+        [one] An { $custodian } ausgeliehen, fällig am { $due }: 1 Tag überfällig.
+       *[other] An { $custodian } ausgeliehen, fällig am { $due }: { $days } Tage überfällig.
+    }
+azerp-banner-service-overdue = Wartung überfällig seit { $when }
+azerp-banner-service-due = Wartung fällig am { $when }
+azerp-banner-service-detail = Diese Anlage wird alle { $every } Monate gewartet; die nächste Wartung ist { $when }.
+azerp-no-screen-detail = Die Ansicht { $view } des ERP ist eine Ansicht vom Typ { $kind }; AzERP zeichnet bisher Tabellen, Datensatzseiten, Formulare, Berichte, Assistenten und den CSV-Import.
+azerp-load-sample = Beispieldaten laden
+azerp-empty-first = Lege den ersten Datensatz an, importiere eine CSV-Datei oder lade Beispieldaten, um dich umzusehen.
 
 ## The records' words
 

@@ -6,6 +6,8 @@
 # Steps (WPD_GATE names them, comma separated; none named = all of them):
 #   srcgate      the repository's source rules alone (cargo test -p azul-srcgate): no libazul
 #   demo_apps    scripts/demo_apps.py check and scripts/test_demo_apps.py (python only)
+#   check        codegen, then `cargo check --lib --tests` and clippy -D warnings of the app over the bindings: no libazul is built, so this is the
+#                fast loop (the step `apps` below links the app's tests against a built libazul and runs them)
 #   apps         the app over the bindings: cargo check --lib --tests and the app's own unit tests; libazul is built once in a
 #                folder of its own (the apps link it over the C ABI, as the CI's lib tests do)
 #   apps_clippy  clippy -D warnings of the app alone (--no-deps: the path dependencies are not this app's to lint)
@@ -50,6 +52,18 @@ demo_apps() {
   return "$code"
 }
 run demo_apps demo_apps
+
+check() {
+  local code=0 p packages=()
+  cargo run -r -p azul-doc -- codegen all || return 1
+  for p in $apps; do packages+=(-p "$p"); done
+  cargo check "${packages[@]}" --lib --tests 2>&1 | tee check.txt
+  [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
+  cargo clippy "${packages[@]}" --all-targets --no-deps -- -D warnings 2>&1 | tee check-clippy.txt
+  [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
+  return "$code"
+}
+run check check
 
 apps() {
   local code=0 p packages=()
