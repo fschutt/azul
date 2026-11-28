@@ -134,9 +134,24 @@ class FlagTests(unittest.TestCase):
         self.assertTrue(f.flag_frames([PAGE, PAGE, BLACK, PAGE, PAGE], max_black_ms=20)[0]["fail"], "the limit is a parameter")
 
     def test_a_flat_run_of_another_colour_fails_whatever_its_length(self):
+        # the SECOND flat run of a recording (the first is the cold start's starting window): a flash of another colour fails
         white = sig((255, 255, 255))
-        flagged = f.flag_frames([PAGE, PAGE, white, PAGE, PAGE])
-        self.assertEqual([(x["kind"], x["black"], x["fail"]) for x in flagged], [("flat", False, True)])
+        flagged = f.flag_frames([PAGE, PAGE, BLACK, PAGE, PAGE, white, PAGE, PAGE], max_black_ms=1000)
+        self.assertEqual([(x["kind"], x["black"], x["fail"]) for x in flagged], [("flat", True, False), ("flat", False, True)])
+
+    def test_the_starting_window_of_a_cold_start_is_told_not_failed(self):
+        # E46, the Android shell agent's rule: the FIRST flat run, when it is not black, is the splash held on purpose; a black run after it still fails
+        white = sig((255, 255, 255))
+        flagged = f.flag_frames([PAGE] + [white] * 13 + [BLACK] * 13 + [PAGE, PAGE])
+        flats = [x for x in flagged if x["kind"] == "flat"]
+        self.assertEqual([(x["frames"], x["black"], x["fail"], x["splash"]) for x in flats], [(13, False, False, True), (13, True, True, False)])
+        self.assertIn("told, not failed", flats[0]["detail"])
+
+    def test_a_first_flat_run_that_is_black_gets_no_splash_allowance(self):
+        white = sig((255, 255, 255))
+        flagged = f.flag_frames([PAGE, BLACK, BLACK, PAGE, white, white, PAGE, PAGE], max_black_ms=1000)
+        flats = [x for x in flagged if x["kind"] == "flat"]
+        self.assertEqual([(x["black"], x["fail"], x["splash"]) for x in flats], [(True, False, False), (False, True, False)])
 
     def test_a_flat_run_that_never_ends_is_not_between_two_normal_frames(self):
         self.assertEqual([x for x in f.flag_frames([PAGE, PAGE, BLACK, BLACK, BLACK]) if x["kind"] == "flat"], [])

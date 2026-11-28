@@ -195,15 +195,22 @@ def flag_frames(sigs, fps=FPS, max_black_ms=MAX_BLACK_MS):
     flagged = []
     n = len(sigs)
     flat = set()
-    for start, end in flat_runs(sigs):
+    for number, (start, end) in enumerate(flat_runs(sigs)):
         length = end - start
         ms = round(1000.0 * length / fps)
         black = mean_luma(sigs[start + length // 2]) < BLACK_LUMA      # the middle of the run: a fade into black starts light
         what = "BLACK" if black else "flat"
-        fail = (ms > max_black_ms) if black else True
-        flagged.append({"index": start, "kind": "flat", "frames": length, "ms": ms, "black": black, "fail": fail,
-                        "detail": f"{length} frame(s) ({length / fps:.2f} s) of one {what} colour between two normal frames"
-                                  + (f" (limit {max_black_ms} ms)" if black else "")})
+        # THE SYSTEM'S STARTING WINDOW is told, not failed: the FIRST flat run of the recording (a cold start is its first event) when it is not black is
+        # the splash Android 12 and later holds on purpose (the app icon on the window colour until the engine's first picture, E46). Any later flat
+        # run, any black run over the limit and a flat run after home and back still fail.
+        splash = number == 0 and not black
+        fail = (ms > max_black_ms) if black else not splash
+        detail = f"{length} frame(s) ({length / fps:.2f} s) of one {what} colour between two normal frames"
+        if black:
+            detail += f" (limit {max_black_ms} ms)"
+        if splash:
+            detail += ": the system's starting window of the cold start, held on purpose (told, not failed)"
+        flagged.append({"index": start, "kind": "flat", "frames": length, "ms": ms, "black": black, "fail": fail, "splash": splash, "detail": detail})
         flat.update(range(start, end))
     for i in range(1, n - 1):
         if i in flat:
