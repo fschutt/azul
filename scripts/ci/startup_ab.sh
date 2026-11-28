@@ -10,7 +10,8 @@
 #
 # B must be A plus changes that leave api.json alone (one codegen serves both builds). The app defaults to AzDrive (Calmet UI +
 # EB Garamond, all registered: the positive case of the first layout's font wait); AzWidgets names system families (the control).
-# Rounds: 2, each: A miss x5, B miss x5, A hit (warm-up + 5), B hit (warm-up + 5): 10 miss and 10 hit starts per build.
+# Rounds: 2, each: A miss x5, B miss x5, A hit (cache filled by a start that stays up, then 6 starts, the first dropped), B hit
+# (the same): 10 miss and 10 hit starts per build.
 # A miss start has a cache directory of its own: XDG_CACHE_HOME on Linux, HOME on macOS (the library's `dirs::cache_dir()`).
 set +e
 A="${1:?the commit of A}"
@@ -59,10 +60,28 @@ if [ "$(uname -s)" = Linux ]; then
     export DISPLAY=:99
 fi
 
-# measure <A|B> <miss|hit> <n> <runs>: one harness call; a miss start has a cache directory of its own, a hit file starts a warm-up first
+# fill_cache <A|B> <cache dir>: one start that is NOT ended after its first frame and stays until the manifest and its key file
+# are written (at most 40 s): a start that skips the wait for the scan has its first frame long before the scan is done, and
+# the harness's own exit after the first frame would cut the scan and leave no cache for the starts that are to be hits
+fill_cache() {
+    local which="$1" cache="$2" pid
+    env "$libpath=$PWD/out/$which" "$cache_var=$cache" "$PWD/out/$which/$app" > /dev/null 2>&1 &
+    pid=$!
+    for _ in $(seq 1 200); do
+        [ -n "$(find "$cache" -name manifest.key 2>/dev/null | head -1)" ] && break
+        sleep 0.2
+    done
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    echo "    cache filled: $(find "$cache" -name 'manifest.*' 2>/dev/null | wc -l | tr -d ' ') files"
+}
+
+# measure <A|B> <miss|hit> <n> <runs>: one harness call; a miss start has a cache directory of its own, a hit file's cache is
+# filled first (its first start of the harness is dropped by the table, as before: the harness's own first start is a hit too)
 measure() {
     local which="$1" kind="$2" n="$3" runs="$4" cache
     cache="$(mktemp -d)"
+    [ "$kind" = hit ] && fill_cache "$which" "$cache"
     python3 "$RUNNER_TEMP/tools/startup_measure.py" --exe "$PWD/out/$which/$app" --runs "$runs" --label "$app $which $kind $n" \
         --env "$libpath=$PWD/out/$which" --env "$cache_var=$cache" --json "out/ab-$which-$kind-$n.json" > "out/ab-$which-$kind-$n.txt" 2>&1
     grep -E "^(first run|median of the others|layout passes)" "out/ab-$which-$kind-$n.txt" | tr '\n' ' '
@@ -76,7 +95,7 @@ for round in 1 2; do
         done
     done
     for which in A B; do
-        echo "--- $which hit (round $round): a warm-up start, then 5"
+        echo "--- $which hit (round $round): the cache is filled by a start that stays up, then 6 starts (the first is dropped)"
         measure "$which" hit "$round" 6
     done
 done
