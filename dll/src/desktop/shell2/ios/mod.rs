@@ -2408,6 +2408,9 @@ impl IOSWindow {
         layout_window
             .font_manager
             .register_app_fonts(config.bundled_fonts.as_ref());
+        // The marks of this method split the step between `ios:application_did_finish_launching` and `render_backend`
+        // (1332 ms on a start without a font cache, 74 ms on a start with one: the iOS Simulator of 2026-11-28).
+        app_shared.startup().mark("ios:layout_window");
         // `<webview>`s are WKWebViews (`webview::IosWebViews`).
         layout_window
             .webviews
@@ -2417,6 +2420,7 @@ impl IOSWindow {
         if let Some(registry) = font_registry.as_ref() {
             system_font::ensure_system_ui_font(registry);
         }
+        app_shared.startup().mark("ios:system_ui_font");
 
         // The editable `UITextInteraction`, made below and attached while a node is being edited.
         let mut text_interaction: *mut Object = ptr::null_mut();
@@ -2564,6 +2568,7 @@ impl IOSWindow {
             // `Id::from_ptr` retains the object; balanced by Drop.
             (Id::from_ptr(window), Id::from_ptr(vc), Id::from_ptr(view))
         };
+        app_shared.startup().mark("ios:uikit_window");
 
         let mut common = CommonWindowState::new(
             full_window_state,

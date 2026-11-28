@@ -1211,6 +1211,24 @@ class MapsScriptTests(unittest.TestCase):
         for needle in ("#__azmaps_layers", "#__azmaps_style-1", "#__azmaps_chip-0", "#__azmaps_search", '"AZMAPS_STYLE"', '"AZMAPS_CHIP"', '"AZMAPS_PLACE"', "dev.ime_shown()"):
             self.assertIn(needle, self.TEXT)
 
+    def test_the_map_is_tapped_above_the_sheet_and_a_single_tap_asks_for_the_pin(self):
+        self.assertIn("0.25 if layers else 0.62", self.TEXT)
+        self.assertIn("a single tap on the visible map drops a pin and opens its place", self.TEXT)
+        self.assertIn('"a double tap on the map zooms in"', self.TEXT)          # the double tap zooms again, in both apps
+
+    def test_the_popover_checks_wait_for_wp_p_and_do_not_fail_the_step(self):
+        text = self.TEXT
+        for check in ("the layers key opens something (the picture changes)", "a style pick in the popover changes the map (AZMAPS_STYLE, and the picture)"):
+            at = text.index(check)
+            self.assertIn("required=False", text[at:at + 400], check)
+        self.assertIn("the popover of a phone is WP-P's", text)
+
+    def test_the_keyboard_step_takes_the_apps_own_field_when_there_is_no_field_named_textinput(self):
+        self.assertIn("def first_field_name", self.TEXT)
+        self.assertIn('field_name = first_field_name() or "TextInput"', self.TEXT)
+        self.assertIn("dev.tap_label(field_name)", self.TEXT)
+        self.assertNotIn('dev.tap_label("TextInput")', self.TEXT)
+
     def test_the_sidebar_app_before_the_refactor_is_still_driven(self):
         self.assertIn("#__azmaps_sidebar-toggle", self.TEXT)
         self.assertIn('"AZMAPS_SIDEBAR"', self.TEXT)
@@ -1421,6 +1439,53 @@ class IosPermissionPromptsTests(unittest.TestCase):
         source = (Path(__file__).resolve().parent / "mobile_qa.py").read_text(encoding="utf-8")
         self.assertIn("ios_permission_prompts_of(dev.simctl(", source)
         self.assertNotIn("rc, tcc = dev.simctl", source)
+
+class ExtraEnvTests(unittest.TestCase):
+    """AZ_QA_EXTRA_ENV: the knobs a job hands to the app under test (TABS: AZ_RECONCILE_DEBUG=1 for the [reconcile] lines), and the pictures of an answer"""
+
+    def test_the_knobs_are_read_in_order_and_junk_is_dropped(self):
+        import mobile_e2e as e
+        self.assertEqual(e.qa_extra_env("AZ_RECONCILE_DEBUG=1;AZ_X= 2 ;;nothing;=7"), {"AZ_RECONCILE_DEBUG": "1", "AZ_X": "2"})
+        self.assertEqual(e.qa_extra_env(""), {})
+
+    def test_the_environment_variable_is_the_default_source(self):
+        import os
+        import mobile_e2e as e
+        old = os.environ.get("AZ_QA_EXTRA_ENV")
+        try:
+            os.environ["AZ_QA_EXTRA_ENV"] = "A=1;B=2"
+            self.assertEqual(e.qa_extra_env(), {"A": "1", "B": "2"})
+            del os.environ["AZ_QA_EXTRA_ENV"]
+            self.assertEqual(e.qa_extra_env(), {})
+        finally:
+            if old is not None:
+                os.environ["AZ_QA_EXTRA_ENV"] = old
+
+    def test_the_android_property_keeps_the_old_value_without_extras(self):
+        import mobile_e2e as e
+        self.assertEqual(e.android_env_property(8795), "AZ_DEBUG=8795;AZ_LOG=info;AZ_DUMP_PRESENT=1")
+        self.assertEqual(e.android_env_property(8795, {"AZ_RECONCILE_DEBUG": "1"}), "AZ_DEBUG=8795;AZ_LOG=info;AZ_DUMP_PRESENT=1;AZ_RECONCILE_DEBUG=1")
+
+    def test_a_property_over_91_characters_is_refused_not_cut(self):
+        import mobile_e2e as e
+        self.assertLessEqual(len(e.android_env_property(8795, {"AZ_RECONCILE_DEBUG": "1"})), 91)
+        with self.assertRaises(ValueError):
+            e.android_env_property(8795, {"AZ_SOME_VERY_LONG_KNOB_NAME": "x" * 40})
+
+    def test_the_pictures_of_an_answer_are_found_in_order_wherever_they_are(self):
+        import mobile_e2e as e
+        a, b = "iVBORw0KGgo" + "AAAA", "iVBORw0KGgo" + "BBBB"
+        answer = {"status": "ok", "data": {"results": [{"steps": [{"response": {"data": {"value": a}}}, {"response": {"data": [{"png": b}, "plain text"]}}]}]}}
+        self.assertEqual(e.png_strings(answer), [a, b])
+        self.assertEqual(e.png_strings({"x": "iVBOR"}), [])
+        self.assertEqual(e.png_strings(None), [])
+
+    def test_the_session_uses_the_helpers_on_both_platforms(self):
+        source = (Path(__file__).resolve().parent / "mobile_e2e.py").read_text(encoding="utf-8")
+        self.assertIn("android_env_property(args.port, qa_extra_env())", source)
+        self.assertIn('extra_env=dict({"AZ_DEBUG": str(args.port), "AZ_DUMP_PRESENT": "1"}, **qa_extra_env())', source)
+        self.assertIn("scenario-{name}-shot-{k:03d}.png", source)
+
 
 if __name__ == "__main__":
     unittest.main()
