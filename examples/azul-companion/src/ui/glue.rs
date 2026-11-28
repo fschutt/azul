@@ -57,6 +57,10 @@ pub extern "C" fn on_act(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut root) = root_ref.downcast_mut::<Root>() else {
         return Update::DoNothing;
     };
+    // a new phone binds its endpoint (and the system asks about the local network) when the person starts a pairing, not at the start
+    if root.wants_connection_for(&action) {
+        connect_now(&mut root, &mut info);
+    }
     let now = root.now();
     if root.perform(now, action) {
         Update::RefreshDom
@@ -260,6 +264,16 @@ pub extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCa
 /// How often the timer runs.
 pub const TICK_MS: u64 = 33;
 
+/// The phone's real connection, made now: the endpoint binds and the local network starts (the system may ask the person about it, the
+/// first time). What the start noticed goes to the log (`AZ_LOG=info`) and to the settings screen's connection log.
+fn connect_now(root: &mut Root, info: &mut CallbackInfo) {
+    let net = crate::net::connect();
+    for note in &net.notes {
+        info.log(AppLogLevel::Info, AzString::from(format!("AzCompanion: {note}").as_str()));
+    }
+    root.connect_now(net.api);
+}
+
 /// The window is ready: the timer starts and the phone's own app makes its connection. Two things say so, and whichever comes first
 /// does it (the second finds it done): the window's creation callback (the desktop shells call it) and the first mount of the screens
 /// (`chrome::phone` asks for it; every shell reports a mount). The phones' shells (Android, iOS) never call the creation callback, so
@@ -276,15 +290,17 @@ pub extern "C" fn on_window_ready(mut data: RefAny, mut info: CallbackInfo) -> U
     if !setup.connect {
         return Update::DoNothing;
     }
-    // the phone's own app connects now, not when the library loaded: the window (on Android: the activity) exists
-    let net = crate::net::connect();
-    for note in &net.notes {
-        info.log(AppLogLevel::Info, AzString::from(format!("AzCompanion: {note}").as_str()));
+    // a phone that was paired with a Mac connects now, not when the library loaded: the window (on Android: the activity) exists, and the
+    // system has been asked about the local network when the phone was paired. A phone that was not touches no network until a pairing
+    // starts (`on_act`): its first screen, the demo and the settings need none.
+    if !crate::net::has_saved_mac() {
+        info.log(AppLogLevel::Info, AzString::from("AzCompanion: no Mac is paired: the local network is left alone until a pairing starts"));
+        return Update::DoNothing;
     }
     let Some(mut root) = data.downcast_mut::<Root>() else {
         return Update::DoNothing;
     };
-    root.connect_now(net.api);
+    connect_now(&mut root, &mut info);
     Update::RefreshDom
 }
 

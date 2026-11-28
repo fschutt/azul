@@ -13,4 +13,4 @@ for f in "$dir"/*-e2e-android-x86_64.apk; do [ -e "$f" ] && apks+=("$f"); done
 [ "${#apks[@]}" -gt 0 ] || { echo "no *-e2e-android-x86_64.apk in $dir"; exit 2; }
 first="${apks[0]}"
 export AZ_QA_AUDIT_APKS="${apks[*]:1}"
-bash "$(dirname "$0")/android_qa.sh" demo-out/qa "$first" swiftshader_indirect "audit" audit
+bash "$(dirname "$0")/android_qa.sh" "${AZ_QA_OUT:-demo-out/qa}" "$first" swiftshader_indirect "audit" audit

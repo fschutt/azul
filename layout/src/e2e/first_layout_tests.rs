@@ -82,7 +82,7 @@ fn a_timer_with_a_queued_scenario(
 
 /// One tick of the window's debug timer, as a shell makes it: past the timer's interval.
 fn tick(runner: &Runner, timer: &mut crate::timer::Timer, changes: &Arc<Mutex<Vec<CallbackChange>>>) {
-    advance_test_clock_ms(1000);
+    let _ = advance_test_clock_ms(1000);
     let get_time = ExternalSystemCallbacks::rust_internal().get_system_time_fn;
     runner.with_callback_info(changes, |info| {
         let _ = timer.invoke(&*info, &get_time);
