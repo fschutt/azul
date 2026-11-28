@@ -1976,6 +1976,13 @@ extern "C" fn on_travel_key(
                 info.prevent_default();
                 Update::RefreshDom
             }
+            // No list open: the field lets go of the focus (the keyboard goes) and the key is claimed; the next Back steps out of the
+            // search itself (`flow::back_step`), which a focused field would keep from hearing it.
+            Some(VirtualKeyCode::Escape) => {
+                info.clear_focus();
+                info.prevent_default();
+                Update::DoNothing
+            }
             _ => Update::DoNothing,
         }
     };

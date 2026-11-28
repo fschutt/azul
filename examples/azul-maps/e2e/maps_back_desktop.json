@@ -95,6 +95,111 @@
         "op": "wait_frame"
       },
       {
+        "op": "assert_exists",
+        "selector": "#__azmaps_results"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azmaps_results"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_search-clear"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azmaps_search-clear"
+      },
+      {
+        "op": "click",
+        "selector": "#__azmaps_search"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "text_input",
+        "text": "Stuttgart"
+      },
+      {
+        "op": "wait",
+        "ms": 600,
+        "real": true
+      },
+      {
+        "op": "tick_ms",
+        "ms": 300
+      },
+      {
+        "op": "wait",
+        "ms": 900,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 200
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "click",
         "selector": "#__azmaps_suggestion-0"
       },

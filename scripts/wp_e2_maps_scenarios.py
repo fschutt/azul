@@ -179,9 +179,14 @@ def phone_steps(root_top=None, root_height=None):
 
 
 def back_steps(root_top=None, root_height=None):
-    """Back (an Escape; the system's Back on a phone arrives as one) steps out one thing at a time: the way to its place, the place to the
-    search, the search's text, then (a phone) the sheet drawn up; each step claims the key."""
+    """Back (an Escape; the system's Back on a phone arrives as one) steps out one thing at a time: in the search field the results close,
+    the field lets go; then the way to its place, the place to the search, the search's text, and (a phone) the sheet drawn up; each step
+    claims the key."""
     s = [op("set_mode", mode="light")] + tiles()
+    # in the search field: the list of results closes first, then the field lets go of the focus, then the search's text goes
+    s += type_search("Stuttgart") + [op("assert_exists", selector="#__azmaps_results")]
+    s += press("Escape") + [op("assert_not_exists", selector="#__azmaps_results"), op("assert_exists", selector="#__azmaps_search-clear")]
+    s += press("Escape") + press("Escape") + [op("assert_not_exists", selector="#__azmaps_search-clear")]
     s += type_search("Stuttgart") + click("#__azmaps_suggestion-0") + [op("assert_exists", selector="#__azmaps_place")]
     s += click("#__azmaps_place-route") + [op("assert_exists", selector="#__azmaps_travel")]
     s += press("Escape") + [op("assert_exists", selector="#__azmaps_place"), op("assert_not_exists", selector="#__azmaps_travel")]
