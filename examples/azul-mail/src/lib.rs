@@ -107,6 +107,7 @@ mod ui_main;
 mod ui_options;
 mod ui_preview;
 mod ui_sheet;
+mod ui_share;
 mod ui_sidebar;
 
 // The tests' helpers (a temporary folder, the SMTP sink) are azul-mail-core's `testing` ones.
@@ -231,6 +232,10 @@ pub(crate) struct MailApp {
     pub(crate) scroll: nav::ListScroll,
     /// The message a phone's action sheet is open for (its uid); `None`: the sheet is closed.
     pub(crate) sheet: Option<u32>,
+    /// Whether the platform has a share sheet to offer (WP-F; asked of the engine whenever the
+    /// list reports): the phone's sheet shows its Share row and the attachments their buttons
+    /// only where it does.
+    pub(crate) can_share: bool,
 
     // -- the message list --
     /// The shown folder's index, as it is on disk.
@@ -487,6 +492,7 @@ impl MailApp {
             preview_size: 0.0,
             scroll: nav::ListScroll::new(),
             sheet: None,
+            can_share: false,
             entries: Vec::new(),
             flags: LocalFlags::create(),
             view: Vec::new(),

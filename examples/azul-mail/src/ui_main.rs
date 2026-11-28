@@ -63,7 +63,7 @@ use crate::{
     html, ids,
     listing::{self, ListRow},
     message, pictures, ui_account, ui_backstage, ui_compose, ui_frame, ui_location, ui_options,
-    with_app, MailApp, SyncState,
+    ui_share, with_app, MailApp, SyncState,
 };
 
 /// The libraries AzMail is built on and their licences (the About box, File > Help).
@@ -412,6 +412,12 @@ pub(crate) enum Action {
     Delete,
     /// Into the Archive folder (Azlin accounts).
     Archive,
+    /// The open message through the system's share sheet (`ui_share.rs`).
+    ShareMessage,
+    /// The open message's n-th attachment through the share sheet.
+    ShareAttachment(usize),
+    /// The open message's n-th attachment offered only to the apps that can open it.
+    OpenAttachment(usize),
     /// Into Junk E-mail, the spam folder (Azlin accounts).
     Junk,
     /// The menu of the folders to move into (Azlin accounts).
@@ -871,6 +877,9 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
             }
             Action::Delete => delete_messages(s, info, app),
             Action::Archive => move_to_role(s, info, app, Role::Archive),
+            Action::ShareMessage => ui_share::share_message(s, info),
+            Action::ShareAttachment(index) => ui_share::share_attachment(s, info, index, false),
+            Action::OpenAttachment(index) => ui_share::share_attachment(s, info, index, true),
             Action::Junk => move_to_role(s, info, app, Role::Spam),
             Action::Move if shows_azlin(s) => {
                 open_menu_below(info, move_menu(s, &app));
@@ -1752,6 +1761,8 @@ fn module_placeholder(module: usize) -> Dom {
 
 extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: SummaryListEvent) -> Update {
     with_app(&mut data, |s, app| {
+        // the share sheet is the platform's: asked here, where a callback has the engine at hand
+        s.can_share = ui_share::can_share(&info);
         match event.kind {
             SummaryListEventKind::Select | SummaryListEventKind::Open => {
                 let index = event.index;

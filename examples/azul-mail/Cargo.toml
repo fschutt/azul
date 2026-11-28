@@ -99,6 +99,10 @@ test-hooks = ["azcloud-kit/test-hooks"]
 # AzDrive shares, the AZD1 drops filed into the folders). `--no-default-features` builds the
 # plain path only (tests; never shipped).
 default = ["encryption"]
+# WP-F's share sheet (`CallbackInfo::share` / `can_share`, ci-wip/wp-f-honest): the phone's sheet gets
+# its Share row and the attachments their Open with / Share buttons. Off until the generated
+# bindings have the API; the only code that names it is `src/ui_share.rs` (`can_share`, `hand_over`).
+share = []
 encryption = ["azul-storage/encryption", "azul-mail-core/encryption"]
 
 [lib]

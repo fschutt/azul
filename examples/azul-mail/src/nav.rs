@@ -351,6 +351,8 @@ pub(crate) enum SheetAction {
     Reply,
     ReplyAll,
     Forward,
+    /// The system's share sheet (WP-F): only where the platform has one (`MailApp::can_share`).
+    Share,
     Archive,
     Delete,
     ToggleFlag,
@@ -368,10 +370,11 @@ pub(crate) struct SheetRow {
 }
 
 /// The rows, in the order the sheet draws them (the destructive one after the others).
-pub(crate) static SHEET: [SheetRow; 8] = [
+pub(crate) static SHEET: [SheetRow; 9] = [
     SheetRow { action: SheetAction::Reply, icon: "reply", label: "azmail-cmd-reply", danger: false },
     SheetRow { action: SheetAction::ReplyAll, icon: "reply_all", label: "azmail-cmd-reply-all", danger: false },
     SheetRow { action: SheetAction::Forward, icon: "forward", label: "azmail-cmd-forward", danger: false },
+    SheetRow { action: SheetAction::Share, icon: "share", label: "azmail-cmd-share", danger: false },
     SheetRow { action: SheetAction::ToggleFlag, icon: "flag", label: "azmail-cmd-follow-up", danger: false },
     SheetRow { action: SheetAction::ToggleRead, icon: "mark_email_unread", label: "azmail-cmd-unread-read", danger: false },
     SheetRow { action: SheetAction::Move, icon: "drive_file_move", label: "azmail-cmd-move", danger: false },

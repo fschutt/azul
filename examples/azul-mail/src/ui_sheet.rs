@@ -1,7 +1,8 @@
 //! The phone's quick-action sheet for a message (azul's `ActionSheet`): Reply, Reply all, Forward,
-//! Follow up, Unread / Read, Move, Archive and, last and in red, Delete. It opens from the list's
-//! "open" of a row (the list reports no long press yet) and lies over the whole frame; a scrim
-//! tap or Escape closes it. A desktop has no sheet (it has the ribbon and the menus).
+//! Follow up, Unread / Read, Move, Archive and, last and in red, Delete, and Share where the
+//! platform has a share sheet. It opens from a long press on a row of the list and lies over the
+//! whole frame; a scrim tap or Escape closes it. A desktop has no sheet (it has the ribbon and the
+//! menus).
 //!
 //! The rows run the ribbon's own commands (`ui_main::run_action`) on the message the sheet was
 //! opened for, which a tap on its row had selected and opened.
@@ -26,6 +27,7 @@ pub(crate) const fn command(action: SheetAction) -> Action {
         SheetAction::Reply => Action::Reply,
         SheetAction::ReplyAll => Action::ReplyAll,
         SheetAction::Forward => Action::Forward,
+        SheetAction::Share => Action::ShareMessage,
         SheetAction::Archive => Action::Archive,
         SheetAction::Delete => Action::Delete,
         SheetAction::ToggleFlag => Action::ToggleFlag,
@@ -39,7 +41,9 @@ pub(crate) const fn command(action: SheetAction) -> Action {
 #[must_use]
 pub(crate) fn disabled_reason(action: SheetAction, message_open: bool, folders_changeable: bool) -> Option<&'static str> {
     match action {
-        SheetAction::Reply | SheetAction::ReplyAll | SheetAction::Forward if !message_open => {
+        SheetAction::Reply | SheetAction::ReplyAll | SheetAction::Forward | SheetAction::Share
+            if !message_open =>
+        {
             Some("azmail-notice-select-first")
         }
         SheetAction::Archive | SheetAction::Move if !folders_changeable => Some(ui_main::READ_ONLY),
@@ -64,6 +68,10 @@ pub(crate) fn sheet(s: &MailApp, app: &RefAny, phone: bool) -> Option<Dom> {
         .with_form(s.form)
         .with_on_event(app.clone(), on_sheet as ActionSheetOnEventCallbackType);
     for (i, row) in nav::SHEET.iter().enumerate() {
+        // the platform's share sheet is offered only where there is one
+        if row.action == SheetAction::Share && !s.can_share {
+            continue;
+        }
         let mut item = ActionSheetItem::create(label(row.label), row.icon, nav::sheet_tag(i)).with_danger(row.danger);
         if let Some(why) = disabled_reason(row.action, message_open, changeable) {
             item = item.with_disabled_reason(t(why));

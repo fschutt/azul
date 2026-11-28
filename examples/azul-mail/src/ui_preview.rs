@@ -72,7 +72,7 @@ pub(crate) fn preview(s: &MailApp, app: &RefAny) -> Option<Preview> {
         ));
         if !view.attachments.is_empty() {
             preview = preview.with_detail(
-                PreviewDetail::create(label("azmail-preview-attachments"), attachments_dom(&view))
+                PreviewDetail::create(label("azmail-preview-attachments"), attachments_dom(s, app, &view))
                     .with_icon("attach_file"),
             );
         }
@@ -176,13 +176,42 @@ fn details_dom(open: &OpenMessage, view: &MessageView) -> Dom {
     column
 }
 
-/// Behind the attachments' (?): their names and sizes, one to a line.
-fn attachments_dom(view: &MessageView) -> Dom {
+/// The most attachments the popover lists; a message with more says how many it leaves out.
+pub(crate) const MAX_ATTACHMENT_ROWS: usize = 50;
+
+/// Behind the attachments' (?): their names and sizes, one to a line; where the platform has a
+/// share sheet, each with "Open with..." and "Share" ("Save to Files" is a row of that sheet).
+fn attachments_dom(s: &MailApp, app: &RefAny, view: &MessageView) -> Dom {
     let mut column = Dom::create_div().with_css("display: flex; flex-direction: column; gap: 4px;");
-    for attachment in &view.attachments {
+    for (index, attachment) in view.attachments.iter().enumerate().take(MAX_ATTACHMENT_ROWS) {
         let size = azul_appkit::l10n::decimal(azul::file::DiskSpace::format_bytes(attachment.size as u64).as_str());
+        let mut row = Dom::create_div()
+            .with_css("display: flex; flex-direction: row; align-items: center; gap: 8px;")
+            .with_child(
+                Dom::create_span_with_text(format!("{} ({size})", attachment.name))
+                    .with_css("flex-grow: 1; min-width: 0px; overflow-wrap: anywhere; font-size: 0.75rem;"),
+            );
+        if s.can_share {
+            for (text, action) in [
+                ("azmail-cmd-open-with", Action::OpenAttachment(index)),
+                ("azmail-cmd-share", Action::ShareAttachment(index)),
+            ] {
+                row.add_child(
+                    Button::with_type(label(text), ButtonType::Secondary)
+                        .with_on_click(action_ref(app, action), on_action as ButtonOnClickCallbackType)
+                        .dom(),
+                );
+            }
+        }
+        column.add_child(row);
+    }
+    if view.attachments.len() > MAX_ATTACHMENT_ROWS {
         column.add_child(
-            Dom::create_span_with_text(format!("{} ({size})", attachment.name)).with_css("font-size: 0.75rem;"),
+            Dom::create_span_with_text(t_args(
+                "azmail-more-attachments",
+                &[("count", Arg::from(view.attachments.len() - MAX_ATTACHMENT_ROWS))],
+            ))
+            .with_css("font-size: 0.75rem;"),
         );
     }
     column

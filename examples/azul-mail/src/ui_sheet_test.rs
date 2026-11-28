@@ -8,6 +8,7 @@ fn every_row_of_the_sheet_runs_the_ribbon_command_of_its_name() {
     assert_eq!(command(SheetAction::Reply), Action::Reply);
     assert_eq!(command(SheetAction::ReplyAll), Action::ReplyAll);
     assert_eq!(command(SheetAction::Forward), Action::Forward);
+    assert_eq!(command(SheetAction::Share), Action::ShareMessage);
     assert_eq!(command(SheetAction::Archive), Action::Archive);
     assert_eq!(command(SheetAction::Delete), Action::Delete);
     assert_eq!(command(SheetAction::ToggleFlag), Action::ToggleFlag);
@@ -20,7 +21,7 @@ fn every_row_of_the_sheet_runs_the_ribbon_command_of_its_name() {
 
 #[test]
 fn the_answers_need_the_message_open_and_say_to_select_it_first() {
-    for action in [SheetAction::Reply, SheetAction::ReplyAll, SheetAction::Forward] {
+    for action in [SheetAction::Reply, SheetAction::ReplyAll, SheetAction::Forward, SheetAction::Share] {
         assert_eq!(disabled_reason(action, false, true), Some("azmail-notice-select-first"));
         assert_eq!(disabled_reason(action, true, true), None);
         assert_eq!(disabled_reason(action, true, false), None, "an answer needs no Azlin drive");
