@@ -1023,6 +1023,17 @@ class BuildTest(unittest.TestCase):
         self.assertIn("azul-core", got)
         self.assertLessEqual(len(got), 300)
 
+    def test_the_msvc_linkers_duplicate_symbols_are_named_like_the_lld_ones(self):
+        # the first Windows leg (2026-11-28): link.exe says LNK2005 "<symbol> already defined in <rlib>" per symbol and LNK1169 at the end
+        text = ("error: linking with `link.exe` failed: exit code: 1169\n"
+                "  = note: libazul.rlib(azul_core-bc92.rcgu.o) : error LNK2005: AzApp_getInvocationCtx already defined in libazul_core-d349.rlib(azul_core.o)\n"
+                "          libazul.rlib(azul_core-bc92.rcgu.o) : error LNK2005: AzApp_setGenericInvoker already defined in libazul_core-d349.rlib(azul_core.o)\n"
+                "          libazul.rlib(azul_core-bc92.rcgu.o) : error LNK2005: AzApp_getInvocationCtx already defined in libazul_core-d349.rlib(azul_core.o)\n"
+                "          azul_mail.exe : fatal error LNK1169: one or more multiply defined symbols found\n")
+        got = self.first_error_of(text)
+        self.assertTrue(got.startswith("engine crate compiled into the app: the link has 2 duplicate C ABI symbols (AzApp_getInvocationCtx, ...)"), got)
+        self.assertLessEqual(len(got), 300)
+
     def test_a_link_with_undefined_symbols_names_the_first_and_counts_the_rest(self):
         text = ("error: linking with `link.exe` failed: exit code: 1181\n  = note: azul.lib(x.o) : error LNK2019: unresolved\n"
                 "  = note: /usr/bin/ld: x.o: undefined reference to `XOpenDisplay'\n  = note: /usr/bin/ld: y.o: undefined reference to `glXSwapBuffers'\n")
