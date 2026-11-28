@@ -927,6 +927,49 @@ impl Renderer {
         self.device.max_texture_size()
     }
 
+    /// EXPERIMENT (not for master): one pixel of the middle of the first picture cache tile textures, and how many textures the cache
+    /// holds of each category: whether the passes of a frame wrote anything into the tiles the composite reads.
+    pub fn debug_probe_textures(&mut self) -> String {
+        let _ = self.device.begin_frame();
+        let mut counts = [0_usize; 4];
+        let mut tiles: Vec<String> = Vec::new();
+        for item in self.texture_resolver.texture_cache_map.values() {
+            let index = match item.category {
+                TextureCacheCategory::Atlas => 0,
+                TextureCacheCategory::Standalone => 1,
+                TextureCacheCategory::PictureTile => 2,
+                TextureCacheCategory::RenderTarget => 3,
+            };
+            counts[index] += 1;
+            if item.category == TextureCacheCategory::PictureTile && tiles.len() < 5 {
+                let size = item.texture.get_dimensions();
+                let format = item.texture.get_format();
+                let rect = FramebufferIntRect::from_origin_and_size(
+                    FramebufferIntPoint::new(size.width / 2, size.height / 2),
+                    FramebufferIntSize::new(1, 1),
+                );
+                let mut pixel = [0_u8; 4];
+                self.device
+                    .bind_read_target(crate::device::ReadTarget::from_texture(&item.texture));
+                self.device
+                    .read_pixels_into(rect, ImageFormat::RGBA8, &mut pixel);
+                tiles.push(format!(
+                    "{}x{} {:?} centre #{:02x}{:02x}{:02x}{:02x}",
+                    size.width, size.height, format, pixel[0], pixel[1], pixel[2], pixel[3]
+                ));
+            }
+        }
+        self.device.end_frame();
+        format!(
+            "texture cache: {} atlases, {} standalone, {} picture tiles, {} render targets; tiles: {}",
+            counts[0],
+            counts[1],
+            counts[2],
+            counts[3],
+            tiles.join("; ")
+        )
+    }
+
     pub fn get_graphics_api_info(&self) -> GraphicsApiInfo {
         GraphicsApiInfo {
             kind: GraphicsApi::OpenGL,

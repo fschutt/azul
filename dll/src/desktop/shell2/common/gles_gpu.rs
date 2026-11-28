@@ -821,6 +821,11 @@ impl GlesGpu {
             }
         }
         let outcome = gpu_renderer::render_frame(ctx.common, size, age)?;
+        if self.presents < DESCRIBED_PRESENTS {
+            if let Some(renderer) = ctx.common.renderer.as_mut() {
+                log_info!(LogCategory::Rendering, "[render] after present {}: {}", self.presents + 1, renderer.debug_probe_textures());
+            }
+        }
         // What the draw cost the loop's thread: WebRender's commands for the frame, before the swap that may wait for the display.
         let draw_us = u64::try_from(started.elapsed().as_micros()).ok();
         self.presents += 1;
