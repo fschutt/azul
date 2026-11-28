@@ -128,10 +128,11 @@ impl Frame {
     }
 
     /// The top of what floats: a gap under the root's top edge (the root starts under the status bar and the cutout) on a phone,
-    /// under the window's own controls on a desktop.
+    /// under the window's own controls on a desktop - a desktop window narrower than the panel's width keeps them too (its controls
+    /// stand at one end of the top strip, over a bar that began at the top).
     #[must_use]
     pub fn top(&self) -> f32 {
-        if self.wide() {
+        if self.wide() || self.title.left > 0.0 || self.title.right > 0.0 {
             self.title.height.max(40.0) + 4.0
         } else {
             self.insets.top.max(8.0)

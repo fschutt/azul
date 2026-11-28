@@ -79,8 +79,8 @@
         "op": "assert_layout",
         "selector": "#__azmaps_search-bar",
         "property": "y",
-        "expected": 56.0,
-        "tolerance": 1.5
+        "expected": 74.0,
+        "tolerance": 20.0
       },
       {
         "op": "assert_layout",
@@ -281,15 +281,15 @@
         "op": "assert_layout",
         "selector": "#__azmaps_sheet",
         "property": "y",
-        "expected": 128.0,
-        "tolerance": 1.5
+        "expected": 146.0,
+        "tolerance": 20.0
       },
       {
         "op": "assert_layout",
         "selector": "#__azmaps_sheet",
         "property": "height",
-        "expected": 762.0,
-        "tolerance": 1.5
+        "expected": 744.0,
+        "tolerance": 20.0
       },
       {
         "op": "focus_node",

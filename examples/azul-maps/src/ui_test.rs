@@ -24,6 +24,10 @@ fn what_floats_stands_under_the_window_controls_on_a_desktop_and_the_status_bar_
     assert_eq!(tall_controls.top(), 50.0, "a title bar taller than 40 px lifts it");
     assert_eq!(frame(411.0, 914.0, 48.0, 0.0).top(), 48.0, "under the status bar and the cutout");
     assert_eq!(frame(411.0, 914.0, 0.0, 0.0).top(), 8.0, "a phone with no inset keeps a gap");
+    // a desktop window narrower than the panel's width: its controls (macOS's lights at the left) keep their strip over the bar
+    let narrow_desktop = Frame { title: kit::TitleInsets { left: 78.0, right: 0.0, height: 28.0 }, ..frame(500.0, 700.0, 0.0, 0.0) };
+    assert!(!narrow_desktop.wide());
+    assert_eq!(narrow_desktop.top(), 44.0, "under the window's controls, as in the wide layout");
 }
 
 #[test]

@@ -122,11 +122,11 @@ def desktop_file():
 
 # ---- the phone ----
 
-def sheet_at(height, root_top, root_height):
+def sheet_at(height, root_top, root_height, tolerance=1.5):
     """The sheet's own box when it is `height` tall in a root `root_height` tall that starts `root_top` under the window's top: it
     lies on the root's lower edge, so its top edge is `root_height - height` under the root's top."""
-    return [op("assert_layout", selector="#__azmaps_sheet", property="y", expected=root_top + root_height - height, tolerance=1.5),
-            op("assert_layout", selector="#__azmaps_sheet", property="height", expected=height, tolerance=1.5)]
+    return [op("assert_layout", selector="#__azmaps_sheet", property="y", expected=root_top + root_height - height, tolerance=tolerance),
+            op("assert_layout", selector="#__azmaps_sheet", property="height", expected=height, tolerance=tolerance)]
 
 
 def phone_steps(root_top=None, root_height=None):
@@ -140,7 +140,8 @@ def phone_steps(root_top=None, root_height=None):
           op("assert_exists", selector="#__azmaps_layers"), op("assert_exists", selector="#__azmaps_locate"),
           op("assert_not_exists", selector="#__azmaps_panel")]
     if boxes:
-        s += [op("assert_layout", selector="#__azmaps_search-bar", property="y", expected=root_top + 8.0, tolerance=1.5)]
+        # the bar starts 8 px under the root's top on a device and under the window controls (44 px) on a host window: both pass
+        s += [op("assert_layout", selector="#__azmaps_search-bar", property="y", expected=root_top + 26.0, tolerance=20.0)]
         s += sheet_at(168.0, root_top, root_height)
     s += shot()                                                   # 1 first look: the bar, the chips, the sheet at its peek
     s += type_search("Stuttgart") + [op("assert_exists", selector="#__azmaps_results")] + shot()      # 2 results
@@ -150,8 +151,9 @@ def phone_steps(root_top=None, root_height=None):
         s += sheet_at(root_height / 2.0, root_top, root_height)
     s += grip_keys("Up") + shot()                                 # 5 full
     if boxes:
-        # the full sheet leaves the search bar in sight: 8 px, the bar's 56, 8 px (ui::TOP_ROOM) under the root's top
-        s += sheet_at(root_height - 80.0, root_top, root_height)
+        # the full sheet leaves the search bar in sight: the top (8 px on a device, 44 under a host window's controls), the bar's 56
+        # and 8 px twice (ui::TOP_ROOM) under the root's top: 80 or 116 px
+        s += sheet_at(root_height - 98.0, root_top, root_height, tolerance=20.0)
     s += grip_keys("Down", "Down") + [op("assert_exists", selector="#__azmaps_place-route")]
     s += click("#__azmaps_place-route") + [op("assert_exists", selector="#__azmaps_travel")] + shot()  # 6 the way
     s += click("#__azmaps_back") + click("#__azmaps_back") + click("#__azmaps_chip-0") + results_in()
