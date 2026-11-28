@@ -13,6 +13,7 @@
 #              result is api.json (upload it) and api.diff (what it changed); then a SECOND round that must change nothing
 #   doc_check  azul-doc check (the double-drop invariant, the guide links) and azul-doc check layout
 #   dll_check  codegen of the bindings from the api.json as it stands, cargo check of azul-dll, the srcgate tests
+#   selftest_check  AzSelfTest against the bindings of this api.json: cargo check (its lib, binary and tests)
 #   contracts  the dll/tests source contracts of the work (they read the Java and Rust sources as text; cargo builds the crate first)
 #   python     scripts/test_documents_manifest.py (the filters and the plist generated from the app declarations) and the demo manifest checks
 # The workspace tests of css / core / layout / webrender in full (the gate before a push) and the Android / iOS compile checks
@@ -171,6 +172,14 @@ dll_check() {
   return "$code"
 }
 run dll_check dll_check
+
+selftest_check() {
+  # the self-test app (its files.* rows) against the bindings generated from THIS api.json: its host tests, and its code as it compiles
+  cargo run -r -p azul-doc -- codegen all || return 1
+  # `cargo check` only: the app links the azul library dynamically, which a test run would need built
+  cargo check -p AzSelfTest --lib --bins --tests
+}
+run selftest_check selftest_check
 
 contracts() {
   cargo run -r -p azul-doc -- codegen all || return 1
