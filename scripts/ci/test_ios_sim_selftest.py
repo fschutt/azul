@@ -98,6 +98,10 @@ class Display(unittest.TestCase):
         self.assertEqual(sim.check_display(self.rep(self.PRO), "iPhone 16 Pro"), [])
         self.assertEqual(sim.check_display(self.rep(self.SE), "iPhone SE (3rd generation)"), [])
 
+    def test_a_simulator_made_by_the_script_is_still_the_model_it_was_made_from(self):
+        self.assertTrue(sim.check_display(self.rep(self.SE), "AzSelfTest iPhone 16 Pro"))
+        self.assertEqual(sim.check_display(self.rep(self.PRO), "AzSelfTest iPhone 16 Pro"), [])
+
     def test_a_pill_on_an_iphone_se_is_a_finding(self):
         self.assertTrue(sim.check_display(self.rep(self.PRO), "iPhone SE (3rd generation)"))
         self.assertTrue(sim.check_display(self.rep(self.SE), "iPhone 16 Pro"))

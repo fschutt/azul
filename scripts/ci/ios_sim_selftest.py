@@ -208,7 +208,9 @@ def check_rows(report, run):
 
 def check_display(report, device_name):
     """-> [str]: what the display-features row says that is not what this device has (see DISPLAY_EXPECT)."""
-    wanted = next((needles for model, needles in DISPLAY_EXPECT.items() if device_name.startswith(model)), None)
+    # a Simulator this script made from a device type is named "AzSelfTest <model>"
+    model_name = device_name.removeprefix("AzSelfTest ")
+    wanted = next((needles for model, needles in DISPLAY_EXPECT.items() if model_name.startswith(model)), None)
     row = rows_by_id(report).get("system.display_features")
     if wanted is None or row is None:
         return []
