@@ -105,6 +105,8 @@ names! {
     ZOOM_IN = "zoom-in";
     ZOOM_OUT = "zoom-out";
     LOCATE = "locate";
+    /// The "Open settings" button of the location refusal's toast.
+    OPEN_SETTINGS = "open-settings";
     SETTINGS = "settings";
     // ---- markers (`Dom::with_marker`): what a callback changes in place ----
     /// The map widget's root: the navigation moves its camera and overlays in place.
