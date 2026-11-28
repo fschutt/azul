@@ -109,6 +109,20 @@ def main(argv):
     pkg = pkg or "com.azul.AzMail"
     dev = q.Android(run, pkg, act, args.serial)
     steps = []
+    shots = out / "shots"
+    shots.mkdir(parents=True, exist_ok=True)
+    counter = {"n": 0}
+
+    def shot(name):
+        """The device's own picture (adb screencap -p) -> shots/NN-<name>.png; a failed capture is a note, never a crash. -> the file name or ''."""
+        counter["n"] += 1
+        fname = f"{counter['n']:02d}-{name}.png"
+        data = dev.adb("exec-out", "screencap", "-p", binary=True, timeout=60)
+        if data[:4] != b"\x89PNG":
+            step(f"picture-{name}", False, f"screencap gave {len(data)} bytes, not a PNG")
+            return ""
+        (shots / fname).write_bytes(data)
+        return fname
 
     def step(name, ok, note):
         steps.append({"step": name, "ok": ok, "note": note})
@@ -137,13 +151,13 @@ def main(argv):
     # 1. the start with no data: what a person sees first
     start("start-empty")
     first_log = app_log()
-    sig, w, h, fname = dev.capture(f"azmail-first{tag}")
-    step("picture-first", True, fname)
+    fname = shot(f"azmail-first{tag}")
+    step("picture-first", bool(fname), fname or "no picture")
     xml = dump_ui(dev, out, f"first{tag}")
     step("dump-first", bool(xml), f"{len(xml)} bytes, {len(q.parse_bounds(xml))} labelled nodes")
     dev.sh("cmd uimode night yes")
     time.sleep(8.0)
-    dev.capture(f"azmail-first-dark{tag}")
+    shot(f"azmail-first-dark{tag}")
     dev.sh("cmd uimode night no")
     time.sleep(4.0)
 
@@ -154,7 +168,7 @@ def main(argv):
         step("seed", bool(folder), note or "")
         if folder:
             start("start-with-the-mailbox")
-            dev.capture(f"azmail-list{tag}")
+            shot(f"azmail-list{tag}")
             xml = dump_ui(dev, out, f"list{tag}")
             labels = [l for l, _x, _y in q.parse_bounds(xml)]
             step("dump-list", bool(xml), f"{len(labels)} labelled nodes: " + " | ".join(labels[:14])[:300])
@@ -162,7 +176,7 @@ def main(argv):
             if hit:
                 dev.tap(hit[1], hit[2])
                 time.sleep(8.0)
-                dev.capture(f"azmail-reading{tag}")
+                shot(f"azmail-reading{tag}")
                 dump_ui(dev, out, f"reading{tag}")
                 step("open-a-message", True, f"tapped {hit[0]!r} at {hit[1]},{hit[2]}")
                 dev.back()
@@ -174,14 +188,14 @@ def main(argv):
             if hit:
                 dev.tap(hit[1], hit[2])
                 time.sleep(8.0)
-                dev.capture(f"azmail-compose{tag}")
+                shot(f"azmail-compose{tag}")
                 dump_ui(dev, out, f"compose{tag}")
                 step("compose", True, f"tapped {hit[0]!r} at {hit[1]},{hit[2]}")
             else:
                 step("compose", False, "no New E-mail command in the dump")
             dev.sh("cmd uimode night yes")
             time.sleep(8.0)
-            dev.capture(f"azmail-dark{tag}")
+            shot(f"azmail-dark{tag}")
             dev.sh("cmd uimode night no")
     log = app_log()
     (out / "azmail-first-start.log").write_text(first_log, encoding="utf-8")
