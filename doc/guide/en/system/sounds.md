@@ -71,7 +71,7 @@ A meaning that has no route on a platform walks a ladder of the nearest meaning 
 What is silent by design, and why:
 
 - iOS plays no sound for a UI event: Apple's guidance is the haptic, `AudioServicesPlaySystemSound` plays only files the app bundles, and the sounds built into the system have undocumented ids that Apple says are not available to an app. A sound of the app's own would also have to say what it does to the user's music: it must not interrupt it, which the system-sound channel does not and the audio engine's default category does.
-- A desktop button does not click: Windows, macOS and KDE do not play a sound for a widget, and GNOME's `input-feedback-sounds` is off by default. A widget therefore asks for no sound of its own there (`WidgetSounds::Native`), and an app that wants one asks with `play_system_sound`.
+- A desktop button does not click: Windows, macOS and KDE do not play a sound for a widget, and GNOME's `input-feedback-sounds` is off by default. No widget of the toolkit asks for a sound of its own yet; an app that wants one asks with `play_system_sound`.
 - The app's own mute is for kiosks, tests and screen recordings (`set_sounds_muted`); the user's controls are the OS's.
 
 ## What gates a sound
