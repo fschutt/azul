@@ -2761,21 +2761,30 @@ impl Default for RibbonBehavior {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Ribbon {
+    /// All part styles (defaults to the Office 2010 look).
+    pub style: RibbonStyle,
     /// Optional application button rendered before the first tab ("FILE").
     pub app_button: OptionRibbonAppButton,
-    /// Tabs displayed in the ribbon tab bar.
-    pub tabs: RibbonTabVec,
-    /// Index of the currently active tab.
-    pub active_tab: usize,
+    /// What the app puts at the right end of the tab row, before the
+    /// chevron (the location tabs' button); `None` for nothing.
+    pub strip_end: OptionDom,
     /// Optional callback fired when a tab is clicked (receives the tab index).
     pub on_tab_click: OptionRibbonOnTabClick,
+    /// The tab row in the status bar's band ([`Self::with_status_bar`]): the tabs take the place of
+    /// the clock and the battery icons and slide around the cutouts of the display. `None` keeps it
+    /// a row of the layout. Only with `TabStyle::TouchPills` and [`Self::dom_desktop`]. APPENDED for
+    /// ABI stability.
+    pub status_bar: crate::widgets::tab_strip::OptionStatusBarBand,
+    /// Tabs displayed in the ribbon tab bar.
+    pub tabs: RibbonTabVec,
+    /// How the content opens and closes ([`Self::with_reveal`]), kept by the
+    /// app between rebuilds; `None` keeps the content always open.
+    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
+    /// Index of the currently active tab.
+    pub active_tab: usize,
     /// The tab strip as the window's title bar ([`TabsInTitlebar`]), or
     /// `None` for a ribbon under a title row of its own.
     pub tabs_in_titlebar: OptionTabsInTitlebar,
-    /// All part styles (defaults to the Office 2010 look).
-    pub style: RibbonStyle,
-    /// Which interactions the ribbon handles by itself (defaults to the classic behavior).
-    pub behavior: RibbonBehavior,
     /// The widget theme, or `None` to follow the app theme
     /// (`AppConfig::with_theme`). Flat is the Office look [`Self::style`]
     /// describes; flora lays flora's paper, hairlines and stones on the same
@@ -2792,17 +2801,6 @@ pub struct Ribbon {
     /// makes the tabs the theme's buttons in a 28px row on one leather
     /// surface with the content, closed by a golden line.
     pub tab_style: crate::widgets::tabs::TabStyle,
-    /// How the content opens and closes ([`Self::with_reveal`]), kept by the
-    /// app between rebuilds; `None` keeps the content always open.
-    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
-    /// What the app puts at the right end of the tab row, before the
-    /// chevron (the location tabs' button); `None` for nothing.
-    pub strip_end: OptionDom,
-    /// The tab row in the status bar's band ([`Self::with_status_bar`]): the tabs take the place of
-    /// the clock and the battery icons and slide around the cutouts of the display. `None` keeps it
-    /// a row of the layout. Only with `TabStyle::TouchPills` and [`Self::dom_desktop`]. APPENDED for
-    /// ABI stability.
-    pub status_bar: crate::widgets::tab_strip::OptionStatusBarBand,
     /// Whether a vertical swipe on the content band flips to the previous / next tab
     /// ([`Self::with_flip`]): `AtEdges` (the default) flips with a finger that swipes on the band
     /// (it scrolls nothing vertically); `Off` never. APPENDED for ABI stability.
@@ -2810,6 +2808,8 @@ pub struct Ribbon {
     /// The room the content band leaves at its left, px ([`Self::with_content_inset`]): the tab row stays
     /// the whole width. APPENDED for ABI stability.
     pub content_inset: f32,
+    /// Which interactions the ribbon handles by itself (defaults to the classic behavior).
+    pub behavior: RibbonBehavior,
     /// Whether this ribbon draws the window's chevron at the left end of its tab row and folds its
     /// content band away with it ([`Self::with_content_toggle`]). APPENDED for ABI stability.
     pub content_toggle: bool,
@@ -3883,10 +3883,12 @@ impl Ribbon {
         // The window's one chevron, if this ribbon asks for it and no strip built before it has it.
         let chevron = if self.content_toggle {
             let row = if touch {
+                // less the line at the leather's foot
                 self.status_bar
                     .as_ref()
                     .filter(|band| band.is_in_band())
                     .map_or(crate::widgets::tab_strip::TOUCH_ROW, |band| band.height.max(crate::widgets::tab_strip::TOUCH_ROW))
+                    - 2.0
             } else if pills {
                 #[allow(clippy::cast_precision_loss)] // a few px
                 {

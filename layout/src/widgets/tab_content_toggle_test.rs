@@ -135,8 +135,8 @@ fn in_a_row_the_chevron_is_the_first_node_and_on_a_phone_it_makes_room_for_itsel
     assert_eq!(chevrons_in(&with), 1);
     assert_eq!(
         with.children.as_ref().len(),
-        without.children.as_ref().len() + 1,
-        "one node more in the header: the chevron, over the pills"
+        without.children.as_ref().len() + 2,
+        "two nodes more in the header: a stretch of leather under the chevron, and the chevron"
     );
     assert!(CONTENT_TOGGLE_PX > 0.0);
 }

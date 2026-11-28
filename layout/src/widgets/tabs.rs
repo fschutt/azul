@@ -2332,7 +2332,11 @@ fn side_fade(from: ColorU, to: ColorU) -> StyleBackgroundContent {
 /// above the golden line. A pill that slides out of the lane (under a camera cover, off the
 /// window's edge) fades out instead of being cut, and with no more pills to scroll to nothing shows:
 /// the first and the last pill stand [`TOUCH_LEAD`] in. No "more" pill, no scrollbar.
-pub(crate) fn lane_fades(band: Option<&crate::widgets::tab_strip::StatusBarBand>, row: f32) -> Vec<Dom> {
+pub(crate) fn lane_fades(
+    band: Option<&crate::widgets::tab_strip::StatusBarBand>,
+    row: f32,
+    first_left_room: f32,
+) -> Vec<Dom> {
     use crate::widgets::themes::decl;
 
     #[allow(clippy::cast_precision_loss)] // 2px
@@ -2362,10 +2366,28 @@ pub(crate) fn lane_fades(band: Option<&crate::widgets::tab_strip::StatusBarBand>
     match band.map(crate::widgets::tab_strip::StatusBarBand::lane_spans) {
         Some(lanes) if !lanes.is_empty() => lanes
             .into_iter()
-            .flat_map(|(left, right)| [fade(true, Some(left)), fade(false, Some((right - LANE_FADE_PX).max(left)))])
+            .enumerate()
+            .flat_map(|(i, (left, right))| {
+                // The first lane's left end is the chevron's: its fade starts after it.
+                let left = if i == 0 { left + first_left_room } else { left };
+                [fade(true, Some(left)), fade(false, Some((right - LANE_FADE_PX).max(left)))]
+            })
             .collect(),
-        _ => vec![fade(true, None), fade(false, None)],
+        _ => vec![fade(true, Some(first_left_room)), fade(false, None)],
     }
+}
+
+/// The window's chevron on a touch strip: a stretch of the leather's own, as wide as the chevron and
+/// at the first lane's left end, so that a pill that slides under it is covered, and the chevron over
+/// it. The line at the leather's foot goes on under it.
+fn chevron_over_leather(look: &TabHeaderLook, left: f32, chevron: Dom) -> Vec<Dom> {
+    let width = crate::widgets::tab_content_toggle::CONTENT_TOGGLE_PX;
+    vec![
+        leather_lane(look, Some((left, left + width))),
+        Dom::create_div()
+            .with_css(&format!("position: absolute; left: {left}px; top: 0px;"))
+            .with_child(chevron),
+    ]
 }
 
 impl TabHeader {
@@ -2396,8 +2418,9 @@ impl TabHeader {
             .as_ref()
             .map_or(tab_strip::TOUCH_ROW, |b| b.height.max(tab_strip::TOUCH_ROW));
         // The window's one chevron, at the left end of the first lane: the pills start after it.
+        #[allow(clippy::cast_precision_loss)] // 2px
         let chevron = if self.content_toggle {
-            crate::widgets::tab_content_toggle::chevron_for_row(row)
+            crate::widgets::tab_content_toggle::chevron_for_row(row - PILL_RULE as f32)
         } else {
             None
         };
@@ -2524,18 +2547,15 @@ impl TabHeader {
         let mut children = leather_under(&look, band.as_ref());
         children.push(strip);
         // The pills fade out at the ends of the lanes (over the pills, under the covers).
-        children.extend(lane_fades(band.as_ref(), row));
+        let chevron_room = if chevron.is_some() { crate::widgets::tab_content_toggle::CONTENT_TOGGLE_PX } else { 0.0 };
+        children.extend(lane_fades(band.as_ref(), row, chevron_room));
         // The window's one chevron at the first lane's left end, over the pills and their fade.
         if let Some(chevron) = chevron {
             let left = band
                 .as_ref()
                 .and_then(|b| b.lane_spans().first().map(|lane| lane.0))
                 .unwrap_or(0.0);
-            children.push(
-                Dom::create_div()
-                    .with_css(&format!("position: absolute; left: {left}px; top: 0px;"))
-                    .with_child(chevron),
-            );
+            children.extend(chevron_over_leather(&look, left, chevron));
         }
         if let Some(band) = band.as_ref() {
             // The window's background under the band (where the cutouts are, the leather has a gap)
@@ -2703,17 +2723,15 @@ pub(crate) fn touch_header(
     let mut strip = strip;
     strip.add_class(AzString::from_const_str(BAND_STRIP_CLASS));
     // The leather under the row, one stretch per lane, the camera between them.
-    let mut children = leather_under(&pill_look(theme, None), Some(band));
+    let look = pill_look(theme, None);
+    let mut children = leather_under(&look, Some(band));
     children.push(strip);
-    children.extend(lane_fades(Some(band), row));
+    let chevron_room = if chevron.is_some() { crate::widgets::tab_content_toggle::CONTENT_TOGGLE_PX } else { 0.0 };
+    children.extend(lane_fades(Some(band), row, chevron_room));
     // The window's one chevron at the first lane's left end, over the pills and their fade.
     if let Some(chevron) = chevron {
         let left = band.lane_spans().first().map_or(0.0, |lane| lane.0);
-        children.push(
-            Dom::create_div()
-                .with_css(&format!("position: absolute; left: {left}px; top: 0px;"))
-                .with_child(chevron),
-        );
+        children.extend(chevron_over_leather(&look, left, chevron));
     }
     children.extend(crate::widgets::tab_strip::cover_rects(band).iter().map(gap_cover));
     Dom::create_div()
@@ -3486,8 +3504,20 @@ pub enum TabSlide {
 pub struct TabContent {
     /// The DOM subtree shown as the tab's content area.
     pub content: Dom,
-    /// Whether the content area includes default padding.
-    pub has_padding: bool,
+    /// The reveal its `TabHeader` was built with (`with_reveal`): the panel
+    /// is the other half of its hover area, and it closes to no height.
+    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
+    /// Told of a flip as the bar's `on_click` is told of a tap, set with `flip`.
+    pub on_flip: OptionTabOnClick,
+    /// The names of the bar's tabs, for the hint ("Next: Share"), set with `flip`.
+    pub flip_tabs: StringVec,
+    /// The tab the content belongs to, set with `slide`: it keys the content
+    /// group, so a switch to another tab replaces the group (the old one
+    /// fades out, the new one slides in) while a rebuild for the same tab
+    /// keeps it still.
+    pub tab: usize,
+    /// The tab the panel shows, set with `flip`.
+    pub flip_tab: usize,
     /// The widget theme this panel is PINNED to (`with_theme`), or `None` to
     /// follow the app theme (`AppConfig::with_theme`,
     /// `CallbackInfo::set_theme`; flat unless the app chose another).
@@ -3495,26 +3525,14 @@ pub struct TabContent {
     /// How the content came in with the last tab switch (`with_switch`).
     /// Anything but `None` gives the content group its slide and fade.
     pub slide: TabSlide,
-    /// The tab the content belongs to, set with `slide`: it keys the content
-    /// group, so a switch to another tab replaces the group (the old one
-    /// fades out, the new one slides in) while a rebuild for the same tab
-    /// keeps it still.
-    pub tab: usize,
-    /// The reveal its `TabHeader` was built with (`with_reveal`): the panel
-    /// is the other half of its hover area, and it closes to no height.
-    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
     /// What a vertical swipe on the panel does (`with_flip_of`): `Off` until the panel is told the
     /// bar it belongs to. APPENDED for ABI stability.
     pub flip: crate::widgets::tab_flip::TabFlip,
-    /// The names of the bar's tabs, for the hint ("Next: Share"), set with `flip`.
-    pub flip_tabs: StringVec,
-    /// The tab the panel shows, set with `flip`.
-    pub flip_tab: usize,
-    /// Told of a flip as the bar's `on_click` is told of a tap, set with `flip`.
-    pub on_flip: OptionTabOnClick,
     /// The room the panel leaves at its left, px (`with_content_inset`): the tab row stays the whole width.
     /// APPENDED for ABI stability.
     pub content_inset: f32,
+    /// Whether the content area includes default padding.
+    pub has_padding: bool,
     /// Whether the panel folds away with the window's chevron (`with_content_toggle`).
     /// APPENDED for ABI stability.
     pub content_toggle: bool,

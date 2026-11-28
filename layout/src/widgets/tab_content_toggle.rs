@@ -40,28 +40,19 @@ pub(crate) fn chevron_for_row(row: f32) -> Option<Dom> {
 }
 
 /// The chevron, `row` px tall and [`CONTENT_TOGGLE_PX`] wide, drawn as `hidden` says (`v` while the
-/// content is folded, `^` while it shows): an icon button on the leather's own colour, so a pill that
-/// slides under it is covered, with the button role, the name and the expanded / collapsed state.
+/// content is folded, `^` while it shows): an icon button with the button role, the name and the
+/// expanded / collapsed state. It has no colour of its own: in a row of the layout it stands on the
+/// row's leather, and a touch strip puts a stretch of leather under it ([`tabs`'s `chevron_over_leather`])
+/// so a pill that slides under it is covered.
 #[must_use]
 pub(crate) fn chevron(hidden: bool, row: f32) -> Dom {
-    use crate::widgets::themes::decl;
-    use azul_css::{
-        dynamic_selector::CssPropertyWithConditionsVec,
-        props::{basic::ColorU, style::StyleBackgroundContent},
-    };
-
     let name = if hidden {
         "Show the tab content"
     } else {
         "Hide the tab content"
     };
-    let layers = decl::themed_layers(
-        vec![StyleBackgroundContent::Color(ColorU::rgb(0xF4, 0xF0, 0xE8))],
-        vec![StyleBackgroundContent::Color(ColorU::rgb(0x3A, 0x32, 0x2C))],
-    );
     let mut node = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CONTENT_TOGGLE_CLASSES))
-        .with_css_props(CssPropertyWithConditionsVec::from_vec(layers.to_vec()))
         .with_child(Dom::create_icon(AzString::from_const_str(if hidden {
             "expand_more"
         } else {
