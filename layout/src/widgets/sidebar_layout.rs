@@ -35,7 +35,10 @@
 
 use azul_css::system::Handedness;
 
-use crate::widgets::tabs::phone_build;
+use crate::widgets::{
+    detents::{Heights, SheetDetent},
+    tabs::phone_build,
+};
 
 /// Which form factor a widget of the sidebar family is built for.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -509,15 +512,22 @@ pub fn clamp_preview_width(wanted: f32, container_w: f32) -> f32 {
     wanted.clamp(PREVIEW_WIDTH_MIN, max)
 }
 
-/// The tallest the bottom pane may be in a container `container_h` tall (the full detent); a
-/// container that is not known (no number: the DOM is being built, no layout has run) puts no
-/// limit.
+/// The four detents of the bottom pane in a container `container_h` tall: the rules are the shared ones of
+/// `detents.rs` (the BottomSheet's, WP-E2), the wireframe's numbers (30 px, 130 px, half, 85 %). `None` where the
+/// container is not known: no number (the DOM is being built, no layout has run) or no room (0 and below).
+fn heights(container_h: f32) -> Option<Heights> {
+    (container_h.is_finite() && container_h > 0.0)
+        .then(|| Heights::new(container_h, PANE_COLLAPSED, PANE_PEEK, 0.0))
+}
+
+/// The tallest the bottom pane may be in a container `container_h` tall (the full detent, never below the collapsed
+/// bar); a container that is not known (no number: the DOM is being built, no layout has run) puts no limit.
 #[must_use]
 pub fn pane_max(container_h: f32) -> f32 {
     if !container_h.is_finite() {
         return f32::MAX;
     }
-    (container_h.max(0.0) * PANE_MAX_SHARE).max(PANE_COLLAPSED)
+    heights(container_h).map_or(PANE_COLLAPSED, |h| h.full.max(PANE_COLLAPSED))
 }
 
 /// The half detent in a container `container_h` tall, or `None` where the container is not
@@ -527,7 +537,7 @@ pub fn pane_half(container_h: f32) -> Option<f32> {
     if !container_h.is_finite() {
         return None;
     }
-    Some((container_h.max(0.0) * PANE_HALF_SHARE).clamp(PANE_COLLAPSED, pane_max(container_h)))
+    Some(heights(container_h).map_or(PANE_COLLAPSED, |h| h.half.clamp(PANE_COLLAPSED, pane_max(container_h))))
 }
 
 /// The four detents of the bottom pane in a container `container_h` tall, lowest first: the
@@ -556,6 +566,11 @@ pub fn clamp_pane_height(wanted: f32, container_h: f32) -> f32 {
 #[must_use]
 pub fn settle_pane_height(height: f32, container_h: f32) -> f32 {
     let h = clamp_pane_height(height, container_h);
+    if let Some(detents) = heights(container_h) {
+        // the shared rule of a pane that stays where it was left between the detents (no fling: the pointer was lifted)
+        return detents.settle_free(h, 0.0, PANE_SNAP, SheetDetent::Collapsed, SheetDetent::Full);
+    }
+    // a container that is not known has the two detents that need none
     let mut best = h;
     let mut best_distance = f32::MAX;
     for detent in pane_detents(container_h) {
@@ -574,6 +589,9 @@ pub fn settle_pane_height(height: f32, container_h: f32) -> f32 {
 #[must_use]
 pub fn toggle_pane_height(height: f32, container_h: f32) -> f32 {
     let h = clamp_pane_height(height, container_h);
+    if let Some(detents) = heights(container_h) {
+        return detents.toggle_peek_half(h, PANE_SNAP);
+    }
     let half = pane_half(container_h).unwrap_or(PANE_PEEK * 2.5);
     if h >= half - PANE_SNAP {
         PANE_PEEK.min(pane_max(container_h))
@@ -588,6 +606,11 @@ pub fn toggle_pane_height(height: f32, container_h: f32) -> f32 {
 /// pointer has moved UP since (the pane grows as the finger goes up).
 #[must_use]
 pub fn dragged_pane_height(start_h: f32, grab_y: f32, now_y: f32, container_h: f32) -> f32 {
+    let start_h = clamp_pane_height(start_h, container_h);
+    if let Some(detents) = heights(container_h) {
+        // the shared rule: between the collapsed bar and the full detent
+        return detents.dragged(start_h, grab_y, now_y, SheetDetent::Collapsed, SheetDetent::Full);
+    }
     let moved = if grab_y.is_finite() && now_y.is_finite() { grab_y - now_y } else { 0.0 };
     clamp_pane_height(start_h + moved, container_h)
 }
