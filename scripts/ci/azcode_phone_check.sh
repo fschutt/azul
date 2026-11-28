@@ -18,6 +18,9 @@ for target in $targets; do
   rustup target add "$target" >/dev/null 2>&1 || true
   key="${target//-/_}"
   export "CC_${key}=/bin/true" "CXX_${key}=/bin/true" "AR_${key}=/bin/true"
+  # cc-rs asks `xcrun` for the Apple SDK's place unless SDKROOT names one: any existing folder does for a check (the
+  # first run of this script died in blake3's build script: "failed to find tool xcrun")
+  case "$target" in *apple*) export SDKROOT="${SDKROOT:-/usr}" ;; esac
   echo "=== $target"
   status=0
   for app in $apps; do
