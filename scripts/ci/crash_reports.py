@@ -51,7 +51,9 @@ PID_SUFFIX = re.compile(r"\s*\[\d+\]$")
 
 def process_name(file_name):
     """The process a report's file name starts with: what comes before the date stamp (`AzMail-2026-11-28-073050.ips`,
-    `STExtractionService_2026-11-28-073050_host.diag`); a name without a stamp: up to the first dot."""
+    `STExtractionService_2026-11-28-073050_host.diag`); a name without a stamp: up to the first dot. A leading dot is the report being written
+    (the host writes `.<name>` first and renames it: run 46123227484 saw `.STExtractionService_2026-11-28-075645_...diag`): it names the same process."""
+    file_name = file_name.lstrip(".")
     m = STAMP.match(file_name)
     return m.group("name") if m else file_name.split(".")[0]
 

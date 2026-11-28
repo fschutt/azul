@@ -98,6 +98,16 @@ class WhoseReportTests(unittest.TestCase):
         self.assertEqual(c.process_name("AzMail-iOS-2026-11-28-073050.ips"), "AzMail-iOS")
         self.assertEqual(c.process_name("AzMail.ips"), "AzMail")
 
+    def test_a_report_still_being_written_names_the_same_process(self):
+        # the host writes `.<name>` first and renames it; the one a runner showed while the boot test ran (run 46123227484) is a daemon's
+        real = ".STExtractionService_2026-11-28-075645_iad20-gt1022-f6a20b73-b5b3-4b56-94c9-feede2d719b6-764BEE249A43.diag"
+        self.assertEqual(c.process_name(real), "STExtractionService")
+        self.assertEqual(c.process_name(".AzMail-2026-11-28-073050.ips"), "AzMail")
+        f = Folder(self)
+        f.add(real, DAEMON_DIAG)
+        f.add(".AzMail-2026-11-28-073102.ips")
+        self.assertEqual(f.classify(), ([".AzMail-2026-11-28-073102.ips"], [real]))
+
     def test_every_kind_of_report_of_the_apps_own_process_is_the_apps(self):
         f = Folder(self)
         names = ["AzMail-2026-11-28-073050.ips", "AzMail_2026-11-28-073050_sjc20-host.crash", "AzMail_2026-11-28-073050_host.diag",
