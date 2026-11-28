@@ -228,6 +228,41 @@ class RealRowsTests(unittest.TestCase):
         self.assertEqual([r["resume"] for r in rows], [True, False])
 
 
+class WindowFlatTests(unittest.TestCase):
+    def icon(self, share_of_width):
+        """The white starting window with an icon in its middle, `share_of_width` wide (and a third of that high in the sample grid)."""
+        rows = [bytearray(bytes((255, 255, 255)) * q.COLS) for _ in range(q.ROWS)]
+        half = int(q.COLS * share_of_width / 2)
+        mid, third = q.ROWS // 2, max(1, int(q.COLS * share_of_width / 3))
+        for r in range(mid - third, mid + third):
+            for c in range(q.COLS // 2 - half, q.COLS // 2 + half):
+                rows[r][c * 3:c * 3 + 3] = bytes((60, 60, 190))
+        return b"".join(bytes(r) for r in rows)
+
+    def test_the_starting_window_is_flat_whatever_the_size_of_its_icon(self):
+        for share in (0.15, 0.25, 0.4):
+            self.assertTrue(lab.window_flat(self.icon(share)), f"an icon {share:.0%} wide is no page")
+
+    def test_the_icon_larger_than_the_old_test_allowed_is_the_starting_window_not_a_launcher_frame(self):
+        big = self.icon(0.4)
+        self.assertFalse(fa_flat(big), "the whole-frame test of the flicker audit (98 % one colour) said no for it: the labels were all L on Android 15")
+        sigs = [LAUNCHER] * 3 + [big] * 8 + [SETTLED] * 6
+        self.assertEqual(lab.runs_text(lab.label_frames(sigs)), "L3 S8 2x6")
+
+    def test_a_page_with_content_across_it_is_no_starting_window(self):
+        self.assertFalse(lab.window_flat(FIRST))
+        self.assertFalse(lab.window_flat(LAUNCHER))
+
+    def test_black_is_still_black(self):
+        self.assertTrue(lab.window_flat(BLACK))
+        sigs = [LAUNCHER] * 3 + [SPLASH] * 4 + [BLACK] * 5 + [SETTLED] * 6
+        self.assertEqual(lab.runs_text(lab.label_frames(sigs)), "L3 S4 B5 2x6")
+
+
+def fa_flat(sig):
+    return lab.fa.flat_frame(sig)
+
+
 class BlackSplitTests(unittest.TestCase):
     """In the night mode the starting window is black itself: a dark frame without the icon is a gap (the window with nothing in it) or a fade (the
     system's exit animation lifting the black off a page that is nearly black too, the picture already posted)."""

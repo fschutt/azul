@@ -105,6 +105,24 @@ def dark_kind(sig):
     return None
 
 
+ICON_BOX = (0.25, 0.75, 0.30, 0.70)   # (columns, rows) as shares of the area between the system bars: where the starting window's icon sits
+
+
+def window_flat(sig):
+    """Whether a frame is ONE colour between the system bars but for the icon in its middle: Android 12 and later put the app icon on the starting window,
+    and its size depends on the release (2.3 % of the samples on Android 15, 1.6 % on 14), so the share of the most common colour of the whole frame is no
+    test of a starting window. The share outside the icon's box is."""
+    inner = sig[q.SYSTEM_BAR_ROWS[0] * q.COLS * 3:(q.ROWS - q.SYSTEM_BAR_ROWS[1]) * q.COLS * 3] if len(sig) == q.COLS * q.ROWS * 3 else sig
+    rows = len(inner) // (q.COLS * 3)
+    c0, c1 = int(q.COLS * ICON_BOX[0]) * 3, int(q.COLS * ICON_BOX[1]) * 3
+    r0, r1 = int(rows * ICON_BOX[2]), int(rows * ICON_BOX[3])
+    out = bytearray()
+    for r in range(rows):
+        row = inner[r * q.COLS * 3:(r + 1) * q.COLS * 3]
+        out += row[:c0] + row[c1:] if r0 <= r < r1 else row
+    return q.flat_fraction(bytes(out)) >= fa.VIDEO_FLAT_FRACTION
+
+
 def label_frames(sigs, night=False):
     """One letter per frame of a recording (see the module's doc): L before the first flat frame, then S / B for the flat ones (light / dark; in the night
     mode `dark_kind` tells the dark starting window from the dark gap), and for the others 2 when the frame is the recording's last picture, 1 when it
@@ -117,7 +135,7 @@ def label_frames(sigs, night=False):
     if night:
         kinds = [None if settled[i] else dark_kind(s) for i, s in enumerate(sigs)]
     else:
-        kinds = [None if settled[i] else (("B" if fa.mean_luma(s) < fa.BLACK_LUMA else "S") if fa.flat_frame(s) else None) for i, s in enumerate(sigs)]
+        kinds = [None if settled[i] else (("B" if fa.mean_luma(s) < fa.BLACK_LUMA else "S") if window_flat(s) else None) for i, s in enumerate(sigs)]
     first_flat = next((i for i, k in enumerate(kinds) if k), None)
     out = []
     for i, s in enumerate(sigs):
