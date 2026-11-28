@@ -354,6 +354,11 @@ pub mod compact;
 pub mod diagnostics;
 /// DOM diffing: what changed between two `StyledDom`s, and how far it has to be re-solved.
 pub mod diff;
+/// What a phone's display has built in and the system draws over a window, in window coordinates:
+/// cutouts, rounded corners, system bars, the fingerprint sensor, and the test hook that
+/// simulates a Pixel 8 or an iPhone.
+///
+pub mod display_features;
 /// DOM construction: `Dom`, `NodeData`, `NodeType`, and the CSS-in-Rust API.
 pub mod dom;
 /// Drag context for text selection, scrollbar, node, and window drags.
