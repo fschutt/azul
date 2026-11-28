@@ -1303,5 +1303,25 @@ class EngineLinesTests(unittest.TestCase):
         self.assertTrue(all(len(l) <= 300 for l in kept))
 
 
+
+
+class IosPermissionPromptsTests(unittest.TestCase):
+    TCC = "2026-11-28 02:10:01.123 Df tccd[88] AUTHREQ_PROMPTING: msgID=1.1, service=kTCCServiceCamera, subject=Sub:{com.azul.AzMeet}\n2026-11-28 02:10:02.000 Df tccd[88] other line\n"
+
+    def test_the_three_values_of_simctl_are_unpacked(self):
+        """IOS.simctl returns (rc, stdout, stderr): two names for it raised a ValueError after the seven checks of every cold start"""
+        found = q.ios_permission_prompts_of((0, self.TCC, ""), "com.azul.AzMeet")
+        self.assertEqual(len(found), 1)
+        self.assertIn("AUTHREQ_PROMPTING", found[0])
+        self.assertEqual(q.ios_permission_prompts_of((0, self.TCC, ""), "com.azul.AzPaint"), [])
+
+    def test_a_failed_read_finds_nothing_instead_of_guessing(self):
+        self.assertEqual(q.ios_permission_prompts_of((1, self.TCC, "no such process"), "com.azul.AzMeet"), [])
+
+    def test_the_step_calls_the_helper_with_the_whole_result(self):
+        source = (Path(__file__).resolve().parent / "mobile_qa.py").read_text(encoding="utf-8")
+        self.assertIn("ios_permission_prompts_of(dev.simctl(", source)
+        self.assertNotIn("rc, tcc = dev.simctl", source)
+
 if __name__ == "__main__":
     unittest.main()

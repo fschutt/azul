@@ -66,6 +66,7 @@ After the table come two lines for a script: `[startup-json] {...}` (the headlin
 | `app_create:*` | the steps of `App::create`: `env_and_settings` (on Android this includes the properties), `settings_and_rice`, `e2e_services_logger`, `identity_and_trust`, `system_style` (with `style:*` marks inside on macOS), `theme_light_rice_watcher`, `icons`, `app_internal`, `done` |
 | `fonts:*` | the font registry: created, the disk cache read (`loaded=true` is a warm start), the scan threads spawned |
 | `font_dirs_scanned`, `font_scan_complete` | the scan on its worker threads: what the first layout can wait for on a machine without the font cache |
+| `fonts:cache`, `fonts:cache_written` | what the font cache did for this start (`hit`, `miss` or `rebuilt (why)`, the faces it loaded, what the check and the load cost) and, from the thread that saves it after the scan, what was written (`Unchanged` for a hit that found nothing new) |
 | `app_run:*`, `run:*` | `App::run` and the platform's `run`: NSApplication, the menu, the launch hooks, `finishLaunching`, the event loop |
 | `window:*` | the window: the native window, the content view, the GL context and WebRender (GPU only), the layout window, the menu bar, accessibility, the display link |
 | `x11:*`, `wayland:*`, `win:*`, `android:*` | the same for the Linux, Windows and Android windows: the libraries, the display or the window class, the native window, the renderer (`render_backend` says `cpu` or `gpu` and what was asked for), the accessibility adapter, the map or the show |
@@ -87,3 +88,16 @@ With the debug server on (`AZ_DEBUG=<port>`) the same data is one JSON object: `
 - Say whether the run was COLD (the first start after minutes of nothing, or after an install: the loader, the font cache and the system's own caches are empty) or WARM, and how many runs the number is the median of. A cold start is what a user sees the first time.
 - Say the load of the machine (`uptime`) and the build profile: a debug build is several times slower in `App::create` and in the layout than a release build.
 - An emulator is not a phone, and a virtual machine is not a desktop: the shares of the phases matter more than the absolute numbers.
+
+## The font cache
+
+The first start of an app on a machine scans every font file of the system (about 200 ms for 370 fonts on macOS, more on a Linux desktop with thousands) and keeps what it found in a manifest, so that the next start loads a few hundred faces in 5 ms and scans nothing again. The manifest is `rfc/fonts/manifest.bin` in the platform's cache directory (`~/Library/Caches` on macOS and in an iOS app's container, `$XDG_CACHE_HOME` or `~/.cache` on Linux, `%LOCALAPPDATA%` on Windows, the app's own cache directory on Android), and `manifest.key` beside it vouches for it.
+
+A start believes the manifest only when the key file describes exactly that manifest (its length and a hash of it), was made by this build of azul on this OS build, for the same scanned directories, and every font file it lists still has the size and modification time it had. Anything else (no manifest, a cut or damaged one, an OS update, a font that changed or went away, a manifest another build wrote) is a rebuild: the scan runs as if there were no cache and the pair is replaced, atomically, when it is complete. The first frame never waits for the write, and a start that finds nothing new writes nothing. The `fonts:cache` mark of the timeline says which of the three happened and why:
+
+```text
+[startup]  14   31.2   4.6  main  fonts:cache hit, 812 faces, check 1.1 ms, load 3.4 ms
+[startup]  14   33.0  96.0  main  fonts:cache rebuilt (os build changed: 24F74 -> 24G90), 0 faces, check 0.9 ms, load 0.0 ms
+```
+
+To force a rebuild, remove the two files; nothing else keeps font data between runs.

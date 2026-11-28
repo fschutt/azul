@@ -45,7 +45,7 @@ use super::{
     frame_stats::FrameStats,
     gles_trace,
     gpu_lifecycle::{Action, Event, GpuLifecycle, Phase, Surface, TrimLevel},
-    gpu_renderer::{self, GpuDevice, InitParams, TextRendering},
+    gpu_renderer::{self, GpuDevice, InitParams, GpuTextRendering},
     gpu_select::{decide, Decision, FailPlan, GpuFallback, GpuRequest, GpuStage, Ran},
 };
 use crate::{
@@ -196,7 +196,7 @@ pub struct GlesGpu {
     /// The cache directory of compiled programs (`None`: not kept).
     shader_cache_dir: Option<PathBuf>,
     /// How WebRender draws text (what `AppConfig::text_antialiasing` asks for; the platform's default until told).
-    text: TextRendering,
+    text: GpuTextRendering,
     /// Wakes the loop from WebRender's backend thread when a frame is built.
     wake: Option<Arc<dyn Fn() + Send + Sync>>,
     mark: Option<Marker>,
@@ -273,7 +273,7 @@ impl GlesGpu {
             plan,
             options,
             shader_cache_dir,
-            text: TextRendering::default(),
+            text: GpuTextRendering::default(),
             wake,
             mark: None,
             frame_ready: Arc::new((Mutex::new(false), Condvar::new())),

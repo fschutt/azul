@@ -16,17 +16,28 @@ use crate::desktop::{
     startup_timeline::StartupTimeline,
 };
 
-/// Wait (off the calling thread) for the font scan to finish, then write the
-/// on-disk font manifest.
+/// Wait (off the calling thread) for the font scan to finish, then write the on-disk font manifest and its key file
+/// (`font_cache_guard`) - unless the cache was a hit and the scan found nothing new.
 ///
-/// Persisting must not happen on the layout thread  -  the serialize + write is
-/// real I/O  -  and it must not happen before the scan is complete: a manifest
-/// written mid-scan would describe a PARTIAL font set, and the next launch
-/// would load it, see `cache_loaded == true`, and lay out against a font
-/// universe missing most of the system's families. A partial cache is strictly
-/// worse than no cache, so an incomplete scan writes nothing at all.
+/// Persisting must not happen on the layout thread - the serialize + write is real I/O - and it must not happen
+/// before the scan is complete: a manifest written mid-scan would describe a PARTIAL font set, and the next launch
+/// would load it, see `cache_loaded == true`, and lay out against a font universe missing most of the system's
+/// families. A partial cache is strictly worse than no cache, so an incomplete scan writes nothing at all.
+///
+/// azul writes the pair itself (the registry's own `persist_on_complete` is off): the manifest by the registry's
+/// atomic save, then the key file that vouches for exactly the manifest that is on disk. The first frame never
+/// waits for any of it: this is a thread of its own, started after the window's fonts are asked for.
+///
+/// `loaded_faces` is the number of faces a HIT put in the registry: when the scan ends with as many, nothing new
+/// was found and nothing is written (a hit on every start used to rewrite the manifest on every start).
 #[cfg(all(not(miri), not(feature = "web")))]
-fn spawn_font_cache_persist(registry: Arc<FcFontRegistry>, cache_path: Option<std::path::PathBuf>) {
+fn spawn_font_cache_persist(
+    registry: Arc<FcFontRegistry>,
+    startup: Arc<StartupTimeline>,
+    manifest: std::path::PathBuf,
+    key: crate::desktop::font_cache_guard::Key,
+    loaded_faces: Option<usize>,
+) {
     use core::time::Duration;
 
     let spawned = std::thread::Builder::new()
@@ -42,18 +53,34 @@ fn spawn_font_cache_persist(registry: Arc<FcFontRegistry>, cache_path: Option<st
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
-            let saved = match cache_path.as_deref() {
-                Some(path) => registry.save_to_disk_cache_at(path),
-                None => registry.save_to_disk_cache(),
-            }
-            .is_some();
+            let faces = registry.cache.len();
+            let started = std::time::Instant::now();
+            let persisted = crate::desktop::font_cache_guard::persist(
+                &manifest,
+                &key,
+                loaded_faces,
+                faces,
+                |path| registry.save_to_disk_cache_at(path).is_some(),
+                || {
+                    registry
+                        .list()
+                        .into_iter()
+                        .filter_map(|(_, id)| registry.get_disk_font_path(&id).map(|font| font.path))
+                        .collect()
+                },
+            );
+            startup.mark_with("fonts:cache_written", || {
+                format!("{persisted:?}, {faces} faces, {:.1} ms", started.elapsed().as_secs_f64() * 1000.0)
+            });
             debug_server::log(
                 debug_server::LogLevel::Info,
                 debug_server::LogCategory::Resources,
-                if saved {
-                    "Persisted font metadata to disk cache"
-                } else {
-                    "Failed to persist font metadata to disk cache"
+                match persisted {
+                    crate::desktop::font_cache_guard::Persisted::Written => "Persisted font metadata to disk cache",
+                    crate::desktop::font_cache_guard::Persisted::Failed => {
+                        "Failed to persist font metadata to disk cache"
+                    }
+                    _ => "Font cache left as it was",
                 },
                 None,
             );
@@ -940,23 +967,72 @@ impl AppInternal {
             // snapshot of it (`shared_cache`) shares this config.
             azul_layout::font::loading::use_browser_generic_families(&registry.cache);
 
-            // Try to load on-disk font cache (~10-20ms if cache exists, 0ms otherwise)
-            // The font manifest lives in the platform's cache directory (`dirs::cache_dir()`), and an Android app
-            // has none by its reckoning (`HOME` is unset): there the app's own cache directory is named here, or
-            // every launch scanned and parsed the phone's fonts again.
-            let cache_path = font_cache_path_override();
-            let had_cache = match cache_path.as_deref() {
-                Some(path) => registry.load_from_disk_cache_at(path),
-                None => registry.load_from_disk_cache(),
+            // The on-disk font cache: the manifest of a scan of the system's fonts, believed only when it is checked
+            // (`font_cache_guard`): its key file must describe it, under this build of azul and this OS build, and
+            // every font file it lists must be as it was. A hit loads in ~5 ms and scans nothing again; anything
+            // else (no manifest, a cut or damaged one, an OS update, a font that changed or went away) scans as
+            // if there were none and replaces the pair when the scan is complete.
+            //
+            // The manifest lives in the platform's cache directory (`dirs::cache_dir()`), and an Android app has
+            // none by its reckoning (`HOME` is unset): there the app's own cache directory is named here, or every
+            // launch scanned and parsed the phone's fonts again.
+            let manifest_path = font_cache_path_override()
+                .or_else(rust_fontconfig::disk_cache::get_font_cache_path);
+            // azul writes the manifest and its key file together (the persist thread below); the registry's own
+            // write at the end of every scan, a hit's included, would leave a manifest the key file does not describe.
+            registry.set_persist_on_complete(false);
+            let cache_key = crate::desktop::font_cache_guard::Key::current(
+                rust_fontconfig::disk_cache::FontManifest::CURRENT_VERSION,
+                registry.scan_dirs(),
+            );
+            let check_started = std::time::Instant::now();
+            let verdict = match manifest_path.as_deref() {
+                None => crate::desktop::font_cache_guard::Verdict::NoDirectory,
+                Some(path) => crate::desktop::font_cache_guard::check(path, &cache_key),
             };
+            let check_ms = check_started.elapsed().as_secs_f64() * 1000.0;
+            let load_started = std::time::Instant::now();
+            let (cache_verdict, had_cache) = match (&verdict, manifest_path.as_deref()) {
+                (crate::desktop::font_cache_guard::Verdict::Hit, Some(path)) => {
+                    match registry.load_from_disk_cache_at(path) {
+                        Some(()) => (verdict.clone(), Some(())),
+                        None => (
+                            crate::desktop::font_cache_guard::Verdict::Rebuilt(
+                                crate::desktop::font_cache_guard::Reason::ManifestRejected,
+                            ),
+                            None,
+                        ),
+                    }
+                }
+                _ => (verdict.clone(), None),
+            };
+            let load_ms = load_started.elapsed().as_secs_f64() * 1000.0;
+            // What the cache put in the registry, read before the scan threads exist (they add to it).
+            let loaded_faces = had_cache.map(|()| registry.cache.len());
             startup.mark_with("fonts:disk_cache_read", || {
                 format!("loaded={}", had_cache.is_some())
+            });
+            // `fonts:cache hit|miss|rebuilt (why), N faces, check X ms, load Y ms`: what the cache did for this
+            // start and what the check of it cost (the scan of a miss is `font_dirs_scanned` / `font_scan_complete`).
+            startup.mark_with("fonts:cache", || {
+                format!(
+                    "{}, {} faces, check {check_ms:.1} ms, load {load_ms:.1} ms",
+                    cache_verdict.describe(),
+                    loaded_faces.unwrap_or(0),
+                )
             });
             if had_cache.is_some() {
                 debug_server::log(
                     debug_server::LogLevel::Info,
                     debug_server::LogCategory::Resources,
                     "Loaded font metadata from disk cache",
+                    None,
+                );
+            } else if let crate::desktop::font_cache_guard::Verdict::Rebuilt(why) = &cache_verdict {
+                debug_server::log(
+                    debug_server::LogLevel::Info,
+                    debug_server::LogCategory::Resources,
+                    &format!("Font cache not used: {why}"),
                     None,
                 );
             }
@@ -966,23 +1042,16 @@ impl AppInternal {
             startup.mark("fonts:scan_threads_spawned");
             spawn_font_scan_watch(Arc::clone(&registry), Arc::clone(&startup), had_cache.is_some());
 
-            // Persist the scan so the NEXT launch can take the ~10-20ms
-            // `load_from_disk_cache()` path above instead of re-scanning every
-            // font on the system (~190ms on macOS, ~370 files).
-            //
-            // Without this, `load_from_disk_cache()` missed on every single
-            // launch: `rust_fontconfig::FcFontRegistry::save_to_disk_cache`
-            // had no caller anywhere — not in azul, and not inside
-            // rust-fontconfig itself — so `dirs::cache_dir()/rfc/fonts/
-            // manifest.bin` was never created and the branch above was dead
-            // code that could only ever take its `else`.
-            //
-            // rust-fontconfig >= 4.4.12 persists from its own builder thread;
-            // this call is what makes the fix work against the 4.4.x we
-            // currently pin, and is harmless once the crate does it too (the
-            // second write is a byte-identical atomic replace).
-            if had_cache.is_none() {
-                spawn_font_cache_persist(Arc::clone(&registry), cache_path);
+            // Persist the scan so the NEXT launch can take the ~5 ms load above instead of re-scanning every
+            // font on the system (~190 ms on macOS, ~370 files). A hit that finds nothing new writes nothing.
+            if let Some(path) = manifest_path {
+                spawn_font_cache_persist(
+                    Arc::clone(&registry),
+                    Arc::clone(&startup),
+                    path,
+                    cache_key,
+                    loaded_faces,
+                );
             }
 
             // Start with an empty FcFontCache; it will be populated at first layout

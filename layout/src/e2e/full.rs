@@ -23466,17 +23466,11 @@ fn serve_debug_event(
             let result = {
                 #[cfg(target_os = "macos")]
                 {
-                    // macOS `open` doesn't support line numbers, so try `code --goto` first for
-                    // precision
-                    if *line > 0 {
-                        std::process::Command::new("open")
-                            .arg(file.as_str())
-                            .spawn()
-                    } else {
-                        std::process::Command::new("open")
-                            .arg(file.as_str())
-                            .spawn()
-                    }
+                    // macOS `open` takes no line number: the file opens in its default app
+                    // (`line` is only informative here, as on the other desktops).
+                    std::process::Command::new("open")
+                        .arg(file.as_str())
+                        .spawn()
                 }
                 #[cfg(target_os = "linux")]
                 {

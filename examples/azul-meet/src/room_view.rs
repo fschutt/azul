@@ -29,7 +29,8 @@ pub(crate) fn open_room_view(s: &mut MeetState, id: &str, join: bool) {
     s.notice.clear();
     println!("AZMEET_OPEN {id}");
     remember_room(s, id);
-    // Between calls the room's chat travels over the members online.
+    // Between calls the room's chat travels over the members online: the endpoint is bound now, the first time a room's view is opened.
+    ensure_endpoint(s, false);
     chat_link::open(s, id);
 }
 
@@ -214,10 +215,6 @@ pub(crate) extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Up
     // ends (`AzMeet --screen waiting --test-pattern --shot waiting.png`).
     if let Some(kit_ref) = data.downcast_ref::<MeetState>().map(|s| s.kit.clone()) {
         kit::on_window_created(&kit_ref, &mut info);
-    }
-    // Android: the iroh endpoint is bound now, with the activity there (`start_rooms`).
-    if let Some(mut s) = data.downcast_mut::<MeetState>() {
-        crate::bind_deferred_endpoint(&mut s);
     }
     let get_time = info.get_system_time_fn();
     info.add_timer(
