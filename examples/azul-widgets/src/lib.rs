@@ -27,6 +27,7 @@ mod notifications;
 mod sounds;
 mod tab_looks;
 mod materials;
+mod display_settings;
 mod video;
 
 #[derive(Clone)]
@@ -972,6 +973,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let tabs = tabs_section(&data, &s.tabs, s.active_tab);
     let tab_looks = tab_looks::tab_looks_section(&data, &s.tab_looks, theme);
     let materials = materials::materials_section(&data, &s.materials, theme);
+    let display_settings = display_settings::display_settings_section(theme);
     // `get_mode` DECLARES that this DOM depends on the light / dark the
     // window shows (the "System (dark)" note): a mode switch re-runs this
     // `layout()` rather than only re-styling the page.
@@ -1178,6 +1180,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_child(tabs)
                 .with_child(tab_looks)
                 .with_child(materials)
+                .with_child(display_settings)
                 .with_child(docking)
                 .with_child(navigation)
                 .with_child(overlays)
