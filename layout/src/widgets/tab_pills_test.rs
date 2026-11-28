@@ -262,7 +262,7 @@ fn every_lane_ends_in_a_fade_and_the_first_and_last_pill_stand_outside_of_it() {
     for preset in [DisplayPreset::Pixel8, DisplayPreset::DoubleHole] {
         let band = band_of(preset, 360.0, 720.0);
         let lanes = band.lane_spans().len();
-        assert_eq!(super::lane_fades(Some(&band), 48.0).len(), 2 * lanes, "{preset:?}: two fades per lane");
+        assert_eq!(super::lane_fades(Some(&band), 48.0, 0.0).len(), 2 * lanes, "{preset:?}: two fades per lane");
         // ... and at rest the first and the last pill stand beyond the fade, so it dims nothing.
         let scroll = super::StripScrollData::for_band(Some(&band), Vec::new());
         let first_lane_left = band.lane_spans().first().map_or(0.0, |lane| lane.0);
@@ -274,7 +274,7 @@ fn every_lane_ends_in_a_fade_and_the_first_and_last_pill_stand_outside_of_it() {
         );
     }
     // The whole row without a band: one lane, two fades.
-    assert_eq!(super::lane_fades(None, 48.0).len(), 2);
+    assert_eq!(super::lane_fades(None, 48.0, 0.0).len(), 2);
 }
 
 #[test]

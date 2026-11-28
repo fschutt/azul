@@ -166,10 +166,14 @@ fn touch_header(
     theme: UiTheme,
     band: Option<StatusBarBand>,
 ) -> Dom {
+    // The window's ONE chevron (folds the content of the tabs away): this strip draws it when it is the
+    // page's strip - the band on a phone, or the section's own while the window sits on no phone (the
+    // first strip of a build that asks has it, and the section is built before the band).
     let header = TabHeader::create(strs(&TOUCH_TABS))
         .with_active_tab(demo.touch_active)
         .with_style(TabStyle::TouchPills)
         .with_theme(theme)
+        .with_content_toggle(band.is_some() || demo.phone == 0)
         .with_on_click(data.clone(), on_touch_tab as TabOnClickCallbackType);
     match band {
         Some(band) => header.with_status_bar(band).dom(),
@@ -189,6 +193,7 @@ fn touch_panel(data: &RefAny, demo: &TabLooksDemo, theme: UiTheme) -> Dom {
         Dom::create_p_with_text(format!("{label} panel"))
             .with_css("margin: 0px; color: system:text; min-height: 120px;"),
     )
+    .with_content_toggle(true)
     .with_switch(demo.touch_previous, demo.touch_active)
     .with_theme(theme)
     .with_flip_of(&header)

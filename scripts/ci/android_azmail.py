@@ -8,8 +8,8 @@
    folder is put, as root, where the first start said its mail folder is (the line `[azmail] N account(s) in <folder>` of its log), owned by the app,
    and the app is started again: a phone app has no command line, hence no `--sample`, and it reads AZMAIL_DATA with std::env::var, which a phone's
    `debug.az.env` does not reach (the engine's environment reader answers from it, the process environment does not hold it);
-3. best effort, each step a picture and a dump whatever happens: a tap on the first message of the list (the reading pane), BACK, a tap on the
-   `New E-mail` command (compose). A step whose label the dump does not show says so; nothing aborts the rest.
+3. best effort, each step a picture and a dump whatever happens: a tap on the first message of the list (the reading pane), a tap on the
+   `New E-mail` command (compose; no BACK in between: it leaves the app on a phone). A step whose label the dump does not show says so; nothing aborts the rest.
 
 Everything lands in DIR: shots/NN-<name>.png (the device's own pixels), ui/<name>.xml (the dumps), azmail.log (the app's lines of logcat), steps.json
 (what each step did and found). Exit 0 whenever the app ran; 1 when the APK did not install. Nothing here judges the app: the pictures are the answer."""
@@ -179,8 +179,7 @@ def main(argv):
                 shot(f"azmail-reading{tag}")
                 dump_ui(dev, out, f"reading{tag}")
                 step("open-a-message", True, f"tapped {hit[0]!r} at {hit[1]},{hit[2]}")
-                dev.back()
-                time.sleep(4.0)
+                # no BACK here: on a phone the reading pane is not a screen of its own, BACK left the app (the first run's compose step then saw the launcher)
             else:
                 step("open-a-message", False, "none of the sample subjects is in the dump (the mailbox did not load, or the list shows other labels)")
             xml = dump_ui(dev, out, f"before-compose{tag}")
