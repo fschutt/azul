@@ -65,7 +65,7 @@ use azul_core::{
 };
 use azul_css::{
     impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, props::layout::LayoutHeight,
-    props::layout::LayoutWidth, props::property::CssProperty, AzString,
+    props::layout::LayoutWidth, props::property::{CssProperty, CssPropertyType}, AzString,
 };
 
 pub use super::sidebar_layout::PreviewDock;
@@ -73,9 +73,9 @@ use super::{
     dialog::{Dialog, DialogClosedBy},
     sidebar::SidebarSurface,
     sidebar_layout::{
-        clamp_pane_height, clamp_preview_width, dragged_pane_height, dragged_preview_width, pane_max,
-        settle_pane_height, step_size, toggle_pane_height, FormFactor, GripKey, BORDER_GRAB,
-        GRIP_HEIGHT, GRIP_SLOP, PANE_COLLAPSED, PREVIEW_WIDTH_DEFAULT,
+        clamp_pane_height, clamp_preview_width, dragged_pane_height, dragged_preview_width_at, pane_max,
+        preview_edge, settle_pane_height, step_size, toggle_pane_height, Edge, FormFactor, GripKey,
+        BORDER_GRAB, BUILT_FOR, GRIP_HEIGHT, GRIP_SLOP, PANE_COLLAPSED, PREVIEW_WIDTH_DEFAULT,
     },
     themes::{OptionUiTheme, UiTheme},
     widget_p_with_text,
@@ -323,6 +323,9 @@ pub struct Preview {
     pub details: PreviewDetailVec,
     /// The pane's title ("Preview", the item's name): its header and its accessible name.
     pub title: AzString,
+    /// The DOM id of the Preview's root (`#id` in a selector, an e2e script finds it by it); empty
+    /// for none.
+    pub dom_id: AzString,
     /// The widget theme this Preview is PINNED to, or `None` to follow the app theme.
     pub theme: OptionUiTheme,
     /// Where the pane is docked; `Auto` is the right on a desktop and the bottom on a phone.
@@ -352,6 +355,7 @@ impl Preview {
             banner: OptionPreviewBanner::None,
             details: PreviewDetailVec::from_const_slice(&[]),
             title: AzString::from_const_str("Preview"),
+            dom_id: AzString::from_const_str(""),
             theme: OptionUiTheme::None,
             dock: PreviewDock::Auto,
             form: FormFactor::Auto,
@@ -370,6 +374,18 @@ impl Preview {
     #[must_use]
     pub fn with_title(mut self, title: AzString) -> Self {
         self.set_title(title);
+        self
+    }
+
+    /// The DOM id of the Preview's root, so that a selector (`#mail-preview`) names it.
+    pub fn set_dom_id(&mut self, dom_id: AzString) {
+        self.dom_id = dom_id;
+    }
+
+    /// [`Self::set_dom_id`] for the builder chain.
+    #[must_use]
+    pub fn with_dom_id(mut self, dom_id: AzString) -> Self {
+        self.set_dom_id(dom_id);
         self
     }
 
@@ -554,6 +570,8 @@ impl From<Preview> for Dom {
 #[derive(Clone)]
 struct DragState {
     on_event: OptionPreviewOnEvent,
+    /// The edge a right dock stands at (`preview_edge`: the one place that decides it).
+    edge: Edge,
     dock: PreviewDock,
     size: f32,
     dragging: bool,
@@ -573,7 +591,7 @@ impl DragState {
             let top = h - self.size;
             y >= top - 2.0 && y <= top + GRIP_HEIGHT
         } else {
-            let border = w - self.size;
+            let border = if self.edge == Edge::Right { w - self.size } else { self.size };
             (x - border).abs() <= BORDER_GRAB / 2.0 + 3.0
         }
     }
@@ -590,7 +608,7 @@ impl DragState {
     fn size_at(&self, now: f32, w: f32, h: f32) -> f32 {
         match self.dock {
             PreviewDock::Bottom => dragged_pane_height(self.start_size, self.start_main, now, h),
-            _ => dragged_preview_width(self.start_size, self.start_main, now, w),
+            _ => dragged_preview_width_at(self.edge, self.start_size, self.start_main, now, w),
         }
     }
 }
@@ -600,6 +618,30 @@ fn size_property(dock: PreviewDock, px: f32) -> CssProperty {
         PreviewDock::Bottom => CssProperty::const_height(LayoutHeight::px(px)),
         _ => CssProperty::const_width(LayoutWidth::px(px)),
     }
+}
+
+/// The pane's size property type: the one the drag writes.
+const fn size_type(dock: PreviewDock) -> CssPropertyType {
+    match dock {
+        PreviewDock::Bottom => CssPropertyType::Height,
+        _ => CssPropertyType::Width,
+    }
+}
+
+/// While the pointer or a key is moving the pane: a cascade-only write of its size (the override
+/// channel, cheap enough for every move of a drag).
+fn size_while_moving(info: &mut CallbackInfo, pane: azul_core::dom::DomNodeId, dock: PreviewDock, px: f32) {
+    info.override_css_property(pane, size_property(dock, px));
+}
+
+/// When the size is settled: written into the pane's own style, and the override of the drag
+/// DROPPED. An override follows the node's identity across the app's next rebuild and outranks
+/// what the app builds, so one left behind would hold the pane at the dragged size when the app
+/// later moves it by itself (a command, a new selection): the pane keeps the size until the
+/// app's next build, and from then on what the app builds is the truth again.
+fn size_settled(info: &mut CallbackInfo, pane: azul_core::dom::DomNodeId, dock: PreviewDock, px: f32) {
+    info.set_css_property(pane, size_property(dock, px));
+    info.override_css_property(pane, CssProperty::initial(size_type(dock)));
 }
 
 /// Tells the app: the event as the state has it now.
@@ -668,7 +710,7 @@ extern "C" fn on_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     st.size = size;
     let container = info.get_hit_node();
     if let Some(pane) = pane_of(&info, container) {
-        info.set_css_property(pane, size_property(st.dock, size));
+        size_while_moving(&mut info, pane, st.dock, size);
     }
     report(&mut st, info, PreviewEventKind::Resized)
 }
@@ -696,20 +738,32 @@ extern "C" fn on_release(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     }
     if let Some(pane) = pane_of(&info, container) {
-        info.set_css_property(pane, size_property(st.dock, st.size));
+        size_settled(&mut info, pane, st.dock, st.size);
     }
     report(&mut st, info, PreviewEventKind::Settled)
 }
 
-/// A leave with the button already up is a release that never came: the drag ends.
-extern "C" fn on_leave(mut data: RefAny, info: CallbackInfo) -> Update {
+/// A leave with the button already up is a release that never came: the drag ends where it is
+/// (the override of the drag is dropped, the size stays in the pane's own style).
+extern "C" fn on_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if info.get_current_mouse_state().left_down {
         return Update::DoNothing;
     }
-    if let Some(mut st) = data.downcast_mut::<DragState>() {
-        st.dragging = false;
+    let Some(mut st) = data.downcast_mut::<DragState>() else {
+        return Update::DoNothing;
+    };
+    if !st.dragging {
+        return Update::DoNothing;
     }
-    Update::DoNothing
+    st.dragging = false;
+    if !st.moved {
+        return Update::DoNothing;
+    }
+    let container = info.get_hit_node();
+    if let Some(pane) = pane_of(&info, container) {
+        size_settled(&mut info, pane, st.dock, st.size);
+    }
+    report(&mut st, info, PreviewEventKind::Settled)
 }
 
 /// The arrow keys on the focused grip (the APG window splitter): by 16 px, 64 with Ctrl / Cmd,
@@ -726,8 +780,13 @@ extern "C" fn on_grip_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let key = match code {
         VirtualKeyCode::Up if bottom => GripKey::Grow,
         VirtualKeyCode::Down if bottom => GripKey::Shrink,
-        VirtualKeyCode::Left if !bottom => GripKey::Grow,
-        VirtualKeyCode::Right if !bottom => GripKey::Shrink,
+        // a dock grows toward the inside: to the left from the right edge, to the right from the left
+        VirtualKeyCode::Left if !bottom => {
+            if st.edge == Edge::Right { GripKey::Grow } else { GripKey::Shrink }
+        }
+        VirtualKeyCode::Right if !bottom => {
+            if st.edge == Edge::Right { GripKey::Shrink } else { GripKey::Grow }
+        }
         VirtualKeyCode::Home => GripKey::ToMin,
         VirtualKeyCode::End => GripKey::ToMax,
         VirtualKeyCode::Return | VirtualKeyCode::Space if bottom => {
@@ -747,7 +806,7 @@ extern "C" fn on_grip_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     info.prevent_default();
     st.size = step_size(st.dock, key, st.size, ks.primary_down(), rect.width, rect.height);
-    info.set_css_property(pane, size_property(st.dock, st.size));
+    size_settled(&mut info, pane, st.dock, st.size);
     report(&mut st, info, PreviewEventKind::Settled)
 }
 
@@ -776,7 +835,7 @@ fn toggled_by_key(st: &mut DragState, mut info: CallbackInfo) -> Update {
     };
     info.prevent_default();
     st.size = toggle_pane_height(st.size, rect.height);
-    info.set_css_property(pane, size_property(st.dock, st.size));
+    size_settled(&mut info, pane, st.dock, st.size);
     report(st, info, PreviewEventKind::Settled)
 }
 
@@ -963,16 +1022,25 @@ fn build(i: Preview) -> Dom {
         banner,
         details,
         title,
+        dom_id,
         theme,
         surface,
         open,
         ..
     } = i;
     let bottom = dock == PreviewDock::Bottom;
+    // the edge a right dock stands at (the one place that decides it, `preview_edge`)
+    let edge = preview_edge(BUILT_FOR);
     let root_css = format!(
         "display: flex; flex-direction: {}; flex-grow: 1; min-width: 0px; min-height: 0px; width: 100%; \
          height: 100%; overflow: hidden; position: relative; box-sizing: border-box;",
-        if bottom { "column" } else { "row" }
+        if bottom {
+            "column"
+        } else if edge == Edge::Right {
+            "row"
+        } else {
+            "row-reverse"
+        }
     );
     let body = styled(
         Dom::create_div().with_child(body),
@@ -983,12 +1051,16 @@ fn build(i: Preview) -> Dom {
     let dock_class = if bottom { PREVIEW_BOTTOM_CLASS } else { PREVIEW_RIGHT_CLASS };
 
     if !open {
-        return styled(Dom::create_div().with_child(body), &root_css)
-            .with_ids_and_classes(classes(&[PREVIEW_CLASS, dock_class]));
+        return with_dom_id(
+            styled(Dom::create_div().with_child(body), &root_css)
+                .with_ids_and_classes(classes(&[PREVIEW_CLASS, dock_class])),
+            &dom_id,
+        );
     }
 
     let state = RefAny::new(DragState {
         on_event,
+        edge,
         dock,
         size,
         dragging: false,
@@ -1021,8 +1093,9 @@ fn build(i: Preview) -> Dom {
         styled(
             Dom::create_div(),
             &format!(
-                "position: absolute; left: -{half}px; top: 0px; bottom: 0px; width: {BORDER_GRAB}px; \
+                "position: absolute; {side}: -{half}px; top: 0px; bottom: 0px; width: {BORDER_GRAB}px; \
                  cursor: col-resize; z-index: 3; :hover {{ background: rgba(127, 127, 127, 0.22); }}",
+                side = edge.inward_offset(),
                 half = BORDER_GRAB / 2.0
             ),
         )
@@ -1112,7 +1185,8 @@ fn build(i: Preview) -> Dom {
     } else {
         format!(
             "display: flex; flex-direction: column; flex-grow: 0; flex-shrink: 0; width: {size}px; height: 100%; \
-             box-sizing: border-box; position: relative; border-left: 1px solid system:separator; {}",
+             box-sizing: border-box; position: relative; {}: 1px solid system:separator; {}",
+            edge.inner_border(),
             ground(surface)
         )
     };
@@ -1120,8 +1194,11 @@ fn build(i: Preview) -> Dom {
         .with_ids_and_classes(classes(&[PREVIEW_PANE_CLASS]))
         .with_accessibility_info(AccessibilityInfo::named(title, AccessibilityRole::Pane));
 
-    styled(Dom::create_div().with_children(DomVec::from_vec(alloc::vec![body, pane])), &root_css)
-        .with_ids_and_classes(classes(&[PREVIEW_CLASS, dock_class]))
+    with_dom_id(
+        styled(Dom::create_div().with_children(DomVec::from_vec(alloc::vec![body, pane])), &root_css)
+            .with_ids_and_classes(classes(&[PREVIEW_CLASS, dock_class])),
+        &dom_id,
+    )
         .with_callbacks(
             alloc::vec![
                 cb(EventFilter::Hover(HoverEventFilter::MouseDown), state.clone(), on_press),
@@ -1136,6 +1213,15 @@ fn build(i: Preview) -> Dom {
         )
         .with_dataset(OptionRefAny::Some(state))
         .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_preview_state))
+}
+
+/// `dom` with the DOM id the app asked for (none: as it is).
+fn with_dom_id(dom: Dom, dom_id: &AzString) -> Dom {
+    if dom_id.as_str().is_empty() {
+        dom
+    } else {
+        dom.with_id(dom_id.clone())
+    }
 }
 
 /// `pane_max` for the callers that name the whole range of a pane in a container `h` tall.

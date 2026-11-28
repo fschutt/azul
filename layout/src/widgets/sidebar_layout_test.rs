@@ -69,6 +69,16 @@ fn the_window_controls_overhang_the_rail_they_do_not_widen_it() {
     assert!(near(header_left_pad(78.0, RAIL_WIDTH), 60.0));
 }
 
+#[test]
+fn a_drag_inward_of_24_px_that_is_mostly_horizontal_opens_the_drawer() {
+    assert!(swipe_opens(24.0, 0.0));
+    assert!(swipe_opens(40.0, 15.0));
+    assert!(!swipe_opens(23.9, 0.0), "too short");
+    assert!(!swipe_opens(40.0, 25.0), "mostly vertical: that is a scroll of the rail");
+    assert!(!swipe_opens(-40.0, 0.0), "outward opens nothing");
+    assert!(!swipe_opens(f32::NAN, 0.0) && !swipe_opens(40.0, f32::INFINITY));
+}
+
 // what is drawn is 18 px with 13 px icons; what is hit reaches 18 px further inward, and a drag
 // inward of 24 px opens the drawer: checked when this compiles
 const _: () = assert!(RAIL_ICON_PX >= 12.0 && RAIL_ICON_PX <= 14.0);
@@ -311,4 +321,34 @@ fn a_key_never_takes_the_pane_past_its_limits() {
     assert!(near(step_size(PreviewDock::Right, GripKey::Shrink, 200.0, true, 1200.0, 700.0), PREVIEW_WIDTH_MIN));
     assert!(near(step_size(PreviewDock::Bottom, GripKey::Shrink, 56.0, true, 400.0, 800.0), PANE_COLLAPSED));
     assert!(near(step_size(PreviewDock::Bottom, GripKey::Grow, 680.0, true, 400.0, 800.0), 680.0));
+}
+
+// ---- the edges ----
+
+#[test]
+fn a_right_handed_user_has_the_sidebar_at_the_left_and_the_preview_at_the_right() {
+    assert_eq!(sidebar_edge(Handedness::RightHanded), Edge::Left);
+    assert_eq!(preview_edge(Handedness::RightHanded), Edge::Right);
+    assert_eq!(BUILT_FOR, Handedness::RightHanded, "the family is built for right-handed users only, now");
+    // the mirror is ONE switch each: a left-handed user gets the other side
+    assert_eq!(sidebar_edge(Handedness::LeftHanded), Edge::Right);
+    assert_eq!(preview_edge(Handedness::LeftHanded), Edge::Left);
+}
+
+#[test]
+fn an_edge_names_its_css_and_the_way_inward() {
+    assert_eq!(Edge::Left.inner_border(), "border-right");
+    assert_eq!(Edge::Right.inner_border(), "border-left");
+    assert_eq!((Edge::Left.offset(), Edge::Right.offset()), ("left", "right"));
+    assert_eq!((Edge::Left.margin_outer(), Edge::Right.margin_outer()), ("margin-left", "margin-right"));
+    assert_eq!((Edge::Left.align_start(), Edge::Right.align_start()), ("flex-start", "flex-end"));
+    assert!(near(Edge::Left.inward(), 1.0) && near(Edge::Right.inward(), -1.0));
+}
+
+#[test]
+fn a_swipe_inward_opens_the_drawer_from_either_edge() {
+    assert!(swipe_opens_at(Edge::Left, 30.0, 0.0));
+    assert!(!swipe_opens_at(Edge::Left, -30.0, 0.0));
+    assert!(swipe_opens_at(Edge::Right, -30.0, 0.0), "from the right edge inward is toward smaller x");
+    assert!(!swipe_opens_at(Edge::Right, 30.0, 0.0));
 }

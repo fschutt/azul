@@ -25,6 +25,7 @@ tested: azul-doc                # azul_doc_tests (`--bins`: azul-doc has NO lib 
 
 # ── demo apps that carry real assertions
 tested: AzPaint              # dll_tests (reuses that job's azul-dll build)
+tested: AzSelfTest           # dll_tests (the QA self-test app: the report's numbered parts, the rendered rows; no window)
 tested: AzMaps               # dll_tests (the arrow-button projection math, pan_tests)
 tested: AzWriter             # dll_tests (ditto)
 tested: AzReview             # dll_tests (the WAV writer: header/sample-count and clipping)

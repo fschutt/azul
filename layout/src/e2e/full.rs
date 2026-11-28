@@ -3515,6 +3515,15 @@ pub enum DebugEvent {
         #[serde(default)]
         launched_app: bool,
     },
+    /// `{ "op": "simulate_lifecycle", "event": "paused" }` - the app's life, as a phone's shell reports
+    /// it: `paused` (sent to the background), `resumed`, `low_memory` or `will_terminate`. The event is
+    /// queued into the app's lifecycle mailbox (`AppServices::lifecycle`); the dll's event pass runs the
+    /// handler the app set with `CallbackInfo::set_lifecycle_handler` before the next `wait_frame`
+    /// completes (an app without a handler hears nothing). Needs the dll's event pass: the in-crate
+    /// runner has none, so there the event only waits in the mailbox. An error for an unknown `event`.
+    SimulateLifecycle {
+        event: String,
+    },
 
     // `<webview>` (`azul_core::webview`, `managers::webview`). The headless
     // backend and the in-crate runner have no browser: the scenario plays
@@ -6706,6 +6715,23 @@ fn notification_event_from_op(
     Ok(event)
 }
 
+/// The names `simulate_lifecycle` takes for its `event`.
+const LIFECYCLE_EVENT_NAMES: &str = "paused, resumed, low_memory, will_terminate";
+
+/// The lifecycle event a scenario named, in any case and with `-` or `_` between the words.
+fn lifecycle_event_from_op(name: &str) -> Result<azul_core::lifecycle::LifecycleEvent, String> {
+    use azul_core::lifecycle::LifecycleEvent as E;
+
+    let normalised = name.trim().to_ascii_lowercase().replace('-', "_");
+    match normalised.as_str() {
+        "paused" => Ok(E::Paused),
+        "resumed" => Ok(E::Resumed),
+        "low_memory" | "lowmemory" => Ok(E::LowMemory),
+        "will_terminate" | "willterminate" => Ok(E::WillTerminate),
+        _ => Err(format!("unknown event {name:?} ({LIFECYCLE_EVENT_NAMES})")),
+    }
+}
+
 /// The name `assert_global_hotkeys` reports a status with: the failure's
 /// reason for a `Failed` one.
 const fn global_hotkey_status_name(status: &azul_core::global_hotkey::GlobalHotkeyStatus) -> &'static str {
@@ -8058,7 +8084,9 @@ fn lift_rect_to_window_space(
 /// `VirtualView`'s document and a `<transient-window>`'s content are laid out,
 /// but their nodes are not in the parent window's hit-test structure, so
 /// `get_node_hit_test_bounds` answers `None` for every one of them and a
-/// selector click into `AzWriter`'s document could only ever fail.
+/// selector click into `AzWriter`'s document could only ever fail. In the
+/// window's own DOM the fallback is the box where it is DRAWN (a label inside
+/// a button has no hit-test area, and a text click lands on the label).
 #[cfg(feature = "std")]
 fn node_centre_for_click(
     callback_info: &azul_layout::callbacks::CallbackInfo,
@@ -8066,7 +8094,20 @@ fn node_centre_for_click(
 ) -> Option<(f32, f32)> {
     callback_info
         .get_node_hit_test_bounds(dom_node_id)
-        .or_else(|| callback_info.get_node_rect(dom_node_id))
+        .or_else(|| {
+            if dom_node_id.dom == ROOT_DOM_ID {
+                // The window's own DOM: the box where it is DRAWN. A label inside a button has no
+                // hit-test area, and its laid-out box is in content coordinates: inside a scrolled
+                // page that is far off the window, and the click missed (the showcase's "Pixel 8" and
+                // "Review", tab_touch.json, 2026-11-28).
+                callback_info
+                    .get_layout_window()
+                    .get_node_laid_out_bounds_on_screen(dom_node_id)
+            } else {
+                // A child DOM: `lift_rect_to_window_space` puts it in its host's place.
+                callback_info.get_node_rect(dom_node_id)
+            }
+        })
         .map(|rect| lift_rect_to_window_space(callback_info, dom_node_id.dom, rect))
         .map(|rect| {
             (
@@ -8119,17 +8160,39 @@ fn reveal_click_target(
         };
         target = parent;
     }
-    let options = ScrollIntoViewOptions {
+    let nearest = ScrollIntoViewOptions {
         block: ScrollLogicalPosition::Nearest,
         inline_axis: ScrollLogicalPosition::Nearest,
         behavior: ScrollIntoViewBehavior::Instant,
     };
-    let adjustments = callback_info
+    let now = azul_core::task::Instant::now();
+    let needed = callback_info
         .get_layout_window()
-        .scroll_into_view_dry_run(target, options, azul_core::task::Instant::now());
-    if adjustments.is_empty() {
+        .scroll_into_view_dry_run(target, nearest, now.clone());
+    if needed.is_empty() {
         return at;
     }
+    // Scrolled, it is put in the MIDDLE of what shows on the axes that move: "nearest" leaves it flush
+    // with the edge of its scroll container, and that is where an overlay scrollbar lies - a press
+    // there is the scrollbar's, not the target's (the showcase's "Pixel 8" button, tab_touch.json).
+    let (needed_x, needed_y) = needed
+        .iter()
+        .fold((0.0_f32, 0.0_f32), |(x, y), a| (x + a.delta.x, y + a.delta.y));
+    let axis = |moves: f32| {
+        if moves == 0.0 {
+            ScrollLogicalPosition::Nearest
+        } else {
+            ScrollLogicalPosition::Center
+        }
+    };
+    let options = ScrollIntoViewOptions {
+        block: axis(needed_y),
+        inline_axis: axis(needed_x),
+        behavior: ScrollIntoViewBehavior::Instant,
+    };
+    let adjustments = callback_info
+        .get_layout_window()
+        .scroll_into_view_dry_run_clamped(target, options, now);
     callback_info.scroll_node_into_view(target, options);
     let (dx, dy) = adjustments
         .iter()
@@ -11698,6 +11761,16 @@ static UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
          X10 has nothing to judge. Routing and delivery are pinned by layout/tests/tray_events.rs",
     ),
     (
+        "lifecycle",
+        "owns no window state: the tray's shape. One mutex mailbox of the APP (`AppServices::lifecycle`) \
+         that the platform's own callbacks (an Android activity method, an iOS application delegate \
+         method) queue paused / resumed / low-memory / will-terminate events in, the handler the app \
+         installed (one for the app, not one per window), and a 'current event' slot set only for the \
+         duration of one delivery. The app's life belongs to the app, not to a window, and nothing is \
+         node-keyed, so X10 has nothing to judge. Routing and delivery are pinned by \
+         layout/src/managers/lifecycle_test.rs",
+    ),
+    (
         "a11y",
         "HAS state (A11yManager.tree) and IS a LayoutWindow field, so this one is a real gap, not \
          an impossibility: proving a tree node still maps to a live DOM node needs an A11yNodeId \
@@ -12877,6 +12950,13 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
              app's, and its only reader (`drain_tray_events`) consumes what it returns, so \
              measuring it would swallow the click the app was about to receive, and the tray is \
              the app's, so a change could not be attributed to this window",
+        ),
+        (
+            "lifecycle",
+            "nothing on the WINDOW to hash, for `tray_event`'s reasons: the mailbox and the handler \
+             are the app's, and the delivery pass consumes what it returns, so measuring it would \
+             swallow the event the app was about to receive, and the app's life is not this window's, \
+             so a change could not be attributed to it",
         ),
         (
             "thread_owner",
@@ -19291,6 +19371,29 @@ fn serve_debug_event(
             }
         },
 
+        DebugEvent::SimulateLifecycle { event } => match lifecycle_event_from_op(event) {
+            Err(e) => send_err(request, format!("simulate_lifecycle: {e}")),
+            Ok(event) => {
+                if callback_info
+                    .get_layout_window()
+                    .app_services
+                    .lifecycle
+                    .queue_lifecycle_event(event)
+                {
+                    // Wake the loop: the event pass runs the app's handler, not this op.
+                    needs_update = true;
+                    send_ok(request, None, None);
+                } else {
+                    send_err(
+                        request,
+                        "simulate_lifecycle: the lifecycle mailbox is full (nothing drains it: is the \
+                         dll's event pass running?)"
+                            .to_string(),
+                    );
+                }
+            }
+        },
+
         // ==== `<webview>` (`list_webviews`, `simulate_webview_*`) ====
         DebugEvent::ListWebviews => {
             send_ok(
@@ -20798,10 +20901,27 @@ fn serve_debug_event(
 
             let dom_id = target_dom(request);
             let node = NodeId::new(nid as usize);
-            let dom_node_id = DomNodeId {
+            let mut dom_node_id = DomNodeId {
                 dom: dom_id,
                 node: NodeHierarchyItemId::from_crate_internal(Some(node)),
             };
+            // A text node has no box of its own - `{"text": ...}` resolves to one - and a node
+            // without a box scrolls nothing into view: scroll to the nearest ancestor that has one,
+            // as `click` reveals its target (the op answered `scrolled: true` and left the page where
+            // it was, so every `scroll_into_view` by text of the tab scenarios did nothing).
+            for _ in 0..64 {
+                if callback_info.get_node_rect(dom_node_id).is_some() {
+                    break;
+                }
+                let Some(parent) = callback_info.get_parent(dom_node_id) else {
+                    break;
+                };
+                dom_node_id = parent;
+            }
+            let node = dom_node_id
+                .node
+                .into_crate_internal()
+                .unwrap_or(node);
 
             // Remember WHAT we asked to be scrolled into view. `scroll_into_view`
             // itself keeps no record (it applies its adjustments and drops them),

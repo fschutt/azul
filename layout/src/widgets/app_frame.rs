@@ -36,6 +36,24 @@
 //! The frame is a layout: every part is a `Dom` or a widget the app builds, the frame owns no
 //! state and no callback of its own besides the one that closes a pushed-aside view.
 //!
+//! # Wiring an app (the example is `azul_appkit::frame::example`, examples/azul-appkit)
+//!
+//! 1. The app keeps ONE model (the sidebar's state, the chosen row, the Preview's size and
+//!    whether it shows, what the location's field holds) and builds the whole frame from it in
+//!    its layout callback; the widgets own nothing.
+//! 2. Every widget reports through ONE callback (`SidebarOnEvent`, `PreviewOnEvent`,
+//!    `LocationOnEvent`, `ActionSheetOnEvent`): the app changes its model and returns
+//!    `Update::RefreshDom`. The toggle, the 16 px handle, a swipe from the rail and a tap on a
+//!    pushed-aside view all arrive as `SidebarEventKind::StateChanged` with the state asked for.
+//! 3. `sidebar_in_window` (appkit) hands the sidebar the window's width and the room of the OS's
+//!    window controls; the tab row keeps `Sidebar::header_left_pad()` clear at its left. The form
+//!    factor is `FormFactor::Auto` everywhere: a phone is a touch platform with a window under
+//!    600 dp, anything else is the desktop's layout.
+//! 4. On a phone the ribbon's content keeps [`AppFrame::rail_inset`] clear at its left (the rail
+//!    stands beside it); `Ribbon::with_content_inset` says so.
+//! 5. The first tab is the location (`RibbonTab::with_location`); the Preview is opt-in: no
+//!    `with_preview`, no dock, no grip and no bottom pane.
+//!
 //! Key types: [`AppFrame`].
 
 use alloc::{format, string::String, vec::Vec};
@@ -50,7 +68,7 @@ use azul_css::AzString;
 use super::{
     preview::{Preview, OptionPreview},
     sidebar::{OptionSidebar, OptionSidebarOnEvent, Sidebar, SidebarEvent, SidebarEventKind, SidebarOnEvent},
-    sidebar_layout::{pushes_main, FormFactor, SidebarState},
+    sidebar_layout::{pushes_main, sidebar_edge, Edge, FormFactor, SidebarState, BUILT_FOR},
     tab_strip::TOUCH_ROW,
 };
 use crate::callbacks::CallbackInfo;
@@ -89,6 +107,9 @@ pub struct AppFrame {
     pub footer: OptionDom,
     /// The phone's quick-action sheet: the last child, over the whole frame.
     pub sheet: OptionDom,
+    /// The DOM id of the frame's root (`#id` in a selector, an e2e script finds it by it); empty
+    /// for none.
+    pub dom_id: AzString,
     /// Desktop or phone: `Auto` asks the window; handed to the sidebar and the Preview.
     pub form: FormFactor,
     /// Where a phone's rail starts, px from the frame's top: below the tab row. 0 is the touch
@@ -107,6 +128,7 @@ impl AppFrame {
             preview: OptionPreview::None,
             footer: OptionDom::None,
             sheet: OptionDom::None,
+            dom_id: AzString::from_const_str(""),
             form: FormFactor::Auto,
             rail_top: 0.0,
         }
@@ -157,6 +179,18 @@ impl AppFrame {
     #[must_use]
     pub fn with_sheet(mut self, sheet: Dom) -> Self {
         self.set_sheet(sheet);
+        self
+    }
+
+    /// The DOM id of the frame's root, so that a selector (`#mail-frame`) names it.
+    pub fn set_dom_id(&mut self, dom_id: AzString) {
+        self.dom_id = dom_id;
+    }
+
+    /// [`Self::set_dom_id`] for the builder chain.
+    #[must_use]
+    pub fn with_dom_id(mut self, dom_id: AzString) -> Self {
+        self.set_dom_id(dom_id);
         self
     }
 
@@ -258,6 +292,7 @@ fn build(frame: AppFrame) -> Dom {
         preview,
         footer,
         sheet,
+        dom_id,
         form,
         rail_top,
     } = frame;
@@ -270,9 +305,11 @@ fn build(frame: AppFrame) -> Dom {
         .as_ref()
         .is_some_and(|sb| pushes_main(sb.state, if phone { FormFactor::Phone } else { FormFactor::Desktop }));
     let catcher_on_event = sidebar.as_ref().map(|sb| sb.on_event.clone());
+    // the edge the sidebar stands at (the one place that decides it, `sidebar_edge`)
+    let edge = sidebar_edge(BUILT_FOR);
     // a phone's closed sidebar (the rail, the handle) stands below the tab row, beside the rest
     let inset = sidebar.as_ref().map_or(0.0, Sidebar::phone_content_inset);
-    let inset_css = if inset > 0.0 { format!(" margin-left: {inset}px;") } else { String::new() };
+    let inset_css = if inset > 0.0 { format!(" {}: {inset}px;", edge.margin_outer()) } else { String::new() };
 
     // ---- the middle: the body, with the Preview beside or under it ----
     let middle = match preview.into_option() {
@@ -349,7 +386,9 @@ fn build(frame: AppFrame) -> Dom {
     let main = styled(Dom::create_div().with_children(DomVec::from_vec(main_kids)), main_css)
         .with_ids_and_classes(classes(&[FRAME_MAIN_CLASS]));
 
+    // the sidebar's column in the row of the frame: first at the left edge, last at the right one
     let mut root_kids: Vec<Dom> = Vec::with_capacity(3);
+    let mut sidebar_column: Option<Dom> = None;
     if let Some(sb) = sidebar {
         if inset > 0.0 {
             // the phone's rail: out of the flow, below the tab row, over the left edge of the rest
@@ -358,17 +397,24 @@ fn build(frame: AppFrame) -> Dom {
                 styled(
                     Dom::create_div().with_child(sb.dom()),
                     &format!(
-                        "position: absolute; left: 0px; top: {top}px; bottom: 0px; display: flex; \
-                         flex-direction: column; z-index: 6;"
+                        "position: absolute; {}: 0px; top: {top}px; bottom: 0px; display: flex; \
+                         flex-direction: column; z-index: 6;",
+                        edge.offset()
                     ),
                 )
                 .with_ids_and_classes(classes(&[FRAME_RAIL_CLASS])),
             );
         } else {
-            root_kids.push(sb.dom());
+            sidebar_column = Some(sb.dom());
         }
     }
-    root_kids.push(main);
+    if edge == Edge::Left {
+        root_kids.extend(sidebar_column.take());
+        root_kids.push(main);
+    } else {
+        root_kids.push(main);
+        root_kids.extend(sidebar_column.take());
+    }
     if let Some(s) = sheet.into_option() {
         root_kids.push(s);
     }
@@ -377,12 +423,17 @@ fn build(frame: AppFrame) -> Dom {
     } else {
         &[FRAME_CLASS]
     };
-    styled(
+    let root = styled(
         Dom::create_div().with_children(DomVec::from_vec(root_kids)),
         "display: flex; flex-direction: row; width: 100%; height: 100%; min-width: 0px; min-height: 0px; \
          overflow: hidden; position: relative; box-sizing: border-box;",
     )
-    .with_ids_and_classes(classes(class_list))
+    .with_ids_and_classes(classes(class_list));
+    if dom_id.as_str().is_empty() {
+        root
+    } else {
+        root.with_id(dom_id)
+    }
 }
 
 #[cfg(test)]

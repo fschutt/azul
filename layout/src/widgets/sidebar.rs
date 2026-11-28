@@ -1,27 +1,32 @@
 //! The standard Sidebar: ONE left column every heavy app shares (Mail's folders, a drive's trees,
-//! a document's outline, Paint's tools), so no app builds its own.
+//! a document list, a notebook's sections), so no app builds its own.
 //!
 //! ```text
-//!  expanded                 rail (the collapsed state)     handle
-//! ┌──────────────────┐      ┌────┐                          ┌┐
-//! │ ● ● ●            │      │ ●●●│  window controls         ││
-//! │ Favourites       │      │    │                          ││
-//! │ ▸ Inbox      329 │      │ ✉  │  one button per row      │▌│  16 px, grab handle
-//! │ ▾ Archive        │      │ ★  │  with an icon, the       ││
-//! │   2026         4 │      │ ▤  │  label is a tooltip      ││
-//! │ ──────────────── │      │ ── │                          └┘
-//! │ Help             │      │ ?  │
-//! │ ◔ Sync · 82 %    │      │ ◔  │  status pies, a click
-//! │ ◔ Drive · 64 %   │      │ ◔  │  opens a short popover
-//! │ « Collapse       │      │ »  │  the toggle, always last
-//! └──────────────────┘      └────┘
+//!  expanded                 rail: 18 px, collapsed          handle
+//! ┌──────────────────┐      ┌──┐                             ┌┐
+//! │ ● ● ●            │      │●●│ window controls overhang    ││
+//! │ Favourites       │      │  │                             ││
+//! │ ▸ Inbox      329 │      │✉ │ navigation: one button      │▌│  16 px, grab handle
+//! │ ▾ Archive        │      │★ │ per row with an icon        ││
+//! │   2026         4 │      │  │                             ││
+//! │ ──────────────── │      │  │ (free room)                 └┘
+//! │ Help             │      │──│
+//! │ ◔ Sync · 82 %    │      │B │ quick access: the app's own
+//! │ ◔ Drive · 64 %   │      │A │ buttons, the last is the
+//! │                  │      │↶ │ nearest to the thumb
+//! │                  │      │──│
+//! │                  │      │◔ │ status slot: pies, badges
+//! │ « Collapse       │      │» │ the toggle, always last
+//! └──────────────────┘      └──┘
 //! ```
 //!
-//! The sidebar is the FULL height of the window: it runs beside the tab row and the ribbon, down
-//! to the footer, and on a phone its expanded state is a DRAWER that pushes the whole main view
-//! aside (`AppFrame`), never an overlay with a dim. It has three states ([`SidebarState`]): the
-//! icon RAIL is the collapsed one and the one an app starts in; the 16 px HANDLE is supported and
-//! never part of the toggle's round unless the app asks for it.
+//! The sidebar is the FULL height of a desktop window: it runs beside the tab row and the ribbon,
+//! down to the footer. On a phone its collapsed rail starts below the tab row (`AppFrame`), and its
+//! expanded state is a DRAWER that pushes the whole main view aside, never an overlay with a dim.
+//! It has three states ([`SidebarState`]): the icon RAIL is the collapsed one and the one an app
+//! starts in (18 px, with an invisible hit slop 18 px inward and an edge swipe that opens the
+//! drawer); the 16 px HANDLE is supported and never part of the toggle's round unless the app asks
+//! for it.
 //!
 //! # What the app gives it
 //!
@@ -29,14 +34,22 @@
 //!   tinted), a label, a count, a disclosure triangle for a tree (the app flattens its tree: a
 //!   row says its depth, whether it has children and whether they show), a selected row drawn as
 //!   a rounded highlight (macOS Mail's), an optional check mark (a calendar's coloured boxes).
-//!   Rows with an icon are the rail's buttons; a row opts out with `with_in_rail(false)`.
-//! - DOCUMENT ROWS (AzWriter, AzSheets, AzShow list their open documents here): a row may carry
-//!   its own sync PIE and a COLLABORATION icon (off / on, a click asks to switch it,
+//!   Rows with an icon are the rail's NAVIGATION buttons, top-anchored; a row opts out with
+//!   `with_in_rail(false)`.
+//! - QUICK ACCESS ([`SidebarQuickAction`]): the app's own buttons for the collapsed rail
+//!   (`AzWriter`: font colour, bold, highlight, size, undo), bottom-anchored where the thumb of a
+//!   right-handed user holding the phone upright reaches; the app lists them in the order they
+//!   are drawn and puts the most used one LAST. Each has an icon, a tooltip, a state (plain, a
+//!   toggle off or on, disabled) and may carry a colour bar. The expanded sidebar does not show
+//!   them.
+//! - DOCUMENT ROWS (`AzWriter`, `AzSheets`, `AzShow` list their open documents here): a row may
+//!   carry its own sync PIE and a COLLABORATION icon (off / on, a click asks to switch it,
 //!   [`SidebarCollab`]); in the rail the document keeps its icon and a small pie at its corner.
 //!   UI only: what sync and collaboration do is the app's, nothing behind them is in the widget.
-//! - STATUS PIES ([`SidebarStatus`]) stacked directly above the toggle: sync, drive full, battery.
-//!   A click or tap opens a short popover (the same `Dialog` popover a desktop has today, on a
-//!   phone too) with the app's own content or a title and a line of detail.
+//! - The STATUS SLOT ([`SidebarStatus`]) directly above the toggle: small indicators, each a pie
+//!   or a badge. WHICH ones appear is the app's data (a drive's fullness, a sync, unread mail):
+//!   the widget has none of its own. A click or tap opens a short popover (the same `Dialog`
+//!   popover a desktop has, on a phone too) with the app's own content or a title and a line.
 //! - A HELP row, a HEADER slot above the rows (an account, a "New" button), a `label` the
 //!   screen reader names the landmark by.
 //!
@@ -44,8 +57,9 @@
 //!
 //! Every action goes through ONE callback ([`SidebarOnEvent`]) with a [`SidebarEvent`]; the
 //! sidebar owns no state: the app keeps the state, the selection, which rows are expanded, and
-//! rebuilds. The window controls of the OS (macOS's traffic lights) sit over the sidebar's top:
-//! `with_window_controls` keeps their band and their width free (`sidebar_layout.rs`).
+//! rebuilds. The window controls of the OS (macOS's traffic lights) sit over the sidebar's top and
+//! overhang the 18 px rail: `with_window_controls` keeps their band free, `header_left_pad` is
+//! what the tab row keeps clear (`sidebar_layout.rs`).
 //!
 //! # The surface
 //!
@@ -54,8 +68,8 @@
 //! (leather, vellum, blue jeans, aluminium: [`SidebarSurface`]), or nothing at all
 //! ([`SidebarSurface::Inherit`]) where the app paints one surface under everything.
 //!
-//! Key types: [`Sidebar`], [`SidebarSection`], [`SidebarRow`], [`SidebarStatus`],
-//! [`SidebarEvent`], [`SidebarOnEvent`], [`SidebarState`], [`SidebarSurface`].
+//! Key types: [`Sidebar`], [`SidebarSection`], [`SidebarRow`], [`SidebarQuickAction`],
+//! [`SidebarStatus`], [`SidebarEvent`], [`SidebarOnEvent`], [`SidebarState`], [`SidebarSurface`].
 
 use alloc::{format, string::String, vec::Vec};
 use core::fmt::Write as _;
@@ -81,7 +95,7 @@ use super::{
     pie_marker::{disc_dom, PieTone},
     roving,
     sidebar_layout::{
-        column_width, controls_height, swipe_opens, SidebarColumnWidth,
+        column_width, controls_height, sidebar_edge, swipe_opens_at, Edge, SidebarColumnWidth, BUILT_FOR,
         INDENT_PER_DEPTH, MAX_DEPTH, MAX_QUICK_ACTIONS, MAX_ROWS, MAX_STATUSES,
         RAIL_BUTTON_DESKTOP, RAIL_BUTTON_PHONE, RAIL_ICON_PX, RAIL_SLOP, RAIL_STATUS_PX,
         RAIL_WIDTH, ROW_HEIGHT_DESKTOP, ROW_HEIGHT_PHONE, STATUS_PIE_PX,
@@ -131,7 +145,7 @@ pub const SIDEBAR_STATUS_ICON_CLASS: &str = "__azul-native-sidebar-status-icon";
 pub const SIDEBAR_BUTTON_CLASS: &str = "__azul-native-sidebar-button";
 /// The hairline between the sections of the rail and over the foot.
 pub const SIDEBAR_RULE_CLASS: &str = "__azul-native-sidebar-rule";
-/// The foot: help, the status pies and the toggle.
+/// The foot: help, the status indicators and the toggle.
 pub const SIDEBAR_FOOT_CLASS: &str = "__azul-native-sidebar-foot";
 /// A status indicator, a pie or a badge (its invoker; in the rail a button, expanded a row).
 pub const SIDEBAR_STATUS_CLASS: &str = "__azul-native-sidebar-status";
@@ -984,6 +998,9 @@ pub struct Sidebar {
     pub label: AzString,
     /// The help row's label; empty for no help row.
     pub help: AzString,
+    /// The DOM id of the sidebar's root (`#id` in a selector, an e2e script finds it by it); empty
+    /// for none.
+    pub dom_id: AzString,
     /// The widget theme this sidebar is PINNED to, or `None` to follow the app theme.
     pub theme: OptionUiTheme,
     /// The state the app keeps and rebuilds with.
@@ -1023,6 +1040,7 @@ impl Sidebar {
             quick_access: SidebarQuickActionVec::from_const_slice(&[]),
             label: AzString::from_const_str("Sidebar"),
             help: AzString::from_const_str(""),
+            dom_id: AzString::from_const_str(""),
             theme: OptionUiTheme::None,
             state: SidebarState::Rail,
             surface: SidebarSurface::Theme,
@@ -1173,6 +1191,18 @@ impl Sidebar {
         self
     }
 
+    /// The DOM id of the sidebar's root, so that a selector (`#mail-sidebar`) names it.
+    pub fn set_dom_id(&mut self, dom_id: AzString) {
+        self.dom_id = dom_id;
+    }
+
+    /// [`Self::set_dom_id`] for the builder chain.
+    #[must_use]
+    pub fn with_dom_id(mut self, dom_id: AzString) -> Self {
+        self.set_dom_id(dom_id);
+        self
+    }
+
     /// The expanded width on a desktop, px (held to 160 .. 420; 0 is 240).
     pub const fn set_expanded_width(&mut self, width: f32) {
         self.expanded_width = width;
@@ -1186,8 +1216,10 @@ impl Sidebar {
     }
 
     /// Keeps the room the OS's window controls need: a band `height` px tall at the top (it moves
-    /// the window) and a column never narrower than `left` px (macOS's traffic lights: 78 and the
-    /// title bar's height). `left` 0: the controls are not at the left, nothing is kept.
+    /// the window), over which the controls (macOS's traffic lights: 78 px wide, the title bar's
+    /// height) sit and overhang the 18 px rail. `left` 0: the controls are not at the left,
+    /// nothing is kept. A phone has no window controls, whatever it is told (a camera housing's
+    /// safe area is not one): nothing is kept there.
     pub const fn set_window_controls(&mut self, left: f32, height: f32) {
         self.controls_left = left;
         self.controls_height = height;
@@ -1274,6 +1306,9 @@ impl Sidebar {
     /// sidebar is wider than they are: 0.
     #[must_use]
     pub fn header_left_pad(&self) -> f32 {
+        if self.form.is_phone() {
+            return 0.0;
+        }
         super::sidebar_layout::header_left_pad(self.controls_left, self.column().px)
     }
 
@@ -1388,6 +1423,7 @@ extern "C" fn on_tip_hide(_data: RefAny, mut info: CallbackInfo) -> Update {
 /// pointer is captured and whether the drawer was asked for already in this gesture.
 struct SwipeRef {
     on_event: OptionSidebarOnEvent,
+    edge: Edge,
     anchor: Option<(f32, f32)>,
     captured: bool,
     fired: bool,
@@ -1415,12 +1451,12 @@ fn swipe_moved(data: &mut RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let (dx, dy) = (p.x - x0, p.y - y0);
-    if !s.captured && dx >= SWIPE_CAPTURE_PX && dx > 2.0 * dy.abs() {
+    if !s.captured && dx * s.edge.inward() >= SWIPE_CAPTURE_PX && (dx * s.edge.inward()) > 2.0 * dy.abs() {
         s.captured = true;
         let me = info.get_hit_node();
         info.capture_pointer(me);
     }
-    if !swipe_opens(dx, dy) {
+    if !swipe_opens_at(s.edge, dx, dy) {
         return Update::DoNothing;
     }
     s.fired = true;
@@ -1574,6 +1610,8 @@ fn callback(
 
 /// Everything one build of the sidebar shares.
 struct Ctx {
+    /// The edge of the window the sidebar stands at (`sidebar_edge`: the one place that decides it).
+    edge: Edge,
     state: SidebarState,
     /// Whether the rows and the rail's slots are finger-sized: the phone's form, or any touch
     /// platform (a tablet at 600 dp and more is the desktop's form with fingers on it).
@@ -1932,7 +1970,8 @@ fn slop(ctx: &Ctx) -> Dom {
     styled(
         Dom::create_div(),
         &format!(
-            "position: absolute; left: -1px; top: -3px; width: {}px; height: {}px; z-index: 1;",
+            "position: absolute; {}: -1px; top: -3px; width: {}px; height: {}px; z-index: 1;",
+            ctx.edge.offset(),
             RAIL_WIDTH + RAIL_SLOP,
             ctx.slot_h()
         ),
@@ -1945,10 +1984,11 @@ fn slop(ctx: &Ctx) -> Dom {
 fn face_css(ctx: &Ctx) -> String {
     format!(
         "display: flex; align-items: center; justify-content: center; box-sizing: border-box; flex-shrink: 0; \
-         position: relative; width: {}px; height: {}px; margin: 3px 0px 3px 1px; border-radius: 6px; \
+         position: relative; width: {}px; height: {}px; margin: 3px 0px; {}: 1px; border-radius: 6px; \
          cursor: pointer; ",
         RAIL_WIDTH - 2.0,
-        ctx.slot_h() - 6.0
+        ctx.slot_h() - 6.0,
+        ctx.edge.margin_outer()
     )
 }
 
@@ -2376,6 +2416,7 @@ fn build(sb: Sidebar) -> Dom {
         quick_access,
         label,
         help,
+        dom_id,
         theme,
         state,
         surface,
@@ -2421,7 +2462,9 @@ fn build(sb: Sidebar) -> Dom {
         }
         _ => selected.unwrap_or(0),
     };
+    let edge = sidebar_edge(BUILT_FOR);
     let ctx = Ctx {
+        edge,
         state,
         touch: phone || TOUCH_PLATFORM,
         look,
@@ -2444,7 +2487,8 @@ fn build(sb: Sidebar) -> Dom {
     let mut root_css = format!(
         "display: flex; flex-direction: column; flex-shrink: 0; flex-grow: 0; height: 100%; box-sizing: border-box; \
          {overflow} position: relative; font-size: 13px; user-select: none; \
-         border-right: 1px solid system:separator; {} {} {}",
+         {}: 1px solid system:separator; {} {} {}",
+        edge.inner_border(),
         width_css(col),
         // the column slides between its states (a transition of the width: it needs a width in px
         // on both sides, see `frame_width`; where the engine does not tween, the width jumps)
@@ -2452,7 +2496,9 @@ fn build(sb: Sidebar) -> Dom {
         look.root
     );
     match state {
-        SidebarState::Rail => root_css.push_str(" align-items: flex-start;"),
+        SidebarState::Rail => {
+            let _ = write!(root_css, " align-items: {};", edge.align_start());
+        }
         SidebarState::Handle => root_css.push_str(" align-items: center;"),
         SidebarState::Expanded => {}
     }
@@ -2482,9 +2528,12 @@ fn build(sb: Sidebar) -> Dom {
             ctx.part(event(SidebarEventKind::StateChanged, next)),
             on_part_click,
         );
-        let mut root = styled(Dom::create_nav().with_child(handle), &root_css)
-            .with_ids_and_classes(root_classes)
-            .with_accessibility_info(landmark);
+        let mut root = with_dom_id(
+            styled(Dom::create_nav().with_child(handle), &root_css)
+                .with_ids_and_classes(root_classes)
+                .with_accessibility_info(landmark),
+            &dom_id,
+        );
         // a handle has no band for the controls: they sit over its top where the app leaves room
         let _ = controls_h;
         root.root.set_tab_index(TabIndex::NoKeyboardFocus);
@@ -2494,8 +2543,8 @@ fn build(sb: Sidebar) -> Dom {
     let expanded = state == SidebarState::Expanded;
     let mut kids: Vec<Dom> = Vec::new();
 
-    // ---- the band the OS's window controls sit in ----
-    let band = controls_height(controls_left, controls_h);
+    // ---- the band the OS's window controls sit in (a phone has none) ----
+    let band = if phone { 0.0 } else { controls_height(controls_left, controls_h) };
     if band > 0.0 {
         kids.push(
             styled(
@@ -2535,9 +2584,10 @@ fn build(sb: Sidebar) -> Dom {
             styled(
                 Dom::create_div().with_children(DomVec::from_vec(nav)),
                 &format!(
-                    "display: flex; flex-direction: column; align-items: flex-start; flex-grow: 1; flex-shrink: 1; \
+                    "display: flex; flex-direction: column; align-items: {}; flex-grow: 1; flex-shrink: 1; \
                      flex-basis: 0px; min-height: 0px; width: {group_w}px; overflow-y: auto; overflow-x: hidden; \
-                     scrollbar-width: none; padding: 4px 0px;"
+                     scrollbar-width: none; padding: 4px 0px;",
+                    edge.align_start()
                 ),
             )
             .with_ids_and_classes(classes(SIDEBAR_LIST_CLASS, &[]))
@@ -2553,8 +2603,9 @@ fn build(sb: Sidebar) -> Dom {
                 styled(
                     Dom::create_div().with_children(DomVec::from_vec(buttons)),
                     &format!(
-                        "display: flex; flex-direction: column; align-items: flex-start; flex-shrink: 0; \
-                         width: {group_w}px;"
+                        "display: flex; flex-direction: column; align-items: {}; flex-shrink: 0; \
+                         width: {group_w}px;",
+                        edge.align_start()
                     ),
                 )
                 .with_ids_and_classes(classes(SIDEBAR_QUICK_CLASS, &[])),
@@ -2585,8 +2636,9 @@ fn build(sb: Sidebar) -> Dom {
             styled(
                 Dom::create_div().with_children(DomVec::from_vec(foot)),
                 &format!(
-                    "display: flex; flex-direction: column; align-items: flex-start; flex-shrink: 0; \
-                     width: {group_w}px; padding: 0px 0px 6px 0px;"
+                    "display: flex; flex-direction: column; align-items: {}; flex-shrink: 0; \
+                     width: {group_w}px; padding: 0px 0px 6px 0px;",
+                    edge.align_start()
                 ),
             )
             .with_ids_and_classes(classes(SIDEBAR_FOOT_CLASS, &[])),
@@ -2594,13 +2646,17 @@ fn build(sb: Sidebar) -> Dom {
         let swipe_on = ctx.on_event.is_some();
         let swipe = RefAny::new(SwipeRef {
             on_event: ctx.on_event,
+            edge,
             anchor: None,
             captured: false,
             fired: false,
         });
-        let mut root = styled(Dom::create_nav().with_children(DomVec::from_vec(kids)), &root_css)
-            .with_ids_and_classes(root_classes)
-            .with_accessibility_info(landmark);
+        let mut root = with_dom_id(
+            styled(Dom::create_nav().with_children(DomVec::from_vec(kids)), &root_css)
+                .with_ids_and_classes(root_classes)
+                .with_accessibility_info(landmark),
+            &dom_id,
+        );
         // a swipe inward from the rail opens the drawer, by a finger or by a drag of the mouse
         if swipe_on {
             root = on_all(
@@ -2679,9 +2735,21 @@ fn build(sb: Sidebar) -> Dom {
         .with_ids_and_classes(classes(SIDEBAR_FOOT_CLASS, &[])),
     );
 
-    styled(Dom::create_nav().with_children(DomVec::from_vec(kids)), &root_css)
-        .with_ids_and_classes(root_classes)
-        .with_accessibility_info(landmark)
+    with_dom_id(
+        styled(Dom::create_nav().with_children(DomVec::from_vec(kids)), &root_css)
+            .with_ids_and_classes(root_classes)
+            .with_accessibility_info(landmark),
+        &dom_id,
+    )
+}
+
+/// `dom` with the DOM id the app asked for (none: as it is).
+fn with_dom_id(dom: Dom, dom_id: &AzString) -> Dom {
+    if dom_id.as_str().is_empty() {
+        dom
+    } else {
+        dom.with_id(dom_id.clone())
+    }
 }
 
 #[cfg(test)]

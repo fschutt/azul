@@ -519,6 +519,7 @@ fn the_phone_drawer_is_a_share_of_the_frame_and_the_phone_rail_is_18_like_the_de
 #[test]
 fn a_phone_row_is_a_finger_tall_and_a_desktop_row_is_not() {
     let phone = Ctx {
+        edge: Edge::Left,
         state: SidebarState::Expanded,
         touch: true,
         look: SidebarSurface::Theme.look(),
@@ -1007,4 +1008,32 @@ fn the_slot_holds_what_the_app_gives_it_and_nothing_of_its_own() {
     assert!(all(&dom, SIDEBAR_STATUS_CLASS).is_empty());
     assert!(SidebarStatusVec::from_const_slice(&[]).as_ref().is_empty());
     assert!(Sidebar::create().statuses.as_ref().is_empty() && Sidebar::create().quick_access.as_ref().is_empty());
+}
+
+#[test]
+fn a_phone_has_no_window_controls_whatever_it_is_told() {
+    // a camera housing's safe area looks like controls at the left to a strip that asks the system
+    let phone = mail().with_form(FormFactor::Phone).with_state(SidebarState::Rail).with_window_controls(44.0, 28.0);
+    assert!(first(&phone.clone().dom(), SIDEBAR_CONTROLS_CLASS).is_none(), "no band on a phone");
+    assert!(phone.header_left_pad().abs() < 0.001);
+    let desktop = mail().with_form(FormFactor::Desktop).with_state(SidebarState::Rail).with_window_controls(44.0, 28.0);
+    assert!(first(&desktop.clone().dom(), SIDEBAR_CONTROLS_CLASS).is_some());
+    assert!((desktop.header_left_pad() - 26.0).abs() < 0.001);
+}
+
+// ---- the DOM id of the root ----
+
+fn root_has_id(dom: &Dom, id: &str) -> bool {
+    dom.root.get_ids_and_classes().as_ref().iter().any(|c| c.as_id() == Some(id))
+}
+
+#[test]
+fn the_root_has_the_dom_id_the_app_gave_in_every_state_and_none_otherwise() {
+    for state in [SidebarState::Expanded, SidebarState::Rail, SidebarState::Handle] {
+        let named = mail().with_state(state).with_dom_id(AzString::from("mail-sidebar")).dom();
+        assert!(root_has_id(&named, "mail-sidebar"), "{state:?}");
+        assert!(has_class(&named, SIDEBAR_CLASS), "the id is added to the classes, not instead of them");
+        let plain = mail().with_state(state).dom();
+        assert!(!plain.root.get_ids_and_classes().as_ref().iter().any(|c| c.as_id().is_some()), "{state:?}");
+    }
 }

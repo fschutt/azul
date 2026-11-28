@@ -2399,6 +2399,67 @@ fn leather_under(look: &TabHeaderLook, band: Option<&crate::widgets::tab_strip::
     }
 }
 
+/// The width of the fade at the end of a lane: the room the first pill keeps from the lane's edge
+/// ([`TOUCH_LEAD`]), so at rest the fade lies over empty leather and a pill is dimmed only while it
+/// slides out of the lane.
+const LANE_FADE_PX: f32 = TOUCH_LEAD as f32;
+
+/// A horizontal two-stop gradient, `from` at the left to `to` at the right: one layer.
+fn side_fade(from: ColorU, to: ColorU) -> StyleBackgroundContent {
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::FromTo(DirectionCorners {
+            dir_from: DirectionCorner::Left,
+            dir_to: DirectionCorner::Right,
+        }),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_vec(vec![
+            NormalizedLinearColorStop::new(PercentageValue::const_new(0), from),
+            NormalizedLinearColorStop::new(PercentageValue::const_new(100), to),
+        ]),
+    })
+}
+
+/// The fades at the two ends of every lane of a touch row (the whole row without a band): the
+/// leather's colour, opaque at the lane's edge and clear [`LANE_FADE_PX`] in, over the pills and
+/// above the golden line. A pill that slides out of the lane (under a camera cover, off the
+/// window's edge) fades out instead of being cut, and with no more pills to scroll to nothing shows:
+/// the first and the last pill stand [`TOUCH_LEAD`] in. No "more" pill, no scrollbar.
+pub(crate) fn lane_fades(band: Option<&crate::widgets::tab_strip::StatusBarBand>, row: f32) -> Vec<Dom> {
+    use crate::widgets::themes::decl;
+
+    #[allow(clippy::cast_precision_loss)] // 2px
+    let height = (row - PILL_RULE as f32).max(0.0);
+    let fade = |left_side: bool, at: Option<f32>| {
+        let (light, dark) = (ColorU::rgb(0xF4, 0xF0, 0xE8), ColorU::rgb(0x3A, 0x32, 0x2C));
+        let clear = |c: ColorU| ColorU::new(c.r, c.g, c.b, 0);
+        let layer = |c: ColorU| {
+            if left_side {
+                side_fade(c, clear(c))
+            } else {
+                side_fade(clear(c), c)
+            }
+        };
+        let layers = decl::themed_layers(vec![layer(light)], vec![layer(dark)]);
+        let place = match (left_side, at) {
+            (_, Some(x)) => format!("left: {x}px;"),
+            (true, None) => "left: 0px;".to_string(),
+            (false, None) => "right: 0px;".to_string(),
+        };
+        let mut node = Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(layers.to_vec()));
+        node.root.set_css(&format!(
+            "position: absolute; top: 0px; width: {LANE_FADE_PX}px; height: {height}px; {place}"
+        ));
+        node
+    };
+    match band.map(crate::widgets::tab_strip::StatusBarBand::lane_spans) {
+        Some(lanes) if !lanes.is_empty() => lanes
+            .into_iter()
+            .flat_map(|(left, right)| [fade(true, Some(left)), fade(false, Some((right - LANE_FADE_PX).max(left)))])
+            .collect(),
+        _ => vec![fade(true, None), fade(false, None)],
+    }
+}
+
 impl TabHeader {
     /// The tab bar as touch pills ([`TabStyle::TouchPills`]): a header, a row of pills that
     /// scrolls inside it without a scrollbar, and - in the status bar's band - a cover over each
@@ -2589,6 +2650,8 @@ impl TabHeader {
         let look = pill_look(theme, None);
         let mut children = leather_under(&look, band.as_ref());
         children.push(strip);
+        // The pills fade out at the ends of the lanes (over the pills, under the covers).
+        children.extend(lane_fades(band.as_ref(), row));
         if let Some(band) = band.as_ref() {
             // The window's background under the band (where the cutouts are, the leather has a gap)
             // and over the pills there.
@@ -2756,6 +2819,7 @@ pub(crate) fn touch_header(
     // The leather under the row, one stretch per lane, the camera between them.
     let mut children = leather_under(&pill_look(theme, None), Some(band));
     children.push(strip);
+    children.extend(lane_fades(Some(band), row));
     children.extend(crate::widgets::tab_strip::cover_rects(band).iter().map(gap_cover));
     Dom::create_div()
         .with_css(&format!(
@@ -3337,8 +3401,9 @@ pub(crate) const TOUCH_PILL_HEIGHT: isize = 32;
 pub(crate) const TOUCH_PILL_SIDE: isize = 16;
 /// The room between two touch pills, in px.
 pub(crate) const TOUCH_GAP: isize = 8;
-/// The room before the first and after the last touch pill, in px.
-pub(crate) const TOUCH_LEAD: isize = 12;
+/// The room before the first and after the last touch pill, in px: also the width of the fade at the
+/// ends of a lane, which lies over this room at rest.
+pub(crate) const TOUCH_LEAD: isize = 16;
 
 /// The pill of a finger: 32 tall with full-radius ends, 16 beside the label.
 pub(crate) static PILL_TOUCH: PillMetrics = PillMetrics {

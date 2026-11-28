@@ -355,9 +355,18 @@ fn command(icon: &str, label: &str) -> RibbonItem {
 /// tall as Home's, every tab names its icon (a phone shows the icons as squares), a vertical swipe on
 /// the band flips between the tabs.
 fn the_header(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Dom {
-    let file = RibbonTab::create("File")
-        .with_icon("folder")
-        .with_location(the_location(data, demo, theme));
+    // On a phone the 18 px rail stands under the tab row, beside the band: the band's content keeps
+    // clear of it. `Ribbon::with_content_inset` is the tab widget's own way to say that (the TABS
+    // agent's hook, not on master yet); until then this wrapper does it, for this picture only.
+    let location = the_location(data, demo, theme);
+    let location = if demo.form == 1 {
+        Dom::create_div()
+            .with_css("box-sizing: border-box; width: 100%; height: 100%; padding-left: 18px;")
+            .with_child(location)
+    } else {
+        location
+    };
+    let file = RibbonTab::create("File").with_icon("folder").with_location(location);
     let home = RibbonTab::create("Home")
         .with_icon("home")
         .with_group(
@@ -513,6 +522,13 @@ pub(crate) fn sidebar_section(data: &RefAny, demo: &SidebarDemo, theme: UiTheme)
                             .with_id("sidebar-preview-toggle"),
                     )
                     .with_child(
+                        Button::with_type("Reset the Preview's size", ButtonType::Default)
+                            .with_theme(theme)
+                            .with_on_click(data.clone(), on_preview_reset as ButtonOnClickCallbackType)
+                            .dom()
+                            .with_id("sidebar-preview-reset"),
+                    )
+                    .with_child(
                         Button::with_type(if demo.banner { "Remove the banner" } else { "Show a banner" }, ButtonType::Default)
                             .with_theme(theme)
                             .with_on_click(data.clone(), on_banner as ButtonOnClickCallbackType)
@@ -577,6 +593,15 @@ extern "C" fn on_surface(mut data: RefAny, _: CallbackInfo) -> Update {
 
 extern "C" fn on_preview_open(mut data: RefAny, _: CallbackInfo) -> Update {
     keep(&mut data, |s| s.sidebar.preview_open = !s.sidebar.preview_open)
+}
+
+/// The app moves the pane by itself: the size is the default again (the Preview obeys, although the
+/// user dragged it to another size before).
+extern "C" fn on_preview_reset(mut data: RefAny, _: CallbackInfo) -> Update {
+    keep(&mut data, |s| {
+        s.sidebar.preview_size = 0.0;
+        s.sidebar.last = String::from("preview reset");
+    })
 }
 
 extern "C" fn on_banner(mut data: RefAny, _: CallbackInfo) -> Update {

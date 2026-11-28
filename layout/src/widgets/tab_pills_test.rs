@@ -127,8 +127,9 @@ fn the_touch_header_is_a_header_around_one_scrolling_row_of_pills() {
         classes_of(&dom),
         vec!["__azul-native-tabs-touch-header".to_string()]
     );
-    // No band: the leather the row lies on (one stretch, with the golden line at its foot) and the row.
-    assert_eq!(dom.children.as_ref().len(), 2);
+    // No band: the leather the row lies on (one stretch, with the golden line at its foot), the row, and
+    // the two fades at the ends of the lane.
+    assert_eq!(dom.children.as_ref().len(), 1 + 1 + 2);
     let leather = &dom.children.as_ref()[0];
     assert_eq!(leather.children.as_ref().len(), 1, "the golden line along the leather's foot");
     let strip = strip_of(&dom);
@@ -249,18 +250,39 @@ fn with_a_click_callback_every_pill_is_a_tab_stop_candidate_and_takes_the_click_
 fn in_the_pixel_8_band_the_header_is_the_band_and_covers_the_gap_of_the_camera() {
     let band = band_of(DisplayPreset::Pixel8, 360.0, 720.0);
     let dom = touch_header(6, 0).with_status_bar(band).dom();
-    // The leather of the two lanes beside the camera, the row, and one cover for the one gap (the
-    // camera and its margins).
-    assert_eq!(dom.children.as_ref().len(), 2 + 1 + 1);
+    // The leather of the two lanes beside the camera, the row, the two fades of each lane, and one cover
+    // for the one gap (the camera and its margins).
+    assert_eq!(dom.children.as_ref().len(), 2 + 1 + 2 * 2 + 1);
     assert_eq!(pills_of(strip_of(&dom)).len(), 6);
+}
+
+#[test]
+fn every_lane_ends_in_a_fade_and_the_first_and_last_pill_stand_outside_of_it() {
+    // A pill that slides out of a lane fades out at the lane's edge ...
+    for preset in [DisplayPreset::Pixel8, DisplayPreset::DoubleHole] {
+        let band = band_of(preset, 360.0, 720.0);
+        let lanes = band.lane_spans().len();
+        assert_eq!(super::lane_fades(Some(&band), 48.0).len(), 2 * lanes, "{preset:?}: two fades per lane");
+        // ... and at rest the first and the last pill stand beyond the fade, so it dims nothing.
+        let scroll = super::StripScrollData::for_band(Some(&band), Vec::new());
+        let first_lane_left = band.lane_spans().first().map_or(0.0, |lane| lane.0);
+        let last_lane_right = band.lane_spans().last().map_or(0.0, |lane| lane.1);
+        assert!(scroll.lead >= first_lane_left + super::LANE_FADE_PX, "{preset:?}: the first pill is past the fade");
+        assert!(
+            scroll.trail >= band.width - last_lane_right + super::LANE_FADE_PX,
+            "{preset:?}: the last pill is past the fade"
+        );
+    }
+    // The whole row without a band: one lane, two fades.
+    assert_eq!(super::lane_fades(None, 48.0).len(), 2);
 }
 
 #[test]
 fn a_double_hole_band_covers_both_gaps() {
     let band = band_of(DisplayPreset::DoubleHole, 360.0, 720.0);
     let dom = touch_header(6, 0).with_status_bar(band).dom();
-    // Three lanes of leather, the row, two covers.
-    assert_eq!(dom.children.as_ref().len(), 3 + 1 + 2);
+    // Three lanes of leather, the row, the two fades of each lane, two covers.
+    assert_eq!(dom.children.as_ref().len(), 3 + 1 + 3 * 2 + 2);
 }
 
 #[test]
@@ -274,8 +296,8 @@ fn a_window_without_a_band_gets_an_ordinary_row_even_if_a_band_was_asked_for() {
         },
     );
     let dom = touch_header(4, 0).with_status_bar(band).dom();
-    // The leather and the row.
-    assert_eq!(dom.children.as_ref().len(), 2);
+    // The leather, the row and the two fades of the one lane.
+    assert_eq!(dom.children.as_ref().len(), 1 + 1 + 2);
 }
 
 #[test]

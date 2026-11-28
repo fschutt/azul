@@ -574,7 +574,10 @@ radius (slightly rounded corners, no capsule ends). On a phone (Android or iOS, 
 the desktop size and `Rectangular` the classic square tabs. A button is 32 px tall in a 48 px row; the target is the
 whole row (padded, not the picture). The row is longer than the window and
 scrolls sideways under a finger, with the wheel and with the keys, without a scrollbar, and the selected pill scrolls
-into view (centred) by itself whoever changed the selection: a tap, an arrow key, a flip, the app. The pills are tabs for
+into view (centred) by itself whoever changed the selection: a tap, an arrow key, a flip, the app. A pill that slides
+out of its lane (off the window's edge, under the camera's cover) fades into the leather over the last 16 px of the
+lane instead of being cut; the first and the last pill stand 16 px in, so at rest and at the ends nothing is dimmed.
+Pills that do not fit are never folded into a "more" pill: the row scrolls. The pills are tabs for
 TalkBack and VoiceOver (the tab role, the name, the selected state) and the arrow keys move between them.
 
 **The strip in the status bar's band.** An app that does not need the clock and the battery while the user works (a
@@ -978,6 +981,35 @@ An emulator will not tell you about digitizer sampling rate, pen tilt, Force
 Touch stages, real sensor noise or thermal throttling. For anything timing- or
 hardware-shaped, the device is the only answer — see the install steps
 [above](#installing--debugging-the-built-app).
+
+## The app's life: paused, resumed, short of memory, ending
+
+A phone does not ask an app whether it may stop. After the app leaves the foreground the system may end the process without another word, so what a person would lose - the document, the drawing, the half-typed message - is written when the app is **paused**, not when it ends. The engine tells the app four things, on every platform that has them:
+
+| Event | When | What to do |
+|---|---|---|
+| `Paused` | the app left the foreground (another app in front, the screen off, the home key) | write what a person would lose |
+| `Resumed` | the app is in the foreground again | read what changed meanwhile |
+| `LowMemory` | the system asks for memory back | drop what can be made again: caches, decoded pictures, tiles |
+| `WillTerminate` | the process is about to end (not promised: a phone often ends a process with no such event) | the last chance to write |
+
+The app installs one handler, usually in its window's create callback, and asks which event it runs for:
+
+```rust
+extern "C" fn on_lifecycle(mut data: RefAny, info: CallbackInfo) -> Update {
+    if let OptionLifecycleEvent::Some(LifecycleEvent::Paused) = info.get_lifecycle_event() {
+        // write the document
+    }
+    Update::DoNothing
+}
+
+extern "C" fn on_create(data: RefAny, info: CallbackInfo) -> Update {
+    info.set_lifecycle_handler(data, on_lifecycle);
+    Update::DoNothing
+}
+```
+
+An app that installs no handler hears nothing. The handler runs on the loop thread like a menu click, with the app's data and the window's `CallbackInfo`; what it asks for (a timer, a rebuild) is applied as for every other callback. A test raises the same events without a phone: `azul::desktop::lifecycle::raise(&mut window, LifecycleEvent::Paused)` runs the handler against a headless window (`dll/tests/lifecycle_headless.rs`).
 
 ## See also
 

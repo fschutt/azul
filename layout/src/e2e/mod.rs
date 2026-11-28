@@ -99,6 +99,11 @@ mod tab_flip_ops_tests;
 #[cfg(test)]
 mod tab_strip_ops_tests;
 
+// A click by text lands where the text is DRAWN in a scrolled page (the label inside a button has no
+// hit-test area; its laid-out box is in content coordinates).
+#[cfg(test)]
+mod click_on_screen_tests;
+
 // The key names `key_down` / `key_up` accept: punctuation and the numeric
 // keypad, so a scenario can type an operator (`plus`, `numpad_multiply`).
 #[cfg(test)]

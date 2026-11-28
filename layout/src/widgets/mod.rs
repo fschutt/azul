@@ -386,14 +386,17 @@ pub mod sidebar_layout;
 /// The standard Sidebar: the full-height left column every heavy app shares.
 ///
 /// Sections with small titles, rows (icon, label, count, disclosure triangles, a selected row as a
-/// rounded highlight), status pies with a short popover above the toggle, an icon rail as its
-/// collapsed state, a 16 px handle, and on a phone a drawer that pushes the main view aside; see
-/// `sidebar.rs`.
+/// rounded highlight), a status slot (pies, badges) with a short popover above the toggle, an
+/// 18 px icon rail as its collapsed state (navigation icons at the top, the app's quick-access
+/// buttons at the bottom), a 16 px handle, and on a phone a drawer that pushes the main view
+/// aside; see `sidebar.rs`.
 pub mod sidebar;
 /// The Preview: one widget with two docks.
 ///
-/// Docked at the right below the tab ribbon on a desktop (resized by dragging its left border),
-/// at the bottom on a phone as a height-adjustable pane with a grip; see `preview.rs`.
+/// Opt-in. Docked at the right below the tab ribbon on a desktop (resized by dragging its left
+/// border), at the bottom on a phone as a pane with a grip bar and four detents; it shows the item
+/// itself, everything else is behind (?) buttons, a banner appears only when something needs
+/// saying; see `preview.rs`.
 pub mod preview;
 /// The phone's quick-action sheet.
 ///
@@ -1139,6 +1142,41 @@ mod label_convention {
         }
     }
 
+    /// A sidebar with what an app gives it: a section of rows, a quick-access button, a status pie and
+    /// a badge, in `state`.
+    fn family_sidebar(state: super::sidebar_layout::SidebarState) -> super::sidebar::Sidebar {
+        use super::{
+            pie_marker::PieTone,
+            sidebar::{Sidebar, SidebarQuickAction, SidebarRow, SidebarSection, SidebarStatus},
+            sidebar_layout::FormFactor,
+        };
+        Sidebar::create()
+            .with_section(
+                SidebarSection::create(AzString::from("Favourites"))
+                    .with_row(SidebarRow::create(AzString::from("Inbox")).with_icon(AzString::from("inbox")).with_badge(AzString::from("3")))
+                    .with_row(SidebarRow::create(AzString::from("Sent")).with_icon(AzString::from("send")).with_selected(true)),
+            )
+            .with_quick_action(SidebarQuickAction::create(AzString::from("Bold"), AzString::from("format_bold")))
+            .with_status(SidebarStatus::create(AzString::from("Sync"), 0.5, PieTone::Busy).with_text(AzString::from("50 %")))
+            .with_status(SidebarStatus::badge(AzString::from("Unread"), AzString::from("3"), PieTone::Danger))
+            .with_help(AzString::from("Help"))
+            .with_state(state)
+            .with_form(FormFactor::Desktop)
+    }
+
+    /// A Preview with a (?) button and a banner, docked for `form`.
+    fn family_preview(form: super::sidebar_layout::FormFactor) -> Dom {
+        use super::preview::{Preview, PreviewBanner, PreviewBannerTone, PreviewDetail};
+        Preview::create(user_content(), user_content())
+            .with_detail(PreviewDetail::create(AzString::from("Properties"), user_content()))
+            .with_banner(
+                PreviewBanner::create(AzString::from("Unverified signer"), PreviewBannerTone::Warning)
+                    .with_details(user_content()),
+            )
+            .with_form(form)
+            .dom()
+    }
+
     /// Every widget in the crate, built with defaults that actually exercise
     /// its label paths (a widget with no labels proves nothing).
     ///
@@ -1371,6 +1409,53 @@ mod label_convention {
             (
                 "segmented",
                 Segmented::create(labels(&["Day", "Week", "Month"])).dom(),
+            ),
+            // the sidebar family: every part in both form factors, with what an app gives it
+            (
+                "action_sheet",
+                super::action_sheet::ActionSheet::create()
+                    .with_title(AzString::from("a.pdf"), AzString::from("1.2 MB"))
+                    .with_item(super::action_sheet::ActionSheetItem::create(
+                        AzString::from("Rename"),
+                        AzString::from("edit"),
+                        1,
+                    ))
+                    .with_open(true)
+                    .with_form(super::sidebar_layout::FormFactor::Phone)
+                    .dom(),
+            ),
+            (
+                "app_frame",
+                super::app_frame::AppFrame::create(user_content(), user_content())
+                    .with_sidebar(family_sidebar(super::sidebar_layout::SidebarState::Rail))
+                    .with_preview(super::preview::Preview::create(user_content(), user_content()))
+                    .with_footer(user_content())
+                    .with_form(super::sidebar_layout::FormFactor::Desktop)
+                    .dom(),
+            ),
+            (
+                "location_bar",
+                super::location_bar::LocationBar::create(AzString::from("Fonts"))
+                    .with_parent(super::location_bar::LocationCrumb::create(AzString::from("azul"), 1))
+                    .with_more(true)
+                    .with_form(super::sidebar_layout::FormFactor::Desktop)
+                    .dom(),
+            ),
+            (
+                "preview (right)",
+                family_preview(super::sidebar_layout::FormFactor::Desktop),
+            ),
+            (
+                "preview (bottom)",
+                family_preview(super::sidebar_layout::FormFactor::Phone),
+            ),
+            (
+                "sidebar (expanded)",
+                family_sidebar(super::sidebar_layout::SidebarState::Expanded).dom(),
+            ),
+            (
+                "sidebar (rail)",
+                family_sidebar(super::sidebar_layout::SidebarState::Rail).dom(),
             ),
             ("slider", Slider::create(0.5, 0.0, 1.0).dom()),
             ("spinner", Spinner::create().dom()),
@@ -3032,6 +3117,15 @@ pub(crate) mod theme_contrast {
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[
+        // The sidebar family (`sidebar.rs`, `preview.rs`, `location_bar.rs`, `action_sheet.rs`,
+        // `app_frame.rs`): the app frame every heavy app shares, on the theme's own grounds.
+        "action_sheet",
+        "app_frame",
+        "location_bar",
+        "preview (bottom)",
+        "preview (right)",
+        "sidebar (expanded)",
+        "sidebar (rail)",
         "address_bar",
         "address_bar (editing)",
         "backstage",

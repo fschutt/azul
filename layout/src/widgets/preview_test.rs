@@ -50,6 +50,7 @@ fn preview() -> Preview {
 fn state(dock: PreviewDock, size: f32) -> DragState {
     DragState {
         on_event: OptionPreviewOnEvent::None,
+        edge: Edge::Right,
         dock,
         size,
         dragging: false,
@@ -461,4 +462,41 @@ fn a_collapsed_bottom_bar_still_shows_that_there_is_a_banner() {
 #[test]
 fn the_default_title_is_preview() {
     assert_eq!(Preview::default().title.as_str(), "Preview");
+}
+
+// ---- the DOM id of the root ----
+
+#[test]
+fn the_root_has_the_dom_id_the_app_gave_open_or_closed_and_none_otherwise() {
+    let has = |dom: &Dom, id: &str| dom.root.get_ids_and_classes().as_ref().iter().any(|c| c.as_id() == Some(id));
+    for open in [true, false] {
+        let named = preview().with_form(FormFactor::Desktop).with_open(open).with_dom_id(AzString::from("mail-preview")).dom();
+        assert!(has(&named, "mail-preview"), "open {open}");
+        assert!(has_class(&named, PREVIEW_CLASS));
+        let plain = preview().with_form(FormFactor::Desktop).with_open(open).dom();
+        assert!(!plain.root.get_ids_and_classes().as_ref().iter().any(|c| c.as_id().is_some()), "open {open}");
+    }
+}
+
+// ---- the edge: one place decides it ----
+
+#[test]
+fn the_right_dock_stands_at_the_edge_preview_edge_names() {
+    assert_eq!(preview_edge(BUILT_FOR), Edge::Right);
+    let dom = preview().with_form(FormFactor::Desktop).dom();
+    assert!(has_class(&dom, PREVIEW_RIGHT_CLASS));
+}
+
+#[test]
+fn a_dock_at_the_left_edge_would_grab_and_grow_the_other_way_round() {
+    // not built (the mirror is a later step), but the numbers are the mirror of the right dock's
+    let mut st = state(PreviewDock::Right, 320.0);
+    st.edge = Edge::Left;
+    // a 1000 px container: the border of a dock at the left is at x = 320
+    assert!(st.grabs(320.0, 100.0, 1000.0, 600.0));
+    assert!(!st.grabs(680.0, 100.0, 1000.0, 600.0));
+    st.start_main = 320.0;
+    st.start_size = 320.0;
+    assert!(near(st.size_at(420.0, 1000.0, 600.0), 420.0), "dragged inward (right) the pane grows");
+    assert!(near(st.size_at(220.0, 1000.0, 600.0), 220.0));
 }

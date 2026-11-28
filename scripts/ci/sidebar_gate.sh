@@ -13,7 +13,7 @@
 #              api.json (upload it) and api.diff; then a SECOND round that must change nothing
 #   doc_check  azul-doc check (the double-drop invariant, the guide links) and azul-doc check layout
 #   dll_check  codegen of the bindings from the api.json as it stands, cargo check of azul-dll, the srcgate tests
-#   widgets_check  the AzWidgets example type-checks over the C ABI (after the autofix step's api.json)
+#   widgets_check  the AzWidgets example and azul-appkit's frame module type-check over the C ABI (after the autofix step's api.json)
 # A step that fails does not stop the ones after it; the last lines are one `STEP <name> <exit>` each, and the exit code of the script is 0
 # only when every step that ran passed.
 set -uo pipefail
@@ -221,6 +221,14 @@ api_functions=(
   AppFrame.set_form
   AppFrame.with_form
   AppFrame.dom
+  Sidebar.set_dom_id
+  Sidebar.with_dom_id
+  Preview.set_dom_id
+  Preview.with_dom_id
+  AppFrame.set_dom_id
+  AppFrame.with_dom_id
+  SummaryList.set_on_long_press
+  SummaryList.with_on_long_press
   Sidebar.set_quick_access
   Sidebar.with_quick_access
   Sidebar.add_quick_action
@@ -343,8 +351,12 @@ dll_check() {
 run dll_check dll_check
 
 widgets_check() {
+  local code=0
   cargo run -r -p azul-doc -- codegen all || return 1
-  cargo check -p AzWidgets --lib --tests
+  cargo check -p AzWidgets --lib --tests || code=1
+  # the apps' shared frame (the example the app work packages copy from) over the same bindings
+  cargo check -p azul-appkit --features azul --lib || code=1
+  return "$code"
 }
 run widgets_check widgets_check
 
