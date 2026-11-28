@@ -12,14 +12,16 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use azul_core::keyring::{KeyringRequest, KeyringResult};
+use azul_core::keyring::{
+    KeyringNamespace, KeyringNeed, KeyringProtection, KeyringPrompt, KeyringRequest,
+    KeyringResult, KeyringSupport,
+};
 use azul_css::AzString;
-
-use azul_core::keyring::KeyringNamespace;
+use azul_layout::managers::stand_in_user::{ScriptedOutcome, StandInUser};
 
 use super::{
-    answer_in, answer_with, blob_refusal, has_nul, quiet_verdict, service_of, Backend, Collection,
-    Prompts, CREDENTIAL_BLOB_MAX,
+    answer_in, answer_with, blob_refusal, has_nul, need_in, quiet_verdict, service_of, support_in,
+    Backend, Collection, Interaction, CREDENTIAL_BLOB_MAX,
 };
 
 /// The namespace the tests' entries live in (an app's own id).
@@ -49,7 +51,8 @@ fn store(key: &str, secret: &str) -> KeyringRequest {
     KeyringRequest::Store {
         key: AzString::from(key),
         secret: AzString::from(secret),
-        require_biometry: false,
+        protection: KeyringProtection::DeviceUnlocked,
+        prompt: KeyringPrompt::default(),
     }
 }
 
@@ -429,7 +432,7 @@ fn a_namespace_names_its_service_and_the_default_one_is_the_apps_own_id() {
 fn a_quiet_op_answers_like_a_plain_one_on_the_stand_ins() {
     let key = unique("quiet");
     let quiet = |req: &KeyringRequest, backend: &Backend| {
-        answer_with(TEST_SERVICE, req, backend, Prompts::Never)
+        answer_with(TEST_SERVICE, req, backend, Interaction::Quiet, &StandInUser::new())
     };
     assert_eq!(quiet(&get(&key), &Backend::Memory), KeyringResult::NotFound);
     assert_eq!(quiet(&store(&key, "s3cr3t"), &Backend::Memory), KeyringResult::Stored);
@@ -454,7 +457,7 @@ fn a_quiet_op_answers_like_a_plain_one_on_the_stand_ins() {
 #[test]
 fn the_keyring_offers_quiet_ops_in_a_namespace() {
     let get: fn(KeyringNamespace, AzString) -> KeyringResult = super::Keyring::get_quietly_in;
-    let store: fn(KeyringNamespace, AzString, AzString, bool) -> KeyringResult =
+    let store: fn(KeyringNamespace, AzString, AzString) -> KeyringResult =
         super::Keyring::store_quietly_in;
     let delete: fn(KeyringNamespace, AzString) -> KeyringResult =
         super::Keyring::delete_quietly_in;
@@ -497,11 +500,17 @@ fn az_w16_a_key_or_secret_with_a_nul_is_an_error_on_every_backend_and_is_never_k
             KeyringResult::Stored
         );
         assert_eq!(
-            answer_with(TEST_SERVICE, &get(&key), &backend, Prompts::Never),
+            answer_with(TEST_SERVICE, &get(&key), &backend, Interaction::Quiet, &StandInUser::new()),
             KeyringResult::Retrieved(AzString::from("plain"))
         );
         assert_eq!(
-            answer_with(TEST_SERVICE, &store(&key, "a\0b"), &backend, Prompts::Never),
+            answer_with(
+                TEST_SERVICE,
+                &store(&key, "a\0b"),
+                &backend,
+                Interaction::Quiet,
+                &StandInUser::new()
+            ),
             KeyringResult::Error,
             "quiet or not"
         );
@@ -532,15 +541,15 @@ fn az_w16_a_secret_over_what_one_credential_holds_is_refused_with_both_sizes() {
 
 /// AZ-W16: a quiet op (a start, a timer, a poll) must never raise the keyring's unlock dialog. With
 /// the default collection locked libsecret asks for its password even for a quiet read; the op looks
-/// first and answers `Denied`. The truth table of what the collection's state settles, on every host.
+/// first and answers `WouldPrompt`. The truth table of what the collection's state settles, on every host.
 #[test]
-fn az_w16_a_quiet_op_answers_denied_for_a_locked_collection_instead_of_the_unlock_dialog() {
+fn az_w16_a_quiet_op_answers_would_prompt_for_a_locked_collection_instead_of_the_unlock_dialog() {
     let (read, write, remove) = (get("k"), store("k", "s"), delete("k"));
     // Locked: nothing is touched, whatever the op.
     for request in [&read, &write, &remove] {
         assert_eq!(
             quiet_verdict(Collection::Locked, request),
-            Some(KeyringResult::Denied),
+            Some(KeyringResult::WouldPrompt),
             "{request:?}"
         );
     }
@@ -556,7 +565,7 @@ fn az_w16_a_quiet_op_answers_denied_for_a_locked_collection_instead_of_the_unloc
     );
     assert_eq!(
         quiet_verdict(Collection::Missing, &write),
-        Some(KeyringResult::Denied)
+        Some(KeyringResult::WouldPrompt)
     );
     // Open, or not told (an old libsecret, a refused call): the op goes on to libsecret.
     for state in [Collection::Unlocked, Collection::Unknown] {
@@ -564,4 +573,282 @@ fn az_w16_a_quiet_op_answers_denied_for_a_locked_collection_instead_of_the_unloc
             assert_eq!(quiet_verdict(state, request), None, "{state:?} {request:?}");
         }
     }
+}
+
+
+// ───────── The protection model, on the stand-ins ───────────────────────
+
+const KEY: &str = "vault";
+
+fn store_protected(key: &str, secret: &str, protection: KeyringProtection) -> KeyringRequest {
+    KeyringRequest::Store {
+        key: AzString::from(key),
+        secret: AzString::from(secret),
+        protection,
+        prompt: KeyringPrompt::create(AzString::from("Unlock your vault")),
+    }
+}
+
+fn unlock(key: &str) -> KeyringRequest {
+    KeyringRequest::Unlock {
+        key: AzString::from(key),
+        prompt: KeyringPrompt::create(AzString::from("Unlock your vault")),
+    }
+}
+
+/// An op of the user's action: the sheet may show (what a callback's request gets).
+fn with_sheet(req: &KeyringRequest, backend: &Backend, user: &StandInUser) -> KeyringResult {
+    answer_with(TEST_SERVICE, req, backend, Interaction::UserCheck, user)
+}
+
+/// A worker thread's op (blocking, or quiet): no sheet.
+fn without_sheet(
+    req: &KeyringRequest,
+    backend: &Backend,
+    user: &StandInUser,
+    interaction: Interaction,
+) -> KeyringResult {
+    answer_with(TEST_SERVICE, req, backend, interaction, user)
+}
+
+/// A user with a biometric and a passcode, and a key no other test uses.
+fn enrolled_user() -> StandInUser {
+    let user = StandInUser::new();
+    user.enroll(true, true);
+    user
+}
+
+/// Every flow below runs on the memory stand-in and on the file one: the same answers.
+fn both_stand_ins() -> [Backend; 2] {
+    [Backend::Memory, Backend::File(keyring_file("model"))]
+}
+
+#[test]
+fn a_protected_item_is_opened_by_the_users_match_and_never_by_a_get() {
+    for backend in both_stand_ins() {
+        let user = enrolled_user();
+        let key = unique("match");
+        assert_eq!(
+            with_sheet(&store_protected(&key, "s3cr3t", KeyringProtection::Biometric), &backend, &user),
+            KeyringResult::Stored
+        );
+        // A get shows nothing and gives nothing.
+        assert_eq!(
+            with_sheet(&get(&key), &backend, &user),
+            KeyringResult::WouldPrompt,
+            "a get of a protected item never opens it"
+        );
+        // The user's match opens it.
+        assert_eq!(with_sheet(&unlock(&key), &backend, &user), retrieved("s3cr3t"));
+        assert_eq!(with_sheet(&delete(&key), &backend, &user), KeyringResult::Deleted);
+        assert_eq!(with_sheet(&unlock(&key), &backend, &user), KeyringResult::NotFound);
+    }
+}
+
+#[test]
+fn a_worker_threads_call_never_shows_the_sheet_and_never_makes_or_opens_a_protected_item() {
+    for backend in both_stand_ins() {
+        let user = enrolled_user();
+        let key = unique("worker");
+        for interaction in [Interaction::Dialogs, Interaction::Quiet] {
+            assert_eq!(
+                without_sheet(
+                    &store_protected(&key, "s", KeyringProtection::UserPresence),
+                    &backend,
+                    &user,
+                    interaction
+                ),
+                KeyringResult::WouldPrompt,
+                "{interaction:?}: a protected store needs the user's action"
+            );
+            assert_eq!(
+                without_sheet(&unlock(&key), &backend, &user, interaction),
+                KeyringResult::WouldPrompt,
+                "{interaction:?}: an unlock needs the sheet"
+            );
+        }
+        // Nothing was stored by the refused calls.
+        assert_eq!(with_sheet(&get(&key), &backend, &user), KeyringResult::NotFound);
+        // And a protected item made behind the user's action is not opened by a worker thread.
+        assert_eq!(
+            with_sheet(&store_protected(&key, "s", KeyringProtection::UserPresence), &backend, &user),
+            KeyringResult::Stored
+        );
+        for interaction in [Interaction::Dialogs, Interaction::Quiet] {
+            assert_eq!(
+                without_sheet(&get(&key), &backend, &user, interaction),
+                KeyringResult::WouldPrompt
+            );
+        }
+        // No answer was used up: the script is untouched by any of it.
+        assert_eq!(user.pending_outcomes(), 0);
+    }
+}
+
+#[test]
+fn the_user_who_does_not_pass_is_told_why() {
+    for backend in both_stand_ins() {
+        let user = enrolled_user();
+        let key = unique("refusals");
+        with_sheet(&store_protected(&key, "s3cr3t", KeyringProtection::Biometric), &backend, &user);
+        user.script([
+            ScriptedOutcome::Mismatch,
+            ScriptedOutcome::Cancel,
+            ScriptedOutcome::Lockout,
+            ScriptedOutcome::Match,
+        ]);
+        assert_eq!(with_sheet(&unlock(&key), &backend, &user), KeyringResult::Failed);
+        assert_eq!(with_sheet(&unlock(&key), &backend, &user), KeyringResult::Cancelled);
+        assert_eq!(with_sheet(&unlock(&key), &backend, &user), KeyringResult::LockedOut);
+        assert_eq!(with_sheet(&unlock(&key), &backend, &user), retrieved("s3cr3t"));
+        // Not one of them is `Denied`: that is the system refusing the app.
+    }
+}
+
+#[test]
+fn a_level_the_device_cannot_meet_stores_nothing() {
+    for backend in both_stand_ins() {
+        let nothing = StandInUser::new();
+        for level in [KeyringProtection::UserPresence, KeyringProtection::Biometric] {
+            let key = unique("notenrolled");
+            assert_eq!(
+                with_sheet(&store_protected(&key, "s", level), &backend, &nothing),
+                KeyringResult::NotEnrolled,
+                "{level:?}: nothing enrolled"
+            );
+            assert_eq!(with_sheet(&get(&key), &backend, &nothing), KeyringResult::NotFound);
+        }
+        // A passcode meets `UserPresence`, not `Biometric`.
+        let passcode_only = StandInUser::new();
+        passcode_only.enroll(false, true);
+        let key = unique("passcode");
+        assert_eq!(
+            with_sheet(&store_protected(&key, "s", KeyringProtection::Biometric), &backend, &passcode_only),
+            KeyringResult::NotEnrolled
+        );
+        assert_eq!(
+            with_sheet(&store_protected(&key, "s", KeyringProtection::UserPresence), &backend, &passcode_only),
+            KeyringResult::Stored
+        );
+    }
+}
+
+#[test]
+fn a_changed_enrolment_invalidates_a_biometric_item_and_spares_a_user_presence_one() {
+    for backend in both_stand_ins() {
+        let user = enrolled_user();
+        let (bio, presence) = (unique("bio"), unique("presence"));
+        with_sheet(&store_protected(&bio, "b", KeyringProtection::Biometric), &backend, &user);
+        with_sheet(&store_protected(&presence, "p", KeyringProtection::UserPresence), &backend, &user);
+        user.enrollment_changed();
+        assert_eq!(with_sheet(&unlock(&bio), &backend, &user), KeyringResult::Invalidated);
+        assert_eq!(
+            with_sheet(&get(&bio), &backend, &user),
+            KeyringResult::Invalidated,
+            "a get says so too, without the sheet"
+        );
+        assert_eq!(
+            with_sheet(&unlock(&presence), &backend, &user),
+            retrieved("p"),
+            "the passcode still works"
+        );
+        // Invalidated is not NotFound: the record is there until the app stores again or deletes.
+        assert_eq!(
+            need_in(TEST_SERVICE, &bio, &backend, &user),
+            KeyringNeed::Invalidated
+        );
+        // Store again under the new set.
+        assert_eq!(
+            with_sheet(&store_protected(&bio, "b2", KeyringProtection::Biometric), &backend, &user),
+            KeyringResult::Stored
+        );
+        assert_eq!(with_sheet(&unlock(&bio), &backend, &user), retrieved("b2"));
+    }
+}
+
+#[test]
+fn the_probe_says_what_a_read_needs_without_showing_anything() {
+    for backend in both_stand_ins() {
+        let user = enrolled_user();
+        let (plain, presence, bio, absent) =
+            (unique("plain"), unique("presence"), unique("bio"), unique("absent"));
+        with_sheet(&store(&plain, "x"), &backend, &user);
+        with_sheet(&store_protected(&presence, "x", KeyringProtection::UserPresence), &backend, &user);
+        with_sheet(&store_protected(&bio, "x", KeyringProtection::Biometric), &backend, &user);
+        user.script([ScriptedOutcome::Cancel]);
+        let need = |key: &str| need_in(TEST_SERVICE, key, &backend, &user);
+        assert_eq!(need(&plain), KeyringNeed::Nothing);
+        assert_eq!(need(&presence), KeyringNeed::UserPresence);
+        assert_eq!(need(&bio), KeyringNeed::Biometric);
+        assert_eq!(need(&absent), KeyringNeed::NotFound);
+        assert_eq!(need("a\0b"), KeyringNeed::Error);
+        assert_eq!(user.pending_outcomes(), 1, "a probe is no sheet: the script is untouched");
+    }
+}
+
+#[test]
+fn the_stand_in_says_what_it_can_do_for_each_level() {
+    let backend = Backend::Memory;
+    let nothing = StandInUser::new();
+    assert_eq!(support_in(KeyringProtection::DeviceUnlocked, &backend, &nothing), KeyringSupport::Hardware);
+    assert_eq!(support_in(KeyringProtection::UserPresence, &backend, &nothing), KeyringSupport::NotEnrolled);
+    assert_eq!(support_in(KeyringProtection::Biometric, &backend, &nothing), KeyringSupport::NotEnrolled);
+    nothing.enroll(false, true);
+    assert_eq!(support_in(KeyringProtection::UserPresence, &backend, &nothing), KeyringSupport::Hardware);
+    assert_eq!(support_in(KeyringProtection::Biometric, &backend, &nothing), KeyringSupport::NotEnrolled);
+    nothing.enroll(true, true);
+    assert_eq!(support_in(KeyringProtection::Biometric, &backend, &nothing), KeyringSupport::Hardware);
+}
+
+#[test]
+fn an_unprotected_item_is_read_by_an_unlock_without_a_sheet_and_replaced_by_a_store() {
+    for backend in both_stand_ins() {
+        let user = enrolled_user();
+        let key = unique("plain-unlock");
+        with_sheet(&store(&key, "old"), &backend, &user);
+        user.script([ScriptedOutcome::Cancel]);
+        assert_eq!(with_sheet(&unlock(&key), &backend, &user), retrieved("old"));
+        assert_eq!(user.pending_outcomes(), 1, "an unprotected item shows no sheet");
+        // A protected store over it makes it protected; a plain store over that makes it plain.
+        with_sheet(&store_protected(&key, "new", KeyringProtection::UserPresence), &backend, &user);
+        assert_eq!(with_sheet(&get(&key), &backend, &user), KeyringResult::WouldPrompt);
+        with_sheet(&store(&key, "plain-again"), &backend, &user);
+        assert_eq!(with_sheet(&get(&key), &backend, &user), retrieved("plain-again"));
+    }
+}
+
+#[test]
+fn a_keyring_file_keeps_the_level_and_the_enrolment_it_was_stored_under() {
+    let path = keyring_file("level");
+    let backend = Backend::File(path.clone());
+    let user = enrolled_user();
+    let key = unique("level");
+    with_sheet(&store_protected(&key, "s3cr3t", KeyringProtection::Biometric), &backend, &user);
+    // The next run of the app: a user of its own, with the same enrolment.
+    let next = StandInUser::new();
+    next.enroll(true, true);
+    assert_eq!(
+        need_in(TEST_SERVICE, &key, &Backend::File(path.clone()), &next),
+        KeyringNeed::Biometric
+    );
+    // A file with an entry the model does not know is an error, not a weaker item.
+    std::fs::write(&path, r#"{"svc":{"k":{"secret":"s","protection":9}}}"#).expect("write the file");
+    assert_eq!(
+        answer_with("svc", &get("k"), &Backend::File(path.clone()), Interaction::Dialogs, &next),
+        KeyringResult::Error
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn a_protected_op_whose_name_holds_a_nul_is_an_error_like_every_other() {
+    let user = enrolled_user();
+    assert_eq!(
+        with_sheet(&store_protected("a\0b", "s", KeyringProtection::Biometric), &Backend::Memory, &user),
+        KeyringResult::Error
+    );
+    assert_eq!(
+        with_sheet(&unlock("a\0b"), &Backend::Memory, &user),
+        KeyringResult::Error
+    );
 }
