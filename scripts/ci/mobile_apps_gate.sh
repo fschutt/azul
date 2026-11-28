@@ -296,6 +296,9 @@ run autofix autofix
 # 7. the double-drop invariant and the guide links (the CI's azul-doc job)
 run doc_check cargo run -r -p azul-doc -- check
 
+# 7b. the tests of azul-doc itself (the CI's "azul-doc tests + invariants": the e2e ops' classification, the guide's checks)
+run doc_tests cargo test -r -p azul-doc --bins --no-fail-fast
+
 echo
 bad=0
 if [ "${#names[@]}" -eq 0 ]; then
