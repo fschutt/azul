@@ -118,15 +118,14 @@ extern "C" fn on_sound(mut data: RefAny, mut info: CallbackInfo) -> Update {
         .iter()
         .map(|line| line.as_str().to_string())
         .collect();
-    match app.downcast_mut::<Showcase>() {
-        Some(mut showcase) => {
-            showcase.sounds.last = format!("{name}: {}", route.as_str());
-            showcase.sounds.log = log;
-            showcase.interactions += 1;
-            Update::RefreshDom
-        }
-        None => Update::DoNothing,
-    }
+    // a local guard, not the tail expression: the guard must drop before `app` does
+    let Some(mut showcase) = app.downcast_mut::<Showcase>() else {
+        return Update::DoNothing;
+    };
+    showcase.sounds.last = format!("{name}: {}", route.as_str());
+    showcase.sounds.log = log;
+    showcase.interactions += 1;
+    Update::RefreshDom
 }
 
 extern "C" fn on_haptic(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -135,14 +134,12 @@ extern "C" fn on_haptic(mut data: RefAny, mut info: CallbackInfo) -> Update {
         None => return Update::DoNothing,
     };
     info.play_haptic(pattern, HapticTarget::System);
-    match app.downcast_mut::<Showcase>() {
-        Some(mut showcase) => {
-            showcase.sounds.last = format!("haptic {name}: the actuator of this device");
-            showcase.interactions += 1;
-            Update::RefreshDom
-        }
-        None => Update::DoNothing,
-    }
+    let Some(mut showcase) = app.downcast_mut::<Showcase>() else {
+        return Update::DoNothing;
+    };
+    showcase.sounds.last = format!("haptic {name}: the actuator of this device");
+    showcase.interactions += 1;
+    Update::RefreshDom
 }
 
 /// What the board knows of the device before a button is pressed.
