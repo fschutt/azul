@@ -226,6 +226,12 @@ after_tap_gone = ["Connect to AzReview"]
 # (the input path), which tells a broken demo key from a broken touch.
 probe_tap = "Scan QR code"
 probe_after = ["Scanning the code comes with the next version"]
+# What the app says in its log (the engine's info log, which the boot tests switch on for an app that names log texts): a phone that was
+# never paired touches no network until a pairing starts, so its window setup says so, and NO iroh endpoint is bound at all (the line
+# `[iroh::endpoint] endpoint; id=...` is what a bound endpoint logs: the demo mode binds nothing either, "Demo Mac" above still comes up).
+# A bind that comes back fails the boot test of the emulator and of the simulator.
+log_present = ["AzCompanion: no Mac is paired: the local network is left alone until a pairing starts"]
+log_absent = ["[iroh::endpoint] endpoint; id="]
 [app.ios]
 # build-ios.sh writes NSLocalNetworkUsageDescription and NSBonjourServices = [_irohv1._udp] from this text
 local_network = "AzReview Companion finds AzReview on your Mac over your Wi-Fi to use your phone as its remote control."
@@ -325,7 +331,8 @@ description = "a mail client: IMAP sync to plain files, folders and messages"
 platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
 weight = 3
 needs = ["an IMAP account"]
-# AzMail compiles azul-core: azul-mail-core uses `azul_core::tls::MailTls` (the connection policy of every mail client of the tree,
+# AzMail compiles azul-core on Linux and Windows (not on macOS: the macOS Intel leg of 2026-11-28 built it in 153 s with no engine crate, so
+# macOS is not listed below): azul-mail-core uses `azul_core::tls::MailTls` (the connection policy of every mail client of the tree,
 # shared with the Azlin Bridge, which runs without libazul), azul-icons-haiku depends on azul-core unconditionally and azul-appkit with
 # its `trust` feature. azul-core defines the C ABI functions of libazul (`#[no_mangle] AzApp_*`), so an app that compiles it and links
 # the prebuilt libazul has each of them twice: the link of the first Linux leg (2026-11-28) stopped in rust-lld with 12 duplicate symbols,
@@ -334,8 +341,6 @@ needs = ["an IMAP account"]
 # icons crate must not depend on azul-core: ledger row. Until then the page says it, and the build is still tried on every run.
 [app.known_failing]
 linux = "AzMail compiles azul-core (the mail connection policy type), whose C ABI symbols are also in the prebuilt libazul: the link fails with duplicate symbols"
-macos-arm64 = "AzMail compiles azul-core (the mail connection policy type), whose C ABI symbols are also in the prebuilt libazul: the link fails with duplicate symbols"
-macos-intel = "AzMail compiles azul-core (the mail connection policy type), whose C ABI symbols are also in the prebuilt libazul: the link fails with duplicate symbols"
 windows = "AzMail compiles azul-core (the mail connection policy type), whose C ABI symbols are also in the prebuilt libazul: the link fails with duplicate symbols"
 
 [[app]]
