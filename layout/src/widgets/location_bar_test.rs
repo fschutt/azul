@@ -174,6 +174,30 @@ fn the_pen_is_a_named_button_that_starts_the_edit() {
 }
 
 #[test]
+fn a_more_button_beside_the_pen_holds_file_s_old_items_and_only_reports_the_click() {
+    // none by default: the app asks for it
+    assert!(first(&bar().dom(), LOCATION_MORE_CLASS).is_none());
+    let dom = bar().with_more(true).dom();
+    let more = first(&dom, LOCATION_MORE_CLASS).expect("a more button");
+    let a11y = more.root.get_accessibility_info().expect("an a11y info");
+    assert_eq!(a11y.role, AccessibilityRole::PushButton);
+    assert_eq!(a11y.accessibility_name.as_ref().map(|n| n.as_str()), Some("More"));
+    assert_eq!(click_report(more), Some((LocationEventKind::MoreClicked, 0)));
+    // it stands after the pen, in the name's line
+    let line = first(&dom, LOCATION_NAME_ROW_CLASS).expect("the name's line");
+    assert!(has_class(&line.children.as_ref()[1], LOCATION_PEN_CLASS));
+    assert!(has_class(&line.children.as_ref()[2], LOCATION_MORE_CLASS));
+}
+
+#[test]
+fn the_more_button_does_not_need_a_pen_and_goes_while_the_field_is_open() {
+    let dom = bar().with_editable(false).with_more(true).dom();
+    assert!(first(&dom, LOCATION_PEN_CLASS).is_none() && first(&dom, LOCATION_MORE_CLASS).is_some());
+    let editing = bar().with_more(true).with_editing(true, AzString::from("Fo")).dom();
+    assert!(first(&editing, LOCATION_MORE_CLASS).is_none(), "the field takes the line");
+}
+
+#[test]
 fn a_block_with_nothing_to_edit_has_no_pen() {
     let dom = bar().with_editable(false).dom();
     assert!(first(&dom, LOCATION_PEN_CLASS).is_none());

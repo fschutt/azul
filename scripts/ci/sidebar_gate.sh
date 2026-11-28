@@ -171,6 +171,8 @@ api_functions=(
   LocationBar.with_parents
   LocationBar.set_editable
   LocationBar.with_editable
+  LocationBar.set_more
+  LocationBar.with_more
   LocationBar.set_editing
   LocationBar.with_editing
   LocationBar.set_placeholder

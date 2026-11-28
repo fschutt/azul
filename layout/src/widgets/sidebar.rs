@@ -755,7 +755,7 @@ pub enum SidebarQuickState {
 }
 
 /// One quick-access button of the collapsed rail: what an app puts where the thumb of a
-/// right-handed user holding the phone upright reaches (AzWriter: font colour, bold, highlight,
+/// right-handed user holding the phone upright reaches (`AzWriter`: font colour, bold, highlight,
 /// size, undo). The rail draws them at the bottom, above the status slot; the LAST one is the
 /// nearest to the thumb, so the app puts the most used button last. An expanded sidebar does not
 /// show them (the app's rows and its ribbon have the same commands).
@@ -2482,7 +2482,7 @@ fn build(sb: Sidebar) -> Dom {
         );
         let swipe_on = ctx.on_event.is_some();
         let swipe = RefAny::new(SwipeRef {
-            on_event: ctx.on_event.clone(),
+            on_event: ctx.on_event,
             anchor: None,
             captured: false,
             fired: false,

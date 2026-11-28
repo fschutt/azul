@@ -1,13 +1,15 @@
 //! The "Sidebar" section: the app frame every heavy app shares, on one card.
 //!
-//! A frame in a box of its own: the full-height left sidebar (the icon rail it starts as, the
-//! expanded sidebar, the 16 px handle), the location block over the file list (the pen turns the
-//! name into a live field: the list follows what is typed), the Preview with the preview of the
-//! selected file (docked at the right on a desktop, a bottom pane with a grip on a phone, both
-//! resized by dragging), the status pies above the toggle, and the phone's quick-action sheet. The
-//! rows are a mail client's and a drive's at once: a flat section, a tree with disclosure
-//! triangles, a count, a collapsible section, a document row with its own pie and collaboration
-//! icon.
+//! A frame in a box of its own: the full-height left sidebar (the 18 px icon rail it starts as,
+//! with the app's quick-access buttons at its bottom; the expanded sidebar; the 16 px handle), the
+//! location block over the file list (the pen turns the name into a live field: the list follows
+//! what is typed), the Preview with the preview of the selected file (docked at the right on a
+//! desktop, a bottom pane with a grip and four detents on a phone, both resized by dragging; the
+//! properties and the history are behind (?) buttons, a banner stands at the top when something
+//! needs saying), the status slot above the toggle (here a sync pie, a drive pie and a badge:
+//! samples, the slot holds what the app gives it), and the phone's quick-action sheet. The rows
+//! are a mail client's and a drive's at once: a flat section, a tree with disclosure triangles, a
+//! count, a collapsible section, a document row with its own pie and collaboration icon.
 //!
 //! Every switch above the frame is the app's state (`SidebarDemo`): the widgets own nothing, they
 //! report into it and the page is built again. The line under the frame says what the last report
@@ -45,6 +47,10 @@ const TAG_FONTS: usize = 6;
 const TAG_ICONS: usize = 7;
 const TAG_BOOK1: usize = 11;
 const TAG_BOOK2: usize = 12;
+/// The tags of the quick-access buttons.
+const TAG_QUICK_COLOUR: usize = 21;
+const TAG_QUICK_BOLD: usize = 22;
+const TAG_QUICK_UNDO: usize = 23;
 
 /// The section's state. Lives in `Showcase::sidebar`.
 #[derive(Debug, Clone)]
@@ -73,6 +79,10 @@ pub(crate) struct SidebarDemo {
     pub(crate) sheet_open: bool,
     /// Whether the two open documents collaborate.
     pub(crate) collab: [bool; 2],
+    /// Whether the quick-access toggle "Bold" is on.
+    pub(crate) bold: bool,
+    /// Whether the Preview shows its banner.
+    pub(crate) banner: bool,
     /// The ribbon's selected tab: 0 File (the location), 1 Home, 2 Share.
     pub(crate) tab: usize,
     /// What the last report was (the line under the frame).
@@ -95,6 +105,8 @@ impl Default for SidebarDemo {
             text: String::new(),
             sheet_open: false,
             collab: [false, true],
+            bold: false,
+            banner: false,
             tab: 0,
             last: String::from("nothing yet"),
         }
@@ -196,6 +208,25 @@ fn the_sidebar(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Sidebar {
                 .with_text("64 % full")
                 .with_detail("64 GB of 100 GB used, 36 GB free."),
         )
+        .with_status(
+            SidebarStatus::badge("Unread", "3", PieTone::Danger).with_detail("3 messages are waiting."),
+        )
+        // the app's quick access: where the thumb of a right-handed user reaches, the most used last
+        .with_quick_action(
+            SidebarQuickAction::create("Bold", "format_bold")
+                .with_tag(TAG_QUICK_BOLD)
+                .with_state(if demo.bold { SidebarQuickState::On } else { SidebarQuickState::Off }),
+        )
+        .with_quick_action(
+            SidebarQuickAction::create("Font colour", "format_color_text")
+                .with_tag(TAG_QUICK_COLOUR)
+                .with_swatch(ColorU::rgb(200, 30, 30)),
+        )
+        .with_quick_action(
+            SidebarQuickAction::create("Undo", "undo")
+                .with_tag(TAG_QUICK_UNDO)
+                .with_state(SidebarQuickState::Disabled),
+        )
         .with_help("Help")
         .with_label("Places")
         .with_state(state_of(demo))
@@ -213,6 +244,7 @@ fn the_location(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Dom {
         .with_parent(LocationCrumb::create("assets", 2))
         .with_editing(demo.editing, demo.text.as_str())
         .with_placeholder("Type a name to filter the folder")
+        .with_more(true)
         .with_form(form_of(demo))
         .with_theme(theme)
         .with_on_event(data.clone(), on_location as LocationOnEventCallbackType)
@@ -273,6 +305,33 @@ fn the_preview(demo: &SidebarDemo) -> Dom {
         )
         .with_child(Dom::create_p_with_text(name).with_css("margin: 0px; font-weight: 700;").with_class("sidebar-demo-preview-name"))
         .with_child(Dom::create_p_with_text(format!("{kind} - {size}")).with_css("margin: 0px; font-size: 12px; opacity: 0.75;"))
+}
+
+/// What sits behind the Preview's first (?): the properties of the file.
+fn the_properties(demo: &SidebarDemo) -> Dom {
+    let (name, kind, size) = FILES[demo.file.min(FILES.len() - 1)];
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; gap: 4px;")
+        .with_child(Dom::create_p_with_text(name).with_css("margin: 0px; font-weight: 700;"))
+        .with_child(Dom::create_p_with_text(format!("Kind: {kind}")).with_css("margin: 0px;"))
+        .with_child(Dom::create_p_with_text(format!("Size: {size}")).with_css("margin: 0px;"))
+        .with_child(Dom::create_p_with_text("Changed 12 Mar").with_css("margin: 0px;"))
+}
+
+/// What sits behind the second (?): the file's history.
+fn the_history() -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; gap: 4px;")
+        .with_child(Dom::create_p_with_text("12 Mar - changed by you").with_css("margin: 0px;"))
+        .with_child(Dom::create_p_with_text("2 Mar - created by Ana").with_css("margin: 0px;"))
+}
+
+/// What sits behind the banner's own (?): who signed it and what that means.
+fn the_signer() -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; gap: 4px;")
+        .with_child(Dom::create_p_with_text("Signed by an unknown key").with_css("margin: 0px; font-weight: 700;"))
+        .with_child(Dom::create_p_with_text("The signer is not in your contacts.").with_css("margin: 0px;"))
 }
 
 /// The footer: the one-line command bar a drive shows at the foot of its window.
@@ -337,14 +396,23 @@ fn the_frame(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Dom {
     let body = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: 0px;")
         .with_child(the_list(data, demo));
-    let preview = Preview::create(Dom::create_div(), the_preview(demo))
-        .with_title("Preview")
+    let (file_name, _, _) = FILES[demo.file.min(FILES.len() - 1)];
+    let mut preview = Preview::create(Dom::create_div(), the_preview(demo))
+        .with_title(file_name)
+        .with_detail(PreviewDetail::create("Properties", the_properties(demo)))
+        .with_detail(PreviewDetail::create("History", the_history()).with_icon("history"))
         .with_open(demo.preview_open)
         .with_size(demo.preview_size)
         .with_surface(surface_of(demo))
         .with_form(form_of(demo))
         .with_theme(theme)
         .with_on_event(data.clone(), on_preview as PreviewOnEventCallbackType);
+    if demo.banner {
+        preview = preview.with_banner(
+            PreviewBanner::create("Unverified signer", PreviewBannerTone::Warning)
+                .with_details(the_signer()),
+        );
+    }
     let (name, _, size) = FILES[demo.file.min(FILES.len() - 1)];
     let sheet = ActionSheet::create()
         .with_title(name, size)
@@ -445,6 +513,13 @@ pub(crate) fn sidebar_section(data: &RefAny, demo: &SidebarDemo, theme: UiTheme)
                             .with_id("sidebar-preview-toggle"),
                     )
                     .with_child(
+                        Button::with_type(if demo.banner { "Remove the banner" } else { "Show a banner" }, ButtonType::Default)
+                            .with_theme(theme)
+                            .with_on_click(data.clone(), on_banner as ButtonOnClickCallbackType)
+                            .dom()
+                            .with_id("sidebar-banner-toggle"),
+                    )
+                    .with_child(
                         Button::with_type("Open the quick actions", ButtonType::Default)
                             .with_theme(theme)
                             .with_on_click(data.clone(), on_sheet_open as ButtonOnClickCallbackType)
@@ -504,6 +579,10 @@ extern "C" fn on_preview_open(mut data: RefAny, _: CallbackInfo) -> Update {
     keep(&mut data, |s| s.sidebar.preview_open = !s.sidebar.preview_open)
 }
 
+extern "C" fn on_banner(mut data: RefAny, _: CallbackInfo) -> Update {
+    keep(&mut data, |s| s.sidebar.banner = !s.sidebar.banner)
+}
+
 extern "C" fn on_sheet_open(mut data: RefAny, _: CallbackInfo) -> Update {
     keep(&mut data, |s| s.sidebar.sheet_open = true)
 }
@@ -560,6 +639,12 @@ extern "C" fn on_sidebar(mut data: RefAny, _: CallbackInfo, event: SidebarEvent)
                 d.collab[which] = event.expand;
                 d.last = format!("collaboration of row {} is {}", event.index, event.expand);
             }
+            SidebarEventKind::QuickAction => {
+                if event.tag == TAG_QUICK_BOLD {
+                    d.bold = event.expand;
+                }
+                d.last = format!("quick action {} (tag {}) asks for {}", event.index, event.tag, event.expand);
+            }
         }
     })
 }
@@ -587,6 +672,13 @@ extern "C" fn on_location(mut data: RefAny, _: CallbackInfo, event: LocationEven
                 d.last = String::from("edit given up");
             }
             LocationEventKind::CrumbClicked => d.last = format!("folder {}", event.tag),
+            LocationEventKind::MoreClicked => {
+                // File's old items: a phone shows them as its sheet, a desktop as its menu
+                if d.form == 1 {
+                    d.sheet_open = true;
+                }
+                d.last = String::from("more");
+            }
         }
     })
 }

@@ -287,6 +287,83 @@
         "op": "take_screenshot"
       },
       {
+        "op": "click",
+        "selector": "#sidebar-banner-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-preview-banner .__azul-native-preview-help"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-banner-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-preview-help"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "resize",
         "width": 411,
         "height": 900

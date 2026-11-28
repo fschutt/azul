@@ -1,7 +1,7 @@
 [
   {
     "name": "azul_widgets_the_sidebar_starts_as_the_rail_and_the_toggle_opens_it",
-    "description": "The Sidebar section of AzWidgets: the frame every heavy app shares. The sidebar starts as the icon rail (the collapsed state every app starts in); the toggle at the bottom of the rail opens it, the toggle of the expanded sidebar closes it; the 16 px handle exists as a state and a click on it brings the rail back. Each press is reported to the app (the line under the frame).",
+    "description": "The Sidebar section of AzWidgets: the frame every heavy app shares. The sidebar starts as the 18 px icon rail (the collapsed state every app starts in); the toggle at the bottom of the rail opens it, the toggle of the expanded sidebar closes it; the 16 px handle exists as a state and a click on it brings the rail back. Each press is reported to the app (the line under the frame).",
     "only_on": [
       "linux",
       "windows",
@@ -40,6 +40,20 @@
       {
         "op": "assert_not_exists",
         "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-rail",
+        "property": "width",
+        "expected": 18,
+        "tolerance": 0.6
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-slop",
+        "property": "width",
+        "expected": 36,
+        "tolerance": 0.6
       },
       {
         "op": "click",
@@ -361,7 +375,7 @@
   },
   {
     "name": "azul_widgets_on_a_phone_the_drawer_pushes_the_main_view_and_a_tap_on_it_closes_the_drawer",
-    "description": "The Sidebar section with the phone layout (Window: Phone): the sidebar is the 48 px rail, its toggle opens the DRAWER, which pushes the whole main view aside (the tab row, the band and the list move with it; nothing lies over them under a dim), a tap on what is left of the main view closes the drawer, and the Preview is the bottom pane: it has no right dock on a phone.",
+    "description": "The Sidebar section with the phone layout (Window: Phone): the sidebar is the 18 px rail, its toggle opens the DRAWER, which pushes the whole main view aside (the tab row, the band and the list move with it; nothing lies over them under a dim), a tap on what is left of the main view closes the drawer, and the Preview is the bottom pane: it has no right dock on a phone.",
     "only_on": [
       "linux",
       "windows",
@@ -817,8 +831,8 @@
     ]
   },
   {
-    "name": "azul_widgets_the_phones_bottom_pane_resizes_by_its_grip_and_snaps_to_the_peek",
-    "description": "The Preview as a phone's bottom pane: a split with a grip (not an overlay): the arrow keys on the focused grip change its height by 16 px, Home drops it to the peek (the grip and one line), End raises it to its largest, a double click on the grip flips between the peek and the default height.",
+    "name": "azul_widgets_the_phones_bottom_pane_resizes_by_its_grip_keys_and_a_key_toggles_the_peek",
+    "description": "The Preview as a phone's bottom pane: a split with a grip bar (not an overlay), resized by the keys on the focused grip: Up and Down by 16 px from the 130 px peek, Home to the collapsed bar (30 px), Return and Space toggle the peek and the half. Each is reported to the app (the line under the frame).",
     "only_on": [
       "linux",
       "windows",
@@ -874,16 +888,14 @@
         "selector": ".__azul-native-preview-bottom"
       },
       {
-        "op": "click",
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-preview-right"
+      },
+      {
+        "op": "focus_node",
         "selector": ".__azul-native-preview-grip"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
         "op": "key_down",
         "key": "Up"
       },
@@ -899,7 +911,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "Last report: preview Settled 184"
+        "text": "Last report: preview Settled 146"
       },
       {
         "op": "assert_response",
@@ -921,7 +933,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "Last report: preview Settled 168"
+        "text": "Last report: preview Settled 130"
       },
       {
         "op": "assert_response",
@@ -943,7 +955,29 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "Last report: preview Settled 56"
+        "text": "Last report: preview Settled 30"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "key_down",
+        "key": "Return"
+      },
+      {
+        "op": "key_up",
+        "key": "Return"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: preview Settled 130"
       },
       {
         "op": "assert_response",
@@ -1220,28 +1254,28 @@
       {
         "op": "mouse_move",
         "x": 100,
-        "y": 676
+        "y": 714
       },
       {
         "op": "mouse_down",
         "x": 100,
-        "y": 676,
+        "y": 714,
         "button": "left"
       },
       {
         "op": "mouse_move",
         "x": 100,
-        "y": 626
+        "y": 664
       },
       {
         "op": "mouse_move",
         "x": 100,
-        "y": 576
+        "y": 614
       },
       {
         "op": "mouse_up",
         "x": 100,
-        "y": 576,
+        "y": 614,
         "button": "left"
       },
       {
@@ -1252,11 +1286,332 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "Last report: preview Settled 268"
+        "text": "Last report: preview Settled 230"
       },
       {
         "op": "assert_response",
         "contains": "\"found\":true"
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_the_rails_quick_access_buttons_report_and_a_toggle_asks_for_the_other_state",
+    "description": "The collapsed rail holds the app's own quick-access buttons at its bottom (Bold is the first: a toggle that is off, Font colour has a colour bar, Undo cannot run): a press reports its place, its tag and the state a toggle is asked for; once the app has it, the toggle is lit; a button that cannot run reports nothing.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-quick"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-sidebar-quick-button.__azul-native-sidebar-selected"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-quick-button"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: quick action 0 (tag 22) asks for true"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-quick-button.__azul-native-sidebar-selected"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-quick-button"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: quick action 0 (tag 22) asks for false"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-sidebar-quick-button.__azul-native-sidebar-selected"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-state-expanded"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-sidebar-quick-button"
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_a_press_in_the_hit_slop_beside_the_rail_is_the_buttons",
+    "description": "Every button of the rail reaches 18 px inward over the main view, invisibly: a click on the centre of the first button's slop - the edge between the 18 px rail and the main view - is the button's (its row is reported), not the main view's.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-slop"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: row 0 (tag 1)"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_a_badge_in_the_status_slot_opens_its_popover",
+    "description": "The status slot above the toggle holds what the app gives it: here two pies and a badge. A press on the badge opens its short popover, as a pie does.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-status-badge"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-status-badge"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "3 messages are waiting."
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_the_previews_details_are_behind_a_help_button_and_a_banner_appears_on_demand",
+    "description": "The Preview shows the file and nothing else: its properties and its history are behind two (?) buttons in its header (one popover each), and a one-line banner stands at the very top only when the app sets one (its own details behind its own (?)).",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-preview-help"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-preview-banner"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-preview-help"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Changed 12 Mar"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-banner-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-preview-banner"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Unverified signer"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-banner-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-preview-banner"
       }
     ]
   }
