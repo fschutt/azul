@@ -508,6 +508,8 @@ mod test_style_tag_parsing;
 mod test_text_layout;
 #[path = "text_align_last_text_justify_and_text_indent_place_the_words_of_a_line.rs"]
 mod text_align_last_text_justify_and_text_indent_place_the_words_of_a_line;
+#[path = "inline_list_items_stay_in_the_line_of_their_list.rs"]
+mod inline_list_items_stay_in_the_line_of_their_list;
 #[path = "a_decorating_box_draws_its_line_on_its_own_baseline_and_in_its_own_size.rs"]
 mod a_decorating_box_draws_its_line_on_its_own_baseline_and_in_its_own_size;
 #[path = "from_font_takes_the_thickness_and_the_place_the_face_names.rs"]
