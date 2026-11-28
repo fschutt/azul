@@ -814,6 +814,13 @@ def e2e_session(args):
             sought = device_shot(s, "reader-slider-dragged")
             moved = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZREADER_PAGE", since=mark)
             s.check("dragging the slider goes to another place in the book (AZREADER_PAGE again)", len(moved) > len(pages), f"printed {moved[-3:]}", required=False)
+            # A finger 12 dp under the 16 dp track (inside the 48 dp square the engine's touch hit-slop grows it to) drags it too.
+            mark = dev.now_mark()
+            under = int((track["y"] + track["height"] + 12) * scale)
+            dev.swipe(int((track["x"] + track["width"] * 0.85) * scale), under, int((track["x"] + track["width"] * 0.15) * scale), under, 400)
+            dev.settle(2.0)
+            slid = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZREADER_PAGE", since=mark)
+            s.check("a drag that starts 12 dp under the slider's track moves it (the touch hit-slop)", len(slid) >= 1, f"printed {slid[-3:]}", required=False)
         at = tap_node(s, "#__azreader_slider-contents")
         s.check("the server names the button beside the slider with a box", bool(at), str(at))
         dev.settle(2.0)
