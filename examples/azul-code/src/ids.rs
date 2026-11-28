@@ -75,6 +75,16 @@ pub const QUICK_OPEN: AzString = AzString::from_const_str("__azcode_quick-open")
 pub const STATUS_CARET: AzString = AzString::from_const_str("__azcode_status-caret");
 /// The status bar's branch segment marker.
 pub const STATUS_BRANCH: AzString = AzString::from_const_str("__azcode_status-branch");
+/// The status bar's language segment marker.
+pub const STATUS_LANGUAGE: AzString = AzString::from_const_str("__azcode_status-language");
+/// The phone's find bar: Close.
+pub const FIND_CLOSE: AzString = AzString::from_const_str("__azcode_find-close");
+/// The status bar's Terminal segment marker.
+pub const STATUS_TERMINAL: AzString = AzString::from_const_str("__azcode_status-terminal");
+/// The status bar's Problems segment marker.
+pub const STATUS_PROBLEMS: AzString = AzString::from_const_str("__azcode_status-problems");
+/// The status bar's Output segment marker.
+pub const STATUS_OUTPUT: AzString = AzString::from_const_str("__azcode_status-output");
 /// The line with the last problem or notice.
 pub const NOTICE: AzString = AzString::from_const_str("__azcode_notice");
 /// The explorer's header: the workspace's name.
@@ -108,11 +118,61 @@ pub const PANEL_CLOSE: AzString = AzString::from_const_str("__azcode_panel-close
 /// The command palette (Mod+Shift+P): the host of the palette over the
 /// window's commands.
 pub const COMMAND_PALETTE: AzString = AzString::from_const_str("__azcode_command-palette");
+/// The activity bar's Source Control icon.
+pub const ACTIVITY_GIT: AzString = AzString::from_const_str("__azcode_activity-git");
+/// The activity bar's Run icon.
+pub const ACTIVITY_RUN: AzString = AzString::from_const_str("__azcode_activity-run");
+/// The source control view in the side bar.
+pub const GIT_PANEL: AzString = AzString::from_const_str("__azcode_git-panel");
+/// The source control view's Refresh button.
+pub const GIT_REFRESH: AzString = AzString::from_const_str("__azcode_git-refresh");
+/// The source control view's line when there is nothing to list (no repository, no git, no changes).
+pub const GIT_EMPTY: AzString = AzString::from_const_str("__azcode_git-empty");
+/// The run view in the side bar.
+pub const RUN_PANEL: AzString = AzString::from_const_str("__azcode_run-panel");
+/// The run view's line when the workspace has no tasks.
+pub const RUN_EMPTY: AzString = AzString::from_const_str("__azcode_run-empty");
+/// The bottom panel's Problems tab.
+pub const PANEL_TAB_PROBLEMS: AzString = AzString::from_const_str("__azcode_panel-tab-problems");
+/// The bottom panel's Output tab.
+pub const PANEL_TAB_OUTPUT: AzString = AzString::from_const_str("__azcode_panel-tab-output");
+/// The bottom panel's Terminal tab.
+pub const PANEL_TAB_TERMINAL: AzString = AzString::from_const_str("__azcode_panel-tab-terminal");
+/// The panel's header (the tabs and their buttons).
+pub const PANEL_HEADER: AzString = AzString::from_const_str("__azcode_panel-header");
+/// The Problems list.
+pub const PROBLEMS: AzString = AzString::from_const_str("__azcode_problems");
+/// The Output lines.
+pub const OUTPUT: AzString = AzString::from_const_str("__azcode_output");
+/// The panel's Clear (the Problems list or the Output, the tab in front).
+pub const PANEL_CLEAR: AzString = AzString::from_const_str("__azcode_panel-clear");
+/// The phone's top bar.
+pub const TOP_BAR: AzString = AzString::from_const_str("__azcode_top-bar");
+/// The phone's drawer button (the top bar's first).
+pub const DRAWER_BUTTON: AzString = AzString::from_const_str("__azcode_drawer-button");
+/// The phone's command palette button (the top bar's last).
+pub const PALETTE_BUTTON: AzString = AzString::from_const_str("__azcode_palette-button");
+/// The phone's drawer.
+pub const DRAWER: AzString = AzString::from_const_str("__azcode_drawer");
+/// The scrim over the editor while the drawer is open: a tap closes it.
+pub const SCRIM: AzString = AzString::from_const_str("__azcode_scrim");
+/// The phone's key row above the soft keyboard.
+pub const KEY_ROW: AzString = AzString::from_const_str("__azcode_key-row");
+/// The phone's bottom sheet (the panel).
+pub const SHEET: AzString = AzString::from_const_str("__azcode_sheet");
+/// The phone's status bar.
+pub const STATUS_BAR: AzString = AzString::from_const_str("__azcode_status-bar");
 
 /// Tab `i` (0 = the first).
 #[must_use]
 pub fn tab(i: usize) -> AzString {
     AzString::from(format!("__azcode_tab-{i}"))
+}
+
+/// The phone's slot of tab `i` (its name and its close button together).
+#[must_use]
+pub fn tab_slot(i: usize) -> AzString {
+    AzString::from(format!("__azcode_tab-slot-{i}"))
 }
 
 /// The close button of tab `i`.
@@ -156,6 +216,30 @@ pub fn tree_row_name(key: &str) -> String {
 #[must_use]
 pub fn terminal_tab(i: usize) -> AzString {
     AzString::from(format!("__azcode_terminal-tab-{i}"))
+}
+
+/// Change `i` of the source control view's list.
+#[must_use]
+pub fn change(i: usize) -> AzString {
+    AzString::from(format!("__azcode_change-{i}"))
+}
+
+/// Task `i` of the run view's list.
+#[must_use]
+pub fn task(i: usize) -> AzString {
+    AzString::from(format!("__azcode_task-{i}"))
+}
+
+/// Problem `i` of the Problems list.
+#[must_use]
+pub fn problem(i: usize) -> AzString {
+    AzString::from(format!("__azcode_problem-{i}"))
+}
+
+/// Key `i` of the phone's key row.
+#[must_use]
+pub fn key(i: usize) -> AzString {
+    AzString::from(format!("__azcode_key-{i}"))
 }
 
 /// Result row `i` of the search panel's list.

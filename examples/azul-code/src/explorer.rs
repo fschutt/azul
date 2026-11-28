@@ -24,13 +24,33 @@ use azul_appkit::l10n::{self, t_args, Arg};
 
 use crate::{
     app::AppState,
-    commands, ids,
-    ui::{self, column, label, side_title},
+    commands, ids, phone,
+    ui::{self, column, label, side_title_sized},
     workspace::{parent_folder, Row},
 };
 
-/// A row's height, px (VSCode's).
+/// A row's height on a desktop, px (VSCode's).
 pub const ROW_HEIGHT: f32 = 22.0;
+
+/// A row's height: the desktop's, or a finger's on a phone.
+#[must_use]
+pub const fn row_height(compact: bool) -> f32 {
+    if compact {
+        phone::TOUCH
+    } else {
+        ROW_HEIGHT
+    }
+}
+
+/// The side bar's title row's height: the desktop's, or a finger's on a phone.
+#[must_use]
+pub const fn title_height(compact: bool) -> f32 {
+    if compact {
+        phone::TOUCH
+    } else {
+        35.0
+    }
+}
 /// The indent of one level, px.
 const INDENT: f32 = 8.0;
 
@@ -53,12 +73,15 @@ fn explorer_title() -> String {
 }
 
 pub fn explorer(app: &RefAny, st: &AppState) -> Dom {
+    let compact = phone::is_compact(st.window.0, st.window.1);
+    let button = if compact { phone::TOUCH } else { 22.0 };
+    let title = title_height(compact);
     let Some(w) = st.workspace.as_ref() else {
-        return column(vec![side_title(&explorer_title(), Vec::new()), no_folder(app, st)]);
+        return column(vec![side_title_sized(&explorer_title(), Vec::new(), title), no_folder(app, st)]);
     };
     let actions = vec![
-        ui::icon_button(ids::REFRESH, "refresh", "azcode-action-refresh-explorer", app.clone(), on_refresh),
-        ui::icon_button(ids::COLLAPSE, "unfold_less", "azcode-action-collapse-folders", app.clone(), on_collapse),
+        ui::icon_button_sized(ids::REFRESH, "refresh", "azcode-action-refresh-explorer", app.clone(), on_refresh, button),
+        ui::icon_button_sized(ids::COLLAPSE, "unfold_less", "azcode-action-collapse-folders", app.clone(), on_collapse, button),
     ];
     let folder = Dom::create_div()
         .with_id(ids::EXPLORER_FOLDER)
@@ -84,7 +107,7 @@ pub fn explorer(app: &RefAny, st: &AppState) -> Dom {
             app.clone(),
             on_tree_key,
         );
-    column(vec![side_title("EXPLORER", actions), folder, tree])
+    column(vec![side_title_sized(&explorer_title(), actions, title), folder, tree])
 }
 
 /// A rect of the view, px.
@@ -93,11 +116,17 @@ fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
 }
 
 /// The rows `first..end` of `count` that a view `height` px tall scrolled to
-/// `y` builds: the rows in view and a screen either side.
+/// `y` builds: the rows in view and a screen either side (rows of a desktop's height).
 #[must_use]
 pub fn window_of(count: usize, y: f32, height: f32) -> (usize, usize) {
+    window_of_rows(count, y, height, ROW_HEIGHT)
+}
+
+/// [`window_of`] for rows `row_height` px tall.
+#[must_use]
+pub fn window_of_rows(count: usize, y: f32, height: f32, row_height: f32) -> (usize, usize) {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let row = |px: f32| (px.max(0.0) / ROW_HEIGHT) as usize;
+    let row = |px: f32| (px.max(0.0) / row_height.max(1.0)) as usize;
     let first = row(y - height).min(count);
     let end = (row(y + 2.0 * height) + 1).min(count);
     (first, end.max(first))
@@ -119,26 +148,27 @@ extern "C" fn render_rows(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vi
     let size = info.bounds.get_logical_size();
     let width = size.width.max(1.0);
     let height = size.height.max(1.0);
+    let row_h = row_height(phone::is_compact(guard.window.0, guard.window.1));
     #[allow(clippy::cast_precision_loss)]
-    let total = (rows.len() as f32 * ROW_HEIGHT).max(1.0);
-    let (first, end) = window_of(rows.len(), info.scroll_offset.y, height);
+    let total = (rows.len() as f32 * row_h).max(1.0);
+    let (first, end) = window_of_rows(rows.len(), info.scroll_offset.y, height, row_h);
     let mut root = Dom::create_div().with_css(format!(
         "display: flex; flex-direction: column; width: {width}px;"
     ));
     for row in &rows[first..end] {
         let selected = w.selected.as_deref() == Some(row.key.as_str());
-        root.add_child(row_dom(&handle, row, selected));
+        root.add_child(row_dom(&handle, row, selected, row_h));
     }
     #[allow(clippy::cast_precision_loss)]
-    let top = first as f32 * ROW_HEIGHT;
+    let top = first as f32 * row_h;
     #[allow(clippy::cast_precision_loss)]
-    let built = ((end - first) as f32 * ROW_HEIGHT).max(1.0);
+    let built = ((end - first) as f32 * row_h).max(1.0);
     VirtualViewReturn::with_dom(root, rect(0.0, top, width, built), rect(0.0, 0.0, width, total))
 }
 
 /// One row: its indent, a folder's chevron, its icon and name; a click opens
 /// the file, or opens / closes the folder.
-fn row_dom(app: &RefAny, row: &Row, selected: bool) -> Dom {
+fn row_dom(app: &RefAny, row: &Row, selected: bool, height: f32) -> Dom {
     #[allow(clippy::cast_precision_loss)]
     let indent = 8.0 + row.depth as f32 * INDENT;
     let look = if selected {
@@ -169,7 +199,7 @@ fn row_dom(app: &RefAny, row: &Row, selected: bool) -> Dom {
         .with_id(ids::tree_row(&row.key))
         .with_class(ids::TREE_ROW_CLASS)
         .with_css(format!(
-            "display: flex; flex-direction: row; align-items: center; height: {ROW_HEIGHT}px; \
+            "display: flex; flex-direction: row; align-items: center; height: {height}px; \
              flex-shrink: 0; padding-left: {indent}px; padding-right: 8px; cursor: pointer; \
              white-space: nowrap; overflow: hidden; font-size: 13px; {look}"
         ))
@@ -350,13 +380,14 @@ extern "C" fn on_tree_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if let Some(w) = st.workspace.as_mut() {
         w.selected = Some(key_now);
     }
-    reveal_row(&mut info, i);
+    let row_h = row_height(phone::is_compact(st.window.0, st.window.1));
+    reveal_row(&mut info, i, row_h);
     Update::RefreshDom
 }
 
 /// Scrolls the tree so row `index` is in view (the tree is the node the key
 /// went to).
-fn reveal_row(info: &mut CallbackInfo, index: usize) {
+fn reveal_row(info: &mut CallbackInfo, index: usize, row_h: f32) {
     let hit = info.get_hit_node();
     let raw = hit.node.into_raw();
     if raw == 0 {
@@ -372,11 +403,11 @@ fn reveal_row(info: &mut CallbackInfo, index: usize) {
         .into_option()
         .map_or(0.0, |p| p.y);
     #[allow(clippy::cast_precision_loss)]
-    let top = index as f32 * ROW_HEIGHT;
+    let top = index as f32 * row_h;
     let to = if top < y {
         top
-    } else if top + ROW_HEIGHT > y + size.height {
-        top + ROW_HEIGHT - size.height
+    } else if top + row_h > y + size.height {
+        top + row_h - size.height
     } else {
         return;
     };

@@ -151,3 +151,85 @@ azcode-index-failed = The folder's files could not be listed: { $why }
 azcode-index-first = Quick open searches the first { $count } files of the folder.
 azcode-search-failed = The folder could not be searched: { $why }
 azcode-sample-failed = The sample could not be written: { $why }
+
+## Source control, run, the panel, the phone
+
+azcode-action-git = Source Control
+azcode-action-refresh-git = Refresh the changes
+azcode-action-run = Run
+azcode-change-added = added
+azcode-change-conflicted = in conflict
+azcode-change-copied = copied
+azcode-change-deleted = deleted
+azcode-change-modified = modified
+azcode-change-renamed = renamed
+azcode-change-untracked = untracked
+azcode-close-drawer = Close the side bar
+azcode-open-drawer = Open the side bar
+azcode-drawer = Explorer, search, source control and run
+azcode-find-close = Close find
+azcode-git-changes = { $count ->
+    [one] 1 change
+   *[other] { $count } changes
+ }
+azcode-git-clean = No changes.
+azcode-git-loading = Reading the changes...
+azcode-git-more = ... and { $count } more
+azcode-git-no-folder = Open a folder to see its changes.
+azcode-git-no-repository = This folder is not a git repository.
+azcode-git-staged = Staged Changes ({ $count })
+azcode-git-unavailable = Source control needs git, which this device does not have.
+azcode-git-unstaged = Changes ({ $count })
+azcode-key-back-tab = Outdent
+azcode-key-braces = Curly braces
+azcode-key-brackets = Square brackets
+azcode-key-colon = Colon
+azcode-key-down = Cursor down
+azcode-key-equals = Equals sign
+azcode-key-left = Cursor left
+azcode-key-parentheses = Parentheses
+azcode-key-quotes = Quotation marks
+azcode-key-right = Cursor right
+azcode-key-row = Keys for code
+azcode-key-semicolon = Semicolon
+azcode-key-tab = Tab
+azcode-key-up = Cursor up
+azcode-no-output = Nothing has been said yet.
+azcode-no-problems = No problems have been detected in the workspace.
+azcode-opened-file = Opened { $file }
+azcode-opened-folder = Opened the folder { $folder }
+azcode-panel-clear = Clear
+azcode-panel-output = Output
+azcode-panel-problems = Problems
+azcode-ran-task = Ran { $command }
+azcode-result-file = { $file }, { $count ->
+    [one] 1 match
+   *[other] { $count } matches
+ }
+azcode-result-hit = Line { $line }: { $preview }
+azcode-run-loading = Looking for what can be run...
+azcode-run-no-folder = Open a folder to see what can be run in it.
+azcode-run-no-terminal = Tasks run in the terminal, which this device does not have.
+azcode-run-none = Nothing to run: the folder has no Cargo.toml, package.json or Makefile with tasks.
+azcode-run-task = Run { $command }
+azcode-saved-file = Saved { $file }
+azcode-searched = Searched for “{ $query }”: { $hits ->
+    [one] 1 result
+   *[other] { $hits } results
+ } in { $files ->
+    [one] 1 file
+   *[other] { $files } files
+ }
+azcode-severity-error = Error
+azcode-severity-info = Information
+azcode-severity-warning = Warning
+azcode-sheet = Panel
+azcode-sheet-grip = Resize the panel
+azcode-shell-tab = Terminal { $number }: { $title }
+azcode-status-problems = Problems { $count }
+azcode-task-cargo = Cargo
+azcode-task-group = { $source } ({ $file })
+azcode-task-make = Make targets
+azcode-task-npm = npm scripts
+azcode-terminal-started = Started terminal { $number } in { $folder }
+azcode-terminal-unavailable = This device cannot start a terminal: its system does not let apps start other programs.

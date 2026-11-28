@@ -31,6 +31,7 @@ use crate::{
     git,
     highlight::{HighlightJob, JobResult},
     search::{preview_of, Hit},
+    tasks::Source,
     workspace::{hidden_entry, skipped_folder, Root, HIDDEN_ENTRIES, SKIPPED_FOLDERS},
 };
 
@@ -42,6 +43,8 @@ const INDEX_MAX_FOLDERS: usize = 4_000;
 pub const SEARCH_MAX_HITS: usize = 20_000;
 /// A file larger than this is not searched (bytes).
 pub const SEARCH_MAX_FILE: usize = 4 * 1024 * 1024;
+/// A task file (`Cargo.toml`, `package.json`, `Makefile`) larger than this is not read for tasks (bytes).
+pub const TASK_FILE_MAX: usize = 1024 * 1024;
 
 /// One thing to do in the workspace (keys relative to the workspace).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +60,10 @@ pub enum DriveJob {
     Index { limit: usize },
     /// The git branch of the folder on disk (the status bar's).
     Branch { folder: PathBuf },
+    /// The source control view: what `git status` says of the folder on disk.
+    Status { folder: PathBuf },
+    /// The root files the Run view reads its tasks from, as they are named in [`Source::file`].
+    TaskFiles,
 }
 
 /// What a job did.
@@ -88,6 +95,10 @@ pub enum DriveOutcome {
         folder: PathBuf,
         branch: Option<String>,
     },
+    /// What git said of `folder`.
+    Status { folder: PathBuf, status: git::Status },
+    /// The task files the root has, `(name, text)`.
+    TaskFiles { files: Vec<(String, String)> },
 }
 
 /// The drive of a workspace root.
@@ -118,8 +129,28 @@ pub fn run_jobs(drive: &dyn Drive, prefix: &str, jobs: Vec<DriveJob>) -> Vec<Dri
                 let branch = git::branch(&folder);
                 DriveOutcome::Branch { folder, branch }
             }
+            DriveJob::Status { folder } => {
+                let status = git::status(&folder);
+                DriveOutcome::Status { folder, status }
+            }
+            DriveJob::TaskFiles => task_files(drive, prefix),
         })
         .collect()
+}
+
+/// The task files of the workspace's root that exist and are small enough, read.
+fn task_files(drive: &dyn Drive, prefix: &str) -> DriveOutcome {
+    let mut files = Vec::new();
+    for source in [Source::Cargo, Source::Npm, Source::Make] {
+        let name = source.file();
+        let Ok(bytes) = drive.get(&format!("{prefix}{name}")) else {
+            continue;
+        };
+        if bytes.len() <= TASK_FILE_MAX {
+            files.push((name.to_string(), String::from_utf8_lossy(&bytes).into_owned()));
+        }
+    }
+    DriveOutcome::TaskFiles { files }
 }
 
 /// Quick open's index: the workspace's folders listed one level at a time,

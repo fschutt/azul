@@ -24,9 +24,9 @@ use azul_appkit::l10n;
 use crate::{
     app::{AppState, ResultRow},
     commands,
-    explorer::{window_of, ROW_HEIGHT},
-    ids,
-    ui::{self, column, label, side_title},
+    explorer::{row_height, title_height, window_of_rows},
+    ids, phone,
+    ui::{self, column, label, side_title_sized},
     workspace::{file_name, parent_folder},
 };
 
@@ -78,7 +78,7 @@ pub fn search_panel(app: &RefAny, st: &AppState) -> Dom {
         .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
         .with_accessibility_info(AccessibilityInfo::named(l10n::label("azcode-search-results"), AccessibilityRole::List));
     column(vec![
-        side_title(&l10n::t("azcode-category-search").to_uppercase(), Vec::new()),
+        side_title_sized(&l10n::t("azcode-category-search").to_uppercase(), Vec::new(), title_height(phone::is_compact(st.window.0, st.window.1))),
         Dom::create_div()
             .with_css("display: flex; flex-direction: column; flex-shrink: 0; padding: 0px 12px 6px 20px;")
             .with_child(field)
@@ -109,27 +109,28 @@ extern "C" fn render_results(mut data: RefAny, info: VirtualViewCallbackInfo) ->
     let size = info.bounds.get_logical_size();
     let width = size.width.max(1.0);
     let height = size.height.max(1.0);
+    let row_h = row_height(phone::is_compact(st.window.0, st.window.1));
     #[allow(clippy::cast_precision_loss)]
-    let total = (rows.len() as f32 * ROW_HEIGHT).max(1.0);
-    let (first, end) = window_of(rows.len(), info.scroll_offset.y, height);
+    let total = (rows.len() as f32 * row_h).max(1.0);
+    let (first, end) = window_of_rows(rows.len(), info.scroll_offset.y, height, row_h);
     let mut root = Dom::create_div().with_css(format!(
         "display: flex; flex-direction: column; width: {width}px;"
     ));
     for (i, row) in rows[first..end].iter().enumerate() {
-        root.add_child(row_dom(&handle, st, first + i, *row));
+        root.add_child(row_dom(&handle, st, first + i, *row, row_h));
     }
     #[allow(clippy::cast_precision_loss)]
-    let top = first as f32 * ROW_HEIGHT;
+    let top = first as f32 * row_h;
     #[allow(clippy::cast_precision_loss)]
-    let built = ((end - first) as f32 * ROW_HEIGHT).max(1.0);
+    let built = ((end - first) as f32 * row_h).max(1.0);
     VirtualViewReturn::with_dom(root, rect(0.0, top, width, built), rect(0.0, 0.0, width, total))
 }
 
 /// Result row `index`: a file (its name, its folder, its count) or a match
 /// (the line, the match marked).
-fn row_dom(app: &RefAny, st: &AppState, index: usize, row: ResultRow) -> Dom {
+fn row_dom(app: &RefAny, st: &AppState, index: usize, row: ResultRow, height: f32) -> Dom {
     let base = format!(
-        "display: flex; flex-direction: row; align-items: center; height: {ROW_HEIGHT}px; flex-shrink: 0; \
+        "display: flex; flex-direction: row; align-items: center; height: {height}px; flex-shrink: 0; \
          padding-right: 8px; cursor: pointer; white-space: nowrap; overflow: hidden; font-size: 13px; \
          :hover {{ background: rgba(128, 128, 128, 0.12); }}"
     );
@@ -149,7 +150,10 @@ fn row_dom(app: &RefAny, st: &AppState, index: usize, row: ResultRow) -> Dom {
             let folded = st.search.folded.contains(&file.key);
             let folder = parent_folder(&file.key).unwrap_or("").trim_end_matches('/').to_string();
             dom.with_css(format!("{base} padding-left: 8px;"))
-                .with_accessibility_info(AccessibilityInfo::named(format!("{}, {} matches", file.key, file.hits.len()), AccessibilityRole::ListItem))
+                .with_accessibility_info(AccessibilityInfo::named(
+                    l10n::t_args("azcode-result-file", &[("file", l10n::Arg::from(file.key.as_str())), ("count", l10n::Arg::from(file.hits.len()))]),
+                    AccessibilityRole::ListItem,
+                ))
                 .with_child(
                     Dom::create_icon(if folded { "chevron_right" } else { "expand_more" })
                         .with_css(format!("font-size: 16px; width: 16px; flex-shrink: 0; {}", ui::FLORA_GLYPH)),
@@ -173,7 +177,10 @@ fn row_dom(app: &RefAny, st: &AppState, index: usize, row: ResultRow) -> Dom {
             let matched = &hit.preview[hit.preview_start..hit.preview_end];
             let after = &hit.preview[hit.preview_end..];
             dom.with_css(format!("{base} padding-left: 40px;"))
-                .with_accessibility_info(AccessibilityInfo::named(format!("Line {}: {}", hit.line + 1, hit.preview), AccessibilityRole::ListItem))
+                .with_accessibility_info(AccessibilityInfo::named(
+                    l10n::t_args("azcode-result-hit", &[("line", l10n::Arg::from(hit.line + 1)), ("preview", l10n::Arg::from(hit.preview.as_str()))]),
+                    AccessibilityRole::ListItem,
+                ))
                 .with_child(Dom::create_span_with_text(before))
                 .with_child(
                     Dom::create_span_with_text(matched)

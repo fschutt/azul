@@ -30,8 +30,12 @@
 //!   workspace (`--sample`).
 //! - [`app`], [`commands`], [`actions`]: the state, what the user asks, the
 //!   commands the menu, the palette and the keys run.
-//! - [`ui`], [`explorer`], [`find_in_files`], [`terminal`], [`palette`],
-//!   [`menu`]: the window.
+//! - [`ui`], [`explorer`], [`find_in_files`], [`git_panel`], [`run_panel`],
+//!   [`panel`], [`terminal`], [`palette`], [`menu`]: the desktop's window; [`phone`]:
+//!   the phone's (the editor is the screen, the explorer a drawer, the panel a
+//!   sheet, a key row - [`keyrow`] - above the keyboard).
+//! - [`git`] (the branch, the changes of `git status`), [`tasks`] (what the
+//!   folder can run), [`diagnostics`] (the Problems and the Output): plain Rust.
 //!
 //! A workspace is a folder named on the command line (`AzCode ~/project`,
 //! `--folder ~/project`; read and written in place through a drive without
@@ -57,19 +61,27 @@ pub mod app;
 pub mod args;
 pub mod buffer;
 pub mod commands;
+pub mod diagnostics;
 pub mod explorer;
 pub mod find_in_files;
 pub mod git;
+pub mod git_panel;
 pub mod highlight;
 pub mod ids;
+pub mod keyrow;
 pub mod l10n;
 #[cfg(test)]
 mod l10n_tests;
 pub mod menu;
 pub mod palette;
+pub mod panel;
+pub mod phone;
+pub mod phone_model;
+pub mod run_panel;
 pub mod sample;
 pub mod search;
 pub mod storage;
+pub mod tasks;
 pub mod terminal;
 pub mod ui;
 pub mod workspace;
@@ -185,11 +197,17 @@ pub fn start() {
         } else if path.is_file() && args.folder.is_none() {
             st.file_to_open = Some(path);
         } else {
-            st.notice = azul_appkit::l10n::t_args(
+            let message = azul_appkit::l10n::t_args(
                 "azcode-not-a-folder",
                 &[("path", azul_appkit::l10n::Arg::from(path.display().to_string()))],
             );
+            st.fail(message, None);
         }
+    }
+    // A phone has no folder dialog worth the name (iOS opens a folder in place, Android's picker copies one
+    // file): its first start is the sample workspace in the data folder, so the editor is never empty.
+    if cfg!(any(target_os = "android", target_os = "ios")) && st.workspace_to_open.is_none() && st.file_to_open.is_none() {
+        st.sample = true;
     }
     if args.kit.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);
@@ -244,8 +262,13 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let _theme = info.get_theme();
     azul_appkit::l10n::begin_layout(&info);
     let size = (info.get_window_width(), info.get_window_height());
+    // The room the system keeps (status bar, cutout, home indicator, keyboard): read here, so a change
+    // of it rebuilds the window.
+    let insets = azul_appkit::insets::Insets::of(&info);
     if let Some(mut st) = data.downcast_mut::<AppState>() {
         st.window = size;
+        st.insets = insets;
+        st.phone.observe(insets.keyboard);
     }
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<AppState>() else {
@@ -253,7 +276,17 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     let st = &*guard;
     let content = if kit::settings_open(&st.kit) {
-        ui::column(vec![kit::title_row(&st.title()), kit::settings_page(&st.kit, Vec::new())])
+        let page = ui::column(vec![kit::title_row(&st.title()), kit::settings_page(&st.kit, Vec::new())]);
+        if phone::is_compact(st.window.0, st.window.1) {
+            // The page starts under the status bar and the cutout, and ends over the home indicator.
+            let i = st.insets;
+            ui::column(vec![page]).with_css(format!(
+                "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; box-sizing: border-box; padding: {}px {}px {}px {}px;",
+                i.top, i.right, i.bottom_clear(), i.left
+            ))
+        } else {
+            page
+        }
     } else {
         ui::window(&app, st)
     };

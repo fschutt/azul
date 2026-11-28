@@ -39,7 +39,15 @@ use azul_termkit::{
 
 use azul_appkit::l10n;
 
-use crate::{app::AppState, commands, ids, ui};
+use crate::{
+    app::{AppState, PanelTab},
+    commands, ids, ui,
+};
+
+/// Whether this device can run a shell at all: an iPhone and an iPad cannot start a process (the
+/// system forbids it), so the panel there has no Terminal tab and the commands that need a shell
+/// say so.
+pub const AVAILABLE: bool = !cfg!(target_os = "ios");
 
 /// Lines of scrollback a shell keeps.
 pub const SCROLLBACK: usize = 10_000;
@@ -132,10 +140,26 @@ impl Panel {
 /// Ctrl+` / Mod+J / View > Terminal: the panel opens (with a shell, the
 /// first time) and the shell gets the keys, or it closes.
 pub fn toggle(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
-    if st.panel.open {
+    // Open on another tab, the key brings the terminal to front; open on the terminal (or with no
+    // terminal to show), it closes the panel.
+    if st.panel.open && (st.panel_tab == PanelTab::Terminal || !AVAILABLE) {
         close(st, info);
     } else {
         open(st, info, app);
+    }
+}
+
+/// The panel opens at `tab` (the Terminal tab starts a shell the first time; where there is no
+/// terminal a request for it opens the Problems).
+pub fn show_tab(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, tab: PanelTab) {
+    if tab == PanelTab::Terminal {
+        open(st, info, app);
+        return;
+    }
+    st.panel_tab = tab;
+    if !st.panel.open {
+        st.panel.open = true;
+        println!("AZCODE_PANEL open");
     }
 }
 
@@ -146,11 +170,33 @@ pub fn open(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
         st.panel.open = true;
         println!("AZCODE_PANEL open");
     }
+    if !AVAILABLE {
+        // No shell here: the panel opens on what it can show.
+        st.panel_tab = PanelTab::Problems;
+        st.notice = l10n::t("azcode-terminal-unavailable");
+        return;
+    }
+    st.panel_tab = PanelTab::Terminal;
     if st.panel.terminals.is_empty() {
         new_terminal(st, info, app);
     } else {
         st.panel.touch_active();
         commands::focus_soon(info, ids::TERMINAL.as_str());
+    }
+}
+
+/// The Run view's task: `command` typed into the shell in front and run. The panel opens on the
+/// terminal, a shell is started when there is none.
+pub fn run_command(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, command: &str) {
+    if !AVAILABLE {
+        st.fail(l10n::t("azcode-terminal-unavailable"), None);
+        return;
+    }
+    open(st, info, app);
+    if let Some(t) = st.panel.active_mut() {
+        t.session.write(format!("{command}\n").into_bytes());
+        st.diag.say(&l10n::t_args("azcode-ran-task", &[("command", l10n::Arg::from(command))]));
+        println!("AZCODE_TASK {command}");
     }
 }
 
@@ -168,6 +214,11 @@ pub fn close(st: &mut AppState, info: &mut CallbackInfo) {
 /// Terminal > New Terminal: another shell in the workspace's folder (the
 /// home folder without one), in front; the panel opens.
 pub fn new_terminal(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
+    if !AVAILABLE {
+        st.panel_tab = PanelTab::Problems;
+        st.fail(l10n::t("azcode-terminal-unavailable"), None);
+        return;
+    }
     let cwd = shell_folder(st.workspace_folder());
     match Session::spawn_for("AzCode", st.shell.clone(), cwd.clone(), START_GRID, SCROLLBACK) {
         Ok(session) => {
@@ -193,15 +244,20 @@ pub fn new_terminal(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
                 st.panel.open = true;
                 println!("AZCODE_PANEL open");
             }
+            st.panel_tab = PanelTab::Terminal;
             let folder = cwd.map_or_else(String::new, |c| c.display().to_string());
+            st.diag.say(&l10n::t_args(
+                "azcode-terminal-started",
+                &[("number", l10n::Arg::from(number)), ("folder", l10n::Arg::from(folder.as_str()))],
+            ));
             println!("AZCODE_TERMINAL_READY {number} {folder}");
             start_ticking(st, info, app);
             commands::focus_soon(info, ids::TERMINAL.as_str());
         }
         Err(e) => {
-            st.notice = l10n::t_args(
-                "azcode-terminal-failed",
-                &[("why", l10n::Arg::from(e.to_string()))],
+            st.fail(
+                l10n::t_args("azcode-terminal-failed", &[("why", l10n::Arg::from(e.to_string()))]),
+                None,
             );
         }
     }
@@ -353,7 +409,7 @@ extern "C" fn on_terminal(mut data: RefAny, mut info: CallbackInfo, event: Termi
     Update::DoNothing
 }
 
-// ==== The panel ====
+// ==== The panel's terminal ====
 
 /// What a shell's tab in the header acts on.
 struct TerminalRef {
@@ -361,31 +417,9 @@ struct TerminalRef {
     index: usize,
 }
 
-/// The panel: its header over the terminal of the shell in front.
-pub fn panel(app: &RefAny, st: &AppState) -> Dom {
-    let mut header = Dom::create_div()
-        .with_css(format!(
-            "display: flex; flex-direction: row; align-items: center; height: {HEADER_HEIGHT}px; \
-             flex-shrink: 0; padding: 0px 8px 0px 16px; border-top: 1px solid {};",
-            ui::RULE
-        ))
-        .with_child(
-            Dom::create_div()
-                .with_css(
-                    // Under flora the underline is the stone (its glow at night).
-                    "font-size: 11px; padding: 4px 0px; margin-right: 16px; \
-                     border-bottom: 1px solid var(--az-accent, #0078D4); @theme(flora) { \
-                     border-bottom: 1px solid system:accent; }",
-                )
-                .with_child(Dom::create_span_with_text("TERMINAL")),
-        );
-    for (i, t) in st.panel.terminals.iter().enumerate() {
-        header.add_child(terminal_tab(app, i, t, i == st.panel.active));
-    }
-    header.add_child(Dom::create_div().with_css("flex-grow: 1;"));
-    header.add_child(ui::icon_button(ids::TERMINAL_NEW, "add", "azcode-action-new-terminal", app.clone(), on_new_terminal));
-    header.add_child(ui::icon_button(ids::TERMINAL_KILL, "delete", "azcode-action-kill-terminal", app.clone(), on_kill_terminal));
-    header.add_child(ui::icon_button(ids::PANEL_CLOSE, "close", "azcode-close-panel", app.clone(), on_close_panel));
+/// The terminal of the shell in front: azul's `TerminalView`, or - when the last shell has ended - the
+/// line that says so. The panel's body on its Terminal tab.
+pub fn view(app: &RefAny, st: &AppState) -> Dom {
     let body = match st.panel.terminals.get(st.panel.active) {
         Some(t) => TerminalView::create()
             .with_data_source(app.clone(), terminal_screen as TerminalViewDataSourceCallbackType)
@@ -398,30 +432,38 @@ pub fn panel(app: &RefAny, st: &AppState) -> Dom {
             .with_css("display: flex; flex-direction: row; align-items: center; justify-content: center; flex-grow: 1;")
             .with_child(Dom::create_span_with_text(l10n::label("azcode-shell-ended"))),
     };
+    // Positioned: the terminal fills it.
     Dom::create_div()
-        .with_id(ids::PANEL)
-        // The split pane is a block: the panel takes its whole height itself
-        // (`flex-grow` alone left it as tall as its header, and the terminal
-        // under it 0 px tall - its view never rendered a row).
         .with_css(
-            "display: flex; flex-direction: column; flex-grow: 1; height: 100%; min-height: 0px; \
-             min-width: 0px;",
+            "position: relative; flex-grow: 1; flex-shrink: 1; flex-basis: 0px; min-height: 0px; \
+             min-width: 0px; padding-left: 16px;",
         )
-        .with_child(header)
-        .with_child(
-            // Positioned: the terminal fills it.
-            Dom::create_div()
-                .with_css(
-                    "position: relative; flex-grow: 1; flex-shrink: 1; flex-basis: 0px; min-height: 0px; \
-                     min-width: 0px; padding-left: 16px;",
-                )
-                .with_child(body),
-        )
+        .with_child(body)
+}
+
+/// The shells' tabs of the panel's header (one per shell, the one in front marked), on the Terminal
+/// tab; `height` is the tab's height, px (a finger's on a phone).
+pub fn shell_tabs(app: &RefAny, st: &AppState, height: f32) -> Vec<Dom> {
+    st.panel
+        .terminals
+        .iter()
+        .enumerate()
+        .map(|(i, t)| terminal_tab(app, i, t, i == st.panel.active, height))
+        .collect()
+}
+
+/// The actions at the end of the header on the Terminal tab: a new shell, the shell in front killed;
+/// `size` is a button's side, px.
+pub fn actions(app: &RefAny, size: f32) -> Vec<Dom> {
+    vec![
+        ui::icon_button_sized(ids::TERMINAL_NEW, "add", "azcode-action-new-terminal", app.clone(), on_new_terminal, size),
+        ui::icon_button_sized(ids::TERMINAL_KILL, "delete", "azcode-action-kill-terminal", app.clone(), on_kill_terminal, size),
+    ]
 }
 
 /// Shell `index`'s tab in the header: its number and title; a click brings
 /// it to front.
-fn terminal_tab(app: &RefAny, index: usize, t: &TerminalTab, active: bool) -> Dom {
+fn terminal_tab(app: &RefAny, index: usize, t: &TerminalTab, active: bool, height: f32) -> Dom {
     let look = if active {
         "opacity: 1; background: rgba(128, 128, 128, 0.18);"
     } else {
@@ -430,11 +472,17 @@ fn terminal_tab(app: &RefAny, index: usize, t: &TerminalTab, active: bool) -> Do
     Dom::create_div()
         .with_id(ids::terminal_tab(index))
         .with_css(format!(
-            "display: flex; flex-direction: row; align-items: center; height: 22px; padding: 0px 8px; \
+            "display: flex; flex-direction: row; align-items: center; height: {height}px; padding: 0px 8px; \
              margin-right: 4px; border-radius: 4px; font-size: 12px; white-space: nowrap; cursor: pointer; \
-             :hover {{ background: rgba(128, 128, 128, 0.25); }} {look}"
+             flex-shrink: 0; :hover {{ background: rgba(128, 128, 128, 0.25); }} {look}"
         ))
-        .with_accessibility_info(AccessibilityInfo::named(format!("Terminal {}: {}", t.number, t.title), AccessibilityRole::PageTab))
+        .with_accessibility_info(AccessibilityInfo::named(
+            l10n::t_args(
+                "azcode-shell-tab",
+                &[("number", l10n::Arg::from(t.number)), ("title", l10n::Arg::from(t.title.as_str()))],
+            ),
+            AccessibilityRole::PageTab,
+        ))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::MouseUp),
             RefAny::new(TerminalRef {
@@ -458,7 +506,7 @@ extern "C" fn on_kill_terminal(mut data: RefAny, mut info: CallbackInfo) -> Upda
     ui::with_state(&mut data, &mut info, |st, info, _| kill_terminal(st, info))
 }
 
-extern "C" fn on_close_panel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_close_panel(mut data: RefAny, mut info: CallbackInfo) -> Update {
     ui::with_state(&mut data, &mut info, |st, info, _| close(st, info))
 }
 

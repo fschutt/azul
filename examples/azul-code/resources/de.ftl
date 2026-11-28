@@ -151,3 +151,85 @@ azcode-index-failed = Die Dateien des Ordners konnten nicht aufgelistet werden: 
 azcode-index-first = Schnell öffnen durchsucht die ersten { $count } Dateien des Ordners.
 azcode-search-failed = Der Ordner konnte nicht durchsucht werden: { $why }
 azcode-sample-failed = Das Beispiel konnte nicht geschrieben werden: { $why }
+
+## Quellcodeverwaltung, Ausführen, das Panel, das Telefon
+
+azcode-action-git = Quellcodeverwaltung
+azcode-action-refresh-git = Änderungen aktualisieren
+azcode-action-run = Ausführen
+azcode-change-added = hinzugefügt
+azcode-change-conflicted = im Konflikt
+azcode-change-copied = kopiert
+azcode-change-deleted = gelöscht
+azcode-change-modified = geändert
+azcode-change-renamed = umbenannt
+azcode-change-untracked = nicht verfolgt
+azcode-close-drawer = Seitenleiste schließen
+azcode-open-drawer = Seitenleiste öffnen
+azcode-drawer = Explorer, Suche, Quellcodeverwaltung und Ausführen
+azcode-find-close = Suche schließen
+azcode-git-changes = { $count ->
+    [one] 1 Änderung
+   *[other] { $count } Änderungen
+ }
+azcode-git-clean = Keine Änderungen.
+azcode-git-loading = Die Änderungen werden gelesen ...
+azcode-git-more = ... und { $count } weitere
+azcode-git-no-folder = Öffne einen Ordner, um seine Änderungen zu sehen.
+azcode-git-no-repository = Dieser Ordner ist kein Git-Repository.
+azcode-git-staged = Vorgemerkte Änderungen ({ $count })
+azcode-git-unavailable = Die Quellcodeverwaltung braucht git, das dieses Gerät nicht hat.
+azcode-git-unstaged = Änderungen ({ $count })
+azcode-key-back-tab = Einzug verkleinern
+azcode-key-braces = Geschweifte Klammern
+azcode-key-brackets = Eckige Klammern
+azcode-key-colon = Doppelpunkt
+azcode-key-down = Cursor nach unten
+azcode-key-equals = Gleichheitszeichen
+azcode-key-left = Cursor nach links
+azcode-key-parentheses = Runde Klammern
+azcode-key-quotes = Anführungszeichen
+azcode-key-right = Cursor nach rechts
+azcode-key-row = Tasten für Code
+azcode-key-semicolon = Semikolon
+azcode-key-tab = Tabulator
+azcode-key-up = Cursor nach oben
+azcode-no-output = Es gibt noch keine Ausgabe.
+azcode-no-problems = Im Arbeitsbereich wurden keine Probleme gefunden.
+azcode-opened-file = { $file } geöffnet
+azcode-opened-folder = Ordner { $folder } geöffnet
+azcode-panel-clear = Leeren
+azcode-panel-output = Ausgabe
+azcode-panel-problems = Probleme
+azcode-ran-task = { $command } ausgeführt
+azcode-result-file = { $file }, { $count ->
+    [one] 1 Treffer
+   *[other] { $count } Treffer
+ }
+azcode-result-hit = Zeile { $line }: { $preview }
+azcode-run-loading = Es wird gesucht, was ausgeführt werden kann ...
+azcode-run-no-folder = Öffne einen Ordner, um zu sehen, was darin ausgeführt werden kann.
+azcode-run-no-terminal = Aufgaben laufen im Terminal, das dieses Gerät nicht hat.
+azcode-run-none = Nichts auszuführen: Der Ordner hat keine Cargo.toml, package.json oder Makefile mit Aufgaben.
+azcode-run-task = { $command } ausführen
+azcode-saved-file = { $file } gespeichert
+azcode-searched = Suche nach „{ $query }“: { $hits ->
+    [one] 1 Treffer
+   *[other] { $hits } Treffer
+ } in { $files ->
+    [one] 1 Datei
+   *[other] { $files } Dateien
+ }
+azcode-severity-error = Fehler
+azcode-severity-info = Information
+azcode-severity-warning = Warnung
+azcode-sheet = Panel
+azcode-sheet-grip = Größe des Panels ändern
+azcode-shell-tab = Terminal { $number }: { $title }
+azcode-status-problems = Probleme { $count }
+azcode-task-cargo = Cargo
+azcode-task-group = { $source } ({ $file })
+azcode-task-make = Make-Ziele
+azcode-task-npm = npm-Skripte
+azcode-terminal-started = Terminal { $number } in { $folder } gestartet
+azcode-terminal-unavailable = Dieses Gerät kann kein Terminal starten: Sein System erlaubt Apps nicht, andere Programme zu starten.

@@ -45,8 +45,8 @@ use azul_appkit::l10n::{self, t, t_args, Arg};
 
 use crate::{
     actions::{self, Action},
-    app::{doc_line, AppState, Doc, Side},
-    commands, explorer, find_in_files, ids, palette, terminal,
+    app::{doc_line, AppState, Doc, PanelTab, Side},
+    commands, explorer, find_in_files, git_panel, ids, palette, panel, phone, run_panel, terminal,
 };
 
 /// The columns between two tab stops.
@@ -133,9 +133,14 @@ pub fn clickable(
 /// The whole window's content (under the theme scope): the shell, and the
 /// palette over it while it is showing.
 pub fn window(app: &RefAny, st: &AppState) -> Dom {
+    if phone::is_compact(st.window.0, st.window.1) {
+        return phone::window(app, st);
+    }
     let (side, side_label) = match st.side {
         Side::Explorer => (explorer::explorer(app, st), "azcode-action-explorer"),
         Side::Search => (find_in_files::search_panel(app, st), "azcode-category-search"),
+        Side::Git => (git_panel::git_panel(app, st), "azcode-action-git"),
+        Side::Run => (run_panel::run_panel(app, st), "azcode-action-run"),
     };
     let shell = OfficeShell::create()
         .with_pane(
@@ -178,7 +183,7 @@ fn editor_area(app: &RefAny, st: &AppState) -> Dom {
     if !st.panel.open {
         return editor;
     }
-    SplitPane::create(SplitDirection::Vertical, editor, terminal::panel(app, st))
+    SplitPane::create(SplitDirection::Vertical, editor, panel::panel(app, st, false))
         .with_ratio(st.panel.editor_ratio)
         .with_on_resize(app.clone(), on_panel_resize as SplitPaneOnResizeCallbackType)
         .dom()
@@ -191,6 +196,25 @@ fn editor_area(app: &RefAny, st: &AppState) -> Dom {
 #[must_use]
 pub fn editor_size(st: &AppState) -> (f32, f32) {
     let (width, height) = st.window;
+    if phone::is_compact(width, height) {
+        // The top bar, the status bar (or the key row over the keyboard), the find and go-to bars; the
+        // sheet lies over the editor and is not taken off.
+        let insets = st.insets;
+        let mut chrome = phone::TOP_BAR + insets.top + phone::STATUS_BAR + insets.bottom_clear();
+        if phone::key_row_visible(true, st.tabs.active().is_some(), st.phone.editing, insets.lift()) {
+            chrome += phone::KEY_ROW;
+        }
+        if st.find.open {
+            chrome += if st.find.replace_open { 96.0 } else { 52.0 };
+        }
+        if st.goto.is_some() {
+            chrome += 40.0;
+        }
+        return (
+            (width - insets.left - insets.right).max(200.0),
+            (height - insets.lift() - chrome).max(120.0),
+        );
+    }
     let rest = (width - ACTIVITY_WIDTH).max(0.0);
     let side = if st.side_visible {
         rest * st.side_ratio + 4.0
@@ -215,7 +239,7 @@ pub fn editor_size(st: &AppState) -> (f32, f32) {
 
 // ==== The activity bar ====
 
-/// Explorer and Search at the top, Settings at the foot.
+/// Explorer, Search, Source Control and Run at the top, Settings at the foot.
 fn activity_bar(app: &RefAny, st: &AppState) -> Dom {
     let showing = |side: Side| st.side_visible && st.side == side;
     Dom::create_div()
@@ -235,6 +259,22 @@ fn activity_bar(app: &RefAny, st: &AppState) -> Dom {
             "azcode-category-search",
             showing(Side::Search),
             on_show_search,
+        ))
+        .with_child(activity_item(
+            app,
+            ids::ACTIVITY_GIT,
+            "call_split",
+            "azcode-action-git",
+            showing(Side::Git),
+            on_show_git,
+        ))
+        .with_child(activity_item(
+            app,
+            ids::ACTIVITY_RUN,
+            "play_arrow",
+            "azcode-action-run",
+            showing(Side::Run),
+            on_show_run,
         ))
         .with_child(Dom::create_div().with_css("flex-grow: 1;"))
         .with_child(activity_item(
@@ -284,11 +324,16 @@ fn activity_item(
 
 /// The side bar's title row ("EXPLORER") with its actions at the right.
 pub fn side_title(title: &str, actions: Vec<Dom>) -> Dom {
+    side_title_sized(title, actions, 35.0)
+}
+
+/// [`side_title`] `height` px tall (a finger's on a phone).
+pub fn side_title_sized(title: &str, actions: Vec<Dom>, height: f32) -> Dom {
     let mut row = Dom::create_div()
-        .with_css(
-            "display: flex; flex-direction: row; align-items: center; height: 35px; flex-shrink: 0; \
-             padding: 0px 8px 0px 20px;",
-        )
+        .with_css(format!(
+            "display: flex; flex-direction: row; align-items: center; height: {height}px; flex-shrink: 0; \
+             padding: 0px 8px 0px 20px;"
+        ))
         .with_child(label(title, "flex-grow: 1; font-size: 11px; opacity: 0.8;"));
     for action in actions {
         row.add_child(action);
@@ -298,17 +343,26 @@ pub fn side_title(title: &str, actions: Vec<Dom>) -> Dom {
 
 /// A small icon button of a title row.
 pub fn icon_button(id: AzString, icon: &str, name: &str, data: RefAny, callback: CallbackType) -> Dom {
+    icon_button_sized(id, icon, name, data, callback, 22.0)
+}
+
+/// An icon button `size` px on a side: 22 on a desktop's title row, a finger's 48 on a phone. The glyph
+/// grows with it (16 px at 22, 24 px from 40).
+pub fn icon_button_sized(id: AzString, icon: &str, name: &str, data: RefAny, callback: CallbackType, size: f32) -> Dom {
+    let glyph = if size >= 40.0 { 24.0 } else { 16.0 };
     clickable(
         id,
-        "display: flex; flex-direction: row; align-items: center; justify-content: center; \
-         width: 22px; height: 22px; border-radius: 4px; cursor: pointer; opacity: 0.8; \
-         :hover { background: rgba(128, 128, 128, 0.25); opacity: 1; }",
+        &format!(
+            "display: flex; flex-direction: row; align-items: center; justify-content: center; \
+             width: {size}px; height: {size}px; flex-shrink: 0; border-radius: 4px; cursor: pointer; opacity: 0.8; \
+             :hover {{ background: rgba(128, 128, 128, 0.25); opacity: 1; }}"
+        ),
         name,
         AccessibilityRole::PushButton,
         data,
         callback,
     )
-    .with_child(Dom::create_icon(icon).with_css(format!("font-size: 16px; {FLORA_GLYPH}")))
+    .with_child(Dom::create_icon(icon).with_css(format!("font-size: {glyph}px; {FLORA_GLYPH}")))
 }
 
 /// Recent folder `index`: its name, the folder it is in; a click opens it.
@@ -341,7 +395,7 @@ pub fn recent_row(app: &RefAny, id: AzString, index: usize, folder: &str) -> Dom
 }
 
 /// A find field (the find bar's).
-fn find_input(app: &RefAny, st: &AppState, id: AzString) -> Dom {
+pub(crate) fn find_input(app: &RefAny, st: &AppState, id: AzString) -> Dom {
     TextInput::create()
         .with_text(AzString::from(st.find.query.as_str()))
         .with_placeholder(l10n::label("azcode-action-find"))
@@ -476,7 +530,7 @@ fn breadcrumbs(doc: &Doc) -> Dom {
 
 /// The code view over `doc`: it builds only the lines in its viewport (a
 /// million-line file costs a screen).
-fn code_view(app: &RefAny, st: &AppState, doc: &Doc) -> Dom {
+pub(crate) fn code_view(app: &RefAny, st: &AppState, doc: &Doc) -> Dom {
     let (width, height) = editor_size(st);
     CodeView::create(doc.line_count)
         .with_id(ids::EDITOR)
@@ -508,9 +562,14 @@ const WELCOME_KEYS: [(&str, &str); 12] = [
 /// The editor while no file is open: VSCode's welcome page - the app's
 /// name, Start (Open Folder..., Open File..., the sample), Recent, the
 /// keyboard shortcuts.
-fn welcome(app: &RefAny, st: &AppState) -> Dom {
+pub(crate) fn welcome(app: &RefAny, st: &AppState) -> Dom {
+    let compact = phone::is_compact(st.window.0, st.window.1);
     let mut page = Dom::create_div()
-        .with_css("display: flex; flex-direction: column; width: 560px; max-width: 100%; padding: 48px 32px;")
+        .with_css(if compact {
+            "display: flex; flex-direction: column; width: 560px; max-width: 100%; padding: 24px 20px; box-sizing: border-box;"
+        } else {
+            "display: flex; flex-direction: column; width: 560px; max-width: 100%; padding: 48px 32px;"
+        })
         .with_child(label("AzCode", "font-size: 36px; font-weight: 300;"))
         .with_child(label("azcode-welcome-what", "font-size: 16px; opacity: 0.7; padding-bottom: 12px;"))
         .with_child(heading("azcode-welcome-start"))
@@ -537,9 +596,12 @@ fn welcome(app: &RefAny, st: &AppState) -> Dom {
             page.add_child(recent_row(app, ids::welcome_recent(i), i, folder));
         }
     }
-    page.add_child(heading("azcode-welcome-shortcuts"));
-    for (action, keys) in WELCOME_KEYS {
-        page.add_child(shortcut_row(action, &commands::keys(keys)));
+    // A phone has no keyboard of shortcuts to learn: the list is the desktop's.
+    if !compact {
+        page.add_child(heading("azcode-welcome-shortcuts"));
+        for (action, keys) in WELCOME_KEYS {
+            page.add_child(shortcut_row(action, &commands::keys(keys)));
+        }
     }
     Dom::create_div()
         .with_id(ids::WELCOME)
@@ -599,12 +661,7 @@ fn shortcut_row(action: &str, keys: &str) -> Dom {
 /// (the fields embedded, never in the "more" menu). Each tool's `id` is its
 /// DOM-id name from [`ids`]: what [`on_find_tool`] matches.
 fn find_bar(app: &RefAny, st: &AppState) -> Dom {
-    let count = match (st.find.current, st.find.found.len()) {
-        (_, 0) if st.find.query.is_empty() => String::new(),
-        (_, 0) => t("azcode-find-none"),
-        (Some(i), n) => t_args("azcode-find-of", &[("match", Arg::from(i + 1)), ("count", Arg::from(n))]),
-        (None, n) => t_args("azcode-find-results", &[("count", Arg::from(n))]),
-    };
+    let count = find_count(st);
     let mut items = vec![
         ToolbarItem::create_custom(ids::FIND_INPUT, l10n::label("azcode-action-find"), find_input(app, st, ids::FIND_INPUT), 220.0)
             .with_never_overflow(true),
@@ -617,13 +674,7 @@ fn find_bar(app: &RefAny, st: &AppState) -> Dom {
             .with_tooltip(l10n::label("azcode-whole-word")),
     ];
     if st.find.replace_open {
-        let replace = TextInput::create()
-            .with_text(AzString::from(st.find.replacement.as_str()))
-            .with_placeholder(l10n::label("azcode-action-replace"))
-            .with_accessibility_name(l10n::label("azcode-action-replace"))
-            .with_on_text_input(app.clone(), on_replace_text as TextInputOnTextInputCallbackType)
-            .dom()
-            .with_id(ids::REPLACE_INPUT);
+        let replace = replace_input(app, st);
         items.push(ToolbarItem::create_separator());
         items.push(
             ToolbarItem::create_custom(ids::REPLACE_INPUT, l10n::label("azcode-replace-with"), replace, 220.0)
@@ -640,8 +691,29 @@ fn find_bar(app: &RefAny, st: &AppState) -> Dom {
         .with_id(ids::FIND_BAR)
 }
 
+/// "3 of 14" (or the count, or "No results"): what the find bar says of its matches.
+pub(crate) fn find_count(st: &AppState) -> String {
+    match (st.find.current, st.find.found.len()) {
+        (_, 0) if st.find.query.is_empty() => String::new(),
+        (_, 0) => t("azcode-find-none"),
+        (Some(i), n) => t_args("azcode-find-of", &[("match", Arg::from(i + 1)), ("count", Arg::from(n))]),
+        (None, n) => t_args("azcode-find-results", &[("count", Arg::from(n))]),
+    }
+}
+
+/// The find bar's replace field.
+pub(crate) fn replace_input(app: &RefAny, st: &AppState) -> Dom {
+    TextInput::create()
+        .with_text(AzString::from(st.find.replacement.as_str()))
+        .with_placeholder(l10n::label("azcode-action-replace"))
+        .with_accessibility_name(l10n::label("azcode-action-replace"))
+        .with_on_text_input(app.clone(), on_replace_text as TextInputOnTextInputCallbackType)
+        .dom()
+        .with_id(ids::REPLACE_INPUT)
+}
+
 /// The go-to-line bar.
-fn goto_bar(app: &RefAny, typed: &str) -> Dom {
+pub(crate) fn goto_bar(app: &RefAny, typed: &str) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 6px;")
         .with_child(text("azcode-shortcut-go-to-line"))
@@ -675,15 +747,34 @@ fn status_bar(app: &RefAny, st: &AppState) -> Dom {
             StatusBarSegment::create(AzString::from(w.root.name.as_str())).with_icon(AzString::from("folder_open")),
         );
     }
+    // The panel's three views, as the card has them at the status bar's left: Terminal, Problems, Output.
     let shells = st.panel.terminals.len();
+    if terminal::AVAILABLE {
+        segments.push(
+            StatusBarSegment::create(AzString::from(if shells == 0 {
+                t("azcode-action-terminal")
+            } else {
+                t_args("azcode-status-terminals", &[("count", Arg::from(shells))])
+            }))
+            .with_icon(AzString::from("terminal"))
+            .with_marker(ids::STATUS_TERMINAL)
+            .with_on_click(app.clone(), on_status_terminal as ButtonOnClickCallbackType),
+        );
+    }
     segments.push(
-        StatusBarSegment::create(AzString::from(if shells == 0 {
-            t("azcode-action-terminal")
-        } else {
-            t_args("azcode-status-terminals", &[("count", Arg::from(shells))])
-        }))
-        .with_icon(AzString::from("terminal"))
-        .with_on_click(app.clone(), on_status_terminal as ButtonOnClickCallbackType),
+        StatusBarSegment::create(AzString::from(t_args(
+            "azcode-status-problems",
+            &[("count", Arg::from(st.diag.problems().len()))],
+        )))
+        .with_icon(AzString::from("error_outline"))
+        .with_marker(ids::STATUS_PROBLEMS)
+        .with_on_click(app.clone(), on_status_problems as ButtonOnClickCallbackType),
+    );
+    segments.push(
+        StatusBarSegment::create(l10n::label("azcode-panel-output"))
+            .with_icon(AzString::from("article"))
+            .with_marker(ids::STATUS_OUTPUT)
+            .with_on_click(app.clone(), on_status_output as ButtonOnClickCallbackType),
     );
     if let Some(doc) = st.tabs.active() {
         segments.push(
@@ -729,10 +820,18 @@ pub extern "C" fn on_code_event(mut data: RefAny, mut info: CallbackInfo, event:
         return Update::DoNothing;
     }
     with_state(&mut data, &mut info, |st, _info, _app| {
+        let compact = phone::is_compact(st.window.0, st.window.1);
         let Some(doc) = st.tabs.active_mut() else {
             return;
         };
         doc.view = event.view.clone();
+        // A touch of the editor (a caret placed) or a key typed in it: on a phone the editor is being typed into.
+        if compact && matches!(event.kind, CodeViewEventKind::Move | CodeViewEventKind::Edit) {
+            st.phone.editing = true;
+        }
+        let Some(doc) = st.tabs.active_mut() else {
+            return;
+        };
         match event.kind {
             CodeViewEventKind::Edit => doc.apply_edits(event.edits.as_slice()),
             CodeViewEventKind::Undo => doc.undo_redo(false),
@@ -769,6 +868,16 @@ extern "C" fn on_status_terminal(mut data: RefAny, mut info: CallbackInfo) -> Up
     with_state(&mut data, &mut info, |st, info, app| {
         actions::run(st, info, app, Action::ToggleTerminal);
     })
+}
+
+/// The status bar's Problems: the panel shows them, or closes when it already does.
+extern "C" fn on_status_problems(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |st, info, app| panel::toggle_tab(st, info, app, PanelTab::Problems))
+}
+
+/// The status bar's Output: the panel shows it, or closes when it already does.
+extern "C" fn on_status_output(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |st, info, app| panel::toggle_tab(st, info, app, PanelTab::Output))
 }
 
 /// The status bar's "Ln, Col": go to line.
@@ -821,6 +930,26 @@ extern "C" fn on_show_search(mut data: RefAny, mut info: CallbackInfo) -> Update
     with_state(&mut data, &mut info, |st, info, _| show_side(st, info, Side::Search))
 }
 
+extern "C" fn on_show_git(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |st, info, app| {
+        if st.side_visible && st.side == Side::Git {
+            st.side_visible = false;
+        } else {
+            commands::show_git(st, info, app);
+        }
+    })
+}
+
+extern "C" fn on_show_run(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |st, _, _| {
+        if st.side_visible && st.side == Side::Run {
+            st.side_visible = false;
+        } else {
+            commands::show_run(st);
+        }
+    })
+}
+
 /// What a recent folder's row opens.
 struct RecentRef {
     app: RefAny,
@@ -835,9 +964,9 @@ extern "C" fn on_recent_click(mut data: RefAny, mut info: CallbackInfo) -> Updat
 }
 
 /// What a tab's name and its close button act on.
-struct TabRef {
-    app: RefAny,
-    index: usize,
+pub(crate) struct TabRef {
+    pub(crate) app: RefAny,
+    pub(crate) index: usize,
 }
 
 fn tab_of(data: &mut RefAny) -> Option<(RefAny, usize)> {
@@ -845,7 +974,7 @@ fn tab_of(data: &mut RefAny) -> Option<(RefAny, usize)> {
 }
 
 /// A tab's name: the tab to front, the editor focused.
-extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, index)) = tab_of(&mut data) else {
         return Update::DoNothing;
     };
@@ -859,7 +988,7 @@ extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
 }
 
 /// A tab's close button.
-extern "C" fn on_tab_close(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_tab_close(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, index)) = tab_of(&mut data) else {
         return Update::DoNothing;
     };
@@ -951,15 +1080,15 @@ extern "C" fn on_find_tool(mut data: RefAny, mut info: CallbackInfo, event: Tool
     }
 }
 
-extern "C" fn on_find_next(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_find_next(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |st, _, _| st.step_match(true))
 }
 
-extern "C" fn on_find_previous(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_find_previous(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |st, _, _| st.step_match(false))
 }
 
-extern "C" fn on_replace_one(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_replace_one(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |st, _, _| {
         if st.replace_current() {
             println!("AZCODE_REPLACED 1");
@@ -967,7 +1096,7 @@ extern "C" fn on_replace_one(mut data: RefAny, mut info: CallbackInfo) -> Update
     })
 }
 
-extern "C" fn on_replace_all(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_replace_all(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |st, _, _| {
         let n = st.replace_all();
         st.notice = t_args("azcode-replaced", &[("count", Arg::from(n))]);

@@ -18,9 +18,13 @@ use azul_appkit::find::TextMatch;
 
 use crate::{
     buffer::{Edit, LineEnding, Pos, TextBuffer},
+    diagnostics::Diagnostics,
+    git,
     highlight::{syntax_for, Highlighter, TokenKind},
+    keyrow::{self, KeyAction},
     search::{self, Found},
     storage::FileHits,
+    tasks::Task,
     terminal::Panel,
     workspace::{doc_ident, file_name, quick_matches, Root, TabDoc, Tabs, Workspace, QUICK_MAX},
 };
@@ -145,6 +149,36 @@ impl Doc {
             }
         });
         self.refresh();
+    }
+
+    /// A key of the phone's key row pressed in this file: its edits applied as one undo step, the
+    /// selection and the view where the key put them. `false` when the key did nothing (an arrow
+    /// at the end of the file).
+    pub fn press_key(&mut self, action: KeyAction) -> bool {
+        let cursor = self.view.primary();
+        let (anchor, head) = (cursor.anchor, cursor.head);
+        let anchor = Pos::new(anchor.line as usize, anchor.column as usize);
+        let head = Pos::new(head.line as usize, head.column as usize);
+        let count = self.line_count as usize;
+        let outcome = self
+            .with_text(|t| {
+                let buffer = &t.buffer;
+                keyrow::press(action, &|i| buffer.line(i), count, anchor, head, keyrow::TAB_WIDTH)
+            })
+            .flatten();
+        let Some(outcome) = outcome else {
+            return false;
+        };
+        if !outcome.edits.is_empty() {
+            self.apply_own(&outcome.edits);
+        }
+        if outcome.anchor == outcome.head {
+            self.view.set_cursor(position(outcome.head));
+        } else {
+            self.view.select(position(outcome.anchor), position(outcome.head));
+        }
+        self.view.reveal_line(position(outcome.head).line);
+        true
     }
 
     /// Undo (`redo == false`) or redo; the caret goes where the text came
@@ -280,12 +314,40 @@ pub extern "C" fn doc_line(mut data: RefAny, line: u32) -> CodeViewLine {
     }
 }
 
-/// Which panel the side bar shows.
+/// Which panel the side bar shows (the activity bar's icons: Explorer, Search, Source Control, Run).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Side {
     #[default]
     Explorer,
     Search,
+    Git,
+    Run,
+}
+
+/// What the source control view knows: what `git status` said last, and whether it is being asked.
+#[derive(Debug, Clone, Default)]
+pub struct GitState {
+    /// The answer, once there is one.
+    pub status: Option<git::Status>,
+    /// `git status` runs on a Thread.
+    pub loading: bool,
+}
+
+/// The tasks of the workspace's root files (the Run view).
+#[derive(Debug, Clone, Default)]
+pub struct TaskState {
+    pub tasks: Vec<Task>,
+    /// The root files were read (an empty list after it is "no tasks", not "not known yet").
+    pub loaded: bool,
+}
+
+/// The bottom panel's tabs (Terminal, Problems, Output).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PanelTab {
+    #[default]
+    Terminal,
+    Problems,
+    Output,
 }
 
 /// The find bar.
@@ -457,10 +519,22 @@ pub struct AppState {
     /// The workspace's files (keys) for quick open.
     pub index: Vec<String>,
     pub index_state: IndexState,
-    /// The terminal panel under the editor.
+    /// The bottom panel under the editor: the terminal and its shells.
     pub panel: Panel,
+    /// The panel's tab in front.
+    pub panel_tab: PanelTab,
     /// `--shell`: what the terminal panel runs (`None`: the user's shell).
     pub shell: Option<(String, Vec<String>)>,
+    /// The source control view's changes.
+    pub git: GitState,
+    /// The Run view's tasks.
+    pub tasks: TaskState,
+    /// What AzCode says about its own work: the Problems and the Output.
+    pub diag: Diagnostics,
+    /// The phone's window: the drawer, the sheet, the key row.
+    pub phone: crate::phone::PhoneState,
+    /// The room the system keeps for itself (set by the layout: zero on a desktop).
+    pub insets: azul_appkit::insets::Insets,
     next_id: u64,
 }
 
@@ -495,7 +569,13 @@ impl AppState {
             index: Vec::new(),
             index_state: IndexState::None,
             panel: Panel::default(),
+            panel_tab: PanelTab::default(),
             shell: None,
+            git: GitState::default(),
+            tasks: TaskState::default(),
+            diag: Diagnostics::default(),
+            phone: crate::phone::PhoneState::default(),
+            insets: azul_appkit::insets::Insets::default(),
             next_id: 1,
         }
     }
@@ -504,6 +584,13 @@ impl AppState {
     pub fn new_id(&mut self) -> u64 {
         self.next_id += 1;
         self.next_id
+    }
+
+    /// Something could not be done: the notice says so, and the Problems list has it (with the file it
+    /// is about, when there is one).
+    pub fn fail(&mut self, message: String, file: Option<&str>) {
+        self.diag.error(&message, file);
+        self.notice = message;
     }
 
     /// The window's title: the file in front, the workspace, the app.

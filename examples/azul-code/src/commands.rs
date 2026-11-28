@@ -27,11 +27,13 @@ use azul_appkit::l10n::{label, t_args, Arg};
 
 use crate::{
     actions::{self, Action},
-    app::{AppState, Doc, FolderSearch, IndexState, Palette, PaletteKind, PendingSave, Side},
+    app::{AppState, Doc, FolderSearch, GitState, IndexState, Palette, PaletteKind, PendingSave, Side, TaskState},
+    git,
     highlight::HighlightJob,
     ids, sample,
     search::Found,
     storage::{self, DriveJob, DriveOutcome, SearchJob, INDEX_MAX_FILES},
+    tasks,
     workspace::{doc_ident, key_of_path, recent_to_json, remember, Root, Tabs, Workspace},
 };
 
@@ -117,7 +119,9 @@ pub fn open_workspace(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, 
     st.reveal = None;
     reset_search(st);
     st.workspace = Some(Workspace::new(root.clone()));
-    let mut jobs = vec![DriveJob::List { folder: String::new() }];
+    st.git = GitState::default();
+    st.tasks = TaskState::default();
+    let mut jobs = vec![DriveJob::List { folder: String::new() }, DriveJob::TaskFiles];
     if !root.data_tree {
         let folder = root.drive_root.display().to_string();
         st.recent = remember(&st.recent, &folder);
@@ -125,9 +129,15 @@ pub fn open_workspace(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, 
         jobs.push(DriveJob::Branch {
             folder: root.drive_root.clone(),
         });
+        // One job answers the branch too; the branch alone is what the status bar shows at once.
+        jobs.push(DriveJob::Status {
+            folder: root.drive_root.clone(),
+        });
+        st.git.loading = true;
     }
     if let Some(folder) = st.workspace_folder() {
         println!("AZCODE_WORKSPACE {}", folder.display());
+        st.diag.say(&t_args("azcode-opened-folder", &[("folder", Arg::from(folder.display().to_string()))]));
     }
     storage::spawn_drive_jobs(info, &root, jobs, app.clone(), on_drive_done);
 }
@@ -151,6 +161,8 @@ pub fn close_folder(st: &mut AppState) {
     st.branch = None;
     st.reveal = None;
     st.notice.clear();
+    st.git = GitState::default();
+    st.tasks = TaskState::default();
     reset_search(st);
     println!("AZCODE_WORKSPACE -");
 }
@@ -166,7 +178,7 @@ pub fn open_recent(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, ind
     } else {
         st.recent.retain(|f| *f != folder);
         kit::set_value(&st.kit, info, RECENT_KEY, &recent_to_json(&st.recent));
-        st.notice = t_args("azcode-folder-gone", &[("folder", Arg::from(folder.as_str()))]);
+        st.fail(t_args("azcode-folder-gone", &[("folder", Arg::from(folder.as_str()))]), None);
     }
 }
 
@@ -275,7 +287,7 @@ pub fn open_path(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, path:
     match file_root(path) {
         Some((root, key)) => open_file_in(st, info, app, root, &key),
         None => {
-            st.notice = t_args("azcode-not-a-file", &[("path", Arg::from(path.display().to_string()))]);
+            st.fail(t_args("azcode-not-a-file", &[("path", Arg::from(path.display().to_string()))]), None);
         }
     }
 }
@@ -418,6 +430,41 @@ pub fn show_search(st: &mut AppState, info: &mut CallbackInfo) {
     st.side = Side::Search;
     st.side_visible = true;
     focus_soon(info, ids::SEARCH_INPUT.as_str());
+}
+
+/// The source control view's changes asked of git again (on a Thread); nothing for the sample, which is
+/// no repository.
+pub fn refresh_git(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
+    let Some(root) = st.workspace.as_ref().map(|w| w.root.clone()) else {
+        return;
+    };
+    if root.data_tree || st.git.loading {
+        return;
+    }
+    st.git.loading = true;
+    storage::spawn_drive_jobs(
+        info,
+        &root,
+        vec![DriveJob::Status {
+            folder: root.drive_root.clone(),
+        }],
+        app.clone(),
+        on_drive_done,
+    );
+}
+
+/// The activity bar's Source Control: the side bar shows the changes, asked again (the view is
+/// shown to be up to date, not to be the picture of the last time).
+pub fn show_git(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
+    st.side = Side::Git;
+    st.side_visible = true;
+    refresh_git(st, info, app);
+}
+
+/// The activity bar's Run: the side bar shows the workspace's tasks.
+pub fn show_run(st: &mut AppState) {
+    st.side = Side::Run;
+    st.side_visible = true;
 }
 
 /// The side bar's search run again for its query (the one that runs is
@@ -614,6 +661,7 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
     let st = &mut *guard;
     let root = reply.root;
     let current = st.workspace.as_ref().is_some_and(|w| w.root == root);
+    let mut wrote = false;
     for outcome in reply.outcomes {
         match outcome {
             DriveOutcome::Listed {
@@ -626,9 +674,12 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     continue;
                 }
                 if let Some(e) = error {
-                    st.notice = t_args(
-                        "azcode-folder-unlisted",
-                        &[("folder", Arg::from(folder.as_str())), ("why", Arg::from(e.to_string()))],
+                    st.fail(
+                        t_args(
+                            "azcode-folder-unlisted",
+                            &[("folder", Arg::from(folder.as_str())), ("why", Arg::from(e.to_string()))],
+                        ),
+                        None,
                     );
                 }
                 let empty_sample = folder.is_empty()
@@ -652,6 +703,7 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     let id = st.new_id();
                     let mut doc = Doc::open(id, &root, &key, &bytes);
                     println!("AZCODE_OPENED {key} {}", doc.line_count);
+                    st.diag.say(&t_args("azcode-opened-file", &[("file", Arg::from(key.as_str()))]));
                     if let Some((ident, found)) = st.reveal.take() {
                         if ident == doc.ident {
                             doc.select(found);
@@ -664,9 +716,12 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     focus_soon(&mut info, ids::EDITOR.as_str());
                 }
                 Err(e) => {
-                    st.notice = t_args(
-                        "azcode-file-unread",
-                        &[("file", Arg::from(key.as_str())), ("why", Arg::from(e.to_string()))],
+                    st.fail(
+                        t_args(
+                            "azcode-file-unread",
+                            &[("file", Arg::from(key.as_str())), ("why", Arg::from(e.to_string()))],
+                        ),
+                        Some(key.as_str()),
                     );
                 }
             },
@@ -684,13 +739,18 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                             doc.with_text(|t| t.buffer.mark_saved_at(p.depth));
                             doc.refresh();
                         }
+                        wrote = true;
+                        st.diag.say(&t_args("azcode-saved-file", &[("file", Arg::from(key.as_str()))]));
                         println!("AZCODE_SAVED {key}");
                     }
                     Err(e) => {
                         st.close_after_save = false;
-                        st.notice = t_args(
-                            "azcode-file-unsaved",
-                            &[("file", Arg::from(key.as_str())), ("why", Arg::from(e.to_string()))],
+                        st.fail(
+                            t_args(
+                                "azcode-file-unsaved",
+                                &[("file", Arg::from(key.as_str())), ("why", Arg::from(e.to_string()))],
+                            ),
+                            Some(key.as_str()),
                         );
                     }
                 }
@@ -704,9 +764,10 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     continue;
                 }
                 if let Some(e) = error {
-                    st.notice = t_args("azcode-index-failed", &[("why", Arg::from(e.to_string()))]);
+                    st.fail(t_args("azcode-index-failed", &[("why", Arg::from(e.to_string()))]), None);
                 } else if !complete {
                     st.notice = t_args("azcode-index-first", &[("count", Arg::from(files.len()))]);
+                    st.diag.say(&st.notice.clone());
                 }
                 println!("AZCODE_INDEXED {}", files.len());
                 st.index = files;
@@ -719,7 +780,35 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                 println!("AZCODE_BRANCH {}", branch.as_deref().unwrap_or("-"));
                 st.branch = branch;
             }
+            DriveOutcome::Status { folder, status } => {
+                if !current || folder != root.drive_root {
+                    continue;
+                }
+                println!("{}", git_line(&status));
+                if let git::Status::Repository { branch, .. } = &status {
+                    st.branch.clone_from(branch);
+                }
+                st.git = GitState {
+                    status: Some(status),
+                    loading: false,
+                };
+            }
+            DriveOutcome::TaskFiles { files } => {
+                if !current {
+                    continue;
+                }
+                let found = tasks::detect(&files);
+                println!("AZCODE_TASKS {}", found.len());
+                st.tasks = TaskState {
+                    tasks: found,
+                    loaded: true,
+                };
+            }
         }
+    }
+    // A file written is a change git knows of: the view's answer is asked again.
+    if wrote && st.side == Side::Git {
+        refresh_git(st, &mut info, &handle);
     }
     if st.close_after_save && !st.is_saving() && !st.any_dirty() {
         info.close_window();
@@ -748,8 +837,16 @@ pub extern "C" fn on_search_done(mut app: RefAny, mut msg: RefAny, _info: Callba
     st.search.searched = outcome.searched;
     st.search.complete = outcome.complete;
     if let Some(e) = outcome.error {
-        st.notice = search_failed(&e.to_string());
+        st.fail(search_failed(&e.to_string()), None);
     }
+    st.diag.say(&t_args(
+        "azcode-searched",
+        &[
+            ("query", Arg::from(st.search.query.as_str())),
+            ("hits", Arg::from(st.search.hit_count())),
+            ("files", Arg::from(st.search.results.len())),
+        ],
+    ));
     println!("AZCODE_SEARCHED {} {}", st.search.hit_count(), st.search.results.len());
     Update::RefreshDom
 }
@@ -771,7 +868,7 @@ pub extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Call
     // Written once: an empty listing after this is not a reason to write again.
     st.sample = false;
     if let Some(e) = reply.outcomes.iter().find_map(|o| o.error()) {
-        st.notice = sample_failed(&e);
+        st.fail(sample_failed(&e), None);
     }
     if let Some(root) = st.workspace.as_ref().map(|w| w.root.clone()) {
         storage::spawn_drive_jobs(
@@ -885,6 +982,19 @@ mod tests {
             keys("F3 / Shift+F3"),
             if cfg!(target_os = "macos") { "F3 / \u{21e7}F3" } else { "F3 / Shift+F3" }
         );
+    }
+}
+
+/// What stdout says of a git answer (for scripts): `AZCODE_GIT <branch> <changes> <more>`, `AZCODE_GIT none`
+/// (no repository), `AZCODE_GIT unavailable`.
+#[must_use]
+pub fn git_line(status: &git::Status) -> String {
+    match status {
+        git::Status::Repository { branch, changes, more, .. } => {
+            format!("AZCODE_GIT {} {} {more}", branch.as_deref().unwrap_or("-"), changes.len())
+        }
+        git::Status::NoRepository => "AZCODE_GIT none".to_string(),
+        git::Status::Unavailable(_) => "AZCODE_GIT unavailable".to_string(),
     }
 }
 

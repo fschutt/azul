@@ -55,3 +55,38 @@ fn the_search_and_sample_notices_are_said_in_the_windows_language() {
     );
     set_locale("en-US");
 }
+
+/// The words the plain modules name by a key of their own (`name()`: the keys of the phone's key row, the kinds of
+/// change, the severities, the task sources, the panel's tabs) are in both resources: a screen reader says them.
+#[test]
+fn the_words_the_plain_modules_name_by_key_are_in_english_and_german() {
+    use crate::{
+        app::PanelTab,
+        diagnostics::Severity,
+        git::ChangeKind,
+        keyrow::KEYS,
+        panel::tab_name,
+        tasks::Source,
+    };
+    let mut names: Vec<&str> = KEYS.iter().map(|k| k.name).collect();
+    names.extend([Severity::Error, Severity::Warning, Severity::Info].map(Severity::name));
+    names.extend(
+        [
+            ChangeKind::Modified,
+            ChangeKind::Added,
+            ChangeKind::Deleted,
+            ChangeKind::Renamed,
+            ChangeKind::Copied,
+            ChangeKind::Untracked,
+            ChangeKind::Conflicted,
+        ]
+        .map(ChangeKind::name),
+    );
+    names.extend([Source::Cargo, Source::Npm, Source::Make].map(Source::name));
+    names.extend([PanelTab::Terminal, PanelTab::Problems, PanelTab::Output].map(tab_name));
+    for name in names {
+        for (tag, text) in [("en", EN), ("de", DE)] {
+            assert!(text.contains(&format!("\n{name} = ")), "{tag} lacks {name}");
+        }
+    }
+}
