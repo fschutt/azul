@@ -125,6 +125,8 @@ pub(crate) struct Strip {
     pub right: f32,
     /// The width the ribbon is laid out in, px.
     pub width: f32,
+    /// Whether the window is a phone's: the tabs are icon squares.
+    pub phone: bool,
 }
 
 /// The tab strip's offsets: the platform's row of tab buttons that IS the title bar, with the room
@@ -165,6 +167,7 @@ fn frame(s: &MailApp, app: &RefAny, info: &LayoutCallbackInfo) -> Dom {
         left: azul_appkit::frame::tab_row_left_pad(&sidebar),
         right: insets.right,
         width: (width - sidebar.column().in_frame(width)).max(1.0),
+        phone,
     };
     let header = ui_main::ribbon(s, app, false, &strip);
 
@@ -215,6 +218,7 @@ fn backstage_frame(s: &MailApp, app: &RefAny, info: &LayoutCallbackInfo, page: u
         left: insets.left,
         right: insets.right,
         width: width.max(1.0),
+        phone: is_phone(s.form, width, touch_platform()),
     };
     let header = ui_main::ribbon(s, app, true, &strip);
     let body = ui_backstage::backstage(s, app, page).with_id(ids::BACKSTAGE);

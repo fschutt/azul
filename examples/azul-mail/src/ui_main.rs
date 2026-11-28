@@ -1347,7 +1347,7 @@ pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool, strip: &ui_fram
             RibbonGroup::create(label("azmail-group-message"))
                 .with_item(toggle("notes", "azmail-cmd-plain-text", Action::PlainText, s.plain_text)),
         );
-    let phone = ui_frame::is_phone(s.form, strip.width, ui_frame::touch_platform());
+    let phone = strip.phone;
     let mut ribbon = Ribbon::create(vec![file, home, send_receive, folder, view])
         .with_active_tab(if file_open { 0 } else { s.ribbon_tab })
         .with_on_tab_click(app.clone(), on_ribbon_tab as RibbonOnTabClickCallbackType)
