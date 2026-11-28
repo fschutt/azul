@@ -64,8 +64,12 @@ class TapAnyTest(unittest.TestCase):
         self.assertEqual(dev.taps, [])
 
 
-LOG = """11-28 02:10:11.001  100  100 I RustStdoutStderr: [startup] +180.2 ms fonts:cache miss, 0 faces, check 1.4 ms, load 0.0 ms
-11-28 02:10:11.402  100  100 I RustStdoutStderr: [startup] +582.9 ms fonts:cache_written Written, 231 faces, 38.5 ms
+# The two shapes the engine prints a mark in (dll/src/desktop/startup_timeline.rs): a row of the table at the first present, and a
+# `late:` line for a mark made after it.
+LOG = """11-28 02:10:11.001  100  100 I RustStdoutStderr: [startup]  14     41.260     0.320  main                   fonts:cache miss, 0 faces, check 1.4 ms, load 0.0 ms
+11-28 02:10:11.002  100  100 I RustStdoutStderr: [startup]  15     41.512     0.100  main                   fonts:disk_cache_read loaded=false
+11-28 02:10:11.402  100  100 I RustStdoutStderr: [startup] late: fonts:cache_written at 582.913 ms (+38.500 ms, azul-font-persist) Written, 231 disk faces, 38.5 ms
+11-28 02:10:11.403  100  100 I RustStdoutStderr: [startup-json] {"marks":[{"name":"fonts:cache","detail":"miss, 0 faces"}]}
 11-28 02:10:11.500  100  100 I RustStdoutStderr: something else
 """
 
@@ -73,11 +77,21 @@ LOG = """11-28 02:10:11.001  100  100 I RustStdoutStderr: [startup] +180.2 ms fo
 class FontLinesTest(unittest.TestCase):
     def test_the_font_lines_of_a_start_and_what_they_say(self):
         lines = fonts.font_lines(LOG)
-        self.assertEqual(len(lines), 2)
+        self.assertEqual(len(lines), 3, lines)   # the cache mark, the read mark, the write mark; not the JSON line
         verdict, line = fonts.verdict_of(lines)
         self.assertEqual(verdict, "miss")
         self.assertEqual(fonts.numbers_of(line), {"faces": 0, "check_ms": 1.4, "load_ms": 0.0})
         self.assertEqual(fonts.written_of(lines), "Written")
+
+    def test_a_mark_in_the_table_and_a_late_mark_are_read_alike(self):
+        """Mutation: reading only `fonts:cache_written <word>` (the word of a late line is `at`, and the proof never saw Written)."""
+        late = ["fonts:cache at 41.260 ms (+0.320 ms, main) hit, 791 faces, check 2.8 ms, load 4.5 ms",
+                "fonts:cache_written at 1234.567 ms (+12.345 ms, azul-font-persist) Unchanged, 791 disk faces, 0.0 ms"]
+        self.assertEqual(fonts.verdict_of(late)[0], "hit")
+        self.assertEqual(fonts.numbers_of(late[0]), {"faces": 791, "check_ms": 2.8, "load_ms": 4.5})
+        self.assertEqual(fonts.written_of(late), "Unchanged")
+        # the write mark is not the cache mark
+        self.assertEqual(fonts.verdict_of(["fonts:cache_written Written, 3 faces"]), (None, ""))
 
     def test_a_hit_and_a_rebuild(self):
         hit = ["fonts:cache hit, 231 faces, check 2.1 ms, load 9.8 ms", "fonts:cache_written Unchanged"]

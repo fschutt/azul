@@ -20,12 +20,18 @@ import time
 from pathlib import Path
 
 FONT_LINE = re.compile(r"fonts:\S+.*")
+# A mark made after the table was printed is one line `[startup] late: <mark> at <ms> ms (+<ms> ms, <thread>) <detail>`; in the table
+# it is `<mark> <detail>` after the columns. The cache's write comes late whenever the scan outlasts the first frame.
+LATE = r"(?: at [\d.]+ ms \([^)]*\))?"
 
 
 def font_lines(log_text):
-    """The `fonts:...` lines of a logcat (the engine's startup timeline entries about the font cache), text after the tag, in order."""
+    """The `fonts:...` marks of a logcat (the engine's startup timeline entries about the font cache), from the mark's name on, in order.
+    The one `[startup-json]` line that repeats the table is left out."""
     lines = []
     for raw in (log_text or "").splitlines():
+        if "[startup-json]" in raw:
+            continue
         found = FONT_LINE.search(raw)
         if found and "fonts:" in raw:
             lines.append(found.group(0).strip())
@@ -33,9 +39,9 @@ def font_lines(log_text):
 
 
 def verdict_of(lines):
-    """-> ('miss' | 'hit' | 'rebuilt' | None, the cache line): what the start's `fonts:cache ...` line says."""
+    """-> ('miss' | 'hit' | 'rebuilt' | None, the cache line): what the start's `fonts:cache ...` mark says."""
     for line in lines:
-        match = re.match(r"fonts:cache (miss|hit|rebuilt)\b", line)
+        match = re.match(r"fonts:cache" + LATE + r" (miss|hit|rebuilt)\b", line)
         if match:
             return match.group(1), line
     return None, ""
@@ -52,9 +58,9 @@ def numbers_of(line):
 
 
 def written_of(lines):
-    """-> 'Written' | 'Unchanged' | ... : the word of the `fonts:cache_written` line, or None."""
+    """-> 'Written' | 'Unchanged' | ... : the word of the `fonts:cache_written` mark, or None."""
     for line in lines:
-        found = re.match(r"fonts:cache_written (\w+)", line)
+        found = re.match(r"fonts:cache_written" + LATE + r" (\w+)", line)
         if found:
             return found.group(1)
     return None
