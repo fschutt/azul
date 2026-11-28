@@ -4,10 +4,12 @@
     python3 scripts/wp_e2_code_scenarios.py [--check]
 
 The files are what QA re-runs unchanged on every platform (scripts/ci/e2e_matrix.py: the desktop host, the Android emulator, the iOS
-Simulator). The steps are written once here; each file holds `host` tests (a window the test resizes to a size of the brief: the desktop
-1280x800, a Pixel 8, an iPhone 16 Pro, a small phone, a phone on its side) and a `device` test (the phone is the window: no resize, no
-display preset, and the first start of AzCode on a phone has opened the sample workspace and its src/main.rs), `only_on` says where each
-runs. `--check` fails when a file on disk is not what this script writes (the generator is the source, the files are its output).
+Simulator). The steps are written once here; ONE FILE HOLDS ONE TEST, because the runner plays all the tests of a file in one process and a
+second test would start with the state the first left (the drawer open, a file edited, the sheet raised). A `host` test resizes the window to a
+size of the brief (the desktop 1280x800, a Pixel 8, an iPhone 16 Pro, a small phone, a phone on its side); the `device` test has the phone
+itself for the window (no resize, no display preset: the first start of AzCode on a phone has opened the sample workspace and its
+src/main.rs); `only_on` says where each runs. `--check` fails when a file on disk is not what this script writes, or when the folder holds a
+file this script does not write (the generator is the source, the files are its output).
 
 The ops are the engine's (layout/src/e2e/full.rs). Every picture is a `take_screenshot` step, numbered in capture order from 1 in each
 run of the app (AZ_E2E_SHOT_DIR); each test's `description` names them in that order.
@@ -132,21 +134,22 @@ def desktop_steps(primary):
     return s
 
 
-def desktop_file():
+def desktop_files():
     desc = ("AzCode on a desktop, 1280 x 800: the workbench of the card - the activity bar (explorer, search, source control, run), the "
             "side bar, the editor with its file tabs, the bottom panel (terminal, problems, output) and the status bar. Pictures, in "
             "order: 1 first look (the welcome page), 2 the sample workspace in the explorer, 3 src/main.rs open, 4 the find bar, "
             "5 source control (the sample is no repository), 6 run (the tasks of its Cargo.toml), 7 the panel's Problems, 8 Output, "
             "9 Terminal, 10 the command palette, 11 light.")
-    tests = []
+    out = {}
     for primary, desktops in PRIMARY.items():
-        tests.append({
-            "name": f"azul_code_desktop_workbench_{'cmd' if primary == 'meta' else 'ctrl'}_host",
+        tag = "cmd" if primary == "meta" else "ctrl"
+        out[f"code_desktop_{tag}.json"] = [{
+            "name": f"azul_code_desktop_workbench_{tag}_host",
             "description": desc,
             "only_on": desktops,
             "steps": window(1280, 800, "off") + desktop_steps(primary),
-        })
-    return tests
+        }]
+    return out
 
 
 # ---- the phone ----
@@ -198,29 +201,26 @@ def phone_steps(first_start, width=None, height=None):
         s += press("escape") + missing("#__azcode_drawer")
     s += [op("set_mode", mode="light")] + shot()                       # 10 light
     s += [op("set_mode", mode="dark")]
-    if not first_start:
-        # the next test of the file starts from the welcome page, as the first did
-        s += click("#__azcode_tab-close-0") + exists("#__azcode_welcome")
     return s
 
 
-def phone_file():
+def phone_files():
     names = ("1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row, 5 the panel's sheet, 6 drawn up, 7 pushed "
              "down, 8 source control, 9 run, 10 light (the phone itself has a picture of the braces typed by the key row after the 4th)")
     sizes = [("pixel8", 411, 914, "pixel8"), ("iphone", 402, 874, "iphone_island"), ("small", 360, 640, "off"),
              ("landscape", 914, 411, "pixel8")]
-    tests = []
+    out = {}
     for tag, w, h, preset in sizes:
-        tests.append({
+        out[f"code_phone_{tag}.json"] = [{
             "name": f"azul_code_phone_{tag}_drawer_sheet_keys_host",
             "description": f"AzCode in a {w} x {h} window ({preset}), as a phone shows it: the editor is the screen, the explorer a drawer "
                            f"over a scrim, the panel a sheet from the bottom, a key row over the keyboard's place, one status bar "
                            f"line. Pictures, in order: {names}.",
             "only_on": ["linux", "macos", "windows"],
             "steps": window(w, h, preset) + phone_steps(False, w, h),
-        })
+        }]
     # The system's insets arrive after the first frame (a display preset stands for them): the top bar moves under the status bar.
-    tests.append({
+    out["code_phone_insets.json"] = [{
         "name": "azul_code_phone_insets_arriving_leave_no_stale_pixels_host",
         "description": "The system's insets arrive after the first frame (a display preset stands for them): everything that moved is "
                        "repainted where it was and where it is, and nothing is left of the first layout (no pictures).",
@@ -228,26 +228,31 @@ def phone_file():
         "steps": [op("resize", width=411.0, height=914.0), op("set_display_preset", preset="off")] + settle()
                  + [op("snapshot_frame", **{"as": "first_layout"}), op("set_display_preset", preset="pixel8")] + settle()
                  + [op("assert_damage_covers_changes", vs="first_layout")],
-    })
-    tests.append({
+    }]
+    out["code_phone_device.json"] = [{
         "name": "azul_code_phone_first_start_drawer_sheet_keys_device",
         "description": "AzCode on the phone itself (the window is the phone's, upright: no resize, no display preset): the first start has "
                        "opened the sample workspace and its src/main.rs. Pictures, in order: " + names + ".",
         "only_on": PHONES,
         "steps": phone_steps(True),
-    })
-    return tests
+    }]
+    return out
 
 
-FILES = {"code_desktop.json": desktop_file, "code_phone.json": phone_file}
+def files():
+    """File name -> the tests it holds (one each)."""
+    out = desktop_files()
+    out.update(phone_files())
+    return out
 
 
 def main():
     check = "--check" in sys.argv
     bad = 0
     os.makedirs(OUT, exist_ok=True)
-    for name, make in FILES.items():
-        text = json.dumps(make(), indent=2, ensure_ascii=False) + "\n"
+    made = files()
+    for name, tests in made.items():
+        text = json.dumps(tests, indent=2, ensure_ascii=False) + "\n"
         path = os.path.join(OUT, name)
         if check:
             have = open(path, encoding="utf-8").read() if os.path.exists(path) else None
@@ -257,7 +262,12 @@ def main():
         else:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(text)
-            print("wrote %s (%d tests)" % (path, len(json.loads(text))))
+            print("wrote %s (%d test)" % (path, len(tests)))
+    # a file of the folder the generator does not write is a file nobody keeps up
+    for name in sorted(os.listdir(OUT)):
+        if name.endswith(".json") and name not in made:
+            print("%s is not written by the generator (remove it, or add it here)" % os.path.join(OUT, name))
+            bad = 1
     return bad
 
 

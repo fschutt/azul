@@ -769,10 +769,11 @@ fn a_finger_past_its_slop_scrolls_by_whole_rows_and_is_no_tap() {
 #[test]
 fn the_view_listens_to_the_mouse_and_to_the_touch_points_and_registers_each_handler_once() {
     // The shells map the first finger to the mouse's left button: the press, move and release handlers are its
-    // finger's too (the caret and the keyboard on the lift of a tap); the touch points carry the pan.
+    // finger's too (the caret and the keyboard on the lift of a tap); the touch points carry the pan. A touch reaches
+    // the node under the finger only, so the pan's move, end and cancel are the window's (a pan may leave the view).
     let dom = sample().dom();
     let events: Vec<EventFilter> = dom.root.callbacks.as_ref().iter().map(|c| c.event).collect();
-    assert_eq!(events.len(), 11);
+    assert_eq!(events.len(), 12);
     for filter in [
         HoverEventFilter::LeftMouseDown,
         HoverEventFilter::MouseMove,
@@ -780,10 +781,11 @@ fn the_view_listens_to_the_mouse_and_to_the_touch_points_and_registers_each_hand
         HoverEventFilter::DoubleClick,
         HoverEventFilter::Scroll,
         HoverEventFilter::TouchStart,
-        HoverEventFilter::TouchMove,
-        HoverEventFilter::TouchEnd,
     ] {
         assert_eq!(events.iter().filter(|e| **e == EventFilter::Hover(filter)).count(), 1, "{filter:?}");
+    }
+    for filter in [WindowEventFilter::TouchMove, WindowEventFilter::TouchEnd, WindowEventFilter::TouchCancel] {
+        assert_eq!(events.iter().filter(|e| **e == EventFilter::Window(filter)).count(), 1, "{filter:?}");
     }
 }
 

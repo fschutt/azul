@@ -75,7 +75,10 @@
 //! whole rows and columns with the text following the finger and is no tap
 //! (the engine's own pan drives the scroll boxes under a finger, and this
 //! view scrolls by lines, not by a pixel offset). Nothing drags a selection
-//! under a finger.
+//! under a finger. A touch is delivered to the node under the finger only, so
+//! a pan that leaves the view keeps scrolling it: the pan's move, end and
+//! cancel are listened to as the window's, and the view acts on a finger only
+//! when that finger went down on it.
 //!
 //! ACCESSIBILITY: the view is a `Text`-role node named by
 //! [`CodeView::with_accessibility_name`]; its value says where the caret is
@@ -90,7 +93,7 @@ use core::fmt::Write as _;
 use azul_core::{
     callbacks::{CoreCallbackData, Update, VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
     dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
-    events::FocusEventFilter,
+    events::{FocusEventFilter, WindowEventFilter},
     geom::{LogicalPosition, LogicalRect},
     refany::RefAny,
     window::VirtualKeyCode,
@@ -3296,13 +3299,21 @@ pub(crate) fn code_view_callbacks(shared: &RefAny) -> Vec<CoreCallbackData> {
             shared.clone(),
             on_touch_start as usize
         ),
+        // The move and the end of a pan are the WINDOW's: a touch is delivered to the node under the finger only, and a pan
+        // that leaves the view (over the tab strip, the key row, the status bar) would stop scrolling and never hear its lift.
+        // Which finger is the view's is known from its start (`Finger::last`), the first thing both handlers ask.
         CoreCallbackData::create(
-            EventFilter::Hover(HoverEventFilter::TouchMove),
+            EventFilter::Window(WindowEventFilter::TouchMove),
             shared.clone(),
             on_touch_move as usize
         ),
         CoreCallbackData::create(
-            EventFilter::Hover(HoverEventFilter::TouchEnd),
+            EventFilter::Window(WindowEventFilter::TouchEnd),
+            shared.clone(),
+            on_touch_end as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Window(WindowEventFilter::TouchCancel),
             shared.clone(),
             on_touch_end as usize
         ),
@@ -3598,12 +3609,19 @@ extern "C" fn on_touch_start(mut data: RefAny, info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
-/// A finger moves: past its slop it scrolls the lines (whole rows and columns, the text following it) and is no
-/// tap any more.
+/// A finger moves (anywhere in the window: see where the handler is registered): past its slop it scrolls the lines
+/// (whole rows and columns, the text following it) and is no tap any more. A finger that did not go down on this view
+/// is none of its business - asked first, before anything is measured.
 extern "C" fn on_touch_move(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some(at) = first_touch(&info) else {
         return Update::DoNothing;
     };
+    if !data
+        .downcast_ref::<CodeViewShared>()
+        .is_some_and(|s| s.finger.last.is_some())
+    {
+        return Update::DoNothing;
+    }
     let Some((mut cv, mut geo)) = shared_of(&mut data) else {
         return Update::DoNothing;
     };
@@ -3624,7 +3642,7 @@ extern "C" fn on_touch_move(mut data: RefAny, info: CallbackInfo) -> Update {
     }
 }
 
-/// The finger leaves the screen (the mouse's release decides whether that was a tap).
+/// The finger leaves the screen, or the shell takes the touch away (the mouse's release decides whether that was a tap).
 extern "C" fn on_touch_end(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut s) = data.downcast_mut::<CodeViewShared>() {
         s.finger.touch_end();

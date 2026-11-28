@@ -1,0 +1,539 @@
+[
+  {
+    "name": "azul_code_phone_pixel8_drawer_sheet_keys_host",
+    "description": "AzCode in a 411 x 914 window (pixel8), as a phone shows it: the editor is the screen, the explorer a drawer over a scrim, the panel a sheet from the bottom, a key row over the keyboard's place, one status bar line. Pictures, in order: 1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row, 5 the panel's sheet, 6 drawn up, 7 pushed down, 8 source control, 9 run, 10 light (the phone itself has a picture of the braces typed by the key row after the 4th).",
+    "only_on": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "steps": [
+      {
+        "op": "set_display_preset",
+        "preset": "pixel8"
+      },
+      {
+        "op": "resize",
+        "width": 411.0,
+        "height": 914.0
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_top-bar"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_drawer-button"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_palette-button"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_status-bar"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_drawer"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_panel"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_key-row"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_activity-explorer"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_welcome"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_open-sample"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 3500,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_drawer-button"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_drawer"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_scrim"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_activity-git"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_activity-run"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_tree-src-"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_tree-src-"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 800,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_tree-src-main-rs"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_tree-src-main-rs"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 900,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_tab-0"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_drawer"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_editor"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_editor"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_key-row"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_key-0"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_key-10"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_status-problems"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_sheet"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_panel-tab-problems"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "focus_node",
+        "selector": ".__azul-native-bottom-sheet-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Up"
+      },
+      {
+        "op": "key_up",
+        "key": "Up"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "focus_node",
+        "selector": ".__azul-native-bottom-sheet-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Down"
+      },
+      {
+        "op": "key_up",
+        "key": "Down"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Down"
+      },
+      {
+        "op": "key_up",
+        "key": "Down"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "focus_node",
+        "selector": ".__azul-native-bottom-sheet-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Up"
+      },
+      {
+        "op": "key_up",
+        "key": "Up"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_panel-close"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_sheet"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_drawer-button"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_activity-git"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_git-panel"
+      },
+      {
+        "op": "wait",
+        "ms": 1000,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_activity-run"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_run-panel"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "x": 399.0,
+        "y": 457.0
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_drawer"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      }
+    ]
+  }
+]

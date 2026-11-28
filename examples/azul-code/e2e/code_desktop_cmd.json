@@ -1,0 +1,598 @@
+[
+  {
+    "name": "azul_code_desktop_workbench_cmd_host",
+    "description": "AzCode on a desktop, 1280 x 800: the workbench of the card - the activity bar (explorer, search, source control, run), the side bar, the editor with its file tabs, the bottom panel (terminal, problems, output) and the status bar. Pictures, in order: 1 first look (the welcome page), 2 the sample workspace in the explorer, 3 src/main.rs open, 4 the find bar, 5 source control (the sample is no repository), 6 run (the tasks of its Cargo.toml), 7 the panel's Problems, 8 Output, 9 Terminal, 10 the command palette, 11 light.",
+    "only_on": [
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "set_display_preset",
+        "preset": "off"
+      },
+      {
+        "op": "resize",
+        "width": 1280.0,
+        "height": 800.0
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_activity-explorer"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_activity-search"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_activity-git"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_activity-run"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_activity-settings"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_welcome"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_open-sample"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_panel"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_drawer"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_top-bar"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_open-sample"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 3500,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_tree-src-"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_tree-src-"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 800,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_tree-src-main-rs"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_tree-src-main-rs"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 900,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_tab-0"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_editor"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_editor"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "f",
+        "modifiers": {
+          "meta": true
+        }
+      },
+      {
+        "op": "key_up",
+        "key": "f",
+        "modifiers": {}
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_find-input"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "text_input",
+        "text": "counts"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_find-bar"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_find-count"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "escape"
+      },
+      {
+        "op": "key_up",
+        "key": "escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_activity-git"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 1200,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_git-panel"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_activity-run"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 600,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_run-panel"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_task-0"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_activity-search"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_search-panel"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_activity-explorer"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "m",
+        "modifiers": {
+          "meta": true,
+          "shift": true
+        }
+      },
+      {
+        "op": "key_up",
+        "key": "m",
+        "modifiers": {}
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_panel"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_panel-tab-problems"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "u",
+        "modifiers": {
+          "meta": true,
+          "shift": true
+        }
+      },
+      {
+        "op": "key_up",
+        "key": "u",
+        "modifiers": {}
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_output"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "j",
+        "modifiers": {
+          "meta": true
+        }
+      },
+      {
+        "op": "key_up",
+        "key": "j",
+        "modifiers": {}
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 1500,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_panel"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_panel-close"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_panel"
+      },
+      {
+        "op": "key_down",
+        "key": "p",
+        "modifiers": {
+          "meta": true,
+          "shift": true
+        }
+      },
+      {
+        "op": "key_up",
+        "key": "p",
+        "modifiers": {}
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_command-palette"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "escape"
+      },
+      {
+        "op": "key_up",
+        "key": "escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      }
+    ]
+  }
+]

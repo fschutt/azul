@@ -1,0 +1,52 @@
+[
+  {
+    "name": "azul_code_phone_insets_arriving_leave_no_stale_pixels_host",
+    "description": "The system's insets arrive after the first frame (a display preset stands for them): everything that moved is repainted where it was and where it is, and nothing is left of the first layout (no pictures).",
+    "only_on": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 411.0,
+        "height": 914.0
+      },
+      {
+        "op": "set_display_preset",
+        "preset": "off"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "snapshot_frame",
+        "as": "first_layout"
+      },
+      {
+        "op": "set_display_preset",
+        "preset": "pixel8"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "assert_damage_covers_changes",
+        "vs": "first_layout"
+      }
+    ]
+  }
+]
