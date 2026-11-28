@@ -484,6 +484,9 @@ pub struct AppState {
     pub workspace_to_open: Option<Root>,
     /// A file named on the command line, opened when the window exists.
     pub file_to_open: Option<PathBuf>,
+    /// The file of the workspace to open once its root is listed and no file is open (a phone's first look is
+    /// code, not the welcome page): the sample's `src/main.rs`.
+    pub open_first: Option<String>,
     pub workspace: Option<Workspace>,
     /// The git branch of the workspace's folder (the status bar's).
     pub branch: Option<String>,
@@ -547,6 +550,7 @@ impl AppState {
             sample,
             workspace_to_open: None,
             file_to_open: None,
+            open_first: None,
             workspace: None,
             branch: None,
             tabs: Tabs::default(),

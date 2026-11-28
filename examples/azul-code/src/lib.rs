@@ -208,6 +208,7 @@ pub fn start() {
     // file): its first start is the sample workspace in the data folder, so the editor is never empty.
     if cfg!(any(target_os = "android", target_os = "ios")) && st.workspace_to_open.is_none() && st.file_to_open.is_none() {
         st.sample = true;
+        st.open_first = Some(sample::FIRST_FILE.to_string());
     }
     if args.kit.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);

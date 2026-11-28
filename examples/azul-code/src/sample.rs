@@ -12,6 +12,9 @@ pub const SAMPLE_FOLDER: &str = "sample";
 /// The lines of `huge.rs`.
 pub const HUGE_LINES: usize = 100_000;
 
+/// The file a phone's first look opens: `src/main.rs`, the sample's code in colour.
+pub const FIRST_FILE: &str = "src/main.rs";
+
 /// `src/main.rs`.
 pub const MAIN_RS: &str = r#"//! A tiny program to edit.
 

@@ -175,7 +175,6 @@ extern "C" fn on_change(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     ui::with_state(&mut app, &mut info, |st, info, app| {
         commands::open_file(st, info, app, &key);
-        st.phone.drawer = false;
     })
 }
 

@@ -307,6 +307,8 @@ pub fn open_file_at(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, ke
         return;
     };
     let ident = doc_ident(&root, key);
+    // On a phone the drawer gives way to the editor the file is in.
+    st.phone.drawer = false;
     if let Some(i) = st.tabs.find(&ident) {
         st.tabs.active = i;
         st.tabs.docs[i].select(found);
@@ -321,6 +323,8 @@ pub fn open_file_at(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, ke
 /// File `key` of `root` opened: its tab if it is open, else it is read
 /// ([`on_drive_done`] opens the tab and gives the editor the focus).
 pub fn open_file_in(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, root: Root, key: &str) {
+    // On a phone the drawer gives way to the editor the file is in.
+    st.phone.drawer = false;
     if let Some(i) = st.tabs.find(&doc_ident(&root, key)) {
         st.tabs.active = i;
         st.refresh_find();
@@ -697,6 +701,13 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     w.set_listing(&folder, folders, files);
                 }
                 println!("AZCODE_LISTED {} {n}", if folder.is_empty() { "/" } else { folder.as_str() });
+                // A phone's first look is code: the file the start named, once the root is listed (a sample that
+                // has just been written is listed again after it, so this waits for the answer with files in it).
+                if folder.is_empty() && n > 0 {
+                    if let Some(first) = st.open_first.take().filter(|_| st.tabs.docs.is_empty()) {
+                        open_file_in(st, &mut info, &handle, root.clone(), &first);
+                    }
+                }
             }
             DriveOutcome::Read { key, result } => match result {
                 Ok(bytes) => {
