@@ -109,7 +109,9 @@ over the peers").
 
 Phase `dial` (a direct call: no meetings service at any point, ARCHITECTURE.md "Direct calls"):
     1. starts Ada and Ben with a meetings service address nothing answers at and no relay;
-    2. reads Ada's address (AZMEET_DIRECT_ADDRESS <ticket>, her endpoint's full ticket);
+    2. in Ada's window: the gear, Settings > Meetings, "Direct call..." (her endpoint is bound there, when the
+       first thing needs it, and not at launch), reads her address (AZMEET_DIRECT_ADDRESS <ticket>, her
+       endpoint's full ticket), Back to the start screen, where the call comes in;
     3. in Ben's window: the gear, Settings > Meetings, "Direct call...", Ada's address in the
        Call field, Call;
     4. Ada's window shows the incoming call with Ben's name and four safety words
@@ -1353,9 +1355,18 @@ def dial_phase(args, binary, logs, out, capped, procs):
         until("%s's debug server" % app.tag, lambda app=app: app.op("wait_frame") is not None, deadline, procs)
         app.must("resize", width=args.width, height=args.height)
         app.frame()
+    # Ada: the gear, Settings > Meetings, "Direct call...": nothing is bound at launch, the endpoint binds here and its address is
+    # what the screen shows. Then Back: the call comes in on the start screen.
+    ada.click(selector="#" + ada.id("settings"))
+    until("Ada's settings page", lambda: any("Meetings" in t for t in ada.texts(every_dom=True)), deadline, procs)
+    ada.click_exact("Meetings")
+    until("Ada's Direct call button", lambda: ada.node_rect(ada.id("direct-open"))[0] is not None, deadline, procs)
+    ada.click(selector="#" + ada.id("direct-open"))
+    until("Ada's direct call screen", lambda: ada.node_rect(ada.id("direct-field"))[0] is not None, deadline, procs)
     address = until("Ada's address (AZMEET_DIRECT_ADDRESS)",
                     lambda: (ada.printed("AZMEET_DIRECT_ADDRESS") or [None])[-1], deadline, procs)
     log("Ada's address: %s..." % address[:24])
+    ada.click(selector="#" + ada.id("direct-back"))
 
     # Ben: the gear, Settings > Meetings, "Direct call...", Ada's address, Call.
     ben.click(selector="#" + ben.id("settings"))
