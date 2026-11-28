@@ -151,7 +151,7 @@ def run_desktop(scns, bins, out, timeout=240, azul_doc=""):
         if scn["self_mounted"] and azul_doc:
             started = time.time()
             try:
-                done = subprocess.run([azul_doc, "e2e", scn["file"], "--keep-going"], capture_output=True, text=True, timeout=timeout)
+                done = subprocess.run([azul_doc, "e2e", scn["file"], "--keep-going", "--jobs", "1"], capture_output=True, text=True, timeout=timeout)   # one thread: no test of a file waits on another's process-wide state
                 text, why = done.stdout + "\n" + done.stderr, f"azul-doc exited with status {done.returncode} without a verdict"
             except subprocess.TimeoutExpired as e:
                 text, why = ((e.stdout or b"").decode("utf-8", "replace") if isinstance(e.stdout, bytes) else (e.stdout or "")), f"azul-doc ran longer than {timeout} s"
