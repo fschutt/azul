@@ -467,7 +467,7 @@ pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeOnWindow
 }
 
 /// The display features of the window (cutouts, rounded corners, the system bars, the fingerprint sensor) as the flat int array
-/// of `NativeTextBridge.dispatchDisplayFeatures` (`android_core::display` says what is in it), PHYSICAL px. It comes with every
+/// of `NativeTextBridge.featuresArray` (`android_core::display` says what is in it), PHYSICAL px. It comes with every
 /// insets dispatch; only the latest matters to the loop.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeOnDisplayFeatures(

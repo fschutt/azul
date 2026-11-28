@@ -114,3 +114,47 @@ fn the_windows_first_draw_is_held_until_the_first_picture_and_never_trapped() {
         "the GPU path tells it too, while it is still the GPU path"
     );
 }
+
+/// The window's insets (the status bar, the navigation bar, the cutout) are dispatched in its FIRST traversal, before its surface exists. A
+/// listener installed at the first window focus, where it used to be installed, missed that dispatch: the engine laid its first picture out under the
+/// status bar, got the insets after the picture, laid everything out AGAIN (the "Resize" pass of the startup timeline, 0.3 s on the widget
+/// gallery) and moved the page down by the height of the bar. The Java side installs its listener in onCreate and keeps what it sees; the engine can ask
+/// for it (`insetsSnapshot`) whenever it likes.
+///
+/// Mutation: the early listener not installed (the state of 98d415cb4e); the snapshot answering zeros before the first dispatch.
+#[test]
+fn the_windows_first_insets_are_kept_by_a_listener_installed_in_on_create() {
+    let java = java_code("scripts/android/AzulActivity.java");
+    let create = body(&java, "protected void onCreate(Bundle savedInstanceState)");
+    assert!(create.contains("NativeTextBridge.installEarlyInsetsListener(this);"), "onCreate installs the listener that sees the first dispatch");
+    assert!(
+        create.find("super.onCreate(savedInstanceState);").unwrap() < create.find("NativeTextBridge.installEarlyInsetsListener(this);").unwrap(),
+        "after the window's decor exists"
+    );
+    let bridge = java_code("scripts/android/NativeTextBridge.java");
+    let early = body(&bridge, "public static void installEarlyInsetsListener(final Activity activity)");
+    assert!(early.contains("root.setOnApplyWindowInsetsListener((v, insets) -> {") && early.contains("rememberInsets(activity, v, insets);"));
+    let remember = body(&bridge, "private static void rememberInsets(");
+    assert!(remember.contains("lastInsets = values;") && remember.contains("lastFeatures = features;"), "what the first dispatch gave is kept");
+    let snapshot = body(&bridge, "public static int[] insetsSnapshot()");
+    assert!(snapshot.contains("if (insets == null) {") && snapshot.contains("return null;"), "no dispatch yet: no snapshot, not zeros");
+    // a late attach hands the engine what the window has been given so far
+    let late = body(&bridge, "public static void installInsetsListener(final Activity activity, final long nativePtr)");
+    assert!(late.contains("insetsTarget = nativePtr;") && late.contains("nativeOnWindowInsets(nativePtr, insets[0]"), "a late attach forwards what was kept");
+}
+
+/// A window made again in a live process (a warm start: the phone keeps the process of an app it has left and makes its activity again) gets its
+/// OWN insets: what the window before it was given, and the engine it was forwarded to, are the previous activity's. The engine of the new window
+/// asks for a snapshot at its surface and must get its window's dispatch or none, not the old one.
+///
+/// Mutation: the early listener keeping the previous window's insets, features and target (a re-made window laid out under the old insets).
+#[test]
+fn a_window_made_again_starts_with_no_insets_of_the_one_before() {
+    let bridge = java_code("scripts/android/NativeTextBridge.java");
+    let early = body(&bridge, "public static void installEarlyInsetsListener(final Activity activity)");
+    let listener = early.find("root.setOnApplyWindowInsetsListener(").expect("the listener");
+    for (reset, what) in [("lastInsets = null;", "the insets"), ("lastFeatures = null;", "the display features"), ("insetsTarget = 0L;", "the engine they are forwarded to")] {
+        let at = early.find(reset).unwrap_or_else(|| panic!("a new window forgets {what}: `{reset}` is missing"));
+        assert!(at < listener, "{what} are forgotten before the new window's listener can keep its own");
+    }
+}

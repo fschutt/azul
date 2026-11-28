@@ -79,7 +79,7 @@ pub enum UiEvent {
     /// `View.onApplyWindowInsets`, PHYSICAL pixels (the keyboard apart from the bars).
     Insets { top: i32, bottom: i32, left: i32, right: i32, ime: i32 },
     /// The display features that came with the insets (cutouts, rounded corners, system bars, fingerprint sensor): the flat
-    /// array of `NativeTextBridge.dispatchDisplayFeatures`, PHYSICAL px (`android_core::display` reads it).
+    /// array of `NativeTextBridge.featuresArray`, PHYSICAL px (`android_core::display` reads it).
     DisplayFeatures(Vec<i32>),
     /// A recognised gesture.
     Gesture(RawGesture),
