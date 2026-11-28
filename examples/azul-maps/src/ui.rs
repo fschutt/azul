@@ -174,8 +174,9 @@ pub fn floating(s: &MapState, app: &RefAny, frame: &Frame) -> Vec<Dom> {
             out.push(bottom_sheet(s, app, frame));
         }
     }
-    // A sheet drawn up to the full height covers the map: its keys wait until it comes down.
-    let covered = !frame.wide() && s.drive.nav.is_none() && s.sheet == SheetDetent::Full;
+    // A sheet drawn up to the full height, or the keyboard over the lower half, leaves the map no room for the keys: they wait until the
+    // sheet comes down / the keyboard goes (they stood over the chips with the keyboard up).
+    let covered = !frame.wide() && s.drive.nav.is_none() && (s.sheet == SheetDetent::Full || frame.insets.lift() > 0.0);
     if !covered {
         out.push(controls(s, app, frame));
     }

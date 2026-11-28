@@ -1136,6 +1136,7 @@ mod label_convention {
             avatar::Avatar,
             backstage::{Backstage, BackstageNavItem, BackstageNavItemVec},
             badge::Badge,
+            bottom_sheet::BottomSheet,
             breadcrumb::Breadcrumb,
             button::Button,
             card::Card,
@@ -1206,6 +1207,12 @@ mod label_convention {
                 .dom(),
             ),
             ("badge", Badge::create(AzString::from("99+")).dom()),
+            (
+                "bottom_sheet",
+                BottomSheet::create(user_content())
+                    .with_label(AzString::from("Place"))
+                    .dom(),
+            ),
             (
                 "breadcrumb",
                 Breadcrumb::create(labels(&["Home", "Docs", "Page"])).dom(),
@@ -2921,6 +2928,7 @@ pub(crate) mod theme_contrast {
     const CONTAINERS: &[&str] = &[
         "accordion",
         "accordion (groups)",
+        "bottom_sheet",
         "card",
         "details_pane",
         "tile",
