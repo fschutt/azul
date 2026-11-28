@@ -29,8 +29,9 @@ def console(first_present, marks, cut_json=False):
         return next((m["detail"] for m in marks if m["name"] == name), None)
     lines = ["2026-11-28 AzWidgets[1:2] [render] backend=cpu", "[startup] timeline: process start from sysctl",
              "[startup]  11    599.413     0.025  main                   fonts:cache " + detail("fonts:cache"),
-             "[startup]  25    935.896         -  azul-font-cache-persis fonts:cache_written " + detail("fonts:cache_written"),
              "[startup]  26   1105.062   337.088  main                   layout_phases " + detail("layout_phases")]
+    if detail("fonts:cache_written") is not None:
+        lines.append("[startup]  25    935.896         -  azul-font-cache-persis fonts:cache_written " + detail("fonts:cache_written"))
     if detail("fonts:first_layout_wait") is not None:
         lines.append("[startup]  30    770.000     1.000  main                   fonts:first_layout_wait " + detail("fonts:first_layout_wait"))
     lines += ["[startup]  29   1151.355     3.210  main                   first_present ios", "[startup-json] " + json.dumps(head)]
@@ -74,6 +75,34 @@ class ParseTests(unittest.TestCase):
     def test_a_start_without_a_timeline_is_none(self):
         self.assertIsNone(f.parse_start("nothing here\n"))
         self.assertIsNone(f.parse_start(""))
+
+
+class ReasonTests(unittest.TestCase):
+    def marks(self, detail):
+        return [{"i": 11, "name": "fonts:cache", "detail": "miss, 0 faces"}, {"i": 30, "name": "fonts:first_layout_wait", "detail": detail},
+                {"i": 26, "name": "layout_phases", "detail": "[phases] total 100.0ms"}]
+
+    def test_the_reason_is_what_follows_the_colon(self):
+        row = f.parse_start(console(3000.0, self.marks('waited 489 ms: the stack of "system-ui" opens with a system family')))
+        self.assertEqual((row["wait_kind"], row["wait_ms"]), ("waited", 489.0))
+        self.assertEqual(row["wait_reason"], 'the stack of "system-ui" opens with a system family')
+
+    def test_a_skip_has_its_reason_too_and_no_mark_has_none(self):
+        row = f.parse_start(console(900.0, self.marks("skipped: the DOM's text is drawn by faces in memory")))
+        self.assertEqual(row["wait_reason"], "the DOM's text is drawn by faces in memory")
+        marks = [m for m in self.marks("x") if m["name"] != "fonts:first_layout_wait"]
+        self.assertIsNone(f.parse_start(console(900.0, marks))["wait_reason"])
+
+    def test_the_reasons_are_counted_with_the_characters_of_one_kind_merged(self):
+        rows = [f.parse_start(console(3000.0, self.marks(f"waited 10 ms: U+{cp} is not drawn by the faces in memory of the stack of \"X\""))) for cp in ("25BE", "2713", "25BE")]
+        s = f.summarize(rows)
+        self.assertEqual(s["reasons"], {'U+XXXX is not drawn by the faces in memory of the stack of "X"': 3})
+
+    def test_the_report_names_the_reasons(self):
+        with tempfile.TemporaryDirectory() as d:
+            res = [f.run_block(lambda clear: console(3000.0, self.marks('waited 489 ms: the stack of "system-ui" opens with a system family')), lambda p: None,
+                               "control", "A", "a.apk", "miss", 2, d, log=lambda *_: None)]
+        self.assertIn('opens with a system family x2', f.report_markdown(res))
 
 
 class SummaryTests(unittest.TestCase):
