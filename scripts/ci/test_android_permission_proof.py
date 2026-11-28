@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import android_font_cache_proof as fonts  # noqa: E402
 import android_permission_proof as proof  # noqa: E402
 
 
@@ -52,6 +53,33 @@ class TapAnyTest(unittest.TestCase):
         dev = FakeDev({"com.android.permissioncontroller:id/permission_deny_button"})
         self.assertFalse(proof.tap_any(dev, "<xml/>", proof.ALLOW_IDS))
         self.assertEqual(dev.taps, [])
+
+
+LOG = """11-28 02:10:11.001  100  100 I RustStdoutStderr: [startup] +180.2 ms fonts:cache miss, 0 faces, check 1.4 ms, load 0.0 ms
+11-28 02:10:11.402  100  100 I RustStdoutStderr: [startup] +582.9 ms fonts:cache_written Written, 231 faces, 38.5 ms
+11-28 02:10:11.500  100  100 I RustStdoutStderr: something else
+"""
+
+
+class FontLinesTest(unittest.TestCase):
+    def test_the_font_lines_of_a_start_and_what_they_say(self):
+        lines = fonts.font_lines(LOG)
+        self.assertEqual(len(lines), 2)
+        verdict, line = fonts.verdict_of(lines)
+        self.assertEqual(verdict, "miss")
+        self.assertEqual(fonts.numbers_of(line), {"faces": 0, "check_ms": 1.4, "load_ms": 0.0})
+        self.assertEqual(fonts.written_of(lines), "Written")
+
+    def test_a_hit_and_a_rebuild(self):
+        hit = ["fonts:cache hit, 231 faces, check 2.1 ms, load 9.8 ms", "fonts:cache_written Unchanged"]
+        self.assertEqual(fonts.verdict_of(hit)[0], "hit")
+        self.assertEqual(fonts.numbers_of(hit[0]), {"faces": 231, "check_ms": 2.1, "load_ms": 9.8})
+        self.assertEqual(fonts.written_of(hit), "Unchanged")
+        self.assertEqual(fonts.verdict_of(["fonts:cache rebuilt (manifest is not the one the key file describes)"])[0], "rebuilt")
+
+    def test_a_start_without_a_cache_line_has_no_verdict(self):
+        self.assertEqual(fonts.verdict_of(fonts.font_lines("nothing about fonts")), (None, ""))
+        self.assertIsNone(fonts.written_of([]))
 
 
 if __name__ == "__main__":

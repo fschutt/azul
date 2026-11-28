@@ -15,6 +15,9 @@ What it proves, each with the evidence it prints and writes to <out>/permission-
      a second time: NO dialog comes (the denial is remembered by the app, the engine does not ask behind the user's back) and the row
      says DENIED at once.
 
+  3. THE FONT CACHE (android_font_cache_proof.py, on the same emulator): a fresh install misses and writes it, the next start hits and
+     writes nothing, a damaged manifest is rebuilt, the start after it hits again; the numbers are in permission-proof.md.
+
 The exit status is 0 when every expectation held, 1 when one did not, 2 when the app could not be started.
 """
 import argparse
@@ -25,6 +28,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import android_font_cache_proof as fonts  # noqa: E402
 import android_probe as probe  # noqa: E402
 
 ROW = "sensors.geolocation"
@@ -188,6 +192,9 @@ def main(argv):
         return 2
     scenario = Scenario(dev, package, activity, out)
     ok = scenario.run()
+    # the font cache on the same emulator: miss, hit, damaged, hit (scripts/ci/android_font_cache_proof.py)
+    fonts.run_font_scenarios(dev, package, activity, scenario.say, scenario.expect)
+    ok = ok and scenario.ok
     (out / "permission-proof.md").write_text("# permission proof\n\n" + "\n".join(scenario.lines) + "\n", encoding="utf-8")
     (out / "permission-proof.json").write_text(json.dumps({"ok": ok, "lines": scenario.lines}, indent=1), encoding="utf-8")
     full = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
