@@ -66727,8 +66727,9 @@
                             },
                             "set_style": {
                                 "doc": [
-                                    "The shape of the tabs: Aurora's curves, square tabs or pills.",
-                                    "`Auto` (the default) takes the theme's own."
+                                    "The shape of the tabs: the theme's buttons floating on the leather (`Auto`, `Pills`,",
+                                    "`TouchPills`) or square tabs (`Rectangular`).",
+                                    "`Auto` (the default) is the buttons in every theme, at touch sizes on a phone."
                                 ],
                                 "fn_args": [
                                     {
@@ -68223,9 +68224,9 @@
                             },
                             "set_tab_style": {
                                 "doc": [
-                                    "The shape of the tabs: the theme's own row (`Auto`), Aurora's",
-                                    "curves, square tabs, or `Pills` - the theme's buttons in a row as",
-                                    "tall as a title bar, on one leather surface with the content."
+                                    "The shape of the tabs: the theme's buttons floating on the leather (`Auto`, the default,",
+                                    "at touch sizes on a phone; `Pills` names them on a desktop, `TouchPills` at touch sizes),",
+                                    "in a row as tall as a title bar on one leather surface with the content."
                                 ],
                                 "fn_args": [
                                     {
@@ -115221,7 +115222,6 @@
                         "enum_fields": [
                             {
                                 "Auto": {},
-                                "Aurora": {},
                                 "Rectangular": {},
                                 "Pills": {},
                                 "TouchPills": {}

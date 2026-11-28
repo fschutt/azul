@@ -79,7 +79,9 @@ fn a_pressed_app_button_sinks_its_curves_with_its_face() {
         RibbonTab::new("INSERT".into()),
     ]))
     .with_app_button(RibbonAppButton::new("FILE".into()))
-    .with_theme(UiTheme::Flora);
+    .with_theme(UiTheme::Flora)
+    // the curved row is the ribbon's square-tab row; `Auto` is the buttons on the leather
+    .with_tab_style(azul_layout::widgets::tabs::TabStyle::Rectangular);
     let mut dom = Dom::create_body().with_child(ribbon.dom());
     let mut sd = StyledDom::create(&mut dom, azul_css::css::Css::empty());
 

@@ -1,16 +1,14 @@
 //! Tab labels sit evenly apart in every tab style.
 //!
-//! A selected Aurora tab hangs an 18px S curve off each side of its box. The
-//! row is spaced so that every S lies in a gap of its own width, shared by
-//! the two tabs beside it (Firefox's tabs overlap the same way), with 8px
-//! between the S and each label:
+//! Flora's ribbon cuts its selected tab and its application button with an
+//! 18px S curve off each side of the box. The row is spaced so that every S
+//! lies in a gap of its own width, shared by the two tabs beside it (Firefox's
+//! tabs overlap the same way), with 8px between the S and each label:
 //!
-//! - Aurora, in both themes: every label 8px inside its tab, the tabs 18px
-//!   apart, the first tab 18px in (room for its left curve).
 //! - Rectangular hangs no curve, so it needs no room for one: 12px beside
 //!   each label, 2px between the tabs, the first tab at the strip's edge.
-//! - Flora's ribbon cuts its selected tab and its application button with
-//!   the same curves, so its row is spaced as Aurora is.
+//! - Flora's ribbon: every label 8px inside its tab, the tabs 18px apart, the
+//!   first tab 18px in (room for its left curve).
 //! - A label in tracked capitals gives its trailing tracking back: the text
 //!   adds the tracking after the last capital too (as Chrome does), which
 //!   would push the label half a tracking left of the tab's centre.
@@ -137,37 +135,6 @@ fn header_tabs(lw: &LayoutWindow) -> Vec<LogicalRect> {
 }
 
 #[test]
-fn an_aurora_label_sits_8px_inside_its_tab_and_the_tabs_stand_a_curve_s_width_apart() {
-    for theme in [UiTheme::Flora, UiTheme::Flat] {
-        let lw = laid_out(
-            TabHeader::create(labels())
-                .with_active_tab(1)
-                .with_theme(theme)
-                .with_style(TabStyle::Aurora)
-                .dom(),
-        );
-        let tabs = header_tabs(&lw);
-        assert_eq!(tabs.len(), 3, "{theme:?}: three tabs");
-        assert!(
-            (tabs[0].origin.x - 18.0).abs() < 0.5,
-            "{theme:?}: the first tab stands 18px in, room for its left curve: {:?}",
-            tabs[0]
-        );
-        for gap in gaps(&tabs) {
-            assert!((gap - 18.0).abs() < 0.5, "{theme:?}: the tabs are 18px apart, not {gap}");
-        }
-        let glyphs = glyph_xs(&lw);
-        for tab in &tabs {
-            let inset = label_inset(&glyphs, tab);
-            assert!(
-                (inset - 8.0).abs() < 1.0,
-                "{theme:?}: the label sits 8px inside its tab, not {inset:.1}: {tab:?}"
-            );
-        }
-    }
-}
-
-#[test]
 fn a_rectangular_row_starts_at_the_strip_s_edge_with_its_tabs_2px_apart() {
     let lw = laid_out(
         TabHeader::create(labels())
@@ -194,7 +161,7 @@ fn a_rectangular_row_starts_at_the_strip_s_edge_with_its_tabs_2px_apart() {
 }
 
 #[test]
-fn a_flora_ribbon_spaces_its_curved_tab_row_as_aurora() {
+fn a_flora_ribbon_spaces_its_curved_tab_row_for_its_curves() {
     let ribbon = Ribbon::new(RibbonTabVec::from_vec(vec![
         RibbonTab::new("HOME".into()),
         RibbonTab::new("SHARE".into()),
@@ -203,6 +170,8 @@ fn a_flora_ribbon_spaces_its_curved_tab_row_as_aurora() {
     .with_app_button(RibbonAppButton::new("FILE".into()))
     .with_active_tab(1)
     .with_theme(UiTheme::Flora)
+    // the curved row is the ribbon's square-tab row; `Auto` is the buttons on the leather
+    .with_tab_style(TabStyle::Rectangular)
     .with_available_width(640.0);
     let lw = laid_out(ribbon.dom_desktop());
     let mut row = rects_of(&lw, RIBBON_APP_BUTTON);
@@ -286,7 +255,7 @@ fn tab_doms(header: &Dom) -> Vec<&Dom> {
 /// its right side: its padding there is a tracking less than on its left.
 #[test]
 fn a_tracked_tab_label_gives_its_trailing_tracking_back() {
-    for style in [TabStyle::Aurora, TabStyle::Rectangular] {
+    for style in [TabStyle::Rectangular] {
         let header = TabHeader::create(labels())
             .with_active_tab(0)
             .with_theme(UiTheme::Flora)

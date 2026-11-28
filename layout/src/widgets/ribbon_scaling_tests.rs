@@ -182,7 +182,7 @@ fn view_groups_without_check_boxes(log: &Log) -> Vec<RibbonGroup> {
 fn ribbon(groups: Vec<RibbonGroup>) -> Ribbon {
     Ribbon::new(RibbonTabVec::from_vec(vec![
         RibbonTab::new(s("View")).with_groups(RibbonGroupVec::from_vec(groups))
-    ]))
+    ])).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
     .with_theme(UiTheme::Flat)
 }
 
@@ -931,7 +931,7 @@ fn a_scaled_ribbon_declares_its_structure_once_for_every_theme() {
             Ribbon::new(RibbonTabVec::from_vec(vec![RibbonTab::new(s("View"))
                 .with_groups(RibbonGroupVec::from_vec(
                     view_groups_without_check_boxes(&log),
-                ))]))
+                ))])).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
             .with_available_width(narrow)
             .dom_desktop()
         });

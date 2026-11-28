@@ -27,11 +27,12 @@ step() {
 
 # 1. api.json for the new API: the autofix step of the gate (twice, the second must change nothing)
 step autofix env TABS_ONLY=autofix bash scripts/ci/tabs_gate.sh
-# 2. azul-doc's own checks of that api.json (the double-drop invariant, the guide's links and example calls)
+# 2. the bindings of that api.json (the demo library does not build without them, and the examples lint of `azul-doc check` reads
+#    them: the build cache of the runner keeps a target/codegen of an OLDER api.json, which made the guide's new calls look missing)
+step codegen cargo run -r -p azul-doc -- codegen all
+# 3. azul-doc's own checks of that api.json (the double-drop invariant, the guide's links and example calls)
 step doc_check cargo run -r -p azul-doc -- check
 step doc_check_layout cargo run -r -p azul-doc -- check layout
-# 3. the bindings of that api.json (the demo library does not build without them)
-step codegen cargo run -r -p azul-doc -- codegen all
 # 4. the QA build of AzWidgets over them: lib.desktop-e2e and AzWidgets-e2e-linux
 step build bash scripts/ci/desktop_e2e_build.sh linux AzWidgets
 # 5. the scenarios, headless (AZ_BACKEND=headless is the matrix's own), every take_screenshot copied to AZ_E2E_SHOT_DIR (one

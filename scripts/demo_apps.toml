@@ -331,8 +331,9 @@ description = "a mail client: IMAP sync to plain files, folders and messages"
 platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
 weight = 3
 needs = ["an IMAP account"]
-# AzMail compiles azul-core on Linux and Windows (not on macOS: the macOS Intel leg of 2026-11-28 built it in 153 s with no engine crate, so
-# macOS is not listed below): azul-mail-core uses `azul_core::tls::MailTls` (the connection policy of every mail client of the tree,
+# AzMail compiled azul-core on every desktop platform (the full run of 2026-11-28 refused it on macOS arm64: "engine crates compiled: azul-core,
+# azul-css"; the earlier "built on macOS Intel with no engine crate" came from an experiment ref that allowed it, and ld64 tolerates the
+# duplicates that rust-lld and link.exe refuse): azul-mail-core used `azul_core::tls::MailTls` (the connection policy of every mail client of the tree,
 # shared with the Azlin Bridge, which runs without libazul), azul-icons-haiku depends on azul-core unconditionally and azul-appkit with
 # its `trust` feature. azul-core defines the C ABI functions of libazul (`#[no_mangle] AzApp_*`), so an app that compiles it and links
 # the prebuilt libazul has each of them twice: the link of the first Linux leg (2026-11-28) stopped in rust-lld with 12 duplicate symbols,

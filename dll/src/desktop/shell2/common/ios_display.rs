@@ -294,6 +294,46 @@ pub const fn system_ui_of(status_hidden: bool, navigation_hidden: bool, icons: u
     }
 }
 
+/// How deep a strip along an edge is where the system takes a swipe when the display says no better (points): the
+/// width of the screen-edge recogniser strip UIKit documents for its own edge gestures is about this.
+pub const SYSTEM_EDGE_STRIP_POINTS: f32 = 20.0;
+
+/// Where iOS takes the swipes of its own gestures, in points from each edge: the numbers behind the engine's
+/// `SystemGestureInsets` (the shell puts them in it). APPROXIMATE like the cutouts, and for the same reason: iOS
+/// publishes no such rectangle, the numbers come from the display class and the bars' frames.
+///
+/// There is no left or right zone on purpose: iOS takes an edge swipe at the sides only for the back swipe of a
+/// `UINavigationController`, which this shell never uses (ledger GI-10), so an app may use the side edges.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct IosGestureZones {
+    /// The band along the top edge where a swipe down is Notification Center or Control Center. The app may ask for a
+    /// second swipe (`preferredScreenEdgesDeferringSystemGestures`), not take it away.
+    pub top_normal: f32,
+    /// The strip along the bottom edge of a phone WITH a home button, where a swipe up is Control Center; the app may
+    /// defer it.
+    pub bottom_normal: f32,
+    /// The home indicator's band: a swipe up there is the home gesture and the app switcher, the system's whatever the
+    /// app asks (an app may defer it to a second swipe and hide the indicator, it cannot have the swipe).
+    pub bottom_mandatory: f32,
+}
+
+/// The zones of a display. The top band is the status bar's height where the bar is shown and the edge strip where an
+/// iPhone on its side hides it (a pull-down from the top still brings the bar and the centres); the home indicator's
+/// own height is the mandatory bottom band; a phone without an indicator that has the Touch ID button has the strip.
+#[must_use]
+pub fn gesture_zones(display: &IosDisplay) -> IosGestureZones {
+    let top_normal = display
+        .status_bar
+        .map_or(SYSTEM_EDGE_STRIP_POINTS, |bar| bar.height.max(SYSTEM_EDGE_STRIP_POINTS));
+    let bottom_mandatory = display.home_indicator.map_or(0.0, |bar| bar.height);
+    let bottom_normal = if display.home_indicator.is_none() && display.fingerprint == IosFingerprint::Front {
+        SYSTEM_EDGE_STRIP_POINTS
+    } else {
+        0.0
+    };
+    IosGestureZones { top_normal, bottom_normal, bottom_mandatory }
+}
+
 #[cfg(test)]
 #[path = "ios_display_test.rs"]
 mod ios_display_test;
