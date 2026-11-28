@@ -25,7 +25,7 @@ use azul::{
 };
 use azul_appkit::find::TextMatch;
 use azul_search::{Case, ContentHit, Event, Filters, Limits, Pattern, Request};
-use azul_storage::{key::last_segment, Drive, LocalDrive};
+use azul_storage::{key::last_segment, Drive, Limit, LocalDrive};
 
 use crate::{
     git,
@@ -143,12 +143,11 @@ fn task_files(drive: &dyn Drive, prefix: &str) -> DriveOutcome {
     let mut files = Vec::new();
     for source in [Source::Cargo, Source::Npm, Source::Make] {
         let name = source.file();
-        let Ok(bytes) = drive.get(&format!("{prefix}{name}")) else {
+        // A manifest's size is the folder's decision: the drive refuses a bigger one before it reads it.
+        let Ok(bytes) = drive.get_limited(&format!("{prefix}{name}"), Limit::new("a project file", TASK_FILE_MAX as u64)) else {
             continue;
         };
-        if bytes.len() <= TASK_FILE_MAX {
-            files.push((name.to_string(), String::from_utf8_lossy(&bytes).into_owned()));
-        }
+        files.push((name.to_string(), String::from_utf8_lossy(&bytes).into_owned()));
     }
     DriveOutcome::TaskFiles { files }
 }

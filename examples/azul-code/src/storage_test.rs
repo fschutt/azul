@@ -259,3 +259,26 @@ fn the_results_list_the_files_nearest_the_folder_first_in_name_order() {
     assert_eq!(keys, vec!["b.txt", "c.txt", "a/z.txt", "a/b/c.txt"]);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_tasks_are_read_from_the_roots_manifests_and_a_huge_one_is_left_unread() {
+    let big = vec![b'#'; TASK_FILE_MAX + 1];
+    let (dir, root) = workspace_with(
+        "tasks",
+        &[
+            ("Cargo.toml", b"[package]\nname = \"x\"\n"),
+            ("package.json", &big),
+            ("src/Makefile", b"deep:\n\ttrue\n"),
+        ],
+    );
+    let drive = drive_of(&root);
+    let outcomes = run_jobs(&drive, &root.prefix, vec![DriveJob::TaskFiles]);
+    let files = match outcomes.as_slice() {
+        [DriveOutcome::TaskFiles { files }] => files.clone(),
+        other => panic!("{other:?}"),
+    };
+    let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["Cargo.toml"], "the manifest over the cap and the one in a subfolder are not read");
+    assert!(files[0].1.contains("[package]"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
