@@ -63,9 +63,13 @@ fn group_names(resolved: &ResolvedFontChains, family: &str) -> Vec<String> {
         .chains
         .iter()
         .find_map(|(key, chain)| match key {
-            FontChainKeyOrRef::Chain(key) if key.font_families.first().map(String::as_str) == Some(family) => {
-                Some(chain.css_fallbacks.iter().map(|g| g.css_name.clone()).collect())
-            }
+            FontChainKeyOrRef::Chain(key) if key.font_families.first().map(String::as_str) == Some(family) => Some(
+                chain
+                    .css_fallbacks
+                    .iter()
+                    .map(|g| g.css_name.trim_matches('"').to_string())
+                    .collect(),
+            ),
             _ => None,
         })
         .expect("a chain for the stack")
