@@ -1,7 +1,7 @@
 [
   {
     "name": "azdrive_diag_desktop_what_the_window_holds",
-    "description": "No assertion: the DOMs of the window and the HTML of the root DOM at rest and with the source list open, printed to the run's output for whoever reads it.",
+    "description": "No assertion: the DOMs of the window and the HTML of the root DOM at rest and with the source list open, and the windows and DOMs with a status pie's popover and the Preview's (?) popover open, printed to the run's output for whoever reads it.",
     "only_on": [
       "linux",
       "windows",
@@ -68,15 +68,6 @@
         "op": "wait_frame"
       },
       {
-        "op": "wait_settled"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
         "op": "list_doms"
       },
       {
@@ -87,6 +78,96 @@
       },
       {
         "op": "print_response"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-status"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_windows"
+      },
+      {
+        "op": "print_response"
+      },
+      {
+        "op": "list_doms"
+      },
+      {
+        "op": "print_response"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-preview-help"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_windows"
+      },
+      {
+        "op": "print_response"
+      },
+      {
+        "op": "list_doms"
+      },
+      {
+        "op": "print_response"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
       }
     ]
   }
