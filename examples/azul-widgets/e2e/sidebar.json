@@ -1,0 +1,1040 @@
+[
+  {
+    "name": "azul_widgets_the_sidebar_starts_as_the_rail_and_the_toggle_opens_it",
+    "description": "The Sidebar section of AzWidgets: the frame every heavy app shares. The sidebar starts as the icon rail (the collapsed state every app starts in); the toggle at the bottom of the rail opens it, the toggle of the expanded sidebar closes it; the 16 px handle exists as a state and a click on it brings the rail back. Each press is reported to the app (the line under the frame).",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-rail"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-sidebar-rail"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: the sidebar asks for state 0"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-rail"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: the sidebar asks for state 1"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-state-handle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-handle"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-grab"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-rail"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: the sidebar asks for state 1"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_a_row_a_triangle_a_section_and_a_pie_report_to_the_app",
+    "description": "The expanded sidebar of the Sidebar section: a click on a row reports its place and its tag (the row of 'Azul Drive' is the second, tag 2), the triangle of a tree row asks for the other state of its children without choosing the row, a collapsible section's title opens and closes it (its rows go and come), a status pie opens a short popover and the toggle stays the last button of the foot.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-state-expanded"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-row"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-selected"
+      },
+      {
+        "op": "click",
+        "text": "Azul Drive"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: row 1 (tag 2)"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-disclosure"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: triangle of row 4 opens: false"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "click",
+        "text": "Favourites"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: section 1 opens: false"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Photos"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":false"
+      },
+      {
+        "op": "click",
+        "text": "Favourites"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Photos"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-help"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: help"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_a_status_pie_opens_a_short_popover",
+    "description": "The status pies above the toggle: in the expanded sidebar each is a row of its own (the pie, its name and a short text), in the rail only the pie; a click on one opens the short popover with its title and its line of detail, and it is closed again by a click elsewhere.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-status"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-status"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "3 files waiting"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_on_a_phone_the_drawer_pushes_the_main_view_and_a_tap_on_it_closes_the_drawer",
+    "description": "The Sidebar section with the phone layout (Window: Phone): the sidebar is the 48 px rail, its toggle opens the DRAWER, which pushes the whole main view aside (the tab row, the band and the list move with it; nothing lies over them under a dim), a tap on what is left of the main view closes the drawer, and the Inspector is the bottom pane: it has no right dock on a phone.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-form-phone"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-phone"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-rail"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-inspector-bottom"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-inspector-right"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-app-frame-catcher"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-app-frame-catcher"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "File"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-rail"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-app-frame-catcher"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Photos"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: row 2 (tag 3)"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-rail"
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_on_a_phone_the_quick_action_sheet_opens_and_closes",
+    "description": "The phone's quick-action sheet: an overlay list of icon and label rows under a grab handle over a light scrim; a row is chosen and reported, the scrim and the handle close it. A desktop draws no sheet.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-form-phone"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-sheet-open"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-action-sheet-panel"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-action-sheet-handle"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "Rename"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: sheet row 3"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-action-sheet-panel"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-sheet-open"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-action-sheet-scrim"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: sheet dismissed"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-form-desktop"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-sheet-open"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-action-sheet-panel"
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_the_inspector_docks_right_on_a_desktop_and_its_border_resizes_it_by_key",
+    "description": "The Inspector of the Sidebar section on a desktop: docked at the right (no bottom pane), its left border is a focusable splitter that takes the arrow keys (16 px a press), the app keeps the size the pane reports, the pane closes and opens again from the button.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-inspector-right"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-inspector-bottom"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-inspector-pane"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-inspector-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Left"
+      },
+      {
+        "op": "key_up",
+        "key": "Left"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: inspector Settled 336"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "key_down",
+        "key": "Left"
+      },
+      {
+        "op": "key_up",
+        "key": "Left"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: inspector Settled 352"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "key_down",
+        "key": "Right"
+      },
+      {
+        "op": "key_up",
+        "key": "Right"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: inspector Settled 336"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-inspector-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-inspector-pane"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-inspector-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-inspector-pane"
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_the_phones_bottom_pane_resizes_by_its_grip_and_snaps_to_the_peek",
+    "description": "The Inspector as a phone's bottom pane: a split with a grip (not an overlay): the arrow keys on the focused grip change its height by 16 px, Home drops it to the peek (the grip and one line), End raises it to its largest, a double click on the grip flips between the peek and the default height.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-form-phone"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-inspector-bottom"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-inspector-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Up"
+      },
+      {
+        "op": "key_up",
+        "key": "Up"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: inspector Settled 184"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "key_down",
+        "key": "Down"
+      },
+      {
+        "op": "key_up",
+        "key": "Down"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: inspector Settled 168"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "key_down",
+        "key": "Home"
+      },
+      {
+        "op": "key_up",
+        "key": "Home"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: inspector Settled 56"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_the_location_block_has_a_pen_and_the_list_follows_the_field",
+    "description": "The location block of the first tab: the parent folders as one line of links, the folder's name big and bold with a pen. The pen opens a live field: every key narrows the list under it (it follows what is typed), Enter keeps the text, Escape gives the edit up.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-location-crumb"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-location-name"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-location-pen"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "specimen.png"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-location-pen"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: the pen"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-location-edit"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-location-pen"
+      },
+      {
+        "op": "key_down",
+        "key": "x",
+        "text": "x"
+      },
+      {
+        "op": "key_up",
+        "key": "x"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "specimen.png"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":false"
+      }
+    ]
+  }
+]
