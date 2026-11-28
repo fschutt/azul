@@ -133,6 +133,9 @@ pub mod shape_parser;
 /// `AZ_RICING`, `AZ_THEME`, `AZ_MODE` and the desktop session: the one place of the crate that
 /// names its variables.
 pub mod settings;
+/// The accessibility and display-comfort preferences of the system (text size, bold text, contrast,
+/// reduced motion, ...), typed, with the override the tests and the environment pin.
+pub mod accessibility;
 /// Native OS theme discovery: system colors, fonts, and DPI.
 pub mod system;
 /// The theme chain (`xyz:pink -> xyz -> flat`): which app themes are live.

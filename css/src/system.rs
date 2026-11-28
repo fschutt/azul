@@ -471,6 +471,13 @@ pub struct SystemStyle {
     pub icon_style: IconStyleOptions,
     /// Audio feedback preferences (event sounds, input sounds)
     pub audio: AudioMetrics,
+    /// What the user set in the system's accessibility and display settings: text size, bold
+    /// text, contrast, reduced motion, ... Every option may be `Unknown`.
+    ///
+    /// THE source: the fields `accessibility`, `prefers_reduced_motion` and
+    /// `prefers_high_contrast` above are mirrors of it kept for source compatibility
+    /// ([`SystemStyle::set_preferences`] writes all of them together).
+    pub preferences: crate::accessibility::AccessibilityPreferences,
     /// FFI double-drop guard. `SystemStyle` owns two heap pointers
     /// (`app_specific_stylesheet`, `scrollbar`). The codegen Az wrapper
     /// (`AzSystemStyle`) gets an `impl Drop` -> `AzSystemStyle_delete` ->
@@ -511,6 +518,7 @@ impl Default for SystemStyle {
             colors: SystemColors::default(),
             icon_style: IconStyleOptions::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
             run_destructor: true,
         }
     }
@@ -532,6 +540,39 @@ impl Drop for SystemStyle {
             core::mem::forget(self.app_specific_stylesheet.take());
             core::mem::forget(self.scrollbar.take());
         }
+    }
+}
+
+impl SystemStyle {
+    /// Replaces the accessibility preferences and writes every field that mirrors them
+    /// ([`Self::sync_preference_mirrors`]). THE way a shell, an override or a test says what the
+    /// user set in the system's accessibility settings.
+    pub fn set_preferences(&mut self, preferences: crate::accessibility::AccessibilityPreferences) {
+        self.preferences = preferences;
+        self.sync_preference_mirrors();
+    }
+
+    /// Writes the fields that mirror [`Self::preferences`]: the older `accessibility` struct and
+    /// the two `prefers_*` conditions, the animation switch and the text rendering's contrast
+    /// flag. They exist for source compatibility; nothing else writes them after a discovery.
+    pub fn sync_preference_mirrors(&mut self) {
+        let preferences = self.preferences;
+        self.accessibility = AccessibilitySettings::from_preferences(&preferences);
+        self.prefers_reduced_motion = BoolCondition::from(preferences.reduces_motion());
+        self.prefers_high_contrast = BoolCondition::from(preferences.high_contrast());
+        if preferences.reduced_motion.is_known() || preferences.animation_scale.is_some() {
+            self.animation.animations_enabled = !preferences.reduces_motion();
+        }
+        if preferences.contrast != crate::accessibility::ContrastPreference::Unknown {
+            self.text_rendering.increased_contrast = preferences.contrast.is_more();
+        }
+    }
+
+    /// The text scale the layout applies to every font size of a window in this style: 1.0
+    /// unless the user chose another text size.
+    #[must_use]
+    pub fn text_scale(&self) -> f32 {
+        self.preferences.effective_text_scale()
     }
 }
 
@@ -666,7 +707,7 @@ impl SystemFontType {
 /// - macOS: `UIAccessibility` APIs (isBoldTextEnabled, isReduceMotionEnabled, etc.)
 /// - Windows: `SystemParametersInfo` (`SPI_GETHIGHCONTRAST`, `SPI_GETCLIENTAREAANIMATION`)
 /// - Linux: gsettings (org.gnome.desktop.interface, org.gnome.desktop.a11y)
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct AccessibilitySettings {
     /// Text scaling factor (1.0 = normal, 1.5 = 150%, etc.)
@@ -701,6 +742,41 @@ pub struct AccessibilitySettings {
     /// User prefers differentiate without color
     /// macOS: UIAccessibility.shouldDifferentiateWithoutColor
     pub differentiate_without_color: bool,
+}
+
+impl Default for AccessibilitySettings {
+    /// No preference: text at its default size (a factor of 1.0, not 0.0) and every flag off.
+    fn default() -> Self {
+        Self {
+            text_scale_factor: 1.0,
+            prefers_bold_text: false,
+            prefers_larger_text: false,
+            prefers_high_contrast: false,
+            prefers_reduced_motion: false,
+            prefers_reduced_transparency: false,
+            screen_reader_active: false,
+            differentiate_without_color: false,
+        }
+    }
+}
+
+impl AccessibilitySettings {
+    /// The older struct as the typed [`crate::accessibility::AccessibilityPreferences`] say it:
+    /// an option that is not known is `false` here, which is why the typed struct is the source.
+    #[must_use]
+    pub fn from_preferences(preferences: &crate::accessibility::AccessibilityPreferences) -> Self {
+        let scale = preferences.effective_text_scale();
+        Self {
+            text_scale_factor: scale,
+            prefers_bold_text: preferences.bold_text.is_on(),
+            prefers_larger_text: scale > 1.0 + 0.001,
+            prefers_high_contrast: preferences.high_contrast(),
+            prefers_reduced_motion: preferences.reduces_motion(),
+            prefers_reduced_transparency: preferences.reduced_transparency.is_on(),
+            screen_reader_active: preferences.screen_reader.is_on(),
+            differentiate_without_color: preferences.differentiate_without_color.is_on(),
+        }
+    }
 }
 
 /// Common system colors used for UI elements.
@@ -2304,6 +2380,7 @@ impl SystemStyle {
     "screen_reader_active": {},
     "differentiate_without_color": {}
   }},
+  "preferences": {},
   "scrollbar_preferences": {{
     "visibility": "{:?}",
     "track_click": "{:?}"
@@ -2412,6 +2489,8 @@ impl SystemStyle {
             acc.prefers_reduced_transparency,
             acc.screen_reader_active,
             acc.differentiate_without_color,
+            // the typed preferences (a JSON object of their own)
+            self.preferences.to_json(),
             // scrollbar_preferences
             sp.visibility,
             sp.track_click,
@@ -3084,6 +3163,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 
@@ -3136,6 +3216,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 
@@ -3188,6 +3269,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 
@@ -3240,6 +3322,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 
@@ -3297,6 +3380,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 
@@ -3359,6 +3443,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 
@@ -3408,6 +3493,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 
@@ -3460,6 +3546,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 
@@ -3510,6 +3597,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 
@@ -3559,6 +3647,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 
@@ -3637,6 +3726,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 
@@ -3715,6 +3805,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 
@@ -3766,6 +3857,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 
@@ -3815,6 +3907,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 
@@ -3862,6 +3955,7 @@ pub mod defaults {
             visual_hints: VisualHints::default(),
             animation: AnimationMetrics::default(),
             audio: AudioMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 }

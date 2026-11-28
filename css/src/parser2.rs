@@ -1525,6 +1525,9 @@ fn parse_media_feature(feature: &str) -> Option<DynamicSelector> {
             {
                 return Some(DynamicSelector::PrefersHighContrast(BoolCondition::False));
             }
+            // `less` and `custom`: the accessibility conditions
+            return crate::accessibility::AccessibilityCondition::from_media_feature(key, value)
+                .map(DynamicSelector::Accessibility);
         }
         "aspect-ratio" => {
             if let Some(ratio) = parse_ratio_value(value) {
@@ -1550,7 +1553,12 @@ fn parse_media_feature(feature: &str) -> Option<DynamicSelector> {
                 )));
             }
         }
-        _ => {}
+        // `forced-colors`, `prefers-reduced-transparency`, `inverted-colors`,
+        // `min-text-scale`, `prefers-bold-text`, ...: the accessibility preferences
+        other => {
+            return crate::accessibility::AccessibilityCondition::from_media_feature(other, value)
+                .map(DynamicSelector::Accessibility);
+        }
     }
 
     None

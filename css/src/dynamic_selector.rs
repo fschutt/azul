@@ -117,6 +117,9 @@ pub enum DynamicSelector {
     Language(LanguageCondition) = 14,
     /// Dark or light MODE (`@theme(dark)`, `prefers-color-scheme: dark`)
     Mode(ModeCondition) = 15,
+    /// An accessibility preference: text scale, bold text, less contrast, forced colours,
+    /// reduced transparency, ... (`@media (min-text-scale: 1.3)`, `(forced-colors: active)`)
+    Accessibility(crate::accessibility::AccessibilityCondition) = 16,
 }
 
 impl_option!(
@@ -163,6 +166,7 @@ impl DynamicSelector {
             Self::PseudoState(_) => 13,
             Self::Language(_) => 14,
             Self::Mode(_) => 15,
+            Self::Accessibility(_) => 16,
         }
     }
 }
@@ -204,6 +208,7 @@ impl Ord for DynamicSelector {
             (Self::PseudoState(a), Self::PseudoState(b)) => a.cmp(b),
             (Self::Language(a), Self::Language(b)) => a.cmp(b),
             (Self::Mode(a), Self::Mode(b)) => a.cmp(b),
+            (Self::Accessibility(a), Self::Accessibility(b)) => a.cmp(b),
             (Self::ViewportWidth(a), Self::ViewportWidth(b))
             | (Self::ViewportHeight(a), Self::ViewportHeight(b))
             | (Self::ContainerWidth(a), Self::ContainerWidth(b))
@@ -235,6 +240,7 @@ impl core::hash::Hash for DynamicSelector {
             Self::PseudoState(x) => x.hash(state),
             Self::Language(x) => x.hash(state),
             Self::Mode(x) => x.hash(state),
+            Self::Accessibility(x) => x.hash(state),
             Self::ViewportWidth(r)
             | Self::ViewportHeight(r)
             | Self::ContainerWidth(r)
@@ -1615,6 +1621,12 @@ pub struct DynamicSelectorContext {
     /// The desktop's metrics the `system:` lengths name
     /// (`system:button-radius`, `system:titlebar-button-width`).
     pub system_metrics: crate::system::SystemMetrics,
+    /// What the user set in the system's accessibility and display settings
+    /// ([`crate::system::SystemStyle::preferences`]): the conditions of
+    /// [`DynamicSelector::Accessibility`] read it, and the layout reads the text scale from it.
+    /// Part of the equality like the palette: a changed preference is a new context, which bumps
+    /// the cascade epoch every style memo keys on. APPENDED for ABI stability.
+    pub preferences: crate::accessibility::AccessibilityPreferences,
 }
 
 impl PartialEq for DynamicSelectorContext {
@@ -1651,6 +1663,7 @@ impl PartialEq for DynamicSelectorContext {
             && self.titlebar_area_width.to_bits() == other.titlebar_area_width.to_bits()
             && self.titlebar_area_height.to_bits() == other.titlebar_area_height.to_bits()
             && self.system_metrics == other.system_metrics
+            && self.preferences == other.preferences
     }
 }
 
@@ -1688,6 +1701,7 @@ impl Default for DynamicSelectorContext {
             titlebar_area_width: f32::NAN,
             titlebar_area_height: f32::NAN,
             system_metrics: crate::system::SystemMetrics::default(),
+            preferences: crate::accessibility::AccessibilityPreferences::default(),
         }
     }
 }
@@ -1750,6 +1764,7 @@ impl DynamicSelectorContext {
             titlebar_area_width: f32::NAN,
             titlebar_area_height: f32::NAN,
             system_metrics: system_style.metrics.clone(),
+            preferences: system_style.preferences,
         }
     }
 
@@ -2213,6 +2228,7 @@ impl DynamicSelector {
             }
             Self::PseudoState(state) => Self::match_pseudo_state(*state, ctx),
             Self::Language(lang_cond) => lang_cond.matches(ctx.language.as_str()),
+            Self::Accessibility(condition) => condition.matches(&ctx.preferences),
         }
     }
 
@@ -3525,10 +3541,13 @@ impl CssPropertyWithConditionsVec {
                 {
                     Some(DynamicSelector::PrefersHighContrast(BoolCondition::False))
                 } else {
-                    None
+                    // `less` and `custom`: the accessibility conditions
+                    crate::accessibility::AccessibilityCondition::from_media_feature(key, value)
+                        .map(DynamicSelector::Accessibility)
                 }
             }
-            _ => None,
+            other => crate::accessibility::AccessibilityCondition::from_media_feature(other, value)
+                .map(DynamicSelector::Accessibility),
         }
     }
 

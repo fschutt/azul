@@ -5168,6 +5168,42 @@ impl Lower for crate::dynamic_selector::DynamicSelector {
             Self::PseudoState(v) => Expr::variant("DynamicSelector", EnumShape::Tagged, "PseudoState", vec![v.lower()]),
             Self::Language(v) => Expr::variant("DynamicSelector", EnumShape::Tagged, "Language", vec![v.lower()]),
             Self::Mode(v) => Expr::variant("DynamicSelector", EnumShape::Tagged, "Mode", vec![v.lower()]),
+            Self::Accessibility(v) => Expr::variant("DynamicSelector", EnumShape::Tagged, "Accessibility", vec![v.lower()]),
+        }
+    }
+}
+
+impl Lower for crate::accessibility::ContrastPreference {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Unknown => "Unknown",
+            Self::NoPreference => "NoPreference",
+            Self::More => "More",
+            Self::Less => "Less",
+        };
+        Expr::unit("ContrastPreference", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::accessibility::AccessibilityCondition {
+    fn lower(&self) -> Expr {
+        let tagged = |variant: &str, arg: Expr| {
+            Expr::variant("AccessibilityCondition", EnumShape::Tagged, variant, vec![arg])
+        };
+        match self {
+            Self::TextScaleAtLeast(v) => tagged("TextScaleAtLeast", v.lower()),
+            Self::TextScaleAtMost(v) => tagged("TextScaleAtMost", v.lower()),
+            Self::BoldText(v) => tagged("BoldText", v.lower()),
+            Self::Contrast(v) => tagged("Contrast", v.lower()),
+            Self::ForcedColors(v) => tagged("ForcedColors", v.lower()),
+            Self::ReducedTransparency(v) => tagged("ReducedTransparency", v.lower()),
+            Self::InvertedColors(v) => tagged("InvertedColors", v.lower()),
+            Self::DifferentiateWithoutColor(v) => tagged("DifferentiateWithoutColor", v.lower()),
+            Self::ButtonShapes(v) => tagged("ButtonShapes", v.lower()),
+            Self::OnOffLabels(v) => tagged("OnOffLabels", v.lower()),
+            Self::ScreenReader(v) => tagged("ScreenReader", v.lower()),
+            Self::CrossFade(v) => tagged("CrossFade", v.lower()),
+            Self::KeyboardNavigation(v) => tagged("KeyboardNavigation", v.lower()),
         }
     }
 }

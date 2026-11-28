@@ -103,10 +103,12 @@ pub fn get_element_font_size(
     // CSS `zoom` scales the font size by the node's effective zoom (the
     // cascade's value is unzoomed: an inherited size is the parent's
     // UNZOOMED one, so the product never applies a zoom twice); em lengths
-    // follow it (LAYOUT7).
+    // follow it (LAYOUT7). The user's TEXT SCALE (the system's text size
+    // setting) multiplies it the same way, once, here: every size a widget or
+    // an app wrote in px, pt, em or rem follows it, and nothing scales twice.
     memoised_font_size(styled_dom, dom_id, node_state)
         .unwrap_or_else(|| resolve_font_size_slow(styled_dom, dom_id, node_state))
-        * get_effective_zoom(styled_dom, dom_id)
+        * get_effective_text_zoom(styled_dom, dom_id)
 }
 
 /// The memoised font size of `dom_id` (`resolved_font_sizes_px`: every node's,
@@ -188,7 +190,7 @@ pub fn get_element_font_size_in_viewport(
         .unwrap_or_else(|| {
             resolve_font_size_slow_in_viewport(styled_dom, dom_id, node_state, viewport)
         })
-        * get_effective_zoom(styled_dom, dom_id)
+        * get_effective_text_zoom(styled_dom, dom_id)
 }
 
 /// Whether the DOM's compact cache says that NO node declares the property
@@ -274,6 +276,64 @@ pub fn document_has_zoom(styled_dom: &StyledDom) -> bool {
             .resolved_zooms
             .get_or_init(|| compute_all_zooms(styled_dom))
             .is_empty()
+    }
+}
+
+/// The text scale of the window this document is laid out for: what the user chose in the
+/// system's text size setting (`SystemStyle::preferences`, carried by the dynamic-selector
+/// context of the cascade), 1.0 without one - a document no window has adopted yet (headless
+/// styling, PDF export, a test) is not scaled.
+///
+/// THE one reader of the setting in the layout. It scales TEXT: font sizes, and the absolute
+/// line heights and spacings of text ([`get_effective_text_zoom`]); a box that is sized in px
+/// keeps its size, and a box sized in em / rem or by its content follows the text.
+#[must_use]
+pub fn get_text_scale(styled_dom: &StyledDom) -> f32 {
+    styled_dom
+        .css_property_cache
+        .ptr
+        .dynamic_context
+        .as_deref()
+        .map_or(1.0, |context| context.preferences.effective_text_scale())
+}
+
+/// Whether the document is laid out under a text scale other than 1.0 (the font-size memo then
+/// answers through the scale, and the style of a node is resolved by [`get_element_font_size`]).
+#[must_use]
+pub fn document_has_text_scale(styled_dom: &StyledDom) -> bool {
+    styled_dom
+        .css_property_cache
+        .ptr
+        .dynamic_context
+        .as_deref()
+        .is_some_and(|context| context.preferences.text_scale_is_active())
+}
+
+/// The factor every length OF TEXT takes on a node: its effective CSS `zoom` times the window's
+/// text scale ([`get_text_scale`]).
+#[must_use]
+pub fn get_effective_text_zoom(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+    get_effective_zoom(styled_dom, dom_id) * get_text_scale(styled_dom)
+}
+
+/// [`zoomed_length`] for a length of TEXT (a line height, a letter or word spacing): an absolute
+/// length also takes the window's text scale. An `em` follows the font size, which carries it
+/// already; a `rem` follows the root's, which carries it too.
+#[must_use]
+pub fn text_zoomed_length(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    metric: azul_css::props::basic::SizeMetric,
+    resolved: f32,
+) -> f32 {
+    use azul_css::props::basic::SizeMetric;
+
+    let zoomed = zoomed_length(styled_dom, dom_id, metric, resolved);
+    match metric {
+        SizeMetric::Px | SizeMetric::Pt | SizeMetric::In | SizeMetric::Cm | SizeMetric::Mm => {
+            zoomed * get_text_scale(styled_dom)
+        }
+        _ => zoomed,
     }
 }
 
@@ -5377,8 +5437,12 @@ pub fn get_style_properties_for_state_with(
     // In a document with a CSS `zoom` the text takes the ONE zoom-aware
     // resolution the layout's lengths use (`get_element_font_size`): the
     // fast path below mixes the parent's ZOOMED size with unzoomed px.
-    let font_size = if document_has_zoom(styled_dom) {
-        get_element_font_size(styled_dom, dom_id, node_state)
+    //
+    // The same for a window under a text scale (the system's text size): the one
+    // resolution multiplies the size once, where this fast path would scale the
+    // parent's size twice.
+    let font_size = if document_has_zoom(styled_dom) || document_has_text_scale(styled_dom) {
+        get_element_font_size_in_viewport(styled_dom, dom_id, node_state, viewport_size)
     } else {
         // FAST PATH: compact cache for normal state.
         // Sentinel/inherit/initial → inherit from parent directly (which is
@@ -5502,7 +5566,7 @@ pub fn get_style_properties_for_state_with(
     // Get letter-spacing from CSS
     // CSS `zoom` (LAYOUT7): the compact cache's spacings are computed px;
     // a cascaded length scales by the zoom rule.
-    let zoom = get_effective_zoom(styled_dom, dom_id);
+    let zoom = get_effective_text_zoom(styled_dom, dom_id);
     let letter_spacing = {
         // FAST PATH: compact cache for letter-spacing (i16 resolved px × 10)
         let mut fast_ls = None;
@@ -5521,7 +5585,7 @@ pub fn get_style_properties_for_state_with(
                     let px_value = v
                         .inner
                         .resolve_with_context(&font_size_context, PropertyContext::FontSize);
-                    spacing_of_px(zoomed_length(
+                    spacing_of_px(text_zoomed_length(
                         styled_dom,
                         dom_id,
                         v.inner.metric,
@@ -5551,7 +5615,7 @@ pub fn get_style_properties_for_state_with(
                     let px_value = v
                         .inner
                         .resolve_with_context(&font_size_context, PropertyContext::FontSize);
-                    spacing_of_px(zoomed_length(
+                    spacing_of_px(text_zoomed_length(
                         styled_dom,
                         dom_id,
                         v.inner.metric,
@@ -9594,7 +9658,8 @@ pub fn get_used_line_height(
     // `font_size_px` already; a length scales by the zoom rule - the compact
     // cache's px are computed lengths (an em the cascade computed against the
     // UNZOOMED font size included), so they take the node's zoom whole.
-    let zoom = get_effective_zoom(styled_dom, dom_id);
+    // The window's text scale joins it: the line height is a length of TEXT.
+    let zoom = get_effective_text_zoom(styled_dom, dom_id);
     if node_state.is_normal() {
         if let Some(ref cc) = cache.compact_cache {
             match cc.get_line_height(dom_id.index()) {
@@ -9618,7 +9683,7 @@ pub fn get_used_line_height(
             )?;
             Some(match lh {
                 azul_css::props::style::text::StyleLineHeight::Length(length) => {
-                    zoomed_length(styled_dom, dom_id, length.metric, resolved)
+                    text_zoomed_length(styled_dom, dom_id, length.metric, resolved)
                 }
                 _ => resolved,
             })
@@ -14234,3 +14299,7 @@ mod audit_a3_solver_tests {
 #[cfg(test)]
 #[path = "getters_test.rs"]
 mod getters_test;
+
+#[cfg(test)]
+#[path = "text_scale_test.rs"]
+mod text_scale_test;
