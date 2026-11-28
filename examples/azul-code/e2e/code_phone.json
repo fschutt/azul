@@ -401,6 +401,15 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
         "op": "click",
         "selector": "#__azcode_panel-close"
       },
@@ -941,6 +950,15 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "click",
@@ -1485,6 +1503,15 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
         "op": "click",
         "selector": "#__azcode_panel-close"
       },
@@ -2025,6 +2052,15 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "click",
@@ -2607,6 +2643,15 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "click",
