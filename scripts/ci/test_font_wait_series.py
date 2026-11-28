@@ -133,6 +133,13 @@ class BlockTests(unittest.TestCase):
         self.assertIn("| control | A | hit | 2 of 2 | 1000.0 |", text)
         self.assertIn("### control A hit", text)
         self.assertIn("skipped: faces in memory", text)
+        self.assertIn("| hit 2 |", text)                       # the cache marks seen: a HIT block saw hits
+        self.assertNotIn("NOT CLEAN", text)
+
+    def test_a_miss_block_that_saw_a_hit_says_it_is_not_clean(self):
+        with tempfile.TemporaryDirectory() as d:
+            res = [f.run_block(lambda clear: console(1000.0, MARKS_HIT), lambda p: None, "control", "A", "a.apk", "miss", 2, d, log=lambda *_: None)]
+        self.assertIn("NOT CLEAN", f.report_markdown(res))
 
 
 class FakeClock:

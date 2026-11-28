@@ -135,12 +135,20 @@ def report_markdown(results, label=""):
     """results: [{variant, build, mode, summary, starts: [row]}] -> the markdown."""
     lines = [f"# Font wait, A against B{(' (' + label + ')') if label else ''}", "",
              "MISS = every start from an empty font cache; HIT = the cache filled by a start before. first_present_ms is the engine's own clock from the process start.", "",
-             "| app | build | cache | n | median first_present ms | min | max | first layout median ms | first-layout wait (skipped / waited / no mark) |", "|---|---|---|---|---|---|---|---|---|"]
+             "| app | build | cache | n | median first_present ms | min | max | first layout median ms | first-layout wait (skipped / waited / no mark) | cache marks seen |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
+    unclean = []
     for r in results:
         s = r["summary"]
         w = s["waits"]
+        seen = ", ".join(f"{k} {v}" for k, v in sorted(s["caches"].items(), key=lambda kv: str(kv[0])))
+        wanted = "miss" if r["mode"] == "miss" else "hit"
+        if any(k != wanted for k in s["caches"]):
+            unclean.append(f"{r['variant']} {r['build']} {r['mode']}: {seen}")
         lines.append(f"| {r['variant']} | {r['build']} | {r['mode']} | {s['n']} of {s['asked']} | {s['median']} | {s['min']} | {s['max']} | {s['layout_median']} | "
-                     f"{w.get('skipped', 0)} / {w.get('waited', 0)} / {w.get('none', 0)} |")
+                     f"{w.get('skipped', 0)} / {w.get('waited', 0)} / {w.get('none', 0)} | {seen} |")
+    if unclean:
+        lines += ["", "NOT CLEAN (a MISS block must see only `miss` cache marks, a HIT block only `hit`): " + "; ".join(unclean)]
     lines += ["", "## Every start", ""]
     for r in results:
         lines += [f"### {r['variant']} {r['build']} {r['mode']}", "", "| # | first_present ms | cache mark | first-layout wait mark | first layout ms | cache written |", "|---|---|---|---|---|---|"]
