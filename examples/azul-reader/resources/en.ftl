@@ -89,6 +89,7 @@ azreader-laying-out = LAYING OUT
 
 azreader-toolbar = Reader tools
 azreader-strip = Pages and contents
+azreader-close-strip = Close pages and contents
 azreader-title = Title
 azreader-page = Page
 azreader-page-count-name = Number of pages in the chapter

@@ -100,6 +100,10 @@ pub const STRIP_BOOKMARKS: AzString = AzString::from_const_str("__azreader_strip
 pub const SLIDER: AzString = AzString::from_const_str("__azreader_slider");
 /// The row under the pages of a phone: the slider and where it is.
 pub const SLIDER_ROW: AzString = AzString::from_const_str("__azreader_slider-row");
+/// The button beside the slider that opens and closes the sheet of pages, contents and bookmarks.
+pub const SLIDER_CONTENTS: AzString = AzString::from_const_str("__azreader_slider-contents");
+/// The dimmed rest of a phone's screen beside the open sheet: a tap on it closes the sheet.
+pub const STRIP_SCRIM: AzString = AzString::from_const_str("__azreader_strip-scrim");
 /// The three zones over a phone's page: left, middle, right.
 pub const ZONE_LEFT: AzString = AzString::from_const_str("__azreader_zone-left");
 pub const ZONE_MIDDLE: AzString = AzString::from_const_str("__azreader_zone-middle");

@@ -66,24 +66,46 @@ pub fn strip(app: &RefAny, st: &AppState) -> Option<Dom> {
         Pane::Contents => contents(app, st),
         Pane::Bookmarks => bookmarks(app, st),
     };
-    // A desktop's strip is a column beside the pages; a phone's lies over the page's left side.
-    let place = if st.phone {
-        "position: absolute; top: 0px; bottom: 0px; left: 0px; width: 84%; max-width: 320px; \
-         box-shadow: 2px 0px 12px rgba(0,0,0,0.35);"
+    let width = if st.phone {
+        "width: 84%; max-width: 320px;".to_string()
     } else {
-        "flex-shrink: 0;"
+        format!("width: {}px;", chrome::STRIP_PX)
     };
+    let sheet = Dom::create_div()
+        .with_id(ids::STRIP)
+        .with_css(format!(
+            "display: flex; flex-direction: column; min-height: 0px; flex-shrink: 0; {width} \
+             background: system:window-background; border-right: 1px solid system:separator;"
+        ))
+        .with_accessibility_info(AccessibilityInfo::named(label("azreader-strip"), AccessibilityRole::Pane))
+        .with_child(header)
+        .with_child(body);
+    // A desktop's strip is a column beside the pages.
+    if !st.phone {
+        return Some(sheet);
+    }
+    // A phone's is a sheet over the page's left side; the rest of the screen is dimmed, and a
+    // tap on it closes the sheet (the same view's command again toggles it shut).
+    let mut scrim = Dom::create_div()
+        .with_id(ids::STRIP_SCRIM)
+        .with_css("flex-grow: 1; min-width: 0px; background: rgba(0,0,0,0.35);")
+        .with_accessibility_info(AccessibilityInfo::named(
+            label("azreader-close-strip"),
+            AccessibilityRole::PushButton,
+        ));
+    scrim.add_callback(
+        EventFilter::Hover(HoverEventFilter::Click),
+        command(app, Command::Pane(st.pane)),
+        on_command,
+    );
     Some(
         Dom::create_div()
-            .with_id(ids::STRIP)
-            .with_css(format!(
-                "display: flex; flex-direction: column; min-height: 0px; width: {}px; \
-                 background: system:window-background; border-right: 1px solid system:separator; {place}",
-                chrome::STRIP_PX
-            ))
-            .with_accessibility_info(AccessibilityInfo::named(label("azreader-strip"), AccessibilityRole::Pane))
-            .with_child(header)
-            .with_child(body),
+            .with_css(
+                "position: absolute; top: 0px; bottom: 0px; left: 0px; right: 0px; display: flex; \
+                 flex-direction: row;",
+            )
+            .with_child(sheet)
+            .with_child(scrim),
     )
 }
 

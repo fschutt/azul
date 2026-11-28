@@ -13,19 +13,19 @@
 
 use azul::{
     callbacks::{
-        CallbackInfo, RefAny, SliderOnValueChangeCallbackType, Update,
+        ButtonOnClickCallbackType, CallbackInfo, RefAny, SliderOnValueChangeCallbackType, Update,
     },
     css::{Css, EventFilter, HoverEventFilter},
     dom::{AccessibilityInfo, AccessibilityRole, Dom},
     option::OptionString,
     str::String as AzString,
-    widgets::{Slider, SliderState},
+    widgets::{Button, ButtonType, Slider, SliderState},
 };
 
 use azul_appkit::l10n::{label, t, t_args, Arg};
 
 use crate::{
-    app::{command, AppState, Command},
+    app::{command, AppState, Command, Pane},
     chrome::{self, Tap},
     commands::{on_command, on_wheel, run},
     ids,
@@ -348,6 +348,30 @@ fn slider_row(app: &RefAny, st: &AppState) -> Dom {
             ("count", Arg::from(count)),
         ],
     );
+    // The sheet of pages, contents and bookmarks opens from here (a phone's toolbar has no room
+    // for it); the same button closes it.
+    let contents = Button::with_type(
+        AzString::from(""),
+        if st.pane == Pane::None { ButtonType::Default } else { ButtonType::Primary },
+    )
+    .with_icon("toc")
+    .with_on_click(
+        // Closed: the contents open. Open (on whatever view): the same view again closes it.
+        command(app, Command::Pane(if st.pane == Pane::None { Pane::Contents } else { st.pane })),
+        on_command as ButtonOnClickCallbackType,
+    )
+    .dom()
+    .with_id(ids::SLIDER_CONTENTS)
+    .with_accessibility_assign(AccessibilityInfo::named(label("azreader-strip"), AccessibilityRole::PushButton));
+    let seek = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0px;")
+        .with_child(
+            Slider::create(thumb, 0.0, chrome::SLIDER_MAX)
+                .with_accessibility_name(label("azreader-seek"))
+                .with_on_value_change(app.clone(), on_slider as SliderOnValueChangeCallbackType)
+                .dom()
+                .with_id(ids::SLIDER),
+        );
     Dom::create_div()
         .with_id(ids::SLIDER_ROW)
         .with_css(format!(
@@ -357,11 +381,10 @@ fn slider_row(app: &RefAny, st: &AppState) -> Dom {
             chrome::SLIDER_ROW_PX
         ))
         .with_child(
-            Slider::create(thumb, 0.0, chrome::SLIDER_MAX)
-                .with_accessibility_name(label("azreader-seek"))
-                .with_on_value_change(app.clone(), on_slider as SliderOnValueChangeCallbackType)
-                .dom()
-                .with_id(ids::SLIDER),
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; align-items: center; column-gap: 12px;")
+                .with_child(contents)
+                .with_child(seek),
         )
         .with_child(text(&place, "font-size: 12px; text-align: center; color: system:secondary-text;"))
 }

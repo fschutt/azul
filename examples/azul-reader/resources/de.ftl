@@ -89,6 +89,7 @@ azreader-laying-out = WIRD GESETZT
 
 azreader-toolbar = Leseleiste
 azreader-strip = Seiten und Inhalt
+azreader-close-strip = Seiten und Inhalt schließen
 azreader-title = Titel
 azreader-page = Seite
 azreader-page-count-name = Seitenzahl des Kapitels
