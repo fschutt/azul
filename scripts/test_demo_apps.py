@@ -369,8 +369,17 @@ class E2eVariantTest(unittest.TestCase):
     def test_the_real_manifest_passes_its_own_check_with_the_variant_in_it(self):
         self.assertTrue(self.m["lib"]["mobile-e2e"]["artifact_only"])
         # the phone apps whose QA variant the layout audit and the scripted checks of the phone QA drive
-        self.assertEqual([a["package"] for a in self.m["app"] if a.get("e2e")],
-                         ["AzWidgets", "AzMaps", "AzPaint", "AzMeet", "AzWriter", "AzCompanion", "AzCode", "AzMail"])
+        # (sorted, one per line: an app that joins the audit is one line more, whoever adds it)
+        self.assertEqual(sorted(a["package"] for a in self.m["app"] if a.get("e2e")),
+                         ["AzCalendar",
+                          "AzCode",
+                          "AzCompanion",
+                          "AzMail",
+                          "AzMaps",
+                          "AzMeet",
+                          "AzPaint",
+                          "AzWidgets",
+                          "AzWriter"])
         self.assertTrue(self.m["lib"]["mobile-e2e-iroh"]["artifact_only"])
         self.assertEqual([e for e in demo_apps.check(self.m) if "e2e" in e], [])
 
@@ -1862,8 +1871,20 @@ class AndroidBuildAllScriptTest(unittest.TestCase):
         libs = sorted(e["variant"] for e in plan["libs_android"] if e["leg"] == "android-x86_64")
         self.assertEqual(libs, ["mobile", "mobile-e2e", "mobile-e2e-iroh", "mobile-iroh"])
         builds = {e["variant"]: sorted(e["apps"].split()) for e in plan["apps_android"] if e["leg"] == "android-x86_64"}
-        self.assertEqual(builds[""], ["AzCompanion", "AzMail", "AzMaps", "AzMeet", "AzPaint", "AzWidgets", "AzWriter"])
-        self.assertEqual(builds["mobile-e2e"], ["AzMail", "AzMaps", "AzPaint", "AzWidgets", "AzWriter"])
+        self.assertEqual(builds[""], ["AzCalendar",
+                                      "AzCompanion",
+                                      "AzMail",
+                                      "AzMaps",
+                                      "AzMeet",
+                                      "AzPaint",
+                                      "AzWidgets",
+                                      "AzWriter"])
+        self.assertEqual(builds["mobile-e2e"], ["AzCalendar",
+                                                "AzMail",
+                                                "AzMaps",
+                                                "AzPaint",
+                                                "AzWidgets",
+                                                "AzWriter"])
         self.assertEqual(builds["mobile-e2e-iroh"], ["AzCompanion", "AzMeet", "AzSelfTest"])   # AzSelfTest: QA only, and its LAN row uses iroh
         self.assertIn("plan --e2e", self.text)
         for name in ("mobile-e2e", "mobile-iroh"):
