@@ -3594,26 +3594,45 @@ impl X11Window {
         startup.mark("x11:new_begin");
         let xlib = Xlib::new()
             .map_err(|e| WindowError::PlatformError(format!("Failed to load libX11: {:?}", e)))?;
-        #[cfg(target_os = "linux")]
-        let egl =
-            Some(Egl::new().map_err(|e| {
-                WindowError::PlatformError(format!("Failed to load libEGL: {:?}", e))
-            })?);
+        // Honor an explicit CPU-render request (AZ_BACKEND=cpu / HwAcceleration::Disabled):
+        // skip the GL context and use the cpurender (XPutImage) path. Previously X11 always
+        // tried GL and only fell back to CPU when GL *failed*, so AZ_BACKEND=cpu was ignored.
+        // (Mirrors the Wayland force-CPU path; also avoids the very slow WebRender shader
+        // compilation on software / weak GPUs such as nouveau.) Decided here, before the
+        // libraries load: a CPU window does not load libEGL at all.
+        let force_cpu = matches!(
+            crate::desktop::shell2::common::compositor::AzBackend::resolve(
+                resources.app_shared.settings().shell.backend.as_deref(),
+                options
+                    .renderer
+                    .as_option()
+                    .map(|r| r.hw_accel)
+                    .or(Some(options.window_state.renderer_options.hw_accel))
+            ),
+            crate::desktop::shell2::common::compositor::AzBackend::Cpu
+                | crate::desktop::shell2::common::compositor::AzBackend::Headless
+        );
+        // EGL is optional on every host. Without it the window renders on the CPU (the default, and
+        // what `AZ_BACKEND=gpu` falls back to below): a container, a VNC desktop or a minimal install
+        // without Mesa's libEGL opens its windows. (It used to be required on Linux, even for the CPU
+        // renderer: the window failed to open and the app could not start.)
+        let egl = if force_cpu {
+            None
+        } else {
+            Egl::new()
+                .map_err(|e| {
+                    crate::plog_info!("[X11] libEGL not loaded ({:?}) - CPU rendering only", e);
+                })
+                .ok()
+        };
+        // libxkbcommon is required on Linux (the keyboard of a desktop); off Linux - XQuartz, which
+        // ships neither library - it is optional. Without xkbcommon the core `XLookupString` / XIM
+        // path still yields every keysym and every typed character; see the `xkb` field for what
+        // is lost.
         #[cfg(target_os = "linux")]
         let xkb = Some(Xkb::new().map_err(|e| {
             WindowError::PlatformError(format!("Failed to load libxkbcommon: {:?}", e))
         })?);
-        // Off Linux - XQuartz, which ships neither library - both are
-        // optional. Without EGL the window renders on the CPU (the default,
-        // and what `AZ_BACKEND=gpu` falls back to below). Without xkbcommon
-        // the core `XLookupString` / XIM path still yields every keysym and
-        // every typed character; see the `xkb` field for what is lost.
-        #[cfg(not(target_os = "linux"))]
-        let egl = Egl::new()
-            .map_err(|e| {
-                crate::plog_info!("[X11] libEGL not loaded ({:?}) - CPU rendering only", e);
-            })
-            .ok();
         #[cfg(not(target_os = "linux"))]
         let xkb = Xkb::new()
             .map_err(|e| {
@@ -4064,23 +4083,7 @@ impl X11Window {
 
         let ime_manager = events::ImeManager::new(&xlib, display, window_handle);
 
-        // Honor an explicit CPU-render request (AZ_BACKEND=cpu / HwAcceleration::Disabled):
-        // skip the GL context and use the cpurender (XPutImage) path. Previously X11 always
-        // tried GL and only fell back to CPU when GL *failed*, so AZ_BACKEND=cpu was ignored.
-        // (Mirrors the Wayland force-CPU path; also avoids the very slow WebRender shader
-        // compilation on software / weak GPUs such as nouveau.)
-        let force_cpu = matches!(
-            crate::desktop::shell2::common::compositor::AzBackend::resolve(
-                resources.app_shared.settings().shell.backend.as_deref(),
-                options
-                    .renderer
-                    .as_option()
-                    .map(|r| r.hw_accel)
-                    .or(Some(options.window_state.renderer_options.hw_accel))
-            ),
-            crate::desktop::shell2::common::compositor::AzBackend::Cpu
-                | crate::desktop::shell2::common::compositor::AzBackend::Headless
-        );
+        // (`force_cpu` was decided with the libraries, above.)
         // Shared frame-ready signal: ONE Arc for both the WR Notifier and the
         // window field (they used to be two different Arcs — the notifier
         // signalled into the void), plus an eventfd in the poll set so the
@@ -4113,9 +4116,9 @@ impl X11Window {
                 None.into(),
             )
         } else {
-            // Only a host other than Linux arrives here without libEGL (it is
-            // required above on Linux), and a missing EGL is a GL failure like
-            // any other: the Err arm below renders on the CPU instead.
+            // A missing EGL is a GL failure like any other (a host without
+            // libEGL arrives here with `egl` None): the Err arm below renders
+            // on the CPU instead.
             let gl_init = match egl.as_ref() {
                 Some(egl) => gl::GlContext::new(&xlib, egl, display, window_handle),
                 None => Err(WindowError::PlatformError("libEGL is not loaded".into())),

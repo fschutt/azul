@@ -209,6 +209,26 @@ struct AutoScrollTimerState {
     /// `frame_start` of the previous tick; `None` on the first one, which
     /// therefore scrolls by nothing and only starts the clock.
     last_tick: Option<azul_core::task::Instant>,
+    /// The anchor of the text-selection drag whose pointer has left the point
+    /// it pressed at by the drag threshold ([`has_left_press_point`]); once it
+    /// has, the drag stays a drag until the button is released, wherever the
+    /// pointer goes.
+    drag_started_at: Option<LogicalPosition>,
+}
+
+/// Whether a pointer that pressed at `anchor` and stands at `pointer` has left
+/// the point it pressed at: by `threshold` logical pixels or more (the drag
+/// threshold of the gesture manager: what separates a click from a drag).
+///
+/// A pointer that is still where it pressed has left nothing, whatever the
+/// threshold; a non-finite coordinate has left nothing either.
+fn has_left_press_point(anchor: LogicalPosition, pointer: LogicalPosition, threshold: f32) -> bool {
+    let (dx, dy) = (pointer.x - anchor.x, pointer.y - anchor.y);
+    if !dx.is_finite() || !dy.is_finite() || (dx == 0.0 && dy == 0.0) {
+        return false;
+    }
+    let threshold = if threshold.is_finite() { threshold.max(0.0) } else { 0.0 };
+    dx * dx + dy * dy >= threshold * threshold
 }
 
 /// How deep the band at a scrollport's edge is, on an axis of the given
@@ -431,6 +451,37 @@ extern "C" fn auto_scroll_timer_callback(
             return azul_core::callbacks::TimerCallbackReturn::terminate_unchanged();
         }
     };
+
+    // A TEXT-SELECTION drag - a button held, an anchor latched by its press, no node drag and no
+    // file hover under way - scrolls the box only once the pointer has left the point it pressed at
+    // by the drag threshold, and from then on until the button is released. A press that has not
+    // moved (or only jittered) is a click: the box at the edge of which the pointer pressed must not
+    // move under it before the release, or the release lands on another node and the click is lost
+    // (a key near the bottom edge of a scrolling column, pressed on its label).
+    if full_window_state.mouse_state.left_down
+        && !callback_info.is_drag_active()
+        && callback_info.get_hovered_file().is_none()
+    {
+        let layout_window = callback_info.get_layout_window();
+        if let Some(anchor) = layout_window.text_selection_drag_anchor {
+            let threshold = layout_window.gesture_drag_manager.config.drag_distance_threshold;
+            let started = match data.downcast_mut::<AutoScrollTimerState>() {
+                Some(mut state) => {
+                    if state.drag_started_at != Some(anchor)
+                        && has_left_press_point(anchor, mouse_position, threshold)
+                    {
+                        state.drag_started_at = Some(anchor);
+                    }
+                    state.drag_started_at == Some(anchor)
+                }
+                // A timer made before this state existed: the pointer's own distance decides.
+                None => has_left_press_point(anchor, mouse_position, threshold),
+            };
+            if !started {
+                return azul_core::callbacks::TimerCallbackReturn::continue_unchanged();
+            }
+        }
+    }
 
     // MWA-B8: anchor node — the focused node for text-selection drags,
     // else the node under the pointer (node DnD / OS file hover, where
@@ -5272,6 +5323,10 @@ pub trait PlatformWindow {
                 startup.layout_end(layout_no, passes, "");
                 return Ok(result);
             }
+            // The startup timeline (`AZ_STARTUP=1`) says why this layout runs again.
+            startup.mark_with("layout_extra_pass", || {
+                format!("#{layout_no} lifecycle_refresh={lifecycle_wants_pass} docks_changed={docks_changed}")
+            });
             result = self.regenerate_layout_once()?;
             passes += 1;
         }
@@ -18078,3 +18133,7 @@ mod paint_restyle_tests {
         assert!(held[0].1 > RelayoutScope::None, "a width is laid out again");
     }
 }
+
+#[cfg(test)]
+#[path = "event_autoscroll_test.rs"]
+mod event_autoscroll_test;

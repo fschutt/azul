@@ -1388,8 +1388,9 @@ n24 p23 d23 Inline @0,144 -x- ic=38.40625/38.40625
   dl37 HitTestArea 0,112.203125 72.796875x16
   dl38 HitTestArea 0,144 800x16
   dl39 Text -16,144 832x16 glyphs=4 fs=16
-  dl40 HitTestArea 0,144.20313 38.40625x16
-  dl41 PopStackingContext
+  dl40 StrokedPath -1.28125,161.28125 40.953125x5.125
+  dl41 HitTestArea 0,144.20313 38.40625x16
+  dl42 PopStackingContext
 === writing modes
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 800x466 ov=800x466 bl=591 ic=100/284.8125

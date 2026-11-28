@@ -267,12 +267,29 @@ pub enum LineThickness {
     /// `auto`: the thickness the font size suggests.
     #[default]
     Auto,
-    /// `from-font`: the thickness the font names. The faces' own metrics are not read yet, so it
-    /// is `auto`, as the property allows for a face that names none.
+    /// `from-font`: the thickness the face of the run names (the `post` table's for an underline
+    /// and an overline, the OS/2 table's strike-through size for a line-through); `auto` for a
+    /// face that names none, as the property allows.
     FromFont,
     /// A length in px: what `text-decoration-thickness` said, an `em` or a percentage resolved
     /// against the font size of the box that sets the line, a zoom applied, capped.
     Px(azul_css::props::basic::FloatValue),
+}
+
+/// How a line of a [`TextDecoration`] is drawn (`text-decoration-style`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum DecorationStyle {
+    /// One line.
+    #[default]
+    Solid,
+    /// Two lines.
+    Double,
+    /// A row of dots.
+    Dotted,
+    /// A row of dashes.
+    Dashed,
+    /// A wave.
+    Wavy,
 }
 
 /// How one kind of line of a [`TextDecoration`] is painted: the paint of the box that sets it.
@@ -280,6 +297,7 @@ pub enum LineThickness {
 pub struct LinePaint {
     pub color: DecorationColor,
     pub thickness: LineThickness,
+    pub style: DecorationStyle,
 }
 
 /// How far an underline is moved from its initial place (`text-underline-offset`).
@@ -299,8 +317,8 @@ pub enum UnderlineBase {
     /// `auto`: the place the font size suggests.
     #[default]
     Auto,
-    /// `from-font`: the place the font names. The faces' own metrics are not read yet, so it is
-    /// `auto`, as the property allows for a face that names none.
+    /// `from-font`: the place the face of the run names (the `post` table's `underlinePosition`:
+    /// the top of the underline); `auto` for a face that names none, as the property allows.
     FromFont,
     /// `under`: below the descenders, where the em box ends.
     Under,
@@ -575,26 +593,21 @@ impl TextDecoration {
         Self::of(lines)
     }
 
-    /// Convert from CSS `StyleTextDecoration` enum to our internal representation.
-    ///
-    /// Note: CSS text-decoration can have multiple values (underline line-through),
-    /// but the current azul-css parser only supports single values. This can be
-    /// extended in the future if CSS parsing is updated.
+    /// The lines of a box that sets the lines `css` names (`text-decoration-line`), each plain.
     #[must_use]
     pub fn from_css(css: azul_css::props::style::text::StyleTextDecoration) -> Self {
-        use azul_css::props::style::text::StyleTextDecoration;
-        match css {
-            StyleTextDecoration::None => Self::default(),
-            StyleTextDecoration::Underline => {
-                Self::of(vec![DecorationLine::plain(LineKind::Underline)])
-            }
-            StyleTextDecoration::Overline => {
-                Self::of(vec![DecorationLine::plain(LineKind::Overline)])
-            }
-            StyleTextDecoration::LineThrough => {
-                Self::of(vec![DecorationLine::plain(LineKind::Strikethrough)])
-            }
+        let (underline, overline, line_through) = css.lines();
+        let mut lines = Vec::new();
+        if underline {
+            lines.push(DecorationLine::plain(LineKind::Underline));
         }
+        if overline {
+            lines.push(DecorationLine::plain(LineKind::Overline));
+        }
+        if line_through {
+            lines.push(DecorationLine::plain(LineKind::Strikethrough));
+        }
+        Self::of(lines)
     }
 }
 

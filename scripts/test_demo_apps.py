@@ -17,6 +17,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -29,6 +30,19 @@ sys.path.insert(0, str(HERE / "ci"))
 import png_compare  # noqa: E402
 import smoke_verdict  # noqa: E402
 import ui_find  # noqa: E402
+
+_NO_SDK = mock.patch.dict(os.environ, {"ANDROID_HOME": "", "ANDROID_SDK_ROOT": ""})
+
+
+def setUpModule():
+    # verify_apk runs apksigner and aapt2 of the SDK's build-tools when the machine has them (ubuntu-latest has: its preflight job ran
+    # them on the made-up APKs of these tests, which have no manifest and no signature, and failed twice). No test of this file is about
+    # an SDK, so none sees one, wherever it is run.
+    _NO_SDK.start()
+
+
+def tearDownModule():
+    _NO_SDK.stop()
 
 
 def cargo_json(*artifacts):
@@ -411,6 +425,43 @@ class WorkflowContractTest(unittest.TestCase):
             seen += 1
         self.assertGreaterEqual(seen, 10)   # five libs, five apps
 
+    def test_at_most_three_macos_jobs_run_at_the_same_time(self):
+        # The macOS runners are the scarce kind (5 at once on the account, shared with every other run): the workflow takes at most three.
+        # Two jobs can run together unless one of them needs the other (transitively); a matrix job runs min(max-parallel, entries) of its
+        # entries at once. The worst case is the heaviest set of pairwise independent macOS jobs.
+        import itertools
+        jobs = self.jobs()
+        needs = {}
+        for name, body in jobs.items():
+            m = re.search(r"(?m)^    needs: \[([^\]]*)\]", body)
+            needs[name] = [n.strip() for n in m.group(1).split(",")] if m else []
+
+        def ancestors(name, seen=None):
+            seen = set() if seen is None else seen
+            for n in needs.get(name, []):
+                if n not in seen:
+                    seen.add(n)
+                    ancestors(n, seen)
+            return seen
+
+        weight = {}
+        for name, body in jobs.items():
+            key = re.search(r"matrix: \$\{\{ fromJSON\(needs\.plan\.outputs\.(\w+)\) \}\}", body)
+            if key:
+                entries = self.plan[key.group(1)]
+                if entries and all(str(e.get("os", "")).startswith("macos") for e in entries):
+                    limit = re.search(r"(?m)^      max-parallel: (\d+)", body)
+                    weight[name] = min(int(limit.group(1)) if limit else len(entries), len(entries))
+            elif re.search(r"(?m)^    runs-on: macos", body):
+                weight[name] = 1
+        self.assertGreaterEqual(len(weight), 5, weight)     # codegen, two libraries, two sets of apps, the iOS boot test
+        worst = 0
+        for size in range(1, len(weight) + 1):
+            for group in itertools.combinations(sorted(weight), size):
+                if all(a not in ancestors(b) and b not in ancestors(a) for a, b in itertools.combinations(group, 2)):
+                    worst = max(worst, sum(weight[g] for g in group))
+        self.assertLessEqual(worst, 3, f"macOS jobs at the same time: {worst} ({weight})")
+
     def test_no_expression_of_the_matrix_or_the_plan_is_expanded_into_a_script(self):
         # zizmor's template-injection audit (the supply-chain workflow's zizmor job runs it on every workflow file): a `${{ }}` inside a
         # `run:` block is pasted INTO the script, an environment variable is data. The matrix values of the plan reach the shell steps
@@ -608,6 +659,168 @@ class PurposeStringsTest(unittest.TestCase):
 
     def test_the_builder_names_the_file_the_symbol_gate_writes_its_numbers_to(self):
         self.assertIn("AZ_IOS_SYMBOL_JSON", (HERE / "demo_build.py").read_text(encoding="utf-8"))
+
+
+class PublishListTest(unittest.TestCase):
+    """`demo_publish.py list`: what a publication carries and which files of the manifest it does not (their links read "not available")."""
+
+    def assembled(self, d, names):
+        root = pathlib.Path(d)
+        run = root / "run" / "demoapps-x"
+        run.mkdir(parents=True)
+        for n in names:
+            (run / n).write_bytes(b"binary of " + n.encode())
+        out = root / "release"
+        demo_publish.assemble(root / "run", out, "0.2.0", "abc")
+        return out
+
+    def test_the_listing_names_the_assets_and_the_files_that_are_missing(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = self.assembled(d, ["AzWidgets-linux", "AzWidgets-android-x86_64.apk"])
+            listing = json.loads((out / "release-assets.json").read_text())
+            text = demo_publish.render_listing(listing, demo_apps.load())
+        self.assertIn("| AzWidgets-linux.tar.gz | AzWidgets | linux |", text)
+        self.assertIn("| AzWidgets-android-x86_64.apk | AzWidgets | android-x86_64 |", text)
+        self.assertIn("**2 assets,", text)
+        self.assertIn("- AzWidgets: macos-arm64, macos-intel, windows, android-arm64, ios-device, ios-sim", text)
+        self.assertIn("- AzMaps: linux, macos-arm64", text)        # every other app is missing everywhere
+        self.assertIn('the page reads "not available" for each', text)
+
+    def test_a_publication_of_everything_says_so(self):
+        m = demo_apps.load()
+        listing = [{"name": demo_apps.release_name(a, c), "app": a["package"], "column": c, "sha256": "0" * 64, "size": 1}
+                   for a in m["app"] for c in demo_apps.columns_of(a)]
+        text = demo_publish.render_listing(listing, m)
+        self.assertIn("Every file of the manifest is in this publication.", text)
+        self.assertEqual(demo_publish.unpublished(listing, m), [])
+
+    def test_the_known_failing_reason_travels_with_the_missing_file(self):
+        m = demo_apps.load()
+        m["app"][0]["known_failing"] = {"ios": "the Simulator shows a black window"}
+        missing = demo_publish.unpublished([], m)
+        ios = [x for x in missing if x[0] == m["app"][0]["package"] and x[1].startswith("ios")]
+        self.assertEqual({x[3] for x in ios}, {"the Simulator shows a black window"})
+
+    def test_the_command_prints_the_listing_and_fails_on_an_empty_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = self.assembled(d, ["AzWidgets-linux"])
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(demo_publish.main(["list", "--out", str(out)]), 0)
+            self.assertIn("AzWidgets-linux.tar.gz", buf.getvalue())
+            empty = pathlib.Path(d) / "empty"
+            empty.mkdir()
+            (empty / "release-assets.json").write_text("[]")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(demo_publish.main(["list", "--out", str(empty)]), 1)
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(demo_publish.main(["list", "--out", str(pathlib.Path(d) / "none")]), 1)
+
+
+class PublishWorkflowTest(unittest.TestCase):
+    """.github/workflows/demos-publish.yml uploads the apps of a finished demos run to the release: read as text (no YAML module)."""
+
+    def setUp(self):
+        self.text = (demo_apps.ROOT / ".github" / "workflows" / "demos-publish.yml").read_text(encoding="utf-8")
+        self.demos = (demo_apps.ROOT / ".github" / "workflows" / "demos.yml").read_text(encoding="utf-8")
+
+    def test_it_is_dispatched_by_hand_and_a_dry_run_by_default(self):
+        self.assertIn("workflow_dispatch:", self.text)
+        for trigger in ("push:", "pull_request:", "schedule:", "workflow_call:", "workflow_run:"):
+            self.assertNotIn("\n  " + trigger, self.text)
+        self.assertRegex(self.text, r"(?s)run_id:\s+description: .*?required: true")
+        self.assertRegex(self.text, r"(?s)dry_run:\s+description: .*?default: true")
+
+    def test_it_can_write_to_the_release_only_inside_its_one_job(self):
+        top = self.text.split("\njobs:\n")[0]
+        self.assertIn("permissions:\n  contents: read", top)
+        self.assertNotIn("contents: write", top)
+        self.assertEqual(self.text.count("contents: write"), 1)
+        self.assertIn("    permissions:\n      contents: write\n      actions: read", self.text)
+
+    def test_the_upload_runs_only_when_it_was_asked_for_and_nothing_expands_an_input_into_a_script(self):
+        self.assertIn("if: ${{ !inputs.dry_run }}", self.text)
+        for run in re.findall(r"(?ms)^        run: (.*?)(?=^        \S|^      - |\Z)", self.text):
+            self.assertNotIn("${{", run)
+
+    def test_it_reads_only_the_shipped_artifacts_of_the_run_never_the_qa_builds(self):
+        self.assertIn("pattern: demoapps-*", self.text)
+        self.assertNotIn("demoe2e", "\n".join(l for l in self.text.splitlines() if not l.lstrip().startswith("#")))
+        self.assertIn("run-id: ${{ inputs.run_id }}", self.text)
+        self.assertIn("name: demo-status", self.text)
+
+    def test_the_run_must_be_finished_and_a_run_of_rust_yml(self):
+        self.assertIn('[ "$status" = completed ]', self.text)
+        self.assertIn(".github/workflows/rust.yml*", self.text)
+        self.assertIn("*[!0-9]*", self.text)      # a run id is a number
+
+    def test_it_uses_the_same_pinned_actions_as_the_demos_workflow(self):
+        for line in re.findall(r"(?m)^\s+- uses: (\S+@[0-9a-f]{40}) # (\S+)", self.text):
+            self.assertIn(f"{line[0]} # {line[1]}", self.demos, line)
+        self.assertEqual(len(re.findall(r"uses: \S+@", self.text)), len(re.findall(r"uses: \S+@[0-9a-f]{40} # v", self.text)))
+
+    def test_it_assembles_with_the_script_the_demos_workflow_uses_and_lists_what_the_page_will_lack(self):
+        self.assertIn("python3 scripts/demo_publish.py assemble --in demo-all --out release-assets", self.text)
+        self.assertIn("python3 scripts/demo_publish.py list --out release-assets", self.text)
+        self.assertIn("cp demo-status/demo-status.json release-assets/demo-status.json", self.text)
+
+
+class PageAlignedStatusTest(unittest.TestCase):
+    """The 16 KiB page check of the Android libraries is a line of the status table, not only a gate that fails a build: the result of an
+    APK says how many of its libraries passed (page_aligned_libs), the info of a library says that it did (page_aligned)."""
+
+    def test_no_test_of_this_file_sees_an_sdk_and_so_none_runs_the_apksigner_of_a_machine_that_has_one(self):
+        # a machine with build-tools (ubuntu-latest) makes verify_apk run apksigner on the made-up APK of a test and fail it
+        self.assertEqual(os.environ.get("ANDROID_HOME"), "")
+        self.assertEqual(os.environ.get("ANDROID_SDK_ROOT"), "")
+        with tempfile.TemporaryDirectory() as d:
+            tools = pathlib.Path(d) / "build-tools" / "34.0.0"
+            tools.mkdir(parents=True)
+            (tools / "apksigner").write_text("#!/bin/sh\nexit 1\n")
+            (tools / "apksigner").chmod(0o755)
+            sys.path.insert(0, str(HERE))
+            import test_android_elf_check as t
+            apk = pathlib.Path(d) / "AzX.apk"
+            t.apk(apk, [("classes.dex", b"dex\n035", False, 0), ("lib/x86_64/libazul.so", t.elf([0x4000] * 3), False, 0)])
+            with mock.patch.dict(os.environ, {"ANDROID_HOME": d}):     # the machine HAS an SDK: the apksigner of it fails the APK
+                with self.assertRaises(RuntimeError) as caught:
+                    demo_build.verify_apk(apk, "x86_64")
+            self.assertIn("not validly signed", str(caught.exception))
+            self.assertEqual(demo_build.verify_apk(apk, "x86_64"), 1)   # without it, as every test of this file runs: the ELF check only
+
+    def test_the_count_of_the_libraries_of_an_apk_is_returned_by_its_verification(self):
+        import android_elf_check
+        sys.path.insert(0, str(HERE))
+        import test_android_elf_check as t
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "AzX.apk"
+            t.apk(path, [("classes.dex", b"dex\n035", False, 0), ("lib/x86_64/libazul.so", t.elf([0x4000] * 3), False, 0),
+                         ("lib/x86_64/libAzX.so", t.elf([0x4000] * 3), False, 0), ("res/mipmap/icon.png", b"png", False, 0)])
+            self.assertEqual(android_elf_check.libraries(str(path)), ["lib/x86_64/libazul.so", "lib/x86_64/libAzX.so"])
+            self.assertEqual(demo_build.verify_apk(path, "x86_64"), 2)
+        self.assertEqual(android_elf_check.libraries("/no/such.apk"), [])
+
+    def test_the_status_shows_the_count_in_the_files_table_and_the_alignment_of_a_library(self):
+        m = demo_apps.load()
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "AzWidgets.android-x86_64.result.json").write_text(json.dumps({
+                "app": "AzWidgets", "column": "android-x86_64", "status": "built", "size": 2048, "shipped_size": 2048, "seconds": 30,
+                "engine_crates": [], "artifact": "AzWidgets-android-x86_64.apk", "page_aligned_libs": 2}))
+            (root / "libs").mkdir()
+            (root / "libs" / "libazul.info.json").write_text(json.dumps({
+                "kind": "android", "target": "x86_64-linux-android", "features": "std", "seconds": 400, "size": 51713400, "page_aligned": True}))
+            data, md = demo_apps.status([root], m=m)
+        cell = next(r for r in data["apps"] if r["app"] == "AzWidgets")["cells"]["android-x86_64"]
+        self.assertEqual(cell["page_aligned_libs"], 2)
+        self.assertIn("16 KiB pages: 2 libraries aligned", md)
+        self.assertIn("platform checks", md)
+        self.assertIn("| 16 KiB pages aligned |", md)
+
+    def test_the_library_script_writes_the_alignment_for_android_only(self):
+        text = (HERE / "demo_lib.sh").read_text(encoding="utf-8")
+        self.assertIn('info["page_aligned"] = True', text)
+        self.assertIn('if kind == "android":', text)
 
 
 class AbiGuardInitializerTest(unittest.TestCase):
@@ -1059,6 +1272,13 @@ class AfterTapTest(unittest.TestCase):
 class ApkGateTest(unittest.TestCase):
     """verify_apk is the gate of a built APK: what the phone checks before it runs anything, and that every library of it can be
     loaded on a device with 16 KiB pages (scripts/android_elf_check.py)."""
+
+    def setUp(self):
+        # verify_apk runs apksigner and aapt2 of the SDK's build-tools when the machine has them (ubuntu-latest has: its preflight job
+        # ran them on these made-up APKs, which have no manifest, and failed); these tests are about the ELF check, so they see no SDK
+        patcher = mock.patch.dict(os.environ, {"ANDROID_HOME": "", "ANDROID_SDK_ROOT": ""})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def make_apk(self, root, aligns, name="AzX.apk"):
         sys.path.insert(0, str(HERE))
