@@ -224,6 +224,34 @@ pub fn build_shader_prefix_string<F: FnMut(&str)>(
         output(feature);
         output("\n");
     }
+
+    build_external_sampler_prefix(features, output);
+}
+
+/// The words that name an EXTERNAL image sampler: the extension directives and the sampler types.
+///
+/// They are written here, for the shaders that sample external images, and nowhere in `shared.glsl`: a shader that does not use them must not carry them
+/// even in code its preprocessor skips. A GL implementation that scans the source text for them (the Android emulator's guest GLES encoder does: it takes
+/// the sampler names it finds declared with them for external samplers and moves the host's texture binding of the unit when the sampler's uniform is set)
+/// cannot tell a skipped branch from a live one, and a shader of ordinary 2D textures that only mentions them stops sampling its textures.
+/// `shader_test.rs` keeps the words out of every other shader.
+fn build_external_sampler_prefix<F: FnMut(&str)>(features: &[&str], output: &mut F) {
+    let has = |name: &str| features.contains(&name);
+    if has("TEXTURE_EXTERNAL") {
+        output("#extension GL_OES_EGL_image_external_essl3 : require\n");
+    }
+    if has("TEXTURE_EXTERNAL_ESSL1") {
+        output("#extension GL_OES_EGL_image_external : require\n");
+    }
+    if has("TEXTURE_EXTERNAL_BT709") {
+        output("#extension GL_EXT_YUV_target : require\n");
+    }
+    if has("TEXTURE_EXTERNAL") || has("TEXTURE_EXTERNAL_ESSL1") {
+        output("#define WR_SAMPLER_EXTERNAL samplerExternalOES\n");
+    }
+    if has("TEXTURE_EXTERNAL_BT709") {
+        output("#define WR_SAMPLER_EXTERNAL_YUV __samplerExternal2DY2YEXT\n");
+    }
 }
 
 /// Walks the main .glsl file, including any imports.
@@ -235,3 +263,7 @@ pub fn build_shader_main_string<F: FnMut(&str), G: Fn(&str) -> Cow<'static, str>
     let shared_source = get_source(base_filename);
     ShaderSourceParser::new().parse(shared_source, &|f| get_source(f), output);
 }
+
+#[cfg(test)]
+#[path = "shader_test.rs"]
+mod tests;

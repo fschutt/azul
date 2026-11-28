@@ -6,7 +6,7 @@
 
 // This shader must remain compatible with ESSL 1, at least for the
 // WR_FEATURE_TEXTURE_EXTERNAL_ESSL1 feature, so that it can be used to render
-// video on GLES devices without GL_OES_EGL_image_external_essl3 support.
+// video on GLES devices without the essl3 form of the external image extension.
 // This means we cannot use textureSize(), int inputs/outputs, etc.
 
 #include shared

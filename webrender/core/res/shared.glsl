@@ -2,22 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifdef WR_FEATURE_TEXTURE_EXTERNAL
-// Please check https://www.khronos.org/registry/OpenGL/extensions/OES/OES_EGL_image_external_essl3.txt
-// for this extension.
-#extension GL_OES_EGL_image_external_essl3 : require
-#endif
-
-#ifdef WR_FEATURE_TEXTURE_EXTERNAL_ESSL1
-// Some GLES 3 devices do not support GL_OES_EGL_image_external_essl3, so we
-// must use GL_OES_EGL_image_external instead and make the shader ESSL1
-// compatible.
-#extension GL_OES_EGL_image_external : require
-#endif
-
-#ifdef WR_FEATURE_TEXTURE_EXTERNAL_BT709
-#extension GL_EXT_YUV_target : require
-#endif
+// The shaders that sample EXTERNAL images (video frames, camera frames: the features WR_FEATURE_TEXTURE_EXTERNAL, _ESSL1 and _BT709) need their extension
+// directive and the name of the sampler type. Both are written by `build_shader_prefix_string` (webrender_build/src/shader.rs) for those shaders alone:
+// the extension directives, and the macros WR_SAMPLER_EXTERNAL and WR_SAMPLER_EXTERNAL_YUV below. They are NOT written here, in code a shader that does
+// not use them skips: a GL implementation that looks for those words in the source text (the Android emulator's guest) takes every shader that has them
+// for a shader of external images, whatever the preprocessor does with them, and its textures stop sampling.
 
 #ifdef WR_FEATURE_ADVANCED_BLEND
 #extension GL_KHR_blend_equation_advanced : require
@@ -44,7 +33,7 @@
 
 #if defined(WR_FEATURE_TEXTURE_EXTERNAL) && defined(PLATFORM_ANDROID)
 // On some Mali GPUs we have encountered crashes in glDrawElements when using
-// textureSize(samplerExternalOES) in a vertex shader without potentially
+// textureSize of an external image sampler in a vertex shader without potentially
 // sampling from the texture. This tricks the driver in to thinking the texture
 // may be sampled from, avoiding the crash. See bug 1692848.
 uniform bool u_mali_workaround_dummy;
@@ -217,13 +206,13 @@ uniform sampler2DRect sColor0;
 uniform sampler2DRect sColor1;
 uniform sampler2DRect sColor2;
 #elif defined(WR_FEATURE_TEXTURE_EXTERNAL) || defined(WR_FEATURE_TEXTURE_EXTERNAL_ESSL1)
-uniform samplerExternalOES sColor0;
-uniform samplerExternalOES sColor1;
-uniform samplerExternalOES sColor2;
+uniform WR_SAMPLER_EXTERNAL sColor0;
+uniform WR_SAMPLER_EXTERNAL sColor1;
+uniform WR_SAMPLER_EXTERNAL sColor2;
 #elif defined(WR_FEATURE_TEXTURE_EXTERNAL_BT709)
-uniform __samplerExternal2DY2YEXT sColor0;
-uniform __samplerExternal2DY2YEXT sColor1;
-uniform __samplerExternal2DY2YEXT sColor2;
+uniform WR_SAMPLER_EXTERNAL_YUV sColor0;
+uniform WR_SAMPLER_EXTERNAL_YUV sColor1;
+uniform WR_SAMPLER_EXTERNAL_YUV sColor2;
 #endif
 
 #ifdef WR_FEATURE_DITHERING
