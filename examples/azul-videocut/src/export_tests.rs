@@ -60,3 +60,170 @@ fn the_export_file_name_ends_in_the_format_it_holds() {
     assert_eq!(output_name("a/b:c", OutputFormat::Y4m), "a-b-c.y4m");
     assert_eq!(output_name("", OutputFormat::Mp4), "export.mp4");
 }
+
+/// An encoder that works as azul's do: it takes a frame at once, and a frame's packet comes out
+/// after `lag` more frames went in; the last `lag` stay inside until `flush` (a codec thread's
+/// queue, a hardware codec's pipeline). A packet is three bytes, all the frame's number.
+struct HoldingEncoder {
+    lag: usize,
+    held: std::collections::VecDeque<Vec<u8>>,
+    ready: std::collections::VecDeque<Vec<u8>>,
+    /// The stamp and the key flag of every frame taken.
+    taken: Vec<(u64, bool)>,
+    refuse_at: Option<usize>,
+    flushed: bool,
+}
+
+impl HoldingEncoder {
+    fn new(lag: usize) -> Self {
+        HoldingEncoder {
+            lag,
+            held: std::collections::VecDeque::new(),
+            ready: std::collections::VecDeque::new(),
+            taken: Vec::new(),
+            refuse_at: None,
+            flushed: false,
+        }
+    }
+}
+
+impl PacketEncoder for HoldingEncoder {
+    fn encode_at(&mut self, _frame: VideoFrame, timestamp_us: u64, key: bool) -> bool {
+        let number = self.taken.len();
+        if self.refuse_at == Some(number) {
+            return false;
+        }
+        self.taken.push((timestamp_us, key));
+        self.held.push_back(vec![number as u8; 3]);
+        while self.held.len() > self.lag {
+            if let Some(packet) = self.held.pop_front() {
+                self.ready.push_back(packet);
+            }
+        }
+        true
+    }
+
+    fn recv_packet(&mut self) -> Option<Vec<u8>> {
+        self.ready.pop_front()
+    }
+
+    fn flush(&mut self) {
+        self.flushed = true;
+        self.ready.extend(self.held.drain(..));
+    }
+}
+
+fn clip(frames: usize) -> impl Iterator<Item = Result<VideoFrame, String>> {
+    (0..frames).map(|_| {
+        Ok(VideoFrame {
+            width: 2,
+            height: 2,
+            bytes: U8Vec::from_vec(vec![0; 16]),
+            format: RawImageFormat::RGBA8,
+        })
+    })
+}
+
+#[test]
+fn the_last_frames_of_an_encoder_that_holds_them_back_are_in_the_file() {
+    for lag in [0, 1, 3, 8, 20] {
+        let mut encoder = HoldingEncoder::new(lag);
+        let mut file = Vec::new();
+        let mut progress = Vec::new();
+        encode_frames(
+            &mut encoder,
+            clip(10),
+            25,
+            |packet| {
+                file.push(packet);
+                Ok(())
+            },
+            |done| progress.push(done),
+        )
+        .expect("an export");
+        let every_packet: Vec<Vec<u8>> = (0..10u8).map(|n| vec![n; 3]).collect();
+        assert_eq!(file, every_packet, "lag {lag}: every packet of every frame, in the order of the frames");
+        assert_eq!(progress, (1..=10).collect::<Vec<i64>>(), "lag {lag}");
+        assert!(encoder.flushed, "lag {lag}: the encoder was flushed before the end");
+    }
+}
+
+#[test]
+fn every_frame_is_stamped_with_its_own_time_and_a_key_frame_comes_every_two_seconds() {
+    let mut encoder = HoldingEncoder::new(2);
+    encode_frames(&mut encoder, clip(120), 25, |_| Ok(()), |_| {}).expect("an export");
+    assert_eq!(encoder.taken.len(), 120);
+    assert_eq!(encoder.taken[0], (0, true));
+    assert_eq!(encoder.taken[1], (40_000, false));
+    assert_eq!(encoder.taken[25], (1_000_000, false));
+    let keys: Vec<usize> = encoder.taken.iter().enumerate().filter(|(_, t)| t.1).map(|(i, _)| i).collect();
+    assert_eq!(keys, vec![0, 50, 100]);
+}
+
+#[test]
+fn an_encoder_that_refuses_a_frame_ends_the_export_with_that_error() {
+    let mut encoder = HoldingEncoder::new(1);
+    encoder.refuse_at = Some(4);
+    let mut file = Vec::new();
+    let result = encode_frames(
+        &mut encoder,
+        clip(10),
+        25,
+        |packet| {
+            file.push(packet);
+            Ok(())
+        },
+        |_| {},
+    );
+    assert_eq!(result, Err(String::from("the encoder refused a frame")));
+    assert_eq!(file.len(), 3, "the packets of the frames before it were taken");
+}
+
+#[test]
+fn a_frame_that_cannot_be_rendered_or_a_cancel_ends_the_export_at_once() {
+    let mut encoder = HoldingEncoder::new(2);
+    let frames = clip(3).chain(std::iter::once(Err(String::from("cancelled")))).chain(clip(3));
+    let result = encode_frames(&mut encoder, frames, 25, |_| Ok(()), |_| {});
+    assert_eq!(result, Err(String::from("cancelled")));
+    assert_eq!(encoder.taken.len(), 3, "nothing after it was encoded");
+    assert!(!encoder.flushed, "an abandoned export does not wait for its encoder");
+}
+
+#[test]
+fn a_packet_the_file_refuses_ends_the_export_with_its_reason_also_after_the_last_frame() {
+    // Refused while frames still go in.
+    let mut encoder = HoldingEncoder::new(0);
+    let result = encode_frames(&mut encoder, clip(5), 25, |_| Err(String::from("the muxer is full")), |_| {});
+    assert_eq!(result, Err(String::from("the muxer is full")));
+    // Refused for a packet that only the final flush brings out.
+    let mut encoder = HoldingEncoder::new(8);
+    let mut seen = 0;
+    let result = encode_frames(
+        &mut encoder,
+        clip(5),
+        25,
+        |_| {
+            seen += 1;
+            if seen == 2 {
+                Err(String::from("the muxer is full"))
+            } else {
+                Ok(())
+            }
+        },
+        |_| {},
+    );
+    assert_eq!(result, Err(String::from("the muxer is full")));
+    assert_eq!(seen, 2);
+}
+
+#[test]
+fn an_empty_clip_gives_no_packet_and_succeeds() {
+    let mut encoder = HoldingEncoder::new(3);
+    let mut seen = 0;
+    encode_frames(&mut encoder, clip(0), 25, |_| {
+        seen += 1;
+        Ok(())
+    }, |_| {})
+    .expect("an empty export");
+    assert_eq!(seen, 0);
+}

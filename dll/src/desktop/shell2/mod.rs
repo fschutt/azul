@@ -65,6 +65,9 @@ mod ios_gpu_invariants;
 // And the frame report: every shell that rasters a frame on the CPU puts it on the window's report, which the e2e counters read.
 #[cfg(test)]
 mod frame_report_invariants;
+// And the VirtualView drain: the phone shells re-invoke views whose content arrived later (a map's tiles) before they raster a CPU frame.
+#[cfg(test)]
+mod virtual_view_drain_invariants;
 
 // Re-export common types
 pub use common::{

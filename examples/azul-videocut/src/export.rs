@@ -209,6 +209,67 @@ impl ExportShared {
     }
 }
 
+/// What an export asks of an H.264 encoder: frames in with their own times, packets out, and a
+/// flush that waits for the frames still inside.
+///
+/// azul's `VideoEncoder` is ASYNCHRONOUS on every engine that has one: VideoToolbox (macOS, iOS),
+/// Vulkan Video (x86_64 Linux and Windows) and MediaCodec (Android) each run the codec on a thread
+/// of their own, so a frame handed to `encode_at` is only queued and its packet comes out of
+/// `recv_packet` after the call returns; a hardware codec, MediaCodec above all, also holds the
+/// last frames back for some time. The packets of the last frames are NOT there when the loop
+/// ends: only `flush` waits for them.
+trait PacketEncoder {
+    fn encode_at(&mut self, frame: VideoFrame, timestamp_us: u64, key: bool) -> bool;
+    fn recv_packet(&mut self) -> Option<Vec<u8>>;
+    fn flush(&mut self);
+}
+
+impl PacketEncoder for VideoEncoder {
+    fn encode_at(&mut self, frame: VideoFrame, timestamp_us: u64, key: bool) -> bool {
+        VideoEncoder::encode_at(self, frame, timestamp_us, key)
+    }
+
+    fn recv_packet(&mut self) -> Option<Vec<u8>> {
+        VideoEncoder::recv_packet(self).into_option().map(|packet| packet.as_slice().to_vec())
+    }
+
+    fn flush(&mut self) {
+        VideoEncoder::flush(self);
+    }
+}
+
+/// Encodes `frames` (each rendered when it is asked for; an `Err` ends the export), each stamped
+/// with its own time and a key frame every two seconds, and hands every packet to `take` in the
+/// order the encoder gives it, after its frame and after the last frame too: the encoder is
+/// flushed before the final take, or the last frames of the clip would be missing from the file.
+/// `progress` is told how many frames went in.
+fn encode_frames<E: PacketEncoder>(
+    encoder: &mut E,
+    frames: impl Iterator<Item = Result<VideoFrame, String>>,
+    fps: u32,
+    mut take: impl FnMut(Vec<u8>) -> Result<(), String>,
+    mut progress: impl FnMut(i64),
+) -> Result<(), String> {
+    for (i, frame) in frames.enumerate() {
+        let frame = frame?;
+        #[allow(clippy::cast_possible_wrap)] // a clip's frame count is far below i64::MAX
+        let index = i as i64;
+        if !encoder.encode_at(frame, timestamp_us(index, fps), is_keyframe(index, fps)) {
+            return Err(String::from("the encoder refused a frame"));
+        }
+        while let Some(packet) = encoder.recv_packet() {
+            take(packet)?;
+        }
+        progress(index + 1);
+    }
+    // The frames still inside: the codec thread's queue, and what a hardware codec holds back.
+    encoder.flush();
+    while let Some(packet) = encoder.recv_packet() {
+        take(packet)?;
+    }
+    Ok(())
+}
+
 /// Renders, encodes and muxes the export; the file's bytes and format.
 /// Runs on a worker: it blocks for the whole export.
 pub fn run_export(
@@ -261,38 +322,34 @@ pub fn run_export(
         };
     });
     let mut raw: Vec<u8> = Vec::new();
-    let take = |encoder: &mut VideoEncoder, muxer: &mut Mp4Muxer, raw: &mut Vec<u8>| -> Result<(), String> {
-        while let Some(packet) = encoder.recv_packet().into_option() {
-            if muxed {
-                if !muxer.write_annexb(packet) {
-                    return Err(format!("the MP4 muxer refused a packet: {}", muxer.last_error().as_str()));
-                }
-            } else {
-                raw.extend_from_slice(packet.as_slice());
-            }
-        }
-        Ok(())
-    };
-    for (i, f) in frames.enumerate() {
+    let rendered = frames.map(|f| {
         if shared.cancelled() {
             return Err(String::from("cancelled"));
         }
         let picture = compose(project, f, w, h, source);
-        #[allow(clippy::cast_possible_wrap)]
-        let index = i as i64;
-        let frame = VideoFrame {
+        Ok(VideoFrame {
             width: w,
             height: h,
             bytes: U8Vec::from_vec(picture.rgba),
             format: RawImageFormat::RGBA8,
-        };
-        if !encoder.encode_at(frame, timestamp_us(index, fps), is_keyframe(index, fps)) {
-            return Err(String::from("the encoder refused a frame"));
-        }
-        take(&mut encoder, &mut muxer, &mut raw)?;
-        shared.set(|p| p.done = index + 1);
-    }
-    take(&mut encoder, &mut muxer, &mut raw)?;
+        })
+    });
+    encode_frames(
+        &mut encoder,
+        rendered,
+        fps,
+        |packet| {
+            if muxed {
+                if !muxer.write_annexb(U8Vec::from_vec(packet)) {
+                    return Err(format!("the MP4 muxer refused a packet: {}", muxer.last_error().as_str()));
+                }
+            } else {
+                raw.extend_from_slice(&packet);
+            }
+            Ok(())
+        },
+        |done| shared.set(|p| p.done = done),
+    )?;
     if muxed {
         let file = muxer.finish();
         if file.as_slice().is_empty() {

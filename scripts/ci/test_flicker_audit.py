@@ -270,34 +270,44 @@ class ScrollCheckTests(unittest.TestCase):
 
 
 class IosAuditTests(unittest.TestCase):
-    """ios_audit on a fake simulator and no ffmpeg: the idle verdict is made from pictures, the flash audit says why it did not run, the pan is not verified"""
+    """ios_audit on a fake simulator and no ffmpeg: the idle verdict is made from pictures of the APP (not of the springboard), the flash audit says why it
+    did not run, the pan is not verified"""
+
+    HOME = sig((60, 120, 200), (200, 200, 60))         # the springboard
 
     class FakeIOS:
+        shows_app = True
+
         def __init__(self, run, udid, bundle, exe, app_dir=None):
-            self.base_env, self.calls = {}, []
+            self.base_env, self.calls, self.launched, self.home_sig = {}, [], False, None
 
         def simctl(self, *a, **k):
             self.calls.append(a)
             return 0, "", ""
 
+        def terminate(self):
+            self.launched = False
+
         def launch(self, extra_env=None, cold=True):
+            self.launched = True
             return {}
 
         def wait_for_front(self, timeout=45):
-            return 1.0
+            return 1.0 if self.shows_app else None
 
         def settle(self, s):
             pass
 
         def capture(self, name, keep=True):
-            return PAGE, 1206, 2622, ""
+            picture = PAGE if (self.launched and self.shows_app) else IosAuditTests.HOME
+            return picture, 1206, 2622, ""
 
-    def run_audit(self, picture):
+    def run_audit(self, shows_app=True):
         import tempfile
         import time as _t
         out = tempfile.mkdtemp(prefix="flicker-ios-test-")
         real_ios, real_ffmpeg, real_sleep = f.q.IOS, f.ensure_ffmpeg, _t.sleep
-        f.q.IOS = type("IOS", (self.FakeIOS,), {"capture": lambda s, name, keep=True: (picture, 1206, 2622, "")})
+        f.q.IOS = type("IOS", (self.FakeIOS,), {"shows_app": shows_app})
         f.ensure_ffmpeg = lambda: None
         _t.sleep = lambda s: None
         try:
@@ -308,7 +318,7 @@ class IosAuditTests(unittest.TestCase):
         return Path(out)
 
     def test_an_idle_app_passes_and_the_rest_says_what_was_not_run(self):
-        out = self.run_audit(PAGE)
+        out = self.run_audit()
         text = (out / "flicker.md").read_text()
         self.assertIn("PASS", text)
         self.assertIn("ffmpeg is not installed", text)
@@ -317,6 +327,29 @@ class IosAuditTests(unittest.TestCase):
         report = json.loads((out / "flicker.json").read_text())
         self.assertTrue(report["idle"]["ok"])
         self.assertIsNone(report["flash"]["ok"])
+
+    def test_the_springboard_is_not_taken_for_the_app(self):
+        """the first run of the iOS audit judged six pictures of the home screen idle: without the home signature `wait_for_front` returns at once"""
+        out = self.run_audit(shows_app=False)
+        import json
+        report = json.loads((out / "flicker.json").read_text())
+        self.assertFalse(report["idle"]["ok"])
+        self.assertIn("showed no picture of its own", report["idle"]["detail"])
+
+
+class CommandLineTests(unittest.TestCase):
+    def parse(self, argv):
+        real = f.android_audit
+        f.android_audit = lambda args: args
+        try:
+            return f.main(argv)
+        finally:
+            f.android_audit = real
+
+    def test_flash_only_is_an_option_of_the_android_audit(self):
+        args = self.parse(["android", "--out", "o", "--apk-plain", "a.apk", "--flash-only"])
+        self.assertTrue(args.flash_only)
+        self.assertFalse(self.parse(["android", "--out", "o", "--apk-plain", "a.apk"]).flash_only)
 
 
 class MonotonicTests(unittest.TestCase):

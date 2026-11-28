@@ -573,7 +573,7 @@ def write_github_output(out):
 # ---------------------------------------------------------------------------------------------
 # status
 # ---------------------------------------------------------------------------------------------
-CELL = {"built": "built", "reused": "reused", "failed": "FAILED", "skipped": "skipped"}
+CELL = {"built": "built", "reused": "reused", "failed": "FAILED", "skipped": "skipped", "pending": "pending"}
 
 
 def human(n):
@@ -730,10 +730,87 @@ def boot_text(r):
     return text
 
 
-def status(dirs, m=None, extra=None):
-    """-> (json-able dict, markdown). `extra`: {"artifacts": n, "runner_minutes": x, "smoke": {...}}"""
+def read_jobs(path):
+    """{job name: (status, conclusion)} from the jobs of a run, as `gh api --paginate repos/<repo>/actions/runs/<id>/jobs --jq '.jobs[] | {name,
+    status, conclusion}'` writes them (one object per line, one array per page or one array in all): the name without the caller's prefix
+    ("Demo apps / Apps (linux 1/4)" is "Apps (linux 1/4)"). {} for a file that is not there or not JSON."""
+    try:
+        text = pathlib.Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    decoder = json.JSONDecoder()
+    items, at = [], 0
+    while at < len(text):
+        while at < len(text) and text[at].isspace():
+            at += 1
+        if at >= len(text):
+            break
+        try:
+            obj, at = decoder.raw_decode(text, at)
+        except ValueError:
+            return {}
+        items.extend(obj if isinstance(obj, list) else [obj])
+    return jobs_by_name(items)
+
+
+def jobs_by_name(items):
+    """{job name without the caller's prefix: (status, conclusion)} from a list of {name, status, conclusion} objects."""
+    jobs = {}
+    for j in items:
+        if isinstance(j, dict) and j.get("name"):
+            jobs[str(j["name"]).split(" / ", 1)[-1]] = (j.get("status"), j.get("conclusion"))
+    return jobs
+
+
+def apps_job_name(plan_, app, column):
+    """The name of the job that builds `app` for `column` (the matrix entry of the plan that names it): "Apps (linux 1/4)", "Apps (ios-sim)"."""
+    if column in MOBILE_TARGETS:
+        return f"Apps ({column})"
+    for key in ("apps_linux", "apps_macos", "apps_windows"):
+        for e in plan_.get(key, []):
+            if e["leg"] == column and e.get("variant", "") == "" and app in e["apps"].split():
+                return f"Apps ({column} {e['group']}/{e['groups']})"
+    return None
+
+
+def pending_cell(jobs, plan_, app, column, run_open=False):
+    """For a cell with no result file: (status, reason) from the state of the jobs of the run, or None when they say nothing. A job that
+    is queued or running makes the cell PENDING (not a failure: the run is not over); a job that ended without a result, or never started
+    because a job it needs did not succeed, is a failure."""
+    name = apps_job_name(plan_, app, column)
+    state = jobs.get(name) if name else None
+    if state is None:
+        # the jobs of a matrix that needs a library are created when the library is built: while another job of the run is not over, a
+        # job that has no record yet is not a failure, it has not started
+        return ("pending", "not started yet: it waits for libazul of its target and for a runner") if run_open and name else None
+    job_status, conclusion = state
+    if job_status in ("queued", "waiting", "pending", "requested"):
+        family = "lib-" + column if column in DESKTOP else "lib-" + column.split("-")[0] + "-"
+        libs = {k: v for k, v in jobs.items() if k.startswith("libazul (") and k[len("libazul ("):-1].startswith(family)}
+        open_libs = sorted(k for k, v in libs.items() if v[0] != "completed")
+        if open_libs:
+            return "pending", f"waiting for libazul ({column if column in DESKTOP else column.split('-')[0]}: {len(open_libs)} of {len(libs)} libraries not built yet)"
+        return "pending", "queued behind other jobs"
+    if job_status == "in_progress":
+        return "pending", "building now"
+    if conclusion == "skipped":
+        return "missing", "not started: a job it needs did not succeed (the libazul of this target, or the codegen)"
+    if conclusion == "cancelled":
+        return "missing", "the job was cancelled before it wrote a result"
+    if conclusion == "success":
+        return "missing", "the job finished but wrote no result for this app"
+    return "missing", "the job failed before it wrote a result"
+
+
+def status(dirs, m=None, extra=None, jobs=None):
+    """-> (json-able dict, markdown). `extra`: {"artifacts": n, "runner_minutes": x, "smoke": {...}}. `jobs`: {job name: (status, conclusion)}
+    of the run (read_jobs): what a cell without a result file says (pending, or why it is missing)."""
     m = m or load()
     extra = extra or {}
+    jobs = jobs_by_name(jobs) if isinstance(jobs, list) else (jobs or {})
+    plan_ = plan(m) if jobs else {}
+    run_open = any(v[0] != "completed" for k, v in jobs.items() if k != "Status table")   # (the report job is the one that makes this table)
+    pending = 0
     results = read_results(dirs)
     smoke = read_smoke(dirs)
     starts = read_startchecks(dirs)
@@ -750,6 +827,10 @@ def status(dirs, m=None, extra=None):
             r = results.get((a["package"], col))
             if r is None:
                 cell = {"status": "missing", "reason": "no result file: the job did not run or did not report"}
+                said = pending_cell(jobs, plan_, a["package"], col, run_open)
+                if said:
+                    cell = {"status": said[0], "reason": said[1]}
+                    pending += said[0] == "pending"
             else:
                 cell = {k: r.get(k) for k in ("status", "reason", "artifact", "sha256", "size", "shipped_size", "seconds",
                                                "engine_crates", "first_error")}
@@ -773,6 +854,8 @@ def status(dirs, m=None, extra=None):
                 total_files += 1
                 total_bytes += cell.get("size") or 0
                 total_shipped += cell.get("shipped_size") or 0
+            elif cell["status"] == "pending":
+                pass
             elif not known and cell["status"] in ("failed", "missing"):
                 unexplained.append(f"{a['package']}/{col}")
             row["cells"][col] = cell
@@ -788,7 +871,7 @@ def status(dirs, m=None, extra=None):
         "libs": libs, "lib_deltas": lib_deltas(libs), "symbol_violations": symbol_violations, "abi_guard_missing": abi_guard_missing,
         "assets": total_files, "bytes": total_bytes, "shipped_bytes": total_shipped,
         "artifacts_of_the_run": extra.get("artifacts"), "runner_minutes": extra.get("runner_minutes"),
-        "unexplained_failures": unexplained, "boot_failures": boot_failed, "smoke": extra.get("smoke", {}),
+        "unexplained_failures": unexplained, "boot_failures": boot_failed, "smoke": extra.get("smoke", {}), "pending_cells": pending,
         "qa_builds": read_qa_builds(dirs),
     }
     data = {"schema": 1, "apps": rows, "summary": summary}
@@ -812,6 +895,10 @@ def render_markdown(data):
             st = CELL.get(cell["status"], "MISSING")
             if cell["status"] == "failed":
                 st = "FAILED: " + (cell.get("first_error") or cell.get("reason") or "?")[:70].replace("|", "/")
+            elif cell["status"] == "pending":
+                st = "pending: " + str(cell.get("reason") or "?")[:70].replace("|", "/")
+            elif cell["status"] == "missing" and cell.get("reason"):
+                st = "MISSING: " + str(cell["reason"])[:70].replace("|", "/")
             if cell.get("known") and cell["status"] in ("failed", "missing"):
                 st = "known: " + str(cell["known"])[:60].replace("|", "/")
             if cell.get("boot") and cell["status"] in ("built", "reused"):
@@ -981,7 +1068,8 @@ def main(argv):
         for flag in (x for x in rest if x.startswith("--")):
             k, _, v = flag[2:].partition("=")
             extra[k] = json.loads(v) if v[:1] in "[{0123456789" else v
-        data, md = status(dirs, extra=extra)
+        jobs_file = extra.pop("jobs", None)
+        data, md = status(dirs, extra=extra, jobs=read_jobs(jobs_file) if jobs_file else None)
         pathlib.Path("demo-status.json").write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
         pathlib.Path("demo-status.md").write_text(md, encoding="utf-8")
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
