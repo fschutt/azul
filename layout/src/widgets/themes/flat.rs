@@ -3416,6 +3416,8 @@ fn segmented_segment(selected: bool, is_first: bool, is_last: bool) -> CssProper
 
     let mut v = crate::widgets::segmented::segment_style(selected, is_first, is_last)
         .into_library_owned_vec();
+    // A segment is a choice a finger makes: 48 dp / 44 pt on a phone, nothing on a desktop.
+    v.extend(decl::touch_target_floor());
     if !selected {
         v.extend(decl::hover_fill(LIGHT_HT, DARK_HT));
         v.extend(decl::active_fill(LIGHT_PT, DARK_PT));

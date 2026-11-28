@@ -4691,6 +4691,8 @@ fn segmented_segment(selected: bool, is_first: bool, is_last: bool) -> CssProper
     type P = CssPropertyWithConditions;
 
     let mut v = crate::widgets::segmented::SEGMENT_BASE.to_vec();
+    // A segment is a choice a finger makes: 48 dp / 44 pt on a phone, nothing on a desktop.
+    v.extend(decl::touch_target_floor());
     // A segment is a command: flora's capitals, as every button and tab.
     v.extend(caps(CAPS_COMMAND));
     v.push(P::simple(CssProperty::const_text_align(StyleTextAlign::Center)));
