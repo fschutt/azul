@@ -2064,8 +2064,11 @@ def notes_in(path):
 
 def run_all(args, logs, out):
     binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
-    # AZREVIEW_E2E_ONLY=slash, progress, growth, ink, whiteboard, companion, review, dictation, stream, mic (by hand: it opens the microphone) or conversations runs that step alone (the others each take minutes).
+    # AZREVIEW_E2E_ONLY=body (the first nine checks of the docstring), slash, progress, growth, ink, whiteboard, companion, review, dictation, stream, mic (by hand: it opens the microphone) or conversations runs that step alone (the others each take minutes).
     only = os.environ.get("AZREVIEW_E2E_ONLY", "")
+    if only == "body":
+        body(args, logs, out)
+        return True
     if only == "slash":
         slash(args, logs, out, binary)
         return True
