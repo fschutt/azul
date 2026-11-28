@@ -38,6 +38,10 @@ pub const SENSOR_INTERVAL_MS: u64 = 50;
 /// *pushed* into the channel by native callbacks on OS threads; this only
 /// bounds how long a parked fix waits for an otherwise-idle loop.
 pub const GEOLOCATION_INTERVAL_MS: u64 = 200;
+/// How often the platforms' quiet read of the permissions in use is folded into the manager.
+pub const PERMISSION_PROBE_INTERVAL_MS: u64 = 1000;
+/// The same while a Subscribe waits for the user's gesture.
+pub const PERMISSION_WAITING_PROBE_INTERVAL_MS: u64 = 250;
 /// Drain cadence while an async prompt (biometric / keyring / permission)
 /// is in flight and its result may be parked by an OS completion handler.
 pub const ASYNC_RESULT_INTERVAL_MS: u64 = 100;
@@ -138,14 +142,63 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     for (capability, state) in lw.app_services.permission.drain() {
         changed |= lw.permission_manager.set_status(capability, state);
     }
+    // The platforms' QUIET read of the capabilities in use - the ones an app asked the state of and
+    // the ones with a probe node (it never prompts) - at most once a second, with each pass the loop
+    // runs (it arms no timer of its own; the window coming back from the settings is a pass): the OS knows more than the
+    // manager (a switch the user flipped in the settings, a camera a backend opened on its own)
+    // and `get_permission_status` reads the manager. An app that asks nothing reads nothing.
+    // A Subscribe that waits for the user's gesture is looked at again, sooner: the state the read
+    // finds may admit it (granted already: nothing can be asked), and so does a gesture.
+    let waiting = lw.permission_manager.has_held() || lw.geolocation_manager.has_held_subscribe();
+    let every_ms = if waiting {
+        PERMISSION_WAITING_PROBE_INTERVAL_MS
+    } else {
+        PERMISSION_PROBE_INTERVAL_MS
+    };
+    if lw.permission_manager.probe_due(every_ms) {
+        for capability in lw.permission_manager.capabilities_in_use() {
+            let probed = crate::desktop::extra::permission::probe_status(capability);
+            changed |= lw.permission_manager.observe(capability, probed);
+        }
+    }
+    if lw.permission_manager.has_held() {
+        let events = lw.permission_manager.take_dispatchable();
+        if !events.is_empty() {
+            crate::desktop::extra::permission::apply_diff_events(
+                &events,
+                &lw.app_services.permission,
+            );
+            changed = true;
+        }
+    }
+    if lw.geolocation_manager.has_held_subscribe() {
+        let events = {
+            let permissions = &mut lw.permission_manager;
+            lw.geolocation_manager.take_admitted_events(|| {
+                permissions.admit(azul_layout::managers::permission::Capability::Geolocation)
+            })
+        };
+        if !events.is_empty() {
+            crate::desktop::extra::geolocation::apply_diff_events(&events, &lw.app_services);
+            changed = true;
+        }
+    }
+
+    // Which of the run's services the scripted user stands in for: a scenario that drives the
+    // keyring or the gate asks, so it never reaches the user's own keychain or sensor.
+    lw.app_services.biometric.user.set_driven(
+        crate::desktop::extra::keyring::is_stand_in_run(),
+        azul_core::run_mode::test_hooks().no_biometric,
+    );
 
     // Biometric: availability probe (OnceLock-cached native call), then
     // dispatch queued prompts (tracked in-flight so the timer stays armed
     // until the reply folds back), then fold parked outcomes. A completion
     // always counts as a change — even a repeat outcome answers a fresh
     // request and must dispatch a BiometricResult event.
-    lw.biometric_manager
-        .set_availability(crate::desktop::extra::biometric::availability_cached());
+    lw.biometric_manager.set_availability(crate::desktop::extra::biometric::availability_for(
+        &lw.app_services.biometric.user,
+    ));
     let bio_requests = lw.app_services.biometric.requests.drain();
     if !bio_requests.is_empty() {
         lw.biometric_manager
@@ -153,7 +206,11 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
         changed = true;
     }
     for prompt in &bio_requests {
-        crate::desktop::extra::biometric::request(prompt, &lw.app_services.biometric.results);
+        crate::desktop::extra::biometric::request(
+            prompt,
+            &lw.app_services.biometric.results,
+            &lw.app_services.biometric.user,
+        );
     }
     for result in lw.app_services.biometric.results.drain() {
         lw.biometric_manager.set_last_result(result);
@@ -168,7 +225,12 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
         changed = true;
     }
     for (namespace, req) in &keyring_requests {
-        crate::desktop::extra::keyring::request(namespace, req, &lw.app_services.keyring.results);
+        crate::desktop::extra::keyring::request(
+            namespace,
+            req,
+            &lw.app_services.keyring.results,
+            &lw.app_services.biometric.user,
+        );
     }
     // Only the answers this window waits for: another window's pass leaves them for it.
     let awaited = usize::try_from(lw.keyring_manager.in_flight).unwrap_or(usize::MAX);
@@ -345,3 +407,7 @@ extern "C" fn pump_timer_marker_callback(
     // timer semantics (run_count, tick bookkeeping) stay ordinary.
     azul_core::callbacks::TimerCallbackReturn::continue_unchanged()
 }
+
+#[cfg(test)]
+#[path = "capability_pump_test.rs"]
+mod capability_pump_test;

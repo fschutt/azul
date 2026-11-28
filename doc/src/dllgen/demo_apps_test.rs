@@ -1332,9 +1332,22 @@ fn a_key_the_reader_does_not_know_is_ignored_and_a_platform_it_does_not_know_is_
 
 #[test]
 fn every_az_package_of_the_workspace_is_an_app_and_every_app_a_package() {
-    let m = manifest();
+    // Every `[[app]]` of the FILE, the QA-only ones (AzSelfTest) included: `manifest()` holds only the apps of the release
+    // page (apps_of_the_release drops the QA-only tables where the file is read), but the workspace has a package for each.
+    let table: toml::Table = toml::from_str(MANIFEST_TOML).expect("the manifest parses as toml");
+    let rows: Vec<(String, String)> = table["app"]
+        .as_array()
+        .expect("[[app]] tables")
+        .iter()
+        .map(|a| {
+            (
+                a["package"].as_str().expect("a package").to_string(),
+                a["dir"].as_str().expect("a dir").to_string(),
+            )
+        })
+        .collect();
     let packages = workspace_az_packages();
-    let listed: BTreeSet<&str> = m.apps.iter().map(|a| a.package.as_str()).collect();
+    let listed: BTreeSet<&str> = rows.iter().map(|(package, _)| package.as_str()).collect();
     let mut problems = Vec::new();
     for (package, dir) in &packages {
         if !listed.contains(package.as_str()) {
@@ -1343,26 +1356,25 @@ fn every_az_package_of_the_workspace_is_an_app_and_every_app_a_package() {
             ));
         }
     }
-    for app in &m.apps {
-        match packages.get(&app.package) {
+    for (package, app_dir) in &rows {
+        match packages.get(package) {
             None => problems.push(format!(
-                "{} is in scripts/demo_apps.toml but is no AzXxx package of the workspace",
-                app.package
+                "{package} is in scripts/demo_apps.toml but is no AzXxx package of the workspace"
             )),
-            Some(dir) if *dir != app.dir => problems.push(format!(
-                "{}: dir is {:?}, the workspace has it at {dir:?}",
-                app.package, app.dir
+            Some(dir) if dir != app_dir => problems.push(format!(
+                "{package}: dir is {app_dir:?}, the workspace has it at {dir:?}"
             )),
             Some(_) => {}
         }
     }
     println!(
-        "{} Az packages in the workspace, {} apps in the manifest",
+        "{} Az packages in the workspace, {} apps in the manifest ({} of them on the release page)",
         packages.len(),
-        m.apps.len()
+        rows.len(),
+        manifest().apps.len()
     );
     assert!(problems.is_empty(), "\n{}", problems.join("\n"));
-    assert_eq!(packages.len(), m.apps.len());
+    assert_eq!(packages.len(), rows.len());
 }
 
 #[test]

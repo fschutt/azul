@@ -152,7 +152,9 @@ def flat_frame(sig):
 
 def flat_runs(sigs):
     """[(start, end_exclusive)] maximal runs of flat frames with a normal frame on BOTH sides (a recording that starts or ends in one
-    colour has no 'between')."""
+    colour has no 'between'). A stretch of flat frames that changes from black to a lighter colour (or back) is TWO runs: the system's
+    white starting window held for 13 frames and the 13 black frames after it were one run of 26 frames whose middle frame was black, and the
+    whole 0.87 s was called black (the Android shell agent's frame-by-frame count: 0.43 s of white, then 0.43 s of black)."""
     runs, i, n = [], 0, len(sigs)
     while i < n:
         if not flat_frame(sigs[i]):
@@ -162,7 +164,14 @@ def flat_runs(sigs):
         while j < n and flat_frame(sigs[j]):
             j += 1
         if i > 0 and j < n:
-            runs.append((i, j))
+            k = i
+            while k < j:
+                black = mean_luma(sigs[k]) < BLACK_LUMA
+                m = k
+                while m < j and (mean_luma(sigs[m]) < BLACK_LUMA) == black:
+                    m += 1
+                runs.append((k, m))
+                k = m
         i = j
     return runs
 
@@ -186,15 +195,22 @@ def flag_frames(sigs, fps=FPS, max_black_ms=MAX_BLACK_MS):
     flagged = []
     n = len(sigs)
     flat = set()
-    for start, end in flat_runs(sigs):
+    for number, (start, end) in enumerate(flat_runs(sigs)):
         length = end - start
         ms = round(1000.0 * length / fps)
         black = mean_luma(sigs[start + length // 2]) < BLACK_LUMA      # the middle of the run: a fade into black starts light
         what = "BLACK" if black else "flat"
-        fail = (ms > max_black_ms) if black else True
-        flagged.append({"index": start, "kind": "flat", "frames": length, "ms": ms, "black": black, "fail": fail,
-                        "detail": f"{length} frame(s) ({length / fps:.2f} s) of one {what} colour between two normal frames"
-                                  + (f" (limit {max_black_ms} ms)" if black else "")})
+        # THE SYSTEM'S STARTING WINDOW is told, not failed: the FIRST flat run of the recording (a cold start is its first event) when it is not black is
+        # the splash Android 12 and later holds on purpose (the app icon on the window colour until the engine's first picture, E46). Any later flat
+        # run, any black run over the limit and a flat run after home and back still fail.
+        splash = number == 0 and not black
+        fail = (ms > max_black_ms) if black else not splash
+        detail = f"{length} frame(s) ({length / fps:.2f} s) of one {what} colour between two normal frames"
+        if black:
+            detail += f" (limit {max_black_ms} ms)"
+        if splash:
+            detail += ": the system's starting window of the cold start, held on purpose (told, not failed)"
+        flagged.append({"index": start, "kind": "flat", "frames": length, "ms": ms, "black": black, "fail": fail, "splash": splash, "detail": detail})
         flat.update(range(start, end))
     for i in range(1, n - 1):
         if i in flat:
@@ -549,6 +565,18 @@ def ios_audit(args):
     first_frame = q.first_frame_timeout_for(backend, args.first_frame_timeout)
     report = {"idle": None, "flash": None, "pan": "not verified on iOS: the Simulator has no touch from the command line"}
     lines = [f"# Flicker and jitter audit (iOS Simulator, {backend} renderer)", ""]
+    # THE APP ON THE SIMULATOR FIRST: both runs of this audit before this line recorded the home screen for 80 s because nothing installed the app
+    # (`simctl launch` of an app that is not there starts nothing): the verdicts of those runs say nothing about the app
+    rc, install_text = dev.to_file("install.log", "xcrun", "simctl", "install", args.udid, str(args.app), timeout=600)
+    if rc != 0:
+        text = f"the app did not install on the Simulator: {install_text.strip()[-300:]}"
+        report["idle"] = {"ok": False, "detail": text, "first_picture_s": None}
+        report["flash"] = {"ok": None, "detail": "not run: " + text}
+        lines += ["## 1. Idle", "", f"- FAIL: {text}", "", "## 2. Flash frames", "", "- not run: the app is not installed", ""]
+        (out / "flicker.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        (out / "flicker.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print("\n".join(lines))
+        return 1
     dev.simctl("ui", args.udid, "appearance", "light")
     # THE HOME SCREEN FIRST: without its signature `wait_for_front` takes the springboard for the app (it is not one flat colour), and the first
     # run of this audit recorded twenty seconds of the home screen as "the cold start" and judged an idle springboard

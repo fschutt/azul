@@ -201,7 +201,13 @@ mod backing {
     /// What a keyring answer that is no success says.
     fn error_of(answer: &KeyringResult) -> KeyringError {
         match answer {
-            KeyringResult::Denied => KeyringError::Denied,
+            // The system refused, the user said no, or the keyring would have to ask (a quiet op
+            // met a dialog): the app waits for the user's own action.
+            KeyringResult::Denied
+            | KeyringResult::WouldPrompt
+            | KeyringResult::Cancelled
+            | KeyringResult::Failed
+            | KeyringResult::LockedOut => KeyringError::Denied,
             KeyringResult::Unavailable => KeyringError::Unavailable,
             KeyringResult::NotFound => KeyringError::Failed(String::from("the entry is not there")),
             KeyringResult::Error => {
@@ -237,9 +243,9 @@ mod backing {
     ) -> Result<(), KeyringError> {
         let service = azul_namespace(namespace);
         let answer = if quiet {
-            Keyring::store_quietly_in(service, key, secret, false)
+            Keyring::store_quietly_in(service, key, secret)
         } else {
-            Keyring::store_blocking_in(service, key, secret, false)
+            Keyring::store_blocking_in(service, key, secret)
         };
         match answer {
             KeyringResult::Stored => Ok(()),

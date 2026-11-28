@@ -53,9 +53,14 @@ fn touch_header(n: usize, active: usize) -> TabHeader {
         .with_theme(UiTheme::Flat)
 }
 
-/// The scrolling row of a touch header: its first child.
+/// The scrolling row of a touch header: its child with the strip's class.
 fn strip_of(header: &Dom) -> &Dom {
-    &header.children.as_ref()[0]
+    header
+        .children
+        .as_ref()
+        .iter()
+        .find(|c| classes_of(c).iter().any(|c| c == "__azul-native-tabs-touch-strip"))
+        .expect("a touch header holds its strip")
 }
 
 /// The pills of a touch strip: its children that carry a tab class (not the two spacers).
@@ -73,7 +78,7 @@ fn pills_of(strip: &Dom) -> Vec<&Dom> {
 }
 
 #[test]
-fn auto_is_the_touch_pills_on_a_phone_and_the_themes_look_everywhere_else() {
+fn auto_is_the_buttons_at_touch_sizes_on_a_phone_and_the_buttons_everywhere_else() {
     for theme in [UiTheme::Flat, UiTheme::Flora] {
         assert_eq!(
             TabStyle::Auto.resolved_for(theme, true),
@@ -85,7 +90,6 @@ fn auto_is_the_touch_pills_on_a_phone_and_the_themes_look_everywhere_else() {
         );
         // A style the app named stays, on a phone too.
         for named in [
-            TabStyle::Aurora,
             TabStyle::Rectangular,
             TabStyle::Pills,
             TabStyle::TouchPills,
@@ -94,14 +98,10 @@ fn auto_is_the_touch_pills_on_a_phone_and_the_themes_look_everywhere_else() {
             assert_eq!(named.resolved_for(theme, false), named);
         }
     }
-    assert_eq!(
-        TabStyle::Auto.resolved_for(UiTheme::Flora, false),
-        TabStyle::Aurora
-    );
-    assert_eq!(
-        TabStyle::Auto.resolved_for(UiTheme::Flat, false),
-        TabStyle::Rectangular
-    );
+    // One look in every theme: the theme's buttons floating on the leather.
+    for theme in [UiTheme::Flat, UiTheme::Flora] {
+        assert_eq!(TabStyle::Auto.resolved_for(theme, false), TabStyle::Pills);
+    }
 }
 
 #[test]
@@ -111,9 +111,10 @@ fn a_desktop_build_is_never_a_phone() {
 }
 
 #[test]
-fn a_touch_pill_is_a_finger_tall_with_full_radius_ends_and_a_target_of_the_whole_row() {
+fn a_touch_pill_is_a_finger_tall_at_the_house_radius_and_a_target_of_the_whole_row() {
     assert_eq!(PILL_TOUCH.height, 32);
-    assert_eq!(PILL_TOUCH.radius, 16, "half the height: a pill");
+    assert_eq!(PILL_TOUCH.radius, PILL_RADIUS, "the house radius: slightly rounded, no capsule");
+    assert_eq!(PILL_TOUCH.radius, PILL_DESKTOP.radius, "one look at two sizes");
     // The target is the pill and 8 px above and below: at least 44 pt / 48 dp.
     assert!(PILL_TOUCH.height + 2 * 8 >= 48);
     assert!(PILL_TOUCH.height > PILL_DESKTOP.height);
@@ -126,8 +127,10 @@ fn the_touch_header_is_a_header_around_one_scrolling_row_of_pills() {
         classes_of(&dom),
         vec!["__azul-native-tabs-touch-header".to_string()]
     );
-    // No band: the header holds the row and nothing else.
-    assert_eq!(dom.children.as_ref().len(), 1);
+    // No band: the leather the row lies on (one stretch, with the golden line at its foot) and the row.
+    assert_eq!(dom.children.as_ref().len(), 2);
+    let leather = &dom.children.as_ref()[0];
+    assert_eq!(leather.children.as_ref().len(), 1, "the golden line along the leather's foot");
     let strip = strip_of(&dom);
     assert_eq!(
         classes_of(strip),
@@ -246,8 +249,9 @@ fn with_a_click_callback_every_pill_is_a_tab_stop_candidate_and_takes_the_click_
 fn in_the_pixel_8_band_the_header_is_the_band_and_covers_the_gap_of_the_camera() {
     let band = band_of(DisplayPreset::Pixel8, 360.0, 720.0);
     let dom = touch_header(6, 0).with_status_bar(band).dom();
-    // The row, and one cover for the one gap (the camera and its margins).
-    assert_eq!(dom.children.as_ref().len(), 2);
+    // The leather of the two lanes beside the camera, the row, and one cover for the one gap (the
+    // camera and its margins).
+    assert_eq!(dom.children.as_ref().len(), 2 + 1 + 1);
     assert_eq!(pills_of(strip_of(&dom)).len(), 6);
 }
 
@@ -255,7 +259,8 @@ fn in_the_pixel_8_band_the_header_is_the_band_and_covers_the_gap_of_the_camera()
 fn a_double_hole_band_covers_both_gaps() {
     let band = band_of(DisplayPreset::DoubleHole, 360.0, 720.0);
     let dom = touch_header(6, 0).with_status_bar(band).dom();
-    assert_eq!(dom.children.as_ref().len(), 1 + 2);
+    // Three lanes of leather, the row, two covers.
+    assert_eq!(dom.children.as_ref().len(), 3 + 1 + 2);
 }
 
 #[test]
@@ -269,7 +274,8 @@ fn a_window_without_a_band_gets_an_ordinary_row_even_if_a_band_was_asked_for() {
         },
     );
     let dom = touch_header(4, 0).with_status_bar(band).dom();
-    assert_eq!(dom.children.as_ref().len(), 1);
+    // The leather and the row.
+    assert_eq!(dom.children.as_ref().len(), 2);
 }
 
 #[test]
@@ -286,7 +292,7 @@ fn a_band_on_a_style_that_is_not_the_touch_pills_is_ignored() {
 
 #[test]
 fn the_other_styles_are_built_as_they_were() {
-    for style in [TabStyle::Aurora, TabStyle::Rectangular, TabStyle::Pills] {
+    for style in [TabStyle::Rectangular, TabStyle::Pills] {
         let dom = TabHeader::create(labels(3))
             .with_style(style)
             .with_theme(UiTheme::Flat)

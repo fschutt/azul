@@ -10,6 +10,7 @@
 
 pub mod a11y_refresh;
 pub mod bars;
+pub mod display;
 pub mod ime;
 pub mod keys;
 pub mod lifecycle;

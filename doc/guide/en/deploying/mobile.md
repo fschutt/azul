@@ -458,9 +458,11 @@ or even a Mac:
 
 ## Local network on a phone
 
-An app that uses an `IrohEndpoint` finds the computer it controls by its endpoint id on the local
-network ([Networking](../data/networking.md#finding-a-peer-on-the-local-network)); a phone needs
-two things the engine cannot grant itself.
+An app that turns local discovery on (`IrohConfig::with_local_discovery(true)`; it is off by
+default, so nothing touches the local network and no Local Network dialog comes at launch: turn it
+on where the user starts pairing or a call) finds the computer it controls by its endpoint id on
+the local network ([Networking](../data/networking.md#finding-a-peer-on-the-local-network)); a
+phone needs two things the engine cannot grant itself.
 
 **Android.** `AndroidManifest.xml` declares `android.permission.CHANGE_WIFI_MULTICAST_STATE` (the
 template in `scripts/android/` already does; it is a normal permission, granted at install, no
@@ -565,9 +567,12 @@ the sensor come from the preset for the window's size, and a window wider than t
 ops `set_display_preset` and `get_display_features` do the same from a scenario file, so one file runs on a desktop and
 on a phone. The shapes of a preset are approximations (every cutout says `approximate`).
 
-**A tab bar for a finger.** `TabStyle::Auto` is the touch pills on a phone (Android or iOS, a window narrower than 600 dp);
-a desktop keeps the theme's look, and `TabStyle::TouchPills` asks for them anywhere. A pill is 32 px tall with full-radius
-ends in a 48 px row; the target is the whole row (padded, not the picture). The row is longer than the window and
+**A tab bar for a finger.** `TabStyle::Auto` is one look in every theme: the theme's buttons (the selected one is the
+submit button, the others the plain button) floating on a strip of leather that closes on a 2px golden line, at the house
+radius (slightly rounded corners, no capsule ends). On a phone (Android or iOS, a window narrower than 600 dp) it is
+`TabStyle::TouchPills`, the same buttons at touch sizes, and `TabStyle::TouchPills` asks for them anywhere; `Pills` names
+the desktop size and `Rectangular` the classic square tabs. A button is 32 px tall in a 48 px row; the target is the
+whole row (padded, not the picture). The row is longer than the window and
 scrolls sideways under a finger, with the wheel and with the keys, without a scrollbar, and the selected pill scrolls
 into view (centred) by itself whoever changed the selection: a tap, an arrow key, a flip, the app. The pills are tabs for
 TalkBack and VoiceOver (the tab role, the name, the selected state) and the arrow keys move between them.
@@ -577,8 +582,9 @@ word processor) gives that row to its tabs: the window draws under the bars (`ex
 bar (`system_bars.status` as `HiddenTransient`), draws into the cutout area (`system_bars.draw_into_cutout`) and builds
 its tab bar with `with_status_bar`, given the band the display makes: `StatusBarBand::from_display` takes
 `info.get_display_features()`, `info.get_safe_area_insets()` and the window's size. The strip is then the lanes either
-side of the camera (and a margin of 8 px around it): it slides under the camera as a strip of paper behind a hole, what
-lies under a cutout is covered by the window's background and never drawn, a pill that straddles it is cut at the lane's
+side of the camera (and a margin of 8 px around it), a stretch of leather in each with the camera between them: it slides
+under the camera as a strip of paper behind a hole, what lies under a cutout is covered by the window's background and
+never drawn, a pill that straddles it is cut at the lane's
 edge (the hint that there is more), and the selected pill always stands whole inside a lane. With one hole that is two
 lanes, with two three, and a window without a cutout or a status bar has an ordinary row. A rotation or a resize runs
 `layout()` again and the strip is built around the new window. The `Ribbon` does the same with
@@ -972,6 +978,35 @@ An emulator will not tell you about digitizer sampling rate, pen tilt, Force
 Touch stages, real sensor noise or thermal throttling. For anything timing- or
 hardware-shaped, the device is the only answer — see the install steps
 [above](#installing--debugging-the-built-app).
+
+## The app's life: paused, resumed, short of memory, ending
+
+A phone does not ask an app whether it may stop. After the app leaves the foreground the system may end the process without another word, so what a person would lose - the document, the drawing, the half-typed message - is written when the app is **paused**, not when it ends. The engine tells the app four things, on every platform that has them:
+
+| Event | When | What to do |
+|---|---|---|
+| `Paused` | the app left the foreground (another app in front, the screen off, the home key) | write what a person would lose |
+| `Resumed` | the app is in the foreground again | read what changed meanwhile |
+| `LowMemory` | the system asks for memory back | drop what can be made again: caches, decoded pictures, tiles |
+| `WillTerminate` | the process is about to end (not promised: a phone often ends a process with no such event) | the last chance to write |
+
+The app installs one handler, usually in its window's create callback, and asks which event it runs for:
+
+```rust
+extern "C" fn on_lifecycle(mut data: RefAny, info: CallbackInfo) -> Update {
+    if let OptionLifecycleEvent::Some(LifecycleEvent::Paused) = info.get_lifecycle_event() {
+        // write the document
+    }
+    Update::DoNothing
+}
+
+extern "C" fn on_create(data: RefAny, info: CallbackInfo) -> Update {
+    info.set_lifecycle_handler(data, on_lifecycle);
+    Update::DoNothing
+}
+```
+
+An app that installs no handler hears nothing. The handler runs on the loop thread like a menu click, with the app's data and the window's `CallbackInfo`; what it asks for (a timer, a rebuild) is applied as for every other callback. A test raises the same events without a phone: `azul::desktop::lifecycle::raise(&mut window, LifecycleEvent::Paused)` runs the handler against a headless window (`dll/tests/lifecycle_headless.rs`).
 
 ## See also
 

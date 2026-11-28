@@ -16,6 +16,8 @@ use azul::prelude::*;
 use crate::report::{RowResult, Verdict};
 
 pub mod device;
+pub mod lifecycle;
+pub mod media;
 pub mod pending;
 pub mod platform;
 pub mod render;
@@ -27,7 +29,11 @@ pub mod system;
 /// row waits. They run in an unattended run only when the harness says so with `AZ_SELFTEST_FED=1` (it promises to
 /// answer every `AZ_SELFTEST_AWAIT` line); without it they are listed with their instruction like every other row that
 /// needs a person.
-pub const FEEDABLE: &[&str] = &["security.biometric_prompt"];
+pub const FEEDABLE: &[&str] = &["security.biometric_prompt", "security.keyring_protected", "lifecycle.background"];
+
+/// How long an unattended row waits for the engine to read the system's permission state before it says the permission was never
+/// granted: the engine reads it quietly about once a second, so a permission granted with `pm grant` reads NotDetermined at first.
+pub const SETTLE_MS: u64 = 2_500;
 
 /// The harness's turn: prints the ONE line `AZ_SELFTEST_AWAIT <key>` the harness waits for before it feeds the
 /// platform (key `biometric.match`: Android `adb emu finger touch 1`, iOS Simulator
@@ -72,7 +78,7 @@ pub enum Step {
 pub type StepFn = fn(&mut Ctx<'_>) -> Step;
 
 /// A widget a probe needs in the DOM while it runs; it gets the milliseconds since the probe started (an animation).
-pub type WidgetFn = fn(u64) -> Dom;
+pub type WidgetFn = fn(&RefAny, u64) -> Dom;
 
 /// One row.
 pub struct ProbeDef {
@@ -98,6 +104,8 @@ pub fn all() -> Vec<&'static ProbeDef> {
     [
         device::PROBES,
         sensors::PROBES,
+        media::PROBES,
+        lifecycle::PROBES,
         security::PROBES,
         system::PROBES,
         platform::PROBES,

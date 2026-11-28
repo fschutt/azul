@@ -937,3 +937,47 @@ mod ios_opener {
         assert_eq!(asked, alloc::vec![(alloc::string::String::from(IOS_OPEN_PROGRAM), 1)]);
     }
 }
+
+/// Android starts no process either, and `Url::open` answered `false` there (`opener_command` had no arm for it): an app could
+/// not open a page, and `CallbackInfo::open_app_settings` (the "permission refused for good: open the settings" path of every app)
+/// answered `Unsupported`. The decision is the activity the shell starts for a URL, and none for a path (there is no file manager
+/// to show it in).
+///
+/// Mutation: the `"android"` arm of `opener_command` removed.
+#[cfg(feature = "std")]
+mod android_opener {
+    use super::*;
+
+    #[test]
+    fn a_url_on_android_goes_to_the_shells_hook() {
+        assert_eq!(
+            opener_command("https://example.com/a?b=1&c=2", false, "android"),
+            Some((ANDROID_OPEN_PROGRAM, alloc::vec!["https://example.com/a?b=1&c=2"]))
+        );
+        // the app's own page in the system settings is a URL like any other: the name the permission manager gives it, and the
+        // cross-platform one
+        for settings in ["android-settings:app-details", "azul-settings:app"] {
+            assert_eq!(
+                opener_command(settings, false, "android").map(|(_, args)| args),
+                Some(alloc::vec![settings])
+            );
+        }
+    }
+
+    #[test]
+    fn a_path_on_android_has_no_opener() {
+        assert_eq!(opener_command("/sdcard/Documents/a.pdf", true, "android"), None);
+    }
+
+    #[test]
+    fn the_spawner_is_asked_for_the_hook_and_its_answer_is_the_answer() {
+        let hooks = crate::run_mode::TestHooks::from_env(&|_| None);
+        let mut asked = alloc::vec::Vec::new();
+        let answer = open_with(&hooks, "https://example.com", false, "android", &mut |program, args| {
+            asked.push((alloc::string::String::from(program), args.len()));
+            false
+        });
+        assert!(!answer, "no activity started is a false");
+        assert_eq!(asked, alloc::vec![(alloc::string::String::from(ANDROID_OPEN_PROGRAM), 1)]);
+    }
+}

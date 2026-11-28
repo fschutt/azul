@@ -68,8 +68,15 @@ mod gpu;
 mod locale;
 /// `Url::open`: the iOS hook of the core crate's opener (`UIApplication openURL:options:completionHandler:`).
 mod open_url;
+/// SystemConfiguration's macOS-only half, answered "nothing is configured" (E63): the symbols the iroh dependencies reference and
+/// the iOS SDK marks unavailable. Not for Mac Catalyst, which has the real functions.
+#[cfg(not(target_abi = "macabi"))]
+mod system_configuration;
 /// The system UI font (San Francisco): CoreText's AvailableFonts, which the font scan reads, does not hold it.
 mod system_font;
+/// The system's chrome around the render view (`AzulViewController`: status bar, home indicator, deferred edges) and the
+/// display features (cutout, corners, bars, fingerprint sensor) the engine is told.
+mod system_ui;
 mod text_input;
 /// `<webview>`: `WKWebView`s, `WebKit.framework` loaded at the first one.
 mod webview;
@@ -731,6 +738,13 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
         }
     }
     let plan = mouse_plan(touch_phase, primary_in_set, slop_move, slop_lift);
+    // `touchesCancelled:`: the system took the touch (an alert, Control Center, a call): the engine's recognisers (a drag, a
+    // selection, a long press waiting, the press targets, scroll input still queued) let go of it, so that nothing fires from it
+    if touch_phase == TouchPhase::Cancelled {
+        if let Some(lw) = window.common.layout_window.as_mut() {
+            lw.cancel_touch_gestures();
+        }
+    }
 
     // Snapshot previous state for the diff pipeline; mirrors Android.
     window.snapshot_window_state_baseline("ios.handle_touch");
@@ -1089,13 +1103,54 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
             lw.safe_area_insets = after;
             changed
         });
+        // The shapes the insets are made of (the cutout, the corners, the bars, the fingerprint sensor): a table of the
+        // display class, with what UIKit measures (the orientation, the status bar's frame). A change of them is a
+        // change of layout like one of the insets (a tab strip that goes around the island).
+        let features_changed = {
+            let options = window.common.current_window_state().flags.system_bars;
+            let (features, display) = unsafe {
+                system_ui::display_features(
+                    this as *const Object as *mut Object,
+                    w,
+                    h,
+                    (insets.top as f32, insets.right as f32, insets.bottom as f32, insets.left as f32),
+                    window.touch_id_hardware,
+                    &options,
+                )
+            };
+            // Where the system takes the swipes of its own gestures (Notification / Control Center from the top, the home
+            // swipe from the bottom): derived from the same display, approximate like the cutouts, told to the engine
+            // beside them (`CallbackInfo::get_system_gesture_insets`). Nothing relays out for it.
+            let zones = crate::desktop::shell2::common::ios_display::gesture_zones(&display);
+            let gesture_insets = azul_layout::managers::gesture::SystemGestureInsets {
+                normal: azul_layout::managers::gesture::EdgeInsetsPx {
+                    left: 0.0,
+                    top: zones.top_normal,
+                    right: 0.0,
+                    bottom: zones.bottom_normal,
+                },
+                mandatory: azul_layout::managers::gesture::EdgeInsetsPx {
+                    left: 0.0,
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: zones.bottom_mandatory,
+                },
+                tappable: azul_layout::managers::gesture::EdgeInsetsPx::default(),
+            };
+            window.common.layout_window.as_mut().is_some_and(|lw| {
+                if *lw.system_gesture_insets() != gesture_insets {
+                    lw.set_system_gesture_insets(gesture_insets);
+                }
+                lw.report_display_features(features)
+            })
+        };
         // A change of the insets alone IS a change of layout: landscape-left and landscape-right
         // have the same bounds and the notch on opposite sides, so the size check above never
         // sees a turn from one to the other, and a window whose status bar or home indicator came
         // or went kept laying itself out around the old insets. (The first pass of a launch runs
         // before the window is registered and returns early above; its insets arrive with the
         // next one.)
-        if inset_changed && !window.common.regeneration_pending() {
+        if (inset_changed || features_changed) && !window.common.regeneration_pending() {
             window
                 .common
                 .request_regeneration(RelayoutReason::Resize);
@@ -1434,6 +1489,10 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
         if window.process_timers_and_threads() {
             window.needs_rerender = true;
         }
+        // What the app asks of the system's chrome (`WindowFlags::system_bars`): a callback of any kind (a click, a
+        // timer, a thread's writeback) may have changed it, and this shell has no other place that pushes the window
+        // state. A tick that finds it unchanged does nothing.
+        window.sync_window_state();
         // Accessibility actions arrive off-loop (VoiceOver invokes
         // `accessibilityActivate` and friends whenever the user gestures) and
         // are queued, not applied, so that UIKit is never re-entered
@@ -1999,7 +2058,16 @@ extern "C" fn app_did_enter_background(_this: &Object, _cmd: Sel, _app: *mut Obj
         if let Some(lw) = window.common.layout_window.as_ref() {
             crate::desktop::extra::sensors::pause(&lw.app_services.sensors);
         }
+        // The app hears of it before this returns: iOS may suspend the process right after, and what a person would
+        // lose (the document, the drawing) is written in the handler, not afterwards.
+        raise_lifecycle(window, azul_core::lifecycle::LifecycleEvent::Paused);
     }
+}
+
+/// Tell the app of an event of its life (`CallbackInfo::set_lifecycle_handler`) and apply what its handler asked for.
+fn raise_lifecycle(window: &mut IOSWindow, event: azul_core::lifecycle::LifecycleEvent) {
+    let result = crate::desktop::lifecycle::raise(window, event);
+    window.apply_event_result(result);
 }
 
 extern "C" fn app_will_enter_foreground(_this: &Object, _cmd: Sel, _app: *mut Object) {
@@ -2008,6 +2076,10 @@ extern "C" fn app_will_enter_foreground(_this: &Object, _cmd: Sel, _app: *mut Ob
         "[iOS] applicationWillEnterForeground:"
     );
     unsafe { set_display_link_paused(false) };
+    // The counterpart of `Paused`: only a return from the background (a cold start does not pass here).
+    if let Some(window) = unsafe { azul_ios_window() } {
+        raise_lifecycle(window, azul_core::lifecycle::LifecycleEvent::Resumed);
+    }
 }
 
 /// `applicationDidReceiveMemoryWarning:` - the system is short of memory. Apple: "It is strongly
@@ -2032,12 +2104,19 @@ extern "C" fn app_did_receive_memory_warning(_this: &Object, _cmd: Sel, _app: *m
     // back when it is not: no GL command in the background).
     if let Some(window) = unsafe { azul_ios_window() } {
         window.gpu_memory_warning();
+        // The app gives back what it can make again (caches, decoded pictures, tiles).
+        raise_lifecycle(window, azul_core::lifecycle::LifecycleEvent::LowMemory);
     }
 }
 
 extern "C" fn app_will_terminate(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationWillTerminate:");
     unsafe {
+        // The app's last chance to write, before anything is taken down (not a promise: a phone often ends a process
+        // with no such call).
+        if let Some(window) = azul_ios_window() {
+            raise_lifecycle(window, azul_core::lifecycle::LifecycleEvent::WillTerminate);
+        }
         // A GPU window comes down in order (surface, renderer, context) before the window is dropped.
         if let Some(window) = azul_ios_window() {
             window.gpu_event(gpu_lifecycle::Event::Shutdown);
@@ -2268,6 +2347,12 @@ pub struct IOSWindow {
     /// ([`Self::fire_create_callback`]): this shell used to take the options' window state and colours and
     /// DROP the callback, so an app that starts a timer or a worker there was dead on an iPhone.
     create_callback: azul_layout::callbacks::OptionCallback,
+    /// What the view controller was last told about the system's chrome (`WindowFlags::system_bars`), so that
+    /// `sync_window_state` pushes a change and nothing else.
+    applied_system_ui: crate::desktop::shell2::common::ios_display::IosSystemUi,
+    /// Whether the device has Touch ID, asked once at creation (`canEvaluatePolicy` + `biometryType`, never a sheet): a
+    /// fingerprint sensor of the display features.
+    touch_id_hardware: bool,
 }
 
 impl IOSWindow {
@@ -2305,13 +2390,19 @@ impl IOSWindow {
         app_shared.seed_window(&mut layout_window, &config);
         // The engine's gesture detection reads the numbers UIKit's own recognizers use (one table: `UIKIT_GESTURES`),
         // not its desktop defaults.
-        layout_window.gesture_drag_manager.config = azul_layout::managers::gesture::GestureDetectionConfig {
+        let replaced = layout_window.set_gesture_config(azul_layout::managers::gesture::GestureConfig {
             drag_distance_threshold: UIKIT_GESTURES.pan_threshold_points,
+            touch_slop: UIKIT_GESTURES.pan_threshold_points,
             double_click_time_threshold_ms: UIKIT_GESTURES.double_tap_ms,
+            double_tap_timeout_ms: UIKIT_GESTURES.double_tap_ms,
             long_press_time_threshold_ms: UIKIT_GESTURES.long_press_ms,
+            long_press_timeout_ms: UIKIT_GESTURES.long_press_ms,
             long_press_distance_threshold: UIKIT_GESTURES.long_press_movement_points,
-            ..azul_layout::managers::gesture::GestureDetectionConfig::default()
-        };
+            ..azul_layout::managers::gesture::GestureConfig::default()
+        });
+        if !replaced.is_empty() {
+            log_error!(LogCategory::Platform, "[iOS] gesture configuration: {:?} were not usable and were replaced", replaced);
+        }
         // The faces the app ships (`AppConfig::add_font`): this shell has no app-level font
         // manager to take them from, so the window registers them itself.
         layout_window
@@ -2331,6 +2422,13 @@ impl IOSWindow {
         let mut text_interaction: *mut Object = ptr::null_mut();
 
         // Build the native UI tree. Bounds come from `[[UIScreen mainScreen] bounds]`.
+        // What the app's window options ask of the system's chrome, from the first frame on.
+        let system_ui_at_start = system_ui::ui_of_options(&full_window_state.flags.system_bars);
+        // Touch ID hardware, asked once (a quiet `canEvaluatePolicy`): a sensor of the display features.
+        let touch_id_hardware = matches!(
+            crate::desktop::extra::biometric::probe_availability(),
+            azul_core::biometric::BiometricKind::Fingerprint
+        );
         let (ui_window, ui_view_controller, ui_view) = unsafe {
             let screen: *mut Object = msg_send![class!(UIScreen), mainScreen];
             let bounds: CGRect = msg_send![screen, bounds];
@@ -2356,8 +2454,12 @@ impl IOSWindow {
             let window_alloc: *mut Object = msg_send![class!(UIWindow), alloc];
             let window: *mut Object = msg_send![window_alloc, initWithFrame: bounds];
 
-            let vc_alloc: *mut Object = msg_send![class!(UIViewController), alloc];
+            // `AzulViewController`: the one place UIKit asks about the status bar, the home indicator and the edges
+            // that defer a system gesture (a plain view controller answers "as ever" to all of them).
+            let vc_class = system_ui::declare_view_controller().unwrap_or_else(|| class!(UIViewController));
+            let vc_alloc: *mut Object = msg_send![vc_class, alloc];
             let vc: *mut Object = msg_send![vc_alloc, init];
+            system_ui::apply(vc, system_ui_at_start);
 
             let Some(view_class) = get_or_create_view_class() else {
                 return Err(WindowError::PlatformError(String::from(
@@ -2508,6 +2610,8 @@ impl IOSWindow {
             text_interaction,
             text_interaction_attached: false,
             create_callback,
+            applied_system_ui: system_ui_at_start,
+            touch_id_hardware,
         };
         // The renderer of this window: `AZ_BACKEND` / `hw_accel` decide, the CPU one unless the GPU was
         // asked for and came up (a fallback names its stage in one line). The line the QA harness reads
@@ -2962,9 +3066,18 @@ impl PlatformWindow for IOSWindow {
 
     fn hide_tooltip_from_callback(&mut self) {}
 
-    /// UIKit owns the window geometry outright, so there is nothing to push and
-    /// no OS-sync baseline to diff (`os_synced_state` stays `None`).
-    fn sync_window_state(&mut self) {}
+    /// UIKit owns the window geometry outright, so there is no OS-sync baseline to diff (`os_synced_state` stays
+    /// `None`); the one thing pushed is what the app asks of the system's chrome (`WindowFlags::system_bars`: the status
+    /// bar, the home indicator, the icon style), when it changed.
+    fn sync_window_state(&mut self) {
+        let wanted = system_ui::ui_of_options(&self.common.current_window_state().flags.system_bars);
+        if wanted != self.applied_system_ui {
+            self.applied_system_ui = wanted;
+            let view_controller = &*self.ui_view_controller as *const Object as *mut Object;
+            // SAFETY: the shell's own view controller, on the main thread (window state is only written from there).
+            unsafe { system_ui::apply(view_controller, wanted) };
+        }
+    }
 }
 
 // ===== Text input and hardware keys =====

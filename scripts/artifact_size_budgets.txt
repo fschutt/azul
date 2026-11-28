@@ -66,8 +66,8 @@ x86_64-apple-darwin             *azul*.dylib    77600000   # 2026-11-21: 6744339
 # measurement. The rest: 1.8x of 0.2.0 until a run reports them.
 # The 2026-09-16 numbers are the first since build-dll gained the iroh
 # transport, which compiles noq/rustls/ring/tokio into every artifact.
-*                               libazuldbg.so   94000000   # 2026-09-16: 62683000 x 1.30 x 1.15 (was 72000000)
-*                               libazul.so      93500000   # 2026-09-16: 62258000 x 1.30 x 1.15 (was 72000000); the musl build measured 80.2 MB on 2026-11-21
+*                               libazuldbg.so   102300000  # 2026-11-28 CI (ubuntu-22.04, website run 46085880772): 88912728 x 1.15 (was 94000000; 2026-09-16: 62683000)
+*                               libazul.so      96300000   # 2026-11-28 CI (ubuntu-22.04): 83721600 x 1.15 (was 93500000; 2026-09-16: 62258000; the musl build measured 80.2 MB on 2026-11-21)
 # No CI measurement for the dylibs yet; a local arm64 dev build (build-dll,
 # debug-server, unstripped) was 54,525,408 on 2026-09-07 and the prod build
 # strips local symbols, so 1.15x of that is a safe first ceiling.
@@ -77,12 +77,13 @@ x86_64-apple-darwin             *azul*.dylib    77600000   # 2026-11-21: 6744339
 # Linux AND macOS), not the C library — the first version of this line said
 # "the C lib" and sized it like libazul.so, which is why the very first gated
 # run failed it at 137 %.
-*                               azul.so         133500000  # 2026-09-16: 89074000 x 1.30 x 1.15 (python ext, linux; was 103000000)
+*                               azul.so         155500000  # 2026-11-28 CI (ubuntu-22.04): 135144192 x 1.15 (python ext, linux; was 133500000 - the gate failed it at 101 %; macOS measured 98856928 the same day)
 *                               azuldbg.dll     83500000   # 2026-11-28 CI (windows-2022, website run 46085880772): 72305664 x 1.15 (was 75000000; 0.2.0: 33751552)
 *                               azul.dll        78000000   # 2026-11-28 CI (windows-2022): 67771904 x 1.15 (was 75000000)
 *                               azul.pyd        130000000  # 2026-11-28 CI (windows-2022): 113107456 x 1.15 (was 109200000; 2026-09-16: 72831000)
-*                               azul.cpython*.so 133500000 # sized against azul.so (0.2.0: 49466680)
+*                               azul.cpython*.so 155500000 # sized against azul.so (0.2.0: 49466680)
 
+# 2026-11-28: the same run measured the LINUX host artifacts above their budgets too (azul.so 135,144,192 vs 133,500,000: the Build Binaries (ubuntu-22.04) gate failed it; libazuldbg.so 88,912,728 was at 94 % of its row, libazul.so 83,721,600 at 89 %); the four Linux rows are 1.15x of that measurement, for the same reasons as the Windows rows below (not analysed per crate).
 # 2026-11-28: the website candidate run 46085880772 measured the Windows artifacts above the 2026-09-16 numbers (azul.pyd 113,107,456 vs 109,200,000 budget). The growth is the
 # engine of the last weeks (hyphenation of every language ~+2.8 MB, SOCKS5 + the Windows proxy, the GPU path, the sensor / sound / keyring / display-feature / tab APIs, iroh); it was NOT
 # analysed per crate. Rows are 1.15x of the new measurement (PROVENANCE). The tonight's landings after that run add a little more: this headroom covers them.

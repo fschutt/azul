@@ -10034,6 +10034,74 @@ impl LayoutWindow {
         )
     }
 
+    /// Stage the css diff of a restyle (`:hover`, `:focus`, `:focus-within`, `:active`) for the
+    /// next layout pass of `dom_id`: every node the restyle changed, with how far it has to be
+    /// re-solved (the widest [`RelayoutScope`](azul_css::props::property::RelayoutScope) of its
+    /// changed properties).
+    ///
+    /// A host that restyles and then lays the same styled DOM out again MUST stage the diff
+    /// first: the solver reuses the boxes of the nodes the diff does not name, and the state a
+    /// node is in (hovered, focused, within a focus) is no part of what it compares, so a
+    /// restyle that changes a padding or a size under such a state was laid out as it was. The
+    /// shell has always staged it (`apply_focus_restyle`, `apply_hover_restyle`); the headless
+    /// runner's ports did not, and the padding `.frame:focus-within { padding: 8px }` gives a
+    /// frame never reached the layout (`tests/e2e/css23_proof.json`).
+    ///
+    /// Merged per node, never appended: a node that changes twice is one entry with the wider
+    /// scope, so the list cannot outgrow the DOM however long a pointer keeps moving.
+    pub fn stage_css_dirty(
+        &mut self,
+        dom_id: DomId,
+        restyle_result: &azul_core::styled_dom::RestyleResult,
+    ) {
+        use azul_css::props::property::RelayoutScope;
+
+        let dirty: Vec<(NodeId, RelayoutScope)> = restyle_result
+            .changed_nodes
+            .iter()
+            .map(|(node_id, changes)| {
+                let widest = changes
+                    .iter()
+                    .map(|change| change.current_prop.get_type().relayout_scope(true))
+                    .fold(RelayoutScope::None, RelayoutScope::max);
+                (*node_id, widest)
+            })
+            .collect();
+        if dirty.is_empty() {
+            return;
+        }
+        let current = self
+            .pending_css_dirty
+            .take()
+            .unwrap_or((dom_id, Vec::new()));
+        if current.0 == dom_id {
+            let mut merged: BTreeMap<NodeId, RelayoutScope> = current.1.into_iter().collect();
+            for (node_id, scope) in dirty {
+                merged
+                    .entry(node_id)
+                    .and_modify(|existing| {
+                        if scope > *existing {
+                            *existing = scope;
+                        }
+                    })
+                    .or_insert(scope);
+            }
+            self.pending_css_dirty = Some((dom_id, merged.into_iter().collect()));
+        } else {
+            // The slot holds ONE DOM's dirt, and it is another DOM's: dirt that asks for layout
+            // waits beside the slot for its DOM's pass ([`Self::hold_css_dirt`]); paint-only
+            // dirt was served by the restyle that staged it and goes.
+            let (other_dom, other_dirt) = current;
+            if other_dirt
+                .iter()
+                .any(|(_, scope)| *scope > RelayoutScope::None)
+            {
+                self.hold_css_dirt(other_dom, other_dirt);
+            }
+            self.pending_css_dirty = Some((dom_id, dirty));
+        }
+    }
+
     /// Stage `dirt` as the css diff the next pass of `dom_id` takes ([`Self::pending_css_dirty`]
     /// holds one DOM's diff), returning whatever OTHER dom's diff was staged so the caller can
     /// put it back after the pass: it is not this pass's to take.
@@ -16435,6 +16503,33 @@ impl LayoutWindow {
         Some(rect)
     }
 
+    /// Where a node's laid-out box is on the screen right now, for a node that has no hit-test area
+    /// of its own (the label inside a button, a text run): its box moved by the scroll offsets and
+    /// transforms painted over it, as [`Self::get_node_hit_test_bounds`] does for a box that has one.
+    /// [`Self::get_node_position`] and [`Self::get_node_size`] are the box in CONTENT coordinates:
+    /// inside a scrolled box that is not where the node is drawn, and a click aimed there misses.
+    pub fn get_node_laid_out_bounds_on_screen(&self, node_id: DomNodeId) -> Option<LogicalRect> {
+        let layout_result = self.layout_results.get(&node_id.dom)?;
+        let nid = node_id.node.into_crate_internal()?;
+        let rect = LogicalRect::new(self.get_node_position(node_id)?, self.get_node_size(node_id)?);
+        let Some(&idx) = layout_result
+            .layout_tree
+            .dom_to_layout
+            .get(&nid)
+            .and_then(|indices| indices.first())
+        else {
+            return Some(rect);
+        };
+        Some(crate::headless::node_rect_to_screen(
+            layout_result,
+            node_id.dom,
+            idx.index(),
+            rect,
+            &|d, n| self.scroll_manager.get_current_offset(d, n),
+            &|d, n| self.painted_transform_of(d, n),
+        ))
+    }
+
     /// Get the parent of a node
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_result = self.layout_results.get(&node_id.dom)?;
@@ -16688,6 +16783,43 @@ impl LayoutWindow {
             now,
             &hop,
         )
+    }
+
+    /// [`Self::scroll_into_view_dry_run`] with the deltas as the containers would REALLY move: a box
+    /// scrolls no further than its content reaches, so centring the last pill of a strip moves the
+    /// strip less than the ideal delta says. A caller that aims at where the node will be after the
+    /// scroll (a click) needs the movement that happens, not the one that was asked for.
+    #[must_use]
+    pub fn scroll_into_view_dry_run_clamped(
+        &self,
+        node_id: DomNodeId,
+        options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
+        now: Instant,
+    ) -> Vec<crate::managers::scroll_into_view::ScrollAdjustment> {
+        let hops = self.nested_dom_hops();
+        let hop = move |d: DomId| hops.get(&d).copied();
+        let mut scroll_manager = self.scroll_manager.clone();
+        let mut adjustments = crate::managers::scroll_into_view::scroll_node_into_view(
+            node_id,
+            &self.layout_results,
+            &mut scroll_manager,
+            options,
+            now,
+            &hop,
+        );
+        for adjustment in &mut adjustments {
+            let (dom, node) = (
+                adjustment.scroll_container_dom_id,
+                adjustment.scroll_container_node_id,
+            );
+            let before = self.scroll_manager.get_current_offset(dom, node).unwrap_or_default();
+            let after = scroll_manager.get_current_offset(dom, node).unwrap_or_default();
+            adjustment.delta = LogicalPosition {
+                x: after.x - before.x,
+                y: after.y - before.y,
+            };
+        }
+        adjustments
     }
 
     /// Every nested dom mapped to `(host's dom, host node, the offset that

@@ -205,6 +205,11 @@ impl AsRef<str> for AzString {
 
 impl core::fmt::Debug for AzString {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if self.is_secret() {
+            // A secret (a keyring secret, a password) never reaches a log or a panic message
+            // through `{:?}`, whatever struct holds it.
+            return "<secret>".fmt(f);
+        }
         self.as_str().fmt(f)
     }
 }
@@ -2496,6 +2501,19 @@ mod secret_tests {
         assert_eq!(copy.as_str(), "hunter2");
         let plain = AzString::from(alloc::string::String::from("hello"));
         assert!(!plain.is_secret());
+    }
+
+    #[test]
+    fn a_secret_is_not_printed_by_debug() {
+        let mut secret = AzString::from(alloc::string::String::from("hunter2"));
+        assert!(
+            alloc::format!("{secret:?}").contains("hunter2"),
+            "a plain text is printed as it is"
+        );
+        secret.set_secret(true);
+        let shown = alloc::format!("{secret:?}");
+        assert!(!shown.contains("hunter2"), "{shown}");
+        assert_eq!(secret.as_str(), "hunter2", "only the printing is hidden");
     }
 
     #[test]

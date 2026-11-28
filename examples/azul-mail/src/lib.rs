@@ -976,6 +976,12 @@ fn keyring_outcome(result: &KeyringResult) -> &'static str {
         KeyringResult::Denied => "denied",
         KeyringResult::Unavailable => "unavailable",
         KeyringResult::Error => "error",
+        KeyringResult::Cancelled => "cancelled",
+        KeyringResult::Failed => "failed",
+        KeyringResult::LockedOut => "locked out",
+        KeyringResult::NotEnrolled => "not enrolled",
+        KeyringResult::Invalidated => "invalidated",
+        KeyringResult::WouldPrompt => "needs the user",
     }
 }
 
@@ -1085,7 +1091,7 @@ fn keyring_next(s: &mut MailApp, info: &mut CallbackInfo) {
         &azul_storage::keyring::KeyringNamespace::azlin_shared(),
     );
     match &call.secret {
-        Some(secret) => info.keyring_store_in(shared, call.key.clone(), secret.expose(), false),
+        Some(secret) => info.keyring_store_in(shared, call.key.clone(), secret.expose()),
         None => info.keyring_get_in(shared, call.key.clone()),
     }
     s.keyring = Some(call.op);

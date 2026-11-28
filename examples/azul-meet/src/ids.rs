@@ -19,6 +19,8 @@ pub const LEAVE: AzString = AzString::from_const_str("__azmeet_leave");
 
 /// The gear at the top right: the settings page azul-appkit shares.
 pub const SETTINGS: AzString = AzString::from_const_str("__azmeet_settings");
+/// "Open settings" beside the gear while the system refuses the camera or the microphone the screen shows.
+pub const PERMISSION_SETTINGS: AzString = AzString::from_const_str("__azmeet_permission_settings");
 
 // ==== The side panel ====
 

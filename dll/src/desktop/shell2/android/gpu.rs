@@ -95,6 +95,12 @@ impl AndroidWindow {
         }
     }
 
+    /// Whether this window draws on the CPU (the CPU renderer was asked for, or the GPU path gave up): its retained frame is
+    /// what the shell posts, and the surface has no other producer.
+    pub(super) fn draws_on_cpu(&self) -> bool {
+        self.backend != RenderBackend::Gpu
+    }
+
     /// `InitWindow`, after `native_window` was set: the GPU path takes the new surface, BEFORE any CPU frame is drawn on it.
     #[cfg(feature = "ndk")]
     pub(super) fn gpu_surface_created(&mut self) {
@@ -178,6 +184,10 @@ impl AndroidWindow {
             }
             let outcome = self.with_gpu(GlesGpu::present);
             self.after_gpu(outcome);
+            // A GPU window that is still a GPU window posted its picture (one that fell back to the CPU signals from the CPU path).
+            if self.backend == RenderBackend::Gpu {
+                self.first_frame_posted();
+            }
         }
     }
 

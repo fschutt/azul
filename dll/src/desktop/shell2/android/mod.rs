@@ -115,6 +115,11 @@ pub struct AndroidWindow {
     frame_stats: crate::desktop::shell2::common::frame_stats::FrameStats,
     frame_clock: std::time::Instant,
     raster_since_post_us: u64,
+    /// What the app has been told of the activity's coming and going (`android_core::lifecycle::AppPhase`: the pairs hold).
+    app_phase: crate::desktop::shell2::android_core::lifecycle::AppPhase,
+    /// The activity was told that this window posted its first picture (`AzulActivity.firstFramePresented`: the system's starting
+    /// window may go, Android 12+). Once.
+    first_frame_signalled: bool,
     /// `false` once `MainEvent::Destroy` arrives; breaks the outer loop.
     pub is_open: bool,
     /// What the Java UI thread may touch (`bridge::UiBridge`): the queues it pushes events onto (the IME's
@@ -136,6 +141,11 @@ pub struct AndroidWindow {
     /// What the system bars were last told about the colour behind them (`android_core::bars`): the
     /// clock and the icons are white unless the window says its bars are light.
     bars: BarsState,
+    /// The system bars and cutout options last applied to the activity (`WindowFlags::system_bars`): applied again only on a change.
+    applied_system_bars: Option<azul_core::display_features::SystemBarsOptions>,
+    /// The app fixed the colour of the bars' icons (`SystemBarIcons::Light` / `Dark`): the shell's own pick from what it draws behind
+    /// the bars stands down.
+    bars_icons_fixed: bool,
     /// The system insets as `View.onApplyWindowInsets` reported them, PHYSICAL pixels
     /// `[top, bottom, left, right, ime]`: how many rows of the frame lie under the status and navigation
     /// bars.
@@ -283,12 +293,16 @@ impl AndroidWindow {
             frame_stats: crate::desktop::shell2::common::frame_stats::FrameStats::new(),
             frame_clock: std::time::Instant::now(),
             raster_since_post_us: 0,
+            first_frame_signalled: false,
+            app_phase: crate::desktop::shell2::android_core::lifecycle::AppPhase::default(),
             is_open: true,
             icon_provider,
             font_registry,
             bridge: Arc::new(bridge::UiBridge::new()),
             present: PresentState::new(),
             bars: BarsState::new(),
+            applied_system_bars: None,
+            bars_icons_fixed: false,
             inset_px: [0; 5],
             selection_toolbar_shown: false,
             ime_dirty: false,
@@ -443,6 +457,16 @@ impl AndroidWindow {
                 );
             }
         }
+    }
+
+    /// The first picture of this window was posted, by the CPU path or the GPU path: the activity may let the system's starting
+    /// window go. Once per window.
+    pub(super) fn first_frame_posted(&mut self) {
+        if self.first_frame_signalled {
+            return;
+        }
+        self.first_frame_signalled = true;
+        signal_first_frame();
     }
 
     pub fn regenerate_layout_inner(
@@ -703,7 +727,10 @@ impl PlatformWindow for AndroidWindow {
 
     /// The activity owns the window geometry outright, so there is nothing to
     /// push and no OS-sync baseline to diff (`os_synced_state` stays `None`).
-    fn sync_window_state(&mut self) {}
+    fn sync_window_state(&mut self) {
+        // The one thing of the window state this shell pushes to the system: what the app asks of the bars and the cutout area.
+        apply_system_bars_if_changed(self);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1167,6 +1194,26 @@ impl Drop for CloseBridgeOnExit {
     }
 }
 
+/// Tell the app what `android_core::lifecycle::AppPhase` says is to be told (the app's lifecycle handler:
+/// `CallbackInfo::set_lifecycle_handler`; an app without one hears nothing), and apply what the handler asked for.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn tell_app(window: &mut AndroidWindow, tell: Option<crate::desktop::shell2::android_core::lifecycle::Tell>) {
+    use azul_core::lifecycle::LifecycleEvent;
+    use crate::desktop::shell2::android_core::lifecycle::Tell;
+
+    let Some(tell) = tell else {
+        return;
+    };
+    let event = match tell {
+        Tell::Paused => LifecycleEvent::Paused,
+        Tell::Resumed => LifecycleEvent::Resumed,
+        Tell::LowMemory => LifecycleEvent::LowMemory,
+        Tell::WillTerminate => LifecycleEvent::WillTerminate,
+    };
+    let result = crate::desktop::lifecycle::raise(window, event);
+    follow_ui_result(window, result);
+}
+
 /// What the loop does with the result of a pass over a UI-thread event: the same ladder the input
 /// sites use. An incremental relayout is PERFORMED here, never escalated into a DOM rebuild that
 /// would throw it away (an IME commit landed in the engine's tree and was overwritten by the app's
@@ -1358,8 +1405,13 @@ fn apply_ui_events(window: &mut AndroidWindow, events: Vec<UiEvent>) {
                     apply_insets(window, [top, bottom, left, right, ime]);
                 }
             }
+            UiEvent::DisplayFeatures(flat) => apply_display_features(window, &flat),
             UiEvent::Gesture(gesture) => apply_gesture(window, gesture),
-            UiEvent::TrimMemory(level) => trim_memory(window, level),
+            UiEvent::TrimMemory(level) => {
+                trim_memory(window, level);
+                let tell = window.app_phase.on_trim(level);
+                tell_app(window, tell);
+            }
         }
     }
     // The same gate as X11's handle_xi_raw_motion - only while the lock is held - then the shared manager
@@ -1435,6 +1487,93 @@ fn apply_insets(window: &mut AndroidWindow, px: [i32; 5]) {
     window
         .common
         .request_regeneration(RelayoutReason::RefreshDom);
+}
+
+/// The cutouts, rounded corners, system bars and fingerprint sensor of the window, as the Java bridge reported them (the array
+/// `android_core::display` reads, PHYSICAL px), handed to the engine in logical px next to the insets: an app draws into the gaps
+/// (a tab strip in the status bar's band that slides around the camera). A change relayouts: a rotation moves the cutout to
+/// another edge. The sensor's kind and place are not public API on Android: `Unknown` kind, no spot.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn apply_display_features(window: &mut AndroidWindow, flat: &[i32]) {
+    use crate::desktop::shell2::android_core::display::{decode, guess_shape, Bar, Px, ShapeGuess};
+    use azul_core::{
+        display_features as df,
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+    };
+
+    let Some(px) = decode(flat) else {
+        log_debug!(
+            LogCategory::Window,
+            "[Android] display features: an array of {} ints this version cannot read",
+            flat.len()
+        );
+        return;
+    };
+    let scale = azul_layout::window::present_geometry::frame_dpi_factor(
+        window.common.current_window_state().size.dpi,
+    );
+    let rect_of = |r: Px| {
+        let (x, y, w, h) = r.to_logical(scale);
+        LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
+    };
+    let radius = |v: i32| if scale > 0.0 { v as f32 / scale } else { 0.0 };
+    let bar = |b: Option<Bar>| match b {
+        Some(b) => df::OptionSystemBar::Some(df::SystemBar {
+            rect: rect_of(b.rect),
+            visible: b.visible,
+        }),
+        None => df::OptionSystemBar::None,
+    };
+    let cutouts: Vec<df::DisplayCutout> = px
+        .cutouts
+        .iter()
+        .map(|r| df::DisplayCutout {
+            rect: rect_of(*r),
+            shape: match guess_shape(*r) {
+                ShapeGuess::Circle => df::CutoutShape::Circle,
+                ShapeGuess::RoundedRect => df::CutoutShape::RoundedRect,
+            },
+            approximate: false,
+        })
+        .collect();
+    let features = df::DisplayFeatures {
+        cutouts: df::DisplayCutoutVec::from_vec(cutouts),
+        corner_radii: df::CornerRadii {
+            top_left: radius(px.corners[0]),
+            top_right: radius(px.corners[1]),
+            bottom_right: radius(px.corners[2]),
+            bottom_left: radius(px.corners[3]),
+        },
+        bars: df::SystemBars {
+            status: bar(px.status),
+            navigation: bar(px.navigation),
+        },
+        fingerprint: if px.fingerprint {
+            df::OptionFingerprintSensor::Some(df::FingerprintSensor {
+                kind: df::FingerprintKind::Unknown,
+                spot: df::OptionFingerprintSpot::None,
+            })
+        } else {
+            df::OptionFingerprintSensor::None
+        },
+    };
+    log_debug!(
+        LogCategory::Window,
+        "[Android] display features: {} cutout(s), corners {:?}, status bar {:?}, navigation bar {:?}, fingerprint sensor {}",
+        px.cutouts.len(),
+        px.corners,
+        px.status,
+        px.navigation,
+        px.fingerprint,
+    );
+    let changed = window
+        .common
+        .layout_window
+        .as_mut()
+        .is_some_and(|lw| lw.report_display_features(features));
+    if changed {
+        window.common.request_regeneration(RelayoutReason::Resize);
+    }
 }
 
 /// A gesture Android's detectors recognised, in PHYSICAL pixels (View coordinates), as the engine's
@@ -1772,18 +1911,43 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                             logical_h,
                         );
                         apply_surface_size(window, (logical_w, logical_h));
+                        let surface_px = (
+                            u32::try_from(nw.width()).unwrap_or(0),
+                            u32::try_from(nw.height()).unwrap_or(0),
+                        );
                         window.native_window = Some(nw);
                         // A surface that is new to the shell: its buffers hold nothing of ours.
                         window.present.surface_changed();
                         // The GPU path takes the surface now, before any CPU frame is drawn on it (an ANativeWindow has one
                         // producer): on a failure the window is a CPU window from here on, with one diagnostic line.
                         window.gpu_surface_created();
+                        // The CPU frame that was on the screen goes on the new surface AT ONCE, when it is the size of the
+                        // surface (home and back): the layout and the render below take about 130 ms, and the new surface
+                        // showed black until then (ledger E47). A rotation or any other size shows nothing early.
+                        #[cfg(feature = "cpurender")]
+                        {
+                            let retained = window
+                                .cpu_backend
+                                .last_frame
+                                .as_ref()
+                                .map(|pixmap| (pixmap.width(), pixmap.height()));
+                            if window.draws_on_cpu()
+                                && crate::desktop::shell2::android_core::present::retained_frame_fits(retained, surface_px)
+                            {
+                                let _ = render_frame(window);
+                            }
+                        }
+                        #[cfg(not(feature = "cpurender"))]
+                        let _ = surface_px;
                         // On the launch InitWindow this preserves the queued
                         // `Initial`; on a re-attach (rotation recreates the
                         // surface with new dimensions and does NOT deliver
                         // WindowResized) it tags the pass `Resize`.
                         let reason = resize_reason(window);
                         window.common.request_regeneration(reason);
+                        // What the window asks of the system bars and the cutout area (`WindowFlags::system_bars`), at its
+                        // creation: `sync_window_state` follows the changes.
+                        apply_system_bars_if_changed(window);
                         // The app's `WindowCreateOptions::create_callback`, ONCE per window lifetime, as the
                         // desktop shells fire it: the window exists (the surface, its real size and density),
                         // nothing is laid out yet. An app starts its timers, workers, locale and requests
@@ -1801,6 +1965,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
             }
             MainEvent::TerminateWindow { .. } => {
                 log_debug!(LogCategory::Window, "[Android] TerminateWindow");
+                // The surface goes: the app is off the screen, even when `Pause` did not come first.
+                let tell = window.app_phase.on_surface_lost();
+                tell_app(window, tell);
                 // The EGL surface goes BEFORE the ANativeWindow is released below (NDK: do not touch the window after this
                 // callback returns); the GPU path's context and renderer stay.
                 window.gpu_surface_destroyed();
@@ -1889,15 +2056,26 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // NDK `onLowMemory`: "Use this callback to release resources you do not need": the
                 // worst level (`onTrimMemory` reaches the shell as `UiEvent::TrimMemory`).
                 trim_memory(window, TRIM_MEMORY_UI_HIDDEN);
+                let tell = window.app_phase.on_low_memory();
+                tell_app(window, tell);
             }
             MainEvent::Destroy => {
+                // The last word to the app (a window that never heard `Paused` hears it first), then the window goes.
+                for tell in window.app_phase.on_destroy() {
+                    tell_app(window, tell);
+                }
                 window.close();
             }
             MainEvent::Pause => {
-                // No-op for now; future: pause timers, stop animations.
+                // The app left the screen: its lifecycle handler hears `Paused` NOW, before the system may end the process
+                // (the app writes what a person would lose here).
+                let tell = window.app_phase.on_pause();
+                tell_app(window, tell);
             }
             MainEvent::Resume { .. } => {
                 adopt_touch_sounds(window);
+                let tell = window.app_phase.on_resume();
+                tell_app(window, tell);
                 // Back in front (HOME and back, recents, another app's dialog that covered this one): the
                 // surface may have lost what it showed without a `RedrawNeeded` (a black window until
                 // something redrew it, QA run 45776829730). The frame the shell holds is posted once,
@@ -2985,7 +3163,8 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
         .app
         .startup()
         .mark_first_present(|| format!("android cpu {}", if plan.dirty.is_some() { "partial" } else { "full" }));
-    if let Some((status_light, navigation_light)) = bars_to_tell {
+    window.first_frame_posted();
+    if let Some((status_light, navigation_light)) = bars_to_tell.filter(|_| !window.bars_icons_fixed) {
         set_system_bars_appearance(status_light, navigation_light);
     }
     Ok(())
@@ -3193,6 +3372,115 @@ pub fn set_system_bars_appearance(status_light: bool, navigation_light: bool) {
 /// Without `jni` there is no activity to tell.
 #[cfg(all(target_os = "android", not(feature = "jni")))]
 pub fn set_system_bars_appearance(_status_light: bool, _navigation_light: bool) {}
+
+/// Apply what the window asks of the system bars and the cutout area (`WindowFlags::system_bars`) when it is new or changed:
+/// `AzulActivity.applySystemBars` on the UI thread (hide / show with the swipe behaviour, the icon colour, the window drawing into
+/// the cutout and edge to edge). The `extend_into_safe_area` flag is the layout's: it never changes the cutout mode.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn apply_system_bars_if_changed(window: &mut AndroidWindow) {
+    let wanted = window.common.current_window_state().flags.system_bars;
+    if window.applied_system_bars == Some(wanted) {
+        return;
+    }
+    window.applied_system_bars = Some(wanted);
+    window.bars_icons_fixed = wanted.icons != azul_core::display_features::SystemBarIcons::Auto;
+    apply_system_bars(
+        wanted.status as i32,
+        wanted.navigation as i32,
+        wanted.icons as i32,
+        wanted.draw_into_cutout,
+    );
+}
+
+#[cfg(all(target_os = "android", feature = "jni"))]
+fn apply_system_bars(status: i32, navigation: i32, icons: i32, draw_into_cutout: bool) {
+    use jni::{objects::JValue, JavaVM};
+
+    let vm_ptr = java_vm_ptr();
+    let activity_ptr = activity_ptr();
+    if vm_ptr.is_null() || activity_ptr.is_null() {
+        return;
+    }
+    let result = (|| -> Result<(), String> {
+        let vm = unsafe { JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) }
+            .map_err(|e| format!("JavaVM::from_raw: {e:?}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
+        let activity =
+            unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
+        let class = crate::desktop::extra::find_app_class(&mut env, &activity, "com/azul/app/AzulActivity")
+            .ok_or_else(|| "AzulActivity not in this APK".to_string())?;
+        env.call_static_method(
+            &class,
+            "applySystemBars",
+            "(Landroid/app/Activity;IIIZ)V",
+            &[
+                JValue::Object(&activity),
+                JValue::Int(status),
+                JValue::Int(navigation),
+                JValue::Int(icons),
+                JValue::Bool(u8::from(draw_into_cutout)),
+            ],
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            let _ = env.exception_clear();
+            format!("call applySystemBars: {e:?}")
+        })
+    })();
+    if let Err(e) = result {
+        log_debug!(LogCategory::Window, "[Android] system bars options: {e}");
+    }
+}
+
+/// Without `jni` there is no activity to tell.
+#[cfg(all(target_os = "android", not(feature = "jni")))]
+fn apply_system_bars(_status: i32, _navigation: i32, _icons: i32, _draw_into_cutout: bool) {}
+
+/// Tell the activity that the engine posted its first picture: `AzulActivity.firstFramePresented` lets the system's starting
+/// window go (Android 12+; it was held so that the empty window of the surface that has no buffer yet is never seen).
+#[cfg(all(target_os = "android", feature = "jni"))]
+fn signal_first_frame() {
+    use jni::{objects::JValue, JavaVM};
+
+    let vm_ptr = java_vm_ptr();
+    let activity_ptr = activity_ptr();
+    if vm_ptr.is_null() || activity_ptr.is_null() {
+        return;
+    }
+    let result = (|| -> Result<(), String> {
+        let vm = unsafe { JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) }
+            .map_err(|e| format!("JavaVM::from_raw: {e:?}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
+        let activity =
+            unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
+        let class = crate::desktop::extra::find_app_class(&mut env, &activity, "com/azul/app/AzulActivity")
+            .ok_or_else(|| "AzulActivity not in this APK".to_string())?;
+        env.call_static_method(
+            &class,
+            "firstFramePresented",
+            "(Landroid/app/Activity;)V",
+            &[JValue::Object(&activity)],
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            let _ = env.exception_clear();
+            format!("call firstFramePresented: {e:?}")
+        })
+    })();
+    if let Err(e) = result {
+        log_debug!(LogCategory::Window, "[Android] first frame: {e}");
+    }
+}
+
+/// Without `jni` there is no activity to tell.
+#[cfg(all(target_os = "android", not(feature = "jni")))]
+fn signal_first_frame() {}
 
 /// Show or hide Android's floating Cut/Copy/Paste toolbar (U2).
 ///

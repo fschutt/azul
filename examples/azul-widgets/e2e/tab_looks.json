@@ -1,7 +1,7 @@
 [
   {
     "name": "azul_widgets_tab_looks_switch_together_and_the_panel_follows",
-    "description": "The Tab looks section: the same three tabs drawn as Aurora (flora's curves), Rectangular and Pills (buttons on the leather), one shared selection. A click on Share in any of them selects Share in all three and the panel under them shows Share's text (it slides in from the right: a switch to a tab on the right); a click on Home brings Home's text back. The ribbon on the leather switches its own tabs (Start / Layout).",
+    "description": "The Tab looks section: the same three tabs drawn as Auto (the theme's buttons floating on the leather), Rectangular and Pills (what Auto is on a desktop), one shared selection. A click on Share in any of them selects Share in all three and the panel under them shows Share's text (it slides in from the right: a switch to a tab on the right); a click on Home brings Home's text back. The ribbon on the leather switches its own tabs (Start / Layout).",
     "steps": [
       { "op": "scroll_into_view", "text": "Tab looks", "block": "start", "behavior": "instant" },
       { "op": "wait_frame" },
