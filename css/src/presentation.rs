@@ -21,9 +21,10 @@ use crate::props::basic::color::ColorU;
 /// 1.4.6 (AAA), 7:1.
 pub const MORE_CONTRAST_TEXT: f32 = 7.0;
 
-/// The contrast ratio of a rule, a control's edge or a ring against its surface under increased
-/// contrast: stronger than the 3:1 of WCAG 2.2 success criterion 1.4.11, as strong as the AA ratio of
-/// a normal text.
+/// The contrast ratio of a rule, an edge or a ring under increased contrast: 4.5:1.
+///
+/// Stronger than the 3:1 of WCAG 2.2 success criterion 1.4.11, as strong as the AA ratio of a
+/// normal text.
 pub const MORE_CONTRAST_EDGE: f32 = 4.5;
 
 /// `colour` as it looks on `surface`, fully opaque: reduced transparency paints nothing see-through.
@@ -40,7 +41,7 @@ pub fn opaque_over(colour: ColorU, surface: ColorU) -> ColorU {
 }
 
 /// The extreme (black or white) that contrasts most with `surface`.
-fn extreme_against(surface: &ColorU) -> ColorU {
+fn extreme_against(surface: ColorU) -> ColorU {
     if surface.contrast_ratio(&ColorU::WHITE) >= surface.contrast_ratio(&ColorU::BLACK) {
         ColorU::WHITE
     } else {
@@ -60,12 +61,14 @@ fn at_least(colour: ColorU, surface: ColorU, ratio: f32) -> ColorU {
         return moved;
     }
     // no tint of this colour reaches it on this surface (a mid-tone one): the extreme does the most
-    extreme_against(&surface)
+    extreme_against(surface)
 }
 
-/// A fill an increased-contrast text can be read on. A fill that an extreme ink (black or white)
-/// reaches [`MORE_CONTRAST_TEXT`] on stays; a mid-tone one - neither black nor white reaches it - is
-/// moved to the side it is nearer to, keeping its tint. `fill` is opaque (see [`opaque_over`]).
+/// A fill an increased-contrast text can be read on.
+///
+/// A fill that an extreme ink (black or white) reaches [`MORE_CONTRAST_TEXT`] on stays; a mid-tone
+/// one - neither black nor white reaches it - is moved to the side it is nearer to, keeping its
+/// tint. `fill` is opaque (see [`opaque_over`]).
 #[must_use]
 pub fn more_contrast_surface(fill: ColorU) -> ColorU {
     let against_white = fill.contrast_ratio(&ColorU::WHITE);
