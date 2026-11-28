@@ -11,6 +11,8 @@ words what to do, and reads what it found.
              trusted. Needs a Mac with Xcode 15 or newer.
   --app      the signed AzSelfTest.app to install first (signed with your own development profile; see
              doc/guide/en/deploying/mobile.md). Without it the app must be installed already.
+             `bash scripts/ci/ios_phone_selftest_build.sh` builds the unsigned app from the sources on your Mac and, with
+             IOS_SIGNING_IDENTITY and IOS_DEVICE set, signs it and runs this script.
   (default)  UNATTENDED: the app runs every row that needs no person, writes its report and exits; nothing for you to do.
              Rows that need a person (a shake, a word, a hand over the proximity sensor) are listed with what to do.
   --attended the app shows its list: press "Run all" and follow the instruction written on each row that says NEEDS-HUMAN
@@ -24,9 +26,11 @@ that appears is the app asking, and answering it is yours.
 """
 import argparse
 import json
+import plistlib
 import re
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -46,6 +50,11 @@ PHONE_MUST_PASS = (
 # What to do, in plain words, for the rows a person has to help with (the app writes its own text into `detail`; these
 # are the words the script adds in front when the app's row is NEEDS-HUMAN).
 HUMAN_PREFIX = "NEEDS A PERSON: "
+
+
+def report_in(text):
+    """Whether the console already holds a complete report line."""
+    return bool(parse_reports(text))
 
 
 def parse_reports(text):
@@ -120,28 +129,58 @@ def launch(device, bundle, seconds, attended):
         env["AZ_SELFTEST"] = "1"
     cmd = ["xcrun", "devicectl", "device", "process", "launch", "--device", device, "--terminate-existing",
            "--environment-variables", json.dumps(env), "--console", bundle]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
-    try:
-        out, _ = proc.communicate(timeout=seconds)
-    except subprocess.TimeoutExpired:
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", bufsize=1)
+    lines = []
+
+    def pump():
+        for line in proc.stdout:
+            lines.append(line)
+
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
+    # An iPhone app does not exit when its window closes (UIApplicationMain never returns): the console stays attached for
+    # as long as the app lives, so the client is stopped as soon as the report is in (the app keeps running on the phone).
+    deadline = time.time() + seconds
+    while time.time() < deadline and proc.poll() is None:
+        time.sleep(0.5)
+        if report_in("".join(lines[-200:])):
+            time.sleep(1.0)
+            break
+    if proc.poll() is None:
         proc.terminate()
+    reader.join(timeout=10)
+    return "".join(lines)
+
+
+DEFAULT_BUNDLE = "com.azul.AzSelfTest"
+
+
+def bundle_of(app, explicit):
+    """The bundle identifier to launch: the one asked for, else the one the app says (CFBundleIdentifier), else the default."""
+    if explicit:
+        return explicit
+    if app:
         try:
-            out, _ = proc.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            out = ""
-    return out or ""
+            with open(Path(app) / "Info.plist", "rb") as f:
+                found = plistlib.load(f).get("CFBundleIdentifier")
+            if found:
+                return found
+        except (OSError, plistlib.InvalidFileException):
+            pass
+    return DEFAULT_BUNDLE
 
 
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("device", help="the phone: its name or identifier from `xcrun devicectl list devices`")
-    ap.add_argument("--bundle", default="com.azul.AzSelfTest", help="the app's bundle identifier")
+    ap.add_argument("--bundle", help="the app's bundle identifier (default: the one of --app's Info.plist, else com.azul.AzSelfTest)")
     ap.add_argument("--app", help="a signed AzSelfTest.app to install first")
     ap.add_argument("--attended", action="store_true", help="show the list and wait for a person (press Run all)")
     ap.add_argument("--seconds", type=int, default=120, help="how long to keep the console")
     ap.add_argument("--out", default="ios-phone-selftest", help="where the files are written")
     args = ap.parse_args(argv)
     seconds = max(20, min(args.seconds, 900))
+    args.bundle = bundle_of(args.app, args.bundle)
     try:
         listed = subprocess.run(["xcrun", "devicectl", "list", "devices"], capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.TimeoutExpired) as e:
