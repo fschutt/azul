@@ -303,11 +303,18 @@ description = "a mail client: IMAP sync to plain files, folders and messages"
 platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
 weight = 3
 needs = ["an IMAP account"]
-# The one engine crate an app compiles: azul-mail-core's connection policy is azul-core's own type (`azul_core::tls::MailTls`),
-# shared with the Azlin Bridge, which runs without libazul. The type belongs in the facade or in a crate of its own: ledger row.
-[app.engine_ok]
-azul-core = "azul-mail-core uses azul_core::tls::MailTls (the connection policy of every mail client of the tree)"
-azul-css = "azul-core's own dependency"
+# AzMail compiles azul-core: azul-mail-core uses `azul_core::tls::MailTls` (the connection policy of every mail client of the tree,
+# shared with the Azlin Bridge, which runs without libazul), azul-icons-haiku depends on azul-core unconditionally and azul-appkit with
+# its `trust` feature. azul-core defines the C ABI functions of libazul (`#[no_mangle] AzApp_*`), so an app that compiles it and links
+# the prebuilt libazul has each of them twice: the link of the first Linux leg (2026-11-28) stopped in rust-lld with 12 duplicate symbols,
+# and the engine gate would refuse the build even where a linker lets it pass (two copies of the engine's statics). The old exception
+# ("the one engine crate an app may compile") is gone for that reason. The type belongs in the facade or in a crate of its own, and the
+# icons crate must not depend on azul-core: ledger row. Until then the page says it, and the build is still tried on every run.
+[app.known_failing]
+linux = "AzMail compiles azul-core (the mail connection policy type), whose C ABI symbols are also in the prebuilt libazul: the link fails with duplicate symbols"
+macos-arm64 = "AzMail compiles azul-core (the mail connection policy type), whose C ABI symbols are also in the prebuilt libazul: the link fails with duplicate symbols"
+macos-intel = "AzMail compiles azul-core (the mail connection policy type), whose C ABI symbols are also in the prebuilt libazul: the link fails with duplicate symbols"
+windows = "AzMail compiles azul-core (the mail connection policy type), whose C ABI symbols are also in the prebuilt libazul: the link fails with duplicate symbols"
 
 [[app]]
 package = "AzMonitor"
