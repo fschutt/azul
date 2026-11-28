@@ -721,7 +721,7 @@ pub fn regenerate_layout(
     // have given a window of its own (`azul_layout::transient_overlay`). Before the fingerprint, so
     // the retained-layout fast paths below see the DOM the window will show; a window that opens
     // real windows is untouched.
-    let _ = layout_window.present_transient_windows(&mut user_dom, current_window_state);
+    let _ = layout_window.present_root_overlays(&mut user_dom, current_window_state);
 
     // 1.4. PRE-CASCADE DIFF (user directive 2026-08-08: "the start should just
     // scan over the NodeHierarchy to discover anything that changed, which is

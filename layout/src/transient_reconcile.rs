@@ -166,10 +166,24 @@ impl LayoutWindow {
         }
         // The chrome is built from the live theme, like every widget of this window.
         let _theme = azul_core::app_theme::ThemeScope::enter(self.app_theme.clone());
-        // The menus the app opened become popups of the page first, so the pass below presents them
-        // like every other.
-        crate::menu_overlay_dom::present_menu_overlays(dom, &self.menu_overlays);
         crate::transient_overlay::present_transient_windows(dom, presentation)
+    }
+
+    /// The Dom pass of the window's OWN document - not of a view's content or an item DOM hosted in
+    /// it: the menus the app opened become popups at the end of the page, then
+    /// [`Self::present_transient_windows`] presents every popup, those included. Returns how many
+    /// popups it presented. The shell runs it where the app's DOM is made (before it is fingerprinted),
+    /// [`Self::flatten_user_dom_inheriting`] runs it again for the root document; both are idempotent.
+    pub fn present_root_overlays(
+        &self,
+        dom: &mut azul_core::dom::Dom,
+        window_state: &FullWindowState,
+    ) -> usize {
+        if self.effective_presentation(window_state).is_one_surface() {
+            let _theme = azul_core::app_theme::ThemeScope::enter(self.app_theme.clone());
+            crate::menu_overlay_dom::present_menu_overlays(dom, &self.menu_overlays);
+        }
+        self.present_transient_windows(dom, window_state)
     }
 }
 
