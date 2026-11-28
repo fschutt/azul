@@ -6227,7 +6227,7 @@ impl CallbackInfo {
     /// whenever the app is sent to the background, brought back, short of memory or about to end, and
     /// reads which with [`Self::get_lifecycle_event`]. One handler for the app, not one per window:
     /// the usual place is the window's create callback. An app that sets none hears nothing.
-    pub fn set_lifecycle_handler<I: Into<azul_core::callbacks::CoreCallback>>(
+    pub fn set_lifecycle_handler<I: Into<CoreCallback>>(
         &self,
         data: RefAny,
         callback: I,
