@@ -2,7 +2,7 @@
 //!
 //! A frame in a box of its own: the full-height left sidebar (the icon rail it starts as, the
 //! expanded sidebar, the 16 px handle), the location block over the file list (the pen turns the
-//! name into a live field: the list follows what is typed), the Inspector with the preview of the
+//! name into a live field: the list follows what is typed), the Preview with the preview of the
 //! selected file (docked at the right on a desktop, a bottom pane with a grip on a phone, both
 //! resized by dragging), the status pies above the toggle, and the phone's quick-action sheet. The
 //! rows are a mail client's and a drive's at once: a flat section, a tree with disclosure
@@ -15,11 +15,10 @@
 
 use azul::{
     callbacks::{
-        ActionSheetOnEventCallbackType, ButtonOnClickCallbackType, InspectorOnEventCallbackType,
+        ActionSheetOnEventCallbackType, ButtonOnClickCallbackType, PreviewOnEventCallbackType,
         LocationOnEventCallbackType, RibbonOnTabClickCallbackType, SidebarOnEventCallbackType,
     },
     prelude::*,
-    str::String as AzString,
     widgets::*,
 };
 
@@ -56,16 +55,16 @@ pub(crate) struct SidebarDemo {
     pub(crate) state: usize,
     /// The surface: 0 the theme's, 1 leather, 2 vellum, 3 blue jeans, 4 aluminium.
     pub(crate) surface: usize,
-    /// Whether the Inspector shows, and how wide / tall it is (the app keeps what the drag reports).
-    pub(crate) inspector_open: bool,
-    pub(crate) inspector_size: f32,
+    /// Whether the Preview shows, and how wide / tall it is (the app keeps what the drag reports).
+    pub(crate) preview_open: bool,
+    pub(crate) preview_size: f32,
     /// The chosen row of the sidebar (its tag).
     pub(crate) selected: usize,
     /// Whether the tree's folder "assets" shows its children.
     pub(crate) assets_open: bool,
     /// Whether the collapsible "Favourites" section shows its rows.
     pub(crate) favourites_open: bool,
-    /// The index of the file the Inspector shows.
+    /// The index of the file the Preview shows.
     pub(crate) file: usize,
     /// The location's name field: whether it is open and what it holds.
     pub(crate) editing: bool,
@@ -86,8 +85,8 @@ impl Default for SidebarDemo {
             form: 0,
             state: 1,
             surface: 0,
-            inspector_open: true,
-            inspector_size: 0.0,
+            preview_open: true,
+            preview_size: 0.0,
             selected: TAG_FONTS,
             assets_open: true,
             favourites_open: true,
@@ -221,7 +220,7 @@ fn the_location(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Dom {
 }
 
 /// The list of files under the location: the rows the name field lets through; a click picks the file
-/// the Inspector shows.
+/// the Preview shows.
 fn the_list(data: &RefAny, demo: &SidebarDemo) -> Dom {
     let mut list = Dom::create_div().with_css(
         "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; \
@@ -259,7 +258,7 @@ struct FileRef {
     file: usize,
 }
 
-/// The preview the Inspector shows: the file at the top of the list, its kind and size.
+/// The preview the Preview shows: the file at the top of the list, its kind and size.
 fn the_preview(demo: &SidebarDemo) -> Dom {
     let (name, kind, size) = FILES[demo.file.min(FILES.len() - 1)];
     Dom::create_div()
@@ -338,14 +337,14 @@ fn the_frame(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Dom {
     let body = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: 0px;")
         .with_child(the_list(data, demo));
-    let inspector = Inspector::create(Dom::create_div(), the_preview(demo))
+    let preview = Preview::create(Dom::create_div(), the_preview(demo))
         .with_title("Preview")
-        .with_open(demo.inspector_open)
-        .with_size(demo.inspector_size)
+        .with_open(demo.preview_open)
+        .with_size(demo.preview_size)
         .with_surface(surface_of(demo))
         .with_form(form_of(demo))
         .with_theme(theme)
-        .with_on_event(data.clone(), on_inspector as InspectorOnEventCallbackType);
+        .with_on_event(data.clone(), on_preview as PreviewOnEventCallbackType);
     let (name, _, size) = FILES[demo.file.min(FILES.len() - 1)];
     let sheet = ActionSheet::create()
         .with_title(name, size)
@@ -360,7 +359,7 @@ fn the_frame(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Dom {
         .with_on_event(data.clone(), on_sheet as ActionSheetOnEventCallbackType);
     let frame = AppFrame::create(the_header(data, demo, theme), body)
         .with_sidebar(the_sidebar(data, demo, theme))
-        .with_inspector(inspector)
+        .with_preview(preview)
         .with_footer(the_footer(demo))
         .with_sheet(sheet.dom())
         .with_form(form_of(demo));
@@ -404,7 +403,7 @@ struct Pick {
 
 /// The section's card.
 pub(crate) fn sidebar_section(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Dom {
-    let one_more = |on: bool| if on { "Close the Inspector" } else { "Open the Inspector" };
+    let one_more = |on: bool| if on { "Close the Preview" } else { "Open the Preview" };
     section(
         "Sidebar",
         vec![
@@ -435,15 +434,15 @@ pub(crate) fn sidebar_section(data: &RefAny, demo: &SidebarDemo, theme: UiTheme)
                 ),
             ),
             captioned(
-                "Inspector and sheet",
+                "Preview and sheet",
                 Dom::create_div()
                     .with_css("display: flex; flex-direction: row; gap: 6px; flex-wrap: wrap;")
                     .with_child(
-                        Button::with_type(one_more(demo.inspector_open), ButtonType::Default)
+                        Button::with_type(one_more(demo.preview_open), ButtonType::Default)
                             .with_theme(theme)
-                            .with_on_click(data.clone(), on_inspector_open as ButtonOnClickCallbackType)
+                            .with_on_click(data.clone(), on_preview_open as ButtonOnClickCallbackType)
                             .dom()
-                            .with_id("sidebar-inspector-toggle"),
+                            .with_id("sidebar-preview-toggle"),
                     )
                     .with_child(
                         Button::with_type("Open the quick actions", ButtonType::Default)
@@ -501,8 +500,8 @@ extern "C" fn on_surface(mut data: RefAny, _: CallbackInfo) -> Update {
     keep(&mut page, |s| s.sidebar.surface = i)
 }
 
-extern "C" fn on_inspector_open(mut data: RefAny, _: CallbackInfo) -> Update {
-    keep(&mut data, |s| s.sidebar.inspector_open = !s.sidebar.inspector_open)
+extern "C" fn on_preview_open(mut data: RefAny, _: CallbackInfo) -> Update {
+    keep(&mut data, |s| s.sidebar.preview_open = !s.sidebar.preview_open)
 }
 
 extern "C" fn on_sheet_open(mut data: RefAny, _: CallbackInfo) -> Update {
@@ -592,11 +591,11 @@ extern "C" fn on_location(mut data: RefAny, _: CallbackInfo, event: LocationEven
     })
 }
 
-/// The Inspector's size, as a drag reports it.
-extern "C" fn on_inspector(mut data: RefAny, _: CallbackInfo, event: InspectorEvent) -> Update {
+/// The Preview's size, as a drag reports it.
+extern "C" fn on_preview(mut data: RefAny, _: CallbackInfo, event: PreviewEvent) -> Update {
     keep(&mut data, |s| {
-        s.sidebar.inspector_size = event.size;
-        s.sidebar.last = format!("inspector {:?} {}", event.kind, event.size.round());
+        s.sidebar.preview_size = event.size;
+        s.sidebar.last = format!("preview {:?} {}", event.kind, event.size.round());
     })
 }
 

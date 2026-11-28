@@ -361,7 +361,7 @@
   },
   {
     "name": "azul_widgets_on_a_phone_the_drawer_pushes_the_main_view_and_a_tap_on_it_closes_the_drawer",
-    "description": "The Sidebar section with the phone layout (Window: Phone): the sidebar is the 48 px rail, its toggle opens the DRAWER, which pushes the whole main view aside (the tab row, the band and the list move with it; nothing lies over them under a dim), a tap on what is left of the main view closes the drawer, and the Inspector is the bottom pane: it has no right dock on a phone.",
+    "description": "The Sidebar section with the phone layout (Window: Phone): the sidebar is the 48 px rail, its toggle opens the DRAWER, which pushes the whole main view aside (the tab row, the band and the list move with it; nothing lies over them under a dim), a tap on what is left of the main view closes the drawer, and the Preview is the bottom pane: it has no right dock on a phone.",
     "only_on": [
       "linux",
       "windows",
@@ -422,11 +422,11 @@
       },
       {
         "op": "assert_exists",
-        "selector": ".__azul-native-inspector-bottom"
+        "selector": ".__azul-native-preview-bottom"
       },
       {
         "op": "assert_not_exists",
-        "selector": ".__azul-native-inspector-right"
+        "selector": ".__azul-native-preview-right"
       },
       {
         "op": "assert_not_exists",
@@ -665,8 +665,8 @@
     ]
   },
   {
-    "name": "azul_widgets_the_inspector_docks_right_on_a_desktop_and_its_border_resizes_it_by_key",
-    "description": "The Inspector of the Sidebar section on a desktop: docked at the right (no bottom pane), its left border is a focusable splitter that takes the arrow keys (16 px a press), the app keeps the size the pane reports, the pane closes and opens again from the button.",
+    "name": "azul_widgets_the_preview_docks_right_on_a_desktop_and_its_border_resizes_it_by_key",
+    "description": "The Preview of the Sidebar section on a desktop: docked at the right (no bottom pane), its left border is a focusable splitter that takes the arrow keys (16 px a press), the app keeps the size the pane reports, the pane closes and opens again from the button.",
     "only_on": [
       "linux",
       "windows",
@@ -700,19 +700,19 @@
       },
       {
         "op": "assert_exists",
-        "selector": ".__azul-native-inspector-right"
+        "selector": ".__azul-native-preview-right"
       },
       {
         "op": "assert_not_exists",
-        "selector": ".__azul-native-inspector-bottom"
+        "selector": ".__azul-native-preview-bottom"
       },
       {
         "op": "assert_exists",
-        "selector": ".__azul-native-inspector-pane"
+        "selector": ".__azul-native-preview-pane"
       },
       {
         "op": "click",
-        "selector": ".__azul-native-inspector-grip"
+        "selector": ".__azul-native-preview-grip"
       },
       {
         "op": "wait_frame"
@@ -736,7 +736,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "Last report: inspector Settled 336"
+        "text": "Last report: preview Settled 336"
       },
       {
         "op": "assert_response",
@@ -758,7 +758,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "Last report: inspector Settled 352"
+        "text": "Last report: preview Settled 352"
       },
       {
         "op": "assert_response",
@@ -780,7 +780,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "Last report: inspector Settled 336"
+        "text": "Last report: preview Settled 336"
       },
       {
         "op": "assert_response",
@@ -788,7 +788,7 @@
       },
       {
         "op": "click",
-        "selector": "#sidebar-inspector-toggle"
+        "selector": "#sidebar-preview-toggle"
       },
       {
         "op": "wait_frame"
@@ -798,11 +798,11 @@
       },
       {
         "op": "assert_not_exists",
-        "selector": ".__azul-native-inspector-pane"
+        "selector": ".__azul-native-preview-pane"
       },
       {
         "op": "click",
-        "selector": "#sidebar-inspector-toggle"
+        "selector": "#sidebar-preview-toggle"
       },
       {
         "op": "wait_frame"
@@ -812,13 +812,13 @@
       },
       {
         "op": "assert_exists",
-        "selector": ".__azul-native-inspector-pane"
+        "selector": ".__azul-native-preview-pane"
       }
     ]
   },
   {
     "name": "azul_widgets_the_phones_bottom_pane_resizes_by_its_grip_and_snaps_to_the_peek",
-    "description": "The Inspector as a phone's bottom pane: a split with a grip (not an overlay): the arrow keys on the focused grip change its height by 16 px, Home drops it to the peek (the grip and one line), End raises it to its largest, a double click on the grip flips between the peek and the default height.",
+    "description": "The Preview as a phone's bottom pane: a split with a grip (not an overlay): the arrow keys on the focused grip change its height by 16 px, Home drops it to the peek (the grip and one line), End raises it to its largest, a double click on the grip flips between the peek and the default height.",
     "only_on": [
       "linux",
       "windows",
@@ -871,11 +871,11 @@
       },
       {
         "op": "assert_exists",
-        "selector": ".__azul-native-inspector-bottom"
+        "selector": ".__azul-native-preview-bottom"
       },
       {
         "op": "click",
-        "selector": ".__azul-native-inspector-grip"
+        "selector": ".__azul-native-preview-grip"
       },
       {
         "op": "wait_frame"
@@ -899,7 +899,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "Last report: inspector Settled 184"
+        "text": "Last report: preview Settled 184"
       },
       {
         "op": "assert_response",
@@ -921,7 +921,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "Last report: inspector Settled 168"
+        "text": "Last report: preview Settled 168"
       },
       {
         "op": "assert_response",
@@ -943,7 +943,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "Last report: inspector Settled 56"
+        "text": "Last report: preview Settled 56"
       },
       {
         "op": "assert_response",
@@ -1088,8 +1088,8 @@
     ]
   },
   {
-    "name": "azul_widgets_the_inspectors_border_is_dragged_with_the_pointer",
-    "description": "The Inspector on a desktop is resized by dragging its left border with the pointer: the frame (880 px wide) sits at x 42 in a 1100 px window, the pane is 320 px wide, so its border is at x 601; the pointer goes down on it, moves 100 px to the left and is let go: the pane reports it settled at 420 px. The press is captured by the container, so the drag goes on outside the border.",
+    "name": "azul_widgets_the_previews_border_is_dragged_with_the_pointer",
+    "description": "The Preview on a desktop is resized by dragging its left border with the pointer: the frame (880 px wide) sits at x 42 in a 1100 px window, the pane is 320 px wide, so its border is at x 601; the pointer goes down on it, moves 100 px to the left and is let go: the pane reports it settled at 420 px. The press is captured by the container, so the drag goes on outside the border.",
     "only_on": [
       "linux",
       "windows",
@@ -1156,7 +1156,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "Last report: inspector Settled 420"
+        "text": "Last report: preview Settled 420"
       },
       {
         "op": "assert_response",
@@ -1166,7 +1166,7 @@
   },
   {
     "name": "azul_widgets_the_phones_pane_is_dragged_up_by_its_grip",
-    "description": "The Inspector as a phone's bottom pane is resized by dragging its grip: the pointer goes down on the grip row, moves 100 px up and is let go: the pane grows from 168 to 268 px (between the peek and its largest, so it stays where it was left).",
+    "description": "The Preview as a phone's bottom pane is resized by dragging its grip: the pointer goes down on the grip row, moves 100 px up and is let go: the pane grows from 168 to 268 px (between the peek and its largest, so it stays where it was left).",
     "only_on": [
       "linux",
       "windows",
@@ -1252,7 +1252,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "Last report: inspector Settled 268"
+        "text": "Last report: preview Settled 268"
       },
       {
         "op": "assert_response",

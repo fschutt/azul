@@ -16,7 +16,7 @@
 //! ```
 //!
 //! It is the phone's own edge: a long press on a row opens it (the sidebar reports
-//! `RowLongPressed`, a list reports the press), and it is NOT the Inspector's pane (which is a
+//! `RowLongPressed`, a list reports the press), and it is NOT the Preview's pane (which is a
 //! split the user resizes). It lies over the frame it is a child of - put it as the last child of
 //! the app frame, which is `position: relative` - over a light scrim that closes it when tapped,
 //! and Escape closes it too. On a desktop it draws nothing (a desktop has the context menu), unless
