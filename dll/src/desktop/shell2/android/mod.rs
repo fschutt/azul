@@ -422,6 +422,11 @@ impl AndroidWindow {
                     .raster_since_post_us
                     .saturating_add(u64::try_from(raster_started.elapsed().as_micros()).unwrap_or(u64::MAX));
             }
+            // The frame goes on the window's frame report (the frames since the last counter reset and the
+            // damage): the e2e counters read it, not the backend (`CpuBackend::record_last_frame_on`).
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                self.cpu_backend.record_last_frame_on(lw);
+            }
             // What this render changed joins what the renders since the last present changed: a
             // regeneration renders several times before the shell posts (its bounded lifecycle loop),
             // and the present has to carry all of it, not the last render's.

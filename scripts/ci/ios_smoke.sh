@@ -91,6 +91,7 @@ for app in "$@"; do
   exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$appdir/Info.plist" 2>/dev/null)"
   alive=0; alive_after=0; fatal=""; rust_lines=0; tapped_err=""; expect_found=""
   verdict_args=()
+  logs_json="{}"
   running() {  # the app's job in the simulator's launchd lists a pid (a dead one shows "-")
     local state pid
     state="$(xcrun simctl spawn "$udid" launchctl list 2>/dev/null | grep "UIKitApplication:$bid" || true)"
@@ -110,7 +111,13 @@ for app in "$@"; do
     # command stays until the app ends, so it runs in the background and its being gone is a verdict of its own.
     # AZ_STARTUP=1 (SIMCTL_CHILD_ reaches the app's environment): at its first present the app writes `[startup] ...` lines and ONE
     # `[startup-json] {...}` line with first_present_ms to its console; scripts/ci/smoke_verdict.py reads it as information
-    SIMCTL_CHILD_RUST_BACKTRACE=1 SIMCTL_CHILD_AZ_STARTUP=1 xcrun simctl launch --console "$udid" "$bid" >"$dir/console.log" 2>&1 &
+    # The texts the manifest says the app's log must hold and must not hold ([app.smoke] log_present, log_absent, AZ_SMOKE_LOGS: {} for
+    # none): an app that names some gets the engine's info log (AZ_LOG=info) on its console, where what it says at launch ("no Mac is
+    # paired") is, the way an Android app gets it through the system property debug.az.log
+    logs_json="$(python3 "$(dirname "$0")/ui_find.py" --logs "${name%-ios-sim}")"
+    log_env=()
+    [ "$logs_json" != "{}" ] && log_env=(SIMCTL_CHILD_AZ_LOG=info)
+    env SIMCTL_CHILD_RUST_BACKTRACE=1 SIMCTL_CHILD_AZ_STARTUP=1 ${log_env[@]+"${log_env[@]}"} xcrun simctl launch --console "$udid" "$bid" >"$dir/console.log" 2>&1 &
     launch_pid=$!
     sleep 3
     cat "$dir/console.log"
@@ -220,6 +227,11 @@ PY
   fi
   [ -f "$dir/baseline.png" ] && verdict_args+=(--baseline "$dir/baseline.png" --after "$dir/screenshot-2.png")
   [ -f "$dir/console.log" ] && verdict_args+=(--startup-log "$dir/console.log")
+  # the texts the log must hold and must not hold, against what the app wrote to its console and the unified log of its process
+  if [ "$logs_json" != "{}" ]; then
+    verdict_args+=(--log-check "$logs_json")
+    for f in console.log log.txt; do [ -f "$dir/$f" ] && verdict_args+=(--run-log "$dir/$f"); done
+  fi
   # THE pass line: scripts/ci/smoke_verdict.py (alive twice, on the screen, drawn, no fatal line); nothing else decides
   python3 "$(dirname "$0")/smoke_verdict.py" --out "$dir/result.json" --app "$name" --id "$bid" --alive "$alive" --alive-after "$alive_after" \
     --fatal "$fatal" --rust-lines "${rust_lines:-0}" --band 0.075,0.965 ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1

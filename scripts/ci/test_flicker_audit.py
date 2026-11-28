@@ -42,6 +42,30 @@ class PresentTests(unittest.TestCase):
         self.assertIsNone(f.frame_time_stats(ev[:1]))
 
 
+class BurstTests(unittest.TestCase):
+    """the engine-perf agent's finding: the 489 ms 'max' of build 4's pan was the gap BETWEEN two swipes (0.4 s of sleep and adb's latency), not a frame"""
+
+    def swipes(self):
+        one = [t * 1000 for t in range(0, 700, 50)]                       # a swipe: 14 presents 50 ms apart
+        two = [t * 1000 for t in range(1190, 1890, 50)]                    # 490 ms after the end of the first one
+        return [{"us": us} for us in one + two]
+
+    def test_the_gap_between_two_swipes_is_not_a_frame_interval(self):
+        st = f.frame_time_stats(self.swipes())
+        self.assertEqual((st["max"], st["n"]), (50.0, 26), "only the intervals inside a swipe are frames")
+        self.assertEqual(st["p50"], 50.0)
+
+    def test_the_bursts_and_the_gaps_between_them_are_told(self):
+        bursts, gaps = f.split_bursts(self.swipes())
+        self.assertEqual([len(b) for b in bursts], [14, 14])
+        self.assertEqual(gaps, [540.0])
+
+    def test_one_burst_has_no_gap(self):
+        bursts, gaps = f.split_bursts([{"us": t * 1000} for t in (0, 16, 33)])
+        self.assertEqual((len(bursts), gaps), (1, []))
+        self.assertEqual(f.split_bursts([]), ([], []))
+
+
 class IdleTests(unittest.TestCase):
     def events(self, specs):
         return [{"us": i * 500000, "kind": k, "rows": r, "share": r / 2400} for i, (k, r) in enumerate(specs)]
@@ -87,6 +111,36 @@ class FlagTests(unittest.TestCase):
     def test_a_black_start_is_not_between_two_normal_frames(self):
         self.assertEqual(f.flag_frames([BLACK, BLACK, PAGE, PAGE, PAGE]), [])
 
+    def test_a_long_black_period_is_one_flat_run_with_its_length(self):
+        """the cold start of build 4: 31 frames (1.03 s) of black between the system's starting window and the first picture were not
+        flagged, because only a flat frame whose two neighbours were normal counted"""
+        flagged = f.flag_frames([PAGE, PAGE] + [BLACK] * 31 + [PAGE, PAGE])
+        flat = [x for x in flagged if x["kind"] == "flat"]
+        self.assertEqual([(x["index"], x["frames"]) for x in flat], [(2, 31)])
+        self.assertIn("1.03 s", flat[0]["detail"])
+
+    def test_a_nearly_flat_fade_counts_as_part_of_the_run(self):
+        """the frames of a fade into black are 99.5-99.8 % one colour: still one flat period, not several single frames"""
+        almost = sig((0, 0, 0), (8, 8, 8))[:-q.COLS * 3] + bytes([40, 40, 40]) * q.COLS      # one bottom row of another colour
+        flagged = f.flag_frames([PAGE, almost, BLACK, BLACK, almost, PAGE])
+        self.assertEqual([(x["index"], x["frames"]) for x in flagged if x["kind"] == "flat"], [(1, 4)])
+
+    def test_a_black_run_over_the_limit_fails_and_a_shorter_one_is_only_told(self):
+        """the user's rule: no all-black frame between two normal frames longer than N ms (100 ms by default)"""
+        long_black = f.flag_frames([PAGE, PAGE] + [BLACK] * 4 + [PAGE, PAGE])            # 4 frames at 30 fps = 133 ms
+        self.assertEqual([(x["kind"], x["black"], x["fail"], x["ms"]) for x in long_black], [("flat", True, True, 133)])
+        short_black = f.flag_frames([PAGE, PAGE] + [BLACK] * 3 + [PAGE, PAGE])           # 100 ms: at the limit
+        self.assertEqual([(x["black"], x["fail"], x["ms"]) for x in short_black], [(True, False, 100)])
+        self.assertTrue(f.flag_frames([PAGE, PAGE, BLACK, PAGE, PAGE], max_black_ms=20)[0]["fail"], "the limit is a parameter")
+
+    def test_a_flat_run_of_another_colour_fails_whatever_its_length(self):
+        white = sig((255, 255, 255))
+        flagged = f.flag_frames([PAGE, PAGE, white, PAGE, PAGE])
+        self.assertEqual([(x["kind"], x["black"], x["fail"]) for x in flagged], [("flat", False, True)])
+
+    def test_a_flat_run_that_never_ends_is_not_between_two_normal_frames(self):
+        self.assertEqual([x for x in f.flag_frames([PAGE, PAGE, BLACK, BLACK, BLACK]) if x["kind"] == "flat"], [])
+
 
 class VideoFrameTests(unittest.TestCase):
     def test_a_raw_stream_is_cut_into_frames_and_signed(self):
@@ -98,6 +152,171 @@ class VideoFrameTests(unittest.TestCase):
         self.assertEqual(len(sig_a), q.COLS * q.ROWS * 3)
         self.assertEqual(sig_a[:3], bytes([10, 20, 30]))
         self.assertGreater(q.sig_diff(sig_a, f.signature_of(frames[1], w, h)), 0.2)
+
+
+class ScrollSampleTests(unittest.TestCase):
+    class FakeServer:
+        """a page scroller whose offset follows the clock: `rate` px per second from the first question"""
+        def __init__(self, rate):
+            self.rate, self.t0 = rate, None
+
+        def op(self, op, timeout=3, **params):
+            import time as _t
+            self.t0 = self.t0 or _t.time()
+            return {"data": {"value": {"scroll_states": [{"node_id": 7, "scroll_y": (_t.time() - self.t0) * self.rate, "max_scroll_y": 2000}, {"node_id": 9, "scroll_y": 5}]}}}
+
+    def test_the_scroller_is_sampled_while_the_swipe_runs(self):
+        import time as _t
+        samples = f.scroll_samples_during(self.FakeServer(500), lambda: _t.sleep(0.3), 7, interval=0.02)
+        self.assertGreaterEqual(len(samples), 5)
+        self.assertTrue(all(b[1] >= a[1] for a, b in zip(samples, samples[1:])))
+        ok, text = f.scroll_verdict(samples, +1)
+        self.assertTrue(ok, text)
+
+    def test_a_snap_back_or_no_move_fails(self):
+        snap = [(0.0, 0.0), (0.1, 100.0), (0.2, 40.0), (0.3, 160.0)]
+        ok, text = f.scroll_verdict(snap, +1)
+        self.assertFalse(ok)
+        self.assertIn("worst step back 60", text)
+        still = [(0.0, 10.0), (0.1, 10.0), (0.2, 10.0)]
+        self.assertFalse(f.scroll_verdict(still, +1)[0])
+        self.assertFalse(f.scroll_verdict([(0.0, 1.0)], +1)[0])
+
+    def test_the_way_back_decreases(self):
+        back = [(0.0, 300.0), (0.1, 220.0), (0.2, 90.0)]
+        self.assertTrue(f.scroll_verdict(back, -1)[0])
+        self.assertFalse(f.scroll_verdict(back, +1)[0])
+
+
+class ScrollCheckTests(unittest.TestCase):
+    """scroll_check end to end on a fake device and a fake debug server: the page scrolls with the finger, then back"""
+
+    class Dev:
+        def __init__(self):
+            self.calls = []
+            self.offset = 0.0
+
+        def adb(self, *a, **k):
+            self.calls.append(("adb",) + a)
+            return ""
+
+        def sh(self, cmd, **k):
+            self.calls.append(("sh", cmd))
+            return ""
+
+        def launch(self, cold=True):
+            self.calls.append(("launch", cold))
+
+        def wait_for_front(self, timeout=0):
+            return 1.0
+
+        def settle(self, s):
+            pass
+
+        def swipe(self, x1, y1, x2, y2, ms):
+            import time as _t
+            direction = 1 if y2 < y1 else -1                   # the finger moves up: the page scrolls down
+            for _ in range(10):
+                self.offset = max(0.0, self.offset + direction * 60.0)
+                _t.sleep(0.03)
+
+    def test_a_page_that_follows_the_finger_passes_and_the_calls_are_made(self):
+        import mobile_e2e
+        dev = self.Dev()
+
+        class Server:
+            def __init__(self, port):
+                pass
+
+            def ready(self, seconds):
+                return 0.1, {}
+
+            def op(self, op, timeout=3, **params):
+                return {"data": {"value": {"scroll_states": [{"node_id": 4, "scroll_y": dev.offset, "max_scroll_y": 1500}]}}}
+
+        real = mobile_e2e.Server
+        mobile_e2e.Server = Server
+        try:
+            lines, entry = [], {}
+            f.scroll_check(dev, (540, 1800, 540, 600, 700), lines, entry, port=8796)
+        finally:
+            mobile_e2e.Server = real
+        self.assertTrue(entry["scroll"]["ok"], entry["scroll"])
+        self.assertIn(("adb", "forward", "tcp:8796", "tcp:8796"), dev.calls)
+        self.assertTrue(any(c[0] == "sh" and "AZ_DEBUG=8796" in c[1] for c in dev.calls))
+        self.assertEqual(len(lines), 2)
+        self.assertIn("PASS", lines[0])
+
+    def test_a_server_that_does_not_answer_is_not_verified_not_failed(self):
+        import mobile_e2e
+        dev = self.Dev()
+
+        class Server:
+            def __init__(self, port):
+                pass
+
+            def ready(self, seconds):
+                return None, "connection refused"
+
+        real = mobile_e2e.Server
+        mobile_e2e.Server = Server
+        try:
+            lines, entry = [], {}
+            f.scroll_check(dev, (540, 1800, 540, 600, 700), lines, entry)
+        finally:
+            mobile_e2e.Server = real
+        self.assertIsNone(entry["scroll"]["ok"])
+        self.assertIn("NOT VERIFIED", lines[0])
+
+
+class IosAuditTests(unittest.TestCase):
+    """ios_audit on a fake simulator and no ffmpeg: the idle verdict is made from pictures, the flash audit says why it did not run, the pan is not verified"""
+
+    class FakeIOS:
+        def __init__(self, run, udid, bundle, exe, app_dir=None):
+            self.base_env, self.calls = {}, []
+
+        def simctl(self, *a, **k):
+            self.calls.append(a)
+            return 0, "", ""
+
+        def launch(self, extra_env=None, cold=True):
+            return {}
+
+        def wait_for_front(self, timeout=45):
+            return 1.0
+
+        def settle(self, s):
+            pass
+
+        def capture(self, name, keep=True):
+            return PAGE, 1206, 2622, ""
+
+    def run_audit(self, picture):
+        import tempfile
+        import time as _t
+        out = tempfile.mkdtemp(prefix="flicker-ios-test-")
+        real_ios, real_ffmpeg, real_sleep = f.q.IOS, f.ensure_ffmpeg, _t.sleep
+        f.q.IOS = type("IOS", (self.FakeIOS,), {"capture": lambda s, name, keep=True: (picture, 1206, 2622, "")})
+        f.ensure_ffmpeg = lambda: None
+        _t.sleep = lambda s: None
+        try:
+            args = type("A", (), {"out": out, "udid": "U", "bundle": "com.x.App", "exe": "", "app": "", "backend": "", "first_frame_timeout": 60.0})()
+            self.assertEqual(f.ios_audit(args), 0)
+        finally:
+            f.q.IOS, f.ensure_ffmpeg, _t.sleep = real_ios, real_ffmpeg, real_sleep
+        return Path(out)
+
+    def test_an_idle_app_passes_and_the_rest_says_what_was_not_run(self):
+        out = self.run_audit(PAGE)
+        text = (out / "flicker.md").read_text()
+        self.assertIn("PASS", text)
+        self.assertIn("ffmpeg is not installed", text)
+        self.assertIn("NOT VERIFIED on iOS", text)
+        import json
+        report = json.loads((out / "flicker.json").read_text())
+        self.assertTrue(report["idle"]["ok"])
+        self.assertIsNone(report["flash"]["ok"])
 
 
 class MonotonicTests(unittest.TestCase):

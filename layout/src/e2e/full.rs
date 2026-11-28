@@ -5347,6 +5347,14 @@ fn frame_report_of(
     callback_info.get_layout_window().frame_report_synced()
 }
 
+/// Has this window laid out at least once? Before it has, there is no document to address: no node
+/// to click, no text to read, no counter to ask. See `debug_timer_callback`, which serves nothing
+/// until this is true.
+#[cfg(feature = "std")]
+fn window_has_laid_out(callback_info: &azul_layout::callbacks::CallbackInfo) -> bool {
+    !callback_info.get_layout_window().layout_results.is_empty()
+}
+
 /// Ask the shell for ONE more frame WITHOUT fabricating any work.
 ///
 /// `wait_frame` and `tick_ms` are the ops that mean "let the engine produce the
@@ -15540,6 +15548,21 @@ pub extern "C" fn debug_timer_callback(
         callbacks::{TimerCallbackReturn, Update},
         task::TerminateTimer,
     };
+
+    // A window that has not laid out yet has nothing to serve, and what was queued for it waits in the
+    // channel for the first tick after its first layout. `AZ_E2E=<file>` queues its scenarios when the
+    // process starts, before the window exists; this window's timer is registered with the window, and
+    // on Android the first layout runs after it (the surface exists first), so the first tick came to a
+    // window without a document: step 0 of every scenario that opens on a node of the app (`assert_text`
+    // on the counter, a `click` on a button) failed with "no node" - the same file that passes on the
+    // desktop, where the window lays out before its timer first fires. The wait is for the first layout
+    // itself, not for a time: nothing sleeps, the next tick looks again.
+    if !window_has_laid_out(&timer_info.callback_info) {
+        return TimerCallbackReturn {
+            should_update: Update::DoNothing,
+            should_terminate: TerminateTimer::Continue,
+        };
+    }
 
     // Downcast the RefAny to DebugTimerData to get app_data + channel + this
     // window's E2E session. The session is MOVED OUT for the duration of the
