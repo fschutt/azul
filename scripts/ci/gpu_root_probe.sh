@@ -62,8 +62,14 @@ else
   echo "::warning::no /dev/kvm on this runner"
 fi
 yes | sdkmanager --licenses >/dev/null 2>&1 || true
-sdkmanager --install "emulator" "platform-tools" "build-tools;34.0.0" "$image" >"$out/sdkmanager.log" 2>&1 \
-  || { echo "sdkmanager failed:"; tail -n 20 "$out/sdkmanager.log"; exit 2; }
+# every system image a mode of the list asks for (`mode@image`) is installed up front
+modes_all="${AZ_PROBE_MODES:-swiftshader_indirect,swangle_indirect}"
+images_needed="$image"
+for entry in ${modes_all//,/ }; do case "$entry" in *@*) images_needed="$images_needed ${entry#*@}";; esac; done
+for img in $(printf '%s\n' $images_needed | sort -u); do
+  sdkmanager --install "emulator" "platform-tools" "build-tools;34.0.0" "$img" >>"$out/sdkmanager.log" 2>&1 \
+    || { echo "sdkmanager failed for $img:"; tail -n 20 "$out/sdkmanager.log"; [ "$img" = "$image" ] && exit 2; }
+done
 emulator -version 2>&1 | head -n 3 | tee "$out/emulator-version.txt"
 badging="$("$aapt2" dump badging "$apk" 2>/dev/null || true)"
 pkg="$(echo "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
@@ -77,15 +83,17 @@ seconds="${AZ_PROBE_SECONDS:-45}"
 interval="${AZ_PROBE_INTERVAL:-0.7}"
 
 IFS=',' read -r -a mode_list <<<"$modes"
-for mode in "${mode_list[@]}"; do
-  d="$out/$mode"; mkdir -p "$d/shots" "$d/logs"
-  echo "================ emulator GPU mode: $mode ================"
+for entry in "${mode_list[@]}"; do
+  mode="${entry%%@*}"; this_image="$image"; tag="$mode"
+  case "$entry" in *@*) this_image="${entry#*@}"; tag="$mode-$(printf '%s' "$this_image" | sed 's/[^A-Za-z0-9]/_/g' | sed 's/system_images_//')";; esac
+  d="$out/$tag"; mkdir -p "$d/shots" "$d/logs"
+  echo "================ emulator GPU mode: $mode, image $this_image ($tag) ================"
   adb kill-server >/dev/null 2>&1 || true
-  echo no | avdmanager create avd --force -n "probe_$mode" -k "$image" -d pixel_6 >"$d/avd.log" 2>&1 \
+  echo no | avdmanager create avd --force -n "probe_$tag" -k "$this_image" -d pixel_6 >"$d/avd.log" 2>&1 \
     || { cat "$d/avd.log"; echo "avdmanager failed"; continue; }
-  cfg="$HOME/.android/avd/probe_$mode.avd/config.ini"
+  cfg="$HOME/.android/avd/probe_$tag.avd/config.ini"
   { echo "hw.keyboard=no"; echo "hw.ramSize=3072"; echo "disk.dataPartition.size=4G"; } >>"$cfg" 2>/dev/null || true
-  nohup emulator -avd "probe_$mode" -no-window -no-audio -no-boot-anim -no-snapshot -gpu "$mode" -accel on \
+  nohup emulator -avd "probe_$tag" -no-window -no-audio -no-boot-anim -no-snapshot -gpu "$mode" -accel on \
     -memory 3072 -cores 3 -no-metrics >"$d/emulator.log" 2>&1 &
   emu=$!
   adb start-server >/dev/null 2>&1
