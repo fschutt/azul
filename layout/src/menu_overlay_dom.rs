@@ -62,6 +62,20 @@ pub const MENU_SEPARATOR_CLASS: &str = "__azul-menu-separator";
 /// diagnostic says so). A menu nests a few levels, a tree of thousands is not one.
 const MAX_SUBMENU_DEPTH: usize = 8;
 
+/// How many items of one level a menu shows; the rest are left out (and a diagnostic says so). A
+/// phone's menu holds tens of items, a drop-down of years or countries a few hundred: a list of
+/// thousands is a search field's, and the page built for it would be the cost of every rebuild.
+const MAX_ITEMS_PER_LEVEL: usize = 2_000;
+
+/// What the pass left out of the menus, for its one diagnostic.
+#[derive(Debug, Default)]
+struct Capped {
+    /// A submenu below [`MAX_SUBMENU_DEPTH`].
+    too_deep: bool,
+    /// Items past [`MAX_ITEMS_PER_LEVEL`] of one level.
+    left_out: usize,
+}
+
 /// The panel: the leaf of the theme, never wider than the window, rounded as a phone's menus are.
 const PANEL_STYLE: &str = "box-sizing: border-box; min-width: 160px; max-width: 100%; \
      padding-top: 4px; padding-bottom: 4px; padding-left: 0px; padding-right: 0px; \
@@ -270,11 +284,12 @@ fn level_rows(
     path: &mut Vec<usize>,
     menu: &MenuOverlay,
     skin: &ComboBoxSkin,
-    too_deep: &mut bool,
+    capped: &mut Capped,
 ) -> Vec<Dom> {
     let icons = level_has_icons(items);
     let mut rows = Vec::new();
-    for (index, item) in items.iter().enumerate() {
+    capped.left_out += items.len().saturating_sub(MAX_ITEMS_PER_LEVEL);
+    for (index, item) in items.iter().enumerate().take(MAX_ITEMS_PER_LEVEL) {
         match item {
             MenuItem::Separator => rows.push(
                 Dom::create_div()
@@ -296,7 +311,7 @@ fn level_rows(
                 let state = has_children.then_some(unfolded);
                 let row = string_row(string, path, menu, skin, icons, state, depth);
                 if unfolded && depth + 1 < MAX_SUBMENU_DEPTH {
-                    let inner = level_rows(string.children.as_ref(), path, menu, skin, too_deep);
+                    let inner = level_rows(string.children.as_ref(), path, menu, skin, capped);
                     rows.push(
                         Dom::create_div()
                             .with_child(row)
@@ -309,7 +324,7 @@ fn level_rows(
                     );
                 } else {
                     if unfolded {
-                        *too_deep = true;
+                        capped.too_deep = true;
                     }
                     rows.push(row);
                 }
@@ -321,9 +336,9 @@ fn level_rows(
 }
 
 /// The `<transient-window>` that shows one menu.
-fn menu_node(menu: &MenuOverlay, id: &str, skin: &ComboBoxSkin, too_deep: &mut bool) -> Dom {
+fn menu_node(menu: &MenuOverlay, id: &str, skin: &ComboBoxSkin, capped: &mut Capped) -> Dom {
     let mut path = Vec::new();
-    let rows = level_rows(menu.menu.items.as_ref(), &mut path, menu, skin, too_deep);
+    let rows = level_rows(menu.menu.items.as_ref(), &mut path, menu, skin, capped);
     let panel = Dom::create_div()
         .with_ids_and_classes(alloc::vec![class(MENU_CLASS)].into())
         .with_css_props(styled(skin.list.as_ref(), PANEL_STYLE))
@@ -367,20 +382,27 @@ pub fn present_menu_overlays(dom: &mut Dom, menus: &MenuOverlays) -> usize {
     }
     dom.expand_flat();
     let skin = skin_of(OptionUiTheme::None);
-    let mut too_deep = false;
+    let mut capped = Capped::default();
     let mut added = 0;
     for menu in menus.menus() {
         let id = alloc::format!("{MENU_ID_PREFIX}{}", menu.id);
         if has_menu_node(dom, &id) {
             continue;
         }
-        dom.add_child(menu_node(menu, &id, &skin, &mut too_deep));
+        dom.add_child(menu_node(menu, &id, &skin, &mut capped));
         added += 1;
     }
-    if too_deep {
+    if capped.too_deep {
         azul_core::diagnostics::emit(alloc::format!(
             "[azul][warn] a menu nests its submenus deeper than {MAX_SUBMENU_DEPTH} levels: the \
              items below that are not shown"
+        ));
+    }
+    if capped.left_out > 0 {
+        azul_core::diagnostics::emit(alloc::format!(
+            "[azul][warn] a menu shows at most {MAX_ITEMS_PER_LEVEL} items of one level: {} \
+             more were left out",
+            capped.left_out
         ));
     }
     added

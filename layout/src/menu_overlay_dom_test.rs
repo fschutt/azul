@@ -265,3 +265,14 @@ fn two_menus_are_two_popups_the_newer_last() {
     assert_eq!(present_menu_overlays(&mut page, &menus), 2);
     assert_eq!(page.children.as_ref().len(), 3);
 }
+
+/// A list of thousands is no menu: the first 2,000 items of a level are shown and the rest left
+/// out, never a page the size of the list.
+#[test]
+fn a_menu_of_thousands_of_items_shows_the_first_two_thousand() {
+    let items: Vec<MenuItem> = (0..2_500)
+        .map(|i| MenuItem::String(item(&format!("Item {i}"))))
+        .collect();
+    let (page, _) = shown(items);
+    assert_eq!(rows(&page).len(), 2_000);
+}
