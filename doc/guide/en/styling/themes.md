@@ -260,10 +260,11 @@ transition: background 200ms ease;
 }
 ```
 
-- `@media (prefers-reduced-motion)`. Source: macOS `AXReduceMotion`, Windows `SPI_GETCLIENTAREAANIMATION`, Linux `enable-animations`.
-- `@media (prefers-contrast)`. Source: macOS `AXIncreaseContrast`, Windows `SPI_GETHIGHCONTRAST`, Linux `high-contrast`.
+- `@media (prefers-reduced-motion)`. Source: macOS `accessibilityDisplayShouldReduceMotion`, iOS `UIAccessibilityIsReduceMotionEnabled`, Android `animator_duration_scale`, Windows `SPI_GETCLIENTAREAANIMATION`, Linux `enable-animations`.
+- `@media (prefers-contrast: more)`. Source: macOS `accessibilityDisplayShouldIncreaseContrast`, iOS `UIAccessibilityDarkerSystemColorsEnabled`, Android `high_text_contrast_enabled` and `UiModeManager.getContrast`, Windows `SPI_GETHIGHCONTRAST`, Linux `high-contrast`.
+- `@media (min-text-scale: 1.3)`, `(prefers-bold-text: bold)`, `(forced-colors: active)`, `(prefers-reduced-transparency: reduce)`, `(differentiate-without-color: active)`, `(inverted-colors: inverted)`, `(button-shapes: active)`, `(on-off-labels: active)`, `(screen-reader: active)`, `(prefers-cross-fade: reduce)` and `(keyboard-navigation: active)`. Every source is in the accessibility guide (`system/accessibility`).
 
-Honour `prefers-reduced-motion` for any non-essential animation.
+The engine already does the following without a rule: it multiplies every font size, line height and spacing by the user's text scale, adds the bold weight step and reads every declared `animation` as absent under reduced motion. Honour `prefers-reduced-motion` for any motion the engine cannot see (a canvas you draw yourself); a subtree that must not grow with the text size declares `--azul-text-scale-max`.
 
 ## @media viewport queries
 

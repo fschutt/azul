@@ -258,6 +258,117 @@ native event:
 You don't write separate code paths for assistive tech. The same callback that
 handles a mouse click handles `AccessibilityAction::Default`.
 
+## The user's display settings
+
+Besides assistive technology, the system holds settings that change how an app
+should look: the text size, bold text, increased contrast, reduced motion,
+reduced transparency and a few more. Azul reads them when a window starts and
+again when they change, and answers the ones it can answer itself.
+
+Every option is a typed state, never a bare boolean: `Unknown` (this platform
+has no such option, or it did not answer), `Off` or `On`. A platform that cannot
+read an option says `Unknown`; the engine treats it as the default look. The
+text size is a number, the contrast a `ContrastPreference` (`NoPreference`,
+`More`, `Less`).
+
+### What the engine does for you
+
+| Setting | What happens without any code in the app |
+|---|---|
+| Text size | Every font size, absolute line height, letter and word spacing is multiplied by the user's scale, once. `em` and `rem` follow. A box sized in `px` keeps its size; a box sized by its text grows with it. |
+| Bold text | Every text takes the next heavier weight (400 becomes 700, a 700 stays). |
+| Reduced motion | Every declared `animation` (transitions, slides, flips, fades, enter and exit effects) reads as absent: the end state is reached at once. |
+
+The text scale is what the system calls it: Android's `fontScale` (and the
+non-linear scaling since Android 14), iOS's Dynamic Type category (`Large` is
+1.0, `accessibility-extra-extra-extra-large` is about 3.1), Windows' "Text size"
+slider (100 to 225 percent), GNOME's `text-scaling-factor`. macOS has no system
+text size an app can read. A scale outside 0.5 to 4.0 is capped, with a
+diagnostic.
+
+Chrome that must not grow with the text (a rail of icon glyphs, a status bar, a
+tab pill) caps the scale for its subtree with a custom property, which
+inherits:
+
+```css
+.rail { --azul-text-scale-max: 1.3; }
+```
+
+The text in `.rail` and below uses the smaller of the user's scale and 1.3. A cap
+below 1.0 reads as 1.0 (it limits growth only; text the user made smaller stays
+small).
+
+### Reading the settings in CSS
+
+```css
+@media (min-text-scale: 1.3) { .toolbar { flex-direction: column; } }
+@media (prefers-bold-text: bold) { .badge { letter-spacing: 0.02em; } }
+@media (prefers-contrast: more) { .card { border: 2px solid system:text; } }
+@media (forced-colors: active) { .chart { border: 1px solid system:text; } }
+@media (prefers-reduced-transparency: reduce) { .sheet { background: system:window-background; } }
+@media (differentiate-without-color: active) { .status { text-decoration: underline; } }
+```
+
+The features: `min-text-scale`, `max-text-scale`, `prefers-bold-text`,
+`prefers-contrast` (`more`, `less`, `no-preference`, `custom`), `forced-colors`,
+`prefers-reduced-motion`, `prefers-reduced-transparency`, `inverted-colors`,
+`differentiate-without-color`, `button-shapes`, `on-off-labels`,
+`screen-reader`, `prefers-cross-fade` and `keyboard-navigation`. An option the
+platform could not read counts as off in a media query, as in a browser that
+does not know the feature: a rule for the `active` side never fires on a guess.
+`prefers-contrast: custom` is the same as `forced-colors: active` (the user chose
+the palette).
+
+### Reading them in code, and hearing about a change
+
+`LayoutCallbackInfo::get_accessibility_preferences` (in `layout()`) and
+`CallbackInfo::get_accessibility_preferences` return the typed preferences the
+window lays out under. When the system changes one, the window is restyled
+(the retained DOM is re-solved; `layout()` runs again only if it declared that
+it reads the style) and a window listener hears it once:
+
+```rust,ignore
+dom.with_callback(
+    EventFilter::Window(WindowEventFilter::SystemStyleChanged),
+    data,
+    on_system_style_changed,
+)
+```
+
+An app that draws on its own (a canvas, a map, a chart) re-reads the
+preferences there.
+
+### Trying a setting without touching the system
+
+The same file of a scenario runs on a desktop, an emulator and a phone:
+
+```json
+{ "op": "set_system_accessibility", "text_scale": 1.3, "bold_text": true }
+{ "op": "set_system_accessibility", "text_scale": "accessibility-extra-extra-extra-large" }
+{ "op": "get_system_accessibility" }
+{ "op": "set_system_accessibility", "reset": true }
+```
+
+`text_scale` takes a factor, an iOS category (`large`, `ax5`, `accessibility-extra-extra-extra-large`
+and the `simctl` names) or `null`; the other keys are the option names (`bold_text`,
+`contrast`, `reduced_motion`, `reduced_transparency`, ...) with `true`, `false`,
+`"on"`, `"off"`, `"unknown"`. `reset: true` puts back what the platform says.
+The window's override is its own: it does not change the system.
+
+For a whole process, the environment pins an option, whatever the platform
+reports: `AZ_A11Y_TEXT_SCALE=1.5`, `AZ_A11Y_BOLD_TEXT=1`, `AZ_A11Y_CONTRAST=more`,
+`AZ_A11Y_REDUCED_MOTION=on`, and so on (one variable per option, named after it).
+
+### Where each setting comes from
+
+| Platform | Source | Change |
+|---|---|---|
+| Android | `Configuration.fontScale`, `fontWeightAdjustment`, `Settings.Global` / `Secure` / `System`, `AccessibilityManager`, `UiModeManager.getContrast`, `CaptioningManager` | configuration change, resume, and a read once a second |
+| iOS | `UIApplication.preferredContentSizeCategory`, the `UIAccessibility*` flag functions, `AXShowBordersEnabled`, `MADimFlashingLightsEnabled` | read four times a second in the display tick |
+| macOS | `NSWorkspace` display and accessibility flags | the workspace poll |
+| Windows | `SystemParametersInfo`, the registry (`TextScaleFactor`, transparency, pointer size, colour filters) | `WM_SETTINGCHANGE`, and a read once a second |
+| Linux | GNOME `org.gnome.desktop.interface` and `a11y` schemas, KDE `kdeglobals`, the settings portal | the portal watcher |
+
 ## Enabling the feature
 
 Accessibility is gated behind the `a11y` Cargo feature. With the feature off,

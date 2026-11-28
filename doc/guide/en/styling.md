@@ -208,7 +208,10 @@ let _ = Dom::create_div().with_css("
 - `@media (orientation: ...)` accepts `portrait` or `landscape`.
 - `@media (min-width: Npx)` and friends match numeric viewport ranges.
 - `@media (prefers-reduced-motion)` is the accessibility query for motion.
-- `@media (prefers-contrast)` is the accessibility query for contrast.
+- `@media (prefers-contrast: more)` is the accessibility query for contrast.
+- `@media (min-text-scale: 1.3)`, `(prefers-bold-text: bold)`, `(forced-colors: active)`,
+  `(prefers-reduced-transparency: reduce)`, `(differentiate-without-color: active)` and the
+  other display settings of the user are listed in the accessibility guide (`system/accessibility`).
 - `@container` enables container queries by width, height, or name.
 - `@lang(<bcp47>)` matches the system language by prefix.
 
