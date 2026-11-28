@@ -200,15 +200,45 @@ def count_after_first(labels, letter, start="S"):
     return sum(1 for c in labels[first:] if c == letter)
 
 
-def summarize_start(labels, sigs=None):
-    """{splash, black, first, settled, jump, moved, wrong}: the frames of the starting window (S), of black (B) from the first frame of the app phase on, of
-    pictures shown before the settled one (the exit animation's fade included), of the settled one, whether a picture STOOD before the page moved (`moved`
-    frames of it; needs the signatures, else any `1` before a `2` counts), and the light pictures of a night-mode start (W: the wrong colour)."""
+GAP_PAGE_SHARE = 0.2   # a dark frame with less than this much of the settled page showing through is a window with nothing in it
+
+
+def page_share(frame, settled):
+    """How much of the settled picture a dark frame shows: the `b` that fits `frame = b * settled` on the luma between the system bars (0 for the black window,
+    1 for the page). The night mode's starting window is black (the manifest contract pins it), so a frame is a mix of black and the page."""
+    f, p = bar_free_luma(frame), bar_free_luma(settled)
+    den = sum(v * v for v in p)
+    if not f or len(f) != len(p) or not den:
+        return 0.0
+    return max(0.0, min(1.0, sum(a * b for a, b in zip(f, p)) / den))
+
+
+def black_split(labels, sigs, night):
+    """(gap, fade): the black frames (B) after the starting window began, told apart. In the light mode every one is a GAP: a black window where the starting
+    window was. In the night mode the starting window is black itself (the engine's own dark colour), so a dark frame without the icon is either a GAP (the
+    window with nothing in it: less than `GAP_PAGE_SHARE` of the page shows) or a FADE (the system's exit animation lifting the black off a page that is
+    nearly black itself: the page shows through, the picture was already posted)."""
+    app = next((i for i, c in enumerate(labels) if c != "L"), len(labels))
+    black = [i for i in range(app, len(labels)) if labels[i] == "B"]
+    if not night or sigs is None:
+        return len(black), 0
+    gap = sum(1 for i in black if page_share(sigs[i], sigs[-1]) < GAP_PAGE_SHARE)
+    return gap, len(black) - gap
+
+
+def summarize_start(labels, sigs=None, night=False):
+    """{splash, black, gap, fade, first, settled, jump, moved, wrong}: the frames of the starting window (S), of black (B) from the first frame of the app phase
+    on (and of those, the `gap` with nothing showing and the `fade` of a page that shows through, see `black_split`), of pictures shown before the settled one
+    (the exit animation's fade included), of the settled one, whether a picture STOOD before the page moved (`moved` frames of it; needs the signatures,
+    else any `1` before a `2` counts), and the light pictures of a night-mode start (W: the wrong colour)."""
     app = next((i for i, c in enumerate(labels) if c != "L"), len(labels))
     moved = stable_intermediate(labels, sigs) if sigs is not None else None
+    gap, fade = black_split(labels, sigs, night)
     return {
         "splash": labels[app:].count("S"),
         "black": labels[app:].count("B"),
+        "gap": gap,
+        "fade": fade,
         "first": labels.count("1"),
         "settled": labels.count("2"),
         "jump": (moved >= MOVED_FRAMES) if moved is not None else ("1" in labels and "2" in labels),
@@ -289,6 +319,8 @@ def row_verdict(starts):
         "splash_median": median([s["splash"] for s in sums]),
         "black_median": median(blacks),
         "black_max": max(blacks) if blacks else None,
+        "gap_median": median([s.get("gap", s["black"]) for s in sums]),
+        "gap_max": max((s.get("gap", s["black"]) for s in sums), default=None),
         "first_median": median([s["first"] for s in sums]),
         "wrong_max": max((s.get("wrong", 0) for s in sums), default=None),
         "jump": any(s["jump"] for s in sums),
@@ -308,11 +340,11 @@ def report_text(results):
     """lab.md: one table, one row per lab row, then the first start's run lengths and events of every row."""
     lines = ["# Cold-start lab", "",
              "frames at 30 fps; S = the starting window (or a flat first frame), B = black after it, 1 = a first picture that moved afterwards, 2 = the settled picture, W = a light picture in the night mode",
-             "", "| row | apk | knobs | starts | starting window (frames) | black (median / worst) | first picture (frames) | page moved | wrong colour (worst) |", "|---|---|---|---|---|---|---|---|---|"]
+             "", "| row | apk | knobs | starts | starting window (frames) | black (median / worst) | of which a window with nothing in it (median / worst) | first picture (frames) | page moved | wrong colour (worst) |", "|---|---|---|---|---|---|---|---|---|---|"]
     for r in results:
         v = r["verdict"]
         knobs = ", ".join(f"{k}={val}" for k, val in r["props"].items()) + (", night" if r.get("night") else "")
-        lines.append(f"| {r['name']} | {r['apk']} | {knobs} | {v['starts']} | {v['splash_median']} | {v['black_median']} / {v['black_max']} | {v['first_median']} | {'yes' if v['jump'] else 'no'} | {v.get('wrong_max')} |")
+        lines.append(f"| {r['name']} | {r['apk']} | {knobs} | {v['starts']} | {v['splash_median']} | {v['black_median']} / {v['black_max']} | {v.get('gap_median', v['black_median'])} / {v.get('gap_max', v['black_max'])} | {v['first_median']} | {'yes' if v['jump'] else 'no'} | {v.get('wrong_max')} |")
     lines.append("")
     for r in results:
         lines.append(f"## {r['name']}")
@@ -404,7 +436,7 @@ def one_start(dev, package, activity, row, out_dir, keep_resume, warm=False):
     if frames:
         sigs = [fa.signature_of(f) for f in frames]
         labels = label_frames(sigs, night=bool(row.get("night")))
-        record.update({"runs": runs_text(labels), "summary": summarize_start(labels, sigs), "frames": len(frames)})
+        record.update({"runs": runs_text(labels), "summary": summarize_start(labels, sigs, night=bool(row.get("night"))), "frames": len(frames)})
         record["_frames"] = frames
         record["_labels"] = labels
     if row.get("resume"):
@@ -453,7 +485,7 @@ def warm_start(dev, package, activity, row, out_dir):
     if frames:
         sigs = [fa.signature_of(f) for f in frames]
         labels = label_frames(sigs, night=bool(row.get("night")))
-        result.update({"runs": runs_text(labels), "summary": summarize_start(labels, sigs)})
+        result.update({"runs": runs_text(labels), "summary": summarize_start(labels, sigs, night=bool(row.get("night")))})
     return result
 
 

@@ -228,6 +228,36 @@ class RealRowsTests(unittest.TestCase):
         self.assertEqual([r["resume"] for r in rows], [True, False])
 
 
+class BlackSplitTests(unittest.TestCase):
+    """In the night mode the starting window is black itself: a dark frame without the icon is a gap (the window with nothing in it) or a fade (the
+    system's exit animation lifting the black off a page that is nearly black too, the picture already posted)."""
+
+    def test_a_window_with_its_icon_gone_is_a_gap_and_a_page_showing_through_is_a_fade(self):
+        fade = [mix(DARK_SPLASH_WITH_ICON, DARK_PAGE, a) for a in (0.5, 0.5, 0.3, 0.15)]
+        sigs = [LAUNCHER] * 3 + [DARK_SPLASH_WITH_ICON] * 5 + [DARK_SPLASH] + fade + [DARK_PAGE] * 6
+        labels = lab.label_frames(sigs, night=True)
+        s = lab.summarize_start(labels, sigs, night=True)
+        self.assertEqual(s["black"], 4, "the lab's letter counts every dark frame without the icon (the last step of the fade is already the settled picture)")
+        self.assertEqual((s["gap"], s["fade"]), (1, 3), "one frame of the window with nothing in it, three of the page showing through")
+
+    def test_in_the_light_mode_every_black_frame_is_a_gap(self):
+        sigs = [LAUNCHER] * 3 + [SPLASH] * 4 + [BLACK] * 5 + [SETTLED] * 6
+        labels = lab.label_frames(sigs)
+        s = lab.summarize_start(labels, sigs)
+        self.assertEqual((s["black"], s["gap"], s["fade"]), (5, 5, 0))
+
+    def test_a_night_start_that_never_showed_the_starting_window_counts_its_black_as_gap(self):
+        sigs = [LAUNCHER] * 3 + [DARK_SPLASH] * 4 + [DARK_PAGE] * 6
+        labels = lab.label_frames(sigs, night=True)
+        s = lab.summarize_start(labels, sigs, night=True)
+        self.assertEqual(s["gap"] + s["fade"], s["black"])
+
+    def test_the_row_verdict_has_the_worst_gap(self):
+        starts = [{"summary": {"splash": 40, "black": b, "gap": g, "fade": b - g, "first": 0, "settled": 20, "jump": False}} for b, g in ((8, 1), (11, 2), (6, 0))]
+        v = lab.row_verdict(starts)
+        self.assertEqual((v["black_median"], v["black_max"], v["gap_median"], v["gap_max"]), (8, 11, 1, 2))
+
+
 class FakeDevice:
     """The commands of a start, in order, with the pid answers `pidof` gives."""
 
@@ -346,7 +376,7 @@ class VerdictTests(unittest.TestCase):
                     "starts": [{"runs": "L3 S4 B5 2x6", "displayed": 415, "events": [("START", 0, "x")]}],
                     "verdict": {"starts": 1, "splash_median": 4, "black_median": 5, "black_max": 5, "first_median": 0, "jump": False}}]
         text = lab.report_text(results)
-        self.assertIn("| before-450 | before | p1=450 | 1 | 4 | 5 / 5 | 0 | no |", text)
+        self.assertIn("| before-450 | before | p1=450 | 1 | 4 | 5 / 5 | 5 / 5 | 0 | no |", text, "an old record with no split has all its black as gap")
         self.assertIn("L3 S4 B5 2x6", text)
 
 
