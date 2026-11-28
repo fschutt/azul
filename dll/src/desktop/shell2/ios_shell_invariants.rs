@@ -916,6 +916,10 @@ fn the_ios_window_hands_the_system_chrome_and_the_display_features_to_uikit_and_
         at(new, needed, "IOSWindow::new");
     }
     in_order(new, "system_ui::declare_view_controller()", "msg_send![vc_class, alloc]", "IOSWindow::new");
+    // the display tick is the only per-frame slot of this shell: it pushes the window state, so a change made by ANY callback
+    // (not only one that went through an input event) reaches UIKit
+    let tick = body(IOS_MOD_RS, "extern \"C\" fn display_tick(");
+    in_order(tick, "process_timers_and_threads()", "sync_window_state()", "display_tick");
     let sync = body(IOS_MOD_RS, "fn sync_window_state(");
     at(sync, "flags.system_bars", "sync_window_state");
     at(sync, "system_ui::apply(", "sync_window_state");
