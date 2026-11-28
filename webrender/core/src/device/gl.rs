@@ -1102,8 +1102,17 @@ impl StrideAlignment {
 // precision problems.
 const RESERVE_DEPTH_BITS: i32 = 2;
 
+/// EXPERIMENT (the Android GPU root-cause hunt, never for master): what each draw call of a frame changed in the framebuffer it drew to.
+struct DrawProbe {
+    lines: Vec<String>,
+    draws: u32,
+}
+
 pub struct Device {
     gl: Rc<GenericGlContext>,
+
+    /// EXPERIMENT: the per-draw read-back, off unless the engine switched it on (`set_draw_probe`).
+    draw_probe: Option<DrawProbe>,
 
     /// The context is OpenGL ES. Read once: `GenericGlContext::get_type` asks the driver for `GL_VERSION` and builds a
     /// string on every call. The GLES-only branches (see `clear_target`) test this, so the desktop GL code is
@@ -2034,6 +2043,7 @@ impl Device {
             texture_storage_usage,
             requires_null_terminated_shader_source,
             requires_texture_external_unbind,
+            draw_probe: None,
             is_software_webrender,
             required_pbo_stride,
             dump_shader_source,
@@ -3711,6 +3721,88 @@ impl Device {
         )
     }
 
+    /// EXPERIMENT: switches the per-draw read-back on or off.
+    pub fn set_draw_probe(&mut self, on: bool) {
+        self.draw_probe = on.then(|| DrawProbe {
+            lines: Vec::new(),
+            draws: 0,
+        });
+    }
+
+    /// EXPERIMENT: the lines the draw probe wrote since the last call.
+    pub fn take_draw_probe_lines(&mut self) -> Vec<String> {
+        self.draw_probe
+            .as_mut()
+            .map(|probe| std::mem::take(&mut probe.lines))
+            .unwrap_or_default()
+    }
+
+    /// EXPERIMENT: the viewport and the pixels of the framebuffer drawn to, when the draw probe is on (not for the GPU cache's float target).
+    fn probe_read(&mut self) -> Option<([i32; 4], Vec<u8>)> {
+        self.draw_probe.as_ref()?;
+        if self
+            .bound_program_name
+            .to_string_lossy()
+            .starts_with("gpu_cache_update")
+        {
+            return None;
+        }
+        let mut viewport = [0_i32; 4];
+        unsafe {
+            self.gl.get_integer_v(gl::VIEWPORT, &mut viewport);
+        }
+        let (w, h) = (viewport[2].clamp(0, 4096), viewport[3].clamp(0, 4096));
+        if w == 0 || h == 0 {
+            return None;
+        }
+        self.bound_draw_fbo.bind(self.gl(), FBOTarget::Read);
+        let mut data = vec![0_u8; (w * h * 4) as usize];
+        self.gl.read_pixels_into_buffer(
+            viewport[0],
+            viewport[1],
+            w,
+            h,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+            &mut data,
+        );
+        self.bound_read_fbo.0.bind(self.gl(), FBOTarget::Read);
+        Some((viewport, data))
+    }
+
+    /// EXPERIMENT: after a draw call: how many pixels of the viewport it changed.
+    fn probe_report(
+        &mut self,
+        before: Option<([i32; 4], Vec<u8>)>,
+        kind: &str,
+        count: i32,
+        instances: i32,
+    ) {
+        let Some((viewport, before)) = before else {
+            return;
+        };
+        let Some((_, after)) = self.probe_read() else {
+            return;
+        };
+        let changed = before
+            .chunks_exact(4)
+            .zip(after.chunks_exact(4))
+            .filter(|(a, b)| a != b)
+            .count();
+        let visible = after.chunks_exact(4).filter(|p| p[3] != 0).count();
+        let total = after.len() / 4;
+        let program = self.bound_program_name.to_string_lossy().into_owned();
+        let fbo = self.bound_draw_fbo.0;
+        if let Some(probe) = self.draw_probe.as_mut() {
+            probe.draws += 1;
+            let number = probe.draws;
+            probe.lines.push(format!(
+                "draw {number} {program} {kind} count {count} instances {instances} fbo {fbo} viewport {},{} {}x{}: {changed} of {total} pixels changed, {visible} not transparent after",
+                viewport[0], viewport[1], viewport[2], viewport[3]
+            ));
+        }
+    }
+
     pub fn draw_triangles_u16(&mut self, first_vertex: i32, index_count: i32) {
         debug_assert!(self.inside_frame);
         #[cfg(debug_assertions)]
@@ -3726,12 +3818,14 @@ impl Device {
             None
         };
 
+        let probe = self.probe_read();
         self.gl.draw_elements(
             gl::TRIANGLES,
             index_count,
             gl::UNSIGNED_SHORT,
             first_vertex as u32 * 2,
         );
+        self.probe_report(probe, "draw_triangles_u16", index_count, 1);
     }
 
     pub fn draw_triangles_u32(&mut self, first_vertex: i32, index_count: i32) {
@@ -3749,12 +3843,14 @@ impl Device {
             None
         };
 
+        let probe = self.probe_read();
         self.gl.draw_elements(
             gl::TRIANGLES,
             index_count,
             gl::UNSIGNED_INT,
             first_vertex as u32 * 4,
         );
+        self.probe_report(probe, "draw_triangles_u32", index_count, 1);
     }
 
     pub fn draw_nonindexed_points(&mut self, first_vertex: i32, vertex_count: i32) {
@@ -3772,7 +3868,9 @@ impl Device {
             None
         };
 
+        let probe = self.probe_read();
         self.gl.draw_arrays(gl::POINTS, first_vertex, vertex_count);
+        self.probe_report(probe, "draw_nonindexed_points", vertex_count, 1);
     }
 
     pub fn draw_nonindexed_lines(&mut self, first_vertex: i32, vertex_count: i32) {
@@ -3790,7 +3888,9 @@ impl Device {
             None
         };
 
+        let probe = self.probe_read();
         self.gl.draw_arrays(gl::LINES, first_vertex, vertex_count);
+        self.probe_report(probe, "draw_nonindexed_lines", vertex_count, 1);
     }
 
     pub fn draw_indexed_triangles(&mut self, index_count: i32) {
@@ -3808,8 +3908,10 @@ impl Device {
             None
         };
 
+        let probe = self.probe_read();
         self.gl
             .draw_elements(gl::TRIANGLES, index_count, gl::UNSIGNED_SHORT, 0);
+        self.probe_report(probe, "draw_indexed_triangles", index_count, 1);
     }
 
     pub fn draw_indexed_triangles_instanced_u16(&mut self, index_count: i32, instance_count: i32) {
@@ -3827,6 +3929,7 @@ impl Device {
             None
         };
 
+        let probe = self.probe_read();
         self.gl.draw_elements_instanced(
             gl::TRIANGLES,
             index_count,
@@ -3834,6 +3937,7 @@ impl Device {
             0,
             instance_count,
         );
+        self.probe_report(probe, "draw_indexed_triangles_instanced_u16", index_count, instance_count);
     }
 
     pub fn end_frame(&mut self) {

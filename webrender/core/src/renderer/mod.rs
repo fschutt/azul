@@ -988,6 +988,16 @@ impl Renderer {
         )
     }
 
+    /// EXPERIMENT: switches the device's per-draw read-back on or off.
+    pub fn debug_set_draw_probe(&mut self, on: bool) {
+        self.device.set_draw_probe(on);
+    }
+
+    /// EXPERIMENT: the lines of the per-draw read-back since the last call.
+    pub fn debug_take_draw_probe(&mut self) -> Vec<String> {
+        self.device.take_draw_probe_lines()
+    }
+
     pub fn get_graphics_api_info(&self) -> GraphicsApiInfo {
         GraphicsApiInfo {
             kind: GraphicsApi::OpenGL,

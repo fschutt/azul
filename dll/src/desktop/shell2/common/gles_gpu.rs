@@ -104,6 +104,12 @@ fn gl_trace_spec() -> Option<(u8, Option<String>)> {
     (level > 0).then_some((level, path))
 }
 
+/// EXPERIMENT: `AZ_GPU_DRAWS=1` reads back, after every draw call of the first two frames, what the draw changed (`Device::set_draw_probe`).
+fn draw_probe_requested() -> bool {
+    azul_css::env::EnvSource::var(&crate::env::ProcessEnv::new(), "AZ_GPU_DRAWS")
+        .is_some_and(|value| !value.is_empty() && value != "0")
+}
+
 /// How long the control ladder holds each picture on the window after a swap.
 const CONTROL_HOLD: std::time::Duration = std::time::Duration::from_millis(700);
 
@@ -930,9 +936,24 @@ impl GlesGpu {
                 );
             }
         }
+        let probe_draws = self.presents < 2 && draw_probe_requested();
+        if probe_draws {
+            if let Some(renderer) = ctx.common.renderer.as_mut() {
+                renderer.debug_set_draw_probe(true);
+            }
+        }
         gl_context_loader::trace::mark(&format!("frame {} begins", self.presents + 1));
         let outcome = gpu_renderer::render_frame(ctx.common, size, age)?;
         gl_context_loader::trace::mark(&format!("frame {} drawn", self.presents + 1));
+        if probe_draws {
+            if let Some(renderer) = ctx.common.renderer.as_mut() {
+                let lines = renderer.debug_take_draw_probe();
+                renderer.debug_set_draw_probe(false);
+                for line in lines {
+                    log_info!(LogCategory::Rendering, "[render] frame {}: {}", self.presents + 1, line);
+                }
+            }
+        }
         if self.presents >= DESCRIBED_PRESENTS {
             // After the first frames only the calls that left a GL error are kept.
             gl_context_loader::trace::set_level(gl_context_loader::trace::level().min(1));
