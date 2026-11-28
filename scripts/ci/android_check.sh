@@ -27,7 +27,10 @@ status=0
 cargo check -p azul-dll --lib --target "$target" --no-default-features --features "$FEATURES" --message-format short || status=1
 # the QA APK's lib carries the debug server and the e2e op dispatcher: android_main has blocks behind
 # `any(feature = "debug-server", feature = "e2e-scripting")` that the list above does not compile
-cargo check -p azul-dll --lib --target "$target" --no-default-features --features "$FEATURES,debug-server,e2e-scripting" --message-format short || status=1
+# (AZ_ANDROID_CHECK_SETS=1: the first feature set only, for a run that wants an answer sooner)
+if [ "${AZ_ANDROID_CHECK_SETS:-2}" != 1 ]; then
+  cargo check -p azul-dll --lib --target "$target" --no-default-features --features "$FEATURES,debug-server,e2e-scripting" --message-format short || status=1
+fi
 if [ "$status" != 0 ]; then
   echo "android shell: cargo check FAILED ($target)"
   exit 1
