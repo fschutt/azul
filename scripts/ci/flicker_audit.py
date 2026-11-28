@@ -171,7 +171,7 @@ def flag_frames(sigs, fps=FPS, max_black_ms=MAX_BLACK_MS):
     for start, end in flat_runs(sigs):
         length = end - start
         ms = round(1000.0 * length / fps)
-        black = mean_luma(sigs[start]) < BLACK_LUMA
+        black = mean_luma(sigs[start + length // 2]) < BLACK_LUMA      # the middle of the run: a fade into black starts light
         what = "BLACK" if black else "flat"
         fail = (ms > max_black_ms) if black else True
         flagged.append({"index": start, "kind": "flat", "frames": length, "ms": ms, "black": black, "fail": fail,
