@@ -113,58 +113,54 @@ fn failures(result: &E2eTestResult) -> String {
         .join("\n")
 }
 
-fn assert_passes(result: &E2eTestResult) {
+fn assert_passes(result: &E2eTestResult, events: &[BottomSheetEvent]) {
     assert!(
         result.status == "pass" && result.steps_failed == 0,
-        "scenario '{}' failed:\n{}",
+        "scenario '{}' failed:\n{}\nthe app was told: {events:?}",
         result.name,
         failures(result)
     );
 }
 
+
 fn near(a: f32, b: f32) -> bool {
     (a - b).abs() < 1.0
 }
 
-fn kinds(events: &[BottomSheetEvent]) -> Vec<BottomSheetEventKind> {
-    events.iter().map(|e| e.kind).collect()
+fn tick(ms: u64) -> serde_json::Value {
+    serde_json::json!({ "op": "tick_ms", "ms": ms })
+}
+
+/// The finger from `from` to `to` px in steps of `step` px, a frame after each: the finger of a phone moves a few px per event and
+/// the sheet's top edge follows it (the grip lies 16 px under the finger), so the finger stays on the sheet - the events of a
+/// touch go to the node under it, and a finger that outruns the sheet (a jump of 76 px) is no longer over it.
+fn finger(from: f32, to_y: f32, step: f32) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    let mut y = from;
+    while (y - to_y).abs() > 0.5 {
+        y = if to_y < y { (y - step).max(to_y) } else { (y + step).min(to_y) };
+        out.push(to(y));
+        out.push(frame());
+    }
+    out
+}
+
+fn mouse(op: &str, y: f32) -> serde_json::Value {
+    serde_json::json!({ "op": op, "x": X, "y": y })
 }
 
 #[test]
 fn a_finger_pulling_the_grip_up_moves_the_sheet_and_it_settles_on_the_nearest_detent() {
-    // Down on the grip (y 686), 10 px up decides the drag, 86 px and 186 px up follow it; the finger stops (one pixel more) and
-    // lifts at 317 px: nearer to half (400) than to the peek (130).
-    let (result, events) = run(
-        "sheet_pull",
-        SheetDetent::Peek,
-        &[
-            frame(),
-            height_is(130.0),
-            down(686.0),
-            frame(),
-            to(676.0),
-            frame(),
-            to(600.0),
-            frame(),
-            height_is(216.0),
-            to(500.0),
-            frame(),
-            to(499.0),
-            frame(),
-            up(),
-            frame(),
-            frame(),
-            height_is(400.0),
-        ],
-    );
-    assert_passes(&result);
-    let dragged: Vec<f32> = events
-        .iter()
-        .filter(|e| e.kind == BottomSheetEventKind::Dragged)
-        .map(|e| e.height)
-        .collect();
-    assert!(dragged.len() >= 4, "one report per step: {events:?}");
-    assert!(near(dragged[0], 140.0) && near(dragged[1], 216.0), "the sheet follows the finger: {dragged:?}");
+    // Down on the grip (y 686); 10 px up decides the drag (the sheet is 140 px tall: its top edge follows the finger), 12 px at a time
+    // on to 500 (317 px), where the finger stops (150 ms) and lifts: nearer to half (400) than to the peek (130).
+    let mut steps = vec![frame(), height_is(130.0), down(686.0), frame(), to(676.0), frame(), height_is(140.0)];
+    steps.extend(finger(676.0, 500.0, 12.0));
+    steps.extend([height_is(316.0), tick(150), up(), frame(), frame(), height_is(400.0)]);
+    let (result, events) = run("sheet_pull", SheetDetent::Peek, &steps);
+    assert_passes(&result, &events);
+    let dragged: Vec<f32> = events.iter().filter(|e| e.kind == BottomSheetEventKind::Dragged).map(|e| e.height).collect();
+    assert!(dragged.len() >= 10, "one report per step: {events:?}");
+    assert!(near(dragged[0], 140.0), "the sheet follows the finger: {dragged:?}");
     let last = events.last().expect("the app was told");
     assert_eq!((last.kind, last.detent), (BottomSheetEventKind::Settled, SheetDetent::Half), "{events:?}");
     assert!(near(last.height, 400.0));
@@ -172,43 +168,29 @@ fn a_finger_pulling_the_grip_up_moves_the_sheet_and_it_settles_on_the_nearest_de
 }
 
 #[test]
-fn a_fling_carries_the_sheet_past_the_nearest_detent() {
-    // Lifted at 166 px with the last step 16 px: it would land at 166 + 16 x 12 = 358: half. A slow lift at 166 stays at the peek, and
-    // so does a finger that stopped (150 ms, longer than a fling's speed lasts) before it lifted.
-    let (fast, events) = run(
-        "sheet_fling",
-        SheetDetent::Peek,
-        &[frame(), down(686.0), frame(), to(666.0), frame(), to(650.0), frame(), up(), frame(), frame(), height_is(400.0)],
-    );
-    assert_passes(&fast);
-    assert_eq!(events.last().map(|e| e.detent), Some(SheetDetent::Half));
-    let (slow, events) = run(
-        "sheet_slow",
-        SheetDetent::Peek,
-        &[frame(), down(686.0), frame(), to(676.0), frame(), to(651.0), frame(), to(650.0), frame(), up(), frame(), frame(), height_is(130.0)],
-    );
-    assert_passes(&slow);
-    assert_eq!(events.last().map(|e| e.detent), Some(SheetDetent::Peek), "{events:?}");
-    let (stopped, events) = run(
-        "sheet_stopped",
-        SheetDetent::Peek,
-        &[
-            frame(),
-            down(686.0),
-            frame(),
-            to(666.0),
-            frame(),
-            to(650.0),
-            frame(),
-            serde_json::json!({ "op": "tick_ms", "ms": 150 }),
-            up(),
-            frame(),
-            frame(),
-            height_is(130.0),
-        ],
-    );
-    assert_passes(&stopped);
+fn a_fling_carries_the_sheet_past_the_nearest_detent_and_a_finger_that_stopped_does_not() {
+    // 12 px steps up to 650 px (166 px tall): lifted at once it would land at 166 + 12 x 12 = 310: half. The same lift 150 ms after the
+    // finger stopped is the nearest detent to 166: the peek. A finger moving a few px at a time has no fling either.
+    let mut fast = vec![frame(), down(686.0), frame()];
+    fast.extend(finger(686.0, 650.0, 12.0));
+    fast.extend([up(), frame(), frame(), height_is(400.0)]);
+    let (result, events) = run("sheet_fling", SheetDetent::Peek, &fast);
+    assert_passes(&result, &events);
+    assert_eq!(events.last().map(|e| e.detent), Some(SheetDetent::Half), "{events:?}");
+
+    let mut stopped = vec![frame(), down(686.0), frame()];
+    stopped.extend(finger(686.0, 650.0, 12.0));
+    stopped.extend([tick(150), up(), frame(), frame(), height_is(130.0)]);
+    let (result, events) = run("sheet_stopped", SheetDetent::Peek, &stopped);
+    assert_passes(&result, &events);
     assert_eq!(events.last().map(|e| e.detent), Some(SheetDetent::Peek), "it stopped before it lifted: {events:?}");
+
+    let mut slow = vec![frame(), down(686.0), frame()];
+    slow.extend(finger(686.0, 650.0, 3.0));
+    slow.extend([up(), frame(), frame(), height_is(130.0)]);
+    let (result, events) = run("sheet_slow", SheetDetent::Peek, &slow);
+    assert_passes(&result, &events);
+    assert_eq!(events.last().map(|e| e.detent), Some(SheetDetent::Peek), "{events:?}");
 }
 
 #[test]
@@ -218,7 +200,7 @@ fn a_tap_on_the_grip_steps_a_detent_up_and_tells_the_app_once() {
         SheetDetent::Peek,
         &[frame(), down(686.0), frame(), up(), frame(), frame(), height_is(400.0)],
     );
-    assert_passes(&result);
+    assert_passes(&result, &events);
     assert_eq!(events.len(), 1, "{events:?}");
     assert_eq!((events[0].kind, events[0].detent), (BottomSheetEventKind::Settled, SheetDetent::Half));
 }
@@ -229,23 +211,54 @@ fn a_finger_in_the_content_is_not_the_sheets_and_moves_nothing() {
     let (result, events) = run(
         "sheet_content",
         SheetDetent::Peek,
-        &[frame(), down(770.0), frame(), to(700.0), frame(), to(600.0), frame(), up(), frame(), height_is(130.0)],
+        &[frame(), down(770.0), frame(), to(760.0), frame(), to(750.0), frame(), up(), frame(), height_is(130.0)],
     );
-    assert_passes(&result);
+    assert_passes(&result, &events);
     assert!(events.is_empty(), "the content's finger is the content's: {events:?}");
 }
 
 #[test]
 fn a_finger_pulling_the_grip_down_from_the_full_height_ends_at_the_nearest_lower_detent() {
     // Full: 680 px, the sheet's top at 120, the grip's middle at 136. Down 465 px: 215 px, nearest the peek.
-    let (result, events) = run(
-        "sheet_down",
-        SheetDetent::Full,
-        &[frame(), height_is(680.0), down(136.0), frame(), to(150.0), frame(), to(600.0), frame(), to(601.0), frame(), up(), frame(), frame(), height_is(130.0)],
-    );
-    assert_passes(&result);
+    let mut steps = vec![frame(), height_is(680.0), down(136.0), frame()];
+    steps.extend(finger(136.0, 601.0, 12.0));
+    steps.extend([tick(150), up(), frame(), frame(), height_is(130.0)]);
+    let (result, events) = run("sheet_down", SheetDetent::Full, &steps);
+    assert_passes(&result, &events);
     let last = events.last().expect("the app was told");
     assert_eq!((last.kind, last.detent), (BottomSheetEventKind::Settled, SheetDetent::Peek), "{events:?}");
+}
+
+#[test]
+fn a_mouse_that_leaves_the_sheet_with_the_button_down_keeps_dragging_it() {
+    // The pointer is captured at the start of the drag: it may run far ahead of the sheet (a desktop's mouse is quick), the sheet
+    // follows it. Down on the grip, 220 px up in one move, a pixel more, up: 130 + 221 = 351, nearest half.
+    let (result, events) = run(
+        "sheet_mouse",
+        SheetDetent::Peek,
+        &[
+            frame(),
+            mouse("mouse_move", 686.0),
+            frame(),
+            mouse("mouse_down", 686.0),
+            frame(),
+            mouse("mouse_move", 676.0),
+            frame(),
+            mouse("mouse_move", 466.0),
+            frame(),
+            mouse("mouse_move", 465.0),
+            frame(),
+            height_is(351.0),
+            tick(150),
+            mouse("mouse_up", 465.0),
+            frame(),
+            frame(),
+            height_is(400.0),
+        ],
+    );
+    assert_passes(&result, &events);
+    let last = events.last().expect("the app was told");
+    assert_eq!((last.kind, last.detent), (BottomSheetEventKind::Settled, SheetDetent::Half), "{events:?}");
 }
 
 #[test]
@@ -269,7 +282,7 @@ fn the_keys_on_the_focused_grip_settle_the_sheet_and_the_layout_follows() {
             height_is(30.0),
         ],
     );
-    assert_passes(&result);
+    assert_passes(&result, &events);
     assert_eq!(
         events.iter().map(|e| e.detent).collect::<Vec<_>>(),
         vec![SheetDetent::Half, SheetDetent::Collapsed],

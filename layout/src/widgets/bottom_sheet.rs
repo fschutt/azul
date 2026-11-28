@@ -730,7 +730,7 @@ pub extern "C" fn merge_sheet_state(mut new_data: RefAny, mut old_data: RefAny) 
                 new_g.last_y = old_g.last_y;
                 new_g.step = old_g.step;
                 new_g.last_ms = old_g.last_ms;
-                new_g.origin = old_g.origin.clone();
+                new_g.origin.clone_from(&old_g.origin);
                 if old_g.dragging {
                     new_g.height = old_g.height;
                     new_g.detent = old_g.detent;

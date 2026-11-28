@@ -48,7 +48,7 @@ run tests tests
 # the integration tests of the phone layouts of AzMaps (they read the app's source: ui.rs, lib.rs, flow.rs, drive_ui.rs)
 phone_tests() {
   AZ_REQUIRE_TEST_FONTS=1 cargo test -p azul-layout --features "$features" --no-fail-fast \
-    --test azul_maps_floating_layout_fits_a_phone --test azul_maps_drive_banner_fits_a_phone 2>&1 | tee phone-tests.txt
+    --test all -- azul_maps_floating azul_maps_drive 2>&1 | tee phone-tests.txt
   return "${PIPESTATUS[0]}"
 }
 run phone_tests phone_tests
