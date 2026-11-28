@@ -264,6 +264,15 @@ fn an_app_that_adds_no_preview_has_no_dock_no_grip_and_no_bottom_pane() {
 }
 
 #[test]
+fn the_frame_root_has_the_dom_id_the_app_gave_and_none_otherwise() {
+    let has_root_id = |dom: &Dom, id: &str| dom.root.get_ids_and_classes().as_ref().iter().any(|c| c.as_id() == Some(id));
+    let named = frame().with_dom_id(AzString::from("mail-frame")).dom();
+    assert!(has_root_id(&named, "mail-frame") && has_class(&named, FRAME_CLASS));
+    let plain = frame().dom();
+    assert!(!plain.root.get_ids_and_classes().as_ref().iter().any(|c| c.as_id().is_some()));
+}
+
+#[test]
 fn a_frame_is_one_node_tall_and_wide() {
     let dom = frame().dom();
     let said = format!("{:?}", dom.root.style);

@@ -1019,3 +1019,20 @@ fn a_phone_has_no_window_controls_whatever_it_is_told() {
     assert!(first(&desktop.clone().dom(), SIDEBAR_CONTROLS_CLASS).is_some());
     assert!((desktop.header_left_pad() - 26.0).abs() < 0.001);
 }
+
+// ---- the DOM id of the root ----
+
+fn root_has_id(dom: &Dom, id: &str) -> bool {
+    dom.root.get_ids_and_classes().as_ref().iter().any(|c| c.as_id() == Some(id))
+}
+
+#[test]
+fn the_root_has_the_dom_id_the_app_gave_in_every_state_and_none_otherwise() {
+    for state in [SidebarState::Expanded, SidebarState::Rail, SidebarState::Handle] {
+        let named = mail().with_state(state).with_dom_id(AzString::from("mail-sidebar")).dom();
+        assert!(root_has_id(&named, "mail-sidebar"), "{state:?}");
+        assert!(has_class(&named, SIDEBAR_CLASS), "the id is added to the classes, not instead of them");
+        let plain = mail().with_state(state).dom();
+        assert!(!plain.root.get_ids_and_classes().as_ref().iter().any(|c| c.as_id().is_some()), "{state:?}");
+    }
+}

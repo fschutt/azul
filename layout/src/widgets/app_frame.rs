@@ -107,6 +107,9 @@ pub struct AppFrame {
     pub footer: OptionDom,
     /// The phone's quick-action sheet: the last child, over the whole frame.
     pub sheet: OptionDom,
+    /// The DOM id of the frame's root (`#id` in a selector, an e2e script finds it by it); empty
+    /// for none.
+    pub dom_id: AzString,
     /// Desktop or phone: `Auto` asks the window; handed to the sidebar and the Preview.
     pub form: FormFactor,
     /// Where a phone's rail starts, px from the frame's top: below the tab row. 0 is the touch
@@ -125,6 +128,7 @@ impl AppFrame {
             preview: OptionPreview::None,
             footer: OptionDom::None,
             sheet: OptionDom::None,
+            dom_id: AzString::from_const_str(""),
             form: FormFactor::Auto,
             rail_top: 0.0,
         }
@@ -175,6 +179,18 @@ impl AppFrame {
     #[must_use]
     pub fn with_sheet(mut self, sheet: Dom) -> Self {
         self.set_sheet(sheet);
+        self
+    }
+
+    /// The DOM id of the frame's root, so that a selector (`#mail-frame`) names it.
+    pub fn set_dom_id(&mut self, dom_id: AzString) {
+        self.dom_id = dom_id;
+    }
+
+    /// [`Self::set_dom_id`] for the builder chain.
+    #[must_use]
+    pub fn with_dom_id(mut self, dom_id: AzString) -> Self {
+        self.set_dom_id(dom_id);
         self
     }
 
@@ -276,6 +292,7 @@ fn build(frame: AppFrame) -> Dom {
         preview,
         footer,
         sheet,
+        dom_id,
         form,
         rail_top,
     } = frame;
@@ -395,12 +412,17 @@ fn build(frame: AppFrame) -> Dom {
     } else {
         &[FRAME_CLASS]
     };
-    styled(
+    let root = styled(
         Dom::create_div().with_children(DomVec::from_vec(root_kids)),
         "display: flex; flex-direction: row; width: 100%; height: 100%; min-width: 0px; min-height: 0px; \
          overflow: hidden; position: relative; box-sizing: border-box;",
     )
-    .with_ids_and_classes(classes(class_list))
+    .with_ids_and_classes(classes(class_list));
+    if dom_id.as_str().is_empty() {
+        root
+    } else {
+        root.with_id(dom_id)
+    }
 }
 
 #[cfg(test)]

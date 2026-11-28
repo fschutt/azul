@@ -65,7 +65,7 @@ use azul_core::{
 };
 use azul_css::{
     impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, props::layout::LayoutHeight,
-    props::layout::LayoutWidth, props::property::CssProperty, AzString,
+    props::layout::LayoutWidth, props::property::{CssProperty, CssPropertyType}, AzString,
 };
 
 pub use super::sidebar_layout::PreviewDock;
@@ -323,6 +323,9 @@ pub struct Preview {
     pub details: PreviewDetailVec,
     /// The pane's title ("Preview", the item's name): its header and its accessible name.
     pub title: AzString,
+    /// The DOM id of the Preview's root (`#id` in a selector, an e2e script finds it by it); empty
+    /// for none.
+    pub dom_id: AzString,
     /// The widget theme this Preview is PINNED to, or `None` to follow the app theme.
     pub theme: OptionUiTheme,
     /// Where the pane is docked; `Auto` is the right on a desktop and the bottom on a phone.
@@ -352,6 +355,7 @@ impl Preview {
             banner: OptionPreviewBanner::None,
             details: PreviewDetailVec::from_const_slice(&[]),
             title: AzString::from_const_str("Preview"),
+            dom_id: AzString::from_const_str(""),
             theme: OptionUiTheme::None,
             dock: PreviewDock::Auto,
             form: FormFactor::Auto,
@@ -370,6 +374,18 @@ impl Preview {
     #[must_use]
     pub fn with_title(mut self, title: AzString) -> Self {
         self.set_title(title);
+        self
+    }
+
+    /// The DOM id of the Preview's root, so that a selector (`#mail-preview`) names it.
+    pub fn set_dom_id(&mut self, dom_id: AzString) {
+        self.dom_id = dom_id;
+    }
+
+    /// [`Self::set_dom_id`] for the builder chain.
+    #[must_use]
+    pub fn with_dom_id(mut self, dom_id: AzString) -> Self {
+        self.set_dom_id(dom_id);
         self
     }
 
@@ -602,6 +618,30 @@ fn size_property(dock: PreviewDock, px: f32) -> CssProperty {
     }
 }
 
+/// The pane's size property type: the one the drag writes.
+const fn size_type(dock: PreviewDock) -> CssPropertyType {
+    match dock {
+        PreviewDock::Bottom => CssPropertyType::Height,
+        _ => CssPropertyType::Width,
+    }
+}
+
+/// While the pointer or a key is moving the pane: a cascade-only write of its size (the override
+/// channel, cheap enough for every move of a drag).
+fn size_while_moving(info: &mut CallbackInfo, pane: azul_core::dom::DomNodeId, dock: PreviewDock, px: f32) {
+    info.override_css_property(pane, size_property(dock, px));
+}
+
+/// When the size is settled: written into the pane's own style, and the override of the drag
+/// DROPPED. An override follows the node's identity across the app's next rebuild and outranks
+/// what the app builds, so one left behind would hold the pane at the dragged size when the app
+/// later moves it by itself (a command, a new selection): the pane keeps the size until the
+/// app's next build, and from then on what the app builds is the truth again.
+fn size_settled(info: &mut CallbackInfo, pane: azul_core::dom::DomNodeId, dock: PreviewDock, px: f32) {
+    info.set_css_property(pane, size_property(dock, px));
+    info.override_css_property(pane, CssProperty::initial(size_type(dock)));
+}
+
 /// Tells the app: the event as the state has it now.
 fn report(state: &mut DragState, info: CallbackInfo, kind: PreviewEventKind) -> Update {
     let ev = PreviewEvent {
@@ -668,7 +708,7 @@ extern "C" fn on_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     st.size = size;
     let container = info.get_hit_node();
     if let Some(pane) = pane_of(&info, container) {
-        info.set_css_property(pane, size_property(st.dock, size));
+        size_while_moving(&mut info, pane, st.dock, size);
     }
     report(&mut st, info, PreviewEventKind::Resized)
 }
@@ -696,20 +736,32 @@ extern "C" fn on_release(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     }
     if let Some(pane) = pane_of(&info, container) {
-        info.set_css_property(pane, size_property(st.dock, st.size));
+        size_settled(&mut info, pane, st.dock, st.size);
     }
     report(&mut st, info, PreviewEventKind::Settled)
 }
 
-/// A leave with the button already up is a release that never came: the drag ends.
-extern "C" fn on_leave(mut data: RefAny, info: CallbackInfo) -> Update {
+/// A leave with the button already up is a release that never came: the drag ends where it is
+/// (the override of the drag is dropped, the size stays in the pane's own style).
+extern "C" fn on_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if info.get_current_mouse_state().left_down {
         return Update::DoNothing;
     }
-    if let Some(mut st) = data.downcast_mut::<DragState>() {
-        st.dragging = false;
+    let Some(mut st) = data.downcast_mut::<DragState>() else {
+        return Update::DoNothing;
+    };
+    if !st.dragging {
+        return Update::DoNothing;
     }
-    Update::DoNothing
+    st.dragging = false;
+    if !st.moved {
+        return Update::DoNothing;
+    }
+    let container = info.get_hit_node();
+    if let Some(pane) = pane_of(&info, container) {
+        size_settled(&mut info, pane, st.dock, st.size);
+    }
+    report(&mut st, info, PreviewEventKind::Settled)
 }
 
 /// The arrow keys on the focused grip (the APG window splitter): by 16 px, 64 with Ctrl / Cmd,
@@ -747,7 +799,7 @@ extern "C" fn on_grip_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     info.prevent_default();
     st.size = step_size(st.dock, key, st.size, ks.primary_down(), rect.width, rect.height);
-    info.set_css_property(pane, size_property(st.dock, st.size));
+    size_settled(&mut info, pane, st.dock, st.size);
     report(&mut st, info, PreviewEventKind::Settled)
 }
 
@@ -776,7 +828,7 @@ fn toggled_by_key(st: &mut DragState, mut info: CallbackInfo) -> Update {
     };
     info.prevent_default();
     st.size = toggle_pane_height(st.size, rect.height);
-    info.set_css_property(pane, size_property(st.dock, st.size));
+    size_settled(&mut info, pane, st.dock, st.size);
     report(st, info, PreviewEventKind::Settled)
 }
 
@@ -963,6 +1015,7 @@ fn build(i: Preview) -> Dom {
         banner,
         details,
         title,
+        dom_id,
         theme,
         surface,
         open,
@@ -983,8 +1036,11 @@ fn build(i: Preview) -> Dom {
     let dock_class = if bottom { PREVIEW_BOTTOM_CLASS } else { PREVIEW_RIGHT_CLASS };
 
     if !open {
-        return styled(Dom::create_div().with_child(body), &root_css)
-            .with_ids_and_classes(classes(&[PREVIEW_CLASS, dock_class]));
+        return with_dom_id(
+            styled(Dom::create_div().with_child(body), &root_css)
+                .with_ids_and_classes(classes(&[PREVIEW_CLASS, dock_class])),
+            &dom_id,
+        );
     }
 
     let state = RefAny::new(DragState {
@@ -1120,8 +1176,11 @@ fn build(i: Preview) -> Dom {
         .with_ids_and_classes(classes(&[PREVIEW_PANE_CLASS]))
         .with_accessibility_info(AccessibilityInfo::named(title, AccessibilityRole::Pane));
 
-    styled(Dom::create_div().with_children(DomVec::from_vec(alloc::vec![body, pane])), &root_css)
-        .with_ids_and_classes(classes(&[PREVIEW_CLASS, dock_class]))
+    with_dom_id(
+        styled(Dom::create_div().with_children(DomVec::from_vec(alloc::vec![body, pane])), &root_css)
+            .with_ids_and_classes(classes(&[PREVIEW_CLASS, dock_class])),
+        &dom_id,
+    )
         .with_callbacks(
             alloc::vec![
                 cb(EventFilter::Hover(HoverEventFilter::MouseDown), state.clone(), on_press),
@@ -1136,6 +1195,15 @@ fn build(i: Preview) -> Dom {
         )
         .with_dataset(OptionRefAny::Some(state))
         .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_preview_state))
+}
+
+/// `dom` with the DOM id the app asked for (none: as it is).
+fn with_dom_id(dom: Dom, dom_id: &AzString) -> Dom {
+    if dom_id.as_str().is_empty() {
+        dom
+    } else {
+        dom.with_id(dom_id.clone())
+    }
 }
 
 /// `pane_max` for the callers that name the whole range of a pane in a container `h` tall.

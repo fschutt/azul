@@ -462,3 +462,17 @@ fn a_collapsed_bottom_bar_still_shows_that_there_is_a_banner() {
 fn the_default_title_is_preview() {
     assert_eq!(Preview::default().title.as_str(), "Preview");
 }
+
+// ---- the DOM id of the root ----
+
+#[test]
+fn the_root_has_the_dom_id_the_app_gave_open_or_closed_and_none_otherwise() {
+    let has = |dom: &Dom, id: &str| dom.root.get_ids_and_classes().as_ref().iter().any(|c| c.as_id() == Some(id));
+    for open in [true, false] {
+        let named = preview().with_form(FormFactor::Desktop).with_open(open).with_dom_id(AzString::from("mail-preview")).dom();
+        assert!(has(&named, "mail-preview"), "open {open}");
+        assert!(has_class(&named, PREVIEW_CLASS));
+        let plain = preview().with_form(FormFactor::Desktop).with_open(open).dom();
+        assert!(!plain.root.get_ids_and_classes().as_ref().iter().any(|c| c.as_id().is_some()), "open {open}");
+    }
+}

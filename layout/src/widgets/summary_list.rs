@@ -176,6 +176,9 @@ pub enum SummaryListEventKind {
     Scope,
     /// A scroll settled: the rows `index..end` are in view - render them.
     Scroll,
+    /// A row was pressed and held (a phone's long press): `index` and `id` name it; the app opens
+    /// its quick-action sheet.
+    LongPress,
 }
 
 /// One action in the list: what, on which row, with what.
@@ -184,10 +187,10 @@ pub enum SummaryListEventKind {
 pub struct SummaryListEvent {
     /// The search text (`Search`) or the sort field (`Sort`); empty otherwise.
     pub text: AzString,
-    /// The row's id (`Select`, `Open`, `Flag`, `Delete`); 0 otherwise.
+    /// The row's id (`Select`, `Open`, `Flag`, `Delete`, `LongPress`); 0 otherwise.
     pub id: u64,
     /// The row's index in the whole list (`Select`, `Open`, `Flag`,
-    /// `Delete`), the first row in view (`Scroll`), the scope (`Scope`); 0
+    /// `Delete`, `LongPress`), the first row in view (`Scroll`), the scope (`Scope`); 0
     /// otherwise.
     pub index: usize,
     /// One past the last row in view (`Scroll`); 0 otherwise.
@@ -456,6 +459,8 @@ pub struct SummaryList {
     pub on_scope: OptionSummaryListOnEvent,
     /// A scroll settled: the rows in view changed.
     pub on_scroll: OptionSummaryListOnEvent,
+    /// A row was pressed and held (a phone's long press).
+    pub on_long_press: OptionSummaryListOnEvent,
     /// The whole list's row count (group headers included).
     pub total_rows: usize,
     /// The index of `rows[0]` in the whole list.
@@ -660,6 +665,7 @@ impl SummaryList {
             on_search: None.into(),
             on_scope: None.into(),
             on_scroll: None.into(),
+            on_long_press: None.into(),
             total_rows,
             first_row: 0,
             row_height: 48,
@@ -910,6 +916,22 @@ impl SummaryList {
         self
     }
 
+    /// A row was pressed and held: the app opens its quick-action sheet on `index` and `id`.
+    pub fn set_on_long_press<C: Into<SummaryListOnEventCallback>>(&mut self, data: RefAny, cb: C) {
+        self.on_long_press = OptionSummaryListOnEvent::Some(SummaryListOnEvent::create(data, cb));
+    }
+
+    /// [`Self::set_on_long_press`] for the builder chain.
+    #[must_use]
+    pub fn with_on_long_press<C: Into<SummaryListOnEventCallback>>(
+        mut self,
+        data: RefAny,
+        cb: C,
+    ) -> Self {
+        self.set_on_long_press(data, cb);
+        self
+    }
+
     /// Replaces `self` with an empty list and returns the original.
     #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
@@ -959,6 +981,7 @@ struct ListShared {
     on_search: OptionSummaryListOnEvent,
     on_scope: OptionSummaryListOnEvent,
     on_scroll: OptionSummaryListOnEvent,
+    on_long_press: OptionSummaryListOnEvent,
     sort_field: AzString,
     total_rows: usize,
     first_row: usize,
@@ -1031,6 +1054,24 @@ extern "C" fn on_row_double_click(mut data: RefAny, info: CallbackInfo) -> Updat
         &shared.on_open,
         info,
         SummaryListEvent::create(SummaryListEventKind::Open, index, id),
+    )
+}
+
+/// A press-and-hold on a row: the app opens its quick-action sheet.
+extern "C" fn on_row_long_press(mut data: RefAny, info: CallbackInfo) -> Update {
+    let (index, id, mut shared) = {
+        let Some(row) = data.downcast_ref::<RowData>() else {
+            return Update::DoNothing;
+        };
+        (row.index, row.id, row.shared.clone())
+    };
+    let Some(shared) = shared.downcast_ref::<ListShared>() else {
+        return Update::DoNothing;
+    };
+    fire(
+        &shared.on_long_press,
+        info,
+        SummaryListEvent::create(SummaryListEventKind::LongPress, index, id),
     )
 }
 
@@ -1307,6 +1348,7 @@ pub(crate) fn build(list: SummaryList, look: &SummaryListLook) -> Dom {
         on_search,
         on_scope,
         on_scroll,
+        on_long_press,
         total_rows,
         first_row,
         row_height,
@@ -1327,6 +1369,7 @@ pub(crate) fn build(list: SummaryList, look: &SummaryListLook) -> Dom {
         on_search,
         on_scope,
         on_scroll,
+        on_long_press,
         sort_field: sort_field.clone(),
         total_rows,
         first_row,
@@ -1547,6 +1590,11 @@ pub(crate) fn build(list: SummaryList, look: &SummaryListLook) -> Dom {
                 data.clone()
             ),
             click(
+                EventFilter::Hover(HoverEventFilter::LongPress),
+                on_row_long_press,
+                data.clone()
+            ),
+            click(
                 EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
                 on_row_key,
                 data.clone()
@@ -1688,6 +1736,7 @@ mod summary_list_tests {
             .with_on_search(data(), cb)
             .with_on_scope(data(), cb)
             .with_on_scroll(data(), cb)
+            .with_on_long_press(data(), cb)
     }
 
     /// Every text of the subtree, in document order.
@@ -1925,6 +1974,24 @@ mod summary_list_tests {
         );
         assert_eq!((events[1].0, events[1].1, events[1].2), (SummaryListEventKind::Open, 2, 12));
         assert_eq!((events[2].0, events[2].1, events[2].2), (SummaryListEventKind::Flag, 2, 12));
+    }
+
+    #[test]
+    fn a_long_press_on_a_row_reports_its_index_and_id_to_the_long_press_hook() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let styled = StyledDom::create_from_dom(list(&log).with_theme(UiTheme::Flat).dom());
+        let rows = summary_rows(&styled);
+        rv::fire(&styled, id(rows[1]), EventFilter::Hover(HoverEventFilter::LongPress))
+            .expect("a row takes the long press");
+        let events = log.lock().expect("log").clone();
+        assert_eq!(events.len(), 1, "only the long press hook heard it");
+        assert_eq!((events[0].0, events[0].1, events[0].2), (SummaryListEventKind::LongPress, 2, 12));
+        // a list without the hook does nothing with it
+        let bare = StyledDom::create_from_dom(SummaryList::create(inbox()).with_theme(UiTheme::Flat).dom());
+        let bare_rows = summary_rows(&bare);
+        let (update, _) = rv::fire(&bare, id(bare_rows[1]), EventFilter::Hover(HoverEventFilter::LongPress))
+            .expect("the row listens anyway");
+        assert_eq!(update, Update::DoNothing);
     }
 
     #[test]
