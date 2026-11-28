@@ -536,6 +536,7 @@ fn collect_tab_order(
             continue;
         }
         let hierarchy = layout.styled_dom.node_hierarchy.as_container();
+        let laid_out = !layout.layout_tree.dom_to_layout.is_empty();
         let transient_roots: Vec<NodeId> = (0..node_data.len())
             .map(NodeId::new)
             .filter(|n| {
@@ -578,7 +579,12 @@ fn collect_tab_order(
             if !rendered.get(index).copied().unwrap_or(true) {
                 continue;
             }
-            if under_transient(node_id) {
+            // Under a `<transient-window>` of a DOM that has not been laid out yet (nothing says
+            // whether the node is shown): a stop of no window. Once it is laid out, `rendered`
+            // above is the answer: the copy of a popup's content a window of its own shows is
+            // `display: none` here, and what an overlay (a popup a one-surface window shows inside
+            // itself) or an inline panel holds is on screen, and tabbable.
+            if !laid_out && under_transient(node_id) {
                 continue;
             }
             let dom_node = FocusSearchContext::make_dom_node_id(*dom_id, node_id);

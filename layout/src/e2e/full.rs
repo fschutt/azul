@@ -18189,6 +18189,10 @@ fn serve_debug_event(
                     let mut new_state = callback_info.get_current_window_state().clone();
                     new_state.flags.display_preset = wanted;
                     callback_info.modify_window_state(new_state);
+                    // A phone is a window with one surface: the popups of the app's DOM are shown
+                    // inside it, framed by the Dom pass of the engine. The pass runs where the DOM is
+                    // made, so the DOM is made again.
+                    needs_update = true;
                     send_ok(request, None, None);
                 }
             }
