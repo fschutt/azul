@@ -16785,6 +16785,43 @@ impl LayoutWindow {
         )
     }
 
+    /// [`Self::scroll_into_view_dry_run`] with the deltas as the containers would REALLY move: a box
+    /// scrolls no further than its content reaches, so centring the last pill of a strip moves the
+    /// strip less than the ideal delta says. A caller that aims at where the node will be after the
+    /// scroll (a click) needs the movement that happens, not the one that was asked for.
+    #[must_use]
+    pub fn scroll_into_view_dry_run_clamped(
+        &self,
+        node_id: DomNodeId,
+        options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
+        now: Instant,
+    ) -> Vec<crate::managers::scroll_into_view::ScrollAdjustment> {
+        let hops = self.nested_dom_hops();
+        let hop = move |d: DomId| hops.get(&d).copied();
+        let mut scroll_manager = self.scroll_manager.clone();
+        let mut adjustments = crate::managers::scroll_into_view::scroll_node_into_view(
+            node_id,
+            &self.layout_results,
+            &mut scroll_manager,
+            options,
+            now,
+            &hop,
+        );
+        for adjustment in &mut adjustments {
+            let (dom, node) = (
+                adjustment.scroll_container_dom_id,
+                adjustment.scroll_container_node_id,
+            );
+            let before = self.scroll_manager.get_current_offset(dom, node).unwrap_or_default();
+            let after = scroll_manager.get_current_offset(dom, node).unwrap_or_default();
+            adjustment.delta = LogicalPosition {
+                x: after.x - before.x,
+                y: after.y - before.y,
+            };
+        }
+        adjustments
+    }
+
     /// Every nested dom mapped to `(host's dom, host node, the offset that
     /// converts geometry in the nested dom to the host's space)`.
     ///
