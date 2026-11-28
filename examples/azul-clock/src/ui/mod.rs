@@ -260,7 +260,44 @@ fn zone_name() -> String {
     world::local_zone().map(|z| z.name().to_string()).unwrap_or_default()
 }
 
+/// What the platform answers to "can you ring my alarms?", from its probe: whether notifications
+/// can be posted at all, and whether the system rings them while AzClock is closed (how, or why
+/// not). A desktop that only shows notifications (`linux`) does not ring by itself.
+#[must_use]
+pub fn os_alarms(available: bool, backend: &str, reason: &str, linux: bool) -> (bool, (bool, String)) {
+    let can_notify = available || backend.starts_with("headless");
+    let rings = if available && !linux {
+        (true, backend.to_string())
+    } else if available {
+        (false, t("azclock-no-os-schedule"))
+    } else {
+        (false, format!("{backend}: {reason}"))
+    };
+    (can_notify, rings)
+}
+
+/// [`os_alarms`] for this platform, asked now.
+fn os_capability() -> (bool, (bool, String)) {
+    let cap = PlatformCapability::notifications();
+    os_alarms(
+        cap.available,
+        cap.backend.as_str(),
+        cap.reason.as_str(),
+        cfg!(target_os = "linux"),
+    )
+}
+
 impl ClockApp {
+    /// Asks the platform again what it does for alarms. Called when the window exists (and while
+    /// notifications are unavailable, whenever alarms are handed over): the start of an app on
+    /// Android is before its activity, and an answer from then would keep every alarm from the
+    /// system for the whole session.
+    pub fn refresh_capability(&mut self) {
+        let (can_notify, os_rings) = os_capability();
+        self.can_notify = can_notify;
+        self.os_rings = os_rings;
+    }
+
     fn new(kit_ref: RefAny, args: &AppArgs) -> ClockApp {
         let mut k = kit_ref.clone();
         let (last_screen, data_root) = match k.downcast_ref::<kit::Kit>() {
@@ -273,17 +310,9 @@ impl ClockApp {
             .and_then(Screen::by_key)
             .or_else(|| last_screen.as_deref().and_then(Screen::by_key))
             .unwrap_or(Screen::Alarms);
-        let cap = PlatformCapability::notifications();
-        let os_rings = if cap.available && !cfg!(target_os = "linux") {
-            (true, cap.backend.as_str().to_string())
-        } else if cap.available {
-            (
-                false,
-                t("azclock-no-os-schedule"),
-            )
-        } else {
-            (false, format!("{}: {}", cap.backend.as_str(), cap.reason.as_str()))
-        };
+        // The platform's first answer: on Android the library's constructor starts the app before
+        // the activity exists, so it says "not yet"; the window asks again (`refresh_capability`).
+        let (can_notify, os_rings) = os_capability();
         ClockApp {
             kit: kit_ref,
             data_root,
@@ -309,7 +338,7 @@ impl ClockApp {
             os_rings,
             // The headless backend is "unavailable" (it shows nothing) but
             // RECORDS every post for `assert_notification`: post there too.
-            can_notify: cap.available || cap.backend.as_str().starts_with("headless"),
+            can_notify,
             quitting: false,
             fast_tick: None,
             zone: zone_name(),
@@ -447,7 +476,6 @@ pub fn start() {
     }
     let app = ClockApp::new(kit_ref.clone(), &args);
     println!("AZCLOCK_SCREEN {}", app.screen.key());
-    eprintln!("[azclock] alarms ring while AzClock is closed: {} ({})", app.os_rings.0, app.os_rings.1);
     let app_ref = RefAny::new(app);
     // Every notification AzClock posts goes here - also the tap that
     // launched it, in a process that never posted it.
@@ -556,6 +584,10 @@ fn notification_of(p: &schedule::Planned) -> Notification {
 fn reschedule(s: &mut ClockApp, info: &mut CallbackInfo) {
     if !s.loaded {
         return;
+    }
+    if !s.can_notify {
+        // It may have become available since (the probe is cached by the platform).
+        s.refresh_capability();
     }
     let mut next = schedule::plan(&s.alarms, &s.timers, Utc::now(), &Local, s.twelve_hour());
     if !(s.schedule_with_os() && s.can_notify) {
@@ -861,9 +893,12 @@ extern "C" fn on_fast_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Tim
 
 extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app = data.clone();
-    let Some(s) = data.downcast_ref::<ClockApp>() else {
+    let Some(mut s) = data.downcast_mut::<ClockApp>() else {
         return Update::DoNothing;
     };
+    // The platform is up now (the activity exists): what it does for alarms is asked here.
+    s.refresh_capability();
+    eprintln!("[azclock] alarms ring while AzClock is closed: {} ({})", s.os_rings.0, s.os_rings.1);
     kit::on_window_created(&s.kit, &mut info);
     kit::spawn_file_jobs(
         &mut info,
@@ -1104,3 +1139,7 @@ pub(crate) fn copy_laps(s: &ClockApp, info: &mut CallbackInfo) {
 #[cfg(test)]
 #[path = "screen_test.rs"]
 mod screen_test;
+
+#[cfg(test)]
+#[path = "capability_test.rs"]
+mod capability_test;
