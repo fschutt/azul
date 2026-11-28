@@ -1283,6 +1283,11 @@ impl MediaCodecEncoder {
                 &format!("encoder: a bitrate outside {}..{} kbit/s was moved into it", plan::MIN_KBPS, plan::MAX_KBPS),
             );
         }
+        if kbps == self.config.bitrate_kbps {
+            // The app asks every frame for the rate it wants; a rate that is the codec's already
+            // (an out-of-range one is moved to it each time) is no call.
+            return;
+        }
         self.config.bitrate_kbps = kbps;
         let applied = Format::new(&self.ndk).and_then(|params| {
             params.set_i32(c"video-bitrate", self.config.bitrate_bps());

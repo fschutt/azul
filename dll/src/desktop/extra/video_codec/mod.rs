@@ -844,9 +844,45 @@ enum DecodeRunner {
     Here(DecodeEngine),
 }
 
+/// How many chunks may wait for a decoder's thread before `decode` refuses the next: a codec
+/// that stalled must not grow its queue for ever. A call's decoder is a few chunks behind;
+/// 512 is seventeen seconds of 30 fps video.
+const DECODE_QUEUE_CHUNKS: usize = 512;
+
+/// The chunks queued for a decoder's thread and not decoded yet. Shared by the handle (which
+/// counts one in) and the codec thread (which counts one out): a counter of the queue, owned by
+/// the decoder it belongs to.
+#[derive(Debug, Clone, Default)]
+struct Backlog(std::sync::Arc<core::sync::atomic::AtomicUsize>);
+
+impl Backlog {
+    /// Counts one more chunk in, unless `cap` of them wait already.
+    fn try_add(&self, cap: usize) -> bool {
+        use core::sync::atomic::Ordering;
+        self.0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < cap).then_some(n + 1))
+            .is_ok()
+    }
+
+    /// One chunk is decoded, or was not queued after all.
+    fn done(&self) {
+        use core::sync::atomic::Ordering;
+        let _ = self
+            .0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| Some(n.saturating_sub(1)));
+    }
+
+    /// How many chunks wait.
+    fn len(&self) -> usize {
+        self.0.load(core::sync::atomic::Ordering::Acquire)
+    }
+}
+
 struct DecoderInner {
     /// Chunks handed to `decode` so far.
     frames_decoded: u64,
+    /// The chunks that wait for the codec thread.
+    backlog: Backlog,
     /// Decoded frames not yet pulled with `recv_frame` / `next_frame`,
     /// whichever backend produced them.
     ready: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<VideoFrame>>>,
@@ -858,19 +894,28 @@ impl DecoderInner {
     /// on the caller's thread; or why none opens here.
     fn open_h264(threaded: bool) -> Result<DecoderInner, String> {
         let ready = std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+        let backlog = Backlog::default();
         let runner = if threaded {
             let into = std::sync::Arc::clone(&ready);
+            let counted = backlog.clone();
             DecodeRunner::Thread(CodecThread::spawn(
                 "azul-video-decode",
                 None,
                 DecodeEngine::open_h264,
-                move |engine: &mut DecodeEngine, job: DecodeJob| engine.run(job, &into),
+                move |engine: &mut DecodeEngine, job: DecodeJob| {
+                    let chunk = matches!(job, DecodeJob::Chunk(_));
+                    engine.run(job, &into);
+                    if chunk {
+                        counted.done();
+                    }
+                },
             )?)
         } else {
             DecodeRunner::Here(DecodeEngine::open_h264()?)
         };
         Ok(DecoderInner {
             frames_decoded: 0,
+            backlog,
             ready,
             runner,
         })
@@ -879,7 +924,18 @@ impl DecoderInner {
     /// Hands `job` to the engine: queued on its thread, or run right here.
     fn submit(&mut self, job: DecodeJob) -> bool {
         match &mut self.runner {
-            DecodeRunner::Thread(thread) => thread.offer(job),
+            DecodeRunner::Thread(thread) => {
+                // A chunk is refused when the thread is DECODE_QUEUE_CHUNKS behind.
+                let chunk = matches!(job, DecodeJob::Chunk(_));
+                if chunk && !self.backlog.try_add(DECODE_QUEUE_CHUNKS) {
+                    return false;
+                }
+                let taken = thread.offer(job);
+                if chunk && !taken {
+                    self.backlog.done();
+                }
+                taken
+            }
             DecodeRunner::Here(engine) => {
                 engine.run(job, &self.ready);
                 true
@@ -1392,7 +1448,8 @@ impl VideoDecoder {
     }
 
     /// Submit one encoded chunk (Annex-B H.264). Returns `true` if the chunk
-    /// was taken (the decoder is open). It is decoded on the decoder's own
+    /// was taken (the decoder is open and not 512 chunks behind: a codec that
+    /// stalled refuses chunks instead of queueing them for ever). It is decoded on the decoder's own
     /// thread; the frames come out of [`recv_frame`](Self::recv_frame) once
     /// decoded - later than this call, and decode is pipelined and B-frame
     /// reordered, so one chunk can yield zero or several frames. The same
@@ -1873,3 +1930,7 @@ mod codec_thread_tests {
         drop(thread);
     }
 }
+
+#[cfg(test)]
+#[path = "backlog_test.rs"]
+mod backlog_test;
