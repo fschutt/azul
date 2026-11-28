@@ -233,3 +233,19 @@ fn a_phone_on_its_charger_is_on_mains() {
         .expect("the stub no longer claims Android");
     assert!(fallback > arm);
 }
+
+/// `NetworkState::connected` was the network's INTERNET capability: true behind a captive portal and on a Wi-Fi that leads nowhere,
+/// for every request that then failed (AN-21). It needs the system's own VALIDATED check as well.
+///
+/// Mutation: the VALIDATED test removed (the state of 6ce827b284).
+#[test]
+fn connected_means_the_system_validated_the_network() {
+    let rust = rust_code("dll/src/desktop/extra/sensors/network/android.rs");
+    assert!(rust.contains("constNET_CAPABILITY_VALIDATED:i32=16;"), "ConnectivityManager's NET_CAPABILITY_VALIDATED is 16");
+    assert!(
+        rust.contains(
+            "letconnected=caps_say(env,&caps,\"hasCapability\",NET_CAPABILITY_INTERNET)&&caps_say(env,&caps,\"hasCapability\",NET_CAPABILITY_VALIDATED);"
+        ),
+        "connected = INTERNET and VALIDATED"
+    );
+}
