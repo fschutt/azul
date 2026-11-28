@@ -12,7 +12,7 @@ use azul::{
     video::{VideoConfig, VideoSource},
     widgets::{DetailsPane, VideoWidget},
 };
-use azul_appkit::l10n::{grouped, label, t, t_args, t_text, Arg, Phrase, Text};
+use azul_appkit::l10n::{grouped, label, t, t_args, t_text, Arg, Phrase};
 use azul_storage::{config::DriveLocation, key};
 
 use crate::{

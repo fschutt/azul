@@ -392,10 +392,6 @@ pub const ABOUT: AzString = AzString::from_const_str("__azdrive_about");
 pub const PREVIEW_PANE: AzString = AzString::from_const_str("__azdrive_preview_pane");
 /// A phone's preview pane as a virtual view of its own (it draws the item at the list's top edge).
 pub const PREVIEW_VIEW: AzString = AzString::from_const_str("__azdrive_preview_view");
-/// The (?) in the preview's header: what there is to say about the item.
-pub const PREVIEW_DETAILS: AzString = AzString::from_const_str("__azdrive_preview_details");
-/// The one line over the preview's stage, when something needs saying.
-pub const PREVIEW_BANNER: AzString = AzString::from_const_str("__azdrive_preview_banner");
 /// Under the preview: the item's name, kind, what it is, Open and Copy link.
 pub const PREVIEW_INFO: AzString = AzString::from_const_str("__azdrive_preview_info");
 pub const PREVIEW_TEXT: AzString = AzString::from_const_str("__azdrive_preview_text");

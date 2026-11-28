@@ -105,11 +105,11 @@ pub(crate) fn after_scroll(selected: &[&str], top: Option<&str>) -> Step {
     }
 }
 
-/// The item the preview shows: the first selected row - the one row a scroll or a tap chose, the
-/// first of the rows checked - and, while nothing is selected, the first row the view shows.
+/// The item the preview shows: the first selected row - the one row a scroll or a tap chose, the first
+/// of the rows checked - and, while nothing is selected, the first row the view shows.
 #[must_use]
-pub(crate) fn subject<'a>(selected: &[&'a str], first_shown: Option<&'a str>) -> Option<&'a str> {
-    selected.first().copied().or(first_shown)
+pub(crate) fn subject<T>(first_selected: Option<T>, first_shown: Option<T>) -> Option<T> {
+    first_selected.or(first_shown)
 }
 
 /// Whether the preview's own content is asked for now: when the scroll has settled. While the list

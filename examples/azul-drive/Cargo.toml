@@ -84,6 +84,10 @@ fake-providers = ["azul-pay/fake-providers"]
 # is encrypted as it is made (its keys, the recovery sheet); an older plaintext one keeps
 # opening and its menu offers "Encrypt this drive" (the files moved into the encryption).
 encryption = ["azul-storage/encryption", "azcloud-kit/encryption"]
+# The phone sheet's Share row (src/share.rs): `CallbackInfo::share(ShareRequest)` and `can_share()` of the
+# platform's share sheet, written against WP-F's names (ci-wip/wp-f-honest). Off until master has them: the
+# calls are marked `WP-F share` and compile after the merge of master; then it joins `default`.
+share = []
 
 [lib]
 name = "azdrive"

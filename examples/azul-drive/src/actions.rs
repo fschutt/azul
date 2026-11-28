@@ -134,7 +134,6 @@ pub(crate) enum Action {
     Back,
     Forward,
     Up,
-    RecentMenu,
     CloseBackstage,
     CloseWindow,
     ShowTransfers,
@@ -153,8 +152,6 @@ pub(crate) enum Action {
     },
     /// The Options at the keyboard shortcuts (File > Help).
     Shortcuts,
-    /// Pin a folder to Quick access, or unpin it (File > Frequent places' pins).
-    TogglePin(Place),
     // Home
     /// New > Easy access: pin the folder, add a folder as a drive.
     EasyAccessMenu,
@@ -643,21 +640,6 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         Action::Undo => undo(info, app, s),
         Action::RestoreFromTrash => restore_from_trash(info, app, s),
         Action::Go(place) => go(info, app, s, place, true),
-        Action::RecentMenu => {
-            let items: Vec<MenuItem> = s
-                .recent
-                .iter()
-                .map(|place| {
-                    let label = browse::path_text(place, Some(&s.drive_name(place)));
-                    menu_item(app, &label, Action::Go(place.clone()), *place == s.place)
-                })
-                .collect();
-            if items.is_empty() {
-                s.info(Text::key("azdrive-no-recent-places"));
-            } else {
-                open_menu_below(info, items);
-            }
-        }
         Action::CloseBackstage => s.backstage = None,
         Action::CloseWindow => info.close_window(),
         Action::ShowTransfers => {
@@ -692,7 +674,6 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             azul_appkit::ui::open_settings(&s.kit, Some("Shortcuts"));
             crate::options_opened(s, was_open);
         }
-        Action::TogglePin(place) => toggle_pin_of(info, app, s, place),
         Action::EasyAccessMenu => {
             let items = vec![
                 able_item(app, s, "azdrive-menu-pin", Action::Pin),
@@ -1216,27 +1197,6 @@ fn hide_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     if renamed > 0 && !unhide && !s.settings.show_hidden {
         s.info(Phrase::new("azdrive-hid-items").arg("count", renamed));
     }
-}
-
-/// Pins the folder `place` to Quick access, or unpins it (File > Frequent places' pins).
-fn toggle_pin_of(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, place: Place) {
-    let Place::Folder { drive, prefix } = place.clone() else {
-        return;
-    };
-    if s.settings.is_pinned(&drive, &prefix) {
-        s.settings
-            .pinned
-            .retain(|p| !(p.drive == drive && p.prefix == prefix));
-    } else {
-        let name = s.place_title(&place);
-        s.settings.pinned.push(model::Pinned {
-            drive,
-            prefix,
-            name,
-        });
-    }
-    println!("AZDRIVE_DONE pinned {}", s.settings.pinned.len());
-    save_settings(info, app, s);
 }
 
 // ==== Keyboard ====

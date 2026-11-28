@@ -378,8 +378,6 @@ enum SideAction {
     Go(Place),
     /// The section opens or closes.
     Section(Section),
-    /// The drive's or the folder's folders open or close (listed on the first opening).
-    Expand(TreeKey),
     AddDrive,
     /// The drive is forgotten (after a question): its eject button.
     Eject(String),
@@ -561,10 +559,6 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, action: SideAc
         SideAction::Section(section) => {
             let open = s.tree.section_open(section);
             s.tree.set_section_open(section, !open);
-        }
-        SideAction::Expand(node) => {
-            let open = s.tree.expanded.contains(&node);
-            set_expanded(info, app, s, node, !open);
         }
         SideAction::AddDrive => actions::run_action(info, app, s, Action::AddDrive),
         SideAction::Eject(drive_id) => {

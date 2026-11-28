@@ -20,7 +20,7 @@ fn scrolling_moves_the_selection_and_the_preview_together() {
         let now: Vec<&str> = selected.iter().map(String::as_str).collect();
         assert_eq!(now, [top], "the top-edge row is the selected row");
         assert_eq!(
-            subject(&now, Some("a")),
+            subject(now.first().copied(), Some("a")),
             Some(top),
             "the preview shows the selected row, not the first one the view has"
         );
@@ -92,7 +92,7 @@ fn a_selection_of_several_rows_is_left_alone() {
     assert_eq!(follow.scrolled(90.0, Some("c"), &["a", "b"]), Step::Nothing);
     assert_eq!(follow.scrolled(190.0, Some("e"), &["a", "b", "x"]), Step::Nothing);
     // the preview then shows the first row checked
-    assert_eq!(subject(&["a", "b"], Some("e")), Some("a"));
+    assert_eq!(subject(["a", "b"].first().copied(), Some("e")), Some("a"));
 }
 
 /// A folder with no row, and an offset that is no number, move nothing.
@@ -139,7 +139,7 @@ fn a_phone_follows_its_scroll_and_a_desktop_does_not() {
 /// With no row selected the preview shows the first row of the view; with none at all, nothing.
 #[test]
 fn the_preview_shows_the_first_row_until_a_row_is_selected() {
-    assert_eq!(subject(&[], Some("a")), Some("a"));
-    assert_eq!(subject(&["c"], Some("a")), Some("c"));
-    assert_eq!(subject(&[], None), None);
+    assert_eq!(subject(None, Some("a")), Some("a"));
+    assert_eq!(subject(Some("c"), Some("a")), Some("c"));
+    assert_eq!(subject::<&str>(None, None), None);
 }

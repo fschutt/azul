@@ -120606,6 +120606,12 @@
                                 "tooltip": {
                                     "type": "String"
                                 },
+                                "status_icon": {
+                                    "type": "String"
+                                },
+                                "status_tip": {
+                                    "type": "String"
+                                },
                                 "tag": {
                                     "type": "usize"
                                 },
@@ -120637,6 +120643,9 @@
                                     "type": "bool"
                                 },
                                 "in_rail": {
+                                    "type": "bool"
+                                },
+                                "accepts_drops": {
                                     "type": "bool"
                                 }
                             }
@@ -121061,6 +121070,74 @@
                                     "type": "SidebarRow"
                                 },
                                 "fn_body": "object.with_tooltip(tooltip)"
+                            },
+                            "set_accepts_drops": {
+                                "doc": [
+                                    "Whether items dragged over the row can be dropped on it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "accepts": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_accepts_drops(accepts)"
+                            },
+                            "set_status": {
+                                "doc": [
+                                    "A glyph at the row's end that says its state, with what it says."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    },
+                                    {
+                                        "tip": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_status(icon, tip)"
+                            },
+                            "with_accepts_drops": {
+                                "doc": [
+                                    "[`Self::set_accepts_drops`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "accepts": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SidebarRow"
+                                },
+                                "fn_body": "object.with_accepts_drops(accepts)"
+                            },
+                            "with_status": {
+                                "doc": [
+                                    "[`Self::set_status`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    },
+                                    {
+                                        "tip": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SidebarRow"
+                                },
+                                "fn_body": "object.with_status(icon, tip)"
                             }
                         },
                         "repr": "C"
@@ -122207,7 +122284,9 @@
                                 "RowLongPressed": {},
                                 "RowStatusClicked": {},
                                 "RowCollabToggled": {},
-                                "QuickAction": {}
+                                "QuickAction": {},
+                                "RowMenuRequested": {},
+                                "RowDropped": {}
                             }
                         ],
                         "repr": "C"

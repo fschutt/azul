@@ -23,7 +23,6 @@ use azul::{
 use azul_appkit::l10n::{label, t_args, Arg, Phrase, Text};
 
 use crate::{
-    actions,
     browse::{self, Place},
     go, ids,
     location_tabs::{shortcut_digit, Closed, TabState},

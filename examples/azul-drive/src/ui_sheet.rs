@@ -36,6 +36,8 @@ pub(crate) enum Sheet {
 pub(crate) enum ItemAct {
     /// The preview of the item, large (Quick Look).
     Preview,
+    /// The file handed to the platform's share sheet (`share`).
+    Share,
     /// One of the window's actions on the item.
     Do(Action),
 }
@@ -56,7 +58,7 @@ pub(crate) struct ItemRow {
 /// drive downloads), Rename, Move to, Copy, Properties and Delete last, in red. A folder has no
 /// download.
 #[must_use]
-pub(crate) fn item_rows(entry: &Entry, cloud: bool) -> Vec<ItemRow> {
+pub(crate) fn item_rows(entry: &Entry, cloud: bool, can_share: bool) -> Vec<ItemRow> {
     let row = |label, icon, act, danger| ItemRow {
         label,
         icon,
@@ -68,7 +70,7 @@ pub(crate) fn item_rows(entry: &Entry, cloud: bool) -> Vec<ItemRow> {
     } else {
         row("azdrive-menu-open", "open_in_new", ItemAct::Do(Action::Open), false)
     };
-    vec![
+    let mut rows = vec![
         row("azdrive-sheet-preview", "visibility", ItemAct::Preview, false),
         open,
         row(
@@ -91,7 +93,12 @@ pub(crate) fn item_rows(entry: &Entry, cloud: bool) -> Vec<ItemRow> {
             false,
         ),
         row("azdrive-sheet-trash", "delete", ItemAct::Do(Action::Delete), true),
-    ]
+    ];
+    // Share, after Open, where the platform has a share sheet and the file is on this computer.
+    if crate::share::row_shown(can_share, entry, cloud) {
+        rows.insert(2, row("azdrive-sheet-share", "share", ItemAct::Share, false));
+    }
+    rows
 }
 
 /// The sheet over the window while one is open (`None`: none, or the row it was for is gone).
@@ -109,7 +116,7 @@ pub(crate) fn sheet(s: &DriveState, app: &RefAny) -> Option<Dom> {
                 AzString::from(entry.name.as_str()),
                 AzString::from(entry.kind()),
             );
-            for (tag, row) in item_rows(entry, cloud).iter().enumerate() {
+            for (tag, row) in item_rows(entry, cloud, s.can_share).iter().enumerate() {
                 let mut item = ActionSheetItem::create(label(row.label), AzString::from(row.icon), tag)
                     .with_danger(row.danger);
                 if let ItemAct::Do(action) = &row.act {
@@ -182,7 +189,7 @@ fn run_item(
         return;
     };
     let cloud = s.current_drive_id().is_some_and(|id| !s.is_local_drive(&id));
-    let Some(row) = item_rows(&entry, cloud).into_iter().nth(choice) else {
+    let Some(row) = item_rows(&entry, cloud, s.can_share).into_iter().nth(choice) else {
         return;
     };
     if !s.selection.contains(key) {
@@ -191,6 +198,7 @@ fn run_item(
     println!("AZDRIVE_SHEET {}", row.label);
     match row.act {
         ItemAct::Preview => ui_overlays::toggle_quick_look(info, app, s),
+        ItemAct::Share => crate::share::share_item(info, s, key),
         ItemAct::Do(action) => actions::run_action(info, app, s, action),
     }
 }
@@ -204,6 +212,7 @@ pub(crate) fn open_for_item(info: &mut CallbackInfo, app: &RefAny, s: &mut Drive
     if !s.selection.contains(key) {
         actions::click_item(info, app, s, key, false, false);
     }
+    s.can_share = crate::share::available(info);
     s.sheet = Some(Sheet::Item(key.to_string()));
     println!("AZDRIVE_SHEET open {key}");
 }

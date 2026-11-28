@@ -345,6 +345,7 @@ mod ui_dialogs;
 mod ui_find;
 mod ui_panes;
 mod follow;
+mod share;
 mod ui_frame;
 mod ui_location;
 mod ui_preview;
@@ -1333,6 +1334,9 @@ pub(crate) struct DriveState {
     pub controls: (f32, f32),
     /// The phone's quick-action sheet: the key of the item it is open for.
     pub sheet: Option<ui_sheet::Sheet>,
+    /// The platform has a share sheet (asked at the long press that opens the item's sheet): the
+    /// sheet's Share row (`share`).
+    pub can_share: bool,
     /// What the folder view's scroll remembers: a phone's selection and preview follow the row at
     /// its top edge (`follow`).
     pub follow: follow::Follow,
@@ -1633,10 +1637,7 @@ impl DriveState {
     /// first item. On a phone the selection is the row at the top edge of the folder view - it
     /// follows the list's scroll (`follow`) - so the preview does too.
     pub fn preview_subject(&self) -> Option<&Entry> {
-        self.selected_entries()
-            .into_iter()
-            .next()
-            .or_else(|| self.first_visible())
+        follow::subject(self.selected_entries().into_iter().next(), self.first_visible())
     }
 
     /// The row of `key`: a search's result while a search is open, else the open folder's.
@@ -4532,6 +4533,7 @@ pub fn start() {
         phone: args.form == Some(args::FormArg::Phone),
         controls: (0.0, 0.0),
         sheet: None,
+        can_share: false,
         follow: follow::Follow::default(),
         renaming: None,
         column_drag: None,
