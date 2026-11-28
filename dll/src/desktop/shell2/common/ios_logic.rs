@@ -448,6 +448,38 @@ pub fn mouse_plan(
     }
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// The system UI font (San Francisco)
+// ---------------------------------------------------------------------------------------------------------------
+
+/// The family the `system-ui` chain of an iOS app starts with. The font scan of an iOS app is CoreText's list of
+/// AvailableFonts, which does not hold the system UI font (its faces are the hidden `.SFUI-*` names): no scan knows
+/// this family, every launch warned that it was NOT found, and the UI text fell back to the next family of the chain.
+pub const SYSTEM_FONT_FAMILY: &str = "System Font";
+
+/// Where the system UI font's file has been, when CoreText does not name it: an iPhone's own font directory and the
+/// Mac's (a Simulator process reads the host's `/System`). The exact path is read from CoreText first.
+pub static SYSTEM_UI_FONT_FILES: &[&str] = &[
+    "/System/Library/Fonts/Core/SFUI.ttf",
+    "/System/Library/Fonts/SFNS.ttf",
+];
+
+/// The first of `candidates` that `readable` accepts.
+#[must_use]
+pub fn first_readable<'a>(candidates: &[&'a str], readable: impl Fn(&str) -> bool) -> Option<&'a str> {
+    candidates.iter().copied().find(|path| readable(path))
+}
+
+/// The path in the buffer `CFURLGetFileSystemRepresentation` filled: what comes before the NUL, when it is text.
+#[must_use]
+pub fn path_from_c_buffer(buffer: &[u8]) -> Option<String> {
+    let end = buffer.iter().position(|b| *b == 0).unwrap_or(buffer.len());
+    if end == 0 {
+        return None;
+    }
+    String::from_utf8(buffer[..end].to_vec()).ok()
+}
+
 #[cfg(test)]
 #[path = "ios_logic_test.rs"]
 mod ios_logic_test;

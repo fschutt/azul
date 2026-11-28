@@ -64,6 +64,8 @@ pub mod clipboard;
 mod gl;
 /// The GPU path of a window: the lifecycle machine's executor and the frame.
 mod gpu;
+/// The system UI font (San Francisco): CoreText's AvailableFonts, which the font scan reads, does not hold it.
+mod system_font;
 mod text_input;
 /// `<webview>`: `WKWebView`s, `WebKit.framework` loaded at the first one.
 mod webview;
@@ -2291,6 +2293,11 @@ impl IOSWindow {
         layout_window
             .webviews
             .set_platform(azul_layout::managers::webview::WebViewPlatform::Backend);
+        // The system UI font: the scan of an iOS app does not list it (`system_font`), so the family the `system-ui`
+        // chain starts with is registered here when the registry does not know it.
+        if let Some(registry) = font_registry.as_ref() {
+            system_font::ensure_system_ui_font(registry);
+        }
 
         // The editable `UITextInteraction`, made below and attached while a node is being edited.
         let mut text_interaction: *mut Object = ptr::null_mut();

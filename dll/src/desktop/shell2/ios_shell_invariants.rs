@@ -9,6 +9,7 @@ const IOS_A11Y_RS: &str = include_str!("ios/accessibility.rs");
 const IOS_TEXT_INPUT_RS: &str = include_str!("ios/text_input.rs");
 const IOS_CLIPBOARD_RS: &str = include_str!("ios/clipboard.rs");
 const IOS_WEBVIEW_RS: &str = include_str!("ios/webview.rs");
+const IOS_SYSTEM_FONT_RS: &str = include_str!("ios/system_font.rs");
 const FILE_PICKER_RS: &str = include_str!("../extra/file_picker/ios.rs");
 const CAMERA_RS: &str = include_str!("../extra/camera/avfoundation.rs");
 const AVF_AUTH_RS: &str = include_str!("../extra/camera/avf_auth.rs");
@@ -69,6 +70,7 @@ fn the_ios_shell_does_not_unwrap_what_the_objective_c_runtime_hands_it() {
         ("ios/text_input.rs", IOS_TEXT_INPUT_RS),
         ("ios/clipboard.rs", IOS_CLIPBOARD_RS),
         ("ios/webview.rs", IOS_WEBVIEW_RS),
+        ("ios/system_font.rs", IOS_SYSTEM_FONT_RS),
         ("extra/file_picker/ios.rs", FILE_PICKER_RS),
     ] {
         for (n, line) in code_of(source).lines().enumerate() {
@@ -657,4 +659,29 @@ fn a_frame_is_requested_from_the_layer_and_the_display_tick_produces_it_itself()
         tick_code.contains("present_pending_frame("),
         "the display tick produces the owed frame itself: the first layout does not wait for Core Animation to ask"
     );
+}
+
+/// The scan of an iOS app (CoreText's AvailableFonts) does not hold San Francisco, so the family the `system-ui`
+/// chain starts with was in no scan and every launch warned `the system UI font "System Font" was NOT found` (the
+/// Simulator consoles of 2026-11-26): the window registers it itself, before its first layout, from the file CoreText
+/// made the system UI font from, only when the registry does not know the family already (a persisted manifest of an
+/// earlier launch holds it), under the name the chain asks for, with the file's own coverage and style.
+#[test]
+fn the_ios_window_registers_the_system_ui_font_the_scan_does_not_list() {
+    let new = body(IOS_MOD_RS, "pub fn new(");
+    at(new, "system_font::ensure_system_ui_font(registry)", "IOSWindow::new");
+    let font = code_of(IOS_SYSTEM_FONT_RS);
+    for needed in [
+        "CTFontCreateUIFontForLanguage(",
+        "kCTFontURLAttribute",
+        "registry.query(&wanted).is_some()",
+        "FcParseFontPatterns(",
+        "registry.insert_font(",
+        "SYSTEM_FONT_FAMILY",
+    ] {
+        assert!(font.contains(needed), "ios/system_font.rs: `{needed}` is missing");
+    }
+    let known = font.find("registry.query(&wanted).is_some()").expect("asks the registry first");
+    let read = font.find("std::fs::read(").expect("reads the file");
+    assert!(known < read, "the file is read only when the registry does not know the family");
 }
