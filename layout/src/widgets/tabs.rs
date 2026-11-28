@@ -1698,6 +1698,9 @@ pub struct TabHeader {
     pub status_bar: crate::widgets::tab_strip::OptionStatusBarBand,
     /// Labels for each tab.
     pub tabs: StringVec,
+    /// The icon of each tab, in the order of `tabs` (`with_icons`); read only where `labels` asks
+    /// for icons. APPENDED for ABI stability.
+    pub icons: StringVec,
     /// How the panel opens and closes (`with_reveal`), kept by the app
     /// between rebuilds; `None` keeps the active tab's panel always shown.
     pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
@@ -1717,9 +1720,6 @@ pub struct TabHeader {
     /// What a pill shows on a phone (`with_labels`): one icon each (`with_icons`), the rule, or the
     /// text. APPENDED for ABI stability.
     pub labels: TabLabels,
-    /// The icon of each tab, in the order of `tabs` (`with_icons`); read only where `labels` asks
-    /// for icons. APPENDED for ABI stability.
-    pub icons: StringVec,
     /// Whether this bar draws the window's chevron at the left end of its row (`with_content_toggle`).
     /// APPENDED for ABI stability.
     pub content_toggle: bool,
