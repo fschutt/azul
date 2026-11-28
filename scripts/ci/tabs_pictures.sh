@@ -34,10 +34,13 @@ step doc_check_layout cargo run -r -p azul-doc -- check layout
 step codegen cargo run -r -p azul-doc -- codegen all
 # 4. the QA build of AzWidgets over them: lib.desktop-e2e and AzWidgets-e2e-linux
 step build bash scripts/ci/desktop_e2e_build.sh linux AzWidgets
-# 5. the scenarios, headless (AZ_BACKEND=headless is the matrix's own), every take_screenshot copied to AZ_E2E_SHOT_DIR
-mkdir -p demo-out/tabs-shots demo-out/e2e-tabs
-export AZ_E2E_SHOT_DIR="$PWD/demo-out/tabs-shots"
-step scenarios python3 scripts/ci/e2e_matrix.py desktop --repo . --bin AzWidgets=demo-out/apps/AzWidgets-e2e-linux --only tab_touch --out demo-out/e2e-tabs
+# 5. the scenarios, headless (AZ_BACKEND=headless is the matrix's own), every take_screenshot copied to AZ_E2E_SHOT_DIR (one
+#    folder per scenario file: the shots are numbered in capture order from 1 in each run of the app)
+mkdir -p demo-out/tabs-shots/host demo-out/tabs-shots/phone demo-out/e2e-tabs
+matrix="python3 scripts/ci/e2e_matrix.py desktop --repo . --bin AzWidgets=demo-out/apps/AzWidgets-e2e-linux"
+step scenarios_plain $matrix --only tab_touch.json --out demo-out/e2e-tabs/plain
+step scenarios_host env AZ_E2E_SHOT_DIR="$PWD/demo-out/tabs-shots/host" $matrix --only tab_touch_pictures --out demo-out/e2e-tabs/host
+step scenarios_phone env AZ_E2E_SHOT_DIR="$PWD/demo-out/tabs-shots/phone" $matrix --only tab_touch_phone --out demo-out/e2e-tabs/phone
 # 6. the source gates of the dll (the shells read the window flags this work added)
 step srcgate cargo test -p azul-srcgate --no-fail-fast
 
@@ -47,5 +50,5 @@ for i in "${!names[@]}"; do
   echo "STEP ${names[$i]} ${codes[$i]}"
   [ "${codes[$i]}" -eq 0 ] || bad=1
 done
-ls -la demo-out/tabs-shots 2>/dev/null | head -30
+ls -la demo-out/tabs-shots/host demo-out/tabs-shots/phone 2>/dev/null | head -50
 exit "$bad"

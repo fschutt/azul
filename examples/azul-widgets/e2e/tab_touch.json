@@ -166,7 +166,12 @@
   },
   {
     "name": "azul_widgets_a_window_on_an_iphone_with_the_island_has_a_pill_and_turns_it_on_its_side",
-    "description": "The preset of an iPhone with the Dynamic Island, then the window turned to landscape: the pill is at the top in portrait and at the left edge on its side, and the insets move to the sides. A preset is a window flag, so the same ops run on a desktop and on a phone.",
+    "description": "The preset of an iPhone with the Dynamic Island, then the window turned to landscape: the pill is at the top in portrait and at the left edge on its side, and the insets move to the sides. A preset is a window flag, so the same ops run on a desktop and on a phone. Desktops only: the turn is a resize of the window, which a phone's window cannot be.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
     "steps": [
       {
         "op": "resize",

@@ -1,0 +1,356 @@
+[
+  {
+    "name": "azul_widgets_touch_tabs_pictures_on_a_phone_at_its_own_size",
+    "description": "The pictures of the tab strip on a phone, at the window's own size (no resize, no rotation: the phone is the window): the Pixel 8 preset (the strip in the status bar's band around the camera), a far pill selected (the row scrolls to put it whole in a lane), the end of the row, dark, flora, the phone it really runs on ('This phone': its own cutout, nothing simulated), a ribbon in the band, light and dark, and the page with no phone. Taken in this order: 1 Pixel 8 light flat, 2 Design selected, 3 Account selected, 4 dark, 5 flora light, 6 flora dark, 7 this phone, 8 ribbon in the band, 9 ribbon dark. A phone is turned by hand (or by the QA script) for the landscape pictures; the host scenario has them on a resized window.",
+    "steps": [
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flat"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "A phone to try it on",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Pixel 8"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "get_display_features"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"preset\":\"pixel8\""
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "Home"
+      },
+      {
+        "op": "key_down",
+        "key": "Right"
+      },
+      {
+        "op": "key_up",
+        "key": "Right"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Right"
+      },
+      {
+        "op": "key_up",
+        "key": "Right"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Right"
+      },
+      {
+        "op": "key_up",
+        "key": "Right"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Right"
+      },
+      {
+        "op": "key_up",
+        "key": "Right"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Right"
+      },
+      {
+        "op": "key_up",
+        "key": "Right"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 800
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Design panel"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Right"
+      },
+      {
+        "op": "key_up",
+        "key": "Right"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Right"
+      },
+      {
+        "op": "key_up",
+        "key": "Right"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Right"
+      },
+      {
+        "op": "key_up",
+        "key": "Right"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Right"
+      },
+      {
+        "op": "key_up",
+        "key": "Right"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Right"
+      },
+      {
+        "op": "key_up",
+        "key": "Right"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Right"
+      },
+      {
+        "op": "key_up",
+        "key": "Right"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 800
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Account panel"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flat"
+      },
+      {
+        "op": "click",
+        "text": "This phone"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "Ribbon in the band"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Clipboard"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "click",
+        "text": "Ribbon in the band"
+      },
+      {
+        "op": "click",
+        "text": "No phone"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "get_display_features"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"preset\":\"off\""
+      }
+    ]
+  }
+]

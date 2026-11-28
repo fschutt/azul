@@ -598,8 +598,11 @@ scrollable or on a node of the class `__azul-claims-gesture` (a slider, a map, a
 sideways than vertical, and never after a cancel: when the system takes the finger (the back or the home gesture, the
 notification shade) the pull springs back and nothing flips; (6) the default `AtEdges` flips with a finger only, a wheel
 or a trackpad flips only with `Always` and only against the end of the content (a wheel at the end of a long page must
-not move the reader to another tab). The pills stay the explicit way to choose a tab and the one assistive technology
-uses: a flip is a shortcut.
+not move the reader to another tab); (7) every flip, the momentum of a fling included, asks for the system's tab-change
+sound once per tab crossed (`SystemSound::TabChange`: the touch-sound click on Android, the selection haptic on iOS,
+nothing on a desktop; the OS's own switches decide whether it is heard, see [Sounds](../system/sounds.md)). The app's answer to
+`on_click` is the answer, as for a tap on a pill: a bar that is not rebuilt for a flip shows nothing of it. The pills
+stay the explicit way to choose a tab and the one assistive technology uses: a flip is a shortcut.
 
 A code that builds the strip in the band:
 

@@ -2553,14 +2553,21 @@ extern "C" fn merge_flip_panel(mut new: RefAny, mut old: RefAny) -> RefAny {
     old
 }
 
-/// The first finger on the window, in window coordinates.
-fn first_touch(info: &CallbackInfo) -> Option<(f32, f32)> {
+/// The first finger on the window: where it is, in window coordinates, and the key the hit test
+/// under it is published with (the events of a finger are aimed at the node under THAT finger).
+fn first_touch(info: &CallbackInfo) -> Option<(f32, f32, u64)> {
     info.get_current_window_state()
         .touch_state
         .touch_points
         .as_ref()
         .first()
-        .map(|point| (point.position.x, point.position.y))
+        .map(|point| {
+            (
+                point.position.x,
+                point.position.y,
+                azul_core::window::touch_point_key(point.seat_id, point.id),
+            )
+        })
 }
 
 /// Whether the content of `panel` can scroll, how far it is scrolled and how far it can: the panel is
@@ -2575,10 +2582,16 @@ fn panel_scroll(info: &CallbackInfo, panel: azul_core::dom::DomNodeId) -> (bool,
     }
 }
 
-/// Whether the finger that just went down is on something that claims the gesture: a node of the
-/// class [`CLAIMS_GESTURE_CLASS`], or a scrollable below the panel that has room.
-fn flip_claimed(info: &CallbackInfo, panel: azul_core::dom::DomNodeId) -> bool {
-    let Some(mut node) = info.get_deepest_hovered_node() else {
+/// Whether the finger that just went down (`finger`: its hit test's key) is on something that claims
+/// the gesture: a node of the class [`CLAIMS_GESTURE_CLASS`], or a scrollable below the panel that
+/// has room. The node under THAT finger counts, as the touch events are aimed at it; the mouse's
+/// when the host published no hit test for the finger.
+fn flip_claimed(info: &CallbackInfo, panel: azul_core::dom::DomNodeId, finger: u64) -> bool {
+    let under_finger = info
+        .get_layout_window()
+        .hover_manager
+        .hover_node_full_for(&crate::managers::hover::InputPointId::Touch(finger));
+    let Some(mut node) = under_finger.or_else(|| info.get_deepest_hovered_node()) else {
         return false;
     };
     for _ in 0..64 {
@@ -2611,11 +2624,11 @@ fn flip_millis(data: &mut FlipPanelData, now: &azul_core::task::Instant) -> u64 
 
 extern "C" fn on_flip_touch_start(mut data: RefAny, info: CallbackInfo) -> Update {
     use crate::widgets::tab_flip::{FlipGesture, FlipPanel};
-    let Some((x, y)) = first_touch(&info) else {
+    let Some((x, y, finger)) = first_touch(&info) else {
         return Update::DoNothing;
     };
     let panel = info.get_hit_node();
-    let claimed = flip_claimed(&info, panel);
+    let claimed = flip_claimed(&info, panel, finger);
     let (overflows, scroll, scroll_max) = panel_scroll(&info, panel);
     let now = info.get_current_time();
     let Some(mut d) = data.downcast_mut::<FlipPanelData>() else {
@@ -2636,7 +2649,7 @@ extern "C" fn on_flip_touch_start(mut data: RefAny, info: CallbackInfo) -> Updat
 }
 
 extern "C" fn on_flip_touch_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((x, y)) = first_touch(&info) else {
+    let Some((x, y, _)) = first_touch(&info) else {
         return Update::DoNothing;
     };
     let panel = info.get_hit_node();
@@ -2821,7 +2834,9 @@ fn tell_flip(data: &mut RefAny, info: &mut CallbackInfo, to: usize) -> Update {
         d.on_flip.clone()
     };
     flip_tick(info);
-    let update = match on_flip {
+    // The app's own answer is the answer, as for a tap on a pill: a flip the app does not rebuild
+    // for has changed nothing it shows.
+    match on_flip {
         FlipTell::Tab(mut option) => match option.as_mut() {
             Some(TabOnClick { callback, refany }) => {
                 callback.invoke(refany.clone(), *info, TabHeaderState { active_tab: to })
@@ -2834,11 +2849,6 @@ fn tell_flip(data: &mut RefAny, info: &mut CallbackInfo, to: usize) -> Update {
             }
             None => Update::DoNothing,
         },
-    };
-    if update == Update::DoNothing {
-        Update::RefreshDom
-    } else {
-        update
     }
 }
 
