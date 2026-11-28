@@ -89,7 +89,7 @@ pub(super) fn share(plan: &SharePlan) -> ShareStatus {
     let mut staged: Vec<PathBuf> = Vec::new();
     let mut staged_dir: Option<PathBuf> = None;
     if plan.files().next().is_some() {
-        let area = ShareArea::new(std::env::temp_dir().join(AREA_FOLDER));
+        let area = ShareArea::new(PathBuf::from(azul_layout::file::temp_dir().as_str()).join(AREA_FOLDER));
         match area.stage(plan, &plan.limits) {
             Ok(done) => {
                 staged = done.files.iter().map(|f| f.path.clone()).collect();

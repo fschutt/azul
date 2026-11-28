@@ -162,9 +162,10 @@ fn file_request(url: &Retained<AnyObject>, in_place: bool, launched_app: bool) -
     }
 }
 
-/// Where the app's own files live: `$HOME` is the app's container on iOS.
+/// Where the app's own files live: the home of the account is the app's container on iOS (asked of the platform facade of
+/// `azul_layout::file`: the process environment is read in one place only, `dll/src/env.rs`).
 fn container() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+    azul_layout::file::FilePath::get_home_dir().map(|dir| PathBuf::from(dir.inner.as_str()))
 }
 
 fn copy_file(url: &Retained<AnyObject>, name: &str, kind: &str, path: &str, origin: &str, in_place: bool) -> OpenedItem {

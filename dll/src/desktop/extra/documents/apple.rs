@@ -28,10 +28,15 @@ use objc::{
     sel, sel_impl,
 };
 
+/// Where the app's own files live: the home of the account is the app's container on iOS (asked of the platform facade of
+/// `azul_layout::file`: the process environment is read in one place only, `dll/src/env.rs`).
+fn container() -> Option<PathBuf> {
+    azul_layout::file::FilePath::get_home_dir().map(|dir| PathBuf::from(dir.inner.as_str()))
+}
+
 /// The file of the kept folders: `<container>/Library/Application Support/azul/places.tsv`.
 fn store_path() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join("Library").join("Application Support").join("azul").join("places.tsv"))
+    Some(container()?.join("Library").join("Application Support").join("azul").join("places.tsv"))
 }
 
 fn now_ms() -> u64 {
@@ -224,8 +229,8 @@ impl DocumentBackend for IosDocuments {
 
     fn places(&self) -> Vec<Place> {
         let mut places = Vec::new();
-        if let Some(home) = std::env::var_os("HOME") {
-            let documents = PathBuf::from(home).join("Documents");
+        if let Some(home) = container() {
+            let documents = home.join("Documents");
             places.push(Place {
                 uri: AzString::from(documents.to_string_lossy().into_owned()),
                 name: AzString::from("On this iPhone"),

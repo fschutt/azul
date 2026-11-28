@@ -78,7 +78,8 @@ fn the_backend_is_installed_at_the_start_on_android_with_jni_only() {
 #[test]
 fn the_backend_holds_no_global_state() {
     for file in [BACKEND, INSTALL] {
-        let src = code(file);
+        // `&'static str` (the name of the backend) is a lifetime, not a static item
+        let src = code(file).replace("'static", "'_");
         for forbidden in ["static ", "thread_local!", "OnceLock", "OnceCell", "lazy_static", "Mutex<", "AtomicU", "AtomicI", "AtomicBool"] {
             // `get_static_field` / `call_static_method` / `static_string` / `static_int` are framework calls, not state
             let uses = src

@@ -546,7 +546,7 @@ pub fn io_error(locator: &str, e: &std::io::Error) -> DocumentError {
     }
 }
 
-/// The user's well-known folders that exist (the `dirs` of the account where the `extra` feature has them, else under `$HOME`).
+/// The user's well-known folders that exist (the `dirs` of the account, through the platform facade of `crate::file`).
 #[cfg(all(feature = "std", feature = "extra"))]
 fn well_known_folders() -> Vec<(String, PathBuf)> {
     use crate::file::FilePath;
@@ -564,18 +564,11 @@ fn well_known_folders() -> Vec<(String, PathBuf)> {
     .collect()
 }
 
-/// The same without the `dirs` crate: the usual names under `$HOME`.
+/// A build without the `dirs` crate has no folders of its own to list: the shell installs the places it knows
+/// ([`LocalDocuments::with_places`]), and the process environment is read in one place only (`dll/src/env.rs`).
 #[cfg(not(all(feature = "std", feature = "extra")))]
-fn well_known_folders() -> Vec<(String, PathBuf)> {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        return Vec::new();
-    };
-    ["Documents", "Downloads", "Pictures", "Music", "Videos"]
-        .into_iter()
-        .map(|name| (name.to_string(), home.join(name)))
-        .chain(std::iter::once(("Home".to_string(), home.clone())))
-        .filter(|(_, path)| path.is_dir())
-        .collect()
+const fn well_known_folders() -> Vec<(String, PathBuf)> {
+    Vec::new()
 }
 
 /// `bytes` into `temp` (flushed to the disk), then `temp` over `target`.

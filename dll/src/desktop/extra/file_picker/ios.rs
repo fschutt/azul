@@ -474,7 +474,7 @@ pub fn dispatch_export(handle: FilePickerHandle, suggested_name: AzString, _mime
     use azul_layout::managers::{share::sanitize_display_name, share_area::new_token};
 
     let name = sanitize_display_name(suggested_name.as_str(), 128);
-    let scratch = std::env::temp_dir().join(format!("azul-export-{}", new_token()));
+    let scratch = std::path::PathBuf::from(azul_layout::file::temp_dir().as_str()).join(format!("azul-export-{}", new_token()));
     let file = scratch.join(&name);
     let written = std::fs::create_dir_all(&scratch).and_then(|()| std::fs::write(&file, bytes.as_ref()));
     if let Err(e) = written {

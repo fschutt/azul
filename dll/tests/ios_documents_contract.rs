@@ -63,7 +63,8 @@ fn the_places_resolve_each_bookmark_once_and_never_delete_what_does_not_resolve(
 fn the_backend_is_installed_on_ios_with_no_global_state_and_paths_go_to_the_local_backend() {
     let install = code("dll/src/desktop/extra/documents/mod.rs");
     assert!(install.contains("apple::IosDocuments::new()") && install.contains("target_os = \"ios\""));
-    let backend = code(BACKEND);
+    // `&'static str` (the name of the backend) is a lifetime, not a static item
+    let backend = code(BACKEND).replace("'static", "'_");
     for forbidden in ["static ", "thread_local!", "OnceLock", "lazy_static", "AtomicU"] {
         assert!(!backend.contains(forbidden), "{BACKEND} must not hold `{forbidden}`");
     }
