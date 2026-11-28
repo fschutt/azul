@@ -114,7 +114,10 @@ fn a_pane_that_stays_where_it_was_left_snaps_only_within_the_snap_distance() {
     // held in the range, and a fling that reaches the snap distance of a detent snaps to it
     assert!(near(h.settle_free(900.0, 0.0, 28.0, lo, hi), 680.0), "above the highest: the highest");
     assert!(near(h.settle_free(f32::NAN, 0.0, 28.0, lo, hi), 30.0), "no height: the lowest");
-    assert!(near(h.settle_free(250.0, 20.0, 28.0, lo, hi), 400.0), "flung up from 250: it lands within 28 px of the half");
+    // a 12 px step carries it on by 12 x 12 = 144 px: it would land at 394, within 28 px of the half; a 20 px step lands at 490, too far
+    // from any detent to snap, so the pane stays where the pointer left it
+    assert!(near(h.settle_free(250.0, 12.0, 28.0, lo, hi), 400.0), "flung up from 250: it lands within 28 px of the half");
+    assert!(near(h.settle_free(250.0, 20.0, 28.0, lo, hi), 250.0), "a fling that lands far from every detent leaves the pane where it is");
 }
 
 #[test]

@@ -189,6 +189,9 @@ pub static SHORTCUTS: [Shortcut; 6] = [
 /// the position comes from), Places (imports, the review, exports).
 pub static APP_CATEGORIES: [&str; 2] = ["Navigation", "Places"];
 
+/// A place as `(lat, lon)` in degrees.
+type LatLon = (f64, f64);
+
 /// The write-back tags of AzMaps' file jobs.
 const TAG_LOAD: u64 = 1;
 const TAG_SAVE: u64 = 2;
@@ -485,7 +488,7 @@ struct MapState {
     /// it and its part of the line is drawn over the rest.
     selected_step: Option<usize>,
     /// What the newest route request asked: the ends and the mode.
-    route_asked: Option<((f64, f64), (f64, f64), TravelMode)>,
+    route_asked: Option<(LatLon, LatLon, TravelMode)>,
     /// The newest route request's number, shared with the route workers: an
     /// older one gives up, its reply is dropped.
     route_latest: Arc<AtomicU64>,
@@ -581,7 +584,7 @@ impl MapState {
 
     /// The travel panel's ends as places: the start as typed, or - left
     /// empty - where you are once that is known; the destination as typed.
-    fn travel_ends(&self) -> (Option<(f64, f64)>, Option<(f64, f64)>) {
+    fn travel_ends(&self) -> (Option<LatLon>, Option<LatLon>) {
         let from = if self.travel.from.trim().is_empty() {
             self.last_fix
         } else {
@@ -1631,7 +1634,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 fn with_map(data: &mut RefAny, f: impl FnOnce(&mut MapState)) -> Update {
     match data.downcast_mut::<MapState>() {
         Some(mut s) => {
-            f(&mut *s);
+            f(&mut s);
             Update::RefreshDom
         }
         None => Update::DoNothing,
@@ -2386,7 +2389,7 @@ pub fn start() {
             Some(k) => (
                 k.data_root.clone(),
                 k.key(PINS_FILE),
-                k.settings.get(VIEW_KEY).and_then(|text| parse_view(text)),
+                k.settings.get(VIEW_KEY).and_then(parse_view),
                 // Open until the user folds the panel away (a phone upright has the sheet instead: this is
                 // the panel of a desktop, a tablet, a phone on its side).
                 !matches!(k.settings.get(SIDEBAR_KEY), Some("closed")),
@@ -2592,8 +2595,10 @@ mod map_setup_tests {
 
     #[test]
     fn another_tile_server_gets_no_shipped_tiles_and_no_data_folder_no_disk_cache() {
-        let mut layer = MapTileLayer::default();
-        layer.url_template = AzString::from("http://localhost:8080/{z}/{x}/{y}.pbf");
+        let layer = MapTileLayer {
+            url_template: AzString::from("http://localhost:8080/{z}/{x}/{y}.pbf"),
+            ..MapTileLayer::default()
+        };
         let setup = map_setup(&PathBuf::from("/data/azmaps"), &layer, MapSetup::create());
         assert_eq!(setup.seed_tiles.len(), 0, "the seeds are OpenFreeMap's tiles only");
         let setup = map_setup(&PathBuf::new(), &MapTileLayer::default(), MapSetup::create());
