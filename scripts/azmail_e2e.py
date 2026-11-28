@@ -863,7 +863,9 @@ class SampleRun(Run):
                 if cls in (n.get('classes') or [])]
 
     def check_fills(self, window=None, size=MAIN_SIZE, what='the main window'):
-        bottom = self.bottom('.__azul-native-office-shell-status', window)
+        # the main window's status bar is the app frame's footer, a message window's the office shell's
+        bottom = self.bottom('.__azul-native-app-frame-footer' if window is None
+                             else '.__azul-native-office-shell-status', window)
         self.check(f'{what}: the status bar sits at the window\'s bottom edge',
                    abs(bottom - size[1]) <= 1.0, f'(its bottom is {bottom}, the window {size[1]})')
 
@@ -880,7 +882,7 @@ class SampleRun(Run):
         self.until('the newsletter in the reading pane', lambda: self.printed('AZMAIL_OPEN'))
         self.frame(None, 3)
         lists = self.widths('__azul-native-summary-list')
-        panes = self.widths('__azul-native-reading-pane')
+        panes = self.widths('__azul-native-preview-pane')
         # RED until the engine fix (MAILENG6): the split's panes collapse to 0 px after the
         # HTML mail with its table is opened (a resize lays them out right).
         self.check('the message list and the reading pane keep their widths with an HTML mail open',
