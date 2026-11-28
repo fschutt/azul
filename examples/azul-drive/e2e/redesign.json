@@ -67,7 +67,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "7 items",
+        "text": "6 items",
         "dom_id": 0
       },
       {
@@ -122,7 +122,10 @@
       {
         "op": "take_screenshot"
       }
-    ]
+    ],
+    "config": {
+      "continue_on_failure": true
+    }
   },
   {
     "name": "azdrive_a_folder_row_of_the_sidebar_navigates_and_a_parent_of_the_location_goes_back",
@@ -236,7 +239,10 @@
       {
         "op": "take_screenshot"
       }
-    ]
+    ],
+    "config": {
+      "continue_on_failure": true
+    }
   },
   {
     "name": "azdrive_the_pen_edits_the_location_and_the_list_narrows",
@@ -305,7 +311,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "7 items",
+        "text": "6 items",
         "dom_id": 0
       },
       {
@@ -327,6 +333,46 @@
         "selector": ".__azul-native-location-edit"
       },
       {
+        "op": "key_down",
+        "key": "End"
+      },
+      {
+        "op": "key_up",
+        "key": "End"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
         "op": "text_input",
         "text": "doc"
       },
@@ -337,6 +383,13 @@
         "op": "wait_frame"
       },
       {
+        "op": "print",
+        "text": "SHOT The pen turned the folder's name into a field: with doc typed the list shows only the names that hold it (one item)"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
         "op": "find_node_by_text",
         "text": "1 item",
         "dom_id": 0
@@ -344,13 +397,6 @@
       {
         "op": "assert_response",
         "contains": "\"found\":true"
-      },
-      {
-        "op": "print",
-        "text": "SHOT The pen turned the folder's name into a field: with doc typed the list shows only the names that hold it (one item)"
-      },
-      {
-        "op": "take_screenshot"
       },
       {
         "op": "key_down",
@@ -372,7 +418,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "7 items",
+        "text": "6 items",
         "dom_id": 0
       },
       {
@@ -388,6 +434,50 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-location-edit"
+      },
+      {
+        "op": "key_down",
+        "key": "End"
+      },
+      {
+        "op": "key_up",
+        "key": "End"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
       },
       {
         "op": "text_input",
@@ -429,8 +519,18 @@
         "op": "assert_text",
         "selector": ".__azul-native-location-name",
         "expected": "Documents"
+      },
+      {
+        "op": "print",
+        "text": "SHOT Enter in the field went to the folder the text names: Documents"
+      },
+      {
+        "op": "take_screenshot"
       }
-    ]
+    ],
+    "config": {
+      "continue_on_failure": true
+    }
   },
   {
     "name": "azdrive_a_search_typed_in_the_command_line_opens_the_search_view",
@@ -587,15 +687,25 @@
         "op": "wait_frame"
       },
       {
+        "op": "print",
+        "text": "SHOT Escape emptied the query and a second Escape closed the search view: the folder and the command line at rest"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
         "op": "find_node_by_text",
-        "text": "7 items",
+        "text": "6 items",
         "dom_id": 0
       },
       {
         "op": "assert_response",
         "contains": "\"found\":true"
       }
-    ]
+    ],
+    "config": {
+      "continue_on_failure": true
+    }
   },
   {
     "name": "azdrive_the_preview_follows_the_selected_item",
@@ -659,8 +769,118 @@
       },
       {
         "op": "click",
-        "text": "notes.txt",
-        "dom_id": 1
+        "selector": ".__azul-native-location-pen"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-location-edit"
+      },
+      {
+        "op": "key_down",
+        "key": "End"
+      },
+      {
+        "op": "key_up",
+        "key": "End"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "text_input",
+        "text": "notes.txt"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Return"
+      },
+      {
+        "op": "key_up",
+        "key": "Return"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -670,6 +890,15 @@
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -697,9 +926,128 @@
         "op": "take_screenshot"
       },
       {
+        "op": "find_node_by_text",
+        "text": "AzDrive sample notes",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
         "op": "click",
-        "text": "report.md",
-        "dom_id": 1
+        "selector": ".__azul-native-location-pen"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-location-edit"
+      },
+      {
+        "op": "key_down",
+        "key": "End"
+      },
+      {
+        "op": "key_up",
+        "key": "End"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "text_input",
+        "text": "report.md"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Return"
+      },
+      {
+        "op": "key_up",
+        "key": "Return"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -717,8 +1065,13 @@
         "op": "wait_frame"
       },
       {
-        "op": "assert_exists",
-        "selector": "#__azdrive_preview_text"
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "print",
@@ -726,8 +1079,29 @@
       },
       {
         "op": "take_screenshot"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Quarterly report",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "AzDrive sample notes",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":false"
       }
-    ]
+    ],
+    "config": {
+      "continue_on_failure": true
+    }
   },
   {
     "name": "azdrive_the_previews_question_mark_opens_what_there_is_to_say_and_the_dark_mode_pictures",
@@ -791,8 +1165,118 @@
       },
       {
         "op": "click",
-        "text": "notes.txt",
-        "dom_id": 1
+        "selector": ".__azul-native-location-pen"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-location-edit"
+      },
+      {
+        "op": "key_down",
+        "key": "End"
+      },
+      {
+        "op": "key_up",
+        "key": "End"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "text_input",
+        "text": "notes.txt"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Return"
+      },
+      {
+        "op": "key_up",
+        "key": "Return"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -802,6 +1286,15 @@
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -914,7 +1407,10 @@
       {
         "op": "wait_frame"
       }
-    ]
+    ],
+    "config": {
+      "continue_on_failure": true
+    }
   },
   {
     "name": "azdrive_the_previews_banner_says_when_only_the_start_of_a_text_is_shown",
@@ -977,9 +1473,84 @@
         "op": "wait_frame"
       },
       {
+        "op": "assert_text",
+        "selector": ".__azul-native-location-name",
+        "expected": "Home"
+      },
+      {
         "op": "click",
-        "text": "big.txt",
-        "dom_id": 1
+        "selector": ".__azul-native-location-pen"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-location-edit"
+      },
+      {
+        "op": "key_down",
+        "key": "End"
+      },
+      {
+        "op": "key_up",
+        "key": "End"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "text_input",
+        "text": "big.txt"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Return"
+      },
+      {
+        "op": "key_up",
+        "key": "Return"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -995,6 +1566,22 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "print",
+        "text": "SHOT big.txt selected: the Preview shows the start of the text and a one-line banner at its top says so"
+      },
+      {
+        "op": "take_screenshot"
       },
       {
         "op": "assert_exists",
@@ -1009,16 +1596,79 @@
         "contains": "\"found\":true"
       },
       {
-        "op": "print",
-        "text": "SHOT big.txt selected: the Preview shows the start of the text and a one-line banner at its top says so"
-      },
-      {
-        "op": "take_screenshot"
-      },
-      {
         "op": "click",
-        "text": "Archive",
-        "dom_id": 1
+        "selector": ".__azul-native-location-pen"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-location-edit"
+      },
+      {
+        "op": "key_down",
+        "key": "End"
+      },
+      {
+        "op": "key_up",
+        "key": "End"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "text_input",
+        "text": "Archive"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Return"
+      },
+      {
+        "op": "key_up",
+        "key": "Return"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -1036,9 +1686,21 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "assert_not_exists",
         "selector": ".__azul-native-preview-banner"
       }
-    ]
+    ],
+    "config": {
+      "continue_on_failure": true
+    }
   }
 ]

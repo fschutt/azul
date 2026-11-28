@@ -132,7 +132,10 @@
       {
         "op": "wait_frame"
       }
-    ]
+    ],
+    "config": {
+      "continue_on_failure": true
+    }
   },
   {
     "name": "azdrive_on_a_phone_the_selection_and_the_preview_follow_the_row_at_the_top_edge",
@@ -192,10 +195,33 @@
         "op": "take_screenshot"
       },
       {
-        "op": "scroll_node_by",
-        "selector": "#__azdrive_folder_rows",
+        "op": "wheel",
+        "x": 200,
+        "y": 400,
         "delta_x": 0,
-        "delta_y": 600
+        "delta_y": -600
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 250
+      },
+      {
+        "op": "tick_ms",
+        "ms": 250
+      },
+      {
+        "op": "tick_ms",
+        "ms": 250
+      },
+      {
+        "op": "tick_ms",
+        "ms": 250
       },
       {
         "op": "wait_frame"
@@ -226,16 +252,15 @@
       },
       {
         "op": "print",
-        "text": "SHOT The list scrolled: the selection and the preview are the row at the top edge now"
+        "text": "SHOT The list scrolled by the wheel: the selection and the preview are the row at the top edge now"
       },
       {
         "op": "take_screenshot"
       },
       {
-        "op": "scroll_node_by",
-        "selector": "#__azdrive_folder_rows",
-        "delta_x": 0,
-        "delta_y": 900
+        "op": "click",
+        "x": 200,
+        "y": 330
       },
       {
         "op": "wait_frame"
@@ -266,11 +291,77 @@
       },
       {
         "op": "print",
-        "text": "SHOT Scrolled again: the selection moved on with the top edge"
+        "text": "SHOT A tap on a row selected it and holds it: the list has not scrolled since, so the selection stays where the finger was"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "wheel",
+        "x": 200,
+        "y": 400,
+        "delta_x": 0,
+        "delta_y": -900
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 250
+      },
+      {
+        "op": "tick_ms",
+        "ms": 250
+      },
+      {
+        "op": "tick_ms",
+        "ms": 250
+      },
+      {
+        "op": "tick_ms",
+        "ms": 250
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "1 of 86 selected",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "print",
+        "text": "SHOT Scrolled again: the selection moved on with the top edge and let go of the tapped row"
       },
       {
         "op": "take_screenshot"
       }
-    ]
+    ],
+    "config": {
+      "continue_on_failure": true
+    }
   }
 ]

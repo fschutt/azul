@@ -10,9 +10,9 @@
 #   check       codegen of the bindings from the api.json as it stands, then `cargo check -p AzDrive --lib --tests`
 #   build       the desktop QA build of AzDrive (scripts/ci/desktop_e2e_build.sh linux AzDrive): the shipped libazul with the debug
 #               server, the e2e executor and the test hooks, and the app linked against it (demo-out/apps/AzDrive-e2e-linux)
-#   tests       the tests of the redesign's modules in AzDrive's lib, linked against the libazul of the bindings (a debug build-dll)
+#   tests       the tests of AzDrive's lib (all of them; AZDRIVE_TEST_FILTER narrows), linked against the libazul of the bindings (a debug build-dll)
 #   scenarios   examples/azul-drive/e2e/redesign.json and redesign_phone.json (examples/azul-drive/scripts/e2e_redesign.sh), the
-#               pictures in demo-out/azdrive-shots
+#               pictures in demo-out/azdrive-shots; redesign_diag*.json assert nothing and print what the windows hold
 # A step that fails does not stop the ones after it; the last lines are one `STEP <name> <exit>` each, and the exit code of the script is
 # 0 only when every step that ran passed.
 set -uo pipefail
@@ -71,15 +71,14 @@ build() {
 }
 run build build
 
-# the tests of the redesign's modules (and what they sit beside), over the QA library
+# the tests of AzDrive's lib, ALL of them (AZDRIVE_TEST_FILTER names a few, as `cargo test` takes them), over the libazul of the bindings
 tests() {
   if [ ! -f "$LIBDIR/libazul.so" ]; then
     dll || return 1
   fi
+  # shellcheck disable=SC2086
   AZ_LINK_PATH="$LIBDIR" \
-    cargo test -p AzDrive --lib --no-fail-fast -- \
-    follow ui_sidebar ui_pies ui_sheet ui_location ui_preview ui_more ui_status ui_frame ui_ribbon \
-    command_line model_sidebar args_form args:: model:: look:: l10n 2>&1 | tee azdrive-tests.txt | tail -150
+    cargo test -p AzDrive --lib --no-fail-fast -- ${AZDRIVE_TEST_FILTER:-} 2>&1 | tee azdrive-tests.txt | grep -v -E '^test .* \.\.\. ok$' | tail -150
   return "${PIPESTATUS[0]}"
 }
 run tests tests

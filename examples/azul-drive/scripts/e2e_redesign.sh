@@ -19,7 +19,7 @@ bin=${1:-${AZDRIVE_BIN:-demo-out/apps/AzDrive-e2e-linux}}
 if [ $# -gt 0 ]; then
     files=$*
 else
-    files="redesign.json redesign_phone.json"
+    files="redesign.json redesign_phone.json redesign_diag.json redesign_diag_phone.json"
 fi
 shots=${AZ_E2E_SHOT_DIR:-$PWD/demo-out/azdrive-shots}
 logs=${AZDRIVE_E2E_LOGS:-$PWD/demo-out/azdrive-e2e}
@@ -71,15 +71,27 @@ for file in $files; do
     sed "s/${esc}\[[0-9;]*m//g" "$log" | sed -n 's/^.*\[e2e\] SHOT \(.*\)$/\1/p' |
         awk '{ printf "%02d %s\n", NR, $0 }' > "$shots/$stem/captions.txt"
     echo "$file (exit $status): ${summary:-no report}"
-    # the phone's list follows its scroll: the selection was more than one row over the run
+    # the phone's list follows its scroll: over the run the selection was the rows the top edge passed (the
+    # first row, the rows of the two wheel scrolls, the tapped one) and ended on the row of the second scroll:
+    # the wheel's 600 + 900 px at 25 px a row is the 61st row (6 folders and file-055), give or take a few
     case $stem in
-        *phone*)
-            moved=$(sed "s/${esc}\[[0-9;]*m//g" "$log" | grep -a '^AZDRIVE_SELECTED 1 ' | awk '{print $3}' | sort -u | wc -l | tr -d ' ')
-            echo "$file: the selection was $moved different rows"
-            if [ "${moved:-0}" -lt 2 ]; then
+        redesign_phone)
+            keys=$(sed "s/${esc}\[[0-9;]*m//g" "$log" | grep -a '^AZDRIVE_SELECTED 1 ' | awk '{print $3}')
+            moved=$(printf '%s\n' "$keys" | sort -u | grep -c . || true)
+            last=$(printf '%s\n' "$keys" | tail -n 1)
+            echo "$file: the selection was $moved different rows, the last one ${last:-none}"
+            printf '%s\n' "$keys" | uniq | tr '\n' ' ' | sed 's/^/AZDRIVE_SELECTED sequence: /'; echo
+            if [ "${moved:-0}" -lt 3 ]; then
                 echo "$file: the scroll moved no selection"
                 bad=1
             fi
+            case $last in
+                file-05[3-7].txt) ;;
+                *)
+                    echo "$file: the selection did not end on the row at the top edge (file-055.txt, give or take two)"
+                    bad=1
+                    ;;
+            esac
             ;;
     esac
     case $summary in

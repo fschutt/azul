@@ -1,0 +1,84 @@
+[
+  {
+    "name": "azdrive_diag_desktop_what_the_window_holds",
+    "description": "No assertion: the DOMs of the window and the HTML of the root DOM at rest and with the source list open, printed to the run's output for whoever reads it.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 760
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_doms"
+      },
+      {
+        "op": "print_response"
+      },
+      {
+        "op": "get_html_string"
+      },
+      {
+        "op": "print_response"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_doms"
+      },
+      {
+        "op": "print_response"
+      },
+      {
+        "op": "get_html_string"
+      },
+      {
+        "op": "print_response"
+      }
+    ]
+  }
+]
