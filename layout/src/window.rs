@@ -17273,13 +17273,28 @@ impl LayoutWindow {
     }
 
     /// The system-animation configuration this window runs with: the one it
-    /// was given (the app's, or a test's), else the defaults.
+    /// was given (the app's, or a test's), else the defaults - and, while the user
+    /// has asked the system for reduced motion, the same with every glide off: the
+    /// caret, the selection and the focus ring jump (a duration of 0), and the view
+    /// follows the caret without a spring. The app's interpolators are kept.
     #[must_use]
-    pub fn effective_system_animations(&self) -> &azul_core::resources::SystemAnimations {
-        self.system_animations_override.as_ref().unwrap_or_else(|| {
+    pub fn effective_system_animations(&self) -> std::borrow::Cow<'_, azul_core::resources::SystemAnimations> {
+        let configured = self.system_animations_override.as_ref().unwrap_or_else(|| {
             self.system_animations_default
                 .get_or_init(azul_core::resources::SystemAnimations::default)
-        })
+        });
+        let reduced = self.system_style.as_deref().is_some_and(|style| {
+            style.preferences.reduces_motion() || bool::from(style.prefers_reduced_motion)
+        });
+        if !reduced {
+            return std::borrow::Cow::Borrowed(configured);
+        }
+        let mut calm = configured.clone();
+        calm.caret_tween_duration_ms = 0;
+        calm.selection_tween_duration_ms = 0;
+        calm.focus_ring_duration_ms = 0;
+        calm.caret_scroll_glide = false;
+        std::borrow::Cow::Owned(calm)
     }
 
     /// Caret / selection tween post-pass over a freshly built display list.
@@ -17360,7 +17375,7 @@ impl LayoutWindow {
 
         use crate::managers::text_edit::{CaretTweenTrack, SelectionTweenTrack};
 
-        let cfg = self.effective_system_animations().clone();
+        let cfg = self.effective_system_animations().into_owned();
         let caret_ms = cfg.caret_tween_duration_ms;
         let sel_ms = cfg.selection_tween_duration_ms;
         let ring_ms = cfg.focus_ring_duration_ms;

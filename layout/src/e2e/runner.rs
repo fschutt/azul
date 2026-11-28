@@ -8404,6 +8404,11 @@ mod hover_keys_tests;
 #[path = "system_style_event_tests.rs"]
 mod system_style_event_tests;
 
+// ==== reduced motion: the glides of the text editor ====
+#[cfg(test)]
+#[path = "reduced_motion_tween_tests.rs"]
+mod reduced_motion_tween_tests;
+
 // ==== what a plain mouse move over the text labels of a `VirtualView` costs ====
 #[cfg(test)]
 #[path = "hover_text_cost_tests.rs"]
