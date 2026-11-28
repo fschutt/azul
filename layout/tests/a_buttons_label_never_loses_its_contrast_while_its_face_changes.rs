@@ -166,6 +166,25 @@ fn nodes_with_class(lw: &LayoutWindow, classes: &[&str]) -> Vec<NodeId> {
         .collect()
 }
 
+/// The buttons (and pills) of the page held down: pointer over them and pressed, as a click leaves them
+/// when the app rebuilds in its callback. A rebuild reads the transition table of the node it replaces
+/// UNDER THAT NODE'S STATE, so a pressed button changes its face by its pressed table (a quicker one, a
+/// press is quick) and from its pressed face.
+fn press(lw: &mut LayoutWindow) {
+    let nodes = nodes_with_class(
+        lw,
+        &["__azul-native-button", "__azul-native-tabs-tab-active", "__azul-native-tabs-tab-not-active"],
+    );
+    let styled = &mut lw.layout_results.get_mut(&DomId::ROOT_ID).expect("laid out").styled_dom;
+    let mut container = styled.styled_nodes.as_container_mut();
+    for node in nodes {
+        if let Some(styled_node) = container.get_mut(node) {
+            styled_node.styled_node_state.hover = true;
+            styled_node.styled_node_state.active = true;
+        }
+    }
+}
+
 /// One frame of the animation driver: the clock steps by `dt`, then the frame does the work the tick
 /// says it owes, as the shells do it.
 fn frame(lw: &mut LayoutWindow, dt: f32) {
@@ -290,17 +309,23 @@ enum Face {
 }
 
 /// The page `first` that the app rebuilds as `next`, under `theme`: for each node `which` names in the new
-/// page, the time its face takes and the frames of the change.
+/// page, the time its face takes and the frames of the change. `pressed`: the buttons were held down when
+/// the app rebuilt.
+#[allow(clippy::too_many_arguments)] // one change: what, in which theme, mode and scale, how, and what to watch
 fn the_change(
     theme: UiTheme,
     first: Dom,
     next: Dom,
     dark: bool,
     scale: f32,
+    pressed: bool,
     expect: Face,
     which: impl Fn(&LayoutWindow) -> Vec<NodeId>,
 ) -> Vec<(f32, Vec<Row>)> {
     let mut lw = window(theme, first, dark, scale);
+    if pressed {
+        press(&mut lw);
+    }
     rebuild(&mut lw, next);
     let nodes = which(&lw);
     assert!(!nodes.is_empty(), "harness: the page has the nodes whose label is watched");
@@ -422,6 +447,7 @@ fn button_becomes(
     to: ButtonType,
     dark: bool,
     scale: f32,
+    pressed: bool,
     expect: Face,
 ) -> Option<String> {
     let button = |kind: ButtonType| move || Button::with_type(AzString::from("Go"), kind).dom();
@@ -431,15 +457,19 @@ fn button_becomes(
         page(theme, button(to)),
         dark,
         scale,
+        pressed,
         expect,
         |lw| nodes_with_class(lw, &["__azul-native-button"]),
     );
-    breach_of(&format!("{theme:?}: {from:?} becomes {to:?} (dark: {dark}, scale {scale})"), &changes)
+    breach_of(
+        &format!("{theme:?}: {from:?} becomes {to:?} (dark: {dark}, scale {scale}, pressed: {pressed})"),
+        &changes,
+    )
 }
 
 /// A row of three pills whose selection moves from the first to the second: the first stops being
 /// the stone, the second becomes it. The breach, if any.
-fn selection_moves(theme: UiTheme, style: TabStyle, dark: bool, scale: f32) -> Option<String> {
+fn selection_moves(theme: UiTheme, style: TabStyle, dark: bool, scale: f32, pressed: bool) -> Option<String> {
     let row = |active: usize| {
         move || {
             TabHeader::create(StringVec::from_vec(
@@ -451,7 +481,7 @@ fn selection_moves(theme: UiTheme, style: TabStyle, dark: bool, scale: f32) -> O
             .dom()
         }
     };
-    let changes = the_change(theme, page(theme, row(0)), page(theme, row(1)), dark, scale, Face::Fades, |lw| {
+    let changes = the_change(theme, page(theme, row(0)), page(theme, row(1)), dark, scale, pressed, Face::Fades, |lw| {
         // The first two pills: the one that was the stone and the one that becomes it.
         nodes_with_class(
             lw,
@@ -462,7 +492,7 @@ fn selection_moves(theme: UiTheme, style: TabStyle, dark: bool, scale: f32) -> O
         .collect()
     });
     breach_of(
-        &format!("{theme:?}: the selection of a {style:?} row moves (dark: {dark}, scale {scale})"),
+        &format!("{theme:?}: the selection of a {style:?} row moves (dark: {dark}, scale {scale}, pressed: {pressed})"),
         &changes,
     )
 }
@@ -487,6 +517,7 @@ fn selection_of_segments_moves(theme: UiTheme, from: usize, to: usize, dark: boo
         page(theme, control(to)),
         dark,
         scale,
+        false,
         Face::Instant,
         |lw| nodes_with_class(lw, &["__azul-native-segmented-item"]),
     );
@@ -503,7 +534,15 @@ fn a_button_that_becomes_primary_is_never_a_light_label_on_a_light_face() {
     let mut breaches = Vec::new();
     for theme in THEMES {
         for scale in SCALES {
-            breaches.extend(button_becomes(theme, ButtonType::Default, ButtonType::Primary, false, scale, Face::Fades));
+            breaches.extend(button_becomes(
+                theme,
+                ButtonType::Default,
+                ButtonType::Primary,
+                false,
+                scale,
+                false,
+                Face::Fades,
+            ));
         }
     }
     no_breach(&breaches);
@@ -514,21 +553,30 @@ fn a_button_that_stops_being_primary_is_never_a_dark_label_on_a_dark_face() {
     let mut breaches = Vec::new();
     for theme in THEMES {
         for scale in SCALES {
-            breaches.extend(button_becomes(theme, ButtonType::Primary, ButtonType::Default, false, scale, Face::Fades));
+            breaches.extend(button_becomes(
+                theme,
+                ButtonType::Primary,
+                ButtonType::Default,
+                false,
+                scale,
+                false,
+                Face::Fades,
+            ));
         }
     }
     no_breach(&breaches);
 }
 
-/// Every kind of button that becomes every other, in `dark` or light, at every scale.
-fn every_kind_becomes_every_other(dark: bool) {
+/// Every kind of button that becomes every other, in `dark` or light, at every scale, `pressed` (held
+/// down, as a click leaves it) or not.
+fn every_kind_becomes_every_other(dark: bool, pressed: bool) {
     let mut breaches = Vec::new();
     for theme in THEMES {
         for scale in SCALES {
             for from in KINDS {
                 for to in KINDS {
                     if from != to {
-                        breaches.extend(button_becomes(theme, from, to, dark, scale, Face::Any));
+                        breaches.extend(button_becomes(theme, from, to, dark, scale, pressed, Face::Any));
                     }
                 }
             }
@@ -539,7 +587,12 @@ fn every_kind_becomes_every_other(dark: bool) {
 
 #[test]
 fn a_button_keeps_its_label_readable_while_it_becomes_any_other_kind_of_button() {
-    every_kind_becomes_every_other(false);
+    every_kind_becomes_every_other(false, false);
+}
+
+#[test]
+fn a_button_that_is_held_down_when_the_app_rebuilds_keeps_its_label_readable_too() {
+    every_kind_becomes_every_other(false, true);
 }
 
 #[test]
@@ -547,7 +600,8 @@ fn by_night_the_label_holds_the_floor_in_every_change_too() {
     if pinned_by_env() {
         return;
     }
-    every_kind_becomes_every_other(true);
+    every_kind_becomes_every_other(true, false);
+    every_kind_becomes_every_other(true, true);
 }
 
 #[test]
@@ -555,9 +609,11 @@ fn the_pills_of_a_tab_row_keep_their_labels_while_the_selection_moves() {
     let mut breaches = Vec::new();
     for theme in THEMES {
         for scale in SCALES {
-            breaches.extend(selection_moves(theme, TabStyle::Pills, false, scale));
-            if !pinned_by_env() {
-                breaches.extend(selection_moves(theme, TabStyle::Pills, true, scale));
+            for pressed in [false, true] {
+                breaches.extend(selection_moves(theme, TabStyle::Pills, false, scale, pressed));
+                if !pinned_by_env() {
+                    breaches.extend(selection_moves(theme, TabStyle::Pills, true, scale, pressed));
+                }
             }
         }
     }
