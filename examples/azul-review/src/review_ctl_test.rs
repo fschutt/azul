@@ -89,7 +89,7 @@ fn an_ended_session_reads_like_none_and_a_new_one_needs_the_start_key() {
 // ---- the dot ----
 
 #[test]
-fn audio_is_captured_only_while_a_session_records_and_the_microphone_is_open() {
+fn the_session_captures_audio_only_while_it_records_and_the_microphone_is_open() {
     for state in STATES {
         for mic in Mic::ALL {
             let open = matches!(mic, Mic::Armed | Mic::Listening);
@@ -99,21 +99,55 @@ fn audio_is_captured_only_while_a_session_records_and_the_microphone_is_open() {
 }
 
 #[test]
-fn the_dot_is_red_only_while_audio_is_captured() {
+fn audio_is_captured_when_a_voice_clip_records_whatever_the_session_says_and_otherwise_when_the_session_does() {
+    for state in STATES {
+        for mic in Mic::ALL {
+            assert!(audio_captured(state, mic, true), "a clip records, {state:?} {mic:?}");
+            assert_eq!(audio_captured(state, mic, false), capturing(state, mic), "{state:?} {mic:?}");
+        }
+    }
+}
+
+#[test]
+fn the_dot_is_red_whenever_audio_is_captured_and_only_then() {
     for state in STATES {
         for captured in [false, true] {
             let css = dot_css(state, captured);
-            assert_eq!(css.contains("system:danger"), state == State::Recording && captured, "{state:?} captured={captured}: {css}");
+            assert_eq!(css.contains("system:danger"), captured, "{state:?} captured={captured}: {css}");
         }
     }
-    assert!(dot_css(State::Paused, true).contains("system:warning"), "a held session is amber");
+    assert!(dot_css(State::Paused, false).contains("system:warning"), "a held session that captures nothing is amber");
     assert!(dot_css(State::Recording, false).contains("system:separator"), "a session that records with the microphone closed is grey");
-    assert!(dot_css(State::Idle, true).contains("system:separator") && dot_css(State::Stopped, true).contains("system:separator"));
+    assert!(dot_css(State::Idle, false).contains("system:separator") && dot_css(State::Stopped, false).contains("system:separator"));
     for state in STATES {
         for captured in [false, true] {
             assert!(!dot_css(state, captured).contains('#'), "a colour of its own instead of the theme's ink");
         }
     }
+}
+
+#[test]
+fn a_voice_clip_that_records_with_no_session_shows_the_dot_on_the_key_that_starts_one() {
+    let mut s = app();
+    s.recording = Some(crate::model::VoiceClip::default());
+    let dom = pill(&s, &any());
+    assert!(find(&dom, &ids::REVIEW_DOT).is_some(), "audio is captured: the dot is there");
+    assert!(texts(&dom).iter().any(|t| t == "Start review"), "{:?}", texts(&dom));
+    assert!(find(&dom, &ids::REVIEW_STOP).is_none(), "the clip has its own Stop recording key; the session has none to stop");
+    s.recording = None;
+    assert!(find(&pill(&s, &any()), &ids::REVIEW_DOT).is_none(), "nothing is captured: no dot");
+}
+
+#[test]
+fn a_voice_clip_that_records_in_a_held_session_makes_the_dot_red_not_amber() {
+    // the pill's nodes cannot be read for their colour: the rule is `dot_css` of `audio_captured`
+    let mut s = app();
+    s.voice.review = Session::recording_for_test(0);
+    s.voice.review.apply(Event::Pause, 1_000);
+    s.recording = Some(crate::model::VoiceClip::default());
+    let captured = audio_captured(s.voice.review.state(), s.voice.mic, s.recording.is_some());
+    assert!(dot_css(s.voice.review.state(), captured).contains("system:danger"));
+    assert!(find(&pill(&s, &any()), &ids::REVIEW_DOT).is_some());
 }
 
 // ---- the words ----
