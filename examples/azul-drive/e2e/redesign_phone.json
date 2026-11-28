@@ -40,6 +40,10 @@
         "selector": ".__azul-native-preview-bottom"
       },
       {
+        "op": "print",
+        "text": "SHOT Built for a phone: the sidebar is the 18 px rail under the tab row (the tabs are icons), the preview a pane at the foot"
+      },
+      {
         "op": "take_screenshot"
       },
       {
@@ -55,6 +59,10 @@
       {
         "op": "assert_exists",
         "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
+        "op": "print",
+        "text": "SHOT The drawer is open: it pushes the main view aside"
       },
       {
         "op": "take_screenshot"

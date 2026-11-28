@@ -61,6 +61,10 @@
         "expected": "Home"
       },
       {
+        "op": "print",
+        "text": "SHOT The window at rest, in Home: the sidebar is the icon rail, the location (Home, with its pen and the dots) is the File tab, the folder in the middle, the preview at the right, the command line with the folder's status at the foot"
+      },
+      {
         "op": "take_screenshot"
       },
       {
@@ -96,6 +100,10 @@
       {
         "op": "assert_response",
         "contains": "\"found\":true"
+      },
+      {
+        "op": "print",
+        "text": "SHOT The toggle opened the source list: Favorites, Locations and Cloud, the status pies at its foot"
       },
       {
         "op": "take_screenshot"
@@ -170,6 +178,10 @@
         "expected": "Documents"
       },
       {
+        "op": "print",
+        "text": "SHOT A click on the Documents row opened the folder: the location names it, This PC and Home are its parents"
+      },
+      {
         "op": "take_screenshot"
       },
       {
@@ -186,6 +198,10 @@
         "op": "assert_text",
         "selector": ".__azul-native-location-name",
         "expected": "This PC"
+      },
+      {
+        "op": "print",
+        "text": "SHOT A click on the first parent of the location (This PC) went up to the overview"
       },
       {
         "op": "take_screenshot"
@@ -279,6 +295,10 @@
       {
         "op": "assert_response",
         "contains": "\"found\":false"
+      },
+      {
+        "op": "print",
+        "text": "SHOT The pen turned the folder's name into a field: with doc typed the list shows only the names that hold it"
       },
       {
         "op": "take_screenshot"
@@ -430,6 +450,10 @@
         "contains": "\"found\":true"
       },
       {
+        "op": "print",
+        "text": "SHOT ?notes typed in the command line: the search view of the folder and everything below it"
+      },
+      {
         "op": "take_screenshot"
       },
       {
@@ -516,6 +540,10 @@
         "selector": ".__azul-native-preview-help"
       },
       {
+        "op": "print",
+        "text": "SHOT notes.txt selected: the preview at the right shows the file itself, what there is to say about it is behind the (?) in its header"
+      },
+      {
         "op": "take_screenshot"
       },
       {
@@ -531,6 +559,10 @@
       {
         "op": "assert_exists",
         "selector": "#__azdrive_preview_text"
+      },
+      {
+        "op": "print",
+        "text": "SHOT report.md selected: the preview follows the selection"
       },
       {
         "op": "take_screenshot"

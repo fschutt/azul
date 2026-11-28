@@ -54,6 +54,9 @@ for file in $files; do
         "$bin" --screen home --sample --form "$form" > "$log" 2>&1 || status=$?
     esc=$(printf '\033')
     summary=$(sed "s/${esc}\[[0-9;]*m//g" "$log" | grep '^test result:' | tail -n 1 || true)
+    # the captions of the pictures, numbered as the pictures are (capture order)
+    sed "s/${esc}\[[0-9;]*m//g" "$log" | sed -n 's/^.*\[e2e\] SHOT \(.*\)$/\1/p' |
+        awk '{ printf "%02d %s\n", NR, $0 }' > "$shots/$stem/captions.txt"
     echo "$file (exit $status): ${summary:-no report}"
     case $summary in
         *" 0 failed"*) ;;
