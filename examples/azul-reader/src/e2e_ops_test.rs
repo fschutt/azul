@@ -45,3 +45,16 @@ fn the_library_and_the_chapter_are_ready_only_when_they_are() {
     assert_eq!(ready("library", &st), Some(false), "read, but empty");
     assert_eq!(ready("nonsense", &st), None);
 }
+
+#[test]
+fn a_notice_is_ready_when_the_app_has_said_something() {
+    let mut st = crate::app::AppState::new(
+        RefAny::new(0u8),
+        std::path::PathBuf::from("."),
+        crate::settings::ReadingSettings::default(),
+        false,
+    );
+    assert_eq!(ready("notice", &st), Some(false));
+    st.notice = "Saved a copy of the book".to_string();
+    assert_eq!(ready("notice", &st), Some(true));
+}

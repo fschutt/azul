@@ -15,7 +15,7 @@ pub const OP_OPEN_SAMPLE: &str = "azreader_open_sample";
 /// The sample book is added to the library (the library screen stays).
 pub const OP_IMPORT_SAMPLE: &str = "azreader_import_sample";
 /// Waits (the step is run again after each turn of the event loop) until what it names has
-/// happened: the library holds a book, a chapter is laid out. Files and chapters are made on
+/// happened: the library holds a book, a chapter is laid out, a notice is up. Files and chapters are made on
 /// threads, so a scenario cannot count frames for them.
 pub const OP_WAIT: &str = "azreader_wait";
 
@@ -27,6 +27,8 @@ pub fn ready(what: &str, st: &AppState) -> Option<bool> {
         "library" => Some(st.listed && !st.entries.is_empty()),
         // A book is open and its chapter on screen is laid out for the window.
         "chapter" => Some(st.screen == Screen::Reader && st.chapter.is_some() && st.pending.is_none()),
+        // A job is done and said so (a copy of the book saved: it is read on a thread).
+        "notice" => Some(!st.notice.is_empty()),
         _ => None,
     }
 }
@@ -58,7 +60,7 @@ pub fn register_ops(config: &mut AppConfig) {
     for (name, summary) in [
         (OP_OPEN_SAMPLE, "add the sample book (two chapters of Alice) to the library and open it"),
         (OP_IMPORT_SAMPLE, "add the sample book to the library"),
-        (OP_WAIT, "wait until the library holds a book (for: library) or a chapter is laid out (for: chapter)"),
+        (OP_WAIT, "wait until the library holds a book (for: library), a chapter is laid out (for: chapter) or a notice is up (for: notice)"),
     ] {
         let json = Json::parse(AzString::from(op_def(name, summary).as_str()))
             .into_result()
