@@ -852,3 +852,88 @@ fn a_helper_line_that_is_not_an_answer_is_a_failure_that_quotes_it() {
         }
     }
 }
+
+// --- the desktops ----------------------------------------------------------------------------
+
+#[test]
+fn macos_has_the_alert_sound_for_the_failures_and_the_beep_for_the_bell_and_nothing_else() {
+    let mac = labels(SoundPlatform::MacOs);
+    for (name, label) in &mac {
+        let expected = match *name {
+            "Warning" | "Error" | "DropReject" => "system:macos:AudioServicesPlayAlertSound",
+            "Bell" => "system:macos:NSBeep",
+            _ => "none:no-system-route",
+        };
+        assert_eq!(label, expected, "the route of {name} on macOS");
+    }
+}
+
+#[test]
+fn windows_asks_the_sound_scheme_for_the_kind_of_message() {
+    let windows = labels(SoundPlatform::Windows);
+    for (name, label) in &windows {
+        let expected = match *name {
+            "Info" => "system:windows:MB_ICONASTERISK",
+            "Question" => "system:windows:MB_ICONQUESTION",
+            "Warning" => "system:windows:MB_ICONEXCLAMATION",
+            "Error" | "DropReject" => "system:windows:MB_ICONHAND",
+            "Bell" => "system:windows:MB_OK",
+            _ => "none:no-system-route",
+        };
+        assert_eq!(label, expected, "the route of {name} on Windows");
+    }
+}
+
+#[test]
+fn a_button_does_not_click_on_a_desktop_and_linux_has_no_route_yet() {
+    for platform in [
+        SoundPlatform::MacOs,
+        SoundPlatform::Windows,
+        SoundPlatform::Linux,
+    ] {
+        for sound in [
+            SystemSound::Click,
+            SystemSound::TabChange,
+            SystemSound::ToggleOn,
+        ] {
+            assert_eq!(
+                label_of(sound, platform),
+                "none:no-system-route",
+                "{sound:?} on {platform:?}"
+            );
+        }
+    }
+    for sound in &ALL_SYSTEM_SOUNDS {
+        assert_eq!(
+            label_of(*sound, SoundPlatform::Linux),
+            "none:no-system-route"
+        );
+    }
+}
+
+#[test]
+fn the_event_switch_of_the_os_silences_the_desktop_alert_and_the_app_mute_does_too() {
+    let events_off = AudioMetrics {
+        event_sounds_enabled: false,
+        input_feedback_sounds_enabled: true,
+    };
+    for platform in [SoundPlatform::MacOs, SoundPlatform::Windows] {
+        assert_eq!(
+            route(
+                SystemSound::Error,
+                platform,
+                SoundConfig::default(),
+                events_off
+            ),
+            SoundRoute::Silent(Silence::OsEventSoundsOff)
+        );
+        let muted = SoundConfig {
+            enabled: false,
+            ..SoundConfig::default()
+        };
+        assert_eq!(
+            route(SystemSound::Error, platform, muted, SWITCHES_ON),
+            SoundRoute::Silent(Silence::AppMuted)
+        );
+    }
+}

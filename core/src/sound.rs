@@ -32,7 +32,15 @@
 //! | `CameraShutter`, `ScreenCapture` | `MediaActionSound.SHUTTER_CLICK` | none |
 //! | the rest | none | none |
 //!
-//! Desktop platforms answer `none:no-system-route` until their routes land.
+//! | sound | macOS | Windows |
+//! |---|---|---|
+//! | `Warning`, `Error`, `DropReject` | the user's alert sound (`AudioServicesPlayAlertSound`) | `MessageBeep` of the sound scheme: Exclamation (`Warning`), Critical Stop (`Error`, `DropReject`) |
+//! | `Bell` | `NSBeep` | `MessageBeep(MB_OK)`, the default beep |
+//! | `Info`, `Question` | none | `MessageBeep` of the scheme: Asterisk, Question |
+//! | the rest | none | none |
+//!
+//! Linux answers `none:no-system-route`: its route (libcanberra, the freedesktop sound theme)
+//! needs a player that owns a connection to the sound server, which belongs in the window.
 
 use alloc::{collections::VecDeque, format, string::String, vec::Vec};
 
@@ -569,11 +577,86 @@ const fn table_route(sound: SystemSound, platform: SoundPlatform) -> SoundRoute 
     match platform {
         SoundPlatform::Android => android_route(sound),
         SoundPlatform::Ios => ios_route(sound),
-        SoundPlatform::MacOs
-        | SoundPlatform::Windows
-        | SoundPlatform::Linux
-        | SoundPlatform::Other => SoundRoute::Silent(Silence::NoSystemRoute),
+        SoundPlatform::MacOs => macos_route(sound),
+        SoundPlatform::Windows => windows_route(sound),
+        SoundPlatform::Linux | SoundPlatform::Other => SoundRoute::Silent(Silence::NoSystemRoute),
     }
+}
+
+/// A sound of the desktop's own, by the name of the function that plays it.
+const fn desktop_effect(platform: SoundPlatform, name: &'static str) -> SoundRoute {
+    SoundRoute::Effect {
+        platform,
+        name,
+        fallback: None,
+    }
+}
+
+/// macOS: the alert sound the user chose (System Settings > Sound > Alert sound, played on the
+/// alert device at the alert volume, or a flash of the screen when the user asked for that) and the
+/// system beep. A button does not click on a Mac, and the sounds the Finder and the Dock make have
+/// no documented ids, so nothing else has a route.
+const fn macos_route(sound: SystemSound) -> SoundRoute {
+    match sound {
+        SystemSound::Warning | SystemSound::Error | SystemSound::DropReject => {
+            desktop_effect(SoundPlatform::MacOs, "AudioServicesPlayAlertSound")
+        }
+        SystemSound::Bell => desktop_effect(SoundPlatform::MacOs, "NSBeep"),
+        SystemSound::Click
+        | SystemSound::Tick
+        | SystemSound::ToggleOn
+        | SystemSound::ToggleOff
+        | SystemSound::MenuOpen
+        | SystemSound::MenuClose
+        | SystemSound::Expand
+        | SystemSound::Collapse
+        | SystemSound::TabChange
+        | SystemSound::Back
+        | SystemSound::DragStart
+        | SystemSound::DropAccept
+        | SystemSound::Notification
+        | SystemSound::Success
+        | SystemSound::Info
+        | SystemSound::Question
+        | SystemSound::Delete
+        | SystemSound::TrashEmpty
+        | SystemSound::Send
+        | SystemSound::CameraShutter
+        | SystemSound::ScreenCapture => SoundRoute::Silent(Silence::NoSystemRoute),
+    }
+}
+
+/// Windows: `MessageBeep` plays the sound the user's sound scheme has for the kind of message:
+/// Asterisk, Question, Exclamation, Critical Stop, or the default beep. The scheme is the user's,
+/// so "No Sounds" silences it, and nothing is written to the registry.
+const fn windows_route(sound: SystemSound) -> SoundRoute {
+    let kind = match sound {
+        SystemSound::Info => "MB_ICONASTERISK",
+        SystemSound::Question => "MB_ICONQUESTION",
+        SystemSound::Warning => "MB_ICONEXCLAMATION",
+        SystemSound::Error | SystemSound::DropReject => "MB_ICONHAND",
+        SystemSound::Bell => "MB_OK",
+        SystemSound::Click
+        | SystemSound::Tick
+        | SystemSound::ToggleOn
+        | SystemSound::ToggleOff
+        | SystemSound::MenuOpen
+        | SystemSound::MenuClose
+        | SystemSound::Expand
+        | SystemSound::Collapse
+        | SystemSound::TabChange
+        | SystemSound::Back
+        | SystemSound::DragStart
+        | SystemSound::DropAccept
+        | SystemSound::Notification
+        | SystemSound::Success
+        | SystemSound::Delete
+        | SystemSound::TrashEmpty
+        | SystemSound::Send
+        | SystemSound::CameraShutter
+        | SystemSound::ScreenCapture => return SoundRoute::Silent(Silence::NoSystemRoute),
+    };
+    desktop_effect(SoundPlatform::Windows, kind)
 }
 
 /// An Android `AudioManager` sound effect, by the name of its `FX_*` constant.

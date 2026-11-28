@@ -730,14 +730,11 @@ fn play_route_native(route: &azul_core::sound::SoundRoute) -> azul_core::sound::
     crate::desktop::shell2::android::play_system_sound(route)
 }
 
-/// No platform of this build has a player for a route that is not a haptic: the route table
-/// gives such a route to Android only, so this says so instead of playing nothing in silence.
+/// The desktops' players (the macOS alert sound and beep, Windows' `MessageBeep`); a platform
+/// that has no player for a route says so as a failure instead of playing nothing in silence.
 #[cfg(not(target_os = "android"))]
 fn play_route_native(route: &azul_core::sound::SoundRoute) -> azul_core::sound::SoundOutcome {
-    azul_core::sound::SoundOutcome::Failed(format!(
-        "this build has no player for the route {}",
-        route.label()
-    ))
+    crate::desktop::extra::system_sounds::play(route)
 }
 
 /// What a restyle that changed nothing but `transform` and `opacity`
