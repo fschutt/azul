@@ -1,7 +1,7 @@
 [
   {
     "name": "azul_code_phone_first_start_drawer_sheet_keys_device",
-    "description": "AzCode on the phone itself (the window is the phone's, upright: no resize, no display preset): the first start has opened the sample workspace and its src/main.rs. Pictures, in order: 1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row (and 4b the braces typed by it), 5 the panel's sheet, 6 drawn up, 7 pushed down, 8 source control, 9 run, 10 light.",
+    "description": "AzCode on the phone itself (the window is the phone's, upright: no resize, no display preset): the first start has opened the sample workspace and its src/main.rs. Pictures, in order: 1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row, 5 an edit (the top bar has Save), 6 the panel's sheet, 7 drawn up, 8 pushed down to its peek, 9 source control, 10 run, 11 light.",
     "only_on": [
       "android",
       "ios"
@@ -238,6 +238,10 @@
         "op": "wait_frame"
       },
       {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_save-button"
+      },
+      {
         "op": "click",
         "selector": "#__azcode_key-2"
       },
@@ -246,6 +250,10 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_save-button"
       },
       {
         "op": "wait_frame"
@@ -258,6 +266,34 @@
       },
       {
         "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_save-button"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 900,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_save-button"
       },
       {
         "op": "click",

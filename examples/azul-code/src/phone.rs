@@ -98,7 +98,7 @@ fn top_bar(app: &RefAny, st: &AppState) -> Dom {
     for (i, doc) in st.tabs.docs.iter().enumerate() {
         tabs.add_child(tab(app, i, doc, i == st.tabs.active));
     }
-    Dom::create_div()
+    let mut bar = Dom::create_div()
         .with_id(ids::TOP_BAR)
         .with_css(format!(
             "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: {TOP_BAR}px; \
@@ -112,15 +112,23 @@ fn top_bar(app: &RefAny, st: &AppState) -> Dom {
             on_drawer,
             TOUCH,
         ))
-        .with_child(tabs)
-        .with_child(icon_button_sized(
-            ids::PALETTE_BUTTON,
-            "more_vert",
-            "azcode-action-command-palette",
-            app.clone(),
-            on_palette,
-            TOUCH,
-        ))
+        .with_child(tabs);
+    // A phone has no Ctrl+S: while a file has unsaved changes, saving is a button in reach (it writes every changed file).
+    if st.any_dirty() {
+        bar.add_child(icon_button_sized(ids::SAVE_BUTTON, "save", "azcode-action-save-all", app.clone(), on_save, TOUCH));
+    }
+    bar.with_child(icon_button_sized(
+        ids::PALETTE_BUTTON,
+        "more_vert",
+        "azcode-action-command-palette",
+        app.clone(),
+        on_palette,
+        TOUCH,
+    ))
+}
+
+extern "C" fn on_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |st, info, app| commands::save(st, info, app))
 }
 
 /// Tab `index`: the file's name (a tap brings it to front) and a close button, each a finger wide, the

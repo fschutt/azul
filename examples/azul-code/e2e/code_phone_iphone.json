@@ -1,7 +1,7 @@
 [
   {
     "name": "azul_code_phone_iphone_drawer_sheet_keys_host",
-    "description": "AzCode in a 402 x 874 window (iphone_island), as a phone shows it: the editor is the screen, the explorer a drawer over a scrim, the panel a sheet from the bottom, a key row over the keyboard's place, one status bar line. Pictures, in order: 1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row, 5 the panel's sheet, 6 drawn up, 7 pushed down, 8 the terminal in the sheet (a host's), 9 source control, 10 run, 11 light.",
+    "description": "AzCode in a 402 x 874 window (iphone_island), as a phone shows it: the editor is the screen, the explorer a drawer over a scrim, the panel a sheet from the bottom, a key row over the keyboard's place, one status bar line. Pictures, in order: 1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row, 5 an edit (braces typed by the key row: the top bar has Save), 6 the panel's sheet, 7 drawn up, 8 pushed down to its peek, 9 the terminal in the sheet (a host's), 10 source control, 11 run, 12 light.",
     "only_on": [
       "linux",
       "macos",
@@ -361,6 +361,64 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_save-button"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_key-2"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_save-button"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_save-button"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 900,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_save-button"
       },
       {
         "op": "click",

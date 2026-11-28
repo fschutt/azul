@@ -160,6 +160,8 @@ pub const SCRIM: AzString = AzString::from_const_str("__azcode_scrim");
 pub const KEY_ROW: AzString = AzString::from_const_str("__azcode_key-row");
 /// The drawer's "Open the sample workspace" link (the explorer's empty state on a phone).
 pub const DRAWER_SAMPLE: AzString = AzString::from_const_str("__azcode_drawer-sample");
+/// The phone's save button: in the top bar while a file has unsaved changes (a phone has no Ctrl+S).
+pub const SAVE_BUTTON: AzString = AzString::from_const_str("__azcode_save-button");
 /// The phone's go-to bar's close button.
 pub const GOTO_CLOSE: AzString = AzString::from_const_str("__azcode_goto-close");
 /// The phone's terminal bar: the shells' tabs and the new / kill buttons, a row under the panel's header (the header has no room for them).

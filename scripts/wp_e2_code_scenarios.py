@@ -202,48 +202,51 @@ def phone_steps(first_start, width=None, height=None, bars=None, terminal=False)
     s += shot()                                                        # 3 the file's tab: the drawer has given way to the editor
     s += click("#__azcode_editor") + exists("#__azcode_key-row", "#__azcode_key-0")
     s += shot()                                                        # 4 the key row (Tab, braces, arrows) over the keyboard's place
-    # the Right arrow moves the caret and edits nothing: the file stays clean, so its tab can be closed at the end (a dirty one stays and
-    # says why); the phone itself, last of its file, also types a pair of braces
+    # the Right arrow moves the caret and edits nothing; the braces key types a pair: the file is changed, and the top bar has a Save
+    # button (a phone has no Ctrl+S) until it is written
     s += click("#__azcode_key-10") + frames(2)
-    if first_start:
-        s += click("#__azcode_key-2") + shot()                         # 4b braces typed by the key row
+    s += missing("#__azcode_save-button")
+    s += click("#__azcode_key-2") + exists("#__azcode_save-button")
+    s += shot()                                                        # 5 an edit: the key row typed braces, the top bar has Save
+    s += click("#__azcode_save-button") + rest(900) + missing("#__azcode_save-button")   # written: the button goes
     s += click("#__azcode_status-problems") + exists("#__azcode_sheet", "#__azcode_panel-tab-problems")
-    s += shot()                                                        # 5 the panel as a sheet, at its detent
+    s += shot()                                                        # 6 the panel as a sheet, at its detent
     if bars:
         # Half: half the root (the container is the root, not the window)
         s += layout_is("#__azcode_sheet", y=top + (height - top - bottom) / 2.0, height=(height - top - bottom) / 2.0)
-    s += grip_keys("Up") + shot()                                      # 6 the sheet drawn up
+    s += grip_keys("Up") + shot()                                      # 7 the sheet drawn up
     if bars:
         # drawn up, the sheet stops under the top bar: its top is the root's top and the top bar's height under the window's top, its
         # foot the root's foot
         s += layout_is("#__azcode_sheet", y=top + TOP_BAR, height=height - top - bottom - TOP_BAR)
-    s += grip_keys("Down", "Down") + shot()                            # 7 and pushed down to its grip
+    s += grip_keys("Down", "Down") + shot()                            # 8 and pushed down to its peek
     # its header is out of reach at the grip: raised first, and let to settle (a click in the middle of the animation lands where the
     # button was)
     s += grip_keys("Up") + settle() + click("#__azcode_panel-close") + missing("#__azcode_sheet")
     if terminal:
         s += click("#__azcode_status-terminal") + rest(2000) + exists("#__azcode_sheet", "#__azcode_terminal", "#__azcode_terminal-bar")
-        s += shot()                                                    # 8 the terminal in the sheet: a shell, its tabs and buttons in a bar
+        s += shot()                                                    # 9 the terminal in the sheet: a shell, its tabs and buttons in a bar
         s += click("#__azcode_panel-close") + missing("#__azcode_sheet")
     s += click("#__azcode_drawer-button") + click("#__azcode_activity-git") + exists("#__azcode_git-panel") + rest(1000)
-    s += shot()                                                        # 8 (9 with the terminal) source control in the drawer
-    s += click("#__azcode_activity-run") + exists("#__azcode_run-panel") + shot()                  # 9 (10) run
+    s += shot()                                                        # 9 (10 with the terminal) source control in the drawer
+    s += click("#__azcode_activity-run") + exists("#__azcode_run-panel") + shot()                  # 10 (11) run
     # the drawer closes on its scrim (a tap on the strip beside it: the middle of the scrim is under the drawer) or, where the
     # window's size is not known here, on Escape
     if width:
         s += [op("click", x=float(width) - 12.0, y=float(height) / 2.0)] + frames(2) + missing("#__azcode_drawer")
     else:
         s += press("escape") + missing("#__azcode_drawer")
-    s += [op("set_mode", mode="light")] + shot()                       # 10 (11) light
+    s += [op("set_mode", mode="light")] + shot()                       # 11 (12) light
     s += [op("set_mode", mode="dark")]
     return s
 
 
 def phone_files():
-    names = ("1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row, 5 the panel's sheet, 6 drawn up, 7 pushed "
-             "down, 8 the terminal in the sheet (a host's), 9 source control, 10 run, 11 light")
-    names_device = ("1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row (and 4b the braces typed by it), 5 the "
-                    "panel's sheet, 6 drawn up, 7 pushed down, 8 source control, 9 run, 10 light")
+    names = ("1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row, 5 an edit (braces typed by the key row: the "
+             "top bar has Save), 6 the panel's sheet, 7 drawn up, 8 pushed down to its peek, 9 the terminal in the sheet (a host's), "
+             "10 source control, 11 run, 12 light")
+    names_device = ("1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row, 5 an edit (the top bar has Save), "
+                    "6 the panel's sheet, 7 drawn up, 8 pushed down to its peek, 9 source control, 10 run, 11 light")
     # what the display preset keeps (core/src/display_features.rs: the status bar, the navigation bar, the cutout at the left in
     # landscape): top, bottom, left, right
     sizes = [("pixel8", 411, 914, "pixel8", (48.0, 24.0, 0.0, 0.0)), ("iphone", 402, 874, "iphone_island", (59.0, 34.0, 0.0, 0.0)),
