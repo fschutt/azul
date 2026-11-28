@@ -89,7 +89,13 @@ const DESCRIBED_PRESENTS: u32 = 3;
 /// without WebRender, every phase swapped to the window and held) before WebRender is made.
 fn control_requested() -> bool {
     azul_css::env::EnvSource::var(&crate::env::ProcessEnv::new(), "AZ_GPU_CONTROL")
-        .is_some_and(|value| !value.is_empty() && value != "0")
+        .is_some_and(|value| !value.is_empty() && value != "0" && value != "after")
+}
+
+/// EXPERIMENT: `AZ_GPU_CONTROL=after` runs the ladder once, quickly (no holds, the first binding mode only), AFTER WebRender's third frame: the
+/// same plain GL, in the process and the context WebRender has been using.
+fn control_after_requested() -> bool {
+    azul_css::env::EnvSource::var(&crate::env::ProcessEnv::new(), "AZ_GPU_CONTROL").is_some_and(|value| value == "after")
 }
 
 /// EXPERIMENT: `AZ_GL_TRACE=<level>[:<file>]` starts the loader crate's trace of every GL call (level 1: only the calls that left a GL
@@ -755,7 +761,7 @@ impl GlesGpu {
         self.prime_surface(ctx);
         gl_context_loader::trace::mark("the control ladder, if asked for, begins");
         if control_requested() {
-            self.run_control(&gl);
+            self.run_control(&gl, false);
         }
         gl_context_loader::trace::mark("WebRender's bring-up begins");
         // A renderer made before had keys of its own: the window's registries are cleared for the new one.
@@ -860,7 +866,7 @@ impl GlesGpu {
 
     /// EXPERIMENT: the control ladder on the window's surface: GL with no WebRender, each phase swapped and held (`gles_control`), once
     /// binding the framebuffers as `GL_FRAMEBUFFER` and once the way WebRender's device binds them.
-    fn run_control(&self, gl: &gl_context_loader::GenericGlContext) {
+    fn run_control(&self, gl: &gl_context_loader::GenericGlContext, quick: bool) {
         let Some(session) = self.session.as_ref() else {
             return;
         };
@@ -869,7 +875,12 @@ impl GlesGpu {
             return;
         }
         let size = session.surface_size().unwrap_or(self.size_px);
-        for (split, external_unbind) in [(false, false), (true, false), (true, true)] {
+        let binding_modes: &[(bool, bool)] = if quick {
+            &[(false, false)]
+        } else {
+            &[(false, false), (true, false), (true, true)]
+        };
+        for &(split, external_unbind) in binding_modes {
             let target = gles_control::Target { size, window: 0, split, external_unbind };
             log_info!(
                 LogCategory::Rendering,
@@ -882,6 +893,9 @@ impl GlesGpu {
                 CONTROL_HOLD.as_millis()
             );
             let ladder = gles_control::run_ladder(gl, target, &mut |name| {
+                if quick {
+                    return;
+                }
                 match session.swap(None, size.1) {
                     Ok(()) => log_info!(LogCategory::Rendering, "[render] control (split {}): presented {}", split, name),
                     Err(error) => log_warn!(
@@ -1075,6 +1089,12 @@ impl GlesGpu {
                         ms
                     );
                     self.note("first_gpu_frame_done", &format!("ms={ms:.1}"));
+                }
+                if self.presents == DESCRIBED_PRESENTS && control_after_requested() {
+                    if let Some(functions) = self.functions.as_ref() {
+                        log_info!(LogCategory::Rendering, "[render] the control ladder runs after WebRender's frames (quick)");
+                        self.run_control(&functions.context, true);
+                    }
                 }
                 // A good frame forgives the losses before it.
                 let _ = self.lifecycle.step(Event::FramePresented);
