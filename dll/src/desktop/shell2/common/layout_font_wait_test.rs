@@ -39,21 +39,30 @@ const SHIPPED_STACK: &str = "\"Shipped Face\"";
 /// The same, with the generic family after it that nearly every stylesheet names.
 const SHIPPED_THEN_GENERIC: &str = "\"Shipped Face\", sans-serif";
 
-/// What the layout callback shows, and in which `font-family` value.
+/// What the layout callback shows, and in which `font-family` value: a block of `text`, and a second block of `more`
+/// when there is any.
 struct Page {
     text: String,
+    more: String,
     stack: String,
 }
 
 extern "C" fn page(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let (text, stack) = data
+    let (text, more, stack) = data
         .downcast_ref::<Page>()
-        .map_or((String::new(), String::new()), |p| (p.text.clone(), p.stack.clone()));
-    Dom::create_body().with_child(
+        .map_or((String::new(), String::new(), String::new()), |p| {
+            (p.text.clone(), p.more.clone(), p.stack.clone())
+        });
+    let block = |text: &str| {
         Dom::create_div()
             .with_css(&format!("font-family: {stack}; font-size: 16px;"))
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text.as_str())),
-    )
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text))
+    };
+    let mut body = Dom::create_body().with_child(block(text.as_str()));
+    if !more.is_empty() {
+        body = body.with_child(block(more.as_str()));
+    }
+    body
 }
 
 /// A registry that scans nothing (no directory) and writes nothing; its scan is not started.
@@ -96,6 +105,7 @@ fn window(
 ) -> (HeadlessWindow, Arc<RefCell<RefAny>>) {
     let state = Arc::new(RefCell::new(RefAny::new(Page {
         text: text.to_string(),
+        more: String::new(),
         stack: stack.to_string(),
     })));
     let mut options = WindowCreateOptions::default();
@@ -124,6 +134,25 @@ fn window(
         window.share_registered_fonts(&fonts);
     }
     (window, state)
+}
+
+/// The characters of the window's DOM as the layout holds them now, and whether its font manager has a gate: what a failing
+/// assertion says about the pass it is about.
+fn state_of(window: &HeadlessWindow, registry: &FcFontRegistry) -> String {
+    let layout_window = window.get_layout_window().expect("a layout window");
+    let chars: String = layout_window
+        .layout_results
+        .get(&azul_core::dom::DomId::ROOT_ID)
+        .map(|result| azul_layout::window::CharSet::of_dom(&result.styled_dom).to_set())
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    format!(
+        "the DOM holds {chars:?}, a gate is {}, the scan is {}, {} layout results",
+        if layout_window.font_manager.system_fonts_gate.is_some() { "installed" } else { "missing" },
+        if registry.is_build_complete() { "complete" } else { "not complete" },
+        layout_window.layout_results.len(),
+    )
 }
 
 fn counters(window: &HeadlessWindow) -> (u32, u32) {
@@ -169,21 +198,16 @@ fn a_stack_that_names_a_generic_family_after_the_shipped_face_does_not_wait_for_
     assert!(!registry.is_build_complete(), "premise: the scan has not run");
 }
 
-#[test]
-fn text_that_arrives_later_and_no_registered_face_draws_takes_the_wait_as_before() {
+/// The second layout of a window whose first was drawn by the app's face: `change` makes the app show text that no face of
+/// its draws, the scan starts a while later (it completes at once), and the wait that is owed returns when it has.
+fn the_second_layout_takes_the_wait(change: impl FnOnce(&mut Page)) {
     let registry = idle_registry();
     let (mut window, state) = window("Hello, world", SHIPPED_STACK, &registry, true);
     window.regenerate_layout().expect("the first layout");
     let (skipped, blocked) = counters(&window);
     assert!(skipped >= 1 && blocked == 0, "skipped {skipped}, blocked {blocked}");
 
-    // The app shows a character none of its faces draws; the scan starts a while later (it completes at once), and the
-    // wait that is owed returns when it has.
-    state
-        .borrow_mut()
-        .downcast_mut::<Page>()
-        .expect("the page state")
-        .text = "Hello, \u{6f22}\u{5b57}".to_string();
+    change(&mut state.borrow_mut().downcast_mut::<Page>().expect("the page state"));
     let late = start_scan_after(&registry, SCAN_STARTS_AFTER);
     let started = Instant::now();
     window.regenerate_layout().expect("the second layout");
@@ -193,9 +217,20 @@ fn text_that_arrives_later_and_no_registered_face_draws_takes_the_wait_as_before
     assert!(
         blocked_after >= 1 && skipped_after == skipped,
         "the second DOM holds text the faces in memory cannot draw: it takes the wait, and the skips stay \
-         (skipped {skipped} -> {skipped_after}, blocked {blocked_after})"
+         (skipped {skipped} -> {skipped_after}, blocked {blocked_after}; {})",
+        state_of(&window, &registry)
     );
     assert!(took >= WAITED_AT_LEAST, "the second layout took {took:?}: it did not wait for the scan");
+}
+
+#[test]
+fn text_that_arrives_later_and_no_registered_face_draws_takes_the_wait_as_before() {
+    the_second_layout_takes_the_wait(|page| page.text = "Hello, \u{6f22}\u{5b57}".to_string());
+}
+
+#[test]
+fn a_second_block_of_such_text_takes_the_wait_as_before() {
+    the_second_layout_takes_the_wait(|page| page.more = "\u{6f22}\u{5b57}".to_string());
 }
 
 #[test]

@@ -22,11 +22,11 @@ use azul_css::props::basic::PhysicalSize;
 use azul_layout::{
     solver3::getters::collect_and_resolve_font_chains_covering,
     text3::cache::{
-        missing_coverage_faces, FontChainKey, FontSelector, FontStack, InlineContent, MemoryFontTier,
-        StyleProperties, StyledRun, SystemFontsGate, SystemFontsWait,
+        missing_coverage_faces, FontChainKey, FontChainKeyOrRef, FontSelector, FontStack, InlineContent,
+        MemoryFontTier, StyleProperties, StyledRun, SystemFontsGate, SystemFontsWait,
     },
 };
-use rust_fontconfig::{FcFontCache, FontFallbackChain, UnicodeRange};
+use rust_fontconfig::{FcFontCache, UnicodeRange};
 
 use crate::variable_fonts::{page, static_face_path, Manager};
 
@@ -293,10 +293,33 @@ fn text_the_window_keeps_covered_is_asked_for_with_the_dom() {
 fn a_run_of_typed_text_no_face_of_its_chain_draws_asks_before_its_face_is_looked_up() {
     let gate = Recorder::new(true);
     let manager = manager_with(&[("Mem", latin())], MemoryFontTier::Primary, &gate);
-    let selectors = vec![FontSelector {
-        family: "Mem".to_string(),
-        ..FontSelector::default()
-    }];
+    // The chain the layout resolved for the stack of the page: the face in memory draws Basic Latin.
+    let resolved = collect_and_resolve_font_chains_covering(
+        &page("Mem", "", "", "Hello"),
+        &manager.fc_cache,
+        &manager,
+        &azul_css::system::Platform::current(),
+        PhysicalSize::new(800.0, 600.0),
+        &BTreeSet::new(),
+    );
+    let (key, chain) = resolved
+        .chains
+        .iter()
+        .find_map(|(key, chain)| match key {
+            FontChainKeyOrRef::Chain(key) => Some((key.clone(), chain.clone())),
+            FontChainKeyOrRef::Ref(_) => None,
+        })
+        .expect("a chain for the stack of the page");
+    let selectors: Vec<FontSelector> = key
+        .font_families
+        .iter()
+        .map(|family| FontSelector {
+            family: family.clone(),
+            request: key.request.clone(),
+            unicode_ranges: Vec::new(),
+        })
+        .collect();
+    assert_eq!(FontChainKey::from_selectors(&selectors), key, "premise: the run's stack is the page's");
     let run = |text: &str| {
         InlineContent::Text(StyledRun {
             text: Arc::from(text),
@@ -308,8 +331,6 @@ fn a_run_of_typed_text_no_face_of_its_chain_draws_asks_before_its_face_is_looked
             source_node_id: None,
         })
     };
-    let key = FontChainKey::from_selectors(&selectors);
-    let chain = FontFallbackChain::empty(&key.font_families);
     let loaded = manager.get_loaded_fonts();
     let lookup = |content: &[InlineContent]| {
         missing_coverage_faces(
