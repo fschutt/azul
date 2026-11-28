@@ -43,8 +43,8 @@ PLATFORMS = ("desktop", "android", "ios")
 PHONE_HOST_BY_STEM = {"azwriter_boot": "AzWriter"}
 NO_PHONE_HOST_REASON = "asserts the DOM of a desktop C example (tests/e2e/*.sh, the language board), which is not a phone app"
 NO_DESKTOP_HOST_REASON = "run by the desktop language board against its C example, not by this matrix"
-NO_DESKTOP_BUILD_REASON = ("no desktop {host} with the executor: `cargo build -p {host} --features e2e` does not link here "
-                           "(undefined Az* symbols: the facade wants the prebuilt libazul next to the engine it compiled in)")
+NO_DESKTOP_BUILD_REASON = ("needs lib.desktop-e2e: no desktop {host} of the desktop QA build was given "
+                           "(scripts/ci/desktop_e2e_build.sh: the shipped libazul with the debug server and the e2e executor)")
 
 
 # ---- discovery ------------------------------------------------------------------------------------------------------------------------
