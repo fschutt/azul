@@ -186,6 +186,20 @@
         "selector": "#__azmaps_place"
       },
       {
+        "op": "wait",
+        "ms": 3000,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "wait_frame"
       },
       {

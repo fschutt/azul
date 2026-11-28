@@ -103,7 +103,7 @@ def desktop_steps():
           op("assert_not_exists", selector="#__azmaps_sheet")]
     s += shot()                                                   # 1 first look: the panel, the chips, the keys
     s += type_search("Stuttgart") + [op("assert_exists", selector="#__azmaps_results")] + shot()          # 2 results
-    s += click("#__azmaps_suggestion-0") + [op("assert_exists", selector="#__azmaps_place")] + shot()  # 3 the place
+    s += click("#__azmaps_suggestion-0") + [op("assert_exists", selector="#__azmaps_place")] + tiles() + shot()  # 3 the place (the map flew there: its tiles)
     s += click("#__azmaps_place-share") + [op("assert_exists", selector="#__azmaps_link-copied")] + shot()   # 3b Share: the notice
     s += click("#__azmaps_place-route") + [op("assert_exists", selector="#__azmaps_travel")] + shot()  # 4 the way
     s += click("#__azmaps_back") + click("#__azmaps_back") + [op("assert_exists", selector="#__azmaps_chips")]
@@ -154,7 +154,7 @@ def phone_steps(root_top=None, root_height=None):
         s += sheet_at(168.0, root_top, root_height)
     s += shot()                                                   # 1 first look: the bar, the chips, the sheet at its peek
     s += type_search("Stuttgart") + [op("assert_exists", selector="#__azmaps_results")] + shot()      # 2 results
-    s += click("#__azmaps_suggestion-0") + [op("assert_exists", selector="#__azmaps_place")] + shot()  # 3 the place at its peek
+    s += click("#__azmaps_suggestion-0") + [op("assert_exists", selector="#__azmaps_place")] + tiles() + shot()  # 3 the place at its peek
     s += grip_keys("Up") + shot()                                 # 4 half
     if boxes:
         s += sheet_at(root_height / 2.0, root_top, root_height)
