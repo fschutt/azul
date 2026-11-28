@@ -7108,14 +7108,61 @@ pub fn collect_used_codepoints_all(styled_dom: &StyledDom) -> std::collections::
 /// Whether the faces registered in MEMORY ([`crate::text3::cache::FontManager::memory_families`]: the ones azul bundles,
 /// the ones the app ships with `AppConfig::add_font` and the ones it registers while it runs) draw EVERY character of
 /// `styled_dom`'s text under EVERY font stack the DOM names, so that laying the DOM out needs nothing from the system's
-/// fonts: the shell's first layout need not wait for the registry's scan of them.
+/// fonts: the shell's first layout need not wait for the registry's scan of them. [`memory_faces_verdict`] says why not.
+#[must_use]
+pub fn memory_faces_draw_all_text<T: ParsedFontTrait>(
+    styled_dom: &StyledDom,
+    font_manager: &crate::text3::cache::FontManager<T>,
+    platform: &azul_css::system::Platform,
+    viewport: PhysicalSize,
+) -> bool {
+    memory_faces_verdict(styled_dom, font_manager, platform, viewport) == MemoryFacesVerdict::Draws
+}
+
+/// What [`memory_faces_verdict`] found: whether the faces in memory draw the DOM's text, and when they do not, the
+/// first reason (the startup timeline's `fonts:first_layout_wait` mark prints it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemoryFacesVerdict {
+    /// Every stack of the DOM opens with faces in memory, and those draw every character.
+    Draws,
+    /// The DOM has no text a face has to draw (spaces and control characters are no glyph).
+    NoText,
+    /// A stack opens with a family that has no face in memory (a system family, or a generic one): the name is the
+    /// stack's first.
+    SystemFamily(String),
+    /// A stack's faces in memory do not draw the character `ch`: the name is the stack's first.
+    NotDrawn {
+        /// The first family of the stack.
+        family: String,
+        /// The first character in the DOM that none of the stack's faces in memory draws.
+        ch: char,
+    },
+}
+
+impl core::fmt::Display for MemoryFacesVerdict {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Draws => f.write_str("the faces in memory draw the text"),
+            Self::NoText => f.write_str("no text a face has to draw"),
+            Self::SystemFamily(family) => write!(f, "the stack of \"{family}\" opens with a system family"),
+            Self::NotDrawn { family, ch } => write!(
+                f,
+                "U+{:04X} is not drawn by the faces in memory of the stack of \"{family}\"",
+                u32::from(*ch)
+            ),
+        }
+    }
+}
+
+/// The verdict on the DOM `styled_dom` for the faces registered in memory: the question of [`memory_faces_draw_all_text`]
+/// with its answer.
 ///
-/// On a font cache MISS (the first start after an install, an OS update or a changed font) that scan takes hundreds of
-/// milliseconds on a desktop and seconds on a phone, and the first frame used to wait for it whatever the app's text was
-/// set in (the startup timeline of 2026-11-28: iOS Simulator 3148 ms against 1151 ms on a hit).
+/// On a font cache MISS (the first start after an install, an OS update or a changed font) the registry's scan takes
+/// hundreds of milliseconds on a desktop and seconds on a phone, and the first frame used to wait for it whatever the
+/// app's text was set in (the startup timeline of 2026-11-28: iOS Simulator 3148 ms against 1151 ms on a hit).
 ///
 /// The rule is CONSERVATIVE: each way it could say "yes" wrongly is closed, and a "no" only costs the wait of before.
-/// It is `memory_faces_draw_stack` for every stack the DOM's text names, over the characters of the whole DOM:
+/// It asks every stack the DOM's text names (`memory_faces_draw_stack`), over the characters of the whole DOM:
 ///
 /// - A DOM with no text, or with none a face has to draw (spaces and control characters are no glyph), says no: an
 ///   empty field still takes its line from a face, the system's.
@@ -7132,30 +7179,40 @@ pub fn collect_used_codepoints_all(styled_dom: &StyledDom) -> std::collections::
 /// probe if the scout has listed it by then - as on a hit, where the scout lists meanwhile too - and the shipped face
 /// draws otherwise.
 #[must_use]
-pub fn memory_faces_draw_all_text<T: ParsedFontTrait>(
+pub fn memory_faces_verdict<T: ParsedFontTrait>(
     styled_dom: &StyledDom,
     font_manager: &crate::text3::cache::FontManager<T>,
     platform: &azul_css::system::Platform,
     viewport: PhysicalSize,
-) -> bool {
+) -> MemoryFacesVerdict {
     let wanted = chars_needing_a_glyph(&collect_used_codepoints_all(styled_dom));
     if wanted.is_empty() {
-        return false;
+        return MemoryFacesVerdict::NoText;
     }
     let collected = collect_font_stacks_from_styled_dom_in_viewport(styled_dom, platform, viewport);
     if collected.font_stacks.is_empty() {
-        return false;
+        return MemoryFacesVerdict::NoText;
     }
     // The index the resolver matches names against: the faces registered while the app runs are in it.
     let memory_families = font_manager
         .registered_fonts
         .with_runtime_faces(&font_manager.memory_families, &font_manager.fc_cache);
-    collected.font_stacks.iter().all(|stack| {
-        stack.is_empty() || {
-            let key = FontChainKey::from_selectors(stack);
-            memory_faces_draw_stack(&key.font_families, &key.request, &memory_families, &wanted)
+    for stack in collected.font_stacks.iter().filter(|stack| !stack.is_empty()) {
+        let key = FontChainKey::from_selectors(stack);
+        // The name as the stylesheet wrote it, without the quotes the parser keeps.
+        let first = || {
+            key.font_families
+                .first()
+                .map(|family| family.trim_matches(['"', '\'']).to_string())
+                .unwrap_or_default()
+        };
+        match stack_verdict(&key.font_families, &key.request, &memory_families, &wanted) {
+            StackVerdict::Draws => {}
+            StackVerdict::NoMemoryFamily => return MemoryFacesVerdict::SystemFamily(first()),
+            StackVerdict::NotDrawn(ch) => return MemoryFacesVerdict::NotDrawn { family: first(), ch },
         }
-    })
+    }
+    MemoryFacesVerdict::Draws
 }
 
 /// The characters of `chars` a face has to draw: the ones that are no space, no control and no format character
@@ -7168,23 +7225,33 @@ fn chars_needing_a_glyph(chars: &std::collections::BTreeSet<char>) -> Vec<char> 
         .collect()
 }
 
-/// Whether the memory faces the stack `font_families` OPENS with, at the weight and the style of `request`, draw every
-/// character of `wanted` with the cmap they were registered with: the stack then needs no face from the disk, and the
-/// registry's scan of the system's fonts has nothing to say about it.
+/// What the faces in memory of one stack do with the characters a face has to draw.
+enum StackVerdict {
+    /// They draw all of them.
+    Draws,
+    /// The stack opens with a family that has no face in memory, or there is no character to draw.
+    NoMemoryFamily,
+    /// The first character none of them draws.
+    NotDrawn(char),
+}
+
+/// The memory faces the stack `font_families` OPENS with, at the weight and the style of `request`, against every
+/// character of `wanted` with the cmap they were registered with: the stack needs no face from the disk when they draw
+/// all of them, and the registry's scan of the system's fonts has nothing to say about it.
 ///
 /// "Opens with": the families are read in order up to the first one that has no memory face (Primary or Fallback tier,
 /// the one `pick_memory_face` hands the chain); the faces picked for those, together, must cover every character. A stack
 /// that opens with no memory family, and a `wanted` that is empty, say no.
-fn memory_faces_draw_stack(
+fn stack_verdict(
     font_families: &[String],
     request: &FontRequest,
     memory_families: &HashMap<String, Vec<crate::text3::cache::MemoryFace>>,
     wanted: &[char],
-) -> bool {
+) -> StackVerdict {
     use crate::text3::cache::MemoryFontTier;
 
     if wanted.is_empty() {
-        return false;
+        return StackVerdict::NoMemoryFamily;
     }
     let mut leading: Vec<&crate::text3::cache::MemoryFace> = Vec::new();
     for family in font_families {
@@ -7199,16 +7266,29 @@ fn memory_faces_draw_stack(
         };
         leading.push(face);
     }
-    !leading.is_empty()
-        && wanted.iter().all(|c| {
-            let cp = u32::from(*c);
-            leading.iter().any(|face| {
-                face.font_match
-                    .unicode_ranges
-                    .iter()
-                    .any(|range| cp >= range.start && cp <= range.end)
-            })
+    if leading.is_empty() {
+        return StackVerdict::NoMemoryFamily;
+    }
+    let undrawn = wanted.iter().find(|c| {
+        let cp = u32::from(**c);
+        !leading.iter().any(|face| {
+            face.font_match
+                .unicode_ranges
+                .iter()
+                .any(|range| cp >= range.start && cp <= range.end)
         })
+    });
+    undrawn.map_or(StackVerdict::Draws, |c| StackVerdict::NotDrawn(*c))
+}
+
+/// Whether [`stack_verdict`] says the faces draw it.
+fn memory_faces_draw_stack(
+    font_families: &[String],
+    request: &FontRequest,
+    memory_families: &HashMap<String, Vec<crate::text3::cache::MemoryFace>>,
+    wanted: &[char],
+) -> bool {
+    matches!(stack_verdict(font_families, request, memory_families, wanted), StackVerdict::Draws)
 }
 
 /// Trim a [`FontFallbackChain`] down to the minimum set of `FontMatch`

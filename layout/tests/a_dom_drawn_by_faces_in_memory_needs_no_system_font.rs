@@ -11,7 +11,10 @@
 
 use azul_core::{dom::Dom, styled_dom::StyledDom};
 use azul_css::props::basic::PhysicalSize;
-use azul_layout::{solver3::getters::memory_faces_draw_all_text, text3::cache::MemoryFontTier};
+use azul_layout::{
+    solver3::getters::{memory_faces_draw_all_text, memory_faces_verdict, MemoryFacesVerdict},
+    text3::cache::MemoryFontTier,
+};
 use rust_fontconfig::{FcFontCache, UnicodeRange};
 
 use crate::variable_fonts::{page, red_hat_mono_path, Manager};
@@ -163,4 +166,43 @@ fn a_dom_without_text_waits_because_an_empty_field_still_takes_its_line_from_a_f
 fn without_registered_faces_everything_waits() {
     let manager = manager_with(&[]);
     assert!(!draws_all(&manager, &page("Mem", "", "", "Hello")));
+}
+
+fn verdict_of(manager: &Manager, styled: &StyledDom) -> MemoryFacesVerdict {
+    memory_faces_verdict(
+        styled,
+        manager,
+        &azul_css::system::Platform::current(),
+        PhysicalSize::new(800.0, 600.0),
+    )
+}
+
+#[test]
+fn the_verdict_says_why_the_dom_waits() {
+    let manager = manager_with(&[("Mem", latin())]);
+    assert_eq!(verdict_of(&manager, &page("Mem", "", "", "Hello")), MemoryFacesVerdict::Draws);
+    assert_eq!(
+        verdict_of(&manager, &page("Mem", "", "", "Hello 漢")),
+        MemoryFacesVerdict::NotDrawn { family: "Mem".to_string(), ch: '漢' }
+    );
+    assert_eq!(
+        verdict_of(&manager, &page("Some Installed Family", "", "", "Hello")),
+        MemoryFacesVerdict::SystemFamily("Some Installed Family".to_string())
+    );
+    let mut empty = Dom::create_body();
+    let styled = StyledDom::create(&mut empty, azul_css::css::Css::empty());
+    assert_eq!(verdict_of(&manager, &styled), MemoryFacesVerdict::NoText);
+}
+
+#[test]
+fn the_verdict_reads_as_the_reason_the_startup_timeline_prints() {
+    assert_eq!(
+        MemoryFacesVerdict::NotDrawn { family: "Mem".to_string(), ch: '漢' }.to_string(),
+        "U+6F22 is not drawn by the faces in memory of the stack of \"Mem\""
+    );
+    assert_eq!(
+        MemoryFacesVerdict::SystemFamily("system-ui".to_string()).to_string(),
+        "the stack of \"system-ui\" opens with a system family"
+    );
+    assert_eq!(MemoryFacesVerdict::NoText.to_string(), "no text a face has to draw");
 }

@@ -248,7 +248,7 @@ pub fn should_request_fonts(build_complete: bool, cache_empty: bool) -> bool {
 /// the iOS Simulator's first start was 3148 ms against 1151 ms on a hit (QA, 2026-11-28).
 ///
 /// A DOM whose every stack opens with faces registered in memory (azul's own, the app's) and whose every character those
-/// faces draw ([`azul_layout::solver3::getters::memory_faces_draw_all_text`]) needs nothing the scan is looking for, and
+/// faces draw ([`azul_layout::solver3::getters::memory_faces_verdict`]) needs nothing the scan is looking for, and
 /// goes on: the scan continues in the background, the window's font cache is refreshed by the first pass after it ends
 /// (the branch of `regenerate_layout` that finds the build complete), and a later DOM that names a system family or holds
 /// a character no face in memory draws takes the wait as before. Anything else waits exactly as before. A registry that
@@ -277,13 +277,13 @@ fn wait_for_system_fonts_if_needed(
         current_window_state.size.dimensions.width,
         current_window_state.size.dimensions.height,
     );
-    let covered = azul_layout::solver3::getters::memory_faces_draw_all_text(
+    let verdict = azul_layout::solver3::getters::memory_faces_verdict(
         styled_dom,
         &layout_window.font_manager,
         &system_style.platform,
         viewport,
     );
-    if covered {
+    if verdict == azul_layout::solver3::getters::MemoryFacesVerdict::Draws {
         layout_window.frame_report.font_waits_skipped =
             layout_window.frame_report.font_waits_skipped.saturating_add(1);
         startup.mark_once_with("fonts:first_layout_wait", || {
@@ -299,8 +299,9 @@ fn wait_for_system_fonts_if_needed(
         .replace_fc_cache(registry.shared_cache());
     layout_window.frame_report.font_waits_blocked =
         layout_window.frame_report.font_waits_blocked.saturating_add(1);
+    // The reason is the first thing the DOM needs the system for: what an app that wants the skip changes.
     startup.mark_once_with("fonts:first_layout_wait", || {
-        format!("waited {:.1} ms", started.elapsed().as_secs_f64() * 1000.0)
+        format!("waited {:.1} ms: {verdict}", started.elapsed().as_secs_f64() * 1000.0)
     });
 }
 
