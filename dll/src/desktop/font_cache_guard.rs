@@ -487,6 +487,47 @@ pub fn write_key_file(manifest: &Path, key: &Key, fonts: Vec<FontStat>) -> std::
     write_atomic(&key_file_path(manifest), file.to_text().as_bytes())
 }
 
+/// What the end of a scan did to the files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Persisted {
+    /// The start was a hit and the scan found nothing new: the manifest and the key file are exactly as they were (not
+    /// rewritten, not touched).
+    Unchanged,
+    /// The scan found no font at all: an empty manifest would be a hit that knows none, so nothing is kept.
+    NothingFound,
+    /// The manifest and its key file were written.
+    Written,
+    /// A write failed: the next start scans again (the files are the old pair or none, never half of one).
+    Failed,
+}
+
+/// The end of a scan: writes the manifest (`save_manifest`, the registry's own atomic save) and then the key file that
+/// vouches for it (`font_paths`: every font file the registry loads from) - unless the start was a hit
+/// (`loaded_faces` is what it loaded) and the scan ended with as many faces: then NOTHING is written, so a start
+/// that finds the machine as it was leaves the cache alone (no rewrite, no new modification time, no disk traffic).
+pub fn persist(
+    manifest: &Path,
+    key: &Key,
+    loaded_faces: Option<usize>,
+    faces_now: usize,
+    save_manifest: impl FnOnce(&Path) -> bool,
+    font_paths: impl FnOnce() -> Vec<String>,
+) -> Persisted {
+    if loaded_faces == Some(faces_now) {
+        return Persisted::Unchanged;
+    }
+    if faces_now == 0 {
+        return Persisted::NothingFound;
+    }
+    if !save_manifest(manifest) {
+        return Persisted::Failed;
+    }
+    match write_key_file(manifest, key, stats_of(font_paths())) {
+        Ok(()) => Persisted::Written,
+        Err(_) => Persisted::Failed,
+    }
+}
+
 /// Writes `bytes` to `path` so that a reader sees the old file or the new one: a temporary file of this call's own
 /// name next to it (created exclusively, so no two writers share one), synced, then renamed over `path`.
 ///

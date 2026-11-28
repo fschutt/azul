@@ -54,40 +54,33 @@ fn spawn_font_cache_persist(
                 std::thread::sleep(Duration::from_millis(50));
             }
             let faces = registry.cache.len();
-            if loaded_faces == Some(faces) {
-                return;
-            }
-            // Nothing found on disk is no manifest to keep (an empty one would be a hit that knows no font).
-            if faces == 0 {
-                return;
-            }
             let started = std::time::Instant::now();
-            let saved = registry.save_to_disk_cache_at(&manifest).is_some()
-                && crate::desktop::font_cache_guard::write_key_file(
-                    &manifest,
-                    &key,
-                    crate::desktop::font_cache_guard::stats_of(
-                        registry
-                            .list()
-                            .into_iter()
-                            .filter_map(|(_, id)| registry.get_disk_font_path(&id).map(|font| font.path)),
-                    ),
-                )
-                .is_ok();
+            let persisted = crate::desktop::font_cache_guard::persist(
+                &manifest,
+                &key,
+                loaded_faces,
+                faces,
+                |path| registry.save_to_disk_cache_at(path).is_some(),
+                || {
+                    registry
+                        .list()
+                        .into_iter()
+                        .filter_map(|(_, id)| registry.get_disk_font_path(&id).map(|font| font.path))
+                        .collect()
+                },
+            );
             startup.mark_with("fonts:cache_written", || {
-                format!(
-                    "{}, {faces} faces, {:.1} ms",
-                    if saved { "written" } else { "NOT written" },
-                    started.elapsed().as_secs_f64() * 1000.0
-                )
+                format!("{persisted:?}, {faces} faces, {:.1} ms", started.elapsed().as_secs_f64() * 1000.0)
             });
             debug_server::log(
                 debug_server::LogLevel::Info,
                 debug_server::LogCategory::Resources,
-                if saved {
-                    "Persisted font metadata to disk cache"
-                } else {
-                    "Failed to persist font metadata to disk cache"
+                match persisted {
+                    crate::desktop::font_cache_guard::Persisted::Written => "Persisted font metadata to disk cache",
+                    crate::desktop::font_cache_guard::Persisted::Failed => {
+                        "Failed to persist font metadata to disk cache"
+                    }
+                    _ => "Font cache left as it was",
                 },
                 None,
             );
@@ -992,34 +985,40 @@ impl AppInternal {
                 rust_fontconfig::disk_cache::FontManifest::CURRENT_VERSION,
                 registry.scan_dirs(),
             );
-            let cache_started = std::time::Instant::now();
-            let (cache_verdict, had_cache) = match manifest_path.as_deref() {
-                None => (crate::desktop::font_cache_guard::Verdict::NoDirectory, None),
-                Some(path) => match crate::desktop::font_cache_guard::check(path, &cache_key) {
-                    crate::desktop::font_cache_guard::Verdict::Hit => match registry.load_from_disk_cache_at(path) {
-                        Some(()) => (crate::desktop::font_cache_guard::Verdict::Hit, Some(())),
+            let check_started = std::time::Instant::now();
+            let verdict = match manifest_path.as_deref() {
+                None => crate::desktop::font_cache_guard::Verdict::NoDirectory,
+                Some(path) => crate::desktop::font_cache_guard::check(path, &cache_key),
+            };
+            let check_ms = check_started.elapsed().as_secs_f64() * 1000.0;
+            let load_started = std::time::Instant::now();
+            let (cache_verdict, had_cache) = match (&verdict, manifest_path.as_deref()) {
+                (crate::desktop::font_cache_guard::Verdict::Hit, Some(path)) => {
+                    match registry.load_from_disk_cache_at(path) {
+                        Some(()) => (verdict.clone(), Some(())),
                         None => (
                             crate::desktop::font_cache_guard::Verdict::Rebuilt(
                                 crate::desktop::font_cache_guard::Reason::ManifestRejected,
                             ),
                             None,
                         ),
-                    },
-                    other => (other, None),
-                },
+                    }
+                }
+                _ => (verdict.clone(), None),
             };
+            let load_ms = load_started.elapsed().as_secs_f64() * 1000.0;
             // What the cache put in the registry, read before the scan threads exist (they add to it).
             let loaded_faces = had_cache.map(|()| registry.cache.len());
             startup.mark_with("fonts:disk_cache_read", || {
                 format!("loaded={}", had_cache.is_some())
             });
-            // `fonts:cache hit|miss|rebuilt (why), N faces, X ms`: what the cache did for this start.
+            // `fonts:cache hit|miss|rebuilt (why), N faces, check X ms, load Y ms`: what the cache did for this
+            // start and what the check of it cost (the scan of a miss is `font_dirs_scanned` / `font_scan_complete`).
             startup.mark_with("fonts:cache", || {
                 format!(
-                    "{}, {} faces, {:.1} ms",
+                    "{}, {} faces, check {check_ms:.1} ms, load {load_ms:.1} ms",
                     cache_verdict.describe(),
                     loaded_faces.unwrap_or(0),
-                    cache_started.elapsed().as_secs_f64() * 1000.0
                 )
             });
             if had_cache.is_some() {

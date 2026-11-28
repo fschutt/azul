@@ -593,3 +593,148 @@ fn the_checksum_that_ties_the_pair_is_pinned() {
     assert_eq!(checksum(b""), 0xcb91_86f6_7c53_1eb0);
     assert_eq!(checksum(b"abc"), 0xbbf5_acb9_4b2b_632d);
 }
+
+/// The modification time and the bytes of a file.
+fn state_of(path: &Path) -> (SystemTime, Vec<u8>) {
+    (
+        std::fs::metadata(path).unwrap().modified().unwrap(),
+        std::fs::read(path).unwrap(),
+    )
+}
+
+/// Sets the modification time of `path` two days into the past (so that a rewrite is visible in it).
+fn age(path: &Path) {
+    let past = SystemTime::now() - Duration::from_secs(2 * 24 * 3600);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(past)
+        .unwrap();
+}
+
+#[test]
+fn a_hit_that_finds_nothing_new_writes_nothing() {
+    let dir = fresh_dir("hit-writes-nothing");
+    let fonts = make_fonts(&dir, 20);
+    let manifest = write_pair(&dir, &blob(6000), &key(), &fonts);
+    let key_file = key_file_path(&manifest);
+    age(&manifest);
+    age(&key_file);
+    let (manifest_before, key_file_before) = (state_of(&manifest), state_of(&key_file));
+
+    // The start: a hit (the check reads, it writes nothing).
+    assert_eq!(check(&manifest, &key()), Verdict::Hit);
+    assert_eq!(state_of(&manifest), manifest_before, "the check touched the manifest");
+    assert_eq!(state_of(&key_file), key_file_before, "the check touched the key file");
+
+    // The end of the scan: as many faces as the hit loaded. The registry is not even asked.
+    let persisted = persist(
+        &manifest,
+        &key(),
+        Some(800),
+        800,
+        |_| panic!("a hit that found nothing new saved the manifest"),
+        || panic!("a hit that found nothing new listed the fonts"),
+    );
+    assert_eq!(persisted, Persisted::Unchanged);
+    assert_eq!(state_of(&manifest), manifest_before, "the manifest was rewritten or touched");
+    assert_eq!(state_of(&key_file), key_file_before, "the key file was rewritten or touched");
+    // And nothing else appeared next to them (no temporary file).
+    let names: Vec<String> = std::fs::read_dir(manifest.parent().unwrap())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names.len(), 2, "{names:?}");
+}
+
+#[test]
+fn a_hit_whose_scan_found_a_new_font_writes_the_pair_again() {
+    let dir = fresh_dir("hit-new-font");
+    let fonts = make_fonts(&dir, 6);
+    let manifest = write_pair(&dir, &blob(2000), &key(), &fonts);
+    age(&manifest);
+    age(&key_file_path(&manifest));
+    let before = state_of(&manifest);
+    let persisted = persist(
+        &manifest,
+        &key(),
+        Some(800),
+        801,
+        |path| {
+            write_atomic(path, &blob(2100)).unwrap();
+            true
+        },
+        || fonts.clone(),
+    );
+    assert_eq!(persisted, Persisted::Written);
+    assert_ne!(state_of(&manifest), before);
+    assert_eq!(check(&manifest, &key()), Verdict::Hit, "the new pair describes the new manifest");
+}
+
+#[test]
+fn a_miss_writes_the_pair_and_the_next_start_is_a_hit() {
+    let dir = fresh_dir("miss-then-hit");
+    let fonts = make_fonts(&dir, 9);
+    let manifest = dir.join("rfc").join("fonts").join("manifest.bin");
+    assert_eq!(check(&manifest, &key()), Verdict::Miss);
+    let persisted = persist(
+        &manifest,
+        &key(),
+        None,
+        9,
+        |path| {
+            write_atomic(path, &blob(3000)).unwrap();
+            true
+        },
+        || fonts.clone(),
+    );
+    assert_eq!(persisted, Persisted::Written);
+    assert_eq!(check(&manifest, &key()), Verdict::Hit);
+}
+
+#[test]
+fn a_rebuilt_cache_replaces_the_stale_pair() {
+    let dir = fresh_dir("rebuilt-replaced");
+    let fonts = make_fonts(&dir, 9);
+    let manifest = write_pair(&dir, &blob(3000), &key(), &fonts);
+    std::fs::write(&fonts[2], b"an updated font").unwrap();
+    assert!(matches!(
+        check(&manifest, &key()),
+        Verdict::Rebuilt(Reason::FontsChanged { changed: 1, .. })
+    ));
+    // The scan parsed the new file: the pair is written for what is on disk now.
+    let persisted = persist(
+        &manifest,
+        &key(),
+        None,
+        9,
+        |path| {
+            write_atomic(path, &blob(3010)).unwrap();
+            true
+        },
+        || fonts.clone(),
+    );
+    assert_eq!(persisted, Persisted::Written);
+    assert_eq!(check(&manifest, &key()), Verdict::Hit);
+}
+
+#[test]
+fn a_scan_that_found_no_font_keeps_nothing_and_a_failed_save_writes_no_key_file() {
+    let dir = fresh_dir("nothing-failed");
+    let manifest = dir.join("rfc").join("fonts").join("manifest.bin");
+    let persisted = persist(
+        &manifest,
+        &key(),
+        None,
+        0,
+        |_| panic!("an empty manifest was saved"),
+        || panic!("fonts were listed"),
+    );
+    assert_eq!(persisted, Persisted::NothingFound);
+    assert!(!manifest.exists() && !key_file_path(&manifest).exists());
+
+    let persisted = persist(&manifest, &key(), None, 5, |_| false, || panic!("a failed save listed the fonts"));
+    assert_eq!(persisted, Persisted::Failed);
+    assert!(!key_file_path(&manifest).exists(), "a key file for a manifest that was not written");
+}
