@@ -173,6 +173,8 @@ api_functions=(
   LocationBar.with_editable
   LocationBar.set_more
   LocationBar.with_more
+  LocationBar.set_name_as_placeholder
+  LocationBar.with_name_as_placeholder
   LocationBar.set_editing
   LocationBar.with_editing
   LocationBar.set_placeholder
