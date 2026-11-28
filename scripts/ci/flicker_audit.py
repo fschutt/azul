@@ -376,8 +376,12 @@ def android_audit(args):
         d.launch(cold=True)
         d.wait_for_front(timeout=60)
         d.settle(6.0 if "Maps" in name else 3.0)
+        slug = name.split()[0].lower()
+        # a system dialog over the app takes the swipes: look before the pan, and keep the pictures before and after
+        d.sh("uiautomator dump /sdcard/qa-perm.xml", timeout=40)
+        dialog = q.detect_permission_dialog(d.sh("dumpsys window | grep -E 'mCurrentFocus'"), d.sh("cat /sdcard/qa-perm.xml"), d.package)
+        sig_before, _w, _h, shot_before = d.capture(f"pan-{slug}-before")
         d.adb("logcat", "-c")
-        dims = d.dims
         x1, y1, x2, y2, ms = pan
         for _ in range(3):
             d.swipe(x1, y1, x2, y2, ms)
@@ -385,9 +389,16 @@ def android_audit(args):
         time.sleep(1.0)
         events = present_events(d.adb("logcat", "-d", "-v", "threadtime", timeout=60))
         stats = frame_time_stats(events)
-        entry = {"app": name, "presents": len(events), "engine_frame_ms": stats}
+        sig_after, _w, _h, shot_after = d.capture(f"pan-{slug}-after")
+        moved = q.sig_diff(sig_before, sig_after)
+        entry = {"app": name, "presents": len(events), "engine_frame_ms": stats, "picture_changed": round(moved, 3),
+                 "permission_dialog": dialog, "shots": [shot_before, shot_after]}
         report["pan"].append(entry)
         lines.append(f"- {name}: {len(events)} presents during three pans; engine present interval " + (f"p50 {stats['p50']} / p95 {stats['p95']} / max {stats['max']} ms (n={stats['n']})" if stats else "n/a (fewer than two presents)"))
+        lines.append(f"  - the picture after the pans differs {moved:.3f} from the one before (shots/{shot_before}, shots/{shot_after})"
+                     + (" - the pans moved nothing" if moved < q.SAME_BELOW else ""))
+        if dialog:
+            lines.append(f"  - A SYSTEM DIALOG STANDS OVER THE APP before the pans, they went to the dialog: {dialog}")
     lines += ["", "Notes: the engine's present lines carry the engine's own clock; an emulator on a shared runner is not a phone, the shares and the order matter."]
     (out / "flicker.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     (out / "flicker.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
