@@ -12300,6 +12300,65 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "azul_layout::desktop::dialogs::FileDialog::save_bytes(suggested_name, mime, bytes)"
+                            },
+                            "export_bytes": {
+                                "doc": [
+                                    "Let the person choose where to save `bytes` and resume `on_result` with an [`ExportResult`]: the portable \"Export\" / \"Save as\"",
+                                    "of an app that has the bytes in memory (a rendered PDF, an image, a document) and wants no write target and no path. The bytes",
+                                    "are written WHERE THE PERSON CHOSE and only then is `saved_as` the name they were saved under; a cancel and a failure are",
+                                    "different answers (`error`). Same contract as [`Self::open_file`]. Unlike [`Self::save_bytes`], which answers a bool at once",
+                                    "and does nothing on a phone, this works on a phone: Android shows the system's \"save as\" (`ACTION_CREATE_DOCUMENT`) and",
+                                    "writes through the document it created, iOS the export picker."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "suggested_name": "String"
+                                    },
+                                    {
+                                        "mime": "String"
+                                    },
+                                    {
+                                        "bytes": "U8Vec"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_result": "ResumeCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RequestId"
+                                },
+                                "fn_body": "azul_layout::desktop::dialogs::FileDialog::export_bytes(suggested_name, mime, bytes, data, on_result)"
+                            },
+                            "open_folder": {
+                                "doc": [
+                                    "Let the person choose a FOLDER the app may use again later and resume `on_result` with a [`FolderPickResult`] whose `locator` is",
+                                    "what `CallbackInfo::documents` takes (`None` if cancelled or failed: `error` says which). Same contract as [`Self::open_file`].",
+                                    "",
+                                    "On Android a folder is not a path but a permission grant: the system's tree picker is shown and the grant is KEPT",
+                                    "(`takePersistableUriPermission`), so the folder is in `Documents::places()` after a restart, until the person takes it back or",
+                                    "the app forgets it. On iOS and on a desktop the locator is the folder's path."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "title": "String"
+                                    },
+                                    {
+                                        "default_path": "OptionString"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_result": "ResumeCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RequestId"
+                                },
+                                "fn_body": "azul_layout::desktop::dialogs::FileDialog::open_folder(title, default_path, data, on_result)"
                             }
                         },
                         "repr": "C"
@@ -13279,6 +13338,78 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "ExportResult": {
+                        "external": "azul_layout::desktop::dialogs::ExportResult",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "saved_as": {
+                                    "type": "OptionString"
+                                },
+                                "error": {
+                                    "type": "OptionString"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "downcast": {
+                                "doc": [
+                                    "Downcast the `result` `RefAny` delivered to a `ResumeCallback`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "result": "RefAny"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionExportResult"
+                                },
+                                "fn_body": "azul_layout::desktop::dialogs::ExportResult::downcast(result)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "FolderPickResult": {
+                        "external": "azul_layout::desktop::dialogs::FolderPickResult",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "locator": {
+                                    "type": "OptionString"
+                                },
+                                "error": {
+                                    "type": "OptionString"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "downcast": {
+                                "doc": [
+                                    "Downcast the `result` `RefAny` delivered to a `ResumeCallback`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "result": "RefAny"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionFolderPickResult"
+                                },
+                                "fn_body": "azul_layout::desktop::dialogs::FolderPickResult::downcast(result)"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
@@ -22421,6 +22552,24 @@
                                     "type": "ShareStatus"
                                 },
                                 "fn_body": "object.share(request)"
+                            },
+                            "documents": {
+                                "doc": [
+                                    "A handle on the app's `Documents`: files and folders the user owns, wherever the platform keeps them - a path on a desktop, a",
+                                    "folder the person granted on a phone (an Android `content://` tree, an iOS bookmarked folder) - listed, read, written,",
+                                    "created, renamed and deleted by LOCATOR, with failures that say what to do (`Denied`: ask for the folder again, `NotFound`:",
+                                    "forget it, `TimedOut`: retry). The handle is `Clone + Send + Sync`: take it here, move it to a worker thread (every call",
+                                    "blocks until the platform answers) and call from there."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Documents"
+                                },
+                                "fn_body": "object.documents()"
                             }
                         },
                         "repr": "C"
@@ -183498,6 +183647,432 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "DocumentEntryVec": {
+                        "external": "azul_core::documents::DocumentEntryVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DocumentEntry",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "DocumentEntryVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `DocumentEntryVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "DocumentEntryVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `DocumentEntryVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentEntryVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "document_entry_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "document_entry_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "document_entry_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `DocumentEntryVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "DocumentEntry"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentEntryVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `DocumentEntryVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const DocumentEntry"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentEntryVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDocumentEntry"
+                                },
+                                "fn_body": "document_entry_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `DocumentEntryVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentEntryVecSlice"
+                                },
+                                "fn_body": "document_entry_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentEntryVecSlice"
+                                },
+                                "fn_body": "document_entry_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PlaceVec": {
+                        "external": "azul_core::documents::PlaceVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "Place",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "PlaceVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `PlaceVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "PlaceVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `PlaceVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PlaceVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "place_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "place_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "place_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `PlaceVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "Place"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PlaceVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `PlaceVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const Place"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PlaceVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionPlace"
+                                },
+                                "fn_body": "place_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `PlaceVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PlaceVecSlice"
+                                },
+                                "fn_body": "place_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PlaceVecSlice"
+                                },
+                                "fn_body": "place_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DocumentEntryVecDestructor": {
+                        "external": "azul_core::documents::DocumentEntryVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "DocumentEntryVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "DocumentEntryVecDestructorType": {
+                        "external": "azul_core::documents::DocumentEntryVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "DocumentEntryVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "PlaceVecDestructor": {
+                        "external": "azul_core::documents::PlaceVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "PlaceVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "PlaceVecDestructorType": {
+                        "external": "azul_core::documents::PlaceVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "PlaceVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -195131,6 +195706,119 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionDocumentOrigin": {
+                        "external": "azul_core::documents::OptionDocumentOrigin",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "DocumentOrigin"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionExportResult": {
+                        "external": "azul_layout::desktop::dialogs::OptionExportResult",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "ExportResult"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionFolderPickResult": {
+                        "external": "azul_layout::desktop::dialogs::OptionFolderPickResult",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "FolderPickResult"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDocumentEntry": {
+                        "external": "azul_core::documents::OptionDocumentEntry",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "DocumentEntry",
+                                    "doc": [
+                                        "Some value of type DocumentEntry"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionPlace": {
+                        "external": "azul_core::documents::OptionPlace",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "Place",
+                                    "doc": [
+                                        "Some value of type Place"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -197927,6 +198615,117 @@
                                 },
                                 "Err": {
                                     "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "DocumentError": {
+                        "external": "azul_core::documents::DocumentError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "NotFound": {
+                                    "type": "String"
+                                },
+                                "Denied": {
+                                    "type": "String"
+                                },
+                                "TimedOut": {
+                                    "type": "String"
+                                },
+                                "Unsupported": {
+                                    "type": "String"
+                                },
+                                "Exists": {
+                                    "type": "String"
+                                },
+                                "NotADirectory": {
+                                    "type": "String"
+                                },
+                                "Cancelled": {},
+                                "Failed": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ResultDocumentEntryDocumentError": {
+                        "external": "azul_core::documents::ResultDocumentEntryDocumentError",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ok": {
+                                    "type": "DocumentEntry"
+                                },
+                                "Err": {
+                                    "type": "DocumentError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ResultDocumentEntryVecDocumentError": {
+                        "external": "azul_core::documents::ResultDocumentEntryVecDocumentError",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ok": {
+                                    "type": "DocumentEntryVec"
+                                },
+                                "Err": {
+                                    "type": "DocumentError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ResultEmptyStructDocumentError": {
+                        "external": "azul_core::documents::ResultEmptyStructDocumentError",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ok": {
+                                    "type": "EmptyStruct"
+                                },
+                                "Err": {
+                                    "type": "DocumentError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ResultU8VecDocumentError": {
+                        "external": "azul_core::documents::ResultU8VecDocumentError",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ok": {
+                                    "type": "U8Vec"
+                                },
+                                "Err": {
+                                    "type": "DocumentError"
                                 }
                             }
                         ],
@@ -212655,6 +213454,529 @@
                                 "fn_body": "azul_layout::file::DiskSpace::format_bytes(bytes).into()"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "AllFilesAccess": {
+                        "external": "azul_core::documents::AllFilesAccess",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Granted": {},
+                                "NotGranted": {},
+                                "Unavailable": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocumentEntry": {
+                        "external": "azul_core::documents::DocumentEntry",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "uri": {
+                                    "type": "String"
+                                },
+                                "name": {
+                                    "type": "String"
+                                },
+                                "mime": {
+                                    "type": "String"
+                                },
+                                "size": {
+                                    "type": "OptionU64"
+                                },
+                                "modified_ms": {
+                                    "type": "OptionU64"
+                                },
+                                "is_dir": {
+                                    "type": "bool"
+                                },
+                                "can_write": {
+                                    "type": "bool"
+                                },
+                                "can_delete": {
+                                    "type": "bool"
+                                },
+                                "can_rename": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "Documents": {
+                        "external": "azul_layout::documents::Documents",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "all_files_access": {
+                                "doc": [
+                                    "Whether the app may use the device's shared storage as plain folders."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AllFilesAccess"
+                                },
+                                "fn_body": "object.all_files_access()"
+                            },
+                            "backend_name": {
+                                "doc": [
+                                    "The name of the backend behind this handle."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.backend_name().into()"
+                            },
+                            "children": {
+                                "doc": [
+                                    "The entries of a folder, folders first, then by name; at most [`MAX_ENTRIES`].",
+                                    "",
+                                    "# Errors",
+                                    "",
+                                    "`NotFound`, `Denied` (the grant was taken back), `NotADirectory`, `TimedOut`, or what the platform said."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "locator": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultDocumentEntryVecDocumentError"
+                                },
+                                "fn_body": "object.children(locator).into()"
+                            },
+                            "create_dir": {
+                                "doc": [
+                                    "Make a new folder called `name` in the folder `parent`; `name` is one plain segment.",
+                                    "",
+                                    "# Errors",
+                                    "",
+                                    "`Exists`, `NotFound` (the parent), `Denied`, `TimedOut`, or what the platform said."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "parent": "String"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultDocumentEntryDocumentError"
+                                },
+                                "fn_body": "object.create_dir(parent, name).into()"
+                            },
+                            "create_file": {
+                                "doc": [
+                                    "Make a new empty file called `name` of the type `mime` in the folder `parent`; `name` is one plain segment.",
+                                    "",
+                                    "# Errors",
+                                    "",
+                                    "`Exists`, `NotFound` (the folder), `Denied`, `TimedOut`, or what the platform said."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "parent": "String"
+                                    },
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "mime": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultDocumentEntryDocumentError"
+                                },
+                                "fn_body": "object.create_file(parent, name, mime).into()"
+                            },
+                            "delete": {
+                                "doc": [
+                                    "Delete a file, or a folder with everything in it.",
+                                    "",
+                                    "# Errors",
+                                    "",
+                                    "`NotFound`, `Denied`, `Unsupported`, or what the platform said."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "locator": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultEmptyStructDocumentError"
+                                },
+                                "fn_body": "object.delete(locator).into()"
+                            },
+                            "forget": {
+                                "doc": [
+                                    "Forget a granted place (the permission is released; the folder is untouched).",
+                                    "",
+                                    "# Errors",
+                                    "",
+                                    "Why the platform could not release it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "locator": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultEmptyStructDocumentError"
+                                },
+                                "fn_body": "object.forget(locator).into()"
+                            },
+                            "origin": {
+                                "doc": [
+                                    "Where the working copy at `working_copy` came from (a file another app opened this app with, a file the person picked), or `None`",
+                                    "for a file that was not opened from somewhere else."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "working_copy": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDocumentOrigin"
+                                },
+                                "fn_body": "object.origin(working_copy)"
+                            },
+                            "places": {
+                                "doc": [
+                                    "The places the app may list without asking."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PlaceVec"
+                                },
+                                "fn_body": "object.places()"
+                            },
+                            "read": {
+                                "doc": [
+                                    "Up to `len` bytes of a file from `offset`: fewer at its end, none past it. At most [`MAX_READ`] a call.",
+                                    "",
+                                    "# Errors",
+                                    "",
+                                    "`Failed` for a `len` over the limit, `NotFound`, `Denied`, `TimedOut`, or what the platform said."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "locator": "String"
+                                    },
+                                    {
+                                        "offset": "u64"
+                                    },
+                                    {
+                                        "len": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultU8VecDocumentError"
+                                },
+                                "fn_body": "object.read(locator, offset, len).into()"
+                            },
+                            "rename": {
+                                "doc": [
+                                    "Rename an entry in place; the answer carries the new locator.",
+                                    "",
+                                    "# Errors",
+                                    "",
+                                    "`Exists` when the name is taken, `NotFound`, `Denied`, `Unsupported`, or what the platform said."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "locator": "String"
+                                    },
+                                    {
+                                        "new_name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultDocumentEntryDocumentError"
+                                },
+                                "fn_body": "object.rename(locator, new_name).into()"
+                            },
+                            "request_all_files_access": {
+                                "doc": [
+                                    "Open the system's page where the person can give \"All files access\". Call it from the callback of the person's tap."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.request_all_files_access()"
+                            },
+                            "stat": {
+                                "doc": [
+                                    "What the platform says of one entry.",
+                                    "",
+                                    "# Errors",
+                                    "",
+                                    "`NotFound`, `Denied`, `TimedOut`, or what the platform said."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "locator": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultDocumentEntryDocumentError"
+                                },
+                                "fn_body": "object.stat(locator).into()"
+                            },
+                            "write": {
+                                "doc": [
+                                    "Replace the content of an existing file with `bytes`.",
+                                    "",
+                                    "# Errors",
+                                    "",
+                                    "`NotFound`, `Denied`, `TimedOut`, or what the platform said (the file is as it was)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "locator": "String"
+                                    },
+                                    {
+                                        "bytes": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultDocumentEntryDocumentError"
+                                },
+                                "fn_body": "object.write(locator, bytes).into()"
+                            },
+                            "write_back": {
+                                "doc": [
+                                    "Save the working copy at `working_copy` back where it came from: the bytes of the copy replace the original (through the same",
+                                    "call as [`Documents::write`]), and the answer is the original as it is now. What the platform cannot do is said:",
+                                    "`Unsupported` for a file with no origin, `Denied` for one that was opened read-only (offer `FileDialog::export_bytes`",
+                                    "instead), `Failed` for a copy over the limit of the inbox (256 MiB).",
+                                    "",
+                                    "# Errors",
+                                    "",
+                                    "The reasons above, or what [`Documents::write`] says; the original is as it was when the answer is an error."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "working_copy": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultDocumentEntryDocumentError"
+                                },
+                                "fn_body": "object.write_back(working_copy).into()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DocumentOrigin": {
+                        "external": "azul_core::documents::DocumentOrigin",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "uri": {
+                                    "type": "String"
+                                },
+                                "writable": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "Place": {
+                        "external": "azul_core::documents::Place",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "uri": {
+                                    "type": "String"
+                                },
+                                "name": {
+                                    "type": "String"
+                                },
+                                "granted_ms": {
+                                    "type": "OptionU64"
+                                },
+                                "kind": {
+                                    "type": "PlaceKind"
+                                },
+                                "writable": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PlaceKind": {
+                        "external": "azul_core::documents::PlaceKind",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "AppStorage": {},
+                                "Granted": {},
+                                "SharedStorage": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocumentEntryVecSlice": {
+                        "external": "azul_core::documents::DocumentEntryVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DocumentEntry",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PlaceVecSlice": {
+                        "external": "azul_core::documents::PlaceVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "Place",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
