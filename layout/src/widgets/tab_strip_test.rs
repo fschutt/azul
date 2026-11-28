@@ -271,3 +271,262 @@ fn a_strip_that_fits_does_not_scroll_and_every_pill_is_in_place() {
         assert_eq!(scroll_for_pill(pill, 0.0, max, &lanes), 0.0);
     }
 }
+
+// ---- icon-only pills ----
+
+const GAP: f32 = 8.0;
+
+/// The pills of a layout as `(left, right)` spans.
+fn pill_spans(layout: &IconPillLayout) -> Vec<(f32, f32)> {
+    layout
+        .positions
+        .iter()
+        .map(|&x| (x, x + layout.pill_width))
+        .collect()
+}
+
+/// The lane each pill stands in (`None`: in no lane).
+fn lane_index_of(span: (f32, f32), lanes: &[(f32, f32)]) -> Option<usize> {
+    lanes
+        .iter()
+        .position(|&(left, right)| span.0 >= left && span.1 <= right)
+}
+
+#[test]
+fn six_icon_pills_on_a_pixel_8_stand_three_and_three_around_the_camera() {
+    let band = band_of(DisplayPreset::Pixel8, 411.0, 914.0);
+    let lanes = band.lane_spans();
+    assert_eq!(lanes.len(), 2);
+    let layout = icon_pill_layout(&lanes, 6, GAP);
+    assert!(layout.fits, "{layout:?}");
+    assert!(!layout.capped);
+    assert_eq!(layout.positions.len(), 6);
+    // Every pill the same width, as wide as a touch target lets them be.
+    assert!(near(layout.pill_width, ICON_PILL_MAX), "{}", layout.pill_width);
+    let spans = pill_spans(&layout);
+    let where_: Vec<Option<usize>> = spans.iter().map(|&s| lane_index_of(s, &lanes)).collect();
+    assert_eq!(
+        where_,
+        vec![Some(0), Some(0), Some(0), Some(1), Some(1), Some(1)],
+        "the first three in the left lane, the rest in the right one: {spans:?} in {lanes:?}"
+    );
+    // The same room between two pills of a lane.
+    for pair in spans.windows(2).filter(|p| lane_index_of(p[0], &lanes) == lane_index_of(p[1], &lanes)) {
+        assert!(near(pair[1].0 - pair[0].1, GAP), "{pair:?}");
+    }
+}
+
+#[test]
+fn the_two_groups_around_the_camera_mirror_each_other() {
+    let band = band_of(DisplayPreset::Pixel8, 411.0, 914.0);
+    let lanes = band.lane_spans();
+    let layout = icon_pill_layout(&lanes, 6, GAP);
+    let spans = pill_spans(&layout);
+    // Lane 0 holds 3 pills, lane 1 the other 3; each group is centred in its lane, so the room
+    // before the first pill of a lane equals the room after its last.
+    for (lane, group) in [(lanes[0], &spans[0..3]), (lanes[1], &spans[3..6])] {
+        let before = group[0].0 - lane.0;
+        let after = lane.1 - group[2].1;
+        assert!(near(before, after), "{before} before, {after} after, in {lane:?}");
+        assert!(before >= LANE_INSET - 0.01, "at least the lane inset: {before}");
+    }
+}
+
+#[test]
+fn at_360_dp_six_icon_pills_are_40_wide_and_fill_the_lanes() {
+    let band = band_of(DisplayPreset::Pixel8, 360.0, 720.0);
+    let layout = icon_pill_layout(&band.lane_spans(), 6, GAP);
+    assert!(layout.fits);
+    // Lanes of 160 less 12 at both ends: 136 px; three 40 px pills and two gaps are 136.
+    assert!(near(layout.pill_width, 40.0), "{}", layout.pill_width);
+    let spans = pill_spans(&layout);
+    assert!(near(spans[0].0, 12.0) && near(spans[2].1, 148.0), "{spans:?}");
+    assert!(near(spans[3].0, 212.0) && near(spans[5].1, 348.0), "{spans:?}");
+}
+
+#[test]
+fn the_dynamic_island_has_room_for_two_icon_pills_either_side() {
+    let band = band_of(DisplayPreset::IPhoneDynamicIsland, 393.0, 852.0);
+    let lanes = band.lane_spans();
+    let four = icon_pill_layout(&lanes, 4, GAP);
+    assert!(four.fits, "{four:?}");
+    assert!(near(four.pill_width, ICON_PILL_MAX));
+    let spans = pill_spans(&four);
+    assert_eq!(
+        spans.iter().map(|&s| lane_index_of(s, &lanes)).collect::<Vec<_>>(),
+        vec![Some(0), Some(0), Some(1), Some(1)]
+    );
+    // Three: the odd one is in the first lane.
+    let three = icon_pill_layout(&lanes, 3, GAP);
+    assert!(three.fits);
+    assert_eq!(
+        pill_spans(&three).iter().map(|&s| lane_index_of(s, &lanes)).collect::<Vec<_>>(),
+        vec![Some(0), Some(0), Some(1)]
+    );
+    // Five do not fit two lanes of 125 px at 32 px: the row scrolls, as a strip of text does.
+    let five = icon_pill_layout(&lanes, 5, GAP);
+    assert!(!five.fits);
+    assert!(near(five.pill_width, ICON_PILL_MIN));
+}
+
+#[test]
+fn a_strip_with_one_lane_is_one_group_centred_in_it() {
+    let layout = icon_pill_layout(&[(0.0, 360.0)], 6, GAP);
+    assert!(layout.fits);
+    assert!(near(layout.pill_width, ICON_PILL_MAX));
+    let spans = pill_spans(&layout);
+    // 6 * 40 + 5 * 8 = 280 in 360: 40 each side.
+    assert!(near(spans[0].0, 40.0) && near(spans[5].1, 320.0), "{spans:?}");
+}
+
+#[test]
+fn one_pill_and_two_pills() {
+    let band = band_of(DisplayPreset::Pixel8, 411.0, 914.0);
+    let lanes = band.lane_spans();
+    let one = icon_pill_layout(&lanes, 1, GAP);
+    assert!(one.fits && one.positions.len() == 1);
+    assert_eq!(lane_index_of(pill_spans(&one)[0], &lanes), Some(0));
+    // Two: one in each lane, each centred in its own.
+    let two = icon_pill_layout(&lanes, 2, GAP);
+    assert!(two.fits);
+    let spans = pill_spans(&two);
+    assert_eq!(lane_index_of(spans[0], &lanes), Some(0));
+    assert_eq!(lane_index_of(spans[1], &lanes), Some(1));
+    let centre = |s: (f32, f32)| (s.0 + s.1) / 2.0;
+    assert!(near(centre(spans[0]), (lanes[0].0 + lanes[0].1) / 2.0));
+    assert!(near(centre(spans[1]), (lanes[1].0 + lanes[1].1) / 2.0));
+}
+
+#[test]
+fn twelve_icon_pills_do_not_fit_and_scroll_as_a_row_of_the_smallest_pills() {
+    let band = band_of(DisplayPreset::Pixel8, 360.0, 720.0);
+    let layout = icon_pill_layout(&band.lane_spans(), 12, GAP);
+    assert!(!layout.fits);
+    assert!(near(layout.pill_width, ICON_PILL_MIN));
+    assert_eq!(layout.positions.len(), 12);
+    // The plain row of a strip: the first at the first lane's lead, the others 40 apart.
+    assert!(near(layout.positions[0], LANE_INSET));
+    for pair in layout.positions.windows(2) {
+        assert!(near(pair[1] - pair[0], ICON_PILL_MIN + GAP), "{pair:?}");
+    }
+}
+
+#[test]
+fn whatever_the_count_no_icon_pill_is_under_a_cutout_when_they_fit() {
+    for (preset, width, height) in [
+        (DisplayPreset::Pixel8, 360.0, 720.0),
+        (DisplayPreset::Pixel8, 411.0, 914.0),
+        (DisplayPreset::IPhoneDynamicIsland, 393.0, 852.0),
+        (DisplayPreset::IPhoneNotch, 390.0, 844.0),
+        (DisplayPreset::CornerHole, 360.0, 760.0),
+        (DisplayPreset::DoubleHole, 360.0, 720.0),
+        (DisplayPreset::IPhoneHomeButton, 375.0, 667.0),
+    ] {
+        let band = band_of(preset, width, height);
+        let lanes = band.lane_spans();
+        for count in 0..=14 {
+            let layout = icon_pill_layout(&lanes, count, GAP);
+            assert_eq!(layout.positions.len(), count, "{preset:?} {count}");
+            if !layout.fits {
+                continue;
+            }
+            for span in pill_spans(&layout) {
+                assert!(
+                    lane_index_of(span, &lanes).is_some(),
+                    "{preset:?} with {count} pills: {span:?} is not whole in a lane of {lanes:?}"
+                );
+            }
+            // The pills of a lane keep the lane's inset at both ends.
+            for span in pill_spans(&layout) {
+                let lane = lanes[lane_index_of(span, &lanes).unwrap()];
+                assert!(span.0 >= lane.0 + LANE_INSET - 0.01 && span.1 <= lane.1 - LANE_INSET + 0.01);
+            }
+        }
+    }
+}
+
+#[test]
+fn the_pills_of_a_fitting_layout_are_dealt_evenly_to_the_lanes() {
+    let band = band_of(DisplayPreset::Pixel8, 411.0, 914.0);
+    let lanes = band.lane_spans();
+    for count in 1..=7 {
+        let layout = icon_pill_layout(&lanes, count, GAP);
+        if !layout.fits {
+            continue;
+        }
+        let in_first = pill_spans(&layout)
+            .iter()
+            .filter(|&&s| lane_index_of(s, &lanes) == Some(0))
+            .count();
+        assert_eq!(in_first, count.div_ceil(2), "{count} pills");
+    }
+}
+
+#[test]
+fn lanes_that_cannot_take_an_even_share_pass_the_rest_to_the_lane_that_can() {
+    // A narrow lane (one pill) and a wide one: five pills are 1 + 4, not 3 + 2.
+    let lanes = [(0.0, 70.0), (100.0, 360.0)];
+    let layout = icon_pill_layout(&lanes, 5, GAP);
+    assert!(layout.fits, "{layout:?}");
+    let spans = pill_spans(&layout);
+    let first = spans.iter().filter(|&&s| lane_index_of(s, &lanes) == Some(0)).count();
+    assert_eq!(first, 1, "{spans:?}");
+}
+
+#[test]
+fn no_pills_is_a_layout_that_fits_and_a_crowd_is_capped() {
+    let lanes = [(0.0, 360.0)];
+    let none = icon_pill_layout(&lanes, 0, GAP);
+    assert!(none.fits && none.positions.is_empty());
+    let crowd = icon_pill_layout(&lanes, MAX_STRIP_PILLS + 40, GAP);
+    assert!(crowd.capped, "the cap is said");
+    assert_eq!(crowd.positions.len(), MAX_STRIP_PILLS);
+    assert!(!crowd.fits);
+    assert!(!icon_pill_layout(&lanes, MAX_STRIP_PILLS, GAP).capped);
+}
+
+#[test]
+fn lanes_that_are_not_numbers_make_a_row_not_a_crash() {
+    let nan = icon_pill_layout(&[(f32::NAN, 100.0), (50.0, f32::INFINITY)], 4, GAP);
+    assert!(!nan.fits);
+    assert_eq!(nan.positions.len(), 4);
+    assert!(nan.positions.iter().all(|x| x.is_finite()));
+    let none = icon_pill_layout(&[], 3, GAP);
+    assert!(!none.fits);
+    assert_eq!(none.positions.len(), 3);
+    let backwards = icon_pill_layout(&[(300.0, 100.0)], 2, f32::NAN);
+    assert_eq!(backwards.positions.len(), 2);
+    assert!(backwards.gap.is_finite());
+}
+
+#[test]
+fn a_strip_with_no_band_takes_the_widest_pill_the_window_lets_it() {
+    // A 360 dp window: 6 pills at 40 with 12 at both ends and 8 between: 304.
+    let fits = |total: f32| total <= 360.0;
+    assert_eq!(icon_pill_width_where(6, 12.0, 8.0, fits), (40.0, true));
+    // 8 pills: only at 32 (24 + 256 + 56 = 336; at 36 it is 368).
+    assert_eq!(icon_pill_width_where(8, 12.0, 8.0, fits), (32.0, true));
+    // 10 pills: not even at 32 (416): the smallest and a scrolling row.
+    assert_eq!(icon_pill_width_where(10, 12.0, 8.0, fits), (32.0, false));
+    // Nothing to fit always fits.
+    assert_eq!(icon_pill_width_where(0, 12.0, 8.0, |_| false), (40.0, true));
+}
+
+#[test]
+fn the_window_is_asked_widest_row_first_and_only_as_far_as_it_has_to() {
+    let mut asked = Vec::new();
+    let result = icon_pill_width_where(8, 12.0, 8.0, |total| {
+        asked.push(total);
+        total <= 360.0
+    });
+    assert_eq!(result, (32.0, true));
+    // 40, 36, 32: three questions, from the widest row.
+    assert_eq!(asked.len(), 3, "{asked:?}");
+    assert!(asked.windows(2).all(|w| w[0] > w[1]), "{asked:?}");
+    let mut once = 0;
+    let _ = icon_pill_width_where(2, 12.0, 8.0, |_| {
+        once += 1;
+        true
+    });
+    assert_eq!(once, 1, "a row that fits at once is asked once");
+}

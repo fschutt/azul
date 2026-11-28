@@ -1583,6 +1583,99 @@ pub(crate) fn phone_build() -> bool {
         && azul_core::callbacks::build_window_width_less_than(PHONE_MAX_WIDTH).unwrap_or(false)
 }
 
+/// What a tab pill shows on a PHONE (`TabHeader::with_labels`, `Ribbon::with_labels`): ONE ICON,
+/// the rule, or its text.
+///
+/// On a phone every tab header is one icon, every pill the same SQUARE, so that the lanes around
+/// the camera hole split the pills evenly and nothing has to scroll where they fit; the tab's
+/// label stays its accessible name. Only the touch pills ([`TabStyle::TouchPills`], what `Auto` is
+/// on a phone) take part: a desktop's pills always show their text, whatever this says. Each tab
+/// names its icon (the names `Dom::create_icon` takes: `TabHeader::with_icons`,
+/// `RibbonTab::with_icon`, `RibbonAppButton::with_icon`).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum TabLabels {
+    /// The rule, and the default: a phone's strip is icon squares where EVERY tab names an icon,
+    /// and text otherwise (a strip with ONE tab missing its icon stays on text altogether: pills
+    /// of one size are the point, and a text pill among squares would break it); a desktop's is
+    /// text.
+    #[default]
+    Auto,
+    /// The text of every tab, on a phone too (an app whose tabs have no icons, or that wants
+    /// the words).
+    Text,
+    /// Icon squares on a phone, whether every tab names an icon or not: a tab without one gets
+    /// the placeholder icon [`FALLBACK_TAB_ICON`], so the strip never falls back to text unseen.
+    Icons,
+}
+
+/// The icon of a tab that names none in [`TabLabels::Icons`] mode.
+pub const FALLBACK_TAB_ICON: &str = "label";
+
+/// How the pills of a touch strip are drawn when they are icons: the icon and the one side of
+/// every square pill and, where the pills stand in the lanes around the cutouts and nothing
+/// scrolls, the left edge of each.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct IconPills {
+    /// The icon of each pill, in the strip's order.
+    pub(crate) icons: Vec<String>,
+    /// The width AND height of every pill, px.
+    pub(crate) side: f32,
+    /// Each pill's left edge in the strip's coordinates, one per pill, when they stand lane by lane
+    /// (the strip does not scroll); `None` for the plain row (which scrolls where it is longer
+    /// than the window).
+    pub(crate) positions: Option<Vec<f32>>,
+}
+
+/// Whether the pills of a touch strip are icons, and how they stand: `names` are the tabs' labels
+/// and `icons` their icon names, in the strip's order (a ribbon's application button first).
+/// `band` is the status bar's band the strip is in, `None` for a strip that is a row of the layout.
+///
+/// `None` (text) for [`TabLabels::Text`], for no tab at all, for more tabs than
+/// [`crate::widgets::tab_strip::MAX_STRIP_PILLS`] and, for [`TabLabels::Auto`], for a strip with a
+/// tab that names no icon.
+pub(crate) fn resolve_icon_pills(
+    labels: TabLabels,
+    names: &[&str],
+    icons: &[&str],
+    band: Option<&crate::widgets::tab_strip::StatusBarBand>,
+) -> Option<IconPills> {
+    use crate::widgets::tab_strip as strip;
+
+    let count = names.len();
+    if labels == TabLabels::Text || count == 0 || count > strip::MAX_STRIP_PILLS {
+        return None;
+    }
+    let named = |i: usize| icons.get(i).copied().filter(|icon| !icon.is_empty());
+    if labels == TabLabels::Auto && (0..count).any(|i| named(i).is_none()) {
+        return None;
+    }
+    let icons: Vec<String> = (0..count)
+        .map(|i| named(i).unwrap_or(FALLBACK_TAB_ICON).to_string())
+        .collect();
+    #[allow(clippy::cast_precision_loss)] // a few px
+    let (gap, lead) = (TOUCH_GAP as f32, TOUCH_LEAD as f32);
+    let lanes = band.map(strip::StatusBarBand::lane_spans).unwrap_or_default();
+    if lanes.is_empty() {
+        // A window asked about, not read: the answer is recorded and a resize across it rebuilds
+        // the strip. Outside a window's build nothing says narrow.
+        let (side, _) = strip::icon_pill_width_where(count, lead, gap, |total| {
+            !matches!(azul_core::callbacks::build_window_width_less_than(total), Some(true))
+        });
+        return Some(IconPills {
+            icons,
+            side,
+            positions: None,
+        });
+    }
+    let layout = strip::icon_pill_layout(&lanes, count, gap);
+    Some(IconPills {
+        icons,
+        side: layout.pill_width,
+        positions: layout.fits.then_some(layout.positions),
+    })
+}
+
 /// Header bar for a tab widget, containing the clickable tab labels.
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -1611,6 +1704,12 @@ pub struct TabHeader {
     /// (`with_flip`, then `TabContent::with_flip_of`): `AtEdges` (the default) flips with a finger
     /// that pulls past the end of the content, never with a wheel.
     pub flip: crate::widgets::tab_flip::TabFlip,
+    /// What a pill shows on a phone (`with_labels`): one icon each (`with_icons`), the rule, or the
+    /// text. APPENDED for ABI stability.
+    pub labels: TabLabels,
+    /// The icon of each tab, in the order of `tabs` (`with_icons`); read only where `labels` asks
+    /// for icons. APPENDED for ABI stability.
+    pub icons: StringVec,
 }
 
 impl Default for TabHeader {
@@ -1624,6 +1723,8 @@ impl Default for TabHeader {
             reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
             status_bar: crate::widgets::tab_strip::OptionStatusBarBand::None,
             flip: crate::widgets::tab_flip::TabFlip::AtEdges,
+            labels: TabLabels::Auto,
+            icons: StringVec::from_const_slice(&[]),
         }
     }
 }
@@ -1671,7 +1772,36 @@ impl TabHeader {
             reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
             status_bar: crate::widgets::tab_strip::OptionStatusBarBand::None,
             flip: crate::widgets::tab_flip::TabFlip::AtEdges,
+            labels: TabLabels::Auto,
+            icons: StringVec::from_const_slice(&[]),
         }
+    }
+
+    /// What a pill shows on a PHONE: one icon each, every pill the same square (`Auto`, the
+    /// default, where every tab names an icon, `with_icons`; `Icons` always), or the text
+    /// (`Text`). A desktop's pills always show their text. See [`TabLabels`].
+    pub const fn set_labels(&mut self, labels: TabLabels) {
+        self.labels = labels;
+    }
+
+    /// [`Self::set_labels`] for the builder chain.
+    #[must_use]
+    pub const fn with_labels(mut self, labels: TabLabels) -> Self {
+        self.set_labels(labels);
+        self
+    }
+
+    /// The icon of each tab, in the order of the tabs: the names `Dom::create_icon` takes
+    /// ("home", "folder"). Read where [`Self::set_labels`] asks for icons.
+    pub fn set_icons(&mut self, icons: StringVec) {
+        self.icons = icons;
+    }
+
+    /// [`Self::set_icons`] for the builder chain.
+    #[must_use]
+    pub fn with_icons(mut self, icons: StringVec) -> Self {
+        self.set_icons(icons);
+        self
     }
 
     /// Whether a vertical swipe on the panel flips to the previous / next tab: `Off`, `AtEdges`
@@ -2302,6 +2432,18 @@ impl TabHeader {
         );
         let (lead, trail) = (scroll.lead, scroll.trail);
 
+        // One icon per pill, every pill the same square (a phone's rule, where every tab names an
+        // icon: `TabLabels`).
+        let names: Vec<&str> = self.tabs.as_ref().iter().map(AzString::as_str).collect();
+        let icon_names: Vec<&str> = self.icons.as_ref().iter().map(AzString::as_str).collect();
+        let icon_pills = resolve_icon_pills(self.labels, &names, &icon_names, band.as_ref());
+        // Lane by lane (the pills fit: nothing scrolls) or in the plain row.
+        let in_lanes = icon_pills.as_ref().and_then(|pills| pills.positions.clone());
+        let lead = in_lanes
+            .as_ref()
+            .and_then(|positions| positions.first().copied())
+            .unwrap_or(lead);
+
         let dataset = TabLocalDataset {
             tab_idx: 0,
             on_click: self.on_click,
@@ -2345,17 +2487,37 @@ impl TabHeader {
             } else {
                 TOUCH_INACTIVE_CLASSES
             };
-            let mut pill = crate::widgets::widget_p_with_text(label.clone())
+            let button_type = if selected {
+                ButtonType::Primary
+            } else {
+                ButtonType::Default
+            };
+            // The room the camera hole (or a lane's end) leaves between this pill and the last.
+            if let (Some(pills), Some(positions)) = (icon_pills.as_ref(), in_lanes.as_ref()) {
+                if tab_idx > 0 {
+                    let between = positions[tab_idx] - (positions[tab_idx - 1] + pills.side);
+                    if between > gap_px + 0.5 {
+                        nodes.push(Dom::create_div().with_css(&format!(
+                            "flex-shrink: 0; width: {}px; height: 1px;",
+                            between - 2.0 * gap_px
+                        )));
+                    }
+                }
+            }
+            let (body, style) = match icon_pills.as_ref().and_then(|pills| Some((pills, pills.icons.get(tab_idx)?))) {
+                Some((pills, icon)) => (
+                    icon_pill_body(icon),
+                    touch_icon_pill(theme, button_type, pills.side),
+                ),
+                None => (
+                    crate::widgets::widget_p_with_text(label.clone()),
+                    touch_pill(theme, button_type),
+                ),
+            };
+            let mut pill = body
                 .with_callbacks(callbacks)
                 .with_dataset(Some(tab_dataset).into())
-                .with_css_props(touch_pill(
-                    theme,
-                    if selected {
-                        ButtonType::Primary
-                    } else {
-                        ButtonType::Default
-                    },
-                ))
+                .with_css_props(style)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
                 // A tab, and whether it is the active one. The pill's text is not the node's own
                 // (the hit area hangs on it too), so the name is given.
@@ -2374,23 +2536,34 @@ impl TabHeader {
                     tab_idx, tab_stop,
                 ));
             }
-            pill.add_child(hit_extender());
-            if selected {
+            pill.add_child(match icon_pills.as_ref() {
+                Some(pills) => icon_hit_extender(pills.side, row),
+                None => hit_extender(),
+            });
+            // Pills that stand lane by lane have nothing to scroll into view.
+            if selected && in_lanes.is_none() {
                 pill.add_child(selected_marker(scroll.clone(), tab_idx));
+            }
+            if icon_pills.is_some() {
+                pill.add_class(AzString::from_const_str(ICON_PILL_CLASS));
             }
             nodes.push(pill);
         }
-        nodes.push(
-            Dom::create_div().with_css(&format!("flex-shrink: 0; width: {}px; height: 1px;", (trail - gap_px).max(0.0))),
-        );
+        if in_lanes.is_none() {
+            nodes.push(
+                Dom::create_div().with_css(&format!("flex-shrink: 0; width: {}px; height: 1px;", (trail - gap_px).max(0.0))),
+            );
+        }
 
         // The row: longer than the window, it scrolls sideways (a finger, the wheel, the keys)
-        // and shows no scrollbar.
-        let strip = Dom::create_div()
+        // and shows no scrollbar. Icon pills that stand lane by lane have nothing to scroll: the
+        // row does not.
+        let overflow_x = if in_lanes.is_some() { "hidden" } else { "auto" };
+        let mut strip = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOUCH_STRIP_CLASSES))
             .with_css(&format!(
                 "display: flex; flex-direction: row; align-items: center; box-sizing: border-box; \
-                 width: 100%; height: {row}px; overflow-x: auto; overflow-y: hidden; \
+                 width: 100%; height: {row}px; overflow-x: {overflow_x}; overflow-y: hidden; \
                  scrollbar-width: none; column-gap: {gap_px}px;"
             ))
             // The tab list its tabs belong to: the tabs are its direct children.
@@ -2398,15 +2571,16 @@ impl TabHeader {
                 role: AccessibilityRole::PageTabList,
                 ..Default::default()
             })
-            // A turn of the phone brings the selected pill into a lane of the new band.
-            .with_callbacks(strip_resized_callbacks(scroll))
             .with_children(DomVec::from_vec(nodes));
+        if in_lanes.is_none() {
+            // A turn of the phone brings the selected pill into a lane of the new band.
+            strip = strip.with_callbacks(strip_resized_callbacks(scroll));
+        }
 
         let mut header_css = format!(
             "position: relative; box-sizing: border-box; width: 100%; height: {row}px; \
              flex-shrink: 0; overflow: hidden;"
         );
-        let mut strip = strip;
         if band.is_some() {
             strip.add_class(AzString::from_const_str(BAND_STRIP_CLASS));
         }
@@ -3245,6 +3419,83 @@ pub(crate) fn touch_pill(
     )));
     v.push(decl::position(LayoutPosition::Relative));
     CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The class an icon pill carries besides its tab classes: what a scenario or a test finds the
+/// icon-only pills of a strip by.
+pub const ICON_PILL_CLASS: &str = "__azul-native-tabs-icon-pill";
+
+/// The size of an icon pill's icon, in px: the glyph of a 32 px pill.
+const ICON_PILL_GLYPH: isize = 20;
+
+/// The body of an icon pill: the `<p>` a label would stand in, holding the tab's icon instead of
+/// its text (the pill's accessible name, set by the caller, is still the tab's label).
+#[must_use]
+pub(crate) fn icon_pill_body(icon: &str) -> Dom {
+    crate::widgets::widget_p_chrome().with_child(
+        Dom::create_icon(AzString::from(icon)).with_css(&format!(
+            "font-size: {ICON_PILL_GLYPH}px; line-height: 1; flex-grow: 0; user-select: none;"
+        )),
+    )
+}
+
+/// What makes a touch pill ONE ICON, laid after the pill's own style (the last declaration wins):
+/// a square of `side` px - no room beside a label, as wide as it is tall (every pill of a strip the
+/// same), the icon in the middle, the house radius it already has.
+#[must_use]
+pub(crate) fn icon_pill_overrides(side: f32) -> Vec<CssPropertyWithConditions> {
+    use crate::widgets::themes::decl;
+    let mut v = Vec::with_capacity(12);
+    v.extend(decl::padding(0, 0, 0, 0));
+    v.push(decl::display_flex());
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )));
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_align_items(
+        LayoutAlignItems::Center,
+    )));
+    v.push(decl::px_width(side));
+    v.push(decl::px_min_width(side));
+    v.push(decl::px_height(side));
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_line_height(
+        StyleLineHeight::Length(PixelValue::px((side - 2.0).max(0.0))),
+    )));
+    v
+}
+
+/// A touch pill that is ONE ICON: [`touch_pill`] with [`icon_pill_overrides`].
+#[must_use]
+pub(crate) fn touch_icon_pill(
+    theme: crate::widgets::themes::UiTheme,
+    button_type: crate::widgets::button::ButtonType,
+    side: f32,
+) -> CssPropertyWithConditionsVec {
+    let mut v = touch_pill(theme, button_type).into_library_owned_vec();
+    v.extend(icon_pill_overrides(side));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The transparent box that makes an icon pill's target the whole `row` tall and at least
+/// [`crate::widgets::tab_strip::ICON_TARGET_MIN`] wide: the picture is the `side` px square, only
+/// the target is padded (a small pill's target reaches into the room between pills by a few px:
+/// where two targets overlap the later pill takes the touch).
+#[must_use]
+pub(crate) fn icon_hit_extender(side: f32, row: f32) -> Dom {
+    let (across, along) = icon_target_pad(side, row);
+    Dom::create_div().with_css(&format!(
+        "position: absolute; left: -{across}px; right: -{across}px; top: -{along}px; bottom: -{along}px;"
+    ))
+}
+
+/// How far the target of an icon pill of `side` px reaches beyond its picture in a row of `row` px:
+/// `(across, along)` - each side of it, and above and below it. The target is the whole row tall and
+/// at least [`crate::widgets::tab_strip::ICON_TARGET_MIN`] wide, and never less than the half of
+/// the room between two pills (4 px) beside the picture.
+#[must_use]
+pub(crate) fn icon_target_pad(side: f32, row: f32) -> (f32, f32) {
+    let across = ((crate::widgets::tab_strip::ICON_TARGET_MIN - side) / 2.0).max(4.0);
+    let along = ((row - side) / 2.0).max(0.0);
+    (across, along)
 }
 
 /// The Pills look in `theme` (whose header carries `marker`).
@@ -6214,6 +6465,10 @@ mod structure_tests {
 #[cfg(test)]
 #[path = "tab_pills_test.rs"]
 mod tab_pills_test;
+
+#[cfg(test)]
+#[path = "tab_icon_pills_test.rs"]
+mod tab_icon_pills_test;
 
 #[cfg(test)]
 #[path = "tab_flip_panel_test.rs"]
