@@ -12453,6 +12453,20 @@ pub trait PlatformWindow {
             self.forward_keys_to_popup();
         }
 
+        // The user's gesture (a click, a tap, a key press) is what lets a permission that may
+        // ask them go out (`PermissionManager::admit`): noted before the callbacks of this
+        // pass run, so the layout pass a callback causes finds it.
+        let gesture = {
+            let current = self.get_current_window_state();
+            let previous = self.get_previous_window_state().as_ref().unwrap_or(current);
+            super::user_gesture::user_gesture_between(previous, current)
+        };
+        if gesture {
+            if let Some(layout_window) = self.get_layout_window_mut() {
+                layout_window.permission_manager.note_gesture();
+            }
+        }
+
         // Get previous state (or use current as fallback for first frame)
         let has_previous = self.get_previous_window_state().is_some();
         // SECOND SEATS' GESTURE SESSIONS (9b-ii-b-i) are fed from the

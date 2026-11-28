@@ -25,7 +25,7 @@
 //! geolocation dispatcher shipped ahead of its native subscriptions.
 
 use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
-use azul_layout::managers::shared_queue::SharedQueue;
+use azul_layout::managers::{shared_queue::SharedQueue, stand_in_user::StandInUser};
 
 #[cfg(target_os = "android")]
 pub mod android;
@@ -50,8 +50,15 @@ pub mod windows;
 /// to `Unavailable` immediately so the request → result round-trip stays
 /// observable — `CallbackInfo::get_biometric_result()` reads it next
 /// frame.
-pub fn request(prompt: &BiometricPrompt, results: &SharedQueue<BiometricResult>) {
-    request_with(azul_core::run_mode::test_hooks(), prompt, results);
+///
+/// A test run answers from `user` (the scripted stand-in user of the app) instead of any
+/// sensor: with nothing enrolled, `Unavailable`; else what the script says.
+pub fn request(
+    prompt: &BiometricPrompt,
+    results: &SharedQueue<BiometricResult>,
+    user: &StandInUser,
+) {
+    request_with(azul_core::run_mode::test_hooks(), prompt, results, user);
 }
 
 /// [`request`] under the hooks `hooks` of the run.
@@ -59,18 +66,19 @@ fn request_with(
     hooks: &azul_core::run_mode::TestHooks,
     prompt: &BiometricPrompt,
     results: &SharedQueue<BiometricResult>,
+    user: &StandInUser,
 ) {
     // MWA-C-biometric: never pop a REAL OS auth sheet from a headless /
     // E2E TEST run (the dispatcher is keyed on target_os, not backend — a
     // headless test on a Mac dev box would otherwise raise a live TouchID
-    // sheet). Resolve to Unavailable so the round-trip stays observable.
+    // sheet). The scripted stand-in user answers, through the normal result channel, so
+    // the round-trip stays observable: with nothing enrolled `Unavailable`, as it always was.
     // Only the hooks of a test build say so (RF38): in a shipped build a
     // variable in the environment (`AZ_BACKEND=headless` is a windowing
     // choice) never answers "unavailable" for the user's sensor, so an
     // app's presence check (AzDrive's key change) sees the real answer.
     if hooks.no_biometric {
-        let _ = prompt;
-        results.push(BiometricResult::Unavailable);
+        results.push(user.gate(prompt.allow_device_credential));
         return;
     }
     #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -141,13 +149,32 @@ pub fn availability_cached() -> BiometricKind {
     *CACHED.get_or_init(probe_availability)
 }
 
+/// The sensor the app sees: the device's ([`availability_cached`]), or, in a test run (the
+/// hooks of a test build: no real sensor is ever asked), the one the scripted stand-in `user`
+/// has enrolled - a fingerprint reader once a biometric is enrolled, else none.
+pub fn availability_for(user: &StandInUser) -> BiometricKind {
+    availability_in(azul_core::run_mode::test_hooks(), user)
+}
+
+/// [`availability_for`] under the hooks `hooks` of the run.
+fn availability_in(hooks: &azul_core::run_mode::TestHooks, user: &StandInUser) -> BiometricKind {
+    if hooks.no_biometric {
+        user.kind()
+    } else {
+        availability_cached()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use azul_core::{
-        biometric::{BiometricPrompt, BiometricResult},
+        biometric::{BiometricKind, BiometricPrompt, BiometricResult},
         run_mode::TestHooks,
     };
-    use azul_layout::managers::shared_queue::SharedQueue;
+    use azul_layout::managers::{
+        shared_queue::SharedQueue,
+        stand_in_user::{ScriptedOutcome, StandInUser},
+    };
 
     /// A test run's prompt shows no sheet and resolves "unavailable" through the normal
     /// result channel. (The other half - a run without the hook reaches the platform's sheet -
@@ -156,7 +183,58 @@ mod tests {
     #[test]
     fn a_test_runs_prompt_resolves_unavailable_without_a_sheet() {
         let results = SharedQueue::new();
-        super::request_with(&TestHooks::HEADLESS, &BiometricPrompt::default(), &results);
+        super::request_with(
+            &TestHooks::HEADLESS,
+            &BiometricPrompt::default(),
+            &results,
+            &StandInUser::new(),
+        );
         assert_eq!(results.drain(), vec![BiometricResult::Unavailable]);
+    }
+
+    /// With a biometric enrolled the stand-in user answers from its script, still with no
+    /// sheet: a mismatch, a cancel, a lockout, then (the script used up) a match.
+    #[test]
+    fn a_test_runs_prompt_is_answered_by_the_scripted_user() {
+        let user = StandInUser::new();
+        user.enroll(true, true);
+        user.script([
+            ScriptedOutcome::Mismatch,
+            ScriptedOutcome::Cancel,
+            ScriptedOutcome::Lockout,
+        ]);
+        let results = SharedQueue::new();
+        for _ in 0..4 {
+            super::request_with(
+                &TestHooks::HEADLESS,
+                &BiometricPrompt::default(),
+                &results,
+                &user,
+            );
+        }
+        assert_eq!(
+            results.drain(),
+            vec![
+                BiometricResult::Failed,
+                BiometricResult::Cancelled,
+                BiometricResult::LockedOut,
+                BiometricResult::Authenticated,
+            ]
+        );
+    }
+
+    /// A test run reports the sensor the scripted user has enrolled, not the machine's.
+    #[test]
+    fn a_test_run_sees_the_sensor_of_the_scripted_user() {
+        let user = StandInUser::new();
+        assert_eq!(
+            super::availability_in(&TestHooks::HEADLESS, &user),
+            BiometricKind::NotAvailable
+        );
+        user.enroll(true, false);
+        assert_eq!(
+            super::availability_in(&TestHooks::HEADLESS, &user),
+            BiometricKind::Fingerprint
+        );
     }
 }

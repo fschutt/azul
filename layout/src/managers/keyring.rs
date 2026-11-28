@@ -22,7 +22,10 @@ use super::shared_queue::SharedQueue;
 // `KeyringRequest` / `KeyringResult` live in `azul-core` so they cross the
 // FFI without a cyclic dep on `azul-layout`. Re-exported for the existing
 // `azul_layout::managers::keyring::*` import paths.
-pub use azul_core::keyring::{KeyringNamespace, KeyringRequest, KeyringResult};
+pub use azul_core::keyring::{
+    KeyringNamespace, KeyringNeed, KeyringProtection, KeyringPrompt, KeyringRequest, KeyringResult,
+    KeyringSupport,
+};
 use azul_core::{
     dom::DomNodeId,
     events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
@@ -221,6 +224,12 @@ mod tests {
             KeyringResult::Denied,
             KeyringResult::Unavailable,
             KeyringResult::Error,
+            KeyringResult::Cancelled,
+            KeyringResult::Failed,
+            KeyringResult::LockedOut,
+            KeyringResult::NotEnrolled,
+            KeyringResult::Invalidated,
+            KeyringResult::WouldPrompt,
         ] {
             assert!(!r.is_ok(), "{r:?} must not be ok");
             assert_eq!(r.secret(), None);
@@ -234,7 +243,8 @@ mod tests {
         owner.push_request(KeyringRequest::Store {
             key: AzString::from_const_str("token"),
             secret: AzString::from_const_str("abc"),
-            require_biometry: true,
+            protection: KeyringProtection::Biometric,
+            prompt: KeyringPrompt::default(),
         });
         owner.push_request(KeyringRequest::Get {
             key: AzString::from_const_str("token"),
@@ -778,7 +788,8 @@ mod autotest_generated {
         owner.push_request(KeyringRequest::Store {
             key: AzString::from("k1"),
             secret: AzString::from("s1"),
-            require_biometry: true,
+            protection: KeyringProtection::UserPresence,
+            prompt: KeyringPrompt::create(AzString::from("Unlock")),
         });
         owner.push_request(KeyringRequest::Get {
             key: AzString::from("k2"),
@@ -794,7 +805,8 @@ mod autotest_generated {
             KeyringRequest::Store {
                 key: AzString::from("k1"),
                 secret: AzString::from("s1"),
-                require_biometry: true,
+                protection: KeyringProtection::UserPresence,
+                prompt: KeyringPrompt::create(AzString::from("Unlock")),
             },
             "arrival order and payload preserved exactly"
         );
@@ -858,7 +870,8 @@ mod autotest_generated {
         owner.push_request(KeyringRequest::Store {
             key: AzString::from(NASTY_BYTES),
             secret: AzString::from(NASTY_UNICODE),
-            require_biometry: false,
+            protection: KeyringProtection::DeviceUnlocked,
+            prompt: KeyringPrompt::default(),
         });
         owner.push_request(KeyringRequest::Get {
             key: AzString::from(big.clone()),
@@ -870,7 +883,8 @@ mod autotest_generated {
         let KeyringRequest::Store {
             key,
             secret,
-            require_biometry,
+            protection,
+            ..
         } = &drained[0]
         else {
             panic!("first request must still be the Store: {:?}", drained[0]);
@@ -880,7 +894,7 @@ mod autotest_generated {
         assert_eq!(key.as_str().as_bytes(), NASTY_BYTES.as_bytes());
         assert_eq!(secret.as_str().as_bytes(), NASTY_UNICODE.as_bytes());
         assert!(secret.as_str().ends_with('\u{10ffff}'));
-        assert!(!*require_biometry);
+        assert_eq!(*protection, KeyringProtection::DeviceUnlocked);
 
         let KeyringRequest::Get { key } = &drained[1] else {
             panic!("second request must still be the Get: {:?}", drained[1]);

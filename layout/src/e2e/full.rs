@@ -18817,7 +18817,13 @@ fn serve_debug_event(
                 .iter()
                 .find(|c| c.name.as_str() == name.as_str())
                 .map(|c| azul_layout::callbacks::E2eCommandCallback::from_core(&c.callback));
-            let out = if let Some(command) = command {
+            // The engine's own ops of the keyring and the biometric stand-in answer before the
+            // app's commands (`standin_user`, `keyring`, `biometric_prompt`).
+            let builtin =
+                super::standin_ops::engine_op(callback_info.get_layout_window(), name, args);
+            let out = if let Some(out) = builtin {
+                out
+            } else if let Some(command) = command {
                 // The window's own CallbackInfo (it is Copy): the command
                 // starts threads and timers and changes the UI through it,
                 // and those changes are applied after this op like any
