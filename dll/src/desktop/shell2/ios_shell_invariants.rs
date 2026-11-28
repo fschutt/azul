@@ -889,3 +889,32 @@ fn the_ios_window_feeds_the_engines_gesture_config_from_uikits_numbers() {
     at(touch, "UIKIT_GESTURES.pan_threshold_points", "handle_touch");
     assert!(!code_of(touch).contains("10.0"), "the slop is the table's, not a literal");
 }
+
+/// The app hears of its life from the delegate: `Paused` before `applicationDidEnterBackground:` returns (iOS may suspend
+/// the process right after), `Resumed` on the way back, `LowMemory` after the shell gave back its own memory,
+/// `WillTerminate` before anything is taken down. One helper raises them, so each is delivered the same way.
+#[test]
+fn the_ios_delegate_tells_the_app_of_its_life() {
+    let helper = body(IOS_MOD_RS, "fn raise_lifecycle(");
+    at(helper, "crate::desktop::lifecycle::raise(window, event)", "raise_lifecycle");
+    at(helper, "apply_event_result(result)", "raise_lifecycle");
+    for (handler, event) in [
+        ("extern \"C\" fn app_did_enter_background(", "LifecycleEvent::Paused"),
+        ("extern \"C\" fn app_will_enter_foreground(", "LifecycleEvent::Resumed"),
+        ("extern \"C\" fn app_did_receive_memory_warning(", "LifecycleEvent::LowMemory"),
+        ("extern \"C\" fn app_will_terminate(", "LifecycleEvent::WillTerminate"),
+    ] {
+        let delegate = body(IOS_MOD_RS, handler);
+        at(delegate, "raise_lifecycle(window,", handler);
+        at(delegate, event, handler);
+    }
+    // what the shell owns is done first (the sensors stopped, the memory given back), the app's handler after; the
+    // termination tells the app before the window comes down
+    let background = body(IOS_MOD_RS, "extern \"C\" fn app_did_enter_background(");
+    in_order(background, "sensors::pause(", "LifecycleEvent::Paused", "app_did_enter_background");
+    let memory = body(IOS_MOD_RS, "extern \"C\" fn app_did_receive_memory_warning(");
+    in_order(memory, "gpu_memory_warning()", "LifecycleEvent::LowMemory", "app_did_receive_memory_warning");
+    let terminate = body(IOS_MOD_RS, "extern \"C\" fn app_will_terminate(");
+    in_order(terminate, "LifecycleEvent::WillTerminate", "gpu_event(gpu_lifecycle::Event::Shutdown)", "app_will_terminate");
+    in_order(terminate, "LifecycleEvent::WillTerminate", "Box::from_raw(AZUL_IOS_WINDOW)", "app_will_terminate");
+}
