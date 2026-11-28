@@ -114,5 +114,20 @@ class MatrixTextSizeTests(unittest.TestCase):
             self.assertIn("else", text[text.index("AZ_QA_TEXT_SIZES"):])
 
 
+class TextSizeJobTests(unittest.TestCase):
+    TEXT = (HERE / "text_size_job.sh").read_text(encoding="utf-8")
+
+    def test_the_job_builds_the_e2e_variant_and_runs_the_matrix_once_per_size(self):
+        self.assertIn("mobile-e2e", self.TEXT)
+        self.assertIn('AZ_QA_TEXT_SIZES="$sizes"', self.TEXT)
+        self.assertIn('AZ_QA_MATRIX_ONLY="$part"', self.TEXT)
+        self.assertIn("1.0 1.3 2.0", self.TEXT)
+        self.assertIn("large accessibility-extra-extra-extra-large", self.TEXT)
+
+    def test_the_script_is_valid_shell(self):
+        import subprocess
+        self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "text_size_job.sh")]).returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
