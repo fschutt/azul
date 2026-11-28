@@ -172,3 +172,44 @@ fn the_retained_frame_goes_on_a_new_surface_before_the_layout() {
     let layout = init.find("window.common.request_regeneration(reason)").expect("the layout is requested");
     assert!(gpu < gate && gate < post && post < layout, "the frame is posted before the layout is requested");
 }
+
+/// `Url::open` answered `false` on Android for every URL with no log line (core spawns `open` / `xdg-open` /
+/// `rundll32`, and a phone has none): an app could not open a page, nor send a user who refused a permission for good to the
+/// settings (AN-15). api.json's `Url.open` calls `unified::url_opener::open`, which starts an activity through
+/// `AzulUrl.open` on Android (a new task, an `ActivityNotFoundException` is `false`), where `azul-settings:app` is the
+/// app's own page in the system settings; a headless or scripted test run starts nothing, as on the desktop.
+///
+/// Mutation: api.json's body back to `object.open()` (the state of 6ce827b284).
+#[test]
+fn a_url_opens_on_android_and_the_app_can_open_its_settings() {
+    let api = read("api.json");
+    let doc = api
+        .find("\"Opens this URL in the system's default browser.\"")
+        .expect("api.json: Url.open");
+    let body_at = doc + api[doc..].find("\"fn_body\"").expect("its body");
+    let line = &api[body_at..body_at + api[body_at..].find('\n').unwrap()];
+    assert!(line.contains("azul_dll::unified::url_opener::open(object)"), "Url.open goes through the platform's opener: {line}");
+
+    let unified = rust_code("dll/src/unified/url_opener.rs");
+    let open = body(&unified, "pubfnopen(url:&azul_core::url::Url)->bool{");
+    assert!(open.contains("crate::desktop::extra::url_opener::open(url.href.as_str())"), "the Android arm");
+    assert!(open.contains("url.open()"), "everywhere else it is core's opener, as it was");
+
+    let rust = rust_code("dll/src/desktop/extra/url_opener.rs");
+    let started = body(&rust, "pubfnopen(href:&str)->bool{");
+    let hooks = started.find("azul_core::run_mode::test_hooks().open_nothing").expect("a scripted run starts nothing");
+    let call = started.find("\"com/azul/url/AzulUrl\"").expect("the Java opener");
+    assert!(hooks < call);
+    assert!(started.contains("env.exception_clear()"), "a pending exception aborts the process at the next JNI call");
+
+    let java = java_code("scripts/android/AzulUrl.java");
+    let open = body(&java, "public static boolean open(Activity activity, String url)");
+    assert!(open.contains("intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)"), "another app is another task");
+    assert!(open.contains("catch (ActivityNotFoundException e)") && open.contains("return false;"), "no handler: false");
+    assert!(
+        open.contains("new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,")
+            && open.contains("Uri.fromParts(\"package\", activity.getPackageName(), null)"),
+        "the app's own settings page"
+    );
+    assert!(java.contains("public static final String APP_SETTINGS = \"azul-settings:app\";"));
+}

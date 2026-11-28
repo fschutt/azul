@@ -80,6 +80,21 @@ const ASSETS: &[(&str, &str, bool)] = &[
         false,
     ),
     (
+        "scripts/android/AzulAuthSession.java",
+        include_str!("../../../scripts/android/AzulAuthSession.java"),
+        false,
+    ),
+    (
+        "scripts/android/AzulUrl.java",
+        include_str!("../../../scripts/android/AzulUrl.java"),
+        false,
+    ),
+    (
+        "scripts/android/AzulWebView.java",
+        include_str!("../../../scripts/android/AzulWebView.java"),
+        false,
+    ),
+    (
         "scripts/android/AzulActivity.java",
         include_str!("../../../scripts/android/AzulActivity.java"),
         false,
