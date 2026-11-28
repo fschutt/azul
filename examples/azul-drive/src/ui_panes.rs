@@ -97,13 +97,9 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
             match &preview.content {
                 None => note(&t_args("azdrive-preview-loading", &[("name", Arg::from(name))])),
                 Some(PreviewContent::Message(text)) => note(&t_text(text)),
-                Some(PreviewContent::Text { text, cut }) => {
-                    // A cut file says it is its start.
-                    let shown = if *cut {
-                        format!("{text}\n{}", t("azdrive-preview-cut"))
-                    } else {
-                        text.clone()
-                    };
+                Some(PreviewContent::Text { text, .. }) => {
+                    // A cut file says it is its start in the banner over the pane.
+                    let shown = text.clone();
                     Dom::create_div()
                         .with_id(ids::PREVIEW_TEXT)
                         .with_css(

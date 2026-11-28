@@ -43,6 +43,10 @@ for file in $files; do
                 n=$((n + 1))
             done
             ;;
+        *)
+            # a text longer than the preview reads (64 KB): its banner says only the start is shown
+            yes 'a line of a long text, longer than the preview reads' | head -c 300000 > "$dir/home/big.txt"
+            ;;
     esac
     log=$logs/$stem.log
     status=0

@@ -67,7 +67,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "6 items",
+        "text": "7 items",
         "dom_id": 0
       },
       {
@@ -305,7 +305,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "6 items",
+        "text": "7 items",
         "dom_id": 0
       },
       {
@@ -372,7 +372,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "6 items",
+        "text": "7 items",
         "dom_id": 0
       },
       {
@@ -588,7 +588,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "6 items",
+        "text": "7 items",
         "dom_id": 0
       },
       {
@@ -913,6 +913,131 @@
       },
       {
         "op": "wait_frame"
+      }
+    ]
+  },
+  {
+    "name": "azdrive_the_previews_banner_says_when_only_the_start_of_a_text_is_shown",
+    "description": "A text longer than the preview reads shows its start in the Preview, and the one line at the pane's top says so (its (?) has the file's size): the banner is there only when something needs saying.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 760
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
+        "op": "click",
+        "text": "Home"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "big.txt",
+        "dom_id": 1
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-preview-banner"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Only the start of the file is shown"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "print",
+        "text": "SHOT big.txt selected: the Preview shows the start of the text and a one-line banner at its top says so"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "Archive",
+        "dom_id": 1
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-preview-banner"
       }
     ]
   }

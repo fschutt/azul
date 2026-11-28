@@ -2490,7 +2490,6 @@ azdrive-add-pay-cash = Mit Bargeld per Post bezahlen…
 
 azdrive-home-drive = Persönlicher Ordner
 azdrive-session-not-saved = Die neue Sitzung von „{ $name }“ konnte nicht im Schlüsselbund gespeichert werden: { $why }. AzDrive behält sie, bis es geschlossen wird; danach muss das Laufwerk erneut hinzugefügt werden.
-azdrive-preview-cut = [… die ersten 64 KB der Datei]
 azdrive-meta-location = Ort
 azdrive-meta-created = Erstellt
 azdrive-meta-read-only = Schreibgeschützt
@@ -2714,3 +2713,5 @@ azdrive-sync-state-error-short = Nicht abgeglichen
 azdrive-sheet-share = Teilen
 azdrive-share-unavailable = Dieses Gerät hat keine Teilen-Ansicht, der die Datei übergeben werden könnte.
 azdrive-share-not-shown = Die Datei konnte nicht geteilt werden: { $why }
+azdrive-preview-cut-banner = Nur der Anfang der Datei wird gezeigt
+azdrive-preview-cut-detail = Diese Datei ist { $size } groß: die Vorschau zeigt ihren Anfang. Öffne die Datei, um sie ganz zu lesen.

@@ -3,8 +3,8 @@
 //! nothing else. What there is to say about it (its name, kind, size and date, where it is and how
 //! it syncs, Open and Copy link) is behind the (?) of the pane's header (the widget's
 //! `PreviewDetail`, a popover); a one-line banner stands at the pane's top only when something
-//! needs saying (a sync conflict, a failed transfer: the widget's `PreviewBanner`), its words in
-//! short and its own (?) for the rest.
+//! needs saying (a sync conflict, a failed transfer, only the start of a long text shown: the widget's
+//! `PreviewBanner`), its words in short and its own (?) for the rest.
 //!
 //! The pane shows the selected item (the first one while none is). On a phone the selection IS the
 //! row at the TOP EDGE of the folder view while the list scrolls ([`follow_scroll`], from the view's
@@ -30,8 +30,9 @@ use azul_appkit::l10n::label;
 
 use crate::{
     actions, follow, ids,
+    jobs::PreviewContent,
     model::{clamped_preview_size, Settings},
-    save_settings, sync_view, ui_panes, ui_view, with_state, DriveState,
+    save_settings, sync_view, ui_panes, ui_view, with_state, DriveState, PreviewState,
 };
 
 // ==== The widget ====
@@ -195,6 +196,17 @@ extern "C" fn on_preview(mut data: RefAny, mut info: CallbackInfo, event: Previe
 
 // ==== What needs saying ====
 
+/// How urgent a banner is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Tone {
+    /// A plain remark (only the start of the file is shown).
+    Info,
+    /// It waits for the user (a sync conflict).
+    Warning,
+    /// It failed (a transfer).
+    Danger,
+}
+
 /// What a banner at the pane's top says.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Banner {
@@ -202,45 +214,72 @@ pub(crate) struct Banner {
     pub icon: &'static str,
     /// The words in one line: a key of the resources.
     pub text: &'static str,
-    /// Red where it failed, amber where it waits for the user.
-    pub failed: bool,
-    /// The rest, behind the banner's own (?): what went wrong, for a failed transfer.
+    pub tone: Tone,
+    /// The rest, behind the banner's own (?): what went wrong, how much of the file is shown.
     pub detail: Option<String>,
 }
 
-/// The banner of an item whose sync is in `state`: a conflict waits for an answer, a failed
-/// transfer says why; every other state is the item's own business and has none.
+/// The banner of an item whose sync is in `state`: a conflict waits for an answer, a failed transfer
+/// says why; every other state is the item's own business and has none.
 #[must_use]
 pub(crate) fn banner_of(state: &FileState) -> Option<Banner> {
     match state {
         FileState::Conflict => Some(Banner {
             icon: "warning",
             text: "azdrive-sync-state-conflict",
-            failed: false,
+            tone: Tone::Warning,
             detail: None,
         }),
         FileState::Error(why) => Some(Banner {
             icon: "error",
             text: "azdrive-sync-state-error-short",
-            failed: true,
+            tone: Tone::Danger,
             detail: Some(why.clone()),
         }),
         _ => None,
     }
 }
 
-/// The banner of the item the preview shows now.
-pub(crate) fn banner(s: &DriveState) -> Option<Banner> {
-    let entry = s.preview_subject()?;
-    banner_of(&sync_view::entry_state(s, entry)?)
+/// The banner of a text file whose preview shows only its start (`size` bytes in all): the pane holds
+/// the text and nothing else, so the line over it says so.
+#[must_use]
+pub(crate) fn cut_banner(size: Option<u64>) -> Banner {
+    Banner {
+        icon: "content_cut",
+        text: "azdrive-preview-cut-banner",
+        tone: Tone::Info,
+        detail: size.map(|bytes| {
+            azul_appkit::l10n::t_args(
+                "azdrive-preview-cut-detail",
+                &[("size", azul_appkit::l10n::Arg::from(crate::browse::format_size(Some(bytes))))],
+            )
+        }),
+    }
 }
 
-/// The widget's banner of `banner`: its words, amber or red, the rest behind its own (?).
+/// The banner of the item the preview shows now: its sync's trouble first, else that only the start of
+/// its text is shown.
+pub(crate) fn banner(s: &DriveState) -> Option<Banner> {
+    let entry = s.preview_subject()?;
+    if let Some(banner) = sync_view::entry_state(s, entry).and_then(|state| banner_of(&state)) {
+        return Some(banner);
+    }
+    let cut = matches!(
+        &s.preview,
+        Some(PreviewState {
+            key,
+            content: Some(PreviewContent::Text { cut: true, .. }),
+        }) if *key == entry.key
+    );
+    cut.then(|| cut_banner(entry.size))
+}
+
+/// The widget's banner of `banner`: its words, its tone, the rest behind its own (?).
 fn banner_widget(banner: &Banner) -> PreviewBanner {
-    let tone = if banner.failed {
-        PreviewBannerTone::Danger
-    } else {
-        PreviewBannerTone::Warning
+    let tone = match banner.tone {
+        Tone::Info => PreviewBannerTone::Info,
+        Tone::Warning => PreviewBannerTone::Warning,
+        Tone::Danger => PreviewBannerTone::Danger,
     };
     let mut widget = PreviewBanner::create(label(banner.text), tone).with_icon(AzString::from(banner.icon));
     if let Some(detail) = &banner.detail {

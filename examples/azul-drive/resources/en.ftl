@@ -2492,7 +2492,6 @@ azdrive-add-pay-cash = Pay with cash by post…
 
 azdrive-home-drive = Home
 azdrive-session-not-saved = The new session of "{ $name }" could not be saved in the keyring: { $why }. AzDrive keeps it until it closes; after that the drive must be added again.
-azdrive-preview-cut = [... the first 64 KB of the file]
 azdrive-meta-location = Location
 azdrive-meta-created = Created
 azdrive-meta-read-only = Read-only
@@ -2716,3 +2715,5 @@ azdrive-sync-state-error-short = Not synced
 azdrive-sheet-share = Share
 azdrive-share-unavailable = This device has no share sheet to hand the file to.
 azdrive-share-not-shown = The file could not be shared: { $why }
+azdrive-preview-cut-banner = Only the start of the file is shown
+azdrive-preview-cut-detail = This file is { $size }: its preview shows the start of it. Open the file to read all of it.
