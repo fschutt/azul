@@ -2182,6 +2182,16 @@ pub(crate) enum Drag {
         button: TerminalMouseButton,
         last: TerminalPoint,
     },
+    /// A finger has landed and not lifted yet: no selection follows it (its pan scrolls the history through the
+    /// wheel's path, the shell cancels it as a click) and its lift is a tap, which brings the soft keyboard up.
+    Tap,
+}
+
+/// Whether the lift that ends `drag` is a finger's tap: the soft keyboard comes up for it (the engine raises it
+/// by itself only for an editable node, and the terminal's text is not one).
+#[must_use]
+pub(crate) const fn lift_raises_keyboard(drag: Drag) -> bool {
+    matches!(drag, Drag::Tap)
 }
 
 /// What the outer node's handlers and the `VirtualView`'s render share:
@@ -3136,6 +3146,13 @@ extern "C" fn on_terminal_mouse_down(mut data: RefAny, mut info: CallbackInfo) -
         let to = scroll_for_thumb(&bar, y - grab - bar.track.1, s.screen.history);
         return scroll_to(&mut data, &s, info, whole(to), None);
     }
+    // A finger (touch points at the press: the shells map the first finger to the mouse's left button): it
+    // selects nothing and reports nothing, its lift is the tap.
+    if info.get_current_window_state().touch_state.num_touches > 0 {
+        set_word_click(&mut data, None);
+        set_drag(&mut data, Drag::Tap);
+        return Update::DoNothing;
+    }
     let (point, right_half) = s.cell(x, y);
     if s.screen.modes.mouse != TerminalMouseMode::Off && !modifiers.shift {
         set_word_click(&mut data, None);
@@ -3199,7 +3216,7 @@ extern "C" fn on_terminal_mouse_move(mut data: RefAny, info: CallbackInfo) -> Up
         return Update::DoNothing;
     };
     match s.drag {
-        Drag::None => Update::DoNothing,
+        Drag::None | Drag::Tap => Update::DoNothing,
         Drag::Thumb { grab } => {
             let Some(bar) = s.bar else {
                 return Update::DoNothing;
@@ -3249,13 +3266,16 @@ extern "C" fn on_terminal_mouse_move(mut data: RefAny, info: CallbackInfo) -> Up
 
 /// A release: a selection gesture ends (a press without a move clears the
 /// selection), a held button is reported released.
-extern "C" fn on_terminal_mouse_up(mut data: RefAny, info: CallbackInfo) -> Update {
+extern "C" fn on_terminal_mouse_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(s) = snap(&mut data) else {
         return Update::DoNothing;
     };
     set_drag(&mut data, Drag::None);
+    if lift_raises_keyboard(s.drag) {
+        info.request_soft_keyboard(true);
+    }
     match s.drag {
-        Drag::None | Drag::Thumb { .. } => Update::DoNothing,
+        Drag::None | Drag::Thumb { .. } | Drag::Tap => Update::DoNothing,
         Drag::Select { last, moved } => {
             let kind = if moved {
                 TerminalViewEventKind::SelectEnd
@@ -3475,6 +3495,21 @@ mod build_tests {
             None,
             follow.as_ref(),
         )
+    }
+
+    #[test]
+    fn only_a_fingers_lift_brings_the_keyboard_up() {
+        // A mouse's gestures end as they always did; a finger's tap is the one lift that asks for the keyboard.
+        let point = TerminalPoint::default();
+        for drag in [
+            Drag::None,
+            Drag::Select { last: point, moved: true },
+            Drag::Thumb { grab: 3.0 },
+            Drag::Report { button: TerminalMouseButton::Left, last: point },
+        ] {
+            assert!(!lift_raises_keyboard(drag), "{drag:?}");
+        }
+        assert!(lift_raises_keyboard(Drag::Tap));
     }
 
     #[test]
