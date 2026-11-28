@@ -85,6 +85,7 @@ dependencies = [
  "azul-dll",
  "azul-pim",
  "azul-storage",
+ "ctor",
 ]
 
 [[package]]
@@ -248,6 +249,7 @@ dependencies = [
  "azul-pim",
  "azul-storage",
  "chrono",
+ "ctor",
 ]
 
 [[package]]
@@ -392,6 +394,7 @@ dependencies = [
  "azul-pim",
  "azul-storage",
  "chrono",
+ "ctor",
  "serde",
  "serde_json",
 ]

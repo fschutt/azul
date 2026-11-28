@@ -406,6 +406,14 @@ pub fn start(args: Args) {
     App::create(RefAny::new(state), config).run(window);
 }
 
+/// The entry point of the Android build: the activity loads the library and this constructor starts the app (a phone has
+/// no command line: the defaults, the data root in the app's own folder).
+#[cfg(target_os = "android")]
+#[ctor::ctor]
+fn azul_android_init() {
+    start(Args::default());
+}
+
 /// `Update::RefreshDom` when `changed`.
 #[must_use]
 pub fn refresh_if(changed: bool) -> Update {

@@ -581,6 +581,13 @@ pub fn start() {
     app.run(window);
 }
 
+/// The entry point of the Android build: the activity loads the library and this constructor starts the app.
+#[cfg(target_os = "android")]
+#[ctor::ctor]
+fn azul_android_init() {
+    start();
+}
+
 #[cfg(test)]
 mod data_tests {
     use std::path::Path;

@@ -31,6 +31,10 @@ serde_json = "1"
 # The same features azul-layout and AzCalendar build chrono with (dates, the local time).
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+# The entry point of a phone app (the activity loads the library, the constructor starts the app).
+ctor = "0.2"
+
 [dev-dependencies]
 # The shared temporary folder for tests (azul_pim::testing::TempDir).
 azul-pim = { path = "../azul-pim", features = ["test-util"] }

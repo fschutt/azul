@@ -28,6 +28,10 @@ azul-storage = { path = "../azul-storage" }
 # shared with the Azlin Bridge's CardDAV.
 azul-contacts-core = { path = "../azul-contacts-core" }
 
+[target.'cfg(target_os = "android")'.dependencies]
+# The entry point of a phone app (the activity loads the library, the constructor starts the app).
+ctor = "0.2"
+
 [lib]
 name = "azcontacts"
 path = "src/lib.rs"

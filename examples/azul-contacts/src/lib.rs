@@ -25,3 +25,10 @@ pub mod ui;
 pub fn start() {
     ui::start();
 }
+
+/// The entry point of the Android build: the activity loads the library and this constructor starts the app.
+#[cfg(target_os = "android")]
+#[ctor::ctor]
+fn azul_android_init() {
+    start();
+}
