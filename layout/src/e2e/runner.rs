@@ -3832,6 +3832,13 @@ impl Runner {
                 } else {
                     self.accessibility_override.overlaid(preferences)
                 };
+                // A window that never had a style (the headless one has none until something sets
+                // it) takes the default one first, as a shell's window takes its discovered one at
+                // creation: the first style is no change, the override is.
+                if self.layout_window.system_style.is_none() {
+                    self.layout_window
+                        .set_system_style(Arc::new(SystemStyle::default()));
+                }
                 let mut style = self
                     .layout_window
                     .system_style
