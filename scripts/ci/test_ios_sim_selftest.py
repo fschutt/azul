@@ -138,6 +138,18 @@ def font_lines_of(text):
     return sim.font_lines(text)
 
 
+class Ledger(unittest.TestCase):
+    def test_one_line_per_row_with_the_verdict_of_each_run_and_the_real_device_column(self):
+        fresh = {"rows": [{"id": "device.network", "verdict": "PASS"}, {"id": "sensors.gyroscope", "verdict": "UNAVAILABLE"}]}
+        granted = {"rows": [{"id": "device.network", "verdict": "PASS"}, {"id": "sensors.gyroscope", "verdict": "UNAVAILABLE"},
+                            {"id": "sensors.geolocation", "verdict": "PASS"}]}
+        md = sim.ledger_table({"fresh": fresh, "granted": granted}, "iPhone 16 Pro")
+        self.assertIn("| row | fresh | granted | a real iPhone is needed |", md)
+        self.assertIn("| device.network | PASS | PASS | no |", md)
+        self.assertIn("| sensors.gyroscope | UNAVAILABLE | UNAVAILABLE | yes |", md)
+        self.assertIn("| sensors.geolocation | - | PASS | no |", md)
+
+
 class Launch(unittest.TestCase):
     def test_the_app_environment_goes_through_the_simctl_child_prefix(self):
         env = sim.launch_env()
