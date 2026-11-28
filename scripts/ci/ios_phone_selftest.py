@@ -11,6 +11,8 @@ words what to do, and reads what it found.
              trusted. Needs a Mac with Xcode 15 or newer.
   --app      the signed AzSelfTest.app to install first (signed with your own development profile; see
              doc/guide/en/deploying/mobile.md). Without it the app must be installed already.
+             `bash scripts/ci/ios_phone_selftest_build.sh` builds the unsigned app from the sources on your Mac and, with
+             IOS_SIGNING_IDENTITY and IOS_DEVICE set, signs it and runs this script.
   (default)  UNATTENDED: the app runs every row that needs no person, writes its report and exits; nothing for you to do.
              Rows that need a person (a shake, a word, a hand over the proximity sensor) are listed with what to do.
   --attended the app shows its list: press "Run all" and follow the instruction written on each row that says NEEDS-HUMAN
