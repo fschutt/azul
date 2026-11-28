@@ -236,6 +236,9 @@ pub struct ClockApp {
     pub os_rings: (bool, String),
     /// Notifications can be posted at all (else nothing is scheduled).
     pub can_notify: bool,
+    /// The system was asked for the right to show notifications in this run (once: the answer is
+    /// the user's, and a second question would only repeat it).
+    pub permission_asked: bool,
     /// Mod+Q: the close that follows is not turned into a minimize.
     pub quitting: bool,
     /// The fast stopwatch tick, while it runs.
@@ -339,6 +342,7 @@ impl ClockApp {
             // The headless backend is "unavailable" (it shows nothing) but
             // RECORDS every post for `assert_notification`: post there too.
             can_notify,
+            permission_asked: false,
             quitting: false,
             fast_tick: None,
             zone: zone_name(),
@@ -604,6 +608,13 @@ fn reschedule(s: &mut ClockApp, info: &mut CallbackInfo) {
     }
     if !changes.post.is_empty() || !changes.withdraw.is_empty() {
         println!("AZCLOCK_SCHEDULED {} {}", changes.post.len(), changes.withdraw.len());
+    }
+    // The first alarm or timer of a fresh install is set while the app runs: that is when the
+    // system is asked for the right to show its notification (a start with something armed
+    // asks at the load).
+    if !changes.post.is_empty() && !s.permission_asked {
+        s.permission_asked = true;
+        info.request_notification_permission();
     }
     s.last_plan = Some(next);
 }
@@ -943,6 +954,7 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
             // alarm missed by more than a few minutes does not.
             check_due(s, info, Utc::now());
             if s.armed() && s.can_notify && s.schedule_with_os() {
+                s.permission_asked = true;
                 info.request_notification_permission();
             }
             return;
