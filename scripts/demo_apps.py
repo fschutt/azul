@@ -293,6 +293,14 @@ def check(m=None):
                     err(f"{where} [app.smoke] {key} must be a list of texts")
                 elif not smoke.get("tap"):
                     err(f"{where} [app.smoke] {key} is looked for after a button was pressed and the app names no `tap`")
+        # [app.smoke] log_present / log_absent: texts the app's log must hold / must not hold after the boot test
+        for key in ("log_present", "log_absent"):
+            if key in smoke and (not isinstance(smoke[key], list) or not all(isinstance(t, str) and t.strip() for t in smoke[key])):
+                err(f"{where} [app.smoke] {key} must be a list of texts")
+        if isinstance(smoke.get("log_present"), list) and isinstance(smoke.get("log_absent"), list):
+            both = sorted(set(smoke["log_present"]) & set(smoke["log_absent"]))
+            if both:
+                err(f"{where} [app.smoke] log_present and log_absent both name {both}: no log can pass")
         if "probe_tap" in smoke:
             if not isinstance(smoke["probe_tap"], str) or not smoke["probe_tap"].strip():
                 err(f"{where} [app.smoke] probe_tap must name the key of the first press")
@@ -536,6 +544,10 @@ def plan(m=None, e2e=False):
                                     if (a.get("smoke") or {}).get("tap")}, sort_keys=True)
     out["smoke_expects"] = json.dumps({a["package"]: a["smoke"]["expect"] for a in m["app"]
                                        if (a.get("smoke") or {}).get("expect")}, sort_keys=True)
+    # what the app's log must hold and must not hold after the boot test: {package: {"present": [...], "absent": [...]}}
+    out["smoke_logs"] = json.dumps({a["package"]: {"present": a["smoke"].get("log_present", []), "absent": a["smoke"].get("log_absent", [])}
+                                    for a in m["app"] if (a.get("smoke") or {}).get("log_present") or (a.get("smoke") or {}).get("log_absent")},
+                                   sort_keys=True)
     # what must be on the screen once the button was pressed, and what must be gone: {package: {"found": [...], "gone": [...]}}
     # and a FIRST press with a short effect (a toast) with what must be on the screen 1 s later (probe_tap, probe_found)
     out["smoke_after"] = json.dumps({a["package"]: {"found": a["smoke"].get("after_tap", []), "gone": a["smoke"].get("after_tap_gone", []),

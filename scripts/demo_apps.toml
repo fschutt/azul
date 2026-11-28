@@ -226,6 +226,12 @@ after_tap_gone = ["Connect to AzReview"]
 # (the input path), which tells a broken demo key from a broken touch.
 probe_tap = "Scan QR code"
 probe_after = ["Scanning the code comes with the next version"]
+# What the app says in its log (the engine's info log, which the boot tests switch on for an app that names log texts): a phone that was
+# never paired touches no network until a pairing starts, so its window setup says so, and NO iroh endpoint is bound at all (the line
+# `[iroh::endpoint] endpoint; id=...` is what a bound endpoint logs: the demo mode binds nothing either, "Demo Mac" above still comes up).
+# A bind that comes back fails the boot test of the emulator and of the simulator.
+log_present = ["AzCompanion: no Mac is paired: the local network is left alone until a pairing starts"]
+log_absent = ["[iroh::endpoint] endpoint; id="]
 [app.ios]
 # build-ios.sh writes NSLocalNetworkUsageDescription and NSBonjourServices = [_irohv1._udp] from this text
 local_network = "AzReview Companion finds AzReview on your Mac over your Wi-Fi to use your phone as its remote control."
