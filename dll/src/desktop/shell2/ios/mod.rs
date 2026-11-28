@@ -68,6 +68,10 @@ mod gpu;
 mod locale;
 /// `Url::open`: the iOS hook of the core crate's opener (`UIApplication openURL:options:completionHandler:`).
 mod open_url;
+/// SystemConfiguration's macOS-only half, answered "nothing is configured" (E63): the symbols the iroh dependencies reference and
+/// the iOS SDK marks unavailable. Not for Mac Catalyst, which has the real functions.
+#[cfg(not(target_abi = "macabi"))]
+mod system_configuration;
 /// The system UI font (San Francisco): CoreText's AvailableFonts, which the font scan reads, does not hold it.
 mod system_font;
 mod text_input;
