@@ -497,3 +497,162 @@ fn the_host_and_the_phone_client_pair_and_talk_over_the_real_transport() {
         phone.is_active() && phone.view().buttons.buttons[1].label == "Mine"
     });
 }
+
+// ---- the numbers of a session
+
+/// Like `pump`, with a pause of a fifth of a millisecond, so that what is measured is the transport and not the pause.
+fn spin(clock: &Clock, what: &str, mut step: impl FnMut(Millis) -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        if step(clock.now()) {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{what}: not within 20 s");
+        std::thread::sleep(Duration::from_micros(200));
+    }
+}
+
+/// The steps of a drag that arrived at the host since the last look, by the update they are (the pan of update i is i / 1000), with the moment
+/// they were seen.
+fn note_updates(events: &[HostEvent], seen: &mut usize, arrivals: &mut Vec<(usize, Instant)>) {
+    for event in &events[*seen..] {
+        if let HostEvent::Viewport { op: ViewportOp::Gesture { phase: Phase::Update, pan_x, .. }, .. } = event {
+            arrivals.push(((pan_x * 1000.0).round() as usize, Instant::now()));
+        }
+    }
+    *seen = events.len();
+}
+
+/// "n=50 median 0.31 ms, p95 0.52 ms, max 0.90 ms".
+fn spread(mut values: Vec<f64>) -> String {
+    if values.is_empty() {
+        return "none".to_string();
+    }
+    values.sort_by(|a, b| a.total_cmp(b));
+    let at = |share: f64| values[((values.len() as f64 - 1.0) * share).round() as usize];
+    format!("n={} median {:.2} ms, p95 {:.2} ms, max {:.2} ms", values.len(), at(0.5), at(0.95), values[values.len() - 1])
+}
+
+/// The numbers of one session between the host (what AzReview runs) and the phone's client over the real transport on this machine, printed
+/// with `-- --nocapture` (one line, "LOOPBACK ..."): how long a pairing takes, how long a pen state, a folder's rows and a drag take to get across,
+/// and how long the phone takes to be served again after its app was closed and opened. Nothing is asserted about speed (the load of the
+/// machine is not this test's business): everything has to arrive.
+#[test]
+fn the_numbers_of_a_pairing_a_pen_a_folder_and_a_drag_over_the_real_transport() {
+    let (Some(host_link), Some(phone_link)) = (bind(&quiet()), bind(&quiet())) else {
+        return;
+    };
+    let phone_key = phone_link.secret_key().expect("a key");
+    let mut host = CompanionHost::new(host_link, host_config(), Box::new(SeededEntropy(7)));
+    let store = MemoryStore::new();
+    let mut phone = PhoneClient::new(phone_link, client_config(), Box::new(store.clone()));
+    let clock = Clock::new();
+    let mut events: Vec<HostEvent> = Vec::new();
+    let work = |phone: &mut PhoneClient<IrohLink>, host: &mut CompanionHost<IrohLink>, events: &mut Vec<HostEvent>, now: Millis| {
+        events.extend(host.poll(now));
+        phone.poll(now);
+    };
+    let ms = |since: Instant| since.elapsed().as_secs_f64() * 1000.0;
+
+    // the pairing
+    let started = Instant::now();
+    spin(&clock, "the host knows its ticket", |now| {
+        work(&mut phone, &mut host, &mut events, now);
+        !host.ticket().is_empty()
+    });
+    let ticket_ms = ms(started);
+    let offered = Instant::now();
+    let offer = host.begin_pairing(clock.now()).expect("an offer");
+    phone.begin_pairing(clock.now(), &offer.to_text()).expect("an offer the phone takes");
+    spin(&clock, "the host is asked to pair", |now| {
+        work(&mut phone, &mut host, &mut events, now);
+        events.iter().any(|e| matches!(e, HostEvent::PairingRequested { .. }))
+    });
+    let code_ms = ms(offered);
+    let (peer, _code) = events.iter().find_map(|e| if let HostEvent::PairingRequested { peer, code, .. } = e { Some((peer.clone(), *code)) } else { None }).expect("asked");
+    let accepted = Instant::now();
+    host.accept_pairing(clock.now(), &peer).expect("confirmed");
+    spin(&clock, "the phone is served", |now| {
+        work(&mut phone, &mut host, &mut events, now);
+        phone.is_active()
+    });
+    let served_ms = ms(accepted);
+
+    // the host's pen to the phone, fifty times
+    let mut pen_ms = Vec::new();
+    for k in 1..=50u32 {
+        let sent = Instant::now();
+        host.publish_pen(PenState { seq: k, folder: format!("folder-{k}"), ..PenState::empty() });
+        spin(&clock, "the pen state arrives", |now| {
+            work(&mut phone, &mut host, &mut events, now);
+            phone.view().pen.as_ref().is_some_and(|p| p.folder == format!("folder-{k}"))
+        });
+        pen_ms.push(ms(sent));
+    }
+
+    // a folder: the phone asks, the host answers, thirty times (a whole round trip, as the person sees it)
+    let mut folder_ms = Vec::new();
+    for k in 0..30 {
+        let dir = format!("d{k}");
+        events.clear();
+        let sent = Instant::now();
+        phone.list_dir(clock.now(), &dir, 0);
+        spin(&clock, "the host is asked for the folder", |now| {
+            work(&mut phone, &mut host, &mut events, now);
+            events.iter().any(|e| matches!(e, HostEvent::ListDir { .. }))
+        });
+        let (peer, request_id) = events.iter().find_map(|e| if let HostEvent::ListDir { peer, request_id, .. } = e { Some((peer.clone(), *request_id)) } else { None }).expect("asked");
+        host.publish_rows(clock.now(), &peer, Rows { request_id, dir: dir.clone(), offset: 0, entries: vec![Entry { name: "lib.rs".into(), kind: EntryKind::File, state: FileState::Clean }], more: false });
+        spin(&clock, "the rows arrive", |now| {
+            work(&mut phone, &mut host, &mut events, now);
+            !phone.view().files.loading() && phone.view().files.entries.len() == 1
+        });
+        folder_ms.push(ms(sent));
+    }
+
+    // a drag: 300 updates, one every 4 ms (a finger on a 60 Hz screen makes one every 16 ms), then the end; the phone sends at most 60 a second
+    events.clear();
+    let mut seen = 0;
+    let mut arrivals: Vec<(usize, Instant)> = Vec::new();
+    let mut sent_at: Vec<Option<Instant>> = vec![None; 301];
+    phone.gesture(clock.now(), 5, Phase::Begin, (0.0, 0.0), 1.0, Focus::Pen);
+    let dragged = Instant::now();
+    for i in 1..=300usize {
+        sent_at[i] = Some(Instant::now());
+        phone.gesture(clock.now(), 5, Phase::Update, (i as f32 / 1000.0, 0.0), 1.0, Focus::Pen);
+        let tick = Instant::now();
+        while tick.elapsed() < Duration::from_millis(4) {
+            work(&mut phone, &mut host, &mut events, clock.now());
+            note_updates(&events, &mut seen, &mut arrivals);
+        }
+    }
+    phone.gesture(clock.now(), 5, Phase::End, (0.3, 0.0), 1.0, Focus::Pen);
+    spin(&clock, "the end of the gesture arrives", |now| {
+        work(&mut phone, &mut host, &mut events, now);
+        note_updates(&events, &mut seen, &mut arrivals);
+        events.iter().any(|e| matches!(e, HostEvent::Viewport { op: ViewportOp::Gesture { phase: Phase::End, .. }, .. }))
+    });
+    let drag_ms = ms(dragged);
+    let drag_latency: Vec<f64> = arrivals.iter().filter_map(|(i, at)| sent_at.get(*i).copied().flatten().map(|sent| at.duration_since(sent).as_secs_f64() * 1000.0)).collect();
+    assert!(!arrivals.is_empty(), "some steps of the drag arrived");
+
+    // the phone's app is closed and opened again: the same key, the Mac in the store
+    phone.close(clock.now());
+    drop(phone);
+    let again = bind(&IrohOptions { secret_key: Some(phone_key), ..quiet() }).expect("the phone's endpoint binds again");
+    let mut phone = PhoneClient::new(again, client_config(), Box::new(store.clone()));
+    let restarted = Instant::now();
+    spin(&clock, "the phone is served again without pairing", |now| {
+        work(&mut phone, &mut host, &mut events, now);
+        phone.is_active()
+    });
+    let reserve_ms = ms(restarted);
+
+    eprintln!(
+        "LOOPBACK host ticket {ticket_ms:.1} ms | pairing: offer to the code on both {code_ms:.1} ms, yes to served {served_ms:.1} ms | pen host to phone {} | folder request to rows {} | drag of 300 updates in {drag_ms:.0} ms: {} arrived, phone to host {} | served again after a restart {reserve_ms:.1} ms",
+        spread(pen_ms),
+        spread(folder_ms),
+        arrivals.len(),
+        spread(drag_latency)
+    );
+}

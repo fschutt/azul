@@ -362,6 +362,8 @@ pub(crate) extern "C" fn on_open(mut data: RefAny, _info: CallbackInfo) -> Updat
     kit::close_settings(&s.kit);
     s.direct.open = true;
     s.direct.copied = false;
+    // This computer's address is shown here, and a caller by id finds it on the local network: the endpoint is bound now, with that.
+    ensure_endpoint(s, true);
     Update::RefreshDom
 }
 
@@ -449,6 +451,8 @@ fn dial(s: &mut MeetState) -> Update {
         s.direct.note = t("azmeet-direct-yourself");
         return Update::RefreshDom;
     }
+    // A bare id is found on the local network: the endpoint looks there when nothing else is connected.
+    ensure_endpoint(s, true);
     let Some(endpoint) = s.endpoint.clone() else {
         s.direct.note = t("azmeet-direct-no-network");
         return Update::RefreshDom;
