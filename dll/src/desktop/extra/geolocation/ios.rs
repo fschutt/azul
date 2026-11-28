@@ -113,8 +113,6 @@ const LOCATION_ALWAYS_KEY: &str = "NSLocationAlwaysAndWhenInUseUsageDescription"
 
 #[cfg(target_os = "ios")]
 unsafe fn subscribe(high_accuracy: bool, background: bool) {
-    use crate::desktop::extra::info_plist::{has_key, is_bundled, keys, missing_key_message};
-
     let mgr = manager();
     if mgr.is_null() {
         crate::log_error!(
@@ -124,9 +122,17 @@ unsafe fn subscribe(high_accuracy: bool, background: bool) {
         return;
     }
     set_accuracy(high_accuracy);
-    // The request is made only when the system can show it: without the purpose string it shows NOTHING and the status
-    // never leaves "not determined" - a silent no-op, which this says out loud (the app is not stopped, as it is for a
-    // camera or a motion request).
+    request_authorization_on(mgr, background);
+    let _: () = msg_send![mgr, startUpdatingLocation];
+}
+
+/// The request for the location grant, made only when the system can show it: without the purpose string it shows
+/// NOTHING and the status never leaves "not determined" - a silent no-op, which this says out loud (the app is not
+/// stopped, as it is for a camera or a motion request). One request, for the grant asked for.
+#[cfg(target_os = "ios")]
+unsafe fn request_authorization_on(mgr: *mut Object, background: bool) {
+    use crate::desktop::extra::info_plist::{has_key, is_bundled, keys, missing_key_message};
+
     let key = if background { LOCATION_ALWAYS_KEY } else { keys::LOCATION_WHEN_IN_USE };
     if is_bundled() && !has_key(key) {
         crate::log_error!(
@@ -139,8 +145,21 @@ unsafe fn subscribe(high_accuracy: bool, background: bool) {
     } else {
         let _: () = msg_send![mgr, requestWhenInUseAuthorization];
     }
-    let _: () = msg_send![mgr, startUpdatingLocation];
 }
+
+/// The permission manager's request for the location grant (a probe node subscribed after a user gesture): ask for it
+/// without starting the updates, on the main thread.
+#[cfg(target_os = "ios")]
+pub(crate) fn request_authorization(background: bool) {
+    // SAFETY: the manager is made and used on the main thread, where the permission manager runs.
+    unsafe {
+        let mgr = manager();
+        if !mgr.is_null() {
+            request_authorization_on(mgr, background);
+        }
+    }
+}
+
 
 #[cfg(target_os = "ios")]
 unsafe fn set_accuracy(high_accuracy: bool) {

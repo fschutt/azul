@@ -12,6 +12,7 @@ const IOS_WEBVIEW_RS: &str = include_str!("ios/webview.rs");
 const IOS_SYSTEM_FONT_RS: &str = include_str!("ios/system_font.rs");
 const IOS_OPEN_URL_RS: &str = include_str!("ios/open_url.rs");
 const AUTH_APPLE_RS: &str = include_str!("../extra/auth_session/apple.rs");
+const PERMISSION_IOS_RS: &str = include_str!("../extra/permission/ios.rs");
 const GAMEPAD_APPLE_RS: &str = include_str!("../extra/gamepad/apple.rs");
 const GEOLOCATION_IOS_RS: &str = include_str!("../extra/geolocation/ios.rs");
 const MIC_APPLE_RS: &str = include_str!("../extra/audio/avfoundation_mic.rs");
@@ -824,5 +825,39 @@ fn the_web_sign_in_makes_its_protocol_when_the_runtime_has_none() {
         "class_addProtocol(",
     ] {
         assert!(code.contains(needed), "extra/auth_session/apple.rs: `{needed}` is missing");
+    }
+}
+
+/// A permission request on iOS is the capability's own, from the permission manager (after a user gesture), and the
+/// state read is quiet and cheap: `handle_event` was a no-op (a probe node never asked), `probe_status` had no caller
+/// (Camera, Microphone, Motion read NotDetermined for ever), the location status made a `CLLocationManager` per probe,
+/// and a when-in-use grant was reported as Denied for the background capability (a final-looking refusal; the app may
+/// still ask for the upgrade to Always).
+#[test]
+fn the_ios_permission_backend_requests_one_capability_at_a_time_and_reads_quietly() {
+    let code = code_of(PERMISSION_IOS_RS);
+    for needed in [
+        "pub fn request(capability: Capability)",
+        "Capability::Camera =>",
+        "Capability::Microphone =>",
+        "Capability::Geolocation =>",
+        "Capability::GeolocationBackground =>",
+        "Capability::Notifications =>",
+        "request_av_access_nonblocking(true",
+        "request_av_access_nonblocking(false",
+        "msg_send![cls, authorizationStatus]",
+    ] {
+        assert!(code.contains(needed), "extra/permission/ios.rs: `{needed}` is missing");
+    }
+    let status = body(PERMISSION_IOS_RS, "fn cl_status(");
+    assert!(!status.contains("msg_send![cls, new]"), "no manager is made per probe: the status is a class method");
+    assert!(
+        status.contains("PermissionState::NotDetermined") && !status.contains("PermissionState::Denied\n                } else"),
+        "a when-in-use grant is not a refusal of the background capability"
+    );
+    // the request path is the only one that asks: the probes never do
+    let probe = body(PERMISSION_IOS_RS, "pub fn probe_status(");
+    for asking in ["requestAccess", "requestWhenInUse", "requestAlways", "request_av_access", "request_permission"] {
+        assert!(!probe.contains(asking), "probe_status must never ask ({asking})");
     }
 }
