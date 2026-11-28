@@ -1,4 +1,4 @@
-//! What the Android cold start shows, pinned in source (a phone cannot run where the tests run; the lab that measures it is
+//! What the Android cold start shows, the Java half of it, pinned in source (a phone cannot run where the tests run; the lab that measures it is
 //! `scripts/ci/android_startup_lab.sh`, its numbers are in the engine ledger rows E46 / E47 / E60): no black between the system's
 //! starting window and the first picture, no picture that is the wrong colour or in the wrong place and moves a moment later.
 //!
@@ -6,6 +6,8 @@
 //! system never draws it, so the system takes its starting window away as soon as the window has "drawn" (at once), before the
 //! surface has a single buffer. What the engine knows that late (the insets, the night mode) is known late; what it posts first is
 //! posted late.
+//!
+//! The engine's half is `dll/tests/android_startup_engine_contract.rs`.
 //!
 //!     CARGO_MANIFEST_DIR=$PWD/dll rustc --edition 2021 --test dll/tests/android_startup_contract.rs -o /tmp/t && /tmp/t
 
@@ -56,6 +58,7 @@ fn body<'a>(src: &'a str, signature: &str) -> &'a str {
     }
     panic!("unbalanced braces after `{signature}`");
 }
+
 
 /// The surface of a NativeActivity has no buffer until the engine's first layout is done, and the system's starting window (the icon on
 /// the window colour) is taken away as soon as the window has drawn, which for such a window is at once: the screen showed the empty
@@ -108,29 +111,15 @@ fn the_windows_first_draw_is_held_until_the_first_picture_and_never_trapped() {
     );
 }
 
-/// The icon colour of the system bars is told BEFORE the activity hears that the first picture is posted: the window draws (and the starting
-/// window leaves) after that, and the bars are already the colour this picture needs. Told after it, the clock and the battery were white
-/// on a white page for the frames between.
-///
-/// Mutation: the two calls swapped (the state of 98d415cb4e).
-#[test]
-fn the_bars_are_told_before_the_window_may_draw() {
-    let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
-    let render = body(&shell, "fnrender_frame(window:&mutAndroidWindow)->Result<(),WindowError>{");
-    let bars = render.find("set_system_bars_appearance(status_light,navigation_light);").expect("the bars are told after a present");
-    let first = render.find("window.first_frame_posted();").expect("the first picture is announced");
-    assert!(bars < first, "the bars first, then the first picture");
-}
-
 /// The window's insets (the status bar, the navigation bar, the cutout) are dispatched in its FIRST traversal, before its surface exists. A
-/// listener installed at the first window focus, where it used to be, missed that dispatch: the engine laid its first picture out under the
+/// listener installed at the first window focus, where it used to be installed, missed that dispatch: the engine laid its first picture out under the
 /// status bar, got the insets after the picture, laid everything out AGAIN (the "Resize" pass of the startup timeline, 0.3 s on the widget
-/// gallery) and moved the page down by the height of the bar. The listener is installed in onCreate and keeps what it sees; the engine asks
-/// for it when its surface is created and applies it before the first layout.
+/// gallery) and moved the page down by the height of the bar. The Java side installs its listener in onCreate and keeps what it sees; the engine can ask
+/// for it (`insetsSnapshot`) whenever it likes.
 ///
-/// Mutation: the early listener not installed (the state of 98d415cb4e); the snapshot applied after the layout is requested.
+/// Mutation: the early listener not installed (the state of 98d415cb4e); the snapshot answering zeros before the first dispatch.
 #[test]
-fn the_windows_first_insets_are_known_before_the_first_layout() {
+fn the_windows_first_insets_are_kept_by_a_listener_installed_in_on_create() {
     let java = java_code("scripts/android/AzulActivity.java");
     let create = body(&java, "protected void onCreate(Bundle savedInstanceState)");
     assert!(create.contains("NativeTextBridge.installEarlyInsetsListener(this);"), "onCreate installs the listener that sees the first dispatch");
@@ -148,102 +137,4 @@ fn the_windows_first_insets_are_known_before_the_first_layout() {
     // a late attach hands the engine what the window has been given so far
     let late = body(&bridge, "public static void installInsetsListener(final Activity activity, final long nativePtr)");
     assert!(late.contains("insetsTarget = nativePtr;") && late.contains("nativeOnWindowInsets(nativePtr, insets[0]"), "a late attach forwards what was kept");
-
-    let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
-    let arm = shell.find("MainEvent::InitWindow{..}=>{").expect("the surface-created arm") + "MainEvent::InitWindow{..}".len();
-    let init = body(&shell[arm..], "=>");
-    let size = init.find("apply_surface_size(window,(logical_w,logical_h));").expect("the surface's size is applied");
-    let insets = init.find("apply_early_insets(window);").expect("the first insets are applied at the surface");
-    let layout = init.find("window.common.request_regeneration(reason)").expect("the layout is requested");
-    assert!(size < insets && insets < layout, "the insets are applied after the size and before the layout is requested");
-    let asks = body(&shell, "fnearly_insets()->Option<Vec<i32>>{");
-    assert!(asks.contains("\"com/azul/text/NativeTextBridge\"") && asks.contains("\"insetsSnapshot\""), "the engine asks Java through JNI");
-}
-
-/// The activity's NDK configuration says at once whether the phone is in its dark mode; the style `App::create` made says light for every
-/// phone, and the Java side tells the mode only from the first window focus on, after the first picture: a phone in its dark mode showed a
-/// white first picture, then the dark one. The window is made in the phone's mode.
-///
-/// Mutation: the mode read after the window is made (the state of 98d415cb4e: the first picture is the light one).
-#[test]
-fn the_phones_night_mode_is_the_windows_from_its_first_picture() {
-    let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
-    let main = body(&shell, "pubfnandroid_main(app:AndroidApp){");
-    let night = main.find("ifletSome(mode)=night_mode_of(&app){config.system_style.mode=mode;}").expect("the phone's mode goes into the style");
-    let window = main.find("AndroidWindow::new(").expect("the window is made");
-    assert!(night < window, "the style carries the mode before the window takes it");
-    let of = body(&shell, "fnnight_mode_of(app:&AndroidApp)->Option<azul_core::window::DarkLightMode>{");
-    assert!(of.contains("app.config().ui_mode_night()"), "from the activity's configuration");
-    assert!(of.contains("UiModeNight::Yes=>Some(azul_core::window::DarkLightMode::Dark)"));
-    assert!(of.contains("UiModeNight::No=>Some(azul_core::window::DarkLightMode::Light)"));
-}
-
-/// The accessibility tree of the first layout is 30-45 ms of the time to the first picture (E33: the startup timeline's `a11y_tree_first_built`,
-/// built inside the layout pass) and a screen reader reads a window that is on the screen: the first tree is built after the first picture is
-/// posted. Every later layout builds its own, as before.
-///
-/// Mutation: the tree built inside the first layout again (the state of 98d415cb4e).
-#[test]
-fn the_first_accessibility_tree_is_built_after_the_first_picture() {
-    let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
-    let layout = body(&shell, "pubfnregenerate_layout_inner(");
-    let gate = layout
-        .find("ifself.first_frame_signalled{self.refresh_accessibility_tree();}else{self.a11y_first_owed=true;}")
-        .expect("the layout builds the tree only once the first picture is out, else it owes it");
-    assert!(gate < layout.find("self.common.clear_regeneration_unless_reraised").expect("the pass retires its request"));
-    let main = body(&shell, "pubfnandroid_main(app:AndroidApp){");
-    let present = main.find("window.gpu_present();").expect("the loop presents");
-    let owed = main
-        .find("ifwindow.a11y_first_owed&&window.first_frame_signalled{window.a11y_first_owed=false;window.refresh_accessibility_tree();}")
-        .expect("the loop builds the owed tree once the first picture is out");
-    assert!(present < owed, "after the frame of this iteration is posted");
-}
-
-/// The Java side hands the engine the insets it has kept again when its bridges attach (`NativeTextBridge.installInsetsListener`), and a dispatch
-/// the system repeats (the keyboard's animation, a focus change) says the same numbers: insets the layout already has are no pass. Without the early
-/// return the first insets of the surface, applied before the first layout, were applied once more a moment after the first picture and the engine
-/// laid everything out a second time for the same numbers (0.3 s on the widget gallery).
-///
-/// Mutation: `apply_insets` asking for a regeneration whatever the numbers (the state of 98d415cb4e).
-#[test]
-fn insets_the_layout_already_has_are_no_layout_pass() {
-    let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
-    let apply = body(&shell, "fnapply_insets(window:&mutAndroidWindow,px:[i32;5]){");
-    let same = apply
-        .find("ifwindow.inset_px==px&&window.common.layout_window.as_ref().is_some_and(|lw|lw.safe_area_insets==insets){return;}")
-        .expect("insets that equal the ones the layout has return before anything is asked for");
-    let asks = apply.find("request_regeneration(RelayoutReason::RefreshDom)").expect("a change of the insets is a pass");
-    assert!(same < asks, "the equality is decided before the regeneration is requested");
-    let early = body(&shell, "fnapply_early_insets(window:&mutAndroidWindow){");
-    assert!(
-        early.contains("request_regeneration(RelayoutReason::Initial)"),
-        "the first layout keeps the reason `Initial` the app's layout callback reads: a change of the insets or of the display features raises its own reason over it"
-    );
-}
-
-/// AzWriter on a phone hides the status bar and draws into the cutout area, and its strip takes the bar's place only while the bar is hidden
-/// (`ribbon::status_band`): laid out at the first insets dispatch, before the request is answered, the first picture was another page (an ordinary
-/// row under the bar) and the answer moved it a moment later. The request for the bars is sent at the surface's creation, before the first layout, and
-/// when it moves the insets the layout waits (bounded) for the insets that follow it; an app that asks for nothing of the bars waits for nothing.
-///
-/// Mutation: the request sent after the layout is requested (the state of 98d415cb4e); the wait removed; the wait for every app.
-#[test]
-fn the_system_bars_the_app_asks_for_are_asked_before_the_first_layout_and_awaited_when_they_move_the_insets() {
-    let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
-    let arm = shell.find("MainEvent::InitWindow{..}=>{").expect("the surface-created arm") + "MainEvent::InitWindow{..}".len();
-    let init = body(&shell[arm..], "=>");
-    let bars = init.find("apply_system_bars_at_surface(window);").expect("the bars are asked for at the surface");
-    let insets = init.find("apply_early_insets(window);").expect("the first insets are applied");
-    let layout = init.find("window.common.request_regeneration(reason)").expect("the layout is requested");
-    assert!(bars < insets && insets < layout, "the request, then the insets it led to, then the layout");
-    assert!(!init[layout..].contains("apply_system_bars_if_changed(window);"), "no second request after the layout is requested");
-
-    let at = body(&shell, "fnapply_system_bars_at_surface(window:&mutAndroidWindow){");
-    assert!(at.contains("ifwindow.applied_system_bars==Some(wanted){return;}"), "a surface after the first (a rotation) asks nothing again");
-    assert!(at.contains("bars_request_moves_insets(wanted.status asi32!=0,wanted.navigation asi32!=0,wanted.draw_into_cutout)".replace(' ', "").as_str()));
-    let ask = at.find("apply_system_bars_if_changed(window);").expect("the request goes to the activity");
-    assert!(at.find("early_insets()").unwrap() < ask, "what the window had been dispatched is read BEFORE the request");
-    let wait = at.find("wait_for_change(").expect("and the layout waits for the answer");
-    assert!(ask < wait && at[..wait].contains("if!moves{return;}"), "only when the request moves the insets");
-    assert!(shell.contains("constSYSTEM_BARS_WAIT_MS:u64=250;"), "bounded");
 }
