@@ -7,10 +7,11 @@
        folio;
     2. turns the page with the Right key (AZREADER_PAGE, or the next chapter when the first has
        one page only), bookmarks it with Ctrl/Cmd+D: state.json holds the bookmark;
-    3. opens the contents (Ctrl/Cmd+T) and goes to the second chapter from its entry; the running
-       head names it;
+    3. opens the contents (Ctrl/Cmd+T: the strip beside the pages) and goes to the second chapter
+       from its entry; the running head names it;
     4. makes the text larger (Ctrl/Cmd+Plus): the chapter is laid out again;
-    5. screenshots in flat / flora x light / dark; the library (Escape) shows the book's tile;
+    5. screenshots in flat / flora x light / dark; the library (Escape closes the strip, a second
+       Escape leaves the book) shows the book's tile;
     6. starts AzReader again on the same folder, opens the book from its tile (double click): it
        opens where the reader left it (the second chapter).
 
@@ -98,9 +99,11 @@ def first_session(app, data, out):
         raise e.Failure("the first page does not show the chapter's first paragraph")
     # The pages around the view are drawn ahead, off the UI thread: the page becomes a picture.
     app.until("the first page drawn ahead", lambda: page_drawn(app))
-    # No title row: the ribbon's tabs are the window's title bar (AzDrive's, AzWriter's).
+    # No title bar anywhere: the thin toolbar is the window's top edge.
     if app.nodes_with_class("__azul-native-titlebar"):
-        raise e.Failure("the reader draws a title row over its ribbon; the tabs are the title bar")
+        raise e.Failure("the reader draws a title bar over its toolbar")
+    if not app.has_id("__azreader_toolbar"):
+        raise e.Failure("the reader has no toolbar")
     app.settle()
     app.screenshot(os.path.join(out, "first-page.png"))
     app.log("chapter I laid out on %d page(s)" % pages_of(app, 0)[-1])
@@ -148,13 +151,15 @@ def first_session(app, data, out):
     app.must("set_mode", mode="light")
     app.frame(2)
 
-    # The library.
+    # The library: the first Escape closes the strip beside the pages (the contents are open), the second leaves the book.
+    app.key("escape")
+    app.until("the strip closed", lambda: not app.has_id("__azreader_strip"))
     app.key("escape")
     app.until("the library", lambda: app.has_id("__azreader_book-0"))
     if not app.shows("Alice's Adventures in Wonderland (sample)"):
         raise e.Failure("the library's tile does not show the book's title")
     if app.nodes_with_class("__azul-native-titlebar"):
-        raise e.Failure("the library draws a title row over its ribbon; the tabs are the title bar")
+        raise e.Failure("the library draws a title bar over its toolbar")
     app.settle()
     app.screenshot(os.path.join(out, "library.png"))
     app.until("the position in state.json", lambda: state_of(data, book_id).get("position", {}).get("chapter") == 1)
