@@ -12,7 +12,7 @@
 #   autofix    api.json through azul-doc: `autofix add` for the new functions, patches until there are none, normalize; the
 #              result is api.json (upload it) and api.diff (what it changed); then a SECOND round that must change nothing
 #   doc_check  azul-doc check (the double-drop invariant, the guide links) and azul-doc check layout
-#   widgets_check  the AzWidgets example type-checks over the C ABI (after the autofix step's api.json)
+#   widgets_check  the AzWidgets example builds over the C ABI (the QA build, scripts/ci/desktop_e2e_build.sh; after the autofix step's api.json)
 #   dll_check  codegen of the bindings from the api.json as it stands, cargo check of azul-dll, the srcgate tests (no --codegen needed)
 # A step that fails does not stop the ones after it; the last lines are one `STEP <name> <exit>` each, and the exit code of the
 # script is 0 only when every step that ran passed.
@@ -163,10 +163,12 @@ dll_check() {
 }
 run dll_check dll_check
 
-# AzWidgets over the C ABI: the page of this work type-checks against the bindings of the api.json as it stands
+# AzWidgets over the C ABI: the page of this work builds against the bindings of the api.json as it stands. Not
+# `cargo check -p AzWidgets`: azul-dll refuses the `link-dynamic` feature the example asks for without the shipped library, which
+# is what the QA build makes (the same build the pictures job runs).
 widgets_check() {
   cargo run -r -p azul-doc -- codegen all || return 1
-  cargo check -p AzWidgets --lib --tests
+  bash scripts/ci/desktop_e2e_build.sh linux AzWidgets
 }
 run widgets_check widgets_check
 

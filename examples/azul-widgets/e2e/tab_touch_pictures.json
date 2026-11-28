@@ -1,7 +1,7 @@
 [
   {
     "name": "azul_widgets_touch_tabs_pictures_a_strip_in_the_status_bar_around_the_camera",
-    "description": "The pictures of the tab strip in the status bar's band (QA's contact sheet: tabs/): the window is a Pixel 8 (411 x 914 dp) with the camera in the middle, then an iPhone with the Dynamic Island, then a ribbon's tabs as the strip over a document (AzWriter), and the same page with no phone. THE FLORA THEME FIRST (the pills are the theme's buttons on a leather strip that closes on a golden line), then Flat. Every picture is a CPU render of the window at rest, in this order: Flora: 1 Pixel 8 portrait light, 2 Design selected (the row scrolls that far pill whole into a lane), 3 Account selected (the end of the row), 4 dark, 5 iPhone island portrait, 6 iPhone island landscape, 7 Pixel 8 landscape, 8 ribbon in the band over a document, 9 ribbon with Review selected, 10 ribbon dark, 11 no phone: three tabs, 12 no phone: twelve tabs and the flip panel, 13 the strip built again with Account selected (a far pill selected at mount); Flat: 14 Pixel 8 light, 15 dark, 16 ribbon in the band, 17 iPhone island. Desktops only: the pictures need the window resized to a phone's size and turned on its side, which a phone's window cannot be; tab_touch_phone.json is the phone's. The assertions are the page's own: they keep the scenario honest on every platform.",
+    "description": "The pictures of the tab strip in the status bar's band (QA's contact sheet: tabs/): the window is a Pixel 8 (411 x 914 dp) with the camera in the middle, then an iPhone with the Dynamic Island, then a ribbon's tabs as the strip over a document (AzWriter), and the same page with no phone. THE FLORA THEME FIRST (the pills are the theme's buttons on a leather strip that closes on a golden line), then Flat. Every picture is a CPU render of the window at rest, in this order: Flora: 1 Pixel 8 portrait light, 2 Design selected (the row scrolls that far pill whole into a lane), 3 Account selected (the end of the row), 4 dark, 5 iPhone island portrait, 6 iPhone island landscape, 7 Pixel 8 landscape, 8 ribbon in the band over a document, 9 ribbon with Review selected, 10 ribbon dark, 11 no phone: three tabs, 12 no phone: twelve tabs and the flip panel, 13 the strip built again with Account selected (a far pill selected at mount); Flat: 14 Pixel 8 light, 15 dark, 16 ribbon in the band, 17 iPhone island. Desktops only: the pictures need the window resized to a phone's size and turned on its side, which a phone's window cannot be; tab_touch_phone.json is the phone's. The assertions are the page's own: they keep the scenario honest on every platform. The row of the ribbon in the band is photographed scrolled by 300 px BEFORE the click on Review (the host's frames showed both lanes empty after the click: is the row empty after the scroll alone, or after the rebuild?), and the rect of the selected ribbon tab is asked for after the click.",
     "only_on": [
       "linux",
       "windows",
@@ -352,6 +352,15 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "get_scrollable_nodes"
+      },
+      {
         "op": "click",
         "text": "Review"
       },
@@ -367,6 +376,10 @@
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "get_node_layout",
+        "selector": ".__azul-native-ribbon-tab-active"
       },
       {
         "op": "take_screenshot"
