@@ -279,6 +279,12 @@ def ledger_table(reports, device_name):
     return "\n".join(lines) + "\n"
 
 
+def oslog_command(udid, executable, minutes=30):
+    """The command that prints what the app wrote to the unified log of the Simulator (what is not on its stdout)."""
+    return ["xcrun", "simctl", "spawn", udid, "log", "show", "--last", f"{int(minutes)}m", "--style", "compact",
+            "--predicate", f'process == "{executable}"']
+
+
 def crash_reports_since(directory, executable, since):
     """The crash reports (`<executable>-<date>.ips` / `.crash`) of the app that appeared in `directory` after `since` (seconds): a launch
     that dies leaves one on the host the Simulator runs on, and it names the frame."""
@@ -518,6 +524,9 @@ def main(argv):
             findings.append("[fresh] the app asked the system for a permission by itself on a fresh install: "
                             + " | ".join(result["asked"][:4]))
         summary.append(f"{name}: {len(result['report'].get('rows', []))} rows")
+    code, oslog = sh(oslog_command(udid, app.stem), timeout=120)
+    if code == 0 and oslog:
+        (out / "oslog.txt").write_text(oslog[-2_000_000:], encoding="utf-8")
     crashes = collect_crash_reports(app.stem, started_at, out)
     if crashes:
         findings.append(f"the app crashed during this job: {', '.join(crashes)} (copied to {out}/crash/)")

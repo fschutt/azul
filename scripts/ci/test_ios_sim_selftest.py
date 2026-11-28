@@ -150,6 +150,14 @@ class Ledger(unittest.TestCase):
         self.assertIn("| sensors.geolocation | - | PASS | no |", md)
 
 
+class Oslog(unittest.TestCase):
+    def test_the_command_asks_the_simulator_for_the_apps_own_lines(self):
+        command = sim.oslog_command("U", "AzSelfTest")
+        self.assertEqual(command[:5], ["xcrun", "simctl", "spawn", "U", "log"])
+        self.assertIn('process == "AzSelfTest"', command)
+        self.assertIn("30m", command)
+
+
 class Crashes(unittest.TestCase):
     def test_only_the_reports_of_this_app_after_the_start_are_found(self):
         import os
