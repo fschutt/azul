@@ -931,9 +931,10 @@ pub(crate) fn flora_fade_on_curves(
     ]
 }
 
-/// The ink of a command's label, for the one step it makes when its face changes: what it is on a
-/// face of the command's own kind (flora's paper and its metal-edged command wear dark ink on light
-/// faces, a stone wears light ink on a dark one).
+/// The ink of a command's label, for the one step it makes when its face changes.
+///
+/// It is what the ink is on a face of the command's own kind: flora's paper and its metal-edged command
+/// wear dark ink on light faces, a stone wears light ink on a dark one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LabelInk {
     /// Dark ink on a light face: paper, the metal-edged command.
@@ -985,10 +986,11 @@ impl FloraButtonKind {
     }
 }
 
-/// [`flora_fade_on_curves`] for a face whose LABEL changes colour with it: the label's `color` is not
-/// faded with the face but has an entry of its own that holds the old colour for `ink`'s share of the
-/// face's time ([`LabelInk::held_permille`]) and then takes the new one at once. A `color` among
-/// `tweens` is dropped: the label has one entry, here.
+/// [`flora_fade_on_curves`] for a face whose LABEL changes colour with it.
+///
+/// The label's `color` is not faded with the face: it has an entry of its own that holds the old colour
+/// for `ink`'s share of the face's time ([`LabelInk::held_permille`]) and then takes the new one at once.
+/// A `color` among `tweens` is dropped: the label has one entry, here.
 #[must_use]
 pub(crate) fn flora_fade_switching_the_label(
     tweens: &[(&'static str, FadeCurve)],
@@ -1033,9 +1035,11 @@ pub(crate) fn flora_fade_switching_the_label(
     ]
 }
 
-/// The fade of a flora command's face when it changes state - or kind, as a button that becomes the
-/// primary one does - over `ms`, every part of it on `--fl-ease` ([`FLORA_FACE`]); the label of a kind
-/// whose face changes with it steps ([`flora_fade_switching_the_label`]), the quiet note's ink fades.
+/// The fade of a flora command's face when it changes state, or kind, over `ms`.
+///
+/// Every part of it is on `--fl-ease` ([`FLORA_FACE`]), as a button that becomes the primary one changes
+/// kind; the label of a kind whose face changes with it steps ([`flora_fade_switching_the_label`]), the
+/// quiet note's ink fades.
 #[must_use]
 pub(crate) fn flora_face_fade(kind: FloraButtonKind, ms: u32) -> [CssPropertyWithConditions; 2] {
     let tweens: Vec<(&'static str, FadeCurve)> = FLORA_FACE.iter().map(|name| (*name, FL_EASE)).collect();

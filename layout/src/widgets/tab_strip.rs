@@ -273,9 +273,10 @@ pub fn scroll_for_pill(
     widest.map_or(now, |(left, _)| (x - left).clamp(0.0, max))
 }
 
-/// The room each pill of a strip needs in front of it, on top of the `gap` between pills, so that at
-/// rest (the strip scrolled to its start) no pill stands in a gap of the band - under the camera - or
-/// under the fade at a lane's end.
+/// The room each pill of a strip needs in front of it, so that at rest no pill stands under a camera.
+///
+/// It is on top of the `gap` between pills: at rest (the strip scrolled to its start) no pill stands
+/// in a gap of the band, or under the fade at a lane's end.
 ///
 /// `widths` are the pills' widths in order, `lead` is where the first one starts (the room before it,
 /// the chevron's included), `lanes` the band's lanes in the strip's coordinates, `inset` the room a
