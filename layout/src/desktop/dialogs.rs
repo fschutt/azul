@@ -437,6 +437,65 @@ impl FolderPickResult {
     }
 }
 
+/// Result of [`FileDialog::export_bytes`]. `saved_as` is the NAME the file was saved under (the person may have changed the one the
+/// app suggested; the place is the person's and is not told): `None` if the person cancelled OR the export failed, and `error` says
+/// which (it is `None` after a save and after a cancel). Nothing is claimed that did not happen: `saved_as` is `Some` only after the
+/// bytes were written where the person chose.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct ExportResult {
+    pub saved_as: OptionString,
+    /// Why nothing was saved although the person did not cancel; `None` after a save and after a cancel.
+    pub error: OptionString,
+}
+
+impl_option!(
+    ExportResult,
+    OptionExportResult,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
+);
+
+impl ExportResult {
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
+    #[must_use]
+    pub fn downcast(mut result: RefAny) -> OptionExportResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+
+    /// A save (`Some(name)`) or a cancel (`None`): no error.
+    pub(crate) const fn new(saved_as: OptionString) -> Self {
+        Self {
+            saved_as,
+            error: OptionString::None,
+        }
+    }
+
+    /// The export failed: nothing was saved and the reason, which is NOT a cancel.
+    pub(crate) const fn failed(reason: AzString) -> Self {
+        Self {
+            saved_as: OptionString::None,
+            error: OptionString::Some(reason),
+        }
+    }
+}
+
+/// The desktop's "save as": the dialog, the write; the name the file was saved under, `None` for a cancel or a failed write.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn desktop_export(suggested_name: &str, bytes: &[u8]) -> Option<String> {
+    let mut dialog = tfd::FileDialog::new("Save");
+    if !suggested_name.is_empty() {
+        dialog = dialog.with_path(suggested_name);
+    }
+    let path = dialog.save_file()?;
+    crate::file::file_write(&path, bytes).ok()?;
+    Some(
+        std::path::Path::new(&path)
+            .file_name()
+            .map_or_else(|| path.clone(), |name| name.to_string_lossy().into_owned()),
+    )
+}
+
 /// The folder a desktop dialog answered, as a [`FolderPickResult`]: on a desktop a path IS the locator.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn folder_of(opened: FileOpenResult) -> FolderPickResult {
@@ -611,6 +670,18 @@ pub(crate) fn folder_result_from_status(status: FilePickerStatus) -> Option<Fold
         FilePickerStatus::SelectedMultiple(v) => FolderPickResult::new(v.as_ref().first().cloned().into()),
         FilePickerStatus::Cancelled => FolderPickResult::new(OptionString::None),
         FilePickerStatus::Error(reason) => FolderPickResult::failed(reason),
+    })
+}
+
+/// [`open_result_from_status`] for an export: the name the file was saved under (the picker's answer after the bytes were written).
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+pub(crate) fn export_result_from_status(status: FilePickerStatus) -> Option<ExportResult> {
+    Some(match status {
+        FilePickerStatus::Pending => return None,
+        FilePickerStatus::Selected(name) => ExportResult::new(OptionString::Some(name)),
+        FilePickerStatus::SelectedMultiple(v) => ExportResult::new(v.as_ref().first().cloned().into()),
+        FilePickerStatus::Cancelled => ExportResult::new(OptionString::None),
+        FilePickerStatus::Error(reason) => ExportResult::failed(reason),
     })
 }
 
@@ -1096,6 +1167,54 @@ impl FileDialog {
         }
     }
 
+    /// Let the person choose where to save `bytes` and resume `on_result` with an [`ExportResult`]: the portable "Export" / "Save as"
+    /// of an app that has the bytes in memory (a rendered PDF, an image, a document) and wants no write target and no path. The bytes
+    /// are written WHERE THE PERSON CHOSE and only then is `saved_as` the name they were saved under; a cancel and a failure are
+    /// different answers (`error`). Same contract as [`Self::open_file`]. Unlike [`Self::save_bytes`], which answers a bool at once
+    /// and does nothing on a phone, this works on a phone: Android shows the system's "save as" (`ACTION_CREATE_DOCUMENT`) and
+    /// writes through the document it created, iOS the export picker.
+    // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
+    #[allow(clippy::needless_pass_by_value)]
+    #[must_use]
+    pub fn export_bytes(
+        suggested_name: AzString,
+        mime: AzString,
+        bytes: U8Vec,
+        data: RefAny,
+        on_result: ResumeCallback,
+    ) -> RequestId {
+        // An e2e run records the export instead of showing a dialog; the scenario reads it back with `assert_saved_file`.
+        if let Some(accepted) = request::mock::record_saved_file(&suggested_name, &mime, bytes.as_ref()) {
+            let saved = accepted.then(|| suggested_name.clone());
+            return request::complete(data, on_result, ExportResult::new(saved.into()));
+        }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            drop(mime);
+            // the desktop's dialog is modal and answers here, like the other desktop requests
+            let saved = desktop_export(suggested_name.as_str(), bytes.as_ref());
+            request::complete(data, on_result, ExportResult::new(saved.map(AzString::from).into()))
+        }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            match FILE_PICKER_BACKEND.get() {
+                Some(backend) => {
+                    let handle = (backend.export_bytes)(suggested_name, mime, bytes);
+                    request::defer(
+                        data,
+                        on_result,
+                        Box::new(move || export_result_from_status(handle.poll()).map(RefAny::new)),
+                    )
+                }
+                None => request::complete(
+                    data,
+                    on_result,
+                    ExportResult::failed(AzString::from("this build has no export dialog (no file picker backend is installed)")),
+                ),
+            }
+        }
+    }
+
     /// Open multiple files and resume `on_result` with a
     /// [`FileOpenMultiResult`] (`paths` is empty if the user cancelled).
     /// Same contract as [`Self::open_file`].
@@ -1275,9 +1394,10 @@ impl FileDialog {
     /// the export was performed (desktop: the user picked a location in the
     /// native save dialog and the file was written) or scheduled (web: a
     /// download was triggered). `false` means cancelled or failed. On a
-    /// phone it answers `false` (and logs why) until the system's export
-    /// dialog is behind it: it never writes a folder the user did not
-    /// choose and says `true`.
+    /// phone it answers `false` (and logs why): the system's "save as" is
+    /// asynchronous, so a phone app calls [`Self::export_bytes`], which
+    /// answers when the bytes are written. It never writes a folder the
+    /// user did not choose and says `true`.
     ///
     /// This is the portable "export a document" primitive: it works from
     /// any event-driven callback chain on every target, needs no write
@@ -1326,8 +1446,8 @@ impl FileDialog {
 pub(crate) fn export_unavailable(suggested_name: &str) -> String {
     let name = if suggested_name.is_empty() { "the file" } else { suggested_name };
     format!(
-        "save_bytes: {name} was NOT saved: this phone build has no dialog yet that lets the user choose where to \
-         save, and the app's private folder is not a place the user can reach"
+        "save_bytes: {name} was NOT saved: save_bytes has no dialog on a phone (the app's private folder is not a place \
+         the user can reach): export with FileDialog::export_bytes, which asks the user where to save and answers when it is done"
     )
 }
 
@@ -1525,6 +1645,9 @@ pub struct FilePickerBackend {
     pub open_directory: fn(AzString, OptionString) -> FilePickerHandle,
     /// `(title, default_path)`: a folder the person GRANTS, answered as the locator `Documents` takes (Android: a persisted tree grant).
     pub open_folder: fn(AzString, OptionString) -> FilePickerHandle,
+    /// `(suggested name, MIME type, bytes)`: the system's export dialog; the backend writes the bytes where the person chose and
+    /// answers `Selected(name it was saved under)` only after they were written.
+    pub export_bytes: fn(AzString, AzString, U8Vec) -> FilePickerHandle,
 }
 
 static FILE_PICKER_BACKEND: OnceLock<FilePickerBackend> = OnceLock::new();

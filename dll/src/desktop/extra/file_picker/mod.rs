@@ -57,6 +57,7 @@ pub fn ensure_file_picker_backend() {
                     save_file: apply_save_file,
                     open_directory: apply_open_directory,
                     open_folder: apply_open_folder,
+                    export_bytes: apply_export_bytes,
                 },
             );
         });
@@ -145,6 +146,23 @@ pub fn apply_open_folder(title: AzString, default_path: OptionString) -> FilePic
     ios::dispatch_open_directory(handle.clone(), title, default_path);
     #[cfg(target_os = "android")]
     android::dispatch_open_folder(handle.clone(), title, default_path);
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        handle.set_status(FilePickerStatus::Cancelled);
+    }
+    handle
+}
+
+/// Export request, `FileDialog::export_bytes`: the system's "save as", the bytes written where the person chose, the answer the name
+/// they were saved under (only after the write). Android: `ACTION_CREATE_DOCUMENT` and a write through the document it creates.
+/// iOS: the export picker over a file of the bytes.
+#[allow(unused_variables)]
+pub fn apply_export_bytes(suggested_name: AzString, mime: AzString, bytes: azul_css::U8Vec) -> FilePickerHandle {
+    let handle = FilePickerHandle::new_pending();
+    #[cfg(target_os = "ios")]
+    ios::dispatch_export(handle.clone(), suggested_name, mime, bytes);
+    #[cfg(target_os = "android")]
+    android::dispatch_export(handle.clone(), suggested_name, mime, bytes);
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     {
         handle.set_status(FilePickerStatus::Cancelled);

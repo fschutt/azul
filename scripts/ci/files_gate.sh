@@ -80,6 +80,24 @@ api_functions=(
   CallbackInfo.can_share
   CallbackInfo.set_open_handler
   CallbackInfo.get_open_request
+  CallbackInfo.documents
+  FileDialog.open_folder
+  FolderPickResult.downcast
+  FileDialog.export_bytes
+  ExportResult.downcast
+  Documents.places
+  Documents.forget
+  Documents.stat
+  Documents.children
+  Documents.read
+  Documents.write
+  Documents.create_file
+  Documents.create_dir
+  Documents.rename
+  Documents.delete
+  Documents.all_files_access
+  Documents.request_all_files_access
+  Documents.backend_name
 )
 autofix_round() {
   # a critical FFI error does not stop the round: the patches were written anyway ("fix the errors before proceeding with
@@ -159,6 +177,7 @@ contracts() {
     --test android_share_open_contract \
     --test android_documents_contract \
     --test android_picker_contract \
+    --test file_picker_export_contract \
     --test android_extras_java_glue_contract \
     --test ios_share_open_contract \
     --test android_jni_symbols_match_the_java_glue \

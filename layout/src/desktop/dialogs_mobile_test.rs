@@ -5,8 +5,8 @@
 use azul_css::{corety::OptionString, AzString, StringVec};
 
 use super::{
-    export_unavailable, folder_result_from_status, multi_result_from_status, open_result_from_status,
-    save_result_from_status, FilePickerStatus, SaveTargetKind,
+    export_result_from_status, export_unavailable, folder_result_from_status, multi_result_from_status,
+    open_result_from_status, save_result_from_status, FilePickerStatus, SaveTargetKind,
 };
 
 fn s(text: &str) -> AzString {
@@ -122,4 +122,28 @@ fn several_answers_for_a_folder_request_are_the_first_and_a_failure_keeps_its_re
     let failed = folder_result_from_status(FilePickerStatus::Error(s("access to the folder could not be kept"))).unwrap();
     assert_eq!(failed.locator, OptionString::None, "a failure is not a pick");
     assert_eq!(failed.error, OptionString::Some(s("access to the folder could not be kept")), "and it is not a cancel");
+}
+
+// ---- an export: the name the file was saved under, after the write ----
+
+#[test]
+fn a_pending_export_has_no_answer_and_a_cancel_saved_nothing_and_says_no_error() {
+    assert!(export_result_from_status(FilePickerStatus::Pending).is_none());
+    let cancelled = export_result_from_status(FilePickerStatus::Cancelled).unwrap();
+    assert_eq!(cancelled.saved_as, OptionString::None);
+    assert_eq!(cancelled.error, OptionString::None);
+}
+
+#[test]
+fn a_saved_export_is_the_name_it_was_saved_under() {
+    let saved = export_result_from_status(FilePickerStatus::Selected(s("report (1).pdf"))).unwrap();
+    assert_eq!(saved.saved_as, OptionString::Some(s("report (1).pdf")), "the person's name, not the app's suggestion");
+    assert_eq!(saved.error, OptionString::None);
+}
+
+#[test]
+fn an_export_that_failed_saved_nothing_and_is_not_a_cancel() {
+    let failed = export_result_from_status(FilePickerStatus::Error(s("the file could not be saved: no space left"))).unwrap();
+    assert_eq!(failed.saved_as, OptionString::None, "a failure claims no name");
+    assert_eq!(failed.error, OptionString::Some(s("the file could not be saved: no space left")));
 }

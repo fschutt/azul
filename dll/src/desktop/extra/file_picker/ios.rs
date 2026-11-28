@@ -43,29 +43,62 @@ use objc::{class, msg_send, sel, sel_impl};
 
 use super::{FilePickerHandle, FilePickerStatus};
 
+/// What a picker on the screen was asked for.
+#[cfg(target_os = "ios")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PickKind {
+    /// A file or a folder: the URLs are what the delegate answers.
+    Open,
+    /// A place to save: the URLs are where the person saved the file, and the file of the bytes in the scratch folder goes.
+    Export,
+}
+
 /// What a picker on the screen waits for: the handle the app polls. Parked in the App's own registry (`AppServices::pickers`) under
 /// the id the delegate carries (its `requestID` ivar): no process-wide map and counter.
 #[cfg(target_os = "ios")]
 struct PendingPick {
     handle: FilePickerHandle,
+    kind: PickKind,
+    /// The folder of the file an export hands to the picker: removed when the picker is done.
+    scratch: Option<std::path::PathBuf>,
 }
 
 /// Park the request; its id, or `None` when the app has no services yet or too many pickers wait.
 #[cfg(target_os = "ios")]
 fn register_handle(handle: FilePickerHandle) -> Option<u64> {
+    register_pick(handle, PickKind::Open, None)
+}
+
+#[cfg(target_os = "ios")]
+fn register_pick(handle: FilePickerHandle, kind: PickKind, scratch: Option<std::path::PathBuf>) -> Option<u64> {
     crate::desktop::process_app::services()?
         .pickers
-        .register(PendingPick { handle })
+        .register(PendingPick { handle, kind, scratch })
         .ok()
 }
 
 /// Take the request `request_id` back out (an answer that comes twice finds nothing).
 #[cfg(target_os = "ios")]
-fn pop_handle(request_id: u64) -> Option<FilePickerHandle> {
+fn pop_pending(request_id: u64) -> Option<PendingPick> {
     crate::desktop::process_app::services()?
         .pickers
         .take::<PendingPick>(request_id)
-        .map(|pending| pending.handle)
+}
+
+/// [`pop_pending`] for a caller that wants only the handle (the scratch folder, if any, is removed).
+#[cfg(target_os = "ios")]
+fn pop_handle(request_id: u64) -> Option<FilePickerHandle> {
+    let pending = pop_pending(request_id)?;
+    clean_scratch(pending.scratch.as_deref());
+    Some(pending.handle)
+}
+
+/// Remove the folder an export wrote its file to (a failure is ignored: it is the system's temporary folder).
+#[cfg(target_os = "ios")]
+fn clean_scratch(scratch: Option<&std::path::Path>) {
+    if let Some(dir) = scratch {
+        drop(std::fs::remove_dir_all(dir));
+    }
 }
 
 /// Why a request that cannot be parked is answered with an error and shows no picker.
@@ -190,9 +223,13 @@ extern "C" fn document_picker_did_pick(
 ) {
     unsafe {
         let request_id: u64 = *this.get_ivar("requestID");
-        let Some(handle) = pop_handle(request_id) else {
+        let Some(pending) = pop_pending(request_id) else {
             return;
         };
+        let handle = pending.handle.clone();
+        // the file an export handed to the picker has been copied to where the person chose: it goes either way
+        let export = pending.kind == PickKind::Export;
+        clean_scratch(pending.scratch.as_deref());
 
         if urls.is_null() {
             handle.set_status(FilePickerStatus::Cancelled);
@@ -201,6 +238,18 @@ extern "C" fn document_picker_did_pick(
         let count: usize = msg_send![urls, count];
         if count == 0 {
             handle.set_status(FilePickerStatus::Cancelled);
+            return;
+        }
+        if export {
+            // `asCopy:YES`: the picker copied the file to the place the person chose before it answered; the answer is the name it
+            // was saved under
+            let url: *mut Object = msg_send![urls, objectAtIndex: 0usize];
+            let name = url_to_path_string(url)
+                .and_then(|path| std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()));
+            handle.set_status(match name {
+                Some(name) => FilePickerStatus::Selected(AzString::from(name)),
+                None => FilePickerStatus::Error(AzString::from("the system saved the file but named no place for it")),
+            });
             return;
         }
 
@@ -407,6 +456,77 @@ pub fn dispatch_open_file(
     _filter_descriptors: OptionStringVec,
     _allow_multiple: bool,
 ) {
+    handle.set_status(FilePickerStatus::Cancelled);
+}
+
+/// Export: the bytes are written to a file named `suggested_name` in a folder of the app's temporary directory, and the export picker
+/// (`UIDocumentPickerViewController initForExportingURLs:asCopy:YES`) copies that file to the place the person chooses; the answer is
+/// the name it was saved under, after the copy. The temporary file is removed when the picker is done, whatever the person did.
+#[cfg(target_os = "ios")]
+pub fn dispatch_export(handle: FilePickerHandle, suggested_name: AzString, _mime: AzString, bytes: azul_css::U8Vec) {
+    use azul_layout::managers::{share::sanitize_display_name, share_area::new_token};
+
+    let name = sanitize_display_name(suggested_name.as_str(), 128);
+    let scratch = std::env::temp_dir().join(format!("azul-export-{}", new_token()));
+    let file = scratch.join(&name);
+    let written = std::fs::create_dir_all(&scratch).and_then(|()| std::fs::write(&file, bytes.as_ref()));
+    if let Err(e) = written {
+        clean_scratch(Some(&scratch));
+        handle.set_status(FilePickerStatus::Error(AzString::from(format!(
+            "the file could not be prepared for the export dialog: {e}"
+        ))));
+        return;
+    }
+    let Some(request_id) = register_pick(handle.clone(), PickKind::Export, Some(scratch.clone())) else {
+        clean_scratch(Some(&scratch));
+        handle.set_status(FilePickerStatus::Error(AzString::from(NOT_TRACKABLE)));
+        return;
+    };
+
+    unsafe {
+        let root = key_root_view_controller();
+        if root.is_null() {
+            let _ = pop_handle(request_id);
+            handle.set_status(FilePickerStatus::Error(AzString::from("no key window — the export dialog cannot present")));
+            return;
+        }
+        let path = nsstring_from_str(&file.to_string_lossy());
+        let url: *mut Object = msg_send![class!(NSURL), fileURLWithPath: path];
+        let urls: *mut Object = msg_send![class!(NSArray), arrayWithObject: url];
+        let picker_alloc: *mut Object = msg_send![class!(UIDocumentPickerViewController), alloc];
+        let picker: *mut Object = msg_send![
+            picker_alloc,
+            initForExportingURLs: urls
+                          asCopy: true
+        ];
+        if picker.is_null() {
+            let _ = pop_handle(request_id);
+            handle.set_status(FilePickerStatus::Error(AzString::from("UIDocumentPickerViewController alloc failed")));
+            return;
+        }
+        let Some(delegate_cls) = get_or_create_delegate_class() else {
+            let _ = pop_handle(request_id);
+            handle.set_status(FilePickerStatus::Error(AzString::from(
+                "the file picker's delegate class could not be declared",
+            )));
+            return;
+        };
+        let delegate_alloc: *mut Object = msg_send![delegate_cls, alloc];
+        let delegate: *mut Object = msg_send![delegate_alloc, init];
+        (*delegate).set_ivar::<u64>("requestID", request_id);
+        let _: () = msg_send![picker, setDelegate: delegate];
+        associate_strong(picker, delegate);
+        let _: () = msg_send![
+            root,
+            presentViewController: picker
+                          animated: true
+                        completion: ptr::null_mut::<Object>()
+        ];
+    }
+}
+
+#[cfg(not(target_os = "ios"))]
+pub fn dispatch_export(handle: FilePickerHandle, _suggested_name: AzString, _mime: AzString, _bytes: azul_css::U8Vec) {
     handle.set_status(FilePickerStatus::Cancelled);
 }
 
