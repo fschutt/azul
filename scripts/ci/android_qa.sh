@@ -7,6 +7,8 @@
 #            e2e: scripts/ci/mobile_e2e.py, the debug server of a `mobile-e2e` APK driven from the runner (the scenario
 #                 files named in AZ_QA_SCENARIOS, space separated);
 #            both: qa, then e2e on the same boot;
+#            flicker: idle redraws, flash frames and pan jitter (scripts/ci/flicker_audit.py; AZ_QA_FLICKER_E2E, AZ_QA_FLICKER_MAPS);
+#            matrix: every e2e scenario file against its host app (scripts/ci/e2e_matrix.py; AZ_QA_MATRIX_APKS: the e2e APKs);
 #            audit: the phone-fit audit of QA-variant APKs (scripts/ci/mobile_e2e.py --audit-only) on the first mode only: the
 #                 APK, then every APK of AZ_QA_AUDIT_APKS (space separated), each in its own folder <out>/<mode>/audit/<apk name>/
 #                 (layout-audit.md and .json, the dumps, both pictures per orientation, the dark-mode verdict, and the app's own
@@ -61,8 +63,10 @@ printf '%s\n' "$badging" >"$out/badging.txt"
 floor_apk=""
 if [ "${AZ_FLOOR:-}" = 1 ]; then
   yes | sdkmanager --install "platforms;android-34" >>"$out/sdkmanager.log" 2>&1 || true
-  if JAVA_HOME="${JAVA_HOME_17_X64:-${JAVA_HOME:-}}" bash "$here/../floor-apk/build.sh" "$out/AzFloor-android.apk" >"$out/floor-build.log" 2>&1; then
-    floor_apk="$out/AzFloor-android.apk"
+  # an ABSOLUTE path: the floor script makes its work directory next to the APK and cd's into it (a relative demo-out/qa/floor-work.X broke the zip)
+  out_abs="$(cd "$out" && pwd)"
+  if JAVA_HOME="${JAVA_HOME_17_X64:-${JAVA_HOME:-}}" bash "$here/../floor-apk/build.sh" "$out_abs/AzFloor-android.apk" >"$out/floor-build.log" 2>&1; then
+    floor_apk="$out_abs/AzFloor-android.apk"
   else
     echo "the floor APK did not build:"; tail -n 8 "$out/floor-build.log"
   fi
@@ -70,7 +74,7 @@ fi
 
 IFS=',' read -r -a mode_list <<<"$modes"
 for mode in "${mode_list[@]}"; do
-  d="$out/$mode"; mkdir -p "$d"
+  d="$out/$mode${AZ_QA_BACKEND:+-$AZ_QA_BACKEND}"; mkdir -p "$d"   # AZ_QA_BACKEND=cpu|gpu|auto: a run of that renderer, its own folder
   echo "================ emulator GPU mode: $mode ================"
   adb kill-server >/dev/null 2>&1 || true
   echo no | avdmanager create avd --force -n "qa_$mode" -k "$image" -d pixel_6 >"$d/avd.log" 2>&1 \
@@ -103,8 +107,9 @@ for mode in "${mode_list[@]}"; do
   if [ "$session" = qa ] || [ "$session" = both ]; then
     python3 "$here/mobile_qa.py" android --out "$d" --apk "$apk" --package "$pkg" --activity "${act:-}" \
       --label "$label" --gpu "$mode" ${AZ_QA_POINTS:+--points "$AZ_QA_POINTS"} \
-      $( [ "$mode" = "${mode_list[0]}" ] && echo ${AZ_QA_SERIES:+--series "$AZ_QA_SERIES"} ${floor_apk:+--floor-apk "$floor_apk"} ) \
-      ${AZ_QA_EXPECT_GPU:+--expect-gpu} ${AZ_QA_ONLY:+--only "$AZ_QA_ONLY"} 2>&1 | tee "$d/qa.log"
+      $( [ "$mode" = "${mode_list[0]}" ] && echo ${AZ_QA_SERIES:+--series "$AZ_QA_SERIES"} ${floor_apk:+--floor-apk "$floor_apk"} ${AZ_QA_STARTUP:+--startup} ) \
+      ${AZ_QA_EXPECT_GPU:+--expect-gpu} ${AZ_QA_BACKEND:+--backend "$AZ_QA_BACKEND"} ${AZ_QA_EXPECT_HOOKS:+--expect-hooks} \
+      ${AZ_QA_ONLY:+--only "$AZ_QA_ONLY"} 2>&1 | tee "$d/qa.log"
   fi
   # the e2e session runs on the FIRST mode only (it does not depend on how the emulator composes the window)
   if { [ "$session" = e2e ] || [ "$session" = both ]; } && [ "$mode" = "${mode_list[0]}" ]; then
@@ -126,11 +131,26 @@ for mode in "${mode_list[@]}"; do
       mkdir -p "$d/apps"
       # AZ_QA_TAPS: lines `<apk name>=<button label>`: step 03e presses that button of that app
       xtap="$(printf '%s\n' "${AZ_QA_TAPS:-}" | sed -n "s/^$xn=//p" | head -n 1)"
+      # AZ_QA_ONLY_FOR: lines `<apk name>=<steps>`: the steps of THAT app instead of AZ_QA_ONLY_EXTRA (AzCompanion's UI is dark by design: no dark-mode step)
+      xonly="$(printf '%s\n' "${AZ_QA_ONLY_FOR:-}" | sed -n "s/^$xn=//p" | head -n 1)"
       python3 "$here/mobile_qa.py" android --out "$d/apps/$xn" --apk "$xapk" --package "$xpkg" --activity "${xact:-}" \
-        --label "$xn" --gpu "$mode" --only "${AZ_QA_ONLY_EXTRA:-03,08,09,12,13}" ${xtap:+--tap-label "$xtap"} 2>&1 | tee "$d/apps/$xn.log"
+        --label "$xn" --gpu "$mode" --only "${xonly:-${AZ_QA_ONLY_EXTRA:-03,08,09,12,13}}" ${xtap:+--tap-label "$xtap"} 2>&1 | tee "$d/apps/$xn.log"
     done
   fi
+  if [ "$session" = flicker ] && [ "$mode" = "${mode_list[0]}" ]; then
+    # idle redraws, flash frames of a recording, pan jitter (scripts/ci/flicker_audit.py): $apk = the plain AzWidgets APK, AZ_QA_FLICKER_E2E = its e2e
+    # APK, AZ_QA_FLICKER_MAPS = the AzMaps APK
+    python3 "$here/flicker_audit.py" android --out "$d/flicker" --apk-plain "$apk" ${AZ_QA_FLICKER_E2E:+--apk-e2e "$AZ_QA_FLICKER_E2E"} \
+      ${AZ_QA_FLICKER_MAPS:+--maps "$AZ_QA_FLICKER_MAPS"} 2>&1 | tee "$d/flicker.log"
+  fi
+  if [ "$session" = matrix ] && [ "$mode" = "${mode_list[0]}" ]; then
+    # every e2e scenario file against its host app (scripts/ci/e2e_matrix.py): the e2e APK of each host (AZ_QA_MATRIX_APKS, space separated)
+    mapks=()
+    for mapk in "$apk" ${AZ_QA_MATRIX_APKS:-}; do mapks+=(--apk "$mapk"); done
+    python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
+  fi
   if [ "$session" = audit ] && [ "$mode" = "${mode_list[0]}" ]; then
+    aport=8795
     for aapk in "$apk" ${AZ_QA_AUDIT_APKS:-}; do
       ab="$("$aapt2" dump badging "$aapk" 2>/dev/null || true)"
       apkg="$(echo "$ab" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
@@ -141,8 +161,12 @@ for mode in "${mode_list[@]}"; do
       case "$an" in AzPaint-*) ascript=paint ;; AzWriter-*) ascript=writer ;; AzMaps-*) ascript=maps ;; AzMeet-*) ascript=meet ;; esac
       echo "---- phone-fit audit of $an ($apkg)${ascript:+, script $ascript}"
       mkdir -p "$d/audit"
-      python3 "$here/mobile_e2e.py" android --out "$d/audit/$an" --apk "$aapk" --package "$apkg" --activity "${aact:-}" \
+      # one port per app, and the app of the session before is stopped: a debug server of the app before that still held the port
+      # would answer for the app in front of it (the audit of the wrong DOM)
+      python3 "$here/mobile_e2e.py" android --out "$d/audit/$an" --apk "$aapk" --package "$apkg" --activity "${aact:-}" --port "$aport" \
         --label "$an" --audit-only ${ascript:+--script "$ascript"} 2>&1 | tee "$d/audit/$an.log"
+      adb shell am force-stop "$apkg" >/dev/null 2>&1 || true
+      aport=$((aport + 1))
     done
   fi
   adb emu kill >/dev/null 2>&1 || true

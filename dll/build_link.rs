@@ -519,6 +519,13 @@ fn native_libs_file(archive: &Path) -> PathBuf {
     archive.with_file_name(name)
 }
 
+/// The system DLLs a Windows consumer of a prebuilt `azul.lib` names when no `azul.lib.native-libs` says better (see
+/// `emit_static_system_deps`).
+static WINDOWS_SYSTEM_LIBS: [&str; 15] = [
+    "user32", "gdi32", "shell32", "ole32", "oleaut32", "opengl32", "dwmapi", "advapi32", "shcore",
+    "bcrypt", "winmm", "ws2_32", "userenv", "ntdll", "crypt32",
+];
+
 /// System libraries a consumer must link ALONGSIDE the prebuilt `libazul.a`.
 ///
 /// A static archive carries no link metadata. When azul is consumed as a Rust
@@ -588,13 +595,14 @@ fn emit_static_system_deps(target: &str, archive: &Path) {
         //   shcore:   GetDpiForMonitor (per-monitor DPI, desktop::display)
         //   bcrypt:   BCryptGenRandom (getrandom — in azul's graph, not the
         //             consumer's, so the consumer's std does not pull it)
+        //   crypt32:  CertOpenStore/CertGetCertificateChain/... (the Windows
+        //             verifier of rustls-platform-verifier under reqwest: the
+        //             first link of a demo against the prebuilt azul.lib, 2026-11-28,
+        //             left exactly these ten unresolved in all six apps)
         // The rest are cheap universally-present DLLs listed preemptively so
         // the next feature (audio timers, sockets, COM automation) does not
         // repeat this cycle.
-        for lib in [
-            "user32", "gdi32", "shell32", "ole32", "oleaut32", "opengl32", "dwmapi", "advapi32",
-            "shcore", "bcrypt", "winmm", "ws2_32", "userenv", "ntdll",
-        ] {
+        for lib in WINDOWS_SYSTEM_LIBS.iter() {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }
     } else if target.contains("linux") {

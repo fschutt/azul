@@ -188,7 +188,8 @@ extern "C" fn render_overlay(mut data: RefAny, info: RenderImageCallbackInfo) ->
     let Some((mut app, page)) = data.downcast_ref::<OverlayCanvas>().map(|c| (c.app.clone(), c.page)) else {
         return blank();
     };
-    let k = if logical.width > 0.0 { w as f32 / logical.width } else { 1.0 };
+    // the frame's px for a px of the page (the page's own px, whatever zoom the pages are drawn at: the layer is laid out that much larger)
+    let k = if logical.width > 0.0 { w as f32 / ui::PAGE_W } else { 1.0 };
     let Some(state) = app.downcast_ref::<AppState>() else {
         return blank();
     };

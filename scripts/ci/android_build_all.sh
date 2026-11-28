@@ -7,7 +7,7 @@
 #   bash scripts/ci/android_build_all.sh [<rust-target>]            default x86_64-linux-android
 #
 # Everything lands in demo-out/: apps/<App>-android-x86_64.apk (and apps/AzWidgets-e2e-android-x86_64.apk), results/*.json (one per app,
-# the QA build's with "variant"), libs/*/libazul.info.json (seconds and bytes of each library), elf-check-*.txt (every PT_LOAD of every
+# the QA builds' with "variant"), libs/*/libazul.info.json (seconds and bytes of each library), elf-check-*.txt (every PT_LOAD of every
 # library of every APK aligned for 16 KiB pages). The libraries share one cargo target directory, so the second and the third only build
 # what differs: about 25 minutes of libraries cold and 5 of apps. No emulator is started here (the QA of the QA agent and the boot test
 # of scripts/ci/android_smoke.sh take the APKs from the artifact).
@@ -44,41 +44,42 @@ rustup target add "$target"
 mkdir -p demo-out/libs demo-out/apps demo-out/results
 python3 scripts/demo_apps.py plan --e2e | tee demo-out/plan.txt
 
-# the libraries: what ships (plain, and the iroh one for the companion) and the QA variant
-for variant in mobile mobile-iroh mobile-e2e; do
+# What the plan builds for this column: every library (what ships: the plain one and the iroh one of the apps that use iroh; the QA
+# variants: mobile-e2e, and its iroh twin mobile-e2e-iroh for the QA builds of those apps) and every build (the shipped apps, then the QA
+# builds of each QA variant). The plain variant of a build is written "-".
+python3 - "$col" > demo-out/plan-legs.txt <<'PY'
+import json, sys
+col = sys.argv[1]
+plan = {}
+for line in open("demo-out/plan.txt"):
+    key, _, value = line.rstrip("\n").partition("=")
+    plan[key] = value
+for e in json.loads(plan["libs_android"])["include"]:
+    if e["leg"] == col:
+        print("lib", e["variant"], sep="\t")
+for e in json.loads(plan["apps_android"])["include"]:
+    if e["leg"] == col:
+        print("apps", e["variant"] or "-", e["apps"], sep="\t")
+PY
+cat demo-out/plan-legs.txt
+
+while IFS=$'\t' read -r kind variant apps; do
+  [ "$kind" = lib ] || continue
   features="$(python3 scripts/demo_apps.py features "$col" "$variant")"
   echo "== $variant: $features"
   start=$(date +%s)
   bash scripts/demo_lib.sh android "$target" "$features" "demo-out/libs/demolib-$col-$variant"
   echo "LIB $variant SECONDS: $(( $(date +%s) - start ))"
-done
+done < demo-out/plan-legs.txt
 
-# the apps: every phone app against the library it names, then the QA build of AzWidgets
-apps="$(python3 - "$col" <<'PY'
-import json, sys
-col = sys.argv[1]
-plan = {}
-for line in open("demo-out/plan.txt"):
-    key, _, value = line.rstrip("\n").partition("=")
-    plan[key] = value
-print(next(e["apps"] for e in json.loads(plan["apps_android"])["include"] if e["leg"] == col and e["variant"] == ""))
-PY
-)"
+# the apps: every phone app against the library it names, then the QA builds of the apps that say e2e = true, each against its QA library
 start=$(date +%s)
-python3 scripts/demo_build.py android --target "$target" --apps "$apps" --libs demo-out/libs --out demo-out/apps \
-  --results demo-out/results --variant ""
-e2e_apps="$(python3 - "$col" <<'PY'
-import json, sys
-col = sys.argv[1]
-plan = {}
-for line in open("demo-out/plan.txt"):
-    key, _, value = line.rstrip("\n").partition("=")
-    plan[key] = value
-print(next(e["apps"] for e in json.loads(plan["apps_android"])["include"] if e["leg"] == col and e["variant"] == "mobile-e2e"))
-PY
-)"
-python3 scripts/demo_build.py android --target "$target" --apps "$e2e_apps" --libs demo-out/libs --out demo-out/apps \
-  --results demo-out/results --variant mobile-e2e
+while IFS=$'\t' read -r kind variant apps; do
+  [ "$kind" = apps ] || continue
+  [ "$variant" = "-" ] && variant=""
+  python3 scripts/demo_build.py android --target "$target" --apps "$apps" --libs demo-out/libs --out demo-out/apps \
+    --results demo-out/results --variant "$variant"
+done < demo-out/plan-legs.txt
 echo "APPS SECONDS: $(( $(date +%s) - start ))"
 ls -la demo-out/apps
 

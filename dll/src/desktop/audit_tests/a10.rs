@@ -513,11 +513,14 @@ fn wayland_sizes_and_renders_with_the_compositors_preferred_scale() {
 /// azul-layout), and it hands nothing over while the layer still shows the
 /// frame (`frame_already_shown`: no frame since, or one that changed nothing).
 ///
-/// Mutations: `Box::from(pixmap.data())` back in `display_layer`, the release
+/// Mutations: `Box::from(pixmap.data())` back in `present_pending_frame`, the release
 /// callback dropping the box, or the skip removed, fail here.
+///
+/// The frame is made by `present_pending_frame` (the body of `displayLayer:`, which the
+/// display tick calls as well).
 #[test]
 fn the_ios_present_reuses_its_frame_copies_and_skips_an_unchanged_frame() {
-    let present = body(IOS_RS, "extern \"C\" fn display_layer(");
+    let present = body(IOS_RS, "fn present_pending_frame(");
     assert!(
         present.contains("pool.take(len)") && !present.contains("Box::from(pixmap.data())"),
         "the frame copy must come from the pool"

@@ -1982,6 +1982,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         form_validation_manager: _,
         safe_area_insets: _,
         laid_out_env: _,
+        laid_out_insets: _,
         frame_titlebar: _,
         drawn_titlebar: _,
         currently_dragging_thumb: _,
@@ -2007,6 +2008,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         renderer_type: _,
         previous_window_state: _,
         current_window_state: _,
+        // NOT WALKED: one size, set while a layout pass runs.
+        pass_window_size: _,
         document_id: _,
         id_namespace: _,
         epoch: _,
@@ -2856,6 +2859,14 @@ pub struct LayoutWindow {
     /// cannot see that. When this moves, the nodes that read the environment
     /// go into the pass's css dirt.
     laid_out_env: u64,
+    /// What the ROOT layout took from the window for the safe area when it was
+    /// last laid out, as `[top, bottom, left, right]` in logical px
+    /// ([`Self::root_insets`]): the insets the retained layout stands on.
+    /// [`Self::safe_area_moved_since_layout`] compares it with the window's
+    /// insets now - the shell's "the app's DOM is the DOM it was" exits may not
+    /// keep a layout whose root was placed for other insets (the bars of a
+    /// phone arrive AFTER its first frame, a rotation moves them).
+    laid_out_insets: [f32; 4],
     /// What the window's frame measured of the title bar it draws, written by
     /// the platform shell like [`Self::safe_area_insets`]: the macOS shell
     /// measures `AppKit`'s buttons and the band the title bar covers.
@@ -2895,6 +2906,14 @@ pub struct LayoutWindow {
     /// Window state of this current window (current frame): initialized to the state of
     /// `WindowCreateOptions`
     pub current_window_state: FullWindowState,
+    /// The size of the window the layout pass that is running lays out for; `None` between passes.
+    ///
+    /// The shells publish the window state of a pass ([`Self::current_window_state`]) AFTER the pass,
+    /// which is what lets the next pass see that the window changed size. Inside the pass that field
+    /// still holds the size of the LAST pass; a display list the pass makes again from inside (a typed
+    /// field's text applied again, a restored caret, the reveal of the focused caret) paints the canvas
+    /// across this size instead ([`Self::window_size_for_canvas`]).
+    pub(crate) pass_window_size: Option<LogicalSize>,
     /// A "document" in `WebRender` usually corresponds to one tab (i.e. in Azuls case, the whole
     /// window).
     pub document_id: DocumentId,
@@ -4708,6 +4727,7 @@ impl LayoutWindow {
             form_validation_manager: azul_core::form::FormValidationManager::new(),
             safe_area_insets: azul_css::system::SafeAreaInsets::default(),
             laid_out_env: 0,
+            laid_out_insets: [0.0; 4],
             frame_titlebar: azul_css::system::TitlebarReport::Unmeasured,
             drawn_titlebar: azul_css::system::TitlebarReport::Unmeasured,
             timers: BTreeMap::new(),
@@ -4722,6 +4742,7 @@ impl LayoutWindow {
             renderer_type: None,
             previous_window_state: None,
             current_window_state: FullWindowState::default(),
+            pass_window_size: None,
             document_id: new_document_id(),
             id_namespace: new_id_namespace(),
             epoch: Epoch::new(),
@@ -4938,6 +4959,9 @@ impl LayoutWindow {
         // work if it is the frame's first.
         let started = crate::probe::monotonic_now_nanos();
         self.frame_clock.note_work(started);
+        // The window this pass lays out for, for whatever the pass makes again from inside
+        // ([`Self::pass_window_size`]); a pass inside a pass gives it back to the outer one.
+        let outer_pass = self.pass_window_size.replace(window_state.size.dimensions);
         let result = self.layout_and_generate_display_list_timed(
             root_dom,
             window_state,
@@ -4946,6 +4970,7 @@ impl LayoutWindow {
             debug_messages,
             new_generation,
         );
+        self.pass_window_size = outer_pass;
         self.frame_clock
             .note_layout(crate::probe::monotonic_now_nanos().saturating_sub(started));
         result
@@ -9572,51 +9597,100 @@ impl LayoutWindow {
         )
     }
 
-    /// [`layout_dom_recursive`](Self::layout_dom_recursive) with an explicit
-    /// CHILD viewport. A nested DOM (`VirtualView` content) is laid out
-    /// against ITS OWN box, not the window: the returned root fills the view
-    /// and percentage sizes resolve inside it. `None` = the window viewport
-    /// (the root DOM). Found 2026-08-29: a `width: 66%` child of a VV root
-    /// resolved against the 640px window instead of the 140px view and
-    /// painted "full width" after clipping.
-    /// `full` shrunk by the platform's safe-area insets (10c-v): the origin
-    /// moves in by the left and top insets, the size loses all four; a
-    /// window smaller than its insets collapses to zero rather than going
-    /// negative. Only absolute (px) insets count - that is what every
-    /// platform reports.
-    #[must_use]
     /// What a document's canvas background covers: the whole window for the
     /// ROOT document, whatever the safe area took from its layout viewport;
     /// a child DOM's own viewport (placed by its host) otherwise.
+    #[must_use]
     const fn canvas_rect_for(
         is_root: bool,
         viewport: LogicalRect,
         window_state: &FullWindowState,
     ) -> LogicalRect {
+        Self::canvas_rect_for_size(is_root, viewport, window_state.size.dimensions)
+    }
+
+    /// [`Self::canvas_rect_for`] for a window of `window_size`.
+    const fn canvas_rect_for_size(
+        is_root: bool,
+        viewport: LogicalRect,
+        window_size: LogicalSize,
+    ) -> LogicalRect {
         if is_root {
-            LogicalRect::new(LogicalPosition::zero(), window_state.size.dimensions)
+            LogicalRect::new(LogicalPosition::zero(), window_size)
         } else {
             LogicalRect::new(LogicalPosition::zero(), viewport.size)
         }
     }
 
+    /// The size of the window the canvas of a document made now covers: the window the running layout pass
+    /// lays out for ([`Self::pass_window_size`]), else the window of the last pass. A display list made
+    /// again from inside a pass (`regenerate_display_list_for_dom`) takes its canvas from here and not from
+    /// [`Self::current_window_state`], which the shells publish after the pass: after a rotation it still
+    /// held the old size, and the canvas background of the page laid out for the new one covered the old
+    /// width.
+    fn window_size_for_canvas(&self) -> LogicalSize {
+        self.pass_window_size
+            .unwrap_or(self.current_window_state.size.dimensions)
+    }
+
+    /// The four insets as absolute logical px, `[top, bottom, left, right]`:
+    /// what the root layout takes from the window. Only absolute (px) insets
+    /// count - that is what every platform reports - and a negative one is
+    /// none.
     #[must_use]
-    pub fn inset_by_safe_area(
-        full: &LogicalRect,
-        insets: &azul_css::system::SafeAreaInsets,
-    ) -> LogicalRect {
+    pub fn safe_area_px(insets: &azul_css::system::SafeAreaInsets) -> [f32; 4] {
         let px = |v: azul_css::props::basic::pixel::OptionPixelValue| -> f32 {
             v.into_option()
                 .and_then(|p| p.to_pixels_absolute().into_option())
                 .unwrap_or(0.0)
                 .max(0.0)
         };
-        let (top, bottom, left, right) = (
-            px(insets.top),
-            px(insets.bottom),
-            px(insets.left),
-            px(insets.right),
-        );
+        [px(insets.top), px(insets.bottom), px(insets.left), px(insets.right)]
+    }
+
+    /// What the ROOT layout of a window in `window_state` takes from it for
+    /// the safe area, `[top, bottom, left, right]` in logical px: the live
+    /// insets ([`Self::safe_area_insets`]), or nothing for a window that
+    /// draws under the bars (`WindowFlags::extend_into_safe_area`, the
+    /// browser's `viewport-fit=cover`). The one place that decides it, for
+    /// the viewport of the layout pass and for
+    /// [`Self::safe_area_moved_since_layout`].
+    #[must_use]
+    pub fn root_insets(&self, window_state: &FullWindowState) -> [f32; 4] {
+        if window_state.flags.extend_into_safe_area {
+            [0.0; 4]
+        } else {
+            Self::safe_area_px(&self.safe_area_insets)
+        }
+    }
+
+    /// Whether the insets the window has now are not the ones its ROOT was
+    /// last laid out for: the bars of a phone arrive after its first frame
+    /// (Android's `onApplyWindowInsets` is delivered once the window has
+    /// focus), a rotation moves them, a keyboard-less split view changes them.
+    ///
+    /// The shell asks it before it keeps a retained layout because the app's
+    /// DOM is the DOM it was: that DOM is the same under any insets, and its
+    /// layout is not - a layout kept across a change of insets leaves a static
+    /// UI (a map, a canvas, a ribbon) under the status bar for good. Compares
+    /// four floats; `false` for a window whose insets never moved, which is
+    /// every desktop window.
+    #[must_use]
+    pub fn safe_area_moved_since_layout(&self, window_state: &FullWindowState) -> bool {
+        self.root_insets(window_state) != self.laid_out_insets
+    }
+
+    /// `full` shrunk by the platform's safe-area insets (10c-v): the origin
+    /// moves in by the left and top insets, the size loses all four; a
+    /// window smaller than its insets collapses to zero rather than going
+    /// negative. Only absolute (px) insets count - that is what every
+    /// platform reports.
+    #[must_use]
+    pub fn inset_by_safe_area(
+        full: &LogicalRect,
+        insets: &azul_css::system::SafeAreaInsets,
+    ) -> LogicalRect {
+        let [top, bottom, left, right] = Self::safe_area_px(insets);
         LogicalRect {
             origin: LogicalPosition {
                 x: full.origin.x + left,
@@ -9629,6 +9703,13 @@ impl LayoutWindow {
         }
     }
 
+    /// [`layout_dom_recursive`](Self::layout_dom_recursive) with an explicit
+    /// CHILD viewport. A nested DOM (`VirtualView` content) is laid out
+    /// against ITS OWN box, not the window: the returned root fills the view
+    /// and percentage sizes resolve inside it. `None` = the window viewport
+    /// (the root DOM). Found 2026-08-29: a `width: 66%` child of a VV root
+    /// resolved against the 640px window instead of the 140px view and
+    /// painted "full width" after clipping.
     pub fn layout_dom_recursive_with_viewport(
         &mut self,
         mut styled_dom: StyledDom,
@@ -9989,17 +10070,25 @@ impl LayoutWindow {
         // `WindowFlags::extend_into_safe_area`, which is `viewport-fit=cover`.
         // A child DOM (a VirtualView's) is placed by its host and is never
         // inset here. Zero on every desktop, so this is a no-op there.
-        let viewport = child_viewport.unwrap_or_else(|| {
+        //
+        // The insets this root stands on are remembered
+        // (`safe_area_moved_since_layout`): the shell must not keep this layout
+        // for an app DOM that is the DOM it was once they have moved.
+        let viewport = if let Some(child) = child_viewport {
+            child
+        } else {
+            let root_insets = self.root_insets(window_state);
+            self.laid_out_insets = root_insets;
             let full = LogicalRect {
                 origin: LogicalPosition::zero(),
                 size: window_state.size.dimensions,
             };
-            if window_state.flags.extend_into_safe_area {
+            if root_insets == [0.0; 4] {
                 full
             } else {
                 Self::inset_by_safe_area(&full, &self.safe_area_insets)
             }
-        });
+        };
         // The canvas background is painted under the WHOLE window, safe area
         // included (CSS 2.2 §14.2 - the inset moves where the root is laid
         // out, not what lies behind it). A child DOM keeps its own box.
@@ -31383,6 +31472,7 @@ impl LayoutWindow {
             };
             let styled_dom = &layout_result.styled_dom;
             let viewport = layout_result.viewport;
+            let window_size = self.window_size_for_canvas();
             let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
             let empty_gpu_cache = GpuValueCache::default();
             let gpu_cache = gpu_cache_for_pass(&self.gpu_state_manager, dom_id, false)
@@ -31406,10 +31496,10 @@ impl LayoutWindow {
                 debug_messages: &mut debug_messages,
                 counters: &mut counter_values,
                 viewport_size: viewport.size,
-                canvas_rect: Self::canvas_rect_for(
+                canvas_rect: Self::canvas_rect_for_size(
                     dom_id == DomId::ROOT_ID,
                     viewport,
-                    &self.current_window_state,
+                    window_size,
                 ),
                 fragmentation_context: None,
                 cursor_is_visible,
@@ -31610,6 +31700,9 @@ impl LayoutWindow {
         let scroll_ids = &layout_result.scroll_ids;
         let styled_dom = &layout_result.styled_dom;
         let viewport = layout_result.viewport;
+        // The canvas of the list made again covers the window of the pass that is running, not the one
+        // the last pass was made for (`Self::window_size_for_canvas`).
+        let window_size = self.window_size_for_canvas();
 
         // Get scroll offsets from scroll manager
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
@@ -31676,10 +31769,10 @@ impl LayoutWindow {
             debug_messages: &mut debug_messages,
             counters: &mut counter_values,
             viewport_size: viewport.size,
-            canvas_rect: Self::canvas_rect_for(
+            canvas_rect: Self::canvas_rect_for_size(
                 dom_id == DomId::ROOT_ID,
                 viewport,
-                &self.current_window_state,
+                window_size,
             ),
             fragmentation_context: None,
             cursor_is_visible,
@@ -34802,6 +34895,8 @@ impl LayoutWindow {
             retired_child_results: _,
             child_dom_fingerprints: _,
             prev_left_down: _,
+            // One size of the window, not keyed by a node.
+            pass_window_size: _,
             laid_out_dock_generation: _,
             inline_tear,
             gpu_state_manager,
@@ -34985,6 +35080,7 @@ impl LayoutWindow {
                 fragmentation_context: _,
             safe_area_insets: _,
             laid_out_env: _,
+            laid_out_insets: _,
             frame_titlebar: _,
             drawn_titlebar: _,
             // App-level animation CONFIG (durations + fn pointers), no node ids.

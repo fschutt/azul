@@ -46,9 +46,11 @@ use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
 use crate::{
     desktop::shell2::{
+        android_core::slop::{Lift as SlopLift, Move as SlopMove, TapSlop},
         common::{
             debug_server::LogCategory,
             event::{self, CommonWindowState, HitTestNode, PlatformWindow},
+            ios_logic::{mouse_plan, CursorPlan, HitPlan, TouchPhase, TOUCH_SLOP_POINTS},
             WindowError,
         },
         headless::CpuBackend,
@@ -58,12 +60,21 @@ use crate::{
 
 pub mod accessibility;
 pub mod clipboard;
+/// OpenGL ES (`OpenGLES.framework`, opened at run time) under the GPU path.
+mod gl;
+/// The GPU path of a window: the lifecycle machine's executor and the frame.
+mod gpu;
+/// The phone's language (`NSLocale.preferredLanguages`).
+mod locale;
 mod text_input;
 /// `<webview>`: `WKWebView`s, `WebKit.framework` loaded at the first one.
 mod webview;
 
 use crate::{
-    desktop::wr_translate2::{AsyncHitTester, WrRenderApi},
+    desktop::{
+        shell2::common::gpu_lifecycle,
+        wr_translate2::{AsyncHitTester, WrRenderApi},
+    },
     log_debug, log_error, log_info,
 };
 
@@ -245,6 +256,23 @@ unsafe fn set_display_link_paused(paused: bool) {
     }
 }
 
+/// Ask Core Animation for a frame: `displayLayer:` runs at the next display pass.
+///
+/// The request goes to the view's LAYER, the object `displayLayer:` is a delegate method of. It used to be
+/// `-[UIView setNeedsDisplay]` sent to the view: UIKit documents that call for a view that draws in `drawRect:`, and
+/// this view implements `displayLayer:` instead (a view without `drawRect:` is given no backing store to draw into),
+/// so the request did not reliably reach it - the first launch on the Simulator never laid out nor drew anything
+/// (a black window). The display tick no longer waits for this call either: see [`present_pending_frame`].
+unsafe fn request_display(view: *mut Object) {
+    if view.is_null() {
+        return;
+    }
+    let layer: *mut Object = msg_send![view, layer];
+    if !layer.is_null() {
+        let _: () = msg_send![layer, setNeedsDisplay];
+    }
+}
+
 // ─── AzulView (UIView subclass) ───────────────────────────────────────
 
 extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
@@ -266,7 +294,22 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         Some(w) => w,
         None => return,
     };
+    // A GPU window shows what its `CAEAGLLayer` shows; this view's own layer has no content to set, and the
+    // frame is drawn by the display tick (`gpu_tick`), not inside Core Animation's display pass.
+    if window.backend == RenderBackend::Gpu {
+        return;
+    }
+    present_pending_frame(window, layer);
+}
 
+/// Produce the frame the window owes, and hand it to `layer`: run the layout the pending regeneration asks for (or
+/// only repaint), rasterise, and give the pixels to Core Animation as the layer's contents.
+///
+/// The body of `displayLayer:`, and called by the display tick as well: the tick runs at the screen's refresh
+/// rate while a frame is owed, so the first layout and every later frame come from the one thing that certainly
+/// runs, not from Core Animation's decision to ask. Assigning `layer.contents` outside `displayLayer:` is a plain
+/// main-thread property write; the commit is the run loop's.
+fn present_pending_frame(window: &mut IOSWindow, layer: *mut Object) {
     // `<webview>`s first: their reports (a delegate asked for this pass) may
     // ask for a rebuild or a repaint, which this pass then makes.
     window.pump_webviews_if_any();
@@ -417,6 +460,23 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
                     frames_now.saturating_add(1),
                     core::sync::atomic::Ordering::Relaxed,
                 );
+                if frames_at_last_present.is_none() {
+                    log_info!(
+                        LogCategory::Window,
+                        "[iOS] the first frame is handed to the layer: {}x{} pixels",
+                        pw,
+                        ph
+                    );
+                }
+                // the frame times of a scroll are measured here and in the GPU path's present alike
+                window.present_log.note(None);
+                // The first frame is handed to the layer: marks `first_present` once and prints the table
+                // when the timeline is on (AZ_STARTUP=1); a test of a bool otherwise.
+                window
+                    .common
+                    .app
+                    .startup()
+                    .mark_first_present(|| String::from("ios"));
             }
             CGDataProviderRelease(provider);
             CGColorSpaceRelease(cs);
@@ -467,6 +527,9 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
     let mut coalesced: Vec<TouchPoint> = Vec::new();
     let mut predicted: Vec<TouchPoint> = Vec::new();
     let mut pencil: Option<PencilSample> = None;
+    // `UITouch.type` of every touch of the set (0 direct finger, 1 indirect, 2 pencil, 3 pointer): the touch slop
+    // applies to a finger only.
+    let mut touch_types: Vec<(u64, i64)> = Vec::new();
     let this_ptr = this as *const Object as *mut Object;
 
     unsafe {
@@ -491,6 +554,8 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
                 // moved* → ended/cancelled). Cast to u64 for the
                 // TouchPoint.id slot.
                 let id_u64 = touch as usize as u64;
+                let touch_type: i64 = msg_send![touch, type];
+                touch_types.push((id_u64, touch_type));
 
                 // Pressure: `force` is 0 on devices without 3D Touch /
                 // Pencil. `maximumPossibleForce` returns 0 on those
@@ -568,7 +633,6 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
                 // Pencil sample — first stylus wins (Apple Pencil is
                 // single-instance; you can't pair two of them).
                 if pencil.is_none() {
-                    let touch_type: i64 = msg_send![touch, type];
                     if touch_type == 2 {
                         let altitude: f64 = msg_send![touch, altitudeAngle];
                         let azimuth: f64 = msg_send![touch, azimuthAngleInView: this_ptr];
@@ -627,6 +691,43 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
         .is_some_and(|id| position_of(id).is_some());
     let pos: Option<LogicalPosition> = window.primary_touch_id.and_then(position_of);
 
+    // THE TOUCH SLOP (`android_core::slop`, the rule the Android shell follows) and the mouse's part of this phase
+    // (`ios_logic::mouse_plan`). A finger that went down is a TAP CANDIDATE until it has moved more than the slop from
+    // where it landed: it scrolls nothing, the pointer stays where it landed and a lift inside the slop is a click
+    // THERE (a real finger jitters by a few points: the page scrolled by the jitter and the click was lost whenever
+    // the node under the finger changed). The move that crosses the slop makes it a pan for good, and the lift of a
+    // pan is no click. `touchesCancelled:` ("clean up any state": the system took the gesture over) releases the
+    // button over NOTHING; it was an ended touch, which is a click on whatever the finger was over. A pencil and a
+    // pointer have no slop.
+    let primary_pos = pos.map(|p| (p.x, p.y));
+    let touch_phase = match phase {
+        0 => TouchPhase::Began,
+        1 => TouchPhase::Moved,
+        2 => TouchPhase::Ended,
+        _ => TouchPhase::Cancelled,
+    };
+    let mut slop_move: Option<SlopMove> = None;
+    let mut slop_lift: Option<SlopLift> = None;
+    if primary_in_set {
+        match phase {
+            0 => {
+                let applies = window
+                    .primary_touch_id
+                    .and_then(|id| touch_types.iter().find(|(touch, _)| *touch == id))
+                    .is_none_or(|(_, kind)| *kind == 0);
+                match primary_pos {
+                    Some(at) => window.tap.down(applies, at, TOUCH_SLOP_POINTS),
+                    None => window.tap.cancel(),
+                }
+            }
+            1 => slop_move = primary_pos.map(|at| window.tap.moved(at)),
+            2 => slop_lift = Some(window.tap.up()),
+            3 => window.tap.cancel(),
+            _ => {}
+        }
+    }
+    let plan = mouse_plan(touch_phase, primary_in_set, slop_move, slop_lift);
+
     // Snapshot previous state for the diff pipeline; mirrors Android.
     window.snapshot_window_state_baseline("ios.handle_touch");
 
@@ -679,29 +780,58 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
         };
 
         let ms = window.common.mouse_state_mut();
-        if let Some(p) = pos {
-            ms.cursor_position = CursorPosition::InWindow(p);
+        match plan.cursor {
+            CursorPlan::Follow => {
+                if let Some(p) = pos {
+                    ms.cursor_position = CursorPosition::InWindow(p);
+                }
+            }
+            // Where a tap LANDED, whatever the finger's jitter before it lifted.
+            CursorPlan::At((x, y)) => {
+                ms.cursor_position = CursorPosition::InWindow(LogicalPosition::new(x, y));
+            }
+            // The gesture ended without a click (a pan, or a cancelled gesture): the pointer leaves.
+            CursorPlan::Leave => {
+                if let CursorPosition::InWindow(p) = ms.cursor_position {
+                    ms.cursor_position = CursorPosition::OutOfWindow(p);
+                }
+            }
+            CursorPlan::Stay => {}
         }
-        match phase {
-            // Only the began phase that BIRTHS the primary presses; a second
-            // finger's began is nothing to the mouse.
-            0 if primary_in_set => ms.left_down = true,
-            // The PRIMARY lifting releases, whatever remains; a secondary
-            // lifting is nothing to the mouse. UIKit reports each ended
-            // finger in its own touchesEnded:/touchesCancelled: set, so
-            // this is decided by identity, not by count: "only the last
-            // finger releases" left the button down after the primary had
-            // gone, and the next finger's moves then drove a phantom drag.
-            2 | 3 if primary_in_set => ms.left_down = false,
-            _ => {}
+        // Only the began phase that BIRTHS the primary presses; a second finger's began is nothing to the mouse. The
+        // PRIMARY lifting releases, whatever remains; a secondary lifting is nothing to the mouse. UIKit reports
+        // each ended finger in its own touchesEnded:/touchesCancelled: set, so this is decided by identity, not by
+        // count: "only the last finger releases" left the button down after the primary had gone, and the next
+        // finger's moves then drove a phantom drag.
+        if let Some(down) = plan.left_down {
+            ms.left_down = down;
         }
         if (matches!(phase, 2 | 3) && primary_in_set) || remaining == 0 {
             window.primary_touch_id = None;
         }
     }
 
-    if let Some(p) = pos {
-        window.update_hit_test_at(p);
+    match plan.hit {
+        HitPlan::AtCursor => {
+            let at = match plan.cursor {
+                CursorPlan::At((x, y)) => Some(LogicalPosition::new(x, y)),
+                _ => pos,
+            };
+            if let Some(p) = at {
+                window.update_hit_test_at(p);
+            }
+        }
+        // The pointer left: no node is under it and the hover chain is cleared, as a mouse leaving the window does
+        // on every desktop shell, so the button that comes up clicks nothing.
+        HitPlan::Nowhere => {
+            if let Some(lw) = window.common.layout_window.as_mut() {
+                lw.hover_manager.push_hit_test(
+                    azul_layout::managers::hover::InputPointId::Mouse,
+                    azul_core::hit_test::FullHitTest::empty(None),
+                );
+            }
+        }
+        HitPlan::Keep => {}
     }
 
     // TOUCH SCROLLING. iOS produced NO scroll input of any kind: a finger drag
@@ -738,19 +868,31 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
             }
             1 => {
                 let cur = window.pan_touch_id.and_then(position_of);
-                let d = match (window.touch_pan_last, cur) {
-                    // Finger delta, NOT its inverse: `record_scroll_input`
-                    // already applies the natural-scroll sign centrally, so
-                    // inverting here as well cancels out. Android measured
-                    // that on device - `last - current` drove the offset
-                    // negative and rubber-banded against the top edge.
-                    (Some(last), Some(cur)) => Some((cur.x - last.x, cur.y - last.y)),
-                    _ => None,
-                };
-                if cur.is_some() {
-                    window.touch_pan_last = cur;
+                match (slop_move, cur) {
+                    // Inside the touch slop nothing scrolls and `touch_pan_last` stays where the finger landed.
+                    (Some(SlopMove::Hold), Some(_)) => (None, ScrollInputSource::TrackpadContinuous),
+                    // The move that crossed it: the pan starts with the displacement BEYOND the slop, so the
+                    // page does not jump by the slop (`UIScrollView` starts its pan the same way).
+                    (Some(SlopMove::Start { delta }), Some(cur)) => {
+                        window.touch_pan_last = Some(cur);
+                        (Some(delta), ScrollInputSource::TrackpadContinuous)
+                    }
+                    _ => {
+                        let d = match (window.touch_pan_last, cur) {
+                            // Finger delta, NOT its inverse: `record_scroll_input`
+                            // already applies the natural-scroll sign centrally, so
+                            // inverting here as well cancels out. Android measured
+                            // that on device - `last - current` drove the offset
+                            // negative and rubber-banded against the top edge.
+                            (Some(last), Some(cur)) => Some((cur.x - last.x, cur.y - last.y)),
+                            _ => None,
+                        };
+                        if cur.is_some() {
+                            window.touch_pan_last = cur;
+                        }
+                        (d, ScrollInputSource::TrackpadContinuous)
+                    }
                 }
-                (d, ScrollInputSource::TrackpadContinuous)
             }
             // Ended or cancelled. The delta is zero, but the END phase still
             // matters: it is what releases a rubber-banded axis back to its
@@ -846,9 +988,9 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
         lw.gesture_drag_manager.note_pinch_dispatched();
     }
 
-    // Ask the view to redraw — displayLayer: will pick up the new layout.
+    // Ask for a frame - displayLayer: / the display tick will pick up the new layout.
     let view = this as *const Object as *mut Object;
-    let _: () = unsafe { msg_send![view, setNeedsDisplay] };
+    unsafe { request_display(view) };
 }
 
 extern "C" fn touches_began(this: &Object, _cmd: Sel, touches: *mut Object, event: *mut Object) {
@@ -885,7 +1027,7 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
     // this very override.
     let this_mut = this as *const Object as *mut Object;
     let _: () = unsafe { msg_send![super(this_mut, class!(UIView)), layoutSubviews] };
-    let _: () = unsafe { msg_send![this as *const Object as *mut Object, setNeedsDisplay] };
+    unsafe { request_display(this as *const Object as *mut Object) };
     if let Some(window) = unsafe { azul_ios_window() } {
         let bounds: CGRect = unsafe { msg_send![this as *const Object as *mut Object, bounds] };
         let w = bounds.size.width as f32;
@@ -922,6 +1064,8 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
                     RelayoutReason::Resize
                 };
                 window.common.request_regeneration(reason);
+                // a GPU window's drawable follows its view (the renderbuffer is allocated again once)
+                window.gpu_resized();
             }
         }
         // Safe-area insets (notch / Dynamic Island / home indicator / rounded
@@ -1347,8 +1491,18 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
                 .common
                 .request_regeneration(RelayoutReason::ModeChange);
         }
-        if window.common.regeneration_pending() || window.needs_rerender {
-            let _ = window.present();
+        if window.backend == RenderBackend::Gpu {
+            // the GPU window's frame: what is owed is laid out, sent and drawn here, in the tick
+            window.gpu_tick();
+        } else if window.common.regeneration_pending() || window.needs_rerender {
+            // A frame is owed (a layout the window was born owing, a regeneration a callback asked for, a repaint): produce
+            // it HERE, at the screen's refresh rate, instead of asking Core Animation to call `displayLayer:` and waiting
+            // for it. The first launch on the Simulator ran this tick (the debug server's timer ticked) and never laid out
+            // nor drew anything: the request for the frame was the only thing between a pending layout and the screen, and
+            // it did not arrive. `present()` stays the way every OTHER path (a touch, a gesture, a webview report) asks for
+            // a frame.
+            let layer: *mut Object = unsafe { msg_send![view, layer] };
+            present_pending_frame(window, layer);
         }
     }
 }
@@ -1710,6 +1864,8 @@ extern "C" fn did_finish_launching(
             #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
             debug_channel,
         } = launch;
+        // The app's startup timeline (AZ_STARTUP=1; free when off): the first mark of the app's own code on the phone.
+        app_shared.startup().mark("ios:application_did_finish_launching");
 
         // The UNUserNotificationCenter delegate, BEFORE this method returns:
         // a tap on a notification of an app that was not running launches it,
@@ -1740,6 +1896,7 @@ extern "C" fn did_finish_launching(
                 return false;
             }
         };
+        window.common.app.startup().mark("ios:window_created");
         // The debug/E2E channel `run()` stashed: the timer that drains it is driven by the same
         // display tick that drives every other timer. Dropped on the floor before, so the e2e
         // runner of a phone queued its scenarios and waited for a receiver nobody read.
@@ -1781,6 +1938,12 @@ extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object
     // does both; unpausing twice is a harmless idempotent setter).
     unsafe { set_display_link_paused(false) };
     if let Some(window) = unsafe { azul_ios_window() } {
+        // The language the person may have changed meanwhile (Settings, the Simulator): the style
+        // carries it and the engine translates again.
+        locale::adopt_language(window);
+        // A GPU window: the context is current again, the frames run, one full frame is drawn (a
+        // rotation or a memory request that came while the app was away is applied first).
+        window.gpu_event(gpu_lifecycle::Event::Resumed);
         // Force a redraw so the layer contents are fresh after
         // returning from background.
         window
@@ -1798,8 +1961,13 @@ extern "C" fn app_will_resign_active(_this: &Object, _cmd: Sel, _app: *mut Objec
     // arrow or a Cmd stays "down" in every callback until the same key is pressed again.
     if let Some(window) = unsafe { azul_ios_window() } {
         release_pressed_keys(window);
+        // A GPU window follows Apple's rule for OpenGL ES: "your app should stop its animation timer,
+        // place itself into a known good state, and then call the glFinish function" here, because the
+        // system can take the GPU from an app the moment it is no longer in front, and a command flushed
+        // after that ends the process. (The frame on screen stays; a CPU window is not touched.)
+        window.gpu_event(gpu_lifecycle::Event::Paused);
     }
-    // Deliberately does NOT pause the display link: resign-active also fires
+    // Deliberately does NOT pause the display link of a CPU window: resign-active also fires
     // for transient overlays (control center, incoming-call banner, app
     // switcher) where the app remains visible and animations should keep
     // running. The pause happens in applicationDidEnterBackground:.
@@ -1818,6 +1986,11 @@ extern "C" fn app_did_enter_background(_this: &Object, _cmd: Sel, _app: *mut Obj
     // iOS gives ~5 s of background time. Sprint M-iOS-life will use it
     // to checkpoint app_data / hand off to BGTaskScheduler.
     unsafe { set_display_link_paused(true) };
+    // A GPU window: the last GL command the app may issue is in this handler (what was owed to the system,
+    // then glFinish); after it every GL path of the shell asks the lifecycle machine first.
+    if let Some(window) = unsafe { azul_ios_window() } {
+        window.gpu_event(gpu_lifecycle::Event::Backgrounded);
+    }
 }
 
 extern "C" fn app_will_enter_foreground(_this: &Object, _cmd: Sel, _app: *mut Object) {
@@ -1846,11 +2019,20 @@ extern "C" fn app_did_receive_memory_warning(_this: &Object, _cmd: Sel, _app: *m
     if let Ok(mut pool) = FRAME_COPIES.lock() {
         *pool = azul_layout::window::FrameBufferPool::new();
     }
+    // A GPU window: WebRender's caches go too (answered at once when the app is active, owed until it is
+    // back when it is not: no GL command in the background).
+    if let Some(window) = unsafe { azul_ios_window() } {
+        window.gpu_memory_warning();
+    }
 }
 
 extern "C" fn app_will_terminate(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationWillTerminate:");
     unsafe {
+        // A GPU window comes down in order (surface, renderer, context) before the window is dropped.
+        if let Some(window) = azul_ios_window() {
+            window.gpu_event(gpu_lifecycle::Event::Shutdown);
+        }
         if !AZUL_IOS_WINDOW.is_null() {
             // Drop the window in a controlled scope so its CommonWindowState
             // releases the RefAny + LayoutWindow before the process dies.
@@ -1989,7 +2171,10 @@ pub unsafe fn launch_app() {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderBackend {
+    /// The CPU renderer: a pixmap handed to Core Animation (`displayLayer:`).
     Cpu,
+    /// WebRender on an OpenGL ES 3.0 context (`AZ_BACKEND=gpu|auto`; `gpu.rs`).
+    Gpu,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2020,8 +2205,13 @@ pub struct IOSWindow {
     ui_view: Id<Object>,
     /// UIViewController.
     ui_view_controller: Id<Object>,
-    /// Rendering backend selector (CPU only until Sprint M-iOS-GPU).
+    /// Which renderer draws this window: the CPU's, or WebRender's on OpenGL ES (`gpu`).
     pub backend: RenderBackend,
+    /// The GPU path's context, surface, lifecycle machine and renderer; `None` while the window draws on the CPU
+    /// (and for good once a GPU window has fallen back).
+    gpu: Option<gpu::IosGpu>,
+    /// What this window says about its own presents (the frame times of a scroll), CPU and GPU alike.
+    present_log: gpu::PresentLog,
     /// `false` after `applicationWillTerminate:`.
     pub is_open: bool,
     /// Shared icon provider — needed by `regenerate_layout()`.
@@ -2049,6 +2239,9 @@ pub struct IOSWindow {
     /// inherits that, its lift is a mouse release even while others stay
     /// down, and the next primary is born only once every finger has lifted.
     pub primary_touch_id: Option<u64>,
+    /// The touch slop of the primary finger (`android_core::slop`): a tap candidate until it has moved more than
+    /// [`TOUCH_SLOP_POINTS`], then a pan for good.
+    pub tap: TapSlop,
     /// The finger driving the one-finger PAN, which unlike the mouse pipe
     /// transfers to a remaining finger when it lifts (`UIScrollView` keeps
     /// panning with the finger that is left). Re-seeded on hand-over so the
@@ -2078,6 +2271,13 @@ impl IOSWindow {
         app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
         font_registry: Option<Arc<FcFontRegistry>>,
     ) -> Result<Self, WindowError> {
+        // The phone's own language, before the window takes its style: the style `App::create` made of
+        // the platform defaults says en-US for every phone, and a German phone showed English.
+        if let Some(language) =
+            locale::language_of_phone(config.localization.known_languages.as_slice())
+        {
+            config.system_style.language = language;
+        }
         crate::desktop::shell2::common::resolve_initial_background_color(
             &mut options,
             &config.system_style,
@@ -2263,7 +2463,7 @@ impl IOSWindow {
         common.set_layout_window(layout_window);
         common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
 
-        Ok(Self {
+        let mut window = Self {
             common,
             cpu_backend: CpuBackend::for_config(&config),
             needs_rerender: false,
@@ -2271,24 +2471,35 @@ impl IOSWindow {
             ui_view,
             ui_view_controller,
             backend: RenderBackend::Cpu,
+            gpu: None,
+            present_log: gpu::PresentLog::new(),
             is_open: true,
             icon_provider,
             font_registry,
             accessibility_adapter: accessibility::IOSAccessibilityAdapter::new(),
             touch_pan_last: None,
+            tap: TapSlop::default(),
             primary_touch_id: None,
             pan_touch_id: None,
             webviews: None,
             text_interaction,
             text_interaction_attached: false,
             create_callback,
-        })
+        };
+        // The renderer of this window: `AZ_BACKEND` / `hw_accel` decide, the CPU one unless the GPU was
+        // asked for and came up (a fallback names its stage in one line). The line the QA harness reads
+        // is written here, once.
+        window.gpu_start();
+        Ok(window)
     }
 
     pub fn is_open(&self) -> bool {
         self.is_open
     }
     pub fn close(&mut self) {
+        // A GPU window comes down in the order the lifecycle machine says (surface, renderer, context; in
+        // the background nothing is released at all).
+        self.gpu_event(gpu_lifecycle::Event::Shutdown);
         // WebRender's Renderer must be deinit()'d, not dropped — texture
         // deletion has to happen inside a frame. Never doing so crashed debug
         // builds on close and leaked GPU resources in release.
@@ -2301,10 +2512,13 @@ impl IOSWindow {
     }
 
     pub fn present(&mut self) -> Result<(), WindowError> {
-        let view = &*self.ui_view as *const Object as *mut Object;
-        unsafe {
-            let _: () = msg_send![view, setNeedsDisplay];
+        // A GPU window is drawn by the display tick (`gpu_tick`), outside Core Animation's display pass:
+        // the owed work is in `regeneration_pending()` / `needs_rerender`, and the next tick takes it.
+        if self.backend == RenderBackend::Gpu {
+            return Ok(());
         }
+        let view = &*self.ui_view as *const Object as *mut Object;
+        unsafe { request_display(view) };
         Ok(())
     }
     /// Re-raster the CURRENT layout into `cpu_backend.last_frame` without
@@ -2335,6 +2549,11 @@ impl IOSWindow {
                     height,
                     dpi,
                 );
+            }
+            // The frame goes on the window's frame report (`CpuBackend::record_last_frame_on`): the e2e
+            // counters read it, not the backend.
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                self.cpu_backend.record_last_frame_on(lw);
             }
         }
     }
@@ -2548,10 +2767,15 @@ impl IOSWindow {
         // explanation; both mobile backends were missing the one line.
         self.common.rebuild_cpu_hit_tester();
 
+        // A GPU window sends the display list to WebRender here; the next display tick draws it.
+        if self.backend == RenderBackend::Gpu {
+            self.gpu_send_frame();
+        }
+
         // CPU-render the frame — populates `self.cpu_backend.last_frame`,
         // ready for `displayLayer:` to blit into the layer (Sprint C-iOS).
         #[cfg(feature = "cpurender")]
-        {
+        if self.backend == RenderBackend::Cpu {
             let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
@@ -2572,6 +2796,10 @@ impl IOSWindow {
                     height,
                     dpi,
                 );
+            }
+            // As in `rerender_cpu`: the frame goes on the window's frame report.
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                self.cpu_backend.record_last_frame_on(lw);
             }
         }
 

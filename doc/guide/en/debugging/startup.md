@@ -41,7 +41,7 @@ After the table come two lines for a script: `[startup-json] {...}` (the headlin
 ## Reading the table
 
 ```text
-[startup] timeline: process start from sysctl kern.proc.pid (resolution 1 us), origin = App::create entry 2.1 ms after it
+[startup] timeline: process start from sysctl KERN_PROC_PID (resolution 1 us), origin = App::create entry 2.1 ms after it
 [startup]   #      at_ms       +ms  thread                 mark
 [startup]   0      0.000         -  -                      process_start
 [startup]   1      2.104     2.104  main                   library_entered
@@ -70,6 +70,7 @@ After the table come two lines for a script: `[startup-json] {...}` (the headlin
 | `app_run:*`, `run:*` | `App::run` and the platform's `run`: NSApplication, the menu, the launch hooks, `finishLaunching`, the event loop |
 | `window:*` | the window: the native window, the content view, the GL context and WebRender (GPU only), the layout window, the menu bar, accessibility, the display link |
 | `x11:*`, `wayland:*`, `win:*`, `android:*` | the same for the Linux, Windows and Android windows: the libraries, the display or the window class, the native window, the renderer (`render_backend` says `cpu` or `gpu` and what was asked for), the accessibility adapter, the map or the show |
+| `android:egl_ready`, `android:gl_context_ready`, `android:webrender_ready`, `render_backend`, `android:first_gpu_frame_started`, `android:first_gpu_frame_done` | an Android window that draws with the GPU (`AZ_BACKEND=gpu`): EGL opened with its config and context, the OpenGL ES context current and probed (the detail says which driver), WebRender made, the choice of renderer (`render_backend` is also marked by a CPU window), the first frame begun (WebRender compiles its programs in it) and presented (`ms=` is the time it took: a phone's GPU a fraction of a second, a software GL a minute or two) |
 | `gtk_im_loaded` | libgtk-3's input method context (X11 and Wayland): loaded at the first caret position a text field hands over, not at window creation; it shows as a late mark, and only in a run that has such a field |
 | `layout_begin`, `layout_phases`, `layout_end` | one layout pass, its reason and its phases |
 | `layout_extra_pass` | why a layout ran a SECOND pass inside one call (`#1 lifecycle_refresh=true docks_changed=false`): a lifecycle callback asked for a refresh, or the docking of an inline `<transient-window>` changed; a window whose first DOM is simply laid out has none |

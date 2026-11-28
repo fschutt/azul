@@ -47,6 +47,11 @@ const NOT_WALKED: &[(&str, &str, &str)] = &[
     ("dll/src/desktop/app_events.rs", "AppEvents", APP),
     ("dll/src/desktop/shell2/linux/resources.rs", "AppResources", APP),
     (
+        "dll/src/desktop/shell2/run.rs",
+        "IosLaunch",
+        "the app's data on its way from `run()` to the application delegate, before any window or DOM exists: no rebuild has merged into it, and the delegate hands it on to the window",
+    ),
+    (
         "dll/src/desktop/shell2/common/event.rs",
         "CommonWindowState",
         "the shell's hold on its window, which walks itself on each merge",

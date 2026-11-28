@@ -82,15 +82,28 @@ fn finished_words(cx: &Cx, done: &AgentFinished) -> String {
     cx.tf(key, &[("where", &place)])
 }
 
+/// How far a card laid over the screen (the toast, the banner) stands from the screen's own edge, beyond the system's bars.
+pub const CARD_SIDE: f32 = 24.0;
+
+/// The left and right offsets of such a card: clear of the system's bars (a notch, a navigation bar at the side) as well as of the edge.
+#[must_use]
+pub fn card_sides(cx: &Cx) -> (f32, f32) {
+    let ins = cx.env.insets.held(cx.env.width, cx.env.height);
+    (ins.left + CARD_SIDE, ins.right + CARD_SIDE)
+}
+
 /// A line over the top of the pad for a moment (an agent finished: the pad is where the eyes are, the buttons stay readable). The card
 /// is the node that lies over the screen, with nothing round it: there is no `pointer-events: none`, so a wrapper as wide as the screen would
 /// swallow the taps meant for what is under it, beside the card as well.
 fn banner(cx: &Cx, words: &str) -> Dom {
+    let (left, right) = card_sides(cx);
     text(
         words,
         &format!(
-            "position: absolute; left: 24px; right: 24px; top: {}; padding: 10px 16px; border-radius: 18px; background: {}; color: {}; \
+            "position: absolute; left: {}; right: {}; top: {}; padding: 10px 16px; border-radius: 18px; background: {}; color: {}; \
              font-size: 14px; text-align: center; border: 1px solid {};",
+            px(left),
+            px(right),
             px(cx.z.pad.y + 10.0),
             th::SURFACE_HI,
             th::TEXT,
@@ -102,11 +115,14 @@ fn banner(cx: &Cx, words: &str) -> Dom {
 /// A line over the bottom of the screen for a moment (a card with nothing round it, as the banner).
 fn toast(cx: &Cx, words: &str) -> Dom {
     let lift = cx.env.insets.bottom + 78.0;
+    let (left, right) = card_sides(cx);
     text(
         words,
         &format!(
-            "position: absolute; left: 24px; right: 24px; bottom: {}; padding: 10px 16px; border-radius: 18px; background: {}; color: {}; \
+            "position: absolute; left: {}; right: {}; bottom: {}; padding: 10px 16px; border-radius: 18px; background: {}; color: {}; \
              font-size: 14px; text-align: center; border: 1px solid {};",
+            px(left),
+            px(right),
             px(lift),
             th::SURFACE_HI,
             th::TEXT,

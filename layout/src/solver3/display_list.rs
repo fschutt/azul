@@ -57,8 +57,8 @@ use azul_css::{
 use crate::text3;
 #[cfg(feature = "text_layout")]
 use crate::text3::cache::{
-    DecorationColor, InlineShape, LineOffset, LinePaint, LineThickness, PositionedItem,
-    UnderlineBase,
+    DecorationColor, DecorationLine, InlineShape, LineKind, LineOffset, LinePaint, LineStand,
+    DecorationStyle, LineThickness, PositionedItem, UnderlineBase,
 };
 use crate::{
     debug_info,
@@ -429,6 +429,38 @@ pub(crate) fn layer_value<T: Copy>(values: &[T], layers: usize, layer: usize) ->
     }
     let from_top = layers - 1 - layer;
     values.get(count - 1 - from_top % count).copied()
+}
+
+/// The most rectangles a dotted or dashed decoration line is cut into: a line that would need
+/// more is drawn solid.
+const MAX_DECORATION_PIECES: f32 = 4096.0;
+
+/// The pieces of a dotted or dashed decoration line `thickness` thick from `start_x` to `end_x`
+/// (`x_range`): the `(x, width)` of each rectangle; `None` for the other styles and for a line
+/// that would need more than [`MAX_DECORATION_PIECES`], which are one solid rectangle.
+///
+/// A dot is a square with a gap as wide as itself, a dash is three thicknesses long with a gap of
+/// two; the last piece is cut where the line ends.
+fn dash_pieces(style: DecorationStyle, thickness: f32, x_range: (f32, f32)) -> Option<Vec<(f32, f32)>> {
+    let (length, gap) = match style {
+        DecorationStyle::Dotted => (thickness, thickness),
+        DecorationStyle::Dashed => (3.0 * thickness, 2.0 * thickness),
+        DecorationStyle::Solid | DecorationStyle::Double | DecorationStyle::Wavy => return None,
+    };
+    let (start_x, end_x) = x_range;
+    let period = length + gap;
+    if !(thickness > 0.0 && period.is_finite() && end_x > start_x) {
+        return None;
+    }
+    if ((end_x - start_x) / period).ceil() > MAX_DECORATION_PIECES {
+        return None;
+    }
+    Some(
+        core::iter::successors(Some(start_x), |x| Some(x + period))
+            .take_while(|x| *x < end_x)
+            .map(|x| (x, length.min(end_x - x)))
+            .collect(),
+    )
 }
 
 const APPROX_ASCENT_RATIO: f32 = 0.8;
@@ -9038,6 +9070,100 @@ where
         builder.push_webview(dom_id, node_index, content_box, frame);
     }
 
+    /// Paints a `wavy` decoration line as a stroked wave from `x_range.0` to `x_range.1` around
+    /// the height `centre_y`, `thickness` thick: a polyline with a wave a thickness high either
+    /// way and four thicknesses long, round at its ends and corners. The renderers that stroke
+    /// a path (the CPU rasteriser, the PDF writer) draw it as it is and the GPU one through the
+    /// mask this makes. `false` when the build has no rasteriser for that mask or the line is
+    /// not worth a wave: the caller draws a solid line.
+    fn push_wavy_decoration(
+        &self,
+        builder: &mut DisplayListBuilder,
+        x_range: (f32, f32),
+        centre_y: f32,
+        thickness: f32,
+        color: ColorU,
+    ) -> bool {
+        use azul_core::svg::{
+            SvgLine, SvgLineCap, SvgLineJoin, SvgMultiPolygon, SvgPath, SvgPathElement,
+            SvgPathElementVec, SvgPathVec,
+        };
+        use azul_css::props::basic::SvgPoint;
+
+        let (start_x, end_x) = x_range;
+        let amplitude = thickness;
+        let wavelength = 4.0 * thickness;
+        let length = end_x - start_x;
+        // eight points to a wave
+        let step = wavelength / 8.0;
+        if !(thickness > 0.0 && step.is_finite() && length > 0.0)
+            || (length / step).ceil() > MAX_DECORATION_PIECES
+        {
+            return false;
+        }
+        let point_at = |x: f32| SvgPoint {
+            x,
+            y: amplitude.mul_add(
+                (core::f32::consts::TAU * (x - start_x) / wavelength).sin(),
+                centre_y,
+            ),
+        };
+        let mut points: Vec<SvgPoint> = core::iter::successors(Some(start_x), |x| Some(x + step))
+            .take_while(|x| *x < end_x)
+            .map(point_at)
+            .collect();
+        points.push(point_at(end_x));
+        let items: Vec<SvgPathElement> = points
+            .windows(2)
+            .map(|pair| {
+                SvgPathElement::Line(SvgLine {
+                    start: pair[0],
+                    end: pair[1],
+                })
+            })
+            .collect();
+        let path = SvgMultiPolygon {
+            rings: SvgPathVec::from_vec(vec![SvgPath {
+                items: SvgPathElementVec::from_vec(items),
+            }]),
+        };
+        // the stroke reaches a thickness past the wave's ends and crests
+        let bounds = LogicalRect::new(
+            LogicalPosition::new(start_x - thickness, centre_y - amplitude - thickness),
+            LogicalSize::new(thickness.mul_add(2.0, length), 2.0 * (amplitude + thickness)),
+        );
+        let outline = StrokeOutline {
+            cap: SvgLineCap::Round,
+            join: SvgLineJoin::Round,
+            ..StrokeOutline::default()
+        };
+        #[cfg(feature = "cpurender")]
+        let mask = self.ctx.pass_memo.svg_masks.borrow_mut().get_or_rasterise(
+            crate::solver3::svg_masks::MaskKind::Stroke,
+            &path,
+            &bounds,
+            None,
+            thickness,
+            outline.memo_hash(),
+            || rasterize_svg_stroke_to_r8(&path, &bounds, None, thickness, &outline),
+        );
+        #[cfg(not(feature = "cpurender"))]
+        let mask: Option<ImageRef> = None;
+        let Some(mask) = mask else {
+            return false;
+        };
+        builder.push_item(DisplayListItem::StrokedPath {
+            bounds: bounds.into(),
+            path,
+            view_box: None,
+            color,
+            width: thickness,
+            outline,
+            mask: Some(mask),
+        });
+        true
+    }
+
     /// Checks if a node has an image mask clip and pushes `PushImageMaskClip` if so.
     /// Returns true if a clip was pushed (caller must pop it).
     /// Paint this node's SVG stroke, if it has one.
@@ -13101,11 +13227,8 @@ where
             }
 
             // Render text decorations if present OR if this is IME composition preview
-            let needs_underline = glyph_run.text_decoration.underline || glyph_run.is_ime_preview;
-            let needs_strikethrough = glyph_run.text_decoration.strikethrough;
-            let needs_overline = glyph_run.text_decoration.overline;
-
-            if needs_underline || needs_strikethrough || needs_overline {
+            let ime_underline = glyph_run.is_ime_preview && !glyph_run.text_decoration.underline();
+            if glyph_run.text_decoration.has_lines() || ime_underline {
                 // Calculate the bounding box for this glyph run
                 if let (Some(first_glyph), Some(last_glyph)) =
                     (glyph_run.glyphs.first(), glyph_run.glyphs.last())
@@ -13120,16 +13243,14 @@ where
                     }
                     let decoration_width = decoration_end_x - decoration_start_x;
 
-                    // Use font metrics to determine decoration positions
-                    // Standard ratios based on CSS specification
+                    // The font size of the run and its baseline (at glyph.point.y): where the
+                    // lines of the box of the run's own text stand. The lines of a box around
+                    // stand on the baseline of that box and are parts of its font size.
                     let font_size = glyph_run.font_size_px;
-                    let font_thickness = (font_size * APPROX_UNDERLINE_THICKNESS_RATIO).max(1.0);
-
-                    // Baseline is at glyph.point.y
                     let baseline_y = run_origin.y + first_glyph.point.y;
 
-                    // What each kind of line is painted with: the paint of the box that sets
-                    // it (`text-decoration-color`, `-thickness`). A colour the box does not
+                    // What each line is painted with: the paint of the box that sets it
+                    // (`text-decoration-color`, `-thickness`). A colour the box does not
                     // set is its `currentcolor`, read now - the colour a line follows is the
                     // colour it has when it is painted - and a line no box sets (the
                     // composition of an input method) is in the colour of the text.
@@ -13155,71 +13276,155 @@ where
                             super::getters::system_colors_resolved(sd, color)
                         }
                     };
-                    let thickness_of = |paint: &LinePaint| match paint.thickness {
-                        LineThickness::Px(px) => px.get().max(0.0),
-                        // `from-font` names the thickness of the face; none is read yet
-                        LineThickness::Auto | LineThickness::FromFont => font_thickness,
-                    };
 
-                    if needs_underline {
-                        // Underline is typically 10-15% below baseline
-                        // IME composition always gets underlined
-                        let paint = glyph_run.text_decoration.underline_paint;
-                        let thickness = thickness_of(&paint);
-                        // The top edge of the line is where the font puts it - or, `under`,
-                        // where the em box ends - moved by `text-underline-offset`: a thicker
-                        // line grows downwards.
-                        let place = glyph_run.text_decoration.underline_place;
-                        let initial = match place.base {
-                            UnderlineBase::Under => font_size * APPROX_UNDER_POSITION_RATIO,
-                            // `from-font` names the place of the face; none is read yet
-                            UnderlineBase::Auto | UnderlineBase::FromFont => {
-                                font_size * APPROX_UNDERLINE_OFFSET_RATIO
+                    // The composition of an input method is underlined whatever the boxes say.
+                    let plain_underline = DecorationLine::plain(LineKind::Underline);
+                    let composition = ime_underline.then_some(&plain_underline);
+                    // The lines of the boxes, the outermost box's first: each is painted over
+                    // the one before. A line that two boxes both draw, in one place and one
+                    // colour, is one line.
+                    let mut drawn: Vec<(LineKind, DecorationStyle, f32, f32, ColorU)> = Vec::new();
+                    // The face the run is set in, asked only for a line that reads the metrics
+                    // of the face (`from-font`).
+                    let reads_face = glyph_run.text_decoration.lines().iter().any(|line| {
+                        line.paint.thickness == LineThickness::FromFont
+                            || line.place.base == UnderlineBase::FromFont
+                    });
+                    let face = if reads_face {
+                        self.ctx.font_manager.get_font_by_hash(glyph_run.font_hash)
+                    } else {
+                        None
+                    };
+                    for line in glyph_run
+                        .text_decoration
+                        .lines()
+                        .iter()
+                        .chain(composition)
+                    {
+                        let (size, baseline) = match line.stand {
+                            LineStand::Run => (font_size, baseline_y),
+                            LineStand::Around { drop, .. } => {
+                                let boxed = line.font_size.get();
+                                (
+                                    if boxed > 0.0 { boxed } else { font_size },
+                                    baseline_y + drop.get(),
+                                )
                             }
                         };
-                        let offset = match place.offset {
-                            LineOffset::Px(px) => px.get(),
-                            LineOffset::Auto => 0.0,
+                        let font_thickness = (size * APPROX_UNDERLINE_THICKNESS_RATIO).max(1.0);
+                        // What the face names for this kind of line: `(position, thickness)` as
+                        // fractions of the em, from the face of the run in the size of the box
+                        // that sets the line.
+                        let face_metrics = face.as_ref().and_then(|face| match line.kind {
+                            LineKind::Strikethrough => face.strikeout_metrics(),
+                            LineKind::Underline | LineKind::Overline => face.underline_metrics(),
+                        });
+                        let thickness = match line.paint.thickness {
+                            LineThickness::Px(px) => px.get().max(0.0),
+                            // `from-font` is the thickness the face names, `auto` where it names
+                            // none
+                            LineThickness::FromFont => face_metrics
+                                .map_or(font_thickness, |(_, thickness)| (thickness * size).max(1.0)),
+                            LineThickness::Auto => font_thickness,
                         };
-                        let underline_y = baseline_y + initial + offset;
-                        let underline_bounds = LogicalRect::new(
-                            LogicalPosition::new(decoration_start_x, underline_y),
-                            LogicalSize::new(decoration_width, thickness),
-                        );
-                        builder.push_underline(underline_bounds, colour_of(&paint), thickness);
-                    }
-
-                    if needs_strikethrough {
-                        // Strikethrough is typically 40% above baseline (middle of x-height)
-                        let paint = glyph_run.text_decoration.strikethrough_paint;
-                        let thickness = thickness_of(&paint);
-                        // The middle of the line is where the font puts it: a thicker line
-                        // grows both ways.
-                        let strikethrough_y = baseline_y
-                            - (font_size * APPROX_STRIKETHROUGH_OFFSET_RATIO)
-                            + (font_thickness - thickness) / 2.0;
-                        let strikethrough_bounds = LogicalRect::new(
-                            LogicalPosition::new(decoration_start_x, strikethrough_y),
-                            LogicalSize::new(decoration_width, thickness),
-                        );
-                        builder.push_strikethrough(
-                            strikethrough_bounds,
-                            colour_of(&paint),
-                            thickness,
-                        );
-                    }
-
-                    if needs_overline {
-                        // Overline is typically at cap-height (75% above baseline)
-                        let paint = glyph_run.text_decoration.overline_paint;
-                        let thickness = thickness_of(&paint);
-                        // The top edge of the line is where the font puts it.
-                        let overline_y = baseline_y - (font_size * APPROX_OVERLINE_OFFSET_RATIO);
-                        let overline_bounds = LogicalRect::new(
-                            LogicalPosition::new(decoration_start_x, overline_y),
-                            LogicalSize::new(decoration_width, thickness),
-                        );
-                        builder.push_overline(overline_bounds, colour_of(&paint), thickness);
+                        let y = match line.kind {
+                            // The top edge of the line is where the font puts it - or, `under`,
+                            // where the em box ends - moved by `text-underline-offset`: a
+                            // thicker line grows downwards.
+                            LineKind::Underline => {
+                                let initial = match line.place.base {
+                                    UnderlineBase::Under => size * APPROX_UNDER_POSITION_RATIO,
+                                    // `from-font` is the place the face names, `auto` where it
+                                    // names none
+                                    UnderlineBase::FromFont => face_metrics.map_or(
+                                        size * APPROX_UNDERLINE_OFFSET_RATIO,
+                                        |(position, _)| position * size,
+                                    ),
+                                    UnderlineBase::Auto => size * APPROX_UNDERLINE_OFFSET_RATIO,
+                                };
+                                let offset = match line.place.offset {
+                                    LineOffset::Px(px) => px.get(),
+                                    LineOffset::Auto => 0.0,
+                                };
+                                baseline + initial + offset
+                            }
+                            // The middle of the line is where the font puts it (about 30% of the
+                            // font size above the baseline): a thicker line grows both ways.
+                            LineKind::Strikethrough => {
+                                baseline - (size * APPROX_STRIKETHROUGH_OFFSET_RATIO)
+                                    + (font_thickness - thickness) / 2.0
+                            }
+                            // The top edge of the line is where the font puts it (at the height of
+                            // the capitals, 85% of the font size above the baseline).
+                            LineKind::Overline => baseline - (size * APPROX_OVERLINE_OFFSET_RATIO),
+                        };
+                        let color = colour_of(&line.paint);
+                        // `double` is two lines as thick as the one, a thickness apart: the
+                        // second of an underline below the first, of an overline above it, and
+                        // one on each side of the place of the single line-through. The other
+                        // styles are one line at the place of the single one.
+                        let (tops, count) = match (line.paint.style, line.kind) {
+                            (DecorationStyle::Double, LineKind::Underline) => {
+                                ([y, y + 2.0 * thickness], 2)
+                            }
+                            (DecorationStyle::Double, LineKind::Overline) => {
+                                ([y - 2.0 * thickness, y], 2)
+                            }
+                            (DecorationStyle::Double, LineKind::Strikethrough) => {
+                                ([y - thickness, y + thickness], 2)
+                            }
+                            _ => ([y, y], 1),
+                        };
+                        for &top in tops.iter().take(count) {
+                            let this = (line.kind, line.paint.style, top, thickness, color);
+                            if drawn.contains(&this) {
+                                continue;
+                            }
+                            drawn.push(this);
+                            // A wave is a stroked path; where the build cannot stroke it for
+                            // the renderers that need the stroke raster it, the line is solid.
+                            if line.paint.style == DecorationStyle::Wavy {
+                                let amplitude = thickness;
+                                let centre = if line.kind == LineKind::Strikethrough {
+                                    top + thickness / 2.0
+                                } else {
+                                    top + amplitude + thickness / 2.0
+                                };
+                                if self.push_wavy_decoration(
+                                    builder,
+                                    (decoration_start_x, decoration_end_x),
+                                    centre,
+                                    thickness,
+                                    color,
+                                ) {
+                                    continue;
+                                }
+                            }
+                            // Dotted and dashed lines are rows of rectangles, a solid line is one.
+                            let pieces = dash_pieces(
+                                line.paint.style,
+                                thickness,
+                                (decoration_start_x, decoration_end_x),
+                            )
+                            .unwrap_or_else(|| vec![(decoration_start_x, decoration_width)]);
+                            for (x, width) in pieces {
+                                let bounds = LogicalRect::new(
+                                    LogicalPosition::new(x, top),
+                                    LogicalSize::new(width, thickness),
+                                );
+                                match line.kind {
+                                    LineKind::Underline => {
+                                        builder.push_underline(bounds, color, thickness);
+                                    }
+                                    LineKind::Strikethrough => {
+                                        builder.push_strikethrough(bounds, color, thickness);
+                                    }
+                                    LineKind::Overline => {
+                                        builder.push_overline(bounds, color, thickness);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

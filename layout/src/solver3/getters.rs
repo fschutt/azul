@@ -2247,6 +2247,7 @@ pub(crate) const RARE_TEXT_FLAGS: u64 = azul_css::compact_cache::DOM_HAS_FONT_VA
     | azul_css::compact_cache::DOM_HAS_TEXT_RENDERING
     | azul_css::compact_cache::DOM_HAS_TEXT_DECORATION_COLOR
     | azul_css::compact_cache::DOM_HAS_TEXT_DECORATION_THICKNESS
+    | azul_css::compact_cache::DOM_HAS_TEXT_DECORATION_STYLE
     | azul_css::compact_cache::DOM_HAS_TEXT_UNDERLINE_OFFSET
     | azul_css::compact_cache::DOM_HAS_TEXT_UNDERLINE_POSITION
     | azul_css::compact_cache::DOM_HAS_HANGING_PUNCTUATION
@@ -2358,6 +2359,12 @@ pub(crate) fn rare_text_inputs_hash(
     if declared(flags::DOM_HAS_TEXT_DECORATION_THICKNESS) {
         cache
             .get_text_decoration_thickness(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_TEXT_DECORATION_STYLE) {
+        cache
+            .get_text_decoration_style(node_data, &node_id, node_state)
             .and_then(|v| v.get_property())
             .hash(&mut hasher);
     }
@@ -4987,9 +4994,10 @@ fn decoration_length_px(
     }
 }
 
-/// How the lines the box `dom_id` sets are painted: the colour and the thickness it declares
-/// (`text-decoration-color`, `text-decoration-thickness`), `currentcolor` of the box and `auto`
-/// where it declares none. A document that declares neither anywhere is not asked.
+/// How the lines the box `dom_id` sets are painted: the colour, the thickness and the style it
+/// declares (`text-decoration-color`, `-thickness`, `-style`), `currentcolor` of the box, `auto`
+/// and `solid` where it declares none. A document that declares none of them anywhere is not
+/// asked.
 fn decoration_paint_of(
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -4998,10 +5006,12 @@ fn decoration_paint_of(
 ) -> crate::text3::cache::LinePaint {
     use azul_css::{
         compact_cache as flags,
-        props::style::text::{StyleTextDecorationColor, StyleTextDecorationThickness},
+        props::style::text::{
+            StyleTextDecorationColor, StyleTextDecorationStyle, StyleTextDecorationThickness,
+        },
     };
 
-    use crate::text3::cache::{DecorationColor, LinePaint, LineThickness};
+    use crate::text3::cache::{DecorationColor, LinePaint, DecorationStyle, LineThickness};
 
     let cache = &styled_dom.css_property_cache.ptr;
     let declared = |flag: u64| {
@@ -5050,7 +5060,25 @@ fn decoration_paint_of(
     } else {
         LineThickness::Auto
     };
-    LinePaint { color, thickness }
+    let style = if declared(flags::DOM_HAS_TEXT_DECORATION_STYLE) {
+        match cache
+            .get_text_decoration_style(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+        {
+            Some(StyleTextDecorationStyle::Double) => DecorationStyle::Double,
+            Some(StyleTextDecorationStyle::Dotted) => DecorationStyle::Dotted,
+            Some(StyleTextDecorationStyle::Dashed) => DecorationStyle::Dashed,
+            Some(StyleTextDecorationStyle::Wavy) => DecorationStyle::Wavy,
+            Some(StyleTextDecorationStyle::Solid) | None => DecorationStyle::Solid,
+        }
+    } else {
+        DecorationStyle::Solid
+    };
+    LinePaint {
+        color,
+        thickness,
+        style,
+    }
 }
 
 /// Where the underline the box `dom_id` sets is: the offset and the position it declares or
@@ -5148,11 +5176,14 @@ pub fn own_text_decoration(
         return lines;
     }
     let lines = lines.painted(decoration_paint_of(styled_dom, dom_id, node_state, viewport));
-    if lines.underline {
+    let lines = if lines.underline() {
         lines.placed(underline_place_of(styled_dom, dom_id, node_state, viewport))
     } else {
         lines
-    }
+    };
+    // The lines are the box's: what their place and thickness are parts of is ITS font size,
+    // whatever the font size of the text they are drawn under.
+    lines.sized(get_element_font_size_in_viewport(styled_dom, dom_id, node_state, viewport))
 }
 
 /// The decorations the text of the inline formatting context rooted at
@@ -5195,7 +5226,13 @@ pub fn propagated_text_decoration(
     let mut node = Some(ifc_root);
     while let Some(id) = node {
         let state = &styled_nodes[id].styled_node_state;
-        decoration = decoration.with(own_text_decoration(styled_dom, id, state, viewport));
+        // Boxes of blocks stand on the baseline of the line: no raise to tell apart. The runs
+        // that carry these lines read the raise of their own box (`TextDecoration::within`).
+        decoration = decoration.within(
+            Some(0.0),
+            &own_text_decoration(styled_dom, id, state, viewport),
+            Some(0.0),
+        );
         let out_of_flow = matches!(
             crate::solver3::positioning::get_position_type(styled_dom, Some(id)),
             LayoutPosition::Absolute | LayoutPosition::Fixed

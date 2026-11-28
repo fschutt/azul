@@ -58,6 +58,13 @@ mod window_teardown_invariants;
 // of or silently loses its input to, pinned in the source.
 #[cfg(test)]
 mod ios_shell_invariants;
+// And the iOS GPU path: OpenGLES.framework opened and never linked or closed, the UIKit lifecycle reaching the
+// lifecycle machine, the CPU path left to CPU windows, nothing deleted in the background.
+#[cfg(test)]
+mod ios_gpu_invariants;
+// And the frame report: every shell that rasters a frame on the CPU puts it on the window's report, which the e2e counters read.
+#[cfg(test)]
+mod frame_report_invariants;
 
 // Re-export common types
 pub use common::{

@@ -114,6 +114,71 @@ class AuditTests(unittest.TestCase):
         self.assertIn("clipping parent", why["Long label"])
         self.assertIn("window's right edge", why["Over the edge"])
 
+    def test_one_text_is_one_entry_even_when_a_button_a_paragraph_and_a_leaf_carry_it(self):
+        tree = [a11y(1, 1, "Button", "azmeet-join", 10, 100, 100, 16, clickable=True), a11y(2, 2, "Paragraph", "azmeet-join", 10, 100, 100, 16, parent=1),
+                a11y(3, 3, "Label", "azmeet-join", 0, 0, 0, 0, parent=2), a11y(4, 4, "Label", "azmeet-new-meeting", 0, 0, 0, 0)]
+        r = self.run_audit([node(i, "p", 0, 0, 1, 1) for i in range(1, 5)], tree)
+        self.assertEqual(r["raw_keys"]["count"], 2)
+        self.assertEqual([e["text"] for e in r["raw_keys"]["top"]], ["azmeet-join", "azmeet-new-meeting"])
+        self.assertEqual(r["raw_keys"]["top"][0]["w"], 100.0)           # the first with a box
+
+    def test_the_status_bar_and_the_cutout_of_one_strip_are_one_band(self):
+        dump = ("InsetsSource id=1 type=statusBars frame=[0,0][1080,128] visible=true\n"
+                "InsetsSource id=2 type=displayCutout frame=[0,0][1080,128] visible=true\n"
+                "InsetsSource id=3 type=navigationBars frame=[0,2274][1080,2400] visible=true\n")
+        bands = la.parse_system_bars(dump)["bands"]
+        self.assertEqual([(b["name"], b["rect"]) for b in bands], [("statusBars+displayCutout", (0, 0, 1080, 128)), ("navigationBars", (0, 2274, 1080, 2400))])
+
+    def test_a_key_is_judged_by_its_border_box_not_by_the_accessibility_content_box(self):
+        # a 48 x 48 dp key: the layout rect is the border box, the accessibility export is the content box inside padding 12 / 6 and border 1
+        layout = [node(1, "button", 100, 800, 48, 48)]
+        tree = [a11y(1, 1, "Button", "Undo", 113, 807, 22, 34, clickable=True)]
+        r = self.run_audit(layout, tree)
+        self.assertEqual(r["small_targets"]["small"], 0)
+        self.assertEqual(r["small_targets"]["tappable"], 1)
+
+    def test_a_key_a_hair_under_48_dp_from_rounding_is_not_small(self):
+        layout = [node(1, "button", 100, 800, 47.8, 48.0)]
+        tree = [a11y(1, 1, "Button", "Key", 113, 807, 22, 34, clickable=True)]
+        self.assertEqual(self.run_audit(layout, tree)["small_targets"]["small"], 0)
+
+    def test_a_key_that_really_is_small_is_still_listed_with_its_border_box(self):
+        layout = [node(1, "button", 100, 800, 30, 30)]
+        tree = [a11y(1, 1, "Button", "Tiny", 106, 803, 16, 24, clickable=True)]
+        r = self.run_audit(layout, tree)
+        self.assertEqual([(e["w"], e["h"]) for e in r["small_targets"]["top"]], [(30.0, 30.0)])
+
+    def test_the_border_box_is_used_for_the_bars_too(self):
+        # the border box starts under the status strip, its content box starts below it
+        layout = [node(1, "button", 10, 40, 48, 48)]
+        tree = [a11y(1, 1, "Button", "Menu", 23, 53, 22, 34, clickable=True)]
+        r = self.run_audit(layout, tree)
+        self.assertEqual(r["under_bars"]["tappable"]["count"], 1)
+
+    def test_a_layout_box_that_does_not_contain_the_accessibility_box_is_not_trusted(self):
+        # a node inside a scrolled container: the two coordinate systems differ, the accessibility box (window space) is used
+        layout = [node(1, "button", 10, 5000, 48, 48)]
+        tree = [a11y(1, 1, "Button", "Scrolled", 23, 300, 22, 34, clickable=True)]
+        r = self.run_audit(layout, tree)
+        self.assertEqual([(e["w"], e["h"]) for e in r["small_targets"]["top"]], [(22.0, 34.0)])
+
+    def test_a_text_that_is_a_message_id_is_listed(self):
+        tree = [a11y(1, 1, "Label", "azmeet-loading-key", 10, 100, 200, 20), a11y(2, 2, "Label", "Loading this device's key...", 10, 130, 200, 20),
+                a11y(3, 3, "Button", "menu-file-open", 10, 160, 100, 48, clickable=True), a11y(4, 4, "Label", "e-mail", 10, 220, 50, 20),
+                a11y(5, 5, "Label", "Save-as", 10, 250, 50, 20)]
+        r = self.run_audit([node(i, "p", 0, 0, 1, 1) for i in range(1, 6)], tree)
+        self.assertEqual(sorted(e["text"] for e in r["raw_keys"]["top"]), ["azmeet-loading-key", "menu-file-open"])
+        self.assertIn("texts are raw keys", la.summary_line(r))
+
+    def test_the_lists_say_which_widget_causes_most_of_them(self):
+        layout = [node(1, "button", 10, 10, 30, 30, classes=["__azul-native-button"]), node(2, "p", 10, 60, 30, 30, classes=["__azul-native-date-picker-day"]),
+                  node(3, "p", 10, 100, 30, 30, classes=["__azul-native-date-picker-day"]), node(4, "div", 10, 140, 30, 30)]
+        tree = [a11y(1, 1, "Button", "OK", 10, 10, 30, 30, clickable=True), a11y(2, 2, "Button", "1", 10, 60, 30, 30, clickable=True),
+                a11y(3, 3, "Button", "2", 10, 100, 30, 30, clickable=True), a11y(4, 4, "Button", "x", 10, 140, 30, 30, clickable=True)]
+        r = self.run_audit(layout, tree)
+        self.assertEqual(r["small_targets"]["by_widget"], {"date-picker-day": 2, "button": 1, "div": 1})
+        self.assertIn("by widget: date-picker-day 2, button 1, div 1", la.report_markdown([r]))
+
     def test_a_scroll_container_with_wider_content_is_the_page_that_scrolls_sideways(self):
         scroll = {"status": "ok", "data": {"type": "scroll_states", "value": {"scroll_states": [
             {"node_id": 27, "scroll_x": 0.0, "scroll_y": 4079.0, "content_width": 606.7, "content_height": 14189.0, "container_width": 411.4,
@@ -146,6 +211,29 @@ class AuditTests(unittest.TestCase):
         self.assertIn("portrait: window 411.4 x 914.3 dp", text)
 
 
+class WordsTests(unittest.TestCase):
+    def tree(self, names):
+        return answer([a11y(i + 1, i, "Label", n, 0, i * 20, 100, 20) for i, n in enumerate(names)])
+
+    def test_a_language_that_arrived_changes_the_texts_of_the_same_nodes(self):
+        en = self.tree(["File", "Edit", "Azul Widget Showcase", "Save"])
+        de = self.tree(["Datei", "Bearbeiten", "Azul Widget Showcase", "Speichern"])
+        w = la.compare_words(en, de)
+        self.assertEqual((w["named"], w["changed"]), (4, 3))
+        self.assertEqual(w["sample"][0], ("File", "Datei"))
+        self.assertEqual(w["raw_keys_b"], [])
+
+    def test_message_ids_in_the_second_language_are_named(self):
+        en = self.tree(["File", "Loading"])
+        de = self.tree(["azpaint-file", "azpaint-loading-key"])
+        w = la.compare_words(en, de)
+        self.assertEqual(w["raw_keys_b"], ["azpaint-file", "azpaint-loading-key"])
+
+    def test_nothing_in_common_is_not_a_change(self):
+        w = la.compare_words(answer([]), self.tree(["a"]))
+        self.assertEqual((w["named"], w["changed"], w["share"]), (0, 0, 0.0))
+
+
 class CompareTests(unittest.TestCase):
     def audit_of(self, tree, layout=None):
         bars = la.parse_system_bars(WINDOW_DUMP)
@@ -164,7 +252,7 @@ class CompareTests(unittest.TestCase):
         self.assertEqual([k for k, _n in new], [("button#a", "Save", 48, 48)])
 
     def test_the_comparison_names_the_lists_and_the_fixed_box(self):
-        before = {"AzPaint": {"portrait": self.audit_of([a11y(1, 1, "Button", "Undo", 10, 10, 30, 30, clickable=True)])}}
+        before = {"AzPaint": {"portrait": self.audit_of([a11y(1, 1, "Button", "Undo", 10, 10, 30, 30, clickable=True)], [node(1, "button", 10, 10, 30, 30)])}}
         after = {"AzPaint": {"portrait": self.audit_of([a11y(1, 1, "Button", "Undo", 10, 80, 48, 48, clickable=True)], [node(1, "button", 10, 80, 48, 48)])}}
         text = ac.compare(before, after)
         self.assertIn("## AzPaint", text)

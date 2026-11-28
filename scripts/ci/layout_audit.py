@@ -18,6 +18,7 @@ What it lists, per orientation (every list names the node: tag#id.class, the rol
     cut text      text-bearing boxes that cross the window's edge or the edge of an ancestor that clips its children
     sideways      scroll containers whose content is wider than they are (`get_scroll_states`: the engine's own measure of a page
                   that does not fit the width), and the scroll offsets of the moment the boxes were read
+    raw keys      nodes whose text is a localisation KEY instead of words (`azmeet-loading-key`: the bundle did not load)
 What it can NOT say: a text clipped inside its own box. The debug server reports boxes, not glyph extents; it is listed under
 `not_measured` in every report so nobody reads an empty list as "nothing is clipped".
 """
@@ -36,6 +37,8 @@ TEXT_ROLES = {"Label", "Paragraph", "Heading", "StaticText", "Button", "Link", "
 NOT_MEASURED = ["a text clipped inside its own box (a long word in a narrow button, an ellipsis): the debug server reports boxes, "
                 "not glyph extents, so this needs an engine op that returns each text's laid-out size"]
 LIST_LIMIT = 40
+# a Fluent message id shown instead of its text: an app's own prefix (azmeet-...) with at least one dash, or any lower-case word chain with two
+RAW_KEY = __import__("re").compile(r"^(?:az[a-z0-9]*(?:-[a-z0-9]+)+|[a-z][a-z0-9]*(?:-[a-z0-9]+){2,})$")
 
 
 # ---- the system's own account of the bars -------------------------------------------------------------------------------------
@@ -70,7 +73,11 @@ def parse_system_bars(text):
         if rect[2] - rect[0] <= 0 or rect[3] - rect[1] <= 0 or (name, rect) in seen:
             continue
         seen.add((name, rect))
-        bands.append({"name": name, "rect": rect})
+        same = next((b for b in bands if b["rect"] == rect), None)
+        if same:
+            same["name"] += "+" + name                  # the status bar and the display cutout are often one strip
+        else:
+            bands.append({"name": name, "rect": rect})
     if not bands and screen and app:
         w, h = screen
         l, t, r, b = app
@@ -131,6 +138,25 @@ def _entry(layout, a11y, rect, why):
     return out
 
 
+WIDGET_CLASS = __import__("re").compile(r"__azul-native-([a-z0-9-]+)")
+
+
+def widget_of(entry):
+    """The widget a listed node belongs to: the name in its `__azul-native-<widget>` class, else its tag."""
+    node = entry.get("node", "")
+    m = WIDGET_CLASS.search(node)
+    return m.group(1) if m else (__import__("re").split(r"[.#]", node)[0] or "?")
+
+
+def by_widget(entries):
+    """{widget: how many of the entries} the most frequent first: what to fix first when one widget causes most of a list."""
+    counts = {}
+    for e in entries:
+        w = widget_of(e)
+        counts[w] = counts.get(w, 0) + 1
+    return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
 def _outer(entries):
     """The entries that are not inside another entry's box: the offender, not every node inside it."""
     boxes = [(e, (e["x"], e["y"], e["x"] + e["w"], e["y"] + e["h"])) for e in entries]
@@ -163,6 +189,20 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
     by_id = {n.get("id"): n for n in a11y}
     layout_by_id = {n.get("node_id"): n for n in nodes}
 
+    def box_of(a):
+        """The node's box in dp (l, t, r, b): the BORDER box of its layout node when that contains the accessibility box, else the accessibility
+        box. The accessibility export is the CONTENT box (position + padding + border inwards: a 48 x 48 dp key is 22 x 34 there), a person's
+        finger lands on the border box. None when the node has no box."""
+        b = a.get("bounds")
+        content = tuple(v / scale for v in b) if b else None
+        lay = layout_by_id.get(a.get("node_id"))
+        r = lay.get("rect") if lay else None
+        if r and r.get("width", 0) > 0 and r.get("height", 0) > 0:
+            border = _rect_dp(r)
+            if content is None or _inside(content, border, slack=2.0):
+                return border
+        return content
+
     # -- the window's edges (every DOM node of the layout)
     right, left = [], []
     for n in nodes:
@@ -180,25 +220,24 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
     for name, found in (("right", right), ("left", left)):
         found.sort(key=lambda e: (-e["w"], e["y"]))
         outer = _outer(found)
-        result[f"edge_{name}"] = {"count": len(found), "outer": len(outer), "top": outer}
+        result[f"edge_{name}"] = {"count": len(found), "outer": len(outer), "top": outer, "by_widget": by_widget(outer)}
 
     # -- under the bars (the a11y tree: device pixels)
     bands = (bars or {}).get("bands") or []
     under = {"tappable": [], "text": [], "boxes": 0}
     for a in a11y:
-        b = a.get("bounds")
-        if not b or a.get("hidden") or a.get("dom_id") not in (0, None):
+        if a.get("hidden") or a.get("dom_id") not in (0, None):
             continue
-        box = tuple(v / scale for v in b)
-        if box[2] - box[0] <= 0 or box[3] - box[1] <= 0:
+        box = box_of(a)
+        if not box or box[2] - box[0] <= 0 or box[3] - box[1] <= 0:
             continue
         role = a.get("role")
         tappable = bool(a.get("clickable")) or role in INTERACTIVE_ROLES
         texty = bool(a.get("name")) and role in TEXT_ROLES
         for band in bands:
-            bl, bt, br, bb = band["rect"]
-            dx = (min(b[2], br) - max(b[0], bl)) / scale          # the overlap in dp, both boxes in device pixels
-            dy = (min(b[3], bb) - max(b[1], bt)) / scale
+            bl, bt, br, bb = (v / scale for v in band["rect"])          # the bars are in device pixels, the boxes in dp
+            dx = min(box[2], br) - max(box[0], bl)
+            dy = min(box[3], bb) - max(box[1], bt)
             if dx >= MIN_UNDER_BAR_DP and dy >= MIN_UNDER_BAR_DP:
                 depth = dy if (br - bl) >= (bb - bt) else dx          # a bar along the top or bottom is entered from the side of its height
                 entry = _entry(layout_by_id.get(a.get("node_id")), a, box, f"{depth:.0f} dp under the {band['name']} bar")
@@ -222,21 +261,20 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
             continue
         if not (a.get("clickable") or role in INTERACTIVE_ROLES):
             continue
-        b = a.get("bounds")
-        if not b:
+        box = box_of(a)
+        if not box:
             unknown += 1
             continue
         tappable_count += 1
-        box = tuple(v / scale for v in b)
         w, h = box[2] - box[0], box[3] - box[1]
-        if w <= 0 or h <= 0 or min(w, h) >= MIN_TARGET_DP:
+        if w <= 0 or h <= 0 or min(w, h) >= MIN_TARGET_DP - 0.5:      # half a dp of layout rounding
             continue
         # a larger tappable ancestor takes the finger anyway
         parent, big_parent = by_id.get(a.get("parent")), False
         while parent is not None:
-            pb = parent.get("bounds")
-            if pb and (parent.get("clickable") or parent.get("role") in INTERACTIVE_ROLES):
-                if min((pb[2] - pb[0]) / scale, (pb[3] - pb[1]) / scale) >= MIN_TARGET_DP:
+            pbox = box_of(parent)
+            if pbox and (parent.get("clickable") or parent.get("role") in INTERACTIVE_ROLES):
+                if min(pbox[2] - pbox[0], pbox[3] - pbox[1]) >= MIN_TARGET_DP:
                     big_parent = True
                     break
             parent = by_id.get(parent.get("parent"))
@@ -249,7 +287,7 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
     for e in small:
         roles[e.get("role") or "?"] = roles.get(e.get("role") or "?", 0) + 1
     result["small_targets"] = {"tappable": tappable_count, "no_bounds": unknown, "small": len(small), "inside_a_large_parent": covered,
-                               "by_role": roles, "top": small}
+                               "by_role": roles, "by_widget": by_widget(small), "top": small}
 
     # -- scroll containers wider than they are, and where every scroller stood when the boxes were read
     sideways, offsets = [], []
@@ -293,7 +331,25 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
         if why:
             cut.append(_entry(layout_by_id.get(a.get("node_id")), a, box, why))
     cut.sort(key=lambda e: (e["y"], e["x"]))
-    result["cut_text"] = {"count": len(cut), "top": cut}
+    result["cut_text"] = {"count": len(cut), "top": cut, "by_widget": by_widget(cut)}
+
+    # -- text that is a localisation key
+    raw, seen_text = [], {}
+    for a in a11y:
+        name = a.get("name")
+        if a.get("hidden") or a.get("dom_id") not in (0, None) or not isinstance(name, str) or not RAW_KEY.match(name.strip()):
+            continue
+        b = a.get("bounds")
+        box = tuple(v / scale for v in b) if b else (0.0, 0.0, 0.0, 0.0)
+        entry = _entry(layout_by_id.get(a.get("node_id")), a, box, "the text is a message id, not words")
+        # a button, its paragraph and the paragraph's text leaf carry one text: one entry, the first that has a box on the screen
+        at = seen_text.get(name)
+        if at is None:
+            seen_text[name] = len(raw)
+            raw.append(entry)
+        elif raw[at]["w"] == 0 and entry["w"] > 0:
+            raw[at] = entry
+    result["raw_keys"] = {"count": len(raw), "top": raw}
     return result
 
 
@@ -311,6 +367,11 @@ def _table(entries, columns):
     return lines + ([f"... and {more} more (all of them are in layout-audit.json)"] if more else []) + [""]
 
 
+def _top_widgets(counts, limit=14):
+    items = list(counts.items())
+    return ", ".join(f"{w} {n}" for w, n in items[:limit]) + (f", and {len(items) - limit} more" if len(items) > limit else "")
+
+
 def report_markdown(audits, label=""):
     """One Markdown document for the audits of the orientations (a list of audit() results)."""
     out = [f"# Layout audit{': ' + label if label else ''}", ""]
@@ -323,6 +384,8 @@ def report_markdown(audits, label=""):
         for side in ("right", "left"):
             e = a[f"edge_{side}"]
             out += [f"### Boxes crossing the {side} edge: {e['count']} ({e['outer']} outermost)", ""]
+            if e.get("by_widget"):
+                out += ["by widget (outermost): " + _top_widgets(e["by_widget"]), ""]
             out += _table(e["top"], ["node", "role", "text", "x", "y", "w", "h", "why"])
         u = a["under_bars"]
         bands = ", ".join(f"{b['name']} {b['rect']}" for b in u["bands_px"]) or "none found"
@@ -332,11 +395,17 @@ def report_markdown(audits, label=""):
         s = a["small_targets"]
         out += [f"### Tappable nodes smaller than {MIN_TARGET_DP:.0f} dp: {s['small']} of {s['tappable']} "
                 f"({s['inside_a_large_parent']} more sit inside a large tappable parent; {s['no_bounds']} have no box)",
-                "", "by role: " + (", ".join(f"{r} {n}" for r, n in sorted(s["by_role"].items(), key=lambda kv: -kv[1])) or "none"), ""]
+                "", "by role: " + (", ".join(f"{r} {n}" for r, n in sorted(s["by_role"].items(), key=lambda kv: -kv[1])) or "none"), "",
+                "by widget: " + (_top_widgets(s.get("by_widget") or {}) or "none"), ""]
         out += _table(s["top"], ["node", "role", "text", "x", "y", "w", "h"])
         c = a["cut_text"]
         out += [f"### Text-bearing boxes that cross an edge: {c['count']}", ""]
+        if c.get("by_widget"):
+            out += ["by widget: " + _top_widgets(c["by_widget"]), ""]
         out += _table(c["top"], ["node", "role", "text", "x", "y", "w", "h", "why"])
+        rk = a["raw_keys"]
+        out += [f"### Text that is a localisation key instead of words: {rk['count']}", ""]
+        out += _table(rk["top"], ["node", "role", "text", "x", "y", "w", "h"])
         sw = a["sideways_scroll"]
         out += [f"### Scroll containers whose content is wider than the container: {sw['count']} of {sw['scrollers']} (the page scrolls sideways)", ""]
         if sw["top"]:
@@ -350,6 +419,21 @@ def report_markdown(audits, label=""):
     return "\n".join(out) + "\n"
 
 
+def compare_words(tree_a, tree_b):
+    """The texts of two accessibility trees of the same app in two languages, node by node (the DOM index): -> {"named": nodes with a text
+    in both, "changed": how many differ, "share": changed / named, "sample": [(a, b), ...] the first changed pairs, "raw_keys_b": the texts of
+    `tree_b` that are message ids}. A language that did arrive changes the texts of an app that registers a bundle; ids in the second tree mean
+    the bundle did not load."""
+    def names(tree):
+        return {n.get("node_id"): str(n.get("name")) for n in a11y_nodes(tree)
+                if n.get("node_id") is not None and n.get("name") and n.get("dom_id") in (0, None)}
+    a, b = names(tree_a), names(tree_b)
+    both = [k for k in a if k in b]
+    changed = [(a[k], b[k]) for k in both if a[k] != b[k]]
+    return {"named": len(both), "changed": len(changed), "share": (len(changed) / len(both)) if both else 0.0, "sample": changed[:8],
+            "raw_keys_b": sorted({v for v in b.values() if RAW_KEY.match(v.strip())})}
+
+
 def summary_line(a):
     """One line for a step's note: the counts of the lists."""
     if a.get("error"):
@@ -358,7 +442,8 @@ def summary_line(a):
     return (f"{a['orientation']} {a['window_dp'][0]:.0f}x{a['window_dp'][1]:.0f} dp: {a['edge_right']['count']} boxes cross the right edge "
             f"({a['edge_right']['outer']} outermost), {a['edge_left']['count']} the left, {u['tappable']['count']} tappable and {u['text']['count']} text boxes "
             f"under a bar, {a['small_targets']['small']} of {a['small_targets']['tappable']} tappable nodes under {MIN_TARGET_DP:.0f} dp, "
-            f"{a['cut_text']['count']} text boxes cross an edge, {a['sideways_scroll']['count']} scroll containers are wider than they are")
+            f"{a['cut_text']['count']} text boxes cross an edge, {a['sideways_scroll']['count']} scroll containers are wider than they are, "
+            f"{a['raw_keys']['count']} texts are raw keys")
 
 
 def load_dir(logs_dir, orientation):
