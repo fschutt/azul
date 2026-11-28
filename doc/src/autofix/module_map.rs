@@ -772,6 +772,11 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     ("CornerRadii", "window"),
     ("SystemBar", "window"),
     ("Fingerprint", "window"),
+    // The answers of the folder picker and of "save as" with bytes (`FileDialog::open_folder`, `FileDialog::export_bytes`): the
+    // word "Result" would send them to `error`, but they are the file dialogs', beside `FileOpenResult` and `SaveTargetResult`.
+    // Spelled in full: "Export" alone would capture every export type of the API.
+    ("FolderPickResult", "dialog"),
+    ("ExportResult", "dialog"),
 ];
 
 /// Module for a known-difficult type name, if it is one.
@@ -1853,6 +1858,8 @@ mod tests {
             ("PlaceKind", "azul_core::documents::PlaceKind", "file"),
             ("AllFilesAccess", "azul_core::documents::AllFilesAccess", "file"),
             ("Documents", "azul_layout::documents::Documents", "file"),
+            ("FolderPickResult", "azul_layout::desktop::dialogs::FolderPickResult", "dialog"),
+            ("ExportResult", "azul_layout::desktop::dialogs::ExportResult", "dialog"),
         ] {
             assert_eq!(new_type_module(name, path), (module.to_string(), false), "{name} by its path");
             assert_eq!(get_correct_module_with_path(name, module, Some(path)), None, "{name} stays in {module}");
@@ -1864,6 +1871,8 @@ mod tests {
         }
         assert_eq!(determine_module("ShareItemVec").0, "vec");
         assert_eq!(determine_module("OptionOpenedItem").0, "option");
+        assert_eq!(determine_module("OptionFolderPickResult").0, "option");
+        assert_eq!(determine_module("OptionExportResult").0, "option");
         assert_eq!(determine_module("DocumentError").0, "error");
         assert_eq!(determine_module("ResultDocumentEntryDocumentError").0, "error");
     }
