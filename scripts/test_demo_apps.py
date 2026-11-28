@@ -374,6 +374,7 @@ class E2eVariantTest(unittest.TestCase):
                          ["AzCalendar",
                           "AzCode",
                           "AzCompanion",
+                          "AzMail",
                           "AzMaps",
                           "AzMeet",
                           "AzPaint",
@@ -1807,7 +1808,7 @@ class MobileLibCommandTest(unittest.TestCase):
         self.assertEqual(self.mobile_lib("AzWriter"), (0, "mobile"))
 
     def test_an_app_that_has_no_phone_build_or_is_unknown_is_an_error(self):
-        self.assertEqual(self.mobile_lib("AzMail")[0], 1)
+        self.assertEqual(self.mobile_lib("AzTerm")[0], 1)                    # a desktop-only app
         self.assertEqual(self.mobile_lib("AzNoSuchApp")[0], 1)
         self.assertEqual(self.mobile_lib()[0], 2)
 
@@ -1821,7 +1822,8 @@ class MobileLibCommandTest(unittest.TestCase):
         self.assertEqual(self.e2e_lib("AzWidgets"), (0, "mobile-e2e"))
         self.assertEqual(self.e2e_lib("AzMeet"), (0, "mobile-e2e-iroh"))
         self.assertEqual(self.e2e_lib("AzCompanion"), (0, "mobile-e2e-iroh"))
-        self.assertEqual(self.e2e_lib("AzMail")[0], 1)           # no QA build
+        self.assertEqual(self.e2e_lib("AzMail"), (0, "mobile-e2e"))
+        self.assertEqual(self.e2e_lib("AzMonitor")[0], 1)        # a desktop app: no QA build
         self.assertEqual(self.e2e_lib()[0], 2)
 
 
@@ -1871,12 +1873,14 @@ class AndroidBuildAllScriptTest(unittest.TestCase):
         builds = {e["variant"]: sorted(e["apps"].split()) for e in plan["apps_android"] if e["leg"] == "android-x86_64"}
         self.assertEqual(builds[""], ["AzCalendar",
                                       "AzCompanion",
+                                      "AzMail",
                                       "AzMaps",
                                       "AzMeet",
                                       "AzPaint",
                                       "AzWidgets",
                                       "AzWriter"])
         self.assertEqual(builds["mobile-e2e"], ["AzCalendar",
+                                                "AzMail",
                                                 "AzMaps",
                                                 "AzPaint",
                                                 "AzWidgets",
