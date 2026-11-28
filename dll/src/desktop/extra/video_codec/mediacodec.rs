@@ -664,6 +664,10 @@ pub(super) struct MediaCodecDecoder {
     next_pts_us: i64,
     /// Nothing is fed until a key frame: a picture without its reference is garbage.
     need_key: bool,
+    /// Access units queued and pictures given out since the decoder was made (the log line at
+    /// the end of a stream).
+    units_in: u64,
+    pictures_out: u64,
     consecutive_failures: u32,
     gave_up: bool,
     said: plan::Said,
@@ -706,6 +710,8 @@ impl MediaCodecDecoder {
             in_flight: 0,
             next_pts_us: 0,
             need_key: true,
+            units_in: 0,
+            pictures_out: 0,
             consecutive_failures: 0,
             gave_up: false,
             said: plan::Said::default(),
@@ -897,6 +903,7 @@ impl MediaCodecDecoder {
         unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), data, bytes.len()) };
         codec.queue_input(index, bytes.len(), pts, 0)?;
         self.in_flight += 1;
+        self.units_in += 1;
         self.drain(frames, plan::OUTPUT_WAIT_US)
     }
 
@@ -963,6 +970,7 @@ impl MediaCodecDecoder {
         match made {
             Ok(Some(frame)) => {
                 self.consecutive_failures = 0;
+                self.pictures_out += 1;
                 frames.push(frame);
             }
             Ok(None) => {}
@@ -1078,6 +1086,16 @@ impl MediaCodecDecoder {
         }
         // After the end of the stream the codec takes no input until it is flushed.
         self.codec.as_ref().ok_or_else(no_codec)?.flush()?;
+        android_log(
+            LOG_INFO,
+            &format!(
+                "decoder: end of stream after {} access units and {} pictures, {} still in flight ({} ms)",
+                self.units_in,
+                self.pictures_out,
+                self.in_flight,
+                started.elapsed().as_millis()
+            ),
+        );
         self.in_flight = 0;
         self.need_key = true;
         Ok(())
@@ -1141,6 +1159,8 @@ pub(super) struct MediaCodecEncoder {
     in_flight: u32,
     /// Frames this codec instance took.
     frames_in: u64,
+    /// Packets given out since the encoder was made.
+    packets_out: u64,
     consecutive_failures: u32,
     gave_up: bool,
     said: plan::Said,
@@ -1176,6 +1196,7 @@ impl MediaCodecEncoder {
             last_pts_us: -1,
             in_flight: 0,
             frames_in: 0,
+            packets_out: 0,
             consecutive_failures: 0,
             gave_up: false,
             said: plan::Said::default(),
@@ -1543,6 +1564,7 @@ impl MediaCodecEncoder {
         }
         self.in_flight = self.in_flight.saturating_sub(1);
         self.consecutive_failures = 0;
+        self.packets_out += 1;
         if is_key && h264::contains_nal(&bytes, h264::NAL_SPS) {
             self.parameter_sets = h264::parameter_sets(&bytes);
         }
@@ -1575,6 +1597,16 @@ impl MediaCodecEncoder {
                 idle_since = Instant::now();
             }
         }
+        android_log(
+            LOG_INFO,
+            &format!(
+                "encoder: flush: {} packets out so far for {} frames, {} still in flight ({} ms)",
+                self.packets_out,
+                self.frames_in,
+                self.in_flight,
+                started.elapsed().as_millis()
+            ),
+        );
         // Frames a rate control dropped never come out: do not wait for them again.
         self.in_flight = 0;
         packets
