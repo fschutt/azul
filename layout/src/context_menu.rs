@@ -70,11 +70,7 @@ pub fn nearest_context_menu<'a>(
     // The event path of the click (core's one walk, the one pointer events
     // bubble along), target first.
     let parent_of = |dom: DomId, node: NodeId| -> Option<NodeId> {
-        styled_dom_of(dom)?
-            .node_hierarchy
-            .as_slice()
-            .get(node.index())?
-            .parent_id()
+        styled_dom_of(dom)?.event_parent_of(node)
     };
     azul_core::events::get_event_path(start, &parent_of, host_of)
         .into_iter()

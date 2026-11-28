@@ -921,6 +921,12 @@ pub struct TransientWindowManager {
     /// [`Self::overlays_changed`] compares the open set with, and
     /// [`Self::take_overlay_dirt`] diffs. Keyed by node, so a rebuild remaps it.
     laid_out_overlays: alloc::collections::BTreeMap<NodeId, OverlayBox>,
+    /// The overlays that opened and have not been handed the keyboard yet: the focus moves into
+    /// them once they are laid out ([`Self::take_pending_overlay_focus`]).
+    pending_overlay_focus: Vec<NodeId>,
+    /// The overlay the USER closed last (an outside press, Escape, its close box): where the focus
+    /// that is still inside it, hidden now, is owed back to the opener from.
+    dismissed_overlay: Option<NodeId>,
 }
 
 /// What changed between two parent layouts, so the backend knows which
@@ -999,6 +1005,8 @@ impl TransientWindowManager {
             dock_generation: 0,
             shell_presentation: WindowPresentation::Windows,
             laid_out_overlays: alloc::collections::BTreeMap::new(),
+            pending_overlay_focus: Vec::new(),
+            dismissed_overlay: None,
         }
     }
 
@@ -1058,7 +1066,33 @@ impl TransientWindowManager {
             .iter()
             .position(|w| w.source_node == source_node)?;
         self.dock_generation += 1;
+        // An overlay the focus was inside of: the focus it hid is owed back to the opener.
+        if self.open[i].overlay.is_some() {
+            self.dismissed_overlay = Some(source_node);
+        }
+        self.pending_overlay_focus.retain(|n| *n != source_node);
         Some(self.open.remove(i))
+    }
+
+    /// The overlays opened since the keyboard was last handed to one, oldest first, each
+    /// once: what [`crate::window::LayoutWindow::overlay_autofocus_target`] takes.
+    pub fn take_pending_overlay_focus(&mut self) -> Vec<NodeId> {
+        core::mem::take(&mut self.pending_overlay_focus)
+    }
+
+    /// Gives back an overlay [`Self::take_pending_overlay_focus`] took that was not laid out
+    /// yet: it is tried again after the next pass.
+    pub fn keep_pending_overlay_focus(&mut self, node: NodeId) {
+        if !self.pending_overlay_focus.contains(&node) {
+            self.pending_overlay_focus.push(node);
+        }
+    }
+
+    /// The overlay the user closed since this was last asked, once: the focus that sits inside it
+    /// still is not "moved away by the user" - it is lost with the overlay, and goes back to the
+    /// control that opened it.
+    pub const fn take_dismissed_overlay(&mut self) -> Option<NodeId> {
+        self.dismissed_overlay.take()
     }
 
     /// Source nodes currently held closed by a user dismissal.
@@ -1356,6 +1390,9 @@ impl TransientWindowManager {
                 attr_torn: p.torn,
                 overlay: overlay_wanted.then(|| overlay_box_for(p, content_size, env)),
             });
+            if overlay_wanted {
+                self.pending_overlay_focus.push(p.node);
+            }
             diff.opened.push(content_dom);
         }
 
@@ -1620,6 +1657,12 @@ impl crate::managers::NodeIdRemap for TransientWindowManager {
             .iter()
             .filter_map(|n| map.resolve(*n))
             .collect();
+        self.pending_overlay_focus = self
+            .pending_overlay_focus
+            .iter()
+            .filter_map(|n| map.resolve(*n))
+            .collect();
+        self.dismissed_overlay = self.dismissed_overlay.and_then(|n| map.resolve(n));
         // What the last pass laid out follows its nodes too: an overlay whose node
         // unmounted is gone, one that shifted is the same overlay at the same box.
         self.laid_out_overlays = core::mem::take(&mut self.laid_out_overlays)

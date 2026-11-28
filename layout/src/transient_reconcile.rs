@@ -473,3 +473,109 @@ impl LayoutWindow {
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Focus of overlays: a popup you work in takes the keyboard when it appears and hands it back.
+// ---------------------------------------------------------------------------------------------
+
+impl LayoutWindow {
+    /// The control a newly opened overlay hands the keyboard to: its `autofocus` node, else its
+    /// first tab stop, once the overlay is laid out. What a popup window did in its own window
+    /// (`popup_takes_focus`, the autofocus of the first control), for a popup shown inside this one.
+    /// Only an overlay that TAKES focus ([`crate::transient::transient_takes_focus`]): a list popup
+    /// (a combobox's options) leaves the keyboard on its field. Each overlay is asked once; one that
+    /// is not laid out yet is asked again after the next pass. The overlay opened last wins.
+    ///
+    /// The caller moves the focus (`SystemChange::SetFocus`): it restyles and rings what it
+    /// leaves and gains.
+    pub fn overlay_autofocus_target(&mut self) -> Option<DomNodeId> {
+        let pending = self.transient_windows.take_pending_overlay_focus();
+        let mut target = None;
+        for overlay in pending {
+            let Some(root) = self.layout_results.get(&DomId::ROOT_ID) else {
+                self.transient_windows.keep_pending_overlay_focus(overlay);
+                continue;
+            };
+            if !crate::transient::transient_takes_focus(&root.styled_dom, overlay) {
+                continue;
+            }
+            let rendered = crate::managers::a11y::rendered_nodes(root);
+            if !rendered.get(overlay.index()).copied().unwrap_or(false) {
+                // Not laid out yet: the pass that shows it comes next.
+                self.transient_windows.keep_pending_overlay_focus(overlay);
+                continue;
+            }
+            let nodes = root.styled_dom.node_data.as_container();
+            let hierarchy = root.styled_dom.node_hierarchy.as_container();
+            let mut explicit = None;
+            let mut first = None;
+            // The subtree of a node is the run of nodes after it that are below it.
+            for index in overlay.index() + 1..nodes.len() {
+                let node = NodeId::new(index);
+                if node
+                    .get_nearest_matching_parent(&hierarchy, |parent| parent == overlay)
+                    .is_none()
+                {
+                    break;
+                }
+                if !rendered.get(index).copied().unwrap_or(false) {
+                    continue;
+                }
+                let Some(data) = nodes.get(node) else {
+                    continue;
+                };
+                if !data.is_focusable()
+                    || matches!(
+                        data.get_tab_index(),
+                        Some(azul_core::dom::TabIndex::NoKeyboardFocus)
+                    )
+                {
+                    continue;
+                }
+                if data.has_autofocus() && explicit.is_none() {
+                    explicit = Some(node);
+                }
+                if first.is_none() {
+                    first = Some(node);
+                }
+            }
+            if let Some(found) = explicit.or(first) {
+                target = Some(DomNodeId {
+                    dom: DomId::ROOT_ID,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(found)),
+                });
+            }
+        }
+        target
+    }
+
+    /// Is `focus` inside the overlay the user closed last? Asked once for each close: the focus
+    /// that sat inside an overlay is not "moved away by the user" when the overlay goes - it is
+    /// lost with it, and is owed back to the control that opened it.
+    pub fn focus_is_inside_dismissed_overlay(&mut self, focus: DomNodeId) -> bool {
+        let Some(overlay) = self.transient_windows.take_dismissed_overlay() else {
+            return false;
+        };
+        if focus.dom != DomId::ROOT_ID {
+            return false;
+        }
+        let Some(root) = self.layout_results.get(&DomId::ROOT_ID) else {
+            return false;
+        };
+        let hierarchy = root.styled_dom.node_hierarchy.as_container();
+        let mut current = focus.node.into_crate_internal();
+        // No acyclic walk up the tree is longer than the tree.
+        for _ in 0..hierarchy.len() {
+            let Some(node) = current else {
+                return false;
+            };
+            if node == overlay {
+                return true;
+            }
+            current = hierarchy
+                .get(node)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        }
+        false
+    }
+}

@@ -4147,3 +4147,45 @@ mod audit_diff_first_tests {
         assert!(halves == whole, "every field, the tables as they lie");
     }
 }
+
+/// An event inside a popup stays inside it: the path of a press or a key ENDS at the popup's
+/// `<transient-window>`. As an OS window of its own the boundary did that; on a window with one surface
+/// the same node is shown inside the page, and the controls that opened it (and the rows around them)
+/// must not hear what happens in it.
+#[cfg(test)]
+mod event_boundary_tests {
+    use crate::{
+        dom::{Dom, NodeData, NodeType},
+        id::NodeId,
+        styled_dom::StyledDom,
+        transient::{TransientDock, TransientWindowConfig},
+    };
+
+    /// `body(0) > row(1) > transient(2) > panel(3) > button(4)`.
+    fn page(config: TransientWindowConfig) -> StyledDom {
+        let popup = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(config)))
+            .with_child(Dom::create_div().with_child(Dom::create_div()));
+        StyledDom::create_from_dom(
+            Dom::create_body().with_child(Dom::create_div().with_child(popup)),
+        )
+    }
+
+    #[test]
+    fn the_event_path_ends_at_a_popup_window() {
+        let styled = page(TransientWindowConfig::opened());
+        assert_eq!(styled.event_parent_of(NodeId::new(4)), Some(NodeId::new(3)), "inside it");
+        assert_eq!(styled.event_parent_of(NodeId::new(3)), Some(NodeId::new(2)), "up to its node");
+        assert_eq!(
+            styled.event_parent_of(NodeId::new(2)),
+            None,
+            "and no further: the row and the body do not hear it"
+        );
+        assert_eq!(styled.event_parent_of(NodeId::new(1)), Some(NodeId::new(0)), "the page is as it was");
+    }
+
+    #[test]
+    fn an_inline_panel_is_content_of_the_page_and_bubbles_into_it() {
+        let styled = page(TransientWindowConfig::opened().with_dock(TransientDock::Inline));
+        assert_eq!(styled.event_parent_of(NodeId::new(2)), Some(NodeId::new(1)));
+    }
+}

@@ -5333,6 +5333,8 @@ pub trait PlatformWindow {
             // Popups first: a dismissal queues its `Dismissed` lifecycle event,
             // which the drain below then delivers in this same call.
             self.sync_transient_windows();
+            // The overlay that opened this pass takes the keyboard.
+            self.autofocus_overlays();
             // An inline-docked panel dropped onto another zone (or torn off /
             // docked back) re-grafts the layout tree: that is a layout change
             // of its own, whether or not its `Docked` handler asked for one.
@@ -5843,6 +5845,35 @@ pub trait PlatformWindow {
                 thread,
                 owner: None,
             });
+        }
+    }
+
+    /// A window with one surface shows its popups inside itself: a popup you work in (a dialog,
+    /// a picker) takes the keyboard when it appears, as the popup window did in its own window
+    /// ([`LayoutWindow::overlay_autofocus_target`]). Run after the pass that laid the overlay out.
+    fn autofocus_overlays(&mut self) {
+        let Some(target) = self
+            .get_layout_window_mut()
+            .and_then(LayoutWindow::overlay_autofocus_target)
+        else {
+            return;
+        };
+        let (old_focus, visible) = self
+            .get_layout_window()
+            .map(|lw| {
+                (
+                    lw.focus_manager.get_focused_node().copied(),
+                    lw.focus_manager.focus_is_visible,
+                )
+            })
+            .unwrap_or((None, false));
+        let result = self.apply_system_change(&SystemChange::SetFocus {
+            new_focus: Some(target),
+            old_focus,
+            visible,
+        });
+        if !matches!(result, ProcessEventResult::DoNothing) {
+            self.mark_display_list_dirty();
         }
     }
 
@@ -12055,7 +12086,13 @@ pub trait PlatformWindow {
             // and yanking it back to the swatch a frame later is both wrong and
             // baffling (it also re-arms Space on a control the user has left).
             // Same rule as HTML popover's "focus behavior on close".
-            let focus_moved_away = old_focus.is_some_and(|f| f != target);
+            // Focus that sat INSIDE an overlay the user closed (a popup shown inside this window)
+            // was not moved by the user: it is lost with the overlay, and goes back.
+            let lost_with_overlay = match (old_focus, self.get_layout_window_mut()) {
+                (Some(f), Some(lw)) => lw.focus_is_inside_dismissed_overlay(f),
+                _ => false,
+            };
+            let focus_moved_away = old_focus.is_some_and(|f| f != target) && !lost_with_overlay;
             if focus_moved_away {
                 focus_trace!(
                     self.focus_trace(),
@@ -13887,13 +13924,9 @@ pub trait PlatformWindow {
                                 })
                             },
                             |dom_id, nid| {
-                                results.get(&dom_id).and_then(|lr| {
-                                    lr.styled_dom
-                                        .node_hierarchy
-                                        .as_container()
-                                        .get(nid)
-                                        .and_then(|h| h.parent_id())
-                                })
+                                results
+                                    .get(&dom_id)
+                                    .and_then(|lr| lr.styled_dom.event_parent_of(nid))
                             },
                             // Past a VirtualView page's root the walk goes on
                             // at its host (user ruling 2026-10-03).

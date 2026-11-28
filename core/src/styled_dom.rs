@@ -3011,6 +3011,30 @@ impl StyledDom {
         self.node_data.len()
     }
 
+    /// The node an event bubbles to from `node` inside THIS dom: its parent - except that the path
+    /// ENDS at a popup `<transient-window>` (`dock="popup"`): a press, a key or a focus inside what
+    /// it shows stays inside it. As an OS window of its own, the window boundary did that: what
+    /// happened in a popup never reached the nodes around the control that opened it, and the
+    /// widgets (a dialog's keys, a dropdown's rows) are written against that. On a window with one
+    /// surface the same node is shown inside the page and the boundary is this.
+    #[must_use]
+    pub fn event_parent_of(&self, node: NodeId) -> Option<NodeId> {
+        if let Some(crate::dom::NodeType::TransientWindow(config)) = self
+            .node_data
+            .as_container()
+            .get(node)
+            .map(crate::dom::NodeData::get_node_type)
+        {
+            if config.dock == crate::transient::TransientDock::Popup {
+                return None;
+            }
+        }
+        self.node_hierarchy
+            .as_container()
+            .get(node)
+            .and_then(NodeHierarchyItem::parent_id)
+    }
+
     /// Returns an immutable reference to the CSS property cache.
     #[inline]
     #[must_use]

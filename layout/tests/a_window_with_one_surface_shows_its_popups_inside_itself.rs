@@ -355,3 +355,94 @@ fn escape_closes_the_top_overlay_only() {
     assert!(lw.dismiss_top_overlay_on_escape());
     assert!(!lw.dismiss_top_overlay_on_escape(), "nothing left");
 }
+
+/// A popup you work in takes the keyboard when it appears: its first control, never the close box
+/// (last in tree order), once it is laid out - and not before.
+#[test]
+fn a_dialog_takes_the_keyboard_when_it_opens_and_not_before_it_is_laid_out() {
+    use azul_core::dom::TabIndex;
+    let (mut lw, ws) = window(PHONE, true);
+    let control = |name: &str| {
+        let mut d = Dom::create_div().with_ids_and_classes(class(name)).with_css("height: 30px;");
+        d.set_tab_index(TabIndex::Auto);
+        d
+    };
+    let content = Dom::create_div()
+        .with_css("width: 280px;")
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::Dialog,
+            ..Default::default()
+        })
+        .with_child(control("first"))
+        .with_child(control("second"));
+    let dom = page(popup(TransientAnchor::Dialog, false, Some("Rename"), vec![content]));
+    show(&mut lw, &ws, &dom);
+    assert!(lw.overlay_autofocus_target().is_none(), "nothing is open");
+
+    open_popup(&mut lw);
+    // The reconcile has found it, the root has not laid it out: not yet.
+    let mut dom_pass = dom.clone();
+    let _ = lw.present_transient_windows(&mut dom_pass, &ws);
+    let styled = StyledDom::create(&mut dom_pass.clone(), azul_css::css::Css::empty());
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut Some(Vec::new()),
+    )
+    .unwrap();
+    lw.reconcile_transients(&ws, &mut || Vec::new());
+    assert!(lw.overlay_autofocus_target().is_none(), "the overlay is not laid out yet");
+
+    show(&mut lw, &ws, &dom);
+    let target = lw.overlay_autofocus_target().expect("the first control of the dialog");
+    assert_eq!(target.node.into_crate_internal(), Some(node_with_class(&lw, "first")));
+    assert!(lw.overlay_autofocus_target().is_none(), "once");
+}
+
+/// A list popup (a combobox's options) leaves the keyboard on its field.
+#[test]
+fn a_list_popup_leaves_the_keyboard_on_its_invoker() {
+    use azul_core::dom::TabIndex;
+    let (mut lw, ws) = window(PHONE, true);
+    let mut option = Dom::create_div().with_css("height: 30px; width: 100px;");
+    option.set_tab_index(TabIndex::Auto);
+    let list = Dom::create_div()
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::List,
+            ..Default::default()
+        })
+        .with_child(option);
+    let dom = page(popup(TransientAnchor::Bottom, true, None, vec![list]));
+    show(&mut lw, &ws, &dom);
+    assert!(lw.overlay_autofocus_target().is_none());
+}
+
+/// The focus a closed overlay hid is not "moved away by the user": it goes back.
+#[test]
+fn focus_inside_a_dismissed_overlay_is_lost_with_it() {
+    let (mut lw, ws) = window(PHONE, true);
+    let dom = page(popup(TransientAnchor::Bottom, false, None, vec![panel(200.0, 150.0)]));
+    show(&mut lw, &ws, &dom);
+    open_popup(&mut lw);
+    show(&mut lw, &ws, &dom);
+    let inside = DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: NodeHierarchyItemId::from_crate_internal(Some(node_with_class(&lw, "panel"))),
+    };
+    let elsewhere = DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: NodeHierarchyItemId::from_crate_internal(Some(node_with_class(&lw, "page"))),
+    };
+    let node = popup_node(&lw);
+    assert!(lw.dismiss_transient_window(node).is_some());
+    assert!(lw.focus_is_inside_dismissed_overlay(inside), "focus was in the overlay");
+    assert!(!lw.focus_is_inside_dismissed_overlay(inside), "asked once");
+
+    open_popup(&mut lw);
+    show(&mut lw, &ws, &dom);
+    let node = popup_node(&lw);
+    assert!(lw.dismiss_transient_window(node).is_some());
+    assert!(!lw.focus_is_inside_dismissed_overlay(elsewhere), "the user clicked elsewhere");
+}

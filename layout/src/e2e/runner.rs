@@ -1600,13 +1600,9 @@ impl Runner {
                         })
                     },
                     |dom_id, nid| {
-                        results.get(&dom_id).and_then(|lr| {
-                            lr.styled_dom
-                                .node_hierarchy
-                                .as_container()
-                                .get(nid)
-                                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-                        })
+                        results
+                            .get(&dom_id)
+                            .and_then(|lr| lr.styled_dom.event_parent_of(nid))
                     },
                     // Past a `VirtualView` page's root the walk goes on at
                     // its host (user ruling 2026-10-03).

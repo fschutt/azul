@@ -1598,11 +1598,7 @@ pub fn hover_callbacks_along_path<'a>(
             .get(node.index())
     };
     let parent_of = |dom: DomId, node: NodeId| -> Option<NodeId> {
-        styled_dom_of(dom)?
-            .node_hierarchy
-            .as_slice()
-            .get(node.index())?
-            .parent_id()
+        styled_dom_of(dom)?.event_parent_of(node)
     };
     let path = get_event_path(event.target, &parent_of, host_of);
     hover_callbacks_on(event, filter, &path, &node_data_of)
@@ -1642,11 +1638,7 @@ pub fn hover_callbacks_along_paths<'a>(
             .get(node.index())
     };
     let parent_of = |dom: DomId, node: NodeId| -> Option<NodeId> {
-        styled_dom_of(dom)?
-            .node_hierarchy
-            .as_slice()
-            .get(node.index())?
-            .parent_id()
+        styled_dom_of(dom)?.event_parent_of(node)
     };
     let own = get_event_path(event.target, &parent_of, host_of);
     let pointer_path = pointer
