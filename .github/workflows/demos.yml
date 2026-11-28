@@ -269,6 +269,12 @@ jobs:
           done
           echo "::error::MinGW unavailable: no gcc on PATH, none in the image, and choco failed 3x"
           exit 1
+      # scripts/demo_lib.sh runs python3 (the checks of the library and its info file): Git Bash on a Windows runner finds the one
+      # setup-python puts on the PATH (the apps job below has it as well)
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          python-version: '3.12'
       - name: Download generated bindings
         if: steps.cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/codegen-tree
@@ -448,9 +454,10 @@ jobs:
           DEMO_LEG: ${{ matrix.leg }}
           DEMO_APPS: ${{ matrix.apps }}
           DEMO_LIB_FILE: ${{ matrix.lib_file }}
+          DEMO_VARIANT: ${{ matrix.variant }}
         run: >-
           python3 scripts/demo_build.py desktop --leg "$DEMO_LEG" --apps "$DEMO_APPS"
-          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results --run-check
+          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results --run-check --variant "$DEMO_VARIANT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -502,13 +509,14 @@ jobs:
           DEMO_LEG: ${{ matrix.leg }}
           DEMO_APPS: ${{ matrix.apps }}
           DEMO_LIB_FILE: ${{ matrix.lib_file }}
+          DEMO_VARIANT: ${{ matrix.variant }}
           DEMO_TARGET: ${{ matrix.target }}
           DEMO_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
         run: >-
           python3 scripts/demo_build.py desktop --leg "$DEMO_LEG" --apps "$DEMO_APPS"
           --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results
           ${DEMO_TARGET:+--target "$DEMO_TARGET"}
-          --deployment-target "$DEMO_DEPLOYMENT_TARGET"
+          --deployment-target "$DEMO_DEPLOYMENT_TARGET" --variant "$DEMO_VARIANT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -577,9 +585,10 @@ jobs:
           DEMO_LEG: ${{ matrix.leg }}
           DEMO_APPS: ${{ matrix.apps }}
           DEMO_LIB_FILE: ${{ matrix.lib_file }}
+          DEMO_VARIANT: ${{ matrix.variant }}
         run: >-
           python3 scripts/demo_build.py desktop --leg "$DEMO_LEG" --apps "$DEMO_APPS"
-          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results
+          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results --variant "$DEMO_VARIANT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

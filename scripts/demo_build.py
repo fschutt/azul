@@ -3,6 +3,7 @@
 
     demo_build.py desktop --leg linux|macos-arm64|macos-intel|windows --apps "AzA AzB" --lib <libazul.a|azul.lib>
                           --out <dir> --results <dir> [--target <triple>] [--deployment-target 11.0] [--run-check]
+                          [--variant desktop-e2e]    the QA build against the artifact-only lib, staged as <Name>-e2e-<platform>
     demo_build.py android --target <triple> --apps "..." --libs <dir of lib artifacts> --out <dir> --results <dir>
     demo_build.py ios     --target <triple> --apps "..." --libs <dir of lib artifacts> --out <dir> --results <dir>
     (android, ios)        [--variant mobile-e2e]: the QA build against the artifact-only lib variant of the manifest (the engine's
@@ -84,6 +85,20 @@ def tail(path, lines=60):
     return "\n".join(text.splitlines()[-lines:])
 
 
+def link_error(text):
+    """A linker's complaint in one line, from the text cargo printed, or None: duplicate symbols (the app compiles an engine crate whose
+    C ABI symbols libazul has too) and undefined ones (a library the link line lacks)."""
+    duplicates = sorted(set(re.findall(r"duplicate symbol: (\S+)", text)))
+    if duplicates:
+        return (f"engine crate compiled into the app: the link has {len(duplicates)} duplicate C ABI symbols ({duplicates[0]}, ...): "
+                f"a dependency of the app depends on azul-core, whose symbols are also in libazul")[:300]
+    undefined = sorted(set(re.findall(r"(?:undefined symbol: |undefined reference to [`'])([^\s'`]+)", text)))
+    if undefined:
+        more = f" and {len(undefined) - 1} more" if len(undefined) > 1 else ""
+        return f"link failed: undefined symbol {undefined[0]}{more}"[:300]
+    return None
+
+
 def first_error(json_log, stderr_log):
     """The first thing cargo said was wrong, in one line: a compiler error with its place, else the first
     `error` line of what it printed (a failed build script, a missing package)."""
@@ -101,9 +116,11 @@ def first_error(json_log, stderr_log):
             return f"{pkg}: {text}{where}"[:300]
     except OSError:
         pass
-    for line in tail(stderr_log, 400).splitlines():
+    text = tail(stderr_log, 2000)
+    for line in text.splitlines():
         if line.startswith("error"):
-            return line.strip()[:300]
+            message = line.strip()[:300]
+            return (link_error(text) or message) if "linking with" in message else message
     last = [l for l in tail(stderr_log, 5).splitlines() if l.strip()]
     return (last[-1].strip()[:300]) if last else "no output"
 
@@ -259,7 +276,8 @@ def desktop(args, job):
     for pkg in args.apps.split():
         app = job.apps[pkg]
         started = time.time()
-        tag = f"{pkg}.{leg}"
+        variant = args.variant
+        tag = f"{pkg}.{leg}" + ("-e2e" if variant else "")
         cmd = ["cargo", "build", "--release", "-p", pkg, "--bin", pkg, "--message-format=json-render-diagnostics"]
         if args.target:
             cmd += ["--target", args.target]
@@ -275,32 +293,34 @@ def desktop(args, job):
             err = first_error(jpath, epath)
             job.keep_failure_log(tag, jpath, epath)
             job.result(app, leg, args.target, "failed", "cargo build failed", seconds=time.time() - started,
-                       gate=gate, first_error=err)
+                       gate=gate, first_error=err, variant=variant)
             continue
         exe = executable_of(jpath, pkg)
         if not exe or not pathlib.Path(exe).is_file():
             job.keep_failure_log(tag, jpath, epath)
             job.result(app, leg, args.target, "failed", "cargo named no executable it produced",
-                       seconds=time.time() - started, gate=gate, first_error=f"no executable for {pkg}")
+                       seconds=time.time() - started, gate=gate, first_error=f"no executable for {pkg}", variant=variant)
             continue
         engine_bad = bool(gate and (gate["engine_crates"] or gate["dll_engine_features"]))
         if engine_bad:
             # the gate: this build compiled the engine instead of linking the prebuilt libazul
             job.result(app, leg, args.target, "failed", "the engine was compiled into the app", seconds=time.time() - started,
-                       gate=gate, first_error="engine crates compiled: " + ", ".join(gate["engine_crates"] + gate["dll_engine_features"]))
+                       gate=gate, first_error="engine crates compiled: " + ", ".join(gate["engine_crates"] + gate["dll_engine_features"]),
+                       variant=variant)
             job.drop_logs(jpath, epath)
             continue
-        dst = job.out / demo_apps.staged_name(app, leg)
+        dst = job.out / demo_apps.staged_name(app, leg, e2e=bool(variant))
         shutil.copy2(exe, dst)
         os.chmod(dst, 0o755)
         strip_binary(dst, leg)
         problem = check_macos_binary(dst, leg, args.deployment_target)
         if problem:
-            job.result(app, leg, args.target, "failed", problem, seconds=time.time() - started, gate=gate, first_error=problem)
+            job.result(app, leg, args.target, "failed", problem, seconds=time.time() - started, gate=gate, first_error=problem,
+                       variant=variant)
             dst.unlink()
             job.drop_logs(jpath, epath)
             continue
-        job.result(app, leg, args.target, "built", seconds=time.time() - started, artifact=dst, gate=gate,
+        job.result(app, leg, args.target, "built", seconds=time.time() - started, artifact=dst, gate=gate, variant=variant,
                    initializers=apple_initializers(dst) if leg.startswith("macos") else None)
         job.drop_logs(jpath, epath)
         if args.run_check:
@@ -479,6 +499,7 @@ def main(argv):
     d.add_argument("--target", default="")
     d.add_argument("--deployment-target", default="")
     d.add_argument("--run-check", action="store_true")
+    d.add_argument("--variant", default="")
     for name in ("android", "ios"):
         p = sub.add_parser(name)
         p.add_argument("--target", required=True)
@@ -497,6 +518,11 @@ def main(argv):
     if variant and variant not in demo_apps.artifact_only_libs(job.manifest):
         sys.exit(f"demo_build: --variant {variant!r} is no artifact_only lib of scripts/demo_apps.toml "
                  f"({sorted(demo_apps.artifact_only_libs(job.manifest))}): a shipped build takes the lib its app names")
+    for name in args.apps.split():
+        field = "e2e_desktop_lib" if args.kind == "desktop" else "e2e_lib"
+        if variant and (not job.apps[name].get("e2e") or job.apps[name][field] != variant):
+            sys.exit(f"demo_build: the QA build of {name} links {job.apps[name][field]!r} ({field} in scripts/demo_apps.toml; "
+                     f"e2e = {job.apps[name].get('e2e')}), not {variant!r}")
     if args.kind == "desktop":
         desktop(args, job)
     else:

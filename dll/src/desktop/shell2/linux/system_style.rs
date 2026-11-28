@@ -2276,26 +2276,31 @@ fn extract_config_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
 
 // ── OS version detection ────────────────────────────────────────────────
 
-/// Detect the Linux kernel version by running `uname -r`.
+/// Detect the Linux kernel version from the kernel's own release text (`/proc/sys/kernel/osrelease`, what
+/// `uname -r` prints: a process of its own on the window's thread before the first frame).
 ///
 /// Returns `OsVersion::unknown()` if detection fails.
 fn detect_linux_version() -> OsVersion {
-    let release = match run_command_with_timeout("uname", &["-r"], 1000) {
-        Ok(s) => s,
-        Err(_) => return OsVersion::unknown(),
-    };
-
-    // "6.5.0-44-generic" → major=6, minor=5
-    let parts: Vec<&str> = release.split('.').collect();
-    if parts.len() >= 2 {
-        if let (Ok(major), Ok(minor)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
-            // Encode as major * 1000 + minor to allow ordering
-            let version_id = major * 1000 + minor;
-            return OsVersion::new(OsFamily::Linux, version_id);
-        }
+    match std::fs::read_to_string("/proc/sys/kernel/osrelease") {
+        Ok(release) => linux_version_of(&release),
+        Err(_) => OsVersion::unknown(),
     }
+}
 
-    OsVersion::unknown()
+/// The OS version a kernel release text names: "6.5.0-44-generic" is major 6, minor 5, encoded as
+/// `major * 1000 + minor` to allow ordering; text with no such start is unknown.
+pub(crate) fn linux_version_of(release: &str) -> OsVersion {
+    let mut parts = release.trim().split('.');
+    let major = parts.next().and_then(|part| part.parse::<u32>().ok());
+    // "6.8-rc1" has a minor of 8: the digits at the start of the part
+    let minor = parts.next().and_then(|part| {
+        let digits = part.len() - part.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        part[..digits].parse::<u32>().ok()
+    });
+    match (major, minor) {
+        (Some(major), Some(minor)) => OsVersion::new(OsFamily::Linux, major * 1000 + minor),
+        _ => OsVersion::unknown(),
+    }
 }
 
 // ── Accessibility queries ───────────────────────────────────────────────

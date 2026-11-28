@@ -240,6 +240,17 @@ def backend_ran(text):
     return found or ("unknown", None, None)
 
 
+ENGINE_LINE_KEYS = ("[render]", "panicked", "FATAL", "libEGL", "EGL_", "WebRender", "webrender", "GLES", "RustStdoutStderr", "AndroidRuntime",
+                    "DEBUG", "tombstone", "signal ")
+
+
+def engine_lines(text, limit=400):
+    """The lines of a `logcat -v threadtime` dump that tell what the engine's renderer did (its `[render]` lines, the driver's, WebRender's, a
+    panic, a native crash): the last `limit` of them, each cut at 300 characters, to keep beside the verdict of the step."""
+    keep = [line[:300] for line in text.splitlines() if any(key in line for key in ENGINE_LINE_KEYS)]
+    return "\n".join(keep[-limit:]) + "\n"
+
+
 # The one diagnostic of a request for the GPU that fell back (the engine writes it BEFORE the contract line, once):
 #     [render] gpu unavailable at <stage>: <cause>; drawing on the CPU
 FALLBACK_LINE = re.compile(r"\[render\] gpu unavailable at (\w+): (.*?); drawing on the CPU")
@@ -264,6 +275,25 @@ def gpu_fallbacks(text):
         if m:
             found.append((m.group(1), m.group(2).strip()))
     return found
+
+
+def parse_meminfo(text):
+    """`dumpsys meminfo <pid>` -> {"pss_kb", "rss_kb", "graphics_kb"}: the TOTAL PSS / TOTAL RSS of the process and its
+    Graphics row (GPU memory the process holds: the buffers and textures of its GL context). None for what the dump lacks."""
+    def first(pattern):
+        m = re.search(pattern, text, re.M)
+        return int(m.group(1)) if m else None
+    return {"pss_kb": first(r"TOTAL PSS:\s+(\d+)"), "rss_kb": first(r"TOTAL RSS:\s+(\d+)"),
+            "graphics_kb": first(r"^\s*Graphics:?\s+(\d+)")}
+
+
+def render_env(extra=""):
+    """The value of the system property the engine reads its AZ_* knobs from (`debug.az.env`: KEY=VALUE;KEY=VALUE, ONE property
+    that setprop replaces whole): the log level and the present dump every step wants, and `extra` (`AZ_BACKEND=gpu`)."""
+    extra = extra.strip().strip(";").strip()
+    # AZ_QA_ENGINE_ENV: more KEY=VALUE pairs for the engine of EVERY start of the run (a diagnostic switch, e.g. AZ_LOG=debug)
+    more = os.environ.get("AZ_QA_ENGINE_ENV", "").strip().strip(";").strip()
+    return "AZ_LOG=info;AZ_DUMP_PRESENT=1" + (";" + more if more else "") + (";" + extra if extra else "")
 
 
 def gpu_fail_stage(spec):
@@ -314,6 +344,21 @@ def summarize_frames(lines):
         out["draw_median"] = round(statistics.median(l["draw_median"] for l in draws), 1)
         out["draw_p95"] = max(l["draw_p95"] for l in draws)
     return out
+
+
+# The engine says when the first frame of its GPU path is out (shell2/ios/gpu.rs):
+#     [iOS GPU] first frame 1206x2622: 21 draw calls, drawn in 1285 ms, 9653 ms after the GPU path began
+FIRST_GPU_FRAME_LINE = re.compile(r"\[iOS GPU\] first frame (\d+)x(\d+): (\d+) draw calls, drawn in (\d+) ms, (\d+) ms after the GPU path began")
+
+
+def first_gpu_frame(text):
+    """The engine's first GPU frame line -> {"w", "h", "draw_calls", "draw_ms", "since_ms"}, or None when there is none (yet)."""
+    for line in text.splitlines():
+        m = FIRST_GPU_FRAME_LINE.search(line)
+        if m:
+            return {"w": int(m.group(1)), "h": int(m.group(2)), "draw_calls": int(m.group(3)), "draw_ms": int(m.group(4)),
+                    "since_ms": int(m.group(5))}
+    return None
 
 
 # What proves that no GL command went out while the app was in the background: the GPU window writes a line when its GL commands
@@ -426,6 +471,39 @@ def node_checked(xml_text, label):
     return None
 
 
+PERMISSION_PACKAGES = ("permissioncontroller", "packageinstaller", "com.android.systemui:id/permission")
+PERMISSION_BUTTON_IDS = re.compile(r"permission_(allow|deny)[a-z_]*button|permission_message|grant_dialog|one_time_button", re.I)
+PERMISSION_TEXTS = ("allow", "don't allow", "dont allow", "while using the app", "only this time", "deny")
+
+
+def detect_permission_dialog(focus, ui_xml, package=""):
+    """Is a SYSTEM permission dialog on the screen of an app that was just started? `focus` = the window `dumpsys window` names as the focus,
+    `ui_xml` = a `uiautomator dump`. -> a short description of what shows, or None. A dialog is: the focused window belongs to the permission
+    controller (or the package installer), or the dump holds the controller's buttons (`permission_allow_button`, `permission_deny_button`, ...)
+    or a button of another package that says Allow / Don't allow / While using the app."""
+    focus = focus or ""
+    if any(w in focus.lower() for w in PERMISSION_PACKAGES) and package not in focus:
+        return f"the focused window is the system's: {focus.strip()[:100]}"
+    for m in re.finditer(r"<node\b([^>]*)>", ui_xml or ""):
+        attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', m.group(1)))
+        pkg, rid, text = attrs.get("package", ""), attrs.get("resource-id", ""), (attrs.get("text") or attrs.get("content-desc") or "").strip().lower()
+        if "permissioncontroller" in pkg or PERMISSION_BUTTON_IDS.search(rid):
+            return f"the dump holds the permission controller's node {rid or pkg!r} {text!r}"
+        if package and pkg and pkg != package and attrs.get("class", "").endswith("Button") and text in PERMISSION_TEXTS:
+            return f"a button {text!r} of {pkg}"
+    return None
+
+
+def ios_permission_prompts(log_text, bundle=""):
+    """The lines of the Simulator's log (tccd, SpringBoard) that say a permission prompt was put up for `bundle` (or any app when it is empty):
+    tccd writes `AUTHREQ_PROMPTING` for a prompt it shows."""
+    found = []
+    for line in (log_text or "").splitlines():
+        if "AUTHREQ_PROMPTING" in line and (not bundle or bundle in line):
+            found.append(line.strip()[:200])
+    return found
+
+
 def pick_target(xml_text, label):
     """The centre (x, y) of the node of a `uiautomator dump` a person would TOUCH for `label`: of the nodes named `label` (text or
     content-desc) that have a box, the editable field (`EditText`) first, then a focusable or clickable one, then the first. A field and
@@ -532,6 +610,7 @@ class Run:
         self.platform, self.meta, self.steps = platform, dict(meta), []
         self.t0 = time.time()
         self.recover = None
+        self.after = None            # called after a step that needs the app, with the step: checks that hold for EVERY such step
         self.extra_md = []           # further sections of qa.md (the startup timeline), lines
         self.render_table = []       # rows of the "Render backends" section of qa.md (filled by report_modes)
         self.render_diff = None
@@ -557,6 +636,8 @@ class Run:
             if needs_app and self.recover is not None:
                 self.recover(s)
             fn(s)
+            if needs_app and self.after is not None:
+                self.after(s)
         except Exception as e:  # noqa: BLE001
             s.error = f"{type(e).__name__}: {e}"
             print(f"    EXCEPTION {s.error}", flush=True)
@@ -732,7 +813,10 @@ def device_is_software(device):
 
 
 GPU_FIRST_FRAME_SECONDS = 240       # the emulator's software GL takes a minute or two for the first GL frame (every shader compiles at first use)
-IDLE_SECONDS = 4.0         # an idle window is watched this long for frames lines (a window that draws while nothing moves)
+GPU_SILENCE_SECONDS = 20       # an app asked for the GPU that says nothing of its renderer in this time has no GPU path to wait for
+GPU_FALLBACK_SECONDS = 150     # a fallback that comes after a first frame (a context lost twice) needs two first frames of a software GL
+IDLE_SECONDS = 5.0         # an idle window is watched this long for frames lines (a window that draws while nothing moves) ...
+IDLE_SETTLE_SECONDS = 3.0  # ... after the frames of its start have followed one another and stopped
 SWIPE_SECONDS = 4.0        # the scripted swipe of the render-mode step: at least three full seconds of frames lines
 
 
@@ -786,6 +870,9 @@ def report_modes(run, step, results, expect_gpu, platform, hardware=False):
         f = r.get("frames")
         if f:
             bits.append(f"scroll frame time median {f['median']:.1f} / p95 {f['p95']:.1f} ms (n={f['n']})")
+        mem = r.get("mem") or {}
+        if mem.get("pss_kb"):
+            bits.append(f"PSS {mem['pss_kb'] / 1024:.0f} MB" + (f", graphics {mem['graphics_kb'] / 1024:.0f} MB" if mem.get("graphics_kb") else ""))
         summary.append(f"{mode}: " + ", ".join(bits))
         step.note(f"AZ_BACKEND={mode}: " + ", ".join(bits))
         software = (not hardware) or device_is_software(r.get("device"))
@@ -1070,6 +1157,8 @@ def android_scenarios(args):
     run = Run(args.out, "android", {"label": args.label, "package": args.package, "gpu": args.gpu, "apk": os.path.basename(args.apk or "")})
     run.only = set(args.only.split(",")) if args.only else None
     dev = Android(run, args.package, args.activity, args.serial)
+    if args.backend == "gpu":
+        args.first_frame_timeout = max(args.first_frame_timeout, GPU_FIRST_FRAME_SECONDS)
     pts = json.loads(args.points) if args.points else {}
     P = {  # fractions of the screen, from the Widget Showcase in portrait (AzWidgets)
         "dark": (0.511, 0.113), "system": (0.234, 0.113), "text_input": (0.50, 0.332), "switch": (0.15, 0.68),
@@ -1078,6 +1167,7 @@ def android_scenarios(args):
     P.update({k: tuple(v) for k, v in pts.items()})
     size = {"w": 1080, "h": 2400}
     state = {"portrait": None}
+    base_backend = f"AZ_BACKEND={args.backend}" if args.backend else ""
 
     def at(key):
         fx, fy = P[key]
@@ -1144,7 +1234,8 @@ def android_scenarios(args):
         dev.adb("logcat", "-c")
         # the engine reads debug.az.env (KEY=VALUE;KEY=VALUE) at its start: AZ_LOG=info for its own lines, AZ_DUMP_PRESENT=1
         # for one line per presented frame ("[Android] present partial - N of M rows")
-        dev.sh("setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1'")
+        # --backend cpu|gpu|auto: every step of this run starts the app with that renderer (the lifecycle of each backend)
+        dev.sh(f"setprop debug.az.env '{render_env(base_backend)}'")
         dev.sh(f"pm grant {args.package} android.permission.POST_NOTIFICATIONS")  # harmless when not requested
         info = dev.sh(f"dumpsys package {args.package} | grep -E 'versionName|versionCode|targetSdk|requested permissions' -A0")
         dev.save_log("package.txt", dev.sh(f"dumpsys package {args.package}"))
@@ -1166,6 +1257,11 @@ def android_scenarios(args):
         state["portrait"] = dev.look(s, "portrait")
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
+        # a fresh install, nothing granted: no system permission dialog may stand over the app 5 s after its first frame
+        dev.settle(2.0)
+        dev.sh("uiautomator dump /sdcard/qa-perm.xml", timeout=40)
+        dialog = detect_permission_dialog(dev.sh("dumpsys window | grep -E 'mCurrentFocus'"), dev.sh("cat /sdcard/qa-perm.xml"), args.package)
+        s.check("no system permission dialog stands over the app 5 s after its first frame (a fresh install, nothing granted)", dialog is None, dialog or "")
         # what the app costs when nothing happens
         pid = dev.pid()
         if pid:
@@ -1184,9 +1280,15 @@ def android_scenarios(args):
         times of a 3 s scroll (SurfaceFlinger), the picture; then the cpu and gpu pictures compared pixel by pixel."""
         results = {}
         for mode in ("cpu", "gpu", "auto"):
-            dev.sh(f"setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1;AZ_BACKEND={mode}'")
+            dev.sh(f"setprop debug.az.env '{render_env(f'AZ_BACKEND={mode}')}'")
             dev.adb("logcat", "-c")
             dev.launch(cold=True)
+            if mode == "gpu":
+                # the window while WebRender compiles its programs (the engine shows the window's own colour then) and after its first
+                # frame: pictures without a verdict, to see what the window holds at each point of the GPU start
+                for waited, label in ((3.0, "3s"), (5.0, "8s"), (5.0, "13s")):
+                    time.sleep(waited)
+                    s.shots.append(dev.capture(f"AZ_BACKEND-gpu-early-{label}")[3])
             t = dev.wait_for_front(timeout=first_frame_timeout_for(mode, args.first_frame_timeout))
             if mode == "gpu" and t is not None:
                 g = wait_for_gpu_frame(lambda: dev.adb("logcat", "-d", "-v", "threadtime", timeout=120), first_frame_timeout_for(mode, args.first_frame_timeout))
@@ -1196,16 +1298,21 @@ def android_scenarios(args):
             sig = dev.look(s, f"AZ_BACKEND-{mode}")
             rgba, dims = dev.last_rgba, dev.dims
             text = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
+            dev.save_log(f"engine-AZ_BACKEND-{mode}.txt", engine_lines(text))
             ran, requested, device = backend_ran(text)
             if ran == "unknown" and any("[Android] present" in l for l in text.splitlines()):
                 ran, device = "cpu", "inferred: the CPU present path (ANativeWindow_lock) logged its frames"
             s.check(f"AZ_BACKEND={mode}: the app draws", t is not None and not is_flat(sig), f"first frame after {t:.1f} s" if t is not None else "no frame")
+            # a request for the GPU that fell back says so (the one diagnostic line): the QA keeps it with the verdict
+            for stage, cause in gpu_fallbacks(text):
+                s.note(f"AZ_BACKEND={mode}: the engine fell back at {stage}: {cause}")
             frames = dev.scroll_frame_stats(3.0)
+            mem = parse_meminfo(dev.sh(f"dumpsys meminfo {dev.pid() or '0'}", timeout=60))
             dev.settle(1.0)
             results[mode] = {"ran": ran, "requested": requested, "device": device, "rgba": rgba, "dims": dims, "first_frame_s": t,
-                             "displayed_ms": displayed_ms(text, args.package), "frames": frames}
+                             "displayed_ms": displayed_ms(text, args.package), "frames": frames, "mem": mem}
         report_modes(run, s, results, args.expect_gpu, "android", hardware=args.hardware)
-        dev.sh("setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1'")
+        dev.sh(f"setprop debug.az.env '{render_env(base_backend)}'")
         dev.launch(cold=True)       # the default start again: what the later steps compare with
         dev.wait_for_front(timeout=args.first_frame_timeout)
         dev.settle(2.5)
@@ -1213,6 +1320,58 @@ def android_scenarios(args):
 
     run.step("03b-render-modes", "AZ_BACKEND=cpu, gpu, auto: which renderer ran, first frame, scroll frame times, cpu against gpu pixel by pixel", s_modes, needs_app=True)
 
+    # ---- 3c. the GPU path's fallbacks, made to happen. AZ_GPU_FAIL=<stage> exists only in a libazul built with the cargo feature
+    # `test-hooks` (the mobile-e2e variant): with `--expect-hooks` a request that does not fall back is a failure, without it
+    # the step says "hook not built in" and fails nothing.
+    GPU_FAIL_STAGES = ("library", "context", "surface", "make_current", "functions", "probe", "renderer", "document", "shaders",
+                       "frame", "lost:2")
+
+    def s_gpu_fail(s):
+        for spec in GPU_FAIL_STAGES:
+            want = gpu_fail_stage(spec)
+            dev.sh(f"setprop debug.az.env '{render_env(f'AZ_BACKEND=gpu;AZ_GPU_FAIL={spec}')}'")
+            dev.adb("logcat", "-c")
+            mark = dev.now_mark()
+            dev.launch(cold=True)
+            t = dev.wait_for_front(timeout=args.first_frame_timeout)
+            dev.settle(2.5)
+            sig = dev.look(s, f"AZ_GPU_FAIL-{spec.replace(':', '-')}")
+            text = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
+            ran, requested, device = backend_ran(text)
+            falls = gpu_fallbacks(text)
+            s.check(f"AZ_GPU_FAIL={spec}: the app draws (a fallback is never a blank window)", t is not None and not is_flat(sig),
+                    f"first frame after {t:.1f} s" if t is not None else "no frame")
+            dev.no_crash_since(s, mark)
+            if ran == "gpu" and not falls:
+                s.note(f"AZ_GPU_FAIL={spec}: the engine ran the GPU path to the end: this libazul has no failure hook (hook not built in)")
+                s.check(f"AZ_GPU_FAIL={spec}: the failure was injected", False, "hook not built in", required=args.expect_hooks)
+                continue
+            stage_ok = bool(falls) and falls[-1][0] == want
+            s.check(f"AZ_GPU_FAIL={spec}: the fallback names the stage {want}", stage_ok,
+                    f"fallback lines: {falls or 'none'}", required=args.expect_hooks)
+            s.check(f"AZ_GPU_FAIL={spec}: the CPU renderer runs after it", ran == "cpu", f"the engine's last [render] line says {ran} on {device}",
+                    required=args.expect_hooks)
+        dev.sh(f"setprop debug.az.env '{render_env(base_backend)}'")
+        dev.launch(cold=True)
+        dev.wait_for_front(timeout=args.first_frame_timeout)
+        dev.settle(2.5)
+        state["portrait"] = dev.look(s, "default-again-after-fail")
+
+    run.step("03c-gpu-failure-injection", "AZ_BACKEND=gpu with AZ_GPU_FAIL=<stage> for every stage: the app still draws, on the CPU, and the log names the stage",
+             s_gpu_fail, needs_app=True)
+
+    def backend_still(s):
+        """Run with --backend gpu: after every step that needs the app, the engine's LAST `[render]` line still says gpu. A surface
+        that was lost and made again, a context that was rebuilt, must not have put the window on the CPU renderer without a word."""
+        if args.backend != "gpu":
+            return
+        text = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
+        dev.save_log(f"engine-{s.name}.txt", engine_lines(text))
+        ran, requested, device = backend_ran(text)
+        s.check("the renderer after this step is still the GPU one", ran == "gpu", f"the engine's last [render] line says {ran} ({requested})",
+                required=args.expect_gpu)
+
+    run.after = backend_still
     def startup_section(s, texts):
         """The engine's own startup timeline (`setprop debug.az.startup 1`, master from d35a2a4b6f on): the logcat of the whole series in one
         file, the `[startup]` table of the start whose first present is the median, scripts/ci/startup_measure.py on the logcat when it
@@ -1737,6 +1896,8 @@ class IOS:
         self.launch_count = 0
         # the launch that STARTED the running process: its console is the process's (a warm launch of a running app writes none)
         self.process_launch = 0
+        # the renderer the running process asked for (AZ_BACKEND of its cold launch; the e2e session sets it in the environment)
+        self.process_backend = ""
         self.started = time.strftime("%Y-%m-%dT%H:%M:%S")
         self.gui = False
         # what EVERY launch of this run sets in the app's environment (`--backend gpu`: AZ_BACKEND=gpu), under the extra_env of a launch
@@ -1847,6 +2008,25 @@ class IOS:
         """What the RUNNING process wrote since it started: the console of the cold launch that started it."""
         return self.console_text(self.process_launch or None)
 
+    def process_marker(self):
+        """How much the running process has written so far: the line counts of its two console files. `process_since` gives what it
+        wrote after. (Not `len(process_console().splitlines())`: that text has a blank line where the two files are joined, which
+        moves by one every time the file grows, and the first new line would be lost.)"""
+        counts = []
+        for suffix in ("out", "err"):
+            f = self.run.logs_dir / f"console-{self.process_launch or self.launch_count}.{suffix}.txt"
+            counts.append(len(f.read_text(errors="replace").splitlines()) if f.exists() else 0)
+        return tuple(counts)
+
+    def process_since(self, marker):
+        """The lines the running process wrote after `marker` (from `process_marker`): stdout's, then stderr's."""
+        lines = []
+        for suffix, seen in zip(("out", "err"), marker):
+            f = self.run.logs_dir / f"console-{self.process_launch or self.launch_count}.{suffix}.txt"
+            if f.exists():
+                lines += f.read_text(errors="replace").splitlines()[seen:]
+        return lines
+
     # -- the engine's debug server (a `mobile-e2e` app; the Simulator shares the host's loopback)
     def server_op(self, port, op, timeout=30, **params):
         """One request to the debug server. -> the decoded answer; raises OSError / URLError when nothing answers."""
@@ -1882,7 +2062,7 @@ class IOS:
         width = find_key(state, "logical_width") or self.dims[0] / scale
         height = find_key(state, "logical_height") or self.dims[1] / scale
         x, top, bottom = width * 0.5, height * 0.3, height * 0.7
-        before = len(self.process_console().splitlines())
+        before = self.process_marker()
         self.server_op(port, "touch_start", id=1, x=x, y=bottom)
         self.server_op(port, "wait_frame")
         t0 = time.time()
@@ -1899,16 +2079,16 @@ class IOS:
         self.server_op(port, "touch_end", id=1)
         self.server_op(port, "wait_frame")
         self.settle(1.5)
-        lines = self.process_console().splitlines()[before:]
+        lines = self.process_since(before)
         return summarize_frames(swipe_windows("\n".join(lines))), made, took
 
     def idle_windows(self, seconds=4.0):
         """Nothing touches the app for `seconds`: the engine's frames lines of full seconds written meanwhile. A window that is not
         animating presents nothing, so there must be none: one is a window that draws continuously while it shows the same picture
         (power). -> [the dicts of `engine_frames`]"""
-        before = len(self.process_console().splitlines())
+        before = self.process_marker()
         time.sleep(seconds)
-        return swipe_windows("\n".join(self.process_console().splitlines()[before:]))
+        return swipe_windows("\n".join(self.process_since(before)))
 
     def look(self, step, name, expect_changed_from=None, allow_launcher=False):
         sig, w, h, fname = self.capture(name)
@@ -1939,6 +2119,8 @@ class IOS:
             env["SIMCTL_CHILD_" + k] = v
         for k, v in (extra_env or {}).items():
             env["SIMCTL_CHILD_" + k] = v
+        if cold:
+            self.process_backend = env.get("SIMCTL_CHILD_AZ_BACKEND", "").strip().lower()
         out_f = self.run.logs_dir / f"console-{self.launch_count}.out.txt"
         err_f = self.run.logs_dir / f"console-{self.launch_count}.err.txt"
         cmd = ["launch"] + (["--terminate-running-process"] if cold else []) + [f"--stdout={out_f}", f"--stderr={err_f}", self.udid, self.bundle]
@@ -1962,10 +2144,31 @@ class IOS:
     def open_other_app(self, bundle="com.apple.Preferences"):
         return self.fire("launch", self.udid, bundle)
 
-    def wait_for_front(self, timeout=45):
+    def wait_for_console(self, done, timeout, every=1.0):
+        """Poll the running process's console until `done(text)` is true. -> the seconds it took, or None at the timeout."""
         t0 = time.time()
+        while True:
+            if done(self.process_console()):
+                return time.time() - t0
+            if time.time() - t0 >= timeout:
+                return None
+            time.sleep(every)
+
+    def wait_for_front(self, timeout=45):
+        """Seconds from now until the app shows a picture (alive, not flat, not the home screen); None when it dies or does not."""
+        t0 = time.time()
+        if self.process_backend in ("gpu", "auto"):
+            # The first frame of a GL renderer on a software GL comes late (every shader is compiled at its first use: ten seconds on
+            # the Simulator) and the window is black until then: the picture of a GPU run taken before it is a black window (the third
+            # macOS run's was). The engine says when its first GPU frame is out, or that the GPU path ended and the CPU draws: wait for
+            # that first (`wait_for_gpu_frame`: 0.0 = nothing to wait for, a fallback or a build with no GPU path; None = the time ran
+            # out). Then the picture decides, as for the CPU renderer.
+            if wait_for_gpu_frame(self.process_console, timeout, sleep=time.sleep, clock=time.time, silence=GPU_SILENCE_SECONDS) is None:
+                return None       # the GPU path began and its first frame never came
         seen_alive = False
-        while time.time() - t0 < timeout:
+        started = time.time()
+        rest = max(5.0, timeout - (started - t0))
+        while time.time() - started < rest:
             if self.alive():
                 seen_alive = True
                 try:
@@ -1977,7 +2180,7 @@ class IOS:
                     return time.time() - t0
             elif seen_alive:
                 return None           # it was running and is gone: it died, waiting longer shows nothing
-            elif time.time() - t0 > 15:
+            elif time.time() - started > 15:
                 return None           # it never started
             time.sleep(1.0)
         return None
@@ -2141,6 +2344,11 @@ def ios_scenarios(args):
         panics = [ln for ln in (err_txt + out_txt).splitlines() if "panicked" in ln or "unexpected panic" in ln or "FATAL" in ln]
         s.check("the console shows no panic", not panics, panics[0][:200] if panics else "")
         s.note(f"console: {len(out_txt.splitlines())} stdout lines, {len(err_txt.splitlines())} stderr lines")
+        # a fresh install, nothing granted: tccd must not have put up a permission prompt for the app (its log says AUTHREQ_PROMPTING)
+        dev.settle(2.0)
+        rc, tcc = dev.simctl("spawn", args.udid, "log", "show", "--last", "2m", "--predicate", 'process == "tccd"', "--style", "compact", timeout=120)
+        prompts = ios_permission_prompts(tcc if rc == 0 else "", args.bundle)
+        s.check("no permission prompt was put up for the app after a fresh install (tccd's log)", not prompts, prompts[0] if prompts else "", required=False)
 
     run.step("03-cold-start", "start the app from nothing: first frame, portrait picture, no panic, no crash report", s_cold)
 
@@ -2156,16 +2364,22 @@ def ios_scenarios(args):
             if args.debug_port:
                 extra["AZ_DEBUG"] = str(args.debug_port)
             dev.launch(extra_env=extra, cold=True)
+            # (a `gpu` start is waited for until the engine says its GPU path presented a frame, or fell back: IOS.wait_for_front)
             t = dev.wait_for_front(timeout=first_frame_timeout_for(mode, args.first_frame_timeout))
-            if mode == "gpu" and t is not None:
-                g = wait_for_gpu_frame(dev.console_text, first_frame_timeout_for(mode, args.first_frame_timeout))
-                s.note("AZ_BACKEND=gpu: " + ("the engine says the GPU path presented a frame after " + f"{g:.1f} s more" if g else
-                       ("the request fell back to the CPU: nothing to wait for" if g == 0.0 else "no GPU frame line within the wait: the picture may be black")))
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_BACKEND-{mode}")
             full = dev.last_rgba_full()
             ran, requested, device = backend_ran(dev.console_text())
             s.check(f"AZ_BACKEND={mode}: the app draws", t is not None and not is_flat(sig), f"first frame after {t:.1f} s" if t is not None else "no frame")
+            if t is not None:
+                # Nothing has touched the app since its first frame: it must draw nothing now. The first frames of a start follow one another
+                # for a moment (IDLE_SETTLE_SECONDS lets them end); the swipe comes AFTER this, so its frames cannot be taken for an idle window's.
+                dev.settle(IDLE_SETTLE_SECONDS)
+                idle = dev.idle_windows(IDLE_SECONDS)
+                s.check(f"AZ_BACKEND={mode}: an idle window draws no frames ({IDLE_SECONDS:.0f} s with nothing touching it)", not idle,
+                        (f"{len(idle)} frames line(s) while idle, the last: n={idle[-1]['n']} median {idle[-1]['median']} ms: the window draws "
+                         "continuously while it shows the same picture") if idle else "no frames line",
+                        required=(mode == "gpu" and args.expect_gpu))
             frames = None
             if args.debug_port and t is not None:
                 state_answer = dev.server_up(args.debug_port)
@@ -2177,12 +2391,6 @@ def ios_scenarios(args):
                            f"each waits for a frame)" + ("" if frames else "; no frames line of a full second (fewer than 8 frames in a second)"))
                     if frames and frames.get("draw_median") is not None:
                         s.note(f"AZ_BACKEND={mode}: the draw alone takes median {frames['draw_median']:.1f} / p95 {frames['draw_p95']:.1f} ms")
-            if t is not None:
-                idle = dev.idle_windows(IDLE_SECONDS)
-                s.check(f"AZ_BACKEND={mode}: an idle window draws no frames ({IDLE_SECONDS:.0f} s with nothing touching it)", not idle,
-                        (f"{len(idle)} frames line(s) while idle, the last: n={idle[-1]['n']} median {idle[-1]['median']} ms: the window draws "
-                         "continuously while it shows the same picture") if idle else "no frames line",
-                        required=(mode == "gpu" and args.expect_gpu))
             rss = dev.rss_mb()
             if rss is not None:
                 run.meta[f"rss_mb_{mode}"] = round(rss)
@@ -2213,6 +2421,11 @@ def ios_scenarios(args):
             want = gpu_fail_stage(spec)
             dev.launch(extra_env={"AZ_BACKEND": "gpu", "AZ_GPU_FAIL": spec}, cold=True)      # a new console file for every launch
             t = dev.wait_for_front(timeout=first_frame_timeout_for("gpu", args.first_frame_timeout))
+            # The fallback line comes when the GPU path ends: at once for a stage that fails in the bring-up, but a context lost twice
+            # (`lost:2`) is lost AFTER a first frame, and the rebuilt renderer draws its own first frame (every shader compiled again on
+            # the new context: ten seconds each on a software GL) before the second loss ends it. Wait for the line, not for a time:
+            # a build that is known to have the hook (an earlier stage fell back) is given the time, the first stage only a moment.
+            dev.wait_for_console(lambda text: bool(gpu_fallbacks(text)), GPU_FALLBACK_SECONDS if injected else 8.0, every=2.0)
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_GPU_FAIL-{spec.replace(':', '-')}")
             text = dev.console_text()
@@ -2270,7 +2483,7 @@ def ios_scenarios(args):
 
     def s_background(s):
         pid0 = dev.pid()
-        console_before = len(dev.process_console().splitlines())
+        console_before = dev.process_marker()
         before = dev.look(s, "before-background")
         dev.open_other_app()
         dev.settle(3.0)
@@ -2292,7 +2505,7 @@ def ios_scenarios(args):
         if gpu_run:
             # Apple's rule: an app in the background issues no GL command. The Simulator does not enforce it (a phone kills the app);
             # the engine's own lines do prove it: it says when its GL commands stop and when they are allowed again
-            g = gl_in_background(dev.process_console().splitlines()[console_before:])
+            g = gl_in_background(dev.process_since(console_before))
             s.check("GL: the engine stopped its GL commands when the app went to the background", g["stopped"] >= 1,
                     f"{g['stopped']} `GL commands stopped` line(s) on the console")
             s.check("GL: no GL command between the background and the return (no frame, no failed GL action)", not g["inside"],
@@ -2342,7 +2555,7 @@ def ios_scenarios(args):
     run.step("08-rotate", "rotate the device left and back while the app runs (Simulator menu through osascript)", s_rotate, needs_app=True)
 
     def s_memory(s):
-        console_before = len(dev.process_console().splitlines())
+        console_before = dev.process_marker()
         before = dev.look(s, "before-memory-warning")
         ok, msg = dev.gui_menu("Debug", "Simulate Memory Warning")
         s.note(f"Debug > Simulate Memory Warning: {'sent' if ok else 'FAILED: ' + msg}")
@@ -2351,7 +2564,7 @@ def ios_scenarios(args):
         dev.look(s, "after-memory-warning")
         dev.alive_step(s)
         if gpu_run:
-            released = [l for l in dev.process_console().splitlines()[console_before:] if MEMORY_RELEASED.search(l)]
+            released = [l for l in dev.process_since(console_before) if MEMORY_RELEASED.search(l)]
             s.check("GL: the engine released the renderer's caches at the memory warning", bool(released), f"{len(released)} line(s) on the console",
                     required=ok)
 
@@ -2408,6 +2621,10 @@ def main(argv):
     a.add_argument("--only", default="", help="comma list of step numbers to run besides 00-02, e.g. 03,08,09,12 (a first look at another app)")
     a.add_argument("--series", type=int, default=0, help="N cold starts to measure (0: none)")
     a.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
+    a.add_argument("--backend", default="", choices=["", "cpu", "gpu", "auto"],
+                   help="AZ_BACKEND for every step of the run (the lifecycle of each renderer); with gpu every needs-app step also checks the engine still says gpu")
+    a.add_argument("--expect-hooks", action="store_true",
+                   help="the libazul has the failure hook (the mobile-e2e variant: cargo feature test-hooks): step 03c's AZ_GPU_FAIL runs MUST fall back")
     a.add_argument("--hardware", action="store_true", help="the device has a real GPU (a phone, not a CI emulator): `auto` must then run the GL renderer")
     a.add_argument("--floor-apk", default="", help="the floor APK (an empty Java Activity) measured the same way")
     a.add_argument("--startup", action="store_true", help="with --series: the engine's own startup timeline (debug.az.startup 1) of every start, the median start's table, one start with the layout profile")

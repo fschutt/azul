@@ -129,6 +129,39 @@ class AuditTests(unittest.TestCase):
         bands = la.parse_system_bars(dump)["bands"]
         self.assertEqual([(b["name"], b["rect"]) for b in bands], [("statusBars+displayCutout", (0, 0, 1080, 128)), ("navigationBars", (0, 2274, 1080, 2400))])
 
+    def test_a_key_is_judged_by_its_border_box_not_by_the_accessibility_content_box(self):
+        # a 48 x 48 dp key: the layout rect is the border box, the accessibility export is the content box inside padding 12 / 6 and border 1
+        layout = [node(1, "button", 100, 800, 48, 48)]
+        tree = [a11y(1, 1, "Button", "Undo", 113, 807, 22, 34, clickable=True)]
+        r = self.run_audit(layout, tree)
+        self.assertEqual(r["small_targets"]["small"], 0)
+        self.assertEqual(r["small_targets"]["tappable"], 1)
+
+    def test_a_key_a_hair_under_48_dp_from_rounding_is_not_small(self):
+        layout = [node(1, "button", 100, 800, 47.8, 48.0)]
+        tree = [a11y(1, 1, "Button", "Key", 113, 807, 22, 34, clickable=True)]
+        self.assertEqual(self.run_audit(layout, tree)["small_targets"]["small"], 0)
+
+    def test_a_key_that_really_is_small_is_still_listed_with_its_border_box(self):
+        layout = [node(1, "button", 100, 800, 30, 30)]
+        tree = [a11y(1, 1, "Button", "Tiny", 106, 803, 16, 24, clickable=True)]
+        r = self.run_audit(layout, tree)
+        self.assertEqual([(e["w"], e["h"]) for e in r["small_targets"]["top"]], [(30.0, 30.0)])
+
+    def test_the_border_box_is_used_for_the_bars_too(self):
+        # the border box starts under the status strip, its content box starts below it
+        layout = [node(1, "button", 10, 40, 48, 48)]
+        tree = [a11y(1, 1, "Button", "Menu", 23, 53, 22, 34, clickable=True)]
+        r = self.run_audit(layout, tree)
+        self.assertEqual(r["under_bars"]["tappable"]["count"], 1)
+
+    def test_a_layout_box_that_does_not_contain_the_accessibility_box_is_not_trusted(self):
+        # a node inside a scrolled container: the two coordinate systems differ, the accessibility box (window space) is used
+        layout = [node(1, "button", 10, 5000, 48, 48)]
+        tree = [a11y(1, 1, "Button", "Scrolled", 23, 300, 22, 34, clickable=True)]
+        r = self.run_audit(layout, tree)
+        self.assertEqual([(e["w"], e["h"]) for e in r["small_targets"]["top"]], [(22.0, 34.0)])
+
     def test_a_text_that_is_a_message_id_is_listed(self):
         tree = [a11y(1, 1, "Label", "azmeet-loading-key", 10, 100, 200, 20), a11y(2, 2, "Label", "Loading this device's key...", 10, 130, 200, 20),
                 a11y(3, 3, "Button", "menu-file-open", 10, 160, 100, 48, clickable=True), a11y(4, 4, "Label", "e-mail", 10, 220, 50, 20),
@@ -219,7 +252,7 @@ class CompareTests(unittest.TestCase):
         self.assertEqual([k for k, _n in new], [("button#a", "Save", 48, 48)])
 
     def test_the_comparison_names_the_lists_and_the_fixed_box(self):
-        before = {"AzPaint": {"portrait": self.audit_of([a11y(1, 1, "Button", "Undo", 10, 10, 30, 30, clickable=True)])}}
+        before = {"AzPaint": {"portrait": self.audit_of([a11y(1, 1, "Button", "Undo", 10, 10, 30, 30, clickable=True)], [node(1, "button", 10, 10, 30, 30)])}}
         after = {"AzPaint": {"portrait": self.audit_of([a11y(1, 1, "Button", "Undo", 10, 80, 48, 48, clickable=True)], [node(1, "button", 10, 80, 48, 48)])}}
         text = ac.compare(before, after)
         self.assertIn("## AzPaint", text)

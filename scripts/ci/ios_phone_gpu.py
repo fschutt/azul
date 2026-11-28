@@ -27,7 +27,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mobile_qa as q  # noqa: E402
 
-FIRST_FRAME_LINE = re.compile(r"\[iOS GPU\] first frame (\d+)x(\d+): (\d+) draw calls, drawn in (\d+) ms, (\d+) ms after the GPU path began")
 RENDERER_LINE = re.compile(r"\[iOS GPU\] WebRender renderer created in (\d+) ms")
 GL_STRINGS_LINE = re.compile(r"\[iOS GPU\] GL_VENDOR=(.*?) GL_RENDERER=(.*?) GL_VERSION=(.*?) GLSL=(.*)")
 
@@ -36,12 +35,7 @@ def report(mode, text):
     """What one run's console says about the renderer. -> {mode, ran, requested, device, fallbacks: [(stage, cause)],
     first_frame: {w, h, draw_calls, draw_ms, since_ms} | None, renderer_ms, gl_strings, frames: {median, p95, n, ...} | None}"""
     ran, requested, device = q.backend_ran(text)
-    first = None
-    for line in text.splitlines():
-        m = FIRST_FRAME_LINE.search(line)
-        if m:
-            first = {"w": int(m.group(1)), "h": int(m.group(2)), "draw_calls": int(m.group(3)), "draw_ms": int(m.group(4)),
-                     "since_ms": int(m.group(5))}
+    first = q.first_gpu_frame(text)
     renderer_ms = None
     gl_strings = None
     for line in text.splitlines():
