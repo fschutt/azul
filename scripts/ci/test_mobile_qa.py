@@ -1147,6 +1147,29 @@ class RunFolderTests(unittest.TestCase):
                 os.chdir(old)
 
 
+class TextSizeNoteTests(unittest.TestCase):
+    """An informational check that fails (the page does not follow the system text size) must show in qa.md: as a step note, because the step still passes."""
+
+    TEXT = (Path(__file__).resolve().parent / "mobile_qa.py").read_text(encoding="utf-8")
+
+    def test_both_text_size_steps_note_a_page_that_did_not_change(self):
+        self.assertEqual(self.TEXT.count("s.note(TEXT_SIZE_IGNORED.format("), 2)
+        self.assertIn("THE PAGE DID NOT CHANGE", q.TEXT_SIZE_IGNORED)
+        self.assertIn("ignores the system text size", q.TEXT_SIZE_IGNORED)
+
+    def test_the_note_lands_in_the_table_of_a_passing_step(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "ios", {"label": "t"})
+
+            def step(s):
+                s.check("the page reacts to the text size", False, "differs 0.000", required=False)
+                s.note(q.TEXT_SIZE_IGNORED.format(what="the largest accessibility text size", diff=0.0))
+            run.step("06-text-size", "x", step)
+            self.assertTrue(run.steps[0].ok)
+            self.assertIn("THE PAGE DID NOT CHANGE", (Path(d) / "qa.md").read_text())
+
+
 class MapsScriptTests(unittest.TestCase):
     """The audit script of AzMaps (mobile_e2e.py s_script_maps) drives the refactored app (WP-E2: the layers key, the style popover, the chips, the search
     field and its keyboard, the pin of a double tap) and still the sidebar app before it."""
