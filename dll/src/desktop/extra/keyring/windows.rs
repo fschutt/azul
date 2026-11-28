@@ -101,10 +101,11 @@ pub(super) fn handle(service: &str, req: &KeyringRequest, interaction: Interacti
         },
         KeyringRequest::Get { key } => match read(service, key.as_str()) {
             Ok(Some(record)) if record.protection.needs_user() => {
-                if hello_key_exists(&hello_account(service, key.as_str())) {
-                    KeyringResult::WouldPrompt
-                } else {
-                    KeyringResult::Invalidated
+                match hello_key(&hello_account(service, key.as_str())) {
+                    HelloKey::Present => KeyringResult::WouldPrompt,
+                    HelloKey::Missing => KeyringResult::Invalidated,
+                    // No word from Windows Hello: not a reason to call the secret gone.
+                    HelloKey::Unknown => KeyringResult::Error,
                 }
             }
             Ok(Some(record)) => plain_text(record.blob),
@@ -165,16 +166,14 @@ pub(super) fn needs_prompt(service: &str, key: &str) -> KeyringNeed {
         Ok(None) => KeyringNeed::NotFound,
         Ok(Some(record)) => match record.protection {
             KeyringProtection::DeviceUnlocked => KeyringNeed::Nothing,
-            protection => {
-                if hello_key_exists(&hello_account(service, key)) {
-                    match protection {
-                        KeyringProtection::Biometric => KeyringNeed::Biometric,
-                        _ => KeyringNeed::UserPresence,
-                    }
-                } else {
-                    KeyringNeed::Invalidated
-                }
-            }
+            protection => match hello_key(&hello_account(service, key)) {
+                HelloKey::Present => match protection {
+                    KeyringProtection::Biometric => KeyringNeed::Biometric,
+                    _ => KeyringNeed::UserPresence,
+                },
+                HelloKey::Missing => KeyringNeed::Invalidated,
+                HelloKey::Unknown => KeyringNeed::Error,
+            },
         },
         Err(_) => KeyringNeed::Error,
     }
@@ -192,8 +191,10 @@ pub(super) fn support(protection: KeyringProtection) -> KeyringSupport {
             }
         }
         KeyringProtection::Biometric => KeyringSupport::Unavailable,
+        // A Hello key is held by the TPM where the device has one; azul does not read which kind
+        // it got, so it does not claim the secret is out of reach of the user's own session.
         KeyringProtection::UserPresence => match on_mta_thread(hello_supported) {
-            Some(Ok(true)) => KeyringSupport::Hardware,
+            Some(Ok(true)) => KeyringSupport::Library,
             Some(Ok(false)) => KeyringSupport::NotEnrolled,
             _ => KeyringSupport::Unavailable,
         },
@@ -361,18 +362,34 @@ fn hello_supported() -> Result<bool, HelloFailure> {
     Ok(pollster::block_on(KeyCredentialManager::IsSupportedAsync()?.into_future())?)
 }
 
-/// Whether the Hello key `account` exists (opening it shows nothing).
-fn hello_key_exists(account: &str) -> bool {
+/// What Windows Hello says about the key of an item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HelloKey {
+    /// The key is there.
+    Present,
+    /// Windows says there is no key of that name (Hello was reset, or the key was removed).
+    Missing,
+    /// Windows did not say (a failed call, a locked security device): nothing is known.
+    Unknown,
+}
+
+/// Whether the Hello key `account` exists (opening it shows nothing). Only a `NotFound` answer
+/// says it is gone; a failed call is `Unknown`.
+fn hello_key(account: &str) -> HelloKey {
     let account = HSTRING::from(account);
     on_mta_thread(move || {
-        let open = || -> windows::core::Result<bool> {
+        let open = || -> windows::core::Result<HelloKey> {
             let result: KeyCredentialRetrievalResult =
                 pollster::block_on(KeyCredentialManager::OpenAsync(&account)?.into_future())?;
-            Ok(hello_status(result.Status()?.0) == HelloStatus::Success)
+            Ok(match hello_status(result.Status()?.0) {
+                HelloStatus::Success => HelloKey::Present,
+                HelloStatus::NotFound => HelloKey::Missing,
+                _ => HelloKey::Unknown,
+            })
         };
-        open().unwrap_or(false)
+        open().unwrap_or(HelloKey::Unknown)
     })
-    .unwrap_or(false)
+    .unwrap_or(HelloKey::Unknown)
 }
 
 /// Removes the Hello key `account`, if there is one (best effort: it is a key, not a secret).
@@ -395,13 +412,22 @@ fn hello_signature(account: &str, create: bool) -> Result<Vec<u8>, HelloFailure>
             return Err(HelloFailure::NotSet);
         }
         let retrieval: KeyCredentialRetrievalResult = if create {
-            pollster::block_on(
-                KeyCredentialManager::RequestCreateAsync(
-                    &account,
-                    KeyCredentialCreationOption::ReplaceExisting,
+            // Storing again keeps the item's Hello key: replacing it first would leave the item
+            // that is there unreadable when the user cancels the sheet that follows. A key is
+            // made only when there is none.
+            let existing: KeyCredentialRetrievalResult =
+                pollster::block_on(KeyCredentialManager::OpenAsync(&account)?.into_future())?;
+            if hello_status(existing.Status()?.0) == HelloStatus::Success {
+                existing
+            } else {
+                pollster::block_on(
+                    KeyCredentialManager::RequestCreateAsync(
+                        &account,
+                        KeyCredentialCreationOption::ReplaceExisting,
+                    )?
+                    .into_future(),
                 )?
-                .into_future(),
-            )?
+            }
         } else {
             pollster::block_on(KeyCredentialManager::OpenAsync(&account)?.into_future())?
         };

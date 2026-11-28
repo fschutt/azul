@@ -84,8 +84,14 @@ pub(crate) fn enrolled_fingers() -> Option<Vec<String>> {
     let mgr = Proxy::new(&conn, SVC, MGR_PATH, MGR_IFACE).ok()?;
     let dev_path: zbus::zvariant::OwnedObjectPath = mgr.call("GetDefaultDevice", &()).ok()?;
     let dev = Proxy::new(&conn, SVC, dev_path.as_str(), DEV_IFACE).ok()?;
-    // A polkit / D-Bus error is "no word from the reader", not "no finger enrolled".
-    dev.call("ListEnrolledFingers", &"").ok()
+    let listed: Result<Vec<String>, _> = dev.call("ListEnrolledFingers", &"");
+    match listed {
+        Ok(names) => Some(names),
+        // fprintd answers a user with no fingerprint with this error, not with an empty list.
+        Err(e) if e.to_string().contains("NoEnrolledPrints") => Some(Vec::new()),
+        // Any other polkit / D-Bus error is "no word from the reader", not "no finger enrolled".
+        Err(_) => None,
+    }
 }
 
 /// One fingerprint verification now, blocking until the user touches the reader (or it fails):

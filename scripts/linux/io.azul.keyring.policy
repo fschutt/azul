@@ -5,8 +5,8 @@
 <!--
   The polkit action behind a `UserPresence` keyring item on Linux (azul's keyring, `Keyring::support`
   and `CallbackInfo::keyring_unlock`): the app asks the desktop's authorisation dialog to prove that
-  the user is there before it reads the item. `auth_self_keep`: the user's own password (or their
-  fingerprint, where the system's PAM takes one), asked again after a few minutes.
+  the user is there before it reads the item. `auth_self`: the user's own password (or their
+  fingerprint, where the system's PAM takes one), asked on every read.
 
   A package that ships an app using protected keyring items installs this file as
   /usr/share/polkit-1/actions/io.azul.keyring.policy. Without it polkit does not know the action
@@ -21,7 +21,7 @@
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
-      <allow_active>auth_self_keep</allow_active>
+      <allow_active>auth_self</allow_active>
     </defaults>
   </action>
 </policyconfig>

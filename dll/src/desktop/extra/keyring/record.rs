@@ -22,16 +22,29 @@ pub(crate) fn comment_of(protection: KeyringProtection) -> Option<String> {
         .then(|| format!("{COMMENT_PREFIX}{}", protection.code()))
 }
 
-/// The level a credential's comment records (`DeviceUnlocked` for none, or one that is no record
-/// of ours: an unknown level is never read as a weaker one than the number says, and a text that
-/// does not parse is a credential of another program).
+/// What every record of ours starts with, whatever its version: a comment that starts so is a
+/// record of azul, one this version may not be able to read.
+const COMMENT_FAMILY: &str = "azul-keyring:";
+
+/// The level a credential's comment records: `DeviceUnlocked` for none or for a comment of
+/// another program. A record of ours that this version cannot read (a level or a version a newer
+/// azul wrote) is never read as a weaker level than any it knows: it is the strongest, so a read
+/// without the user answers `WouldPrompt`, not the secret.
 #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))] // only keyring/windows.rs and the tests use it
 pub(crate) fn protection_of_comment(comment: Option<&str>) -> KeyringProtection {
-    comment
-        .and_then(|comment| comment.strip_prefix(COMMENT_PREFIX))
-        .and_then(|number| number.trim().parse::<u8>().ok())
-        .and_then(KeyringProtection::from_code)
-        .unwrap_or(KeyringProtection::DeviceUnlocked)
+    let Some(text) = comment else {
+        return KeyringProtection::DeviceUnlocked;
+    };
+    match text.strip_prefix(COMMENT_PREFIX) {
+        Some(number) => number
+            .trim()
+            .parse::<u8>()
+            .ok()
+            .and_then(KeyringProtection::from_code)
+            .unwrap_or(KeyringProtection::Biometric),
+        None if text.starts_with(COMMENT_FAMILY) => KeyringProtection::Biometric,
+        None => KeyringProtection::DeviceUnlocked,
+    }
 }
 
 /// The fixed data the Windows Hello key signs: the signature (RSA PKCS#1 v1.5, which is

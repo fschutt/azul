@@ -852,3 +852,27 @@ fn a_protected_op_whose_name_holds_a_nul_is_an_error_like_every_other() {
         KeyringResult::Error
     );
 }
+
+#[test]
+fn a_protected_item_has_no_place_in_the_old_shared_service_of_a_keyring_file() {
+    // The old shared service keeps texts only (flat at the top of the file): a protected store
+    // there is refused, never kept as a weaker item.
+    let backend = Backend::File(keyring_file("legacy-protected"));
+    let user = enrolled_user();
+    let key = unique("legacy-protected");
+    let protected = store_protected(&key, "s3cr3t", KeyringProtection::UserPresence);
+    assert_eq!(
+        answer_with(KeyringNamespace::LEGACY_SERVICE, &protected, &backend, Interaction::UserCheck, &user),
+        KeyringResult::Unavailable
+    );
+    assert_eq!(
+        answer_in(KeyringNamespace::LEGACY_SERVICE, &get(&key), &backend),
+        KeyringResult::NotFound,
+        "nothing was kept"
+    );
+    // A plain store there is what it always was.
+    assert_eq!(
+        answer_in(KeyringNamespace::LEGACY_SERVICE, &store(&key, "plain"), &backend),
+        KeyringResult::Stored
+    );
+}

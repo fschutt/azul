@@ -363,7 +363,11 @@ fn record_of(
     key: &str,
 ) -> Result<Option<GateRecord>, KeyringResult> {
     match lookup_item(lib, sch, &meta_key(key)) {
-        KeyringResult::Retrieved(text) => Ok(GateRecord::parse(text.as_str())),
+        // A record this version cannot read (a newer azul's) is no unprotected item: the item
+        // behind it is not read without knowing what guards it.
+        KeyringResult::Retrieved(text) => GateRecord::parse(text.as_str())
+            .map(Some)
+            .ok_or(KeyringResult::Error),
         KeyringResult::NotFound => Ok(None),
         other => Err(other),
     }
@@ -387,11 +391,14 @@ fn store_item(
         match (protection, &fingers) {
             (KeyringProtection::Biometric, Fingers::Absent) => return KeyringResult::Unavailable,
             (KeyringProtection::Biometric, Fingers::None) => return KeyringResult::NotEnrolled,
-            (KeyringProtection::UserPresence, _) => {
-                if LinuxCheck.authorize_registered() == Authorization::Unregistered {
-                    return KeyringResult::NotEnrolled;
+            (KeyringProtection::UserPresence, _) => match LinuxCheck.authorize_registered() {
+                Authorization::Unregistered => return KeyringResult::NotEnrolled,
+                // No system bus, no polkit: nothing could ask the user at the read.
+                Authorization::Unavailable | Authorization::Error => {
+                    return KeyringResult::Unavailable;
                 }
-            }
+                Authorization::Granted | Authorization::Cancelled => {}
+            },
             _ => {}
         }
         Some(GateRecord {
@@ -406,14 +413,21 @@ fn store_item(
     } else {
         None
     };
-    let stored = store_raw(lib, sch, service, key, secret);
-    if stored != KeyringResult::Stored {
-        return stored;
-    }
     let meta = meta_key(key);
     match record {
-        Some(record) => store_raw(lib, sch, service, &meta, &record.text()),
+        Some(record) => {
+            // The record first: an item that is there with no record reads as an unprotected one.
+            let wrote = store_raw(lib, sch, service, &meta, &record.text());
+            if wrote != KeyringResult::Stored {
+                return wrote;
+            }
+            store_raw(lib, sch, service, key, secret)
+        }
         None => {
+            let stored = store_raw(lib, sch, service, key, secret);
+            if stored != KeyringResult::Stored {
+                return stored;
+            }
             // An item that was protected before is plain now: its record goes.
             let _ = clear_item(lib, sch, &meta);
             KeyringResult::Stored
@@ -571,22 +585,24 @@ impl UserCheck for LinuxCheck {
         crate::desktop::extra::biometric::linux::verify_once()
     }
 
-    fn authorize(&self, reason: &str) -> Authorization {
-        polkit_check(reason, true)
+    /// The text of the dialog is the policy file's own message: polkit takes no details (a
+    /// `polkit.message` of ours) from a caller that is not root, it refuses the whole call.
+    fn authorize(&self, _reason: &str) -> Authorization {
+        polkit_check(true)
     }
 }
 
 impl LinuxCheck {
     /// Whether the policy file of the polkit action is installed, asked without showing a dialog.
     fn authorize_registered(&self) -> Authorization {
-        polkit_check("", false)
+        polkit_check(false)
     }
 }
 
 /// `org.freedesktop.PolicyKit1.Authority.CheckAuthorization` for [`POLKIT_ACTION`] with this
 /// process as the subject. `interactive`: the desktop's agent may ask the user (flag
 /// `AllowUserInteraction`); else only whether the action is known is learned.
-fn polkit_check(reason: &str, interactive: bool) -> Authorization {
+fn polkit_check(interactive: bool) -> Authorization {
     use std::collections::HashMap;
 
     use zbus::{
@@ -613,18 +629,21 @@ fn polkit_check(reason: &str, interactive: bool) -> Authorization {
     subject_details.insert("pid", Value::from(pid));
     subject_details.insert("start-time", Value::from(start_time));
     let subject = ("unix-process", subject_details);
-    let mut details: HashMap<&str, &str> = HashMap::new();
-    if !reason.is_empty() {
-        details.insert("polkit.message", reason);
-    }
+    // No details: polkit refuses a call that carries any from a caller that is not root.
+    let details: HashMap<&str, &str> = HashMap::new();
     let flags: u32 = u32::from(interactive); // 1 = AllowUserInteraction
     // (is_authorized, is_challenge, details)
     let reply: Result<(bool, bool, HashMap<String, String>), zbus::Error> =
         authority.call("CheckAuthorization", &(subject, POLKIT_ACTION, details, flags, ""));
     match reply {
         Ok((true, _, _)) => Authorization::Granted,
-        // The answer of a known action the user did not (or, asked without interaction, could
-        // not yet) authorise.
+        // Not authorised, and authenticating could not change that: the policy says no for this
+        // session (an inactive one), or no agent was there to ask.
+        Ok((false, false, _)) if !interactive => Authorization::Unavailable,
+        Ok((false, true, _)) if interactive => Authorization::Unavailable,
+        // Not authorised: the user dismissed the dialog or did not prove who they are (asked with
+        // interaction), or authenticating would be asked of them (asked without: the level can
+        // be met).
         Ok((false, _, _)) => Authorization::Cancelled,
         Err(e) => {
             let text = e.to_string();

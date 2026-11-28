@@ -20,20 +20,33 @@ fn a_protected_item_says_its_level_in_its_comment_and_an_unprotected_one_says_no
 fn a_credential_with_no_record_of_ours_is_unprotected() {
     assert_eq!(protection_of_comment(None), KeyringProtection::DeviceUnlocked);
     assert_eq!(protection_of_comment(Some("")), KeyringProtection::DeviceUnlocked);
-    // Another program's comment, a version of the record we do not know, a level that does not
-    // exist: none of them reads as a protected item of ours.
-    for other in [
-        "my note",
+    // Another program's comment is no record of ours.
+    for other in ["my note", "azul keyring v1;p=2", "keyring:azul-keyring:v1;p=2"] {
+        assert_eq!(
+            protection_of_comment(Some(other)),
+            KeyringProtection::DeviceUnlocked,
+            "{other:?}"
+        );
+    }
+}
+
+#[test]
+fn a_record_of_ours_that_this_version_cannot_read_is_never_a_weaker_level() {
+    // A version of the record we do not know, a level that does not exist, a number that is
+    // none: the item was guarded by something, so it reads as the strongest level and a get
+    // without the user answers `WouldPrompt`.
+    for unknown in [
         "azul-keyring:v2;p=1",
         "azul-keyring:v1;p=",
         "azul-keyring:v1;p=9",
         "azul-keyring:v1;p=-1",
         "azul-keyring:v1;p=one",
+        "azul-keyring:",
     ] {
         assert_eq!(
-            protection_of_comment(Some(other)),
-            KeyringProtection::DeviceUnlocked,
-            "{other:?}"
+            protection_of_comment(Some(unknown)),
+            KeyringProtection::Biometric,
+            "{unknown:?}"
         );
     }
 }

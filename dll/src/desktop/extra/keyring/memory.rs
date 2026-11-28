@@ -323,6 +323,13 @@ fn in_file(
     interaction: Interaction,
     user: &StandInUser,
 ) -> io::Result<KeyringResult> {
+    // The old shared service keeps texts only (its entries sit flat at the top of the file): a
+    // protected item has no place in it, and is not kept there as a weaker one.
+    if service == KeyringNamespace::LEGACY_SERVICE
+        && matches!(req, KeyringRequest::Store { protection, .. } if protection.needs_user())
+    {
+        return Ok(KeyringResult::Unavailable);
+    }
     let mut file = open_locked(path)?;
     let mut text = String::new();
     file.read_to_string(&mut text)?;
