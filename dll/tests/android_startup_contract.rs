@@ -178,37 +178,6 @@ fn the_phones_night_mode_is_the_windows_from_its_first_picture() {
     assert!(of.contains("UiModeNight::No=>Some(azul_core::window::DarkLightMode::Light)"));
 }
 
-/// The surface of a rotation (or of any size the retained frame does not fit) has no buffer until the layout and the render at its size are
-/// done, and shows black meanwhile: the window's canvas colour goes on it at once, before the layout is requested. One colour, every byte of the
-/// buffer (`android_core::present::fill_flat`), the geometry told, and the first real present after it is whole (`PresentState::flat_posted`,
-/// tested on every host). NOT on the window's first surface: there the starting window is held until the first picture, and a flat frame would
-/// put the allocation of a second buffer and a fill in front of the first layout (the lab: the flat frame alone leaves 1.5 black frames median,
-/// the hold leaves none). A window that draws on the GPU takes no CPU frame.
-///
-/// Mutation: the flat frame removed from `InitWindow`; posted after the layout is requested; posted on the first surface too.
-#[test]
-fn a_surface_with_no_frame_of_ours_gets_the_canvas_colour_before_the_layout() {
-    let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
-    let arm = shell.find("MainEvent::InitWindow{..}=>{").expect("the surface-created arm") + "MainEvent::InitWindow{..}".len();
-    let init = body(&shell[arm..], "=>");
-    let retained = init
-        .find("window.draws_on_cpu()&&crate::desktop::shell2::android_core::present::retained_frame_fits(retained,surface_px)")
-        .expect("the retained frame is the first choice");
-    let flat = init[retained..]
-        .find("elseifwindow.draws_on_cpu()&&window.present.has_frame(){")
-        .expect("otherwise a CPU window that has shown a frame before (a rotation) gets the flat frame")
-        + retained;
-    let post = init[flat..].find("post_flat_frame(window,surface_px);").expect("it is posted") + flat;
-    let layout = init.find("window.common.request_regeneration(reason)").expect("the layout is requested");
-    assert!(retained < flat && flat < post && post < layout, "the flat frame is posted before the layout is requested");
-
-    let flat_fn = body(&shell, "fnpost_flat_frame(window:&mutAndroidWindow,(width,height):(u32,u32)){");
-    assert!(flat_fn.contains("window.common.clear_color()"), "the colour is THE canvas colour the renderer clears to");
-    assert!(flat_fn.contains("nw.set_buffers_geometry(w,h,Some(Hbf::R8G8B8A8_UNORM))"), "the geometry the first real frame needs is told here");
-    assert!(flat_fn.contains("android_core::present::fill_flat(bytes,pixel);"), "every byte of the buffer is written");
-    assert!(flat_fn.contains("window.present.flat_posted((width,height));"), "the state knows the surface has no frame of ours");
-}
-
 /// The accessibility tree of the first layout is 30-45 ms of the time to the first picture (E33: the startup timeline's `a11y_tree_first_built`,
 /// built inside the layout pass) and a screen reader reads a window that is on the screen: the first tree is built after the first picture is
 /// posted. Every later layout builds its own, as before.

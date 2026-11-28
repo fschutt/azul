@@ -1746,59 +1746,6 @@ fn night_mode_of(app: &AndroidApp) -> Option<azul_core::window::DarkLightMode> {
     }
 }
 
-/// The window's canvas colour on a new surface, at once: one colour, every byte of the buffer, posted before the layout at the new size. A
-/// surface that has no buffer shows black, and the surface of a rotation has none until the layout and the render at its size are done (~130 ms
-/// on the emulator): with this on the surface the gap is the window's own colour. The geometry the first real frame needs is told here.
-#[cfg(all(
-    target_os = "android",
-    feature = "android-activity",
-    feature = "ndk",
-    feature = "cpurender"
-))]
-fn post_flat_frame(window: &mut AndroidWindow, (width, height): (u32, u32)) {
-    use ndk::hardware_buffer_format::HardwareBufferFormat as Hbf;
-
-    let (Ok(w), Ok(h)) = (i32::try_from(width), i32::try_from(height)) else {
-        return;
-    };
-    if w <= 0 || h <= 0 {
-        return;
-    }
-    let colour = window.common.clear_color();
-    let Some(nw) = window.native_window.as_ref() else {
-        return;
-    };
-    if nw.set_buffers_geometry(w, h, Some(Hbf::R8G8B8A8_UNORM)).is_err() {
-        return;
-    }
-    let Ok(mut guard) = nw.lock(None) else {
-        return;
-    };
-    // Another format than the one asked for: a cleared frame is posted (there is no unlock without a post in the NDK, and the buffer's own
-    // contents are undefined), as `render_frame` does, and the surface is not counted as having the geometry told.
-    let rgba8 = matches!(guard.format(), Hbf::R8G8B8A8_UNORM | Hbf::R8G8B8X8_UNORM);
-    let pixel = if rgba8 { [colour.r, colour.g, colour.b, 255] } else { [0; 4] };
-    if let Some(bytes) = guard.bytes() {
-        crate::desktop::shell2::android_core::present::fill_flat(bytes, pixel);
-    }
-    // guard.drop() calls ANativeWindow_unlockAndPost: the frame is posted from here.
-    drop(guard);
-    if !rgba8 {
-        window.present.surface_changed();
-        return;
-    }
-    window.present.flat_posted((width, height));
-    log_debug!(
-        LogCategory::Rendering,
-        "[Android] a flat frame {}x{} of the canvas colour #{:02x}{:02x}{:02x} posted before the first layout",
-        width,
-        height,
-        colour.r,
-        colour.g,
-        colour.b
-    );
-}
-
 /// What the window's first insets dispatch gave (`NativeTextBridge.insetsSnapshot`, asked of Java synchronously: the dispatch comes
 /// before the surface exists, this is asked when the surface does), applied before the first layout. Nothing when the activity has no
 /// dispatch yet: the insets then come the way they always did, from the Java UI thread, after the first picture.
@@ -2133,12 +2080,6 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                                 && crate::desktop::shell2::android_core::present::retained_frame_fits(retained, surface_px)
                             {
                                 let _ = render_frame(window);
-                            } else if window.draws_on_cpu() && window.present.has_frame() {
-                                // A new surface of another size than the frame the shell holds (a rotation): the window's canvas colour goes
-                                // on it AT ONCE, before the layout at the new size, so that the gap is that colour and never black. Not on the
-                                // window's FIRST surface: there the starting window is held until the first picture (`AzulActivity.holdFirstDraw`)
-                                // and a flat frame would only put a second buffer's allocation and a fill in front of the first layout.
-                                post_flat_frame(window, surface_px);
                             }
                         }
                         #[cfg(not(feature = "cpurender"))]
