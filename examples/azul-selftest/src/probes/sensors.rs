@@ -9,6 +9,7 @@
 
 use azul::{
     dom::{Dom, GeolocationProbeConfig},
+    prelude::RefAny,
     misc::{Capability, PermissionState},
     sensor::SensorKind,
     window::PlatformCapability,
@@ -105,7 +106,7 @@ fn any_sensor(ctx: &mut Ctx<'_>) -> Step {
 
 /// The probe node: the engine subscribes to the platform's location service while the node is in the DOM
 /// (and asks for the permission then: a dialog comes only when this row runs).
-fn location_widget(_elapsed_ms: u64) -> Dom {
+fn location_widget(_data: &RefAny, _elapsed_ms: u64) -> Dom {
     Dom::create_geolocation_probe(GeolocationProbeConfig {
         high_accuracy: true,
         background: false,

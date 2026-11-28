@@ -16,6 +16,7 @@ use azul::prelude::*;
 use crate::report::{RowResult, Verdict};
 
 pub mod device;
+pub mod media;
 pub mod pending;
 pub mod platform;
 pub mod render;
@@ -72,7 +73,7 @@ pub enum Step {
 pub type StepFn = fn(&mut Ctx<'_>) -> Step;
 
 /// A widget a probe needs in the DOM while it runs; it gets the milliseconds since the probe started (an animation).
-pub type WidgetFn = fn(u64) -> Dom;
+pub type WidgetFn = fn(&RefAny, u64) -> Dom;
 
 /// One row.
 pub struct ProbeDef {
@@ -98,6 +99,7 @@ pub fn all() -> Vec<&'static ProbeDef> {
     [
         device::PROBES,
         sensors::PROBES,
+        media::PROBES,
         security::PROBES,
         system::PROBES,
         platform::PROBES,

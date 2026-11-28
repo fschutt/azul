@@ -152,6 +152,20 @@ impl SelfTest {
         self.rows[run.idx].0.widget.map(|widget| (widget, elapsed))
     }
 
+    /// A frame of the running row's capture widget arrived (the widget's callback, on the loop thread, between two ticks): the
+    /// row's scratch keeps `[frames, width, height, loudest sample in millionths]` and the row's next tick reads it.
+    pub fn note_media_frame(&mut self, width: u32, height: u32, loudest_micro: u64) {
+        if let Some(run) = self.running.as_mut() {
+            if run.scratch.len() < 4 {
+                run.scratch.resize(4, 0);
+            }
+            run.scratch[0] += 1;
+            run.scratch[1] = u64::from(width);
+            run.scratch[2] = u64::from(height);
+            run.scratch[3] = run.scratch[3].max(loudest_micro);
+        }
+    }
+
     /// One tick: start the next row if none runs, step the running one. Whether the list changed.
     fn advance(&mut self, info: &mut CallbackInfo) -> bool {
         let mut changed = false;
@@ -446,7 +460,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_child(header)
         .with_child(list);
     if let Some((widget, elapsed_ms)) = widget {
-        body = body.with_child(widget(elapsed_ms));
+        body = body.with_child(widget(&data, elapsed_ms));
     }
     body
 }
