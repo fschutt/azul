@@ -22,10 +22,11 @@
 //! to a stack: S4's list pushes the detail, S5's grid pushes the viewer.
 //!
 //! Phone-width rules: the app bar takes a top inset for the safe area
-//! ([`MobileShell::with_top_inset`]); under [`NARROW_MAX_PX`] the tab labels
-//! hide and the icons stand alone (a viewport rule the engine evaluates, no
-//! rebuild); the layout is meant for a window under [`PHONE_MAX_PX`], the
-//! breakpoint the ribbon switches to its touch chrome at.
+//! ([`MobileShell::with_top_inset`]); under [`NARROW_MAX_PX`] the labels of
+//! the tabs that have an icon hide and the icons stand alone (a viewport rule
+//! the engine evaluates, no rebuild; a tab of words only keeps its label); the
+//! layout is meant for a window under [`PHONE_MAX_PX`], the breakpoint the
+//! ribbon switches to its touch chrome at.
 //!
 //! Key types: [`MobileShell`], [`ShellBottomTab`], [`MobileShellOnTab`].
 
@@ -103,7 +104,7 @@ pub const TAB_LABEL_CLASS: &str = "__azul-native-mobile-shell-tab-label";
 pub const TAB_BADGE_CLASS: &str = "__azul-native-mobile-shell-tab-badge";
 /// The widest window the stack is meant for: the ribbon's touch breakpoint.
 pub const PHONE_MAX_PX: f32 = 720.0;
-/// Under this width the tab labels hide and the icons stand alone.
+/// Under this width the labels of the tabs that have an icon hide and the icons stand alone.
 pub const NARROW_MAX_PX: f32 = 359.0;
 
 /// Callback invoked when a bottom tab is chosen: its index.
@@ -502,7 +503,7 @@ static FAB_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
 ];
 
-/// The phone-width rule on a tab label: hidden under [`NARROW_MAX_PX`].
+/// The phone-width rule on the label of a tab that has an icon: hidden under [`NARROW_MAX_PX`].
 #[must_use]
 pub(crate) fn narrow_hides_label() -> CssPropertyWithConditions {
     CssPropertyWithConditions::with_condition(
@@ -528,13 +529,18 @@ fn tab(
     } else {
         base
     };
-    let icon_node = if icon.as_str().is_empty() {
-        Dom::create_div()
-    } else {
+    let has_icon = !icon.as_str().is_empty();
+    let icon_node = if has_icon {
         Dom::create_icon(icon)
+    } else {
+        Dom::create_div()
     };
     let mut label_skin: Vec<CssPropertyWithConditions> = look.bottom_tab_label.clone();
-    label_skin.push(narrow_hides_label());
+    // On a narrow phone a tab with an icon is its icon (the label hides). A tab without one IS
+    // its label: hiding it would leave an empty cell.
+    if has_icon {
+        label_skin.push(narrow_hides_label());
+    }
     let mut children: Vec<Dom> = alloc::vec![
         icon_node
             .with_class(AzString::from_const_str(TAB_ICON_CLASS))
@@ -697,6 +703,10 @@ pub(crate) fn build(shell: MobileShell, look: &ShellLook) -> Dom {
         .with_css_props(part(FILL_COLUMN_BASE, &look.shell_root))
         .with_children(DomVec::from_vec(children))
 }
+
+#[cfg(test)]
+#[path = "mobile_shell_narrow_test.rs"]
+mod mobile_shell_narrow_test;
 
 #[cfg(test)]
 mod mobile_shell_tests {
