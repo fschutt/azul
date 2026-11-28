@@ -34,10 +34,21 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-/// App state: whether the popup is open, and how often its `Dismissed` handler ran.
+/// App state: whether the popup is open, how often its `Dismissed` handler ran, and how often the
+/// page's own button heard a click.
 struct PickerState {
     open: bool,
+    modal: bool,
     dismissed_calls: Arc<AtomicUsize>,
+    presses: Arc<AtomicUsize>,
+}
+
+/// The page's own button: a click on it counts.
+extern "C" fn on_page_button(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(s) = data.downcast_mut::<PickerState>() {
+        s.presses.fetch_add(1, Ordering::SeqCst);
+    }
+    Update::DoNothing
 }
 
 /// The app's reaction to the engine closing the popup for it: drop the flag.
@@ -51,13 +62,24 @@ extern "C" fn on_dismissed(mut data: RefAny, _info: CallbackInfo) -> Update {
 
 /// A swatch at (40, 40), 60 x 24, with a popup anchored to it: a 240 x 160 panel.
 extern "C" fn picker_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let open = data.downcast_ref::<PickerState>().is_some_and(|s| s.open);
+    let (open, modal) = data
+        .downcast_ref::<PickerState>()
+        .map_or((false, false), |s| (s.open, s.modal));
     let cfg = if open {
         TransientWindowConfig::opened()
     } else {
         TransientWindowConfig::closed()
     }
-    .with_dismiss(TransientDismiss::Outside);
+    .with_anchor(if modal {
+        azul_core::transient::TransientAnchor::Dialog
+    } else {
+        azul_core::transient::TransientAnchor::Bottom
+    })
+    .with_dismiss(if modal {
+        TransientDismiss::None
+    } else {
+        TransientDismiss::Outside
+    });
     let mut node = NodeData::create_node(NodeType::TransientWindow(cfg));
     node.add_callback(
         EventFilter::Component(ComponentEventFilter::Dismissed),
@@ -78,9 +100,22 @@ extern "C" fn picker_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom 
     let swatch = Dom::create_div()
         .with_css("width: 60px; height: 24px; margin: 40px; background: #e66465;".into())
         .with_child(popup);
+    // The page's own button, well away from the popup.
+    let button = Dom::create_div()
+        .with_css("width: 120px; height: 40px; margin-left: 100px; margin-top: 300px; background: #3366cc;".into())
+        .with_callback(
+            EventFilter::Hover(azul_core::events::HoverEventFilter::MouseUp),
+            data.clone(),
+            Callback {
+                cb: on_page_button,
+                ctx: azul_core::refany::OptionRefAny::None,
+            }
+            .to_core(),
+        );
     Dom::create_body()
         .with_css("margin: 0;".into())
         .with_child(swatch)
+        .with_child(button)
 }
 
 fn headless(options: WindowCreateOptions, app_data: Arc<RefCell<RefAny>>) -> HeadlessWindow {
@@ -102,9 +137,15 @@ fn headless(options: WindowCreateOptions, app_data: Arc<RefCell<RefAny>>) -> Hea
 
 /// A headless window of a Pixel 8's size, put on its display: a window with one surface.
 fn phone(open: bool, preset: DisplayPreset) -> HeadlessWindow {
+    phone_with(open, false, preset)
+}
+
+fn phone_with(open: bool, modal: bool, preset: DisplayPreset) -> HeadlessWindow {
     let app_data = Arc::new(RefCell::new(RefAny::new(PickerState {
         open,
+        modal,
         dismissed_calls: Arc::new(AtomicUsize::new(0)),
+        presses: Arc::new(AtomicUsize::new(0)),
     })));
     let mut options = WindowCreateOptions::default();
     options.window_state.size.dimensions = LogicalSize::new(412.0, 915.0);
@@ -260,4 +301,49 @@ fn flipping_open_shows_and_hides_the_box() {
     parent.request_regeneration(RelayoutReason::RefreshDom);
     parent.regenerate_layout().expect("layout 3: closed");
     assert!(panel_rect(&parent).is_none(), "hidden again");
+}
+
+fn presses(window: &HeadlessWindow) -> usize {
+    let mut app = window.common.app_data.borrow_mut();
+    app.downcast_ref::<PickerState>()
+        .map_or(usize::MAX, |s| s.presses.load(Ordering::SeqCst))
+}
+
+/// Press-and-release at `pos` in the window, through the real event path (hit test included).
+fn click_at(window: &mut HeadlessWindow, pos: LogicalPosition) {
+    window.snapshot_window_state_baseline("test.move");
+    window.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(pos);
+    window.update_hit_test_at(pos);
+    let _ = window.process_window_events(0);
+    window.snapshot_window_state_baseline("test.down");
+    window.common.mouse_state_mut().left_down = true;
+    let _ = window.process_window_events(0);
+    window.snapshot_window_state_baseline("test.up");
+    window.common.mouse_state_mut().left_down = false;
+    let _ = window.process_window_events(0);
+}
+
+/// THE modal: the page under a dialog is inert. A press on the page's own button reaches the scrim
+/// the dialog's node is, not the button; the dialog stays up (a modal has no light dismiss). Once the
+/// app closes it, the button is the page's again.
+#[test]
+fn the_page_under_a_phones_modal_dialog_is_inert() {
+    let mut window = phone_with(true, true, DisplayPreset::Pixel8);
+    window.regenerate_layout().expect("layout");
+    assert!(window.pending_window_creates.is_empty(), "no second window");
+    assert_eq!(open_windows(&window), 1);
+
+    // The button is at (100, 48 + 40 + 24 + 40 + 300) = (100.., 452..492): click its middle.
+    click_at(&mut window, LogicalPosition::new(160.0, 470.0));
+    assert_eq!(presses(&window), 0, "the page heard nothing: the scrim took the press");
+    assert_eq!(open_windows(&window), 1, "and a modal is not light-dismissed");
+
+    {
+        let mut app = window.common.app_data.borrow_mut();
+        app.downcast_mut::<PickerState>().unwrap().open = false;
+    }
+    window.request_regeneration(RelayoutReason::RefreshDom);
+    window.regenerate_layout().expect("layout: closed");
+    click_at(&mut window, LogicalPosition::new(160.0, 470.0));
+    assert_eq!(presses(&window), 1, "the button is the page's again");
 }
