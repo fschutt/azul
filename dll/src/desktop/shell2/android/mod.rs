@@ -1746,10 +1746,9 @@ fn night_mode_of(app: &AndroidApp) -> Option<azul_core::window::DarkLightMode> {
     }
 }
 
-/// The window's canvas colour on the surface, at once: one colour, every byte of the buffer, posted before any layout. A NativeActivity's
-/// window is a surface the view system never draws, so the system takes its starting window away when the window has "drawn" (at once) and
-/// the screen shows the empty surface, black, for as long as the first layout takes (ledger E46); with this on the surface the gap is the
-/// window's own colour. The geometry the first real frame needs is told here, so that frame is only a lock and a copy.
+/// The window's canvas colour on a new surface, at once: one colour, every byte of the buffer, posted before the layout at the new size. A
+/// surface that has no buffer shows black, and the surface of a rotation has none until the layout and the render at its size are done (~130 ms
+/// on the emulator): with this on the surface the gap is the window's own colour. The geometry the first real frame needs is told here.
 #[cfg(all(
     target_os = "android",
     feature = "android-activity",
@@ -2134,10 +2133,11 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                                 && crate::desktop::shell2::android_core::present::retained_frame_fits(retained, surface_px)
                             {
                                 let _ = render_frame(window);
-                            } else if window.draws_on_cpu() {
-                                // A surface that has no frame of ours (the first of the window, or the new size of a rotation): the
-                                // window's canvas colour goes on it AT ONCE, before the layout, so that the gap before the first picture
-                                // is that colour and never black (ledger E46).
+                            } else if window.draws_on_cpu() && window.present.has_frame() {
+                                // A new surface of another size than the frame the shell holds (a rotation): the window's canvas colour goes
+                                // on it AT ONCE, before the layout at the new size, so that the gap is that colour and never black. Not on the
+                                // window's FIRST surface: there the starting window is held until the first picture (`AzulActivity.holdFirstDraw`)
+                                // and a flat frame would only put a second buffer's allocation and a fill in front of the first layout.
                                 post_flat_frame(window, surface_px);
                             }
                         }

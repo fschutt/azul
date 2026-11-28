@@ -230,7 +230,7 @@ public class AzulActivity extends NativeActivity {
      * How long the window's first draw may be held when the engine never says it posted a picture: the window must never stay away
      * for good (a GPU path that could not start, a failure in the first layout).
      */
-    private static final long FIRST_DRAW_HOLD_MS = 2500;
+    private static final long FIRST_DRAW_HOLD_MS = 4000;
     /** UI thread only: the engine has posted its first picture, or the hold gave up: the window may draw. */
     private static boolean firstFrameShown;
 

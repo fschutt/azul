@@ -83,7 +83,7 @@ fn the_windows_first_draw_is_held_until_the_first_picture_and_never_trapped() {
         "the draw is cancelled until the engine's first picture or the deadline"
     );
     assert!(listener.contains("removeOnPreDrawListener(this)") && listener.contains("return true;"), "and let through, once");
-    assert!(java.contains("private static final long FIRST_DRAW_HOLD_MS = 2500;"), "the limit: the window must never stay away for good");
+    assert!(java.contains("private static final long FIRST_DRAW_HOLD_MS = 4000;"), "the limit: the window must never stay away for good");
     assert!(hold.contains("if (firstFrameShown) {"), "a process that has shown its picture holds nothing");
 
     let first = body(&java, "public static void firstFramePresented(final android.app.Activity activity)");
@@ -177,12 +177,14 @@ fn the_phones_night_mode_is_the_windows_from_its_first_picture() {
     assert!(of.contains("UiModeNight::No=>Some(azul_core::window::DarkLightMode::Light)"));
 }
 
-/// A surface that has no frame of ours gets the window's canvas colour at once, before any layout: the first surface of the window (the
-/// gap before the first picture is that colour, never black) and the surface of a rotation (the new size's layout takes ~130 ms). One colour,
-/// every byte of the buffer (`android_core::present::fill_flat`), the geometry told, and the first real present after it is whole
-/// (`PresentState::flat_posted`, tested on every host). A window that draws on the GPU takes no CPU frame.
+/// The surface of a rotation (or of any size the retained frame does not fit) has no buffer until the layout and the render at its size are
+/// done, and shows black meanwhile: the window's canvas colour goes on it at once, before the layout is requested. One colour, every byte of the
+/// buffer (`android_core::present::fill_flat`), the geometry told, and the first real present after it is whole (`PresentState::flat_posted`,
+/// tested on every host). NOT on the window's first surface: there the starting window is held until the first picture, and a flat frame would
+/// put the allocation of a second buffer and a fill in front of the first layout (the lab: the flat frame alone leaves 1.5 black frames median,
+/// the hold leaves none). A window that draws on the GPU takes no CPU frame.
 ///
-/// Mutation: the flat frame removed from `InitWindow` (the state of 98d415cb4e); posted after the layout is requested.
+/// Mutation: the flat frame removed from `InitWindow`; posted after the layout is requested; posted on the first surface too.
 #[test]
 fn a_surface_with_no_frame_of_ours_gets_the_canvas_colour_before_the_layout() {
     let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
@@ -191,7 +193,10 @@ fn a_surface_with_no_frame_of_ours_gets_the_canvas_colour_before_the_layout() {
     let retained = init
         .find("window.draws_on_cpu()&&crate::desktop::shell2::android_core::present::retained_frame_fits(retained,surface_px)")
         .expect("the retained frame is the first choice");
-    let flat = init[retained..].find("elseifwindow.draws_on_cpu(){").expect("otherwise a CPU window gets the flat frame") + retained;
+    let flat = init[retained..]
+        .find("elseifwindow.draws_on_cpu()&&window.present.has_frame(){")
+        .expect("otherwise a CPU window that has shown a frame before (a rotation) gets the flat frame")
+        + retained;
     let post = init[flat..].find("post_flat_frame(window,surface_px);").expect("it is posted") + flat;
     let layout = init.find("window.common.request_regeneration(reason)").expect("the layout is requested");
     assert!(retained < flat && flat < post && post < layout, "the flat frame is posted before the layout is requested");
