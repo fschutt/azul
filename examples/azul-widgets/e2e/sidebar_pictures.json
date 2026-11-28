@@ -31,13 +31,29 @@
         "behavior": "instant"
       },
       {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
-        "op": "wait_frame"
+        "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -47,16 +63,24 @@
         "selector": "#sidebar-state-expanded"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -66,16 +90,24 @@
         "selector": "#sidebar-state-handle"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -85,26 +117,32 @@
         "selector": "#sidebar-state-expanded"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "click",
         "selector": "#sidebar-surface-leather"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -114,16 +152,24 @@
         "selector": "#sidebar-surface-vellum"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -133,16 +179,24 @@
         "selector": "#sidebar-surface-jeans"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -152,16 +206,24 @@
         "selector": "#sidebar-surface-aluminium"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -171,23 +233,29 @@
         "selector": "#sidebar-surface-theme"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "set_mode",
         "mode": "dark"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -197,16 +265,24 @@
         "selector": "#sidebar-state-rail"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -220,13 +296,21 @@
         "theme": "flat"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -236,16 +320,24 @@
         "selector": "#sidebar-state-expanded"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -262,26 +354,32 @@
         "selector": "#sidebar-state-rail"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "click",
         "selector": ".__azul-native-sidebar-status"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -291,10 +389,18 @@
         "selector": "#sidebar-banner-toggle"
       },
       {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
-        "op": "wait_frame"
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -304,10 +410,18 @@
         "selector": ".__azul-native-preview-banner .__azul-native-preview-help"
       },
       {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
-        "op": "wait_frame"
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -321,30 +435,34 @@
         "key": "Escape"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "click",
         "selector": "#sidebar-banner-toggle"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "click",
         "selector": ".__azul-native-preview-help"
       },
       {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
-        "op": "wait_frame"
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -358,10 +476,8 @@
         "key": "Escape"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "resize",
@@ -382,10 +498,8 @@
         "selector": "#sidebar-form-phone"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "scroll_into_view",
@@ -394,13 +508,21 @@
         "behavior": "instant"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -410,16 +532,24 @@
         "selector": ".__azul-native-sidebar-toggle"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -429,26 +559,32 @@
         "text": "Fonts"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "click",
         "selector": "#sidebar-sheet-open"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
@@ -458,26 +594,32 @@
         "selector": ".__azul-native-action-sheet-scrim"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "click",
         "selector": "#sidebar-surface-leather"
       },
       {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
       },
       {
         "op": "take_screenshot"
