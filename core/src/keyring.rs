@@ -334,7 +334,7 @@ pub enum KeyringNeed {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum KeyringSupport {
-    /// The OS or the secure hardware (Secure Enclave, the Keystore's TEE / StrongBox, a TPM)
+    /// The OS or the secure hardware (Secure Enclave, the Keystore's TEE / `StrongBox`, a TPM)
     /// releases the secret only after the user check.
     Hardware,
     /// azul runs the user check and then reads an item that is not itself bound to it: a

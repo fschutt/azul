@@ -332,6 +332,30 @@ impl CapabilityEntry {
     }
 }
 
+/// The capabilities an app asked the state of ([`PermissionManager::get_status`]), a bit each:
+/// the pump reads the platform's quiet state of those only, so an app that never asks pays
+/// nothing and a launch changes no state it did not look at. Interior mutability, because the
+/// question comes from a `&self` accessor; not part of the manager's state, so two managers
+/// compare equal whatever they were asked.
+#[derive(Debug, Default)]
+struct Asked(core::sync::atomic::AtomicU32);
+
+impl Clone for Asked {
+    fn clone(&self) -> Self {
+        Self(core::sync::atomic::AtomicU32::new(
+            self.0.load(core::sync::atomic::Ordering::Relaxed),
+        ))
+    }
+}
+
+impl PartialEq for Asked {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for Asked {}
+
 /// Cross-platform permission manager.
 ///
 /// One per `App` (capabilities live at process scope, not per-window — a
@@ -359,9 +383,11 @@ pub struct PermissionManager {
     /// A user gesture (a click, a touch lifted, a key pressed) happened since the last request
     /// that may ask: the next one may go ([`PermissionManager::admit`]).
     gesture: bool,
-    /// When the platforms' quiet read of every capability was last folded in
+    /// When the platforms' quiet read of the capabilities in use was last folded in
     /// ([`PermissionManager::probe_due`]).
     probed_at: Option<std::time::Instant>,
+    /// The capabilities an app asked the state of.
+    asked: Asked,
 }
 
 impl EventProvider for PermissionManager {
@@ -391,12 +417,37 @@ impl PermissionManager {
         Self::default()
     }
 
-    /// Read the most recently observed state for `capability`.
+    /// Read the most recently observed state for `capability`: what an app asks before it uses
+    /// a capability. Asking is remembered: the pump folds the platform's quiet read of the
+    /// capabilities that were asked about (and of those in use) into the manager, so the state
+    /// follows the settings app from then on.
     #[must_use]
     pub fn get_status(&self, capability: Capability) -> PermissionState {
+        self.asked.0.fetch_or(
+            1_u32 << (capability as u32),
+            core::sync::atomic::Ordering::Relaxed,
+        );
+        self.peek(capability)
+    }
+
+    /// [`Self::get_status`] without being counted as the app's question (the manager's own reads).
+    fn peek(&self, capability: Capability) -> PermissionState {
         self.statuses
             .get(&capability)
             .map_or(PermissionState::NotDetermined, |e| e.state)
+    }
+
+    /// The capabilities whose platform state the pump should fold in: the ones an app asked
+    /// the state of and the ones with a probe node in the DOM.
+    #[must_use]
+    pub fn capabilities_in_use(&self) -> Vec<Capability> {
+        let asked = self.asked.0.load(core::sync::atomic::Ordering::Relaxed);
+        Capability::ALL
+            .into_iter()
+            .filter(|capability| {
+                asked & (1_u32 << (*capability as u32)) != 0 || self.refcount(*capability) > 0
+            })
+            .collect()
     }
 
     /// Record that `node_id` now needs `capability`. The first subscriber
@@ -517,7 +568,7 @@ impl PermissionManager {
     /// - not decided: only after a user gesture, and ONE request per gesture, so a probe in the
     ///   first DOM never asks at launch and two capabilities never ask at once.
     pub fn admit(&mut self, capability: Capability) -> Admission {
-        match self.get_status(capability) {
+        match self.peek(capability) {
             PermissionState::Granted(_) | PermissionState::EphemeralGranted(_) => Admission::Go,
             PermissionState::Denied | PermissionState::Restricted => Admission::Skip,
             PermissionState::Requested => Admission::Hold,
@@ -595,7 +646,7 @@ impl PermissionManager {
         self.set_status(capability, probed)
     }
 
-    /// Whether the quiet read of every capability is due: the first time, and then every
+    /// Whether the quiet read of the capabilities in use is due: the first time, and then every
     /// `every_ms` milliseconds (the pump calls it on every pass; the reads are cheap but not free).
     pub fn probe_due(&mut self, every_ms: u64) -> bool {
         let now = std::time::Instant::now();

@@ -38,7 +38,7 @@ pub const SENSOR_INTERVAL_MS: u64 = 50;
 /// *pushed* into the channel by native callbacks on OS threads; this only
 /// bounds how long a parked fix waits for an otherwise-idle loop.
 pub const GEOLOCATION_INTERVAL_MS: u64 = 200;
-/// How often the platforms' quiet read of every permission is folded into the manager.
+/// How often the platforms' quiet read of the permissions in use is folded into the manager.
 pub const PERMISSION_PROBE_INTERVAL_MS: u64 = 1000;
 /// Drain cadence while an async prompt (biometric / keyring / permission)
 /// is in flight and its result may be parked by an OS completion handler.
@@ -136,11 +136,12 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     for (capability, state) in lw.app_services.permission.drain() {
         changed |= lw.permission_manager.set_status(capability, state);
     }
-    // The platforms' QUIET read of every capability (it never prompts), at the start and then once a
-    // second: the OS knows more than the manager - a switch the user flipped in the settings, a
-    // camera a backend opened on its own - and `get_permission_status` reads the manager.
+    // The platforms' QUIET read of the capabilities in use - the ones an app asked the state of and
+    // the ones with a probe node (it never prompts) - once a second: the OS knows more than the
+    // manager (a switch the user flipped in the settings, a camera a backend opened on its own)
+    // and `get_permission_status` reads the manager. An app that asks nothing reads nothing.
     if lw.permission_manager.probe_due(PERMISSION_PROBE_INTERVAL_MS) {
-        for capability in azul_layout::managers::permission::Capability::ALL {
+        for capability in lw.permission_manager.capabilities_in_use() {
             let probed = crate::desktop::extra::permission::probe_status(capability);
             changed |= lw.permission_manager.observe(capability, probed);
         }

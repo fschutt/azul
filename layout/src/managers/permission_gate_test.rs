@@ -186,3 +186,22 @@ fn the_settings_target_is_one_page_per_platform_and_none_on_linux() {
     );
     assert_eq!(SettingsOpened::default(), SettingsOpened::Unsupported);
 }
+
+#[test]
+fn the_pump_reads_the_platform_state_of_what_was_asked_or_is_subscribed_only() {
+    let mut mgr = PermissionManager::new();
+    assert!(mgr.capabilities_in_use().is_empty(), "an app that asks nothing reads nothing");
+    // The app asks the state of the camera; a probe node subscribes the location.
+    let _ = mgr.get_status(Capability::Camera);
+    mgr.subscribe(Capability::Geolocation, node(1));
+    assert_eq!(
+        mgr.capabilities_in_use(),
+        vec![Capability::Camera, Capability::Geolocation]
+    );
+    // The manager's own reads are no question of the app's.
+    mgr.note_gesture();
+    let _ = mgr.admit(Capability::Microphone);
+    assert!(!mgr.capabilities_in_use().contains(&Capability::Microphone));
+    // Two managers compare equal whatever they were asked.
+    assert_eq!(PermissionManager::new(), PermissionManager::new());
+}
