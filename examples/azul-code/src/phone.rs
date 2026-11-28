@@ -178,6 +178,7 @@ fn tab(app: &RefAny, index: usize, doc: &Doc, active: bool) -> Dom {
 extern "C" fn on_drawer(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |st, info, _| {
         st.phone.toggle_drawer();
+        println!("AZCODE_DRAWER {}", if st.phone.drawer { "open" } else { "closed" });
         // The keyboard has no business over the drawer.
         info.request_soft_keyboard(false);
     })
@@ -410,6 +411,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let Some(key) = keyrow::KEYS.get(index) else {
             return;
         };
+        println!("AZCODE_KEY {}", key.name);
         let pressed = st.tabs.active_mut().is_some_and(|doc| doc.press_key(key.action));
         if pressed && st.find.open {
             st.refresh_find();

@@ -824,6 +824,7 @@ pub extern "C" fn on_code_event(mut data: RefAny, mut info: CallbackInfo, event:
         if let Some(mut st) = data.downcast_mut::<AppState>() {
             if let Some(doc) = st.tabs.active_mut() {
                 doc.view = event.view.clone();
+                println!("AZCODE_SCROLLED {}", event.view.top_line);
             }
         }
         return Update::DoNothing;
@@ -834,6 +835,9 @@ pub extern "C" fn on_code_event(mut data: RefAny, mut info: CallbackInfo, event:
             return;
         };
         doc.view = event.view.clone();
+        if event.kind == CodeViewEventKind::Move {
+            println!("AZCODE_CARET {}", doc.caret_label(TAB_WIDTH as usize));
+        }
         // A touch of the editor (a caret placed) or a key typed in it: on a phone the editor is being typed into.
         if compact && matches!(event.kind, CodeViewEventKind::Move | CodeViewEventKind::Edit) {
             st.phone.editing = true;

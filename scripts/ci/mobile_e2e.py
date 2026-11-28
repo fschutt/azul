@@ -619,7 +619,71 @@ def e2e_session(args):
         s.check("the lobby no longer shows the 'loading this device's key' line (the create callback ran load_identity)", not showing,
                 f"still on the screen: {showing}" if showing else f"not in the {len(xml)} bytes of the accessibility tree")
 
-    scripts = {"paint": s_script_paint, "writer": s_script_writer, "maps": s_script_maps, "meet": s_script_meet}
+    def s_script_code(s):
+        """AzCode on a phone: the first start opened the sample's main.rs; a REAL tap into the code raises the keyboard and places the caret on
+        the lift, a REAL swipe scrolls and selects nothing, the input method types into the editor, the key row's keys press, the drawer opens
+        over the editor and takes the keyboard down, the status bar's Problems opens the sheet. The app prints AZCODE_* lines (its stdout)."""
+        dev.settle(12.0)        # the sample is written, listed and src/main.rs read by the first start
+        log0 = dev.adb("logcat", "-d", "-v", "threadtime", timeout=60)
+        device_shot(s, "code-first-look")
+        engine_frame(s, "code-engine-first-look")
+        opened = q.marker_values(log0, "AZCODE_OPENED")
+        s.check("the first start opened the sample's src/main.rs (AZCODE_OPENED)", any(o.startswith("src/main.rs") for o in opened), f"printed {opened[-3:]}")
+        s.check("the keyboard is down at the first look", not dev.ime_shown(), "")
+        mark = dev.now_mark()
+        at = tap_node(s, "#__azcode_editor")
+        s.check("the server names the editor with a box", bool(at), str(at))
+        dev.settle(2.0)
+        up = dev.ime_shown()
+        device_shot(s, "code-keyboard-up")
+        carets = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZCODE_CARET", since=mark)
+        s.check("a real tap into the code raises the soft keyboard", up, "the window system says " + ("shown" if up else "hidden"))
+        s.check("the tap placed the caret on its lift (AZCODE_CARET)", bool(carets), f"printed {carets}")
+        row = tap_node(s, "#__azcode_key-row")
+        s.check("the key row stands over the keyboard (the server names it with a box)", bool(row), str(row))
+        # a real pan over the code: the view scrolls, nothing is selected, the caret stays
+        w, h = dev.dims
+        mark = dev.now_mark()
+        dev.swipe(int(w * 0.5), int(h * 0.45), int(w * 0.5), int(h * 0.25), 300)
+        dev.settle(1.5)
+        log = dev.adb("logcat", "-d", "-v", "threadtime", timeout=60)
+        scrolled, moved = q.marker_values(log, "AZCODE_SCROLLED", since=mark), q.marker_values(log, "AZCODE_CARET", since=mark)
+        device_shot(s, "code-swiped")
+        s.check("a swipe over the code scrolls it (AZCODE_SCROLLED)", bool(scrolled), f"printed {scrolled}", required=False)
+        s.check("a swipe over the code selects nothing and leaves the caret (no AZCODE_CARET)", not moved, f"printed {moved}")
+        # the input method types into the editor
+        mark = dev.now_mark()
+        dev.sh("input text hello")
+        dev.settle(2.0)
+        device_shot(s, "code-typed")
+        dirty = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZCODE_DIRTY", since=mark)
+        s.check("text typed through the input method reaches the editor (AZCODE_DIRTY <file> 1)", any(d.endswith(" 1") for d in dirty), f"printed {dirty}")
+        # a real tap on a key of the row
+        mark = dev.now_mark()
+        key = tap_node(s, "#__azcode_key-2")
+        dev.settle(1.5)
+        pressed = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZCODE_KEY", since=mark)
+        device_shot(s, "code-key-row")
+        s.check("a tap on the braces key of the row presses it (AZCODE_KEY azcode-key-braces)", bool(key) and "azcode-key-braces" in pressed, f"at {key}, printed {pressed}")
+        # the drawer over the editor: the keyboard goes down
+        mark = dev.now_mark()
+        button = tap_node(s, "#__azcode_drawer-button")
+        dev.settle(2.0)
+        drawer = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZCODE_DRAWER", since=mark)
+        device_shot(s, "code-drawer")
+        s.check("the top bar's button opens the drawer (AZCODE_DRAWER open)", bool(button) and drawer[-1:] == ["open"], f"at {button}, printed {drawer}")
+        s.check("the keyboard goes down under the drawer", not dev.ime_shown(), "")
+        tap_node(s, "#__azcode_scrim")
+        dev.settle(1.5)
+        # the status bar's Problems: the panel as a sheet
+        mark = dev.now_mark()
+        problems = tap_node(s, "#__azcode_status-problems")
+        dev.settle(2.0)
+        panel = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZCODE_PANEL_TAB", since=mark)
+        device_shot(s, "code-sheet")
+        s.check("the status bar's Problems opens the panel at Problems (AZCODE_PANEL_TAB problems)", bool(problems) and "problems" in panel, f"at {problems}, printed {panel}")
+
+    scripts = {"paint": s_script_paint, "writer": s_script_writer, "maps": s_script_maps, "meet": s_script_meet, "code": s_script_code}
     if args.script and args.platform == "android":
         run.step(f"e40-script-{args.script}", f"the scripted check of the {args.script} app", scripts[args.script])
 
@@ -826,7 +890,7 @@ def main(argv):
     ap.add_argument("--server-timeout", type=int, default=60)
     ap.add_argument("--logical-scale", type=float, default=0.0, help="device pixels per logical pixel of the window (the touch ops take logical pixels)")
     ap.add_argument("--audit-only", action="store_true", help="the phone-fit session of any app: frames, the layout audit in both orientations, the dark mode, --script")
-    ap.add_argument("--script", choices=["", "paint", "writer", "maps", "meet"], default="", help="the scripted check of one app (Android)")
+    ap.add_argument("--script", choices=["", "paint", "writer", "maps", "meet", "code"], default="", help="the scripted check of one app (Android)")
     args = ap.parse_args(argv)
     run = e2e_session(args)
     failed = [s.name for s in run.steps if not s.ok]
