@@ -44,7 +44,14 @@ const HOME_DIRS: &[&str] = &["dll/src/desktop/extra/speech/"];
 const MAX_TEXT_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Folders that hold no sources of ours.
-const SKIPPED: &[&str] = &["target", ".git", "node_modules", "third_party"];
+const SKIPPED: &[&str] = &[".git", "node_modules", "third_party"];
+
+/// A build directory: `target`, and the `target-<platform>` ones the build scripts and a runner's cache keep
+/// beside it (`CARGO_TARGET_DIR=target-android`): their fingerprints name the features a build had, which is
+/// no recipe.
+fn is_build_directory(name: &str) -> bool {
+    name == "target" || name.starts_with("target-")
+}
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -54,7 +61,7 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
         if path.is_dir() {
-            if !SKIPPED.contains(&name.as_str()) {
+            if !SKIPPED.contains(&name.as_str()) && !is_build_directory(&name) {
                 walk(&path, out);
             }
         } else {

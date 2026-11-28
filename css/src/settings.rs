@@ -29,6 +29,16 @@ pub struct CssSettings {
     pub accessibility_notes: Vec<String>,
 }
 
+/// The variable that pins the accessibility option `field` of
+/// [`crate::accessibility::PREFERENCE_FIELDS`]: `AZ_A11Y_<FIELD>` (`AZ_A11Y_TEXT_SCALE`,
+/// `AZ_A11Y_BOLD_TEXT`). Here, with the other names of this crate's variables.
+#[must_use]
+pub(crate) fn accessibility_pin_variable(field: &str) -> String {
+    let mut variable = String::from("AZ_A11Y_");
+    variable.push_str(&field.to_ascii_uppercase());
+    variable
+}
+
 impl CssSettings {
     /// What the environment `env` asks for; an empty one asks for nothing.
     #[must_use]

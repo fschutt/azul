@@ -792,8 +792,7 @@ impl AccessibilityPreferences {
         let mut pin = Self::default();
         let mut notes = Vec::new();
         for field in PREFERENCE_FIELDS {
-            let mut variable = String::from("AZ_A11Y_");
-            variable.push_str(&field.to_ascii_uppercase());
+            let variable = crate::settings::accessibility_pin_variable(field);
             let Some(value) = env.var(&variable) else {
                 continue;
             };
