@@ -35589,6 +35589,9 @@ impl LayoutWindow {
             image_churn: _,
             // Keyed by DomId, which a regenerated tree keeps; no NodeIds.
             content_changed_doms: _,
+            // The menus a window shows: keyed by their own ids, which the id attribute of their
+            // popup node carries into every new build; no NodeIds of the arena it replaces.
+            menu_overlays: _,
         } = self;
 
         // Only a NOTIFIED edit can be rejected: an un-notified one cannot

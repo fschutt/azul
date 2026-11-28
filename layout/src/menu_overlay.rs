@@ -177,7 +177,8 @@ impl MenuOverlays {
 /// The id of the menu the `<transient-window>` at `node` shows, if it is the node of one.
 #[must_use]
 pub(crate) fn menu_overlay_id_of(styled: &StyledDom, node: NodeId) -> Option<u64> {
-    let data = styled.node_data.as_container().get(node)?;
+    let nodes = styled.node_data.as_container();
+    let data = nodes.get(node)?;
     data.get_ids_and_classes().iter().find_map(|c| {
         c.as_id()?
             .strip_prefix(MENU_ID_PREFIX)?
