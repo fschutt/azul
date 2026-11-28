@@ -191,6 +191,9 @@ pub struct WebRenderOptions {
     /// If false, we'll duplicate the instance attributes per vertex and issue
     /// regular indexed draws instead.
     pub enable_instancing: bool,
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): `Some(false)` keeps the GPU cache on the pixel buffer path whatever the
+    /// device can do (`None`: scatter updates wherever float render targets exist and the renderer is not software WebRender).
+    pub gpu_cache_scatter: Option<bool>,
     /// If true, we'll reject contexts backed by a software rasterizer, except
     /// Software WebRender.
     pub reject_software_rasterizer: bool,
@@ -273,6 +276,7 @@ impl Default for WebRenderOptions {
             // Disabling instancing means more vertex data to upload and potentially
             // process by the vertex shaders.
             enable_instancing: true,
+            gpu_cache_scatter: None,
             reject_software_rasterizer: false,
             low_quality_pinch_zoom: false,
             max_shared_surface_size: 2048,
@@ -452,7 +456,8 @@ pub fn create_webrender_instance(
     // On other GL platforms, like macOS or Android, creating many PBOs is very inefficient.
     // This is what happens in GPU cache updates in PBO path. Instead, we switch everything
     // except software GL to use the GPU scattered updates.
-    let supports_scatter = device.get_capabilities().supports_color_buffer_float;
+    let supports_scatter = device.get_capabilities().supports_color_buffer_float
+        && options.gpu_cache_scatter != Some(false);
     let gpu_cache_texture =
         gpu_cache::GpuCacheTexture::new(&mut device, supports_scatter && !is_software)?;
 

@@ -211,18 +211,15 @@ pub fn init_webrender(
     // The renderer. Inside a catch: a driver that makes the device layer panic must be a fallback, not a dead process
     // (where panics abort, there is nothing to catch and this is the same call).
     let created = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        webrender::create_webrender_instance(
-            gl.clone(),
-            Box::new(params.notifier),
-            wr_translate2::default_renderer_options_with_text(
-                options,
-                program_cache,
-                params.damage,
-                params.text.aa,
-                params.text.subpixel,
-            ),
-            None,
-        )
+        let mut renderer_options = wr_translate2::default_renderer_options_with_text(
+            options,
+            program_cache,
+            params.damage,
+            params.text.aa,
+            params.text.subpixel,
+        );
+        apply_experiment(&mut renderer_options);
+        webrender::create_webrender_instance(gl.clone(), Box::new(params.notifier), renderer_options, None)
     }));
     let (mut renderer, sender) = match created {
         Ok(Ok(made)) => made,
@@ -281,6 +278,31 @@ pub fn init_webrender(
         class: probe.class,
         shader_cache,
     })
+}
+
+/// EXPERIMENT (the Android GPU root-cause hunt, never for master): `AZ_GPU_EXPERIMENT=<word>[,<word>..]` switches single WebRender options.
+fn apply_experiment(options: &mut webrender::WebRenderOptions) {
+    let words = azul_css::env::EnvSource::var(&crate::env::ProcessEnv::new(), "AZ_GPU_EXPERIMENT").unwrap_or_default();
+    for word in words.split(',').map(str::trim).filter(|w| !w.is_empty()) {
+        match word {
+            "instancing_off" => options.enable_instancing = false,
+            "upload_immediate" => options.upload_method = webrender::UploadMethod::Immediate,
+            "clear_scissor_on" => options.enable_clear_scissor = Some(true),
+            "clear_scissor_off" => options.enable_clear_scissor = Some(false),
+            "clear_quads_off" => options.clear_caches_with_quads = false,
+            "swizzle_off" => options.allow_texture_swizzling = false,
+            "unoptimized" => options.use_optimized_shaders = false,
+            "storage_off" => options.allow_texture_storage_support = false,
+            "scatter_off" => options.gpu_cache_scatter = Some(false),
+            "markers_off" => options.enable_gpu_markers = false,
+            "none" => {}
+            other => {
+                crate::log_warn!(super::debug_server::LogCategory::Rendering, "[render] experiment: {} is unknown", other);
+                continue;
+            }
+        }
+        crate::log_info!(super::debug_server::LogCategory::Rendering, "[render] experiment: {}", word);
+    }
 }
 
 fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
