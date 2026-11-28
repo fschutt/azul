@@ -164,7 +164,11 @@ fn device_line(info: &LayoutCallbackInfo) -> String {
     } else {
         "off (Settings > Sound & vibration > Touch sounds)"
     };
-    let events = if audio.event_sounds_enabled { "on" } else { "off" };
+    let events = if audio.event_sounds_enabled {
+        "on"
+    } else {
+        "off"
+    };
     format!("{platform}. Input feedback sounds (Touch sounds): {touch}. Event sounds: {events}.")
 }
 

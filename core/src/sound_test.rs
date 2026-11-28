@@ -37,7 +37,10 @@ fn the_list_of_all_sounds_is_in_declaration_order_and_complete() {
         );
     }
     // the last variant of the enum is the last of the list: a new variant has to be added to both
-    assert_eq!(ALL_SYSTEM_SOUNDS[SYSTEM_SOUND_COUNT - 1], SystemSound::ScreenCapture);
+    assert_eq!(
+        ALL_SYSTEM_SOUNDS[SYSTEM_SOUND_COUNT - 1],
+        SystemSound::ScreenCapture
+    );
     assert_eq!(SystemSound::ScreenCapture.index(), SYSTEM_SOUND_COUNT - 1);
 }
 
@@ -83,7 +86,10 @@ fn every_fallback_chain_ends_and_none_loops() {
                 "the fallback chain of {start:?} loops at {next:?}"
             );
             seen.push(next);
-            assert!(seen.len() <= SYSTEM_SOUND_COUNT, "the chain of {start:?} is too long");
+            assert!(
+                seen.len() <= SYSTEM_SOUND_COUNT,
+                "the chain of {start:?} is too long"
+            );
             current = next.fallback();
         }
     }
@@ -93,8 +99,14 @@ fn every_fallback_chain_ends_and_none_loops() {
 fn the_fallbacks_follow_the_meaning() {
     assert_eq!(SystemSound::DropReject.fallback(), Some(SystemSound::Error));
     assert_eq!(SystemSound::DropAccept.fallback(), Some(SystemSound::Click));
-    assert_eq!(SystemSound::TrashEmpty.fallback(), Some(SystemSound::Delete));
-    assert_eq!(SystemSound::ScreenCapture.fallback(), Some(SystemSound::CameraShutter));
+    assert_eq!(
+        SystemSound::TrashEmpty.fallback(),
+        Some(SystemSound::Delete)
+    );
+    assert_eq!(
+        SystemSound::ScreenCapture.fallback(),
+        Some(SystemSound::CameraShutter)
+    );
     assert_eq!(SystemSound::Question.fallback(), Some(SystemSound::Info));
     assert_eq!(SystemSound::TabChange.fallback(), Some(SystemSound::Tick));
     assert_eq!(SystemSound::Tick.fallback(), Some(SystemSound::Click));
@@ -115,7 +127,11 @@ fn the_haptic_idiom_is_a_selection_for_the_toggles_and_the_notification_haptics_
     assert_eq!(SystemSound::Warning.haptic(), Some(HapticPattern::Warning));
     assert_eq!(SystemSound::Error.haptic(), Some(HapticPattern::Error));
     assert_eq!(SystemSound::DropReject.haptic(), Some(HapticPattern::Error));
-    assert_eq!(SystemSound::Click.haptic(), None, "a click has no haptic idiom");
+    assert_eq!(
+        SystemSound::Click.haptic(),
+        None,
+        "a click has no haptic idiom"
+    );
     assert_eq!(SystemSound::Notification.haptic(), None);
 }
 
@@ -229,7 +245,11 @@ fn the_apps_mute_silences_every_sound_and_a_haptic_too() {
         enabled: false,
         ..SoundConfig::default()
     };
-    for platform in [SoundPlatform::Android, SoundPlatform::Ios, SoundPlatform::Linux] {
+    for platform in [
+        SoundPlatform::Android,
+        SoundPlatform::Ios,
+        SoundPlatform::Linux,
+    ] {
         for sound in &ALL_SYSTEM_SOUNDS {
             let routed = route(*sound, platform, muted, SWITCHES_ON);
             if matches!(routed, SoundRoute::MediaAction { .. }) {
@@ -261,7 +281,12 @@ fn the_camera_shutter_survives_the_mute_on_android_where_the_os_requires_it() {
             "{sound:?}: the app's mute does not waive a sound the region requires"
         );
         assert_eq!(
-            route(sound, SoundPlatform::Android, SoundConfig::default(), SWITCHES_ON),
+            route(
+                sound,
+                SoundPlatform::Android,
+                SoundConfig::default(),
+                SWITCHES_ON
+            ),
             SoundRoute::MediaAction {
                 platform: SoundPlatform::Android,
                 name: "SHUTTER_CLICK",
@@ -287,7 +312,12 @@ fn touch_sounds_off_silences_every_android_effect_even_the_error_that_is_an_even
         SystemSound::Bell,
     ] {
         assert_eq!(
-            route(sound, SoundPlatform::Android, SoundConfig::default(), touch_sounds_off),
+            route(
+                sound,
+                SoundPlatform::Android,
+                SoundConfig::default(),
+                touch_sounds_off
+            ),
             SoundRoute::Silent(Silence::OsInputFeedbackOff),
             "{sound:?} is played by AudioManager.playSoundEffect, which obeys Touch sounds"
         );
@@ -311,16 +341,30 @@ fn the_event_switch_silences_the_notification_tone_and_the_shutter_but_not_a_cli
         event_sounds_enabled: false,
         input_feedback_sounds_enabled: true,
     };
-    for sound in [SystemSound::Notification, SystemSound::Success, SystemSound::CameraShutter] {
+    for sound in [
+        SystemSound::Notification,
+        SystemSound::Success,
+        SystemSound::CameraShutter,
+    ] {
         assert_eq!(
-            route(sound, SoundPlatform::Android, SoundConfig::default(), events_off),
+            route(
+                sound,
+                SoundPlatform::Android,
+                SoundConfig::default(),
+                events_off
+            ),
             SoundRoute::Silent(Silence::OsEventSoundsOff),
             "{sound:?}"
         );
     }
     assert_eq!(
-        route(SystemSound::Click, SoundPlatform::Android, SoundConfig::default(), events_off)
-            .label(),
+        route(
+            SystemSound::Click,
+            SoundPlatform::Android,
+            SoundConfig::default(),
+            events_off
+        )
+        .label(),
         "system:android:FX_KEY_CLICK"
     );
 }
@@ -332,11 +376,23 @@ fn a_haptic_is_not_silenced_by_a_sound_switch() {
         input_feedback_sounds_enabled: false,
     };
     assert_eq!(
-        route(SystemSound::TabChange, SoundPlatform::Ios, SoundConfig::default(), all_off).label(),
+        route(
+            SystemSound::TabChange,
+            SoundPlatform::Ios,
+            SoundConfig::default(),
+            all_off
+        )
+        .label(),
         "haptic:Selection"
     );
     assert_eq!(
-        route(SystemSound::Error, SoundPlatform::Ios, SoundConfig::default(), all_off).label(),
+        route(
+            SystemSound::Error,
+            SoundPlatform::Ios,
+            SoundConfig::default(),
+            all_off
+        )
+        .label(),
         "haptic:Error"
     );
 }
@@ -348,11 +404,21 @@ fn a_sound_with_no_route_says_so_and_does_not_borrow_another_gate() {
         input_feedback_sounds_enabled: false,
     };
     assert_eq!(
-        route(SystemSound::MenuOpen, SoundPlatform::Android, SoundConfig::default(), all_off),
+        route(
+            SystemSound::MenuOpen,
+            SoundPlatform::Android,
+            SoundConfig::default(),
+            all_off
+        ),
         SoundRoute::Silent(Silence::NoSystemRoute)
     );
     assert_eq!(
-        route(SystemSound::Click, SoundPlatform::Windows, SoundConfig::default(), SWITCHES_ON),
+        route(
+            SystemSound::Click,
+            SoundPlatform::Windows,
+            SoundConfig::default(),
+            SWITCHES_ON
+        ),
         SoundRoute::Silent(Silence::NoSystemRoute)
     );
 }
@@ -469,7 +535,10 @@ fn a_request_is_recorded_with_its_route_and_returned_to_be_played() {
     assert!(records[0].was_admitted());
 
     m.record_outcome(admitted[0].sequence, SoundOutcome::Played);
-    assert_eq!(m.records().next().expect("one record").outcome, SoundOutcome::Played);
+    assert_eq!(
+        m.records().next().expect("one record").outcome,
+        SoundOutcome::Played
+    );
 }
 
 #[test]
@@ -479,8 +548,16 @@ fn identical_requests_of_one_pass_are_recorded_and_merged_into_the_first() {
         m.play(SystemSound::Tick);
     }
     let admitted = run(&mut m, SoundPlatform::Android, Some(500));
-    assert_eq!(admitted.len(), 1, "a per-frame callback plays one tick, not sixty");
-    assert_eq!(m.record_count(), 60, "but every request is in the recording");
+    assert_eq!(
+        admitted.len(),
+        1,
+        "a per-frame callback plays one tick, not sixty"
+    );
+    assert_eq!(
+        m.record_count(),
+        60,
+        "but every request is in the recording"
+    );
     let coalesced = m
         .records()
         .filter(|record| record.suppressed_by == Some(COALESCED))
@@ -505,7 +582,10 @@ fn the_same_sound_again_too_soon_is_dropped_by_its_minimum_interval() {
     assert_eq!(run(&mut m, SoundPlatform::Android, Some(1000)).len(), 1);
     m.play(SystemSound::Click);
     let second = run(&mut m, SoundPlatform::Android, Some(1060));
-    assert!(second.is_empty(), "60 ms after the click, the interval of a click is 100 ms");
+    assert!(
+        second.is_empty(),
+        "60 ms after the click, the interval of a click is 100 ms"
+    );
     assert_eq!(
         m.records().last().expect("a record").suppressed_by,
         Some(MIN_INTERVAL)
@@ -561,7 +641,11 @@ fn an_event_sound_is_not_repeated_more_than_twice_in_a_row() {
         m.play(SystemSound::Notification);
         results.push(run(&mut m, SoundPlatform::Android, Some(30_000 + step * 200)).len());
     }
-    assert_eq!(results, vec![1, 1, 0, 0], "the third identical event in a row is dropped");
+    assert_eq!(
+        results,
+        vec![1, 1, 0, 0],
+        "the third identical event in a row is dropped"
+    );
     assert_eq!(
         m.records().last().expect("a record").suppressed_by,
         Some(REPEAT_LIMIT)
@@ -609,7 +693,10 @@ fn a_headless_run_records_every_request_with_no_pacing_and_plays_nothing() {
     assert_eq!(m.record_count(), 5);
     for record in m.records() {
         assert_eq!(record.suppressed_by, None, "no pacing without a clock");
-        assert_eq!(record.outcome, SoundOutcome::Skipped(String::from("headless")));
+        assert_eq!(
+            record.outcome,
+            SoundOutcome::Skipped(String::from("headless"))
+        );
         assert_eq!(record.route.label(), "system:android:FX_KEY_CLICK");
     }
 }
@@ -636,7 +723,9 @@ fn a_silenced_sound_does_not_use_up_the_interval_of_the_next_one() {
     let mut m = manager();
     m.play(SystemSound::Click);
     let off = AudioMetrics::default();
-    assert!(m.process(SoundPlatform::Android, off, Some(1000)).is_empty());
+    assert!(m
+        .process(SoundPlatform::Android, off, Some(1000))
+        .is_empty());
     m.play(SystemSound::Click);
     assert_eq!(
         run(&mut m, SoundPlatform::Android, Some(1010)).len(),
@@ -713,8 +802,14 @@ fn a_record_describes_itself_in_one_line() {
 fn an_outcome_names_what_happened() {
     assert_eq!(SoundOutcome::Pending.label(), "pending");
     assert_eq!(SoundOutcome::Played.label(), "played");
-    assert_eq!(SoundOutcome::Skipped(String::from("headless")).label(), "skipped:headless");
-    assert_eq!(SoundOutcome::Failed(String::from("no class")).label(), "failed:no class");
+    assert_eq!(
+        SoundOutcome::Skipped(String::from("headless")).label(),
+        "skipped:headless"
+    );
+    assert_eq!(
+        SoundOutcome::Failed(String::from("no class")).label(),
+        "failed:no class"
+    );
 }
 
 #[test]
@@ -724,7 +819,10 @@ fn recording_an_outcome_of_an_unknown_sequence_changes_nothing() {
     let admitted = run(&mut m, SoundPlatform::Android, Some(7));
     assert_eq!(admitted.len(), 1);
     m.record_outcome(999, SoundOutcome::Played);
-    assert_eq!(m.records().next().expect("a record").outcome, SoundOutcome::Pending);
+    assert_eq!(
+        m.records().next().expect("a record").outcome,
+        SoundOutcome::Pending
+    );
 }
 
 #[test]

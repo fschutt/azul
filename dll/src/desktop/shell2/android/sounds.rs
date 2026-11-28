@@ -88,8 +88,10 @@ where
         crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY,
     );
     let activity = unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
-    let class = crate::desktop::extra::find_app_class(&mut env, &activity, HELPER)
-        .ok_or_else(|| "AzulSounds is not in this APK (scripts/android/AzulSounds.java)".to_string())?;
+    let class =
+        crate::desktop::extra::find_app_class(&mut env, &activity, HELPER).ok_or_else(|| {
+            "AzulSounds is not in this APK (scripts/android/AzulSounds.java)".to_string()
+        })?;
     f(&mut env, &activity, &class).map_err(|e| {
         // A pending exception left unhandled aborts the process at the next JNI boundary.
         let _ = env.exception_clear();
@@ -156,7 +158,9 @@ fn call<'a>(
             .l()?
         }
         SoundRoute::Silent(_) | SoundRoute::Haptic(_) => {
-            return Ok(String::from("failed:not a route of the Android sound player"));
+            return Ok(String::from(
+                "failed:not a route of the Android sound player",
+            ));
         }
     };
     if answer.is_null() {

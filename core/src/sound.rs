@@ -596,10 +596,9 @@ const fn android_route(sound: SystemSound) -> SoundRoute {
         | SystemSound::DropAccept => android_effect("FX_KEY_CLICK", None),
         SystemSound::Tick => android_effect("FX_FOCUS_NAVIGATION_DOWN", Some("FX_KEY_CLICK")),
         SystemSound::Back => android_effect("FX_BACK", Some("FX_KEY_CLICK")),
-        SystemSound::Warning
-        | SystemSound::Error
-        | SystemSound::Bell
-        | SystemSound::DropReject => android_effect("FX_KEYPRESS_INVALID", None),
+        SystemSound::Warning | SystemSound::Error | SystemSound::Bell | SystemSound::DropReject => {
+            android_effect("FX_KEYPRESS_INVALID", None)
+        }
         SystemSound::Notification
         | SystemSound::Success
         | SystemSound::Info

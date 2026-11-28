@@ -85,7 +85,8 @@ fn the_ios_notification_has_the_default_sound_unless_it_is_silent() {
         "a silent notification has no sound object"
     );
     assert!(
-        APPLE_RS.contains("(NotificationSound::Default, Some(cls)) => msg_send![cls, defaultSound]"),
+        APPLE_RS
+            .contains("(NotificationSound::Default, Some(cls)) => msg_send![cls, defaultSound]"),
         "the default notification has UNNotificationSound.defaultSound"
     );
     assert!(

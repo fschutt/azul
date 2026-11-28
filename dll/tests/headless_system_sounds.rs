@@ -102,7 +102,10 @@ fn the_requests_of_a_pass_are_decided_at_its_end_and_a_headless_window_plays_not
     }
     // a request that would have played is marked as headless, not as dropped by the manager
     if records[0].suppressed_by.is_none() {
-        assert_eq!(records[0].outcome, SoundOutcome::Skipped(String::from("headless")));
+        assert_eq!(
+            records[0].outcome,
+            SoundOutcome::Skipped(String::from("headless"))
+        );
     }
 }
 

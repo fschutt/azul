@@ -24,16 +24,27 @@ fn answer(json: serde_json::Value) -> CustomE2eOpResult {
 
 /// `{"op": "play", "sound": "TabChange", "times": 3}`: asks for the sound `times` times (once
 /// when it is absent), like a callback that fires per page of a fling.
-extern "C" fn play(_data: RefAny, mut info: CallbackInfo, _name: AzString, args: AzString) -> CustomE2eOpResult {
-    let args: serde_json::Value = serde_json::from_str(args.as_str()).unwrap_or(serde_json::Value::Null);
+extern "C" fn play(
+    _data: RefAny,
+    mut info: CallbackInfo,
+    _name: AzString,
+    args: AzString,
+) -> CustomE2eOpResult {
+    let args: serde_json::Value =
+        serde_json::from_str(args.as_str()).unwrap_or(serde_json::Value::Null);
     let Some(sound) = args
         .get("sound")
         .and_then(serde_json::Value::as_str)
         .and_then(SystemSound::from_name)
     else {
-        return answer(serde_json::json!({ "success": false, "error": "play needs a known `sound`" }));
+        return answer(
+            serde_json::json!({ "success": false, "error": "play needs a known `sound`" }),
+        );
     };
-    let times = args.get("times").and_then(serde_json::Value::as_u64).unwrap_or(1);
+    let times = args
+        .get("times")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1);
     for _ in 0..times {
         info.play_system_sound(sound);
     }
@@ -41,15 +52,26 @@ extern "C" fn play(_data: RefAny, mut info: CallbackInfo, _name: AzString, args:
 }
 
 /// `{"op": "mute", "muted": true}`: `set_sounds_muted`.
-extern "C" fn mute(_data: RefAny, mut info: CallbackInfo, _name: AzString, args: AzString) -> CustomE2eOpResult {
-    let args: serde_json::Value = serde_json::from_str(args.as_str()).unwrap_or(serde_json::Value::Null);
-    info.set_sounds_muted(args.get("muted").and_then(serde_json::Value::as_bool).unwrap_or(true));
+extern "C" fn mute(
+    _data: RefAny,
+    mut info: CallbackInfo,
+    _name: AzString,
+    args: AzString,
+) -> CustomE2eOpResult {
+    let args: serde_json::Value =
+        serde_json::from_str(args.as_str()).unwrap_or(serde_json::Value::Null);
+    info.set_sounds_muted(
+        args.get("muted")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true),
+    );
     answer(serde_json::json!({ "success": true }))
 }
 
 fn op_def(name: &str) -> azul_core::json::Json {
     azul_core::json::Json::parse(
-        &serde_json::json!({ "name": name, "summary": format!("the {name} test command") }).to_string(),
+        &serde_json::json!({ "name": name, "summary": format!("the {name} test command") })
+            .to_string(),
     )
     .expect("a valid op definition")
 }
@@ -79,7 +101,11 @@ fn run(name: &str, steps: serde_json::Value) -> E2eTestResult {
 }
 
 fn errors(result: &E2eTestResult) -> Vec<String> {
-    result.steps.iter().filter_map(|s| s.error.clone()).collect()
+    result
+        .steps
+        .iter()
+        .filter_map(|s| s.error.clone())
+        .collect()
 }
 
 fn assert_passes(result: &E2eTestResult) {
@@ -202,8 +228,14 @@ fn assert_no_sound_fails_naming_what_was_recorded() {
     );
     let errors = errors(&result);
     assert_eq!(errors.len(), 2, "{errors:#?}");
-    assert!(errors[0].contains("a recorded sound request matches"), "{errors:#?}");
-    assert!(errors[1].contains("a recorded sound request matches"), "{errors:#?}");
+    assert!(
+        errors[0].contains("a recorded sound request matches"),
+        "{errors:#?}"
+    );
+    assert!(
+        errors[1].contains("a recorded sound request matches"),
+        "{errors:#?}"
+    );
 }
 
 #[test]
@@ -218,7 +250,10 @@ fn assert_sound_fails_when_nothing_matches_and_says_what_the_recording_holds() {
     );
     let errors = errors(&result);
     assert_eq!(errors.len(), 2, "{errors:#?}");
-    assert!(errors[0].contains("no recorded sound request"), "{errors:#?}");
+    assert!(
+        errors[0].contains("no recorded sound request"),
+        "{errors:#?}"
+    );
     assert!(errors[1].contains("count differs"), "{errors:#?}");
 }
 
@@ -235,8 +270,17 @@ fn a_typo_in_a_filter_is_refused_by_name_and_does_not_pass_for_nothing() {
     );
     let errors = errors(&result);
     assert_eq!(errors.len(), 4, "every step is refused: {errors:#?}");
-    assert!(errors[0].contains("not a system sound") && errors[0].contains("TabChange"), "{errors:#?}");
+    assert!(
+        errors[0].contains("not a system sound") && errors[0].contains("TabChange"),
+        "{errors:#?}"
+    );
     assert!(errors[1].contains("`input` or `event`"), "{errors:#?}");
-    assert!(errors[2].contains("unknown parameter 'sund'"), "{errors:#?}");
-    assert!(errors[3].contains("unknown parameter 'count'"), "{errors:#?}");
+    assert!(
+        errors[2].contains("unknown parameter 'sund'"),
+        "{errors:#?}"
+    );
+    assert!(
+        errors[3].contains("unknown parameter 'count'"),
+        "{errors:#?}"
+    );
 }

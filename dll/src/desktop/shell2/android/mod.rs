@@ -741,10 +741,10 @@ pub fn android_main(app: AndroidApp) {
     if let Some(language) = language_of(&app, config.localization.known_languages.as_slice()) {
         config.system_style.language = language;
     }
-    // The phone's own "Touch sounds" switch, likewise: the style says whether the input-feedback
-    // sounds of `play_system_sound` are on. Read once here and again at every resume.
-    config.system_style.audio.input_feedback_sounds_enabled =
-        touch_sounds_enabled().unwrap_or(true);
+    // The phone's own "Touch sounds" switch is not known yet (the JNI context is published below):
+    // the style assumes it is on, and the first Resume reads it (`adopt_touch_sounds`) and at every
+    // resume after it. `AudioManager.playSoundEffect` applies the switch live at the call anyway.
+    config.system_style.audio.input_feedback_sounds_enabled = true;
 
     let mut window = match AndroidWindow::new(
         root_window,
