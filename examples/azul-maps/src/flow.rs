@@ -51,7 +51,7 @@ pub struct PlaceCard {
     pub pin: Option<usize>,
 }
 
-/// What the panel / sheet holds, and the two flags that go with it.
+/// What the panel / sheet holds, and the fold of the panel.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Flow {
     /// The view.
@@ -60,24 +60,20 @@ pub struct Flow {
     pub place: Option<PlaceCard>,
     /// A desktop's panel is folded away: only its search pill shows.
     pub collapsed: bool,
-    /// The map styles' menu is open.
-    pub layers_open: bool,
 }
 
 impl Flow {
-    /// `card` is shown: its view, the panel unfolded, the layers' menu shut.
+    /// `card` is shown: its view, the panel unfolded.
     pub fn show_place(&mut self, card: PlaceCard) {
         self.place = Some(card);
         self.panel = Panel::Place;
         self.collapsed = false;
-        self.layers_open = false;
     }
 
     /// The way is shown (Route on a place's view, or the first thing asked of an empty search).
     pub fn directions(&mut self) {
         self.panel = Panel::Directions;
         self.collapsed = false;
-        self.layers_open = false;
     }
 
     /// One step back: from the way to its place (when it has one), from a place to the search.
@@ -98,12 +94,6 @@ impl Flow {
     /// A desktop's panel folds away or comes back.
     pub fn toggle_collapsed(&mut self) {
         self.collapsed = !self.collapsed;
-        self.layers_open = false;
-    }
-
-    /// The map styles' menu opens or shuts.
-    pub fn toggle_layers(&mut self) {
-        self.layers_open = !self.layers_open;
     }
 
     /// The place's pin was removed (or the pins were cleared): a card of that pin goes with it.

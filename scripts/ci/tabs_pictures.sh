@@ -42,6 +42,12 @@ matrix="python3 scripts/ci/e2e_matrix.py desktop --repo . --bin AzWidgets=demo-o
 step scenarios_plain $matrix --only tab_touch.json --out demo-out/e2e-tabs/plain
 step scenarios_host env AZ_E2E_SHOT_DIR="$PWD/demo-out/tabs-shots/host" $matrix --only tab_touch_pictures --out demo-out/e2e-tabs/host
 step scenarios_phone env AZ_E2E_SHOT_DIR="$PWD/demo-out/tabs-shots/phone" $matrix --only tab_touch_phone --out demo-out/e2e-tabs/phone
+# the pills that do not fit: dragged along the lanes (the fade at their ends), at the phone's own size and resized from a desktop
+mkdir -p demo-out/tabs-shots/overflow-pictures demo-out/tabs-shots/overflow-phone
+step scenarios_overflow env AZ_E2E_SHOT_DIR="$PWD/demo-out/tabs-shots/overflow-pictures" $matrix --only tab_overflow_pictures --out demo-out/e2e-tabs/overflow
+step scenarios_overflow_phone env AZ_E2E_SHOT_DIR="$PWD/demo-out/tabs-shots/overflow-phone" $matrix --only tab_overflow_phone --out demo-out/e2e-tabs/overflow-phone
+# the matrix exits 0 on a FAIL verdict: read them
+step verdicts python3 scripts/ci/tabs_verdicts.py demo-out/e2e-tabs
 # 6. the source gates of the dll (the shells read the window flags this work added)
 step srcgate cargo test -p azul-srcgate --no-fail-fast
 

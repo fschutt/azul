@@ -12,7 +12,7 @@ pub const PINS_FILE: &str = "pins.json";
 /// The settings key of the last viewport (`lat,lon,zoom`).
 pub const VIEW_KEY: &str = "view";
 
-/// The settings key of the sidebar (`open` / `closed`).
+/// The settings key of the desktop panel's fold (`open` / `closed`); the key of the sidebar it replaced, so a saved choice stays.
 pub const SIDEBAR_KEY: &str = "sidebar";
 
 /// Where the map opens without a remembered viewport (San Francisco).
@@ -246,15 +246,16 @@ pub fn travel_line(mode: TravelMode, from: Option<(f64, f64)>, to: Option<(f64, 
 
 /// The marker ids of the travel line's ends and of where you are. A pin's
 /// marker id is its index in the pins file's order, far below these.
+pub const PLACE_MARKER: u64 = u64::MAX - 3;
 pub const FROM_MARKER: u64 = u64::MAX - 2;
 pub const TO_MARKER: u64 = u64::MAX - 1;
 pub const HERE_MARKER: u64 = u64::MAX;
 
-/// The pin a marker id names; `None` for the travel line's ends and for
-/// where you are.
+/// The pin a marker id names; `None` for the searched place's pin, the travel line's ends and
+/// for where you are.
 #[must_use]
 pub fn pin_of_marker(id: u64) -> Option<usize> {
-    if id >= FROM_MARKER {
+    if id >= PLACE_MARKER {
         return None;
     }
     usize::try_from(id).ok()
@@ -401,7 +402,7 @@ pub fn mercator_px(lat: f64, lon: f64, zoom: f32) -> (f64, f64) {
 }
 
 /// The view that frames a route from `a` to `b` in a `size` window whose left `left_inset`
-/// pixels the sidebar covers: both ends in the free part, a margin from its edges.
+/// pixels the panel covers: both ends in the free part, a margin from its edges.
 #[must_use]
 pub fn fit_view(a: (f64, f64), b: (f64, f64), size: (f32, f32), left_inset: f32) -> (f64, f64, f32) {
     use std::f64::consts::PI;
@@ -417,7 +418,7 @@ pub fn fit_view(a: (f64, f64), b: (f64, f64), size: (f32, f32), left_inset: f32)
     let fit = (free_w / dx.max(1e-9)).min(free_h / dy.max(1e-9));
     let zoom = (fit.log2() as f32).clamp(MIN_ZOOM, PLACE_ZOOM);
     // The ends' midpoint goes to the middle of the free part: the window's centre lies half
-    // the sidebar to the left of it.
+    // the panel to the left of it.
     let scale = 2f64.powf(f64::from(zoom));
     let world = 256.0 * scale;
     let x = (pa.0 + pb.0) / 2.0 * scale - inset / 2.0;
@@ -425,6 +426,30 @@ pub fn fit_view(a: (f64, f64), b: (f64, f64), size: (f32, f32), left_inset: f32)
     let lon = (x / world * 360.0 - 180.0 + 540.0).rem_euclid(360.0) - 180.0;
     let lat = (PI * (1.0 - 2.0 * y / world)).sinh().atan().to_degrees();
     (lat.clamp(-85.0, 85.0), lon, zoom)
+}
+
+/// The point of the Web Mercator world at `zoom`, in pixels of the world (as [`mercator_px`] gives
+/// them), as `(lat, lon)`.
+#[must_use]
+pub fn from_mercator_px(x: f64, y: f64, zoom: f32) -> (f64, f64) {
+    use std::f64::consts::PI;
+    let world = 256.0 * 2f64.powf(f64::from(zoom));
+    let lon = (x / world * 360.0 - 180.0 + 540.0).rem_euclid(360.0) - 180.0;
+    let lat = (PI * (1.0 - 2.0 * y / world)).sinh().atan().to_degrees();
+    (lat.clamp(-85.0, 85.0), lon)
+}
+
+/// The centre of the map that puts `at` in the middle of the part of the window the panel at its
+/// left (`left` px wide) and the sheet at its bottom (`bottom` px tall) leave free: the place is
+/// seen, not hidden behind what floats over the map. A side that is not a positive number covers
+/// nothing.
+#[must_use]
+pub fn centre_in_free(at: (f64, f64), zoom: f32, left: f32, bottom: f32) -> (f64, f64) {
+    let part = |v: f32| if v.is_finite() && v > 0.0 { f64::from(v) } else { 0.0 };
+    let (x, y) = mercator_px(at.0, at.1, zoom);
+    // The free part's middle lies right of the window's by half the panel and above it by half the sheet:
+    // the window's middle lies that far left of, and below, the place.
+    from_mercator_px(x - part(left) / 2.0, y + part(bottom) / 2.0, zoom)
 }
 
 /// A travel time the way the panel shows it: `~ 25 min`, `~ 5 h 10 min`,
@@ -642,3 +667,7 @@ mod tests {
         assert_eq!(cardinal(225.0), "SW");
     }
 }
+
+#[cfg(test)]
+#[path = "model_shift_test.rs"]
+mod model_shift_test;

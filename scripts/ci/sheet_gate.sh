@@ -39,7 +39,7 @@ run() {
 features="azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server,azul-layout/updater"
 
 tests() {
-  AZ_REQUIRE_TEST_FONTS=1 cargo test -p azul-layout --lib --features "$features" --no-fail-fast -- bottom_sheet 2>&1 | tee sheet-tests.txt
+  AZ_REQUIRE_TEST_FONTS=1 cargo test -p azul-layout --lib --features "$features" --no-fail-fast -- bottom_sheet detents 2>&1 | tee sheet-tests.txt
   return "${PIPESTATUS[0]}"
 }
 run tests tests

@@ -13,7 +13,7 @@ pub(crate) const EN: &str = include_str!("../resources/en.ftl");
 pub(crate) const DE: &str = include_str!("../resources/de.ftl");
 
 /// AzMaps's resources per language.
-const RESOURCES: [(&str, &str); 2] = [("en", EN), ("de", DE)];
+static RESOURCES: [(&str, &str); 2] = [("en", EN), ("de", DE)];
 
 /// Every resource the engine gets, per language: appkit's, then AzMaps's.
 #[must_use]

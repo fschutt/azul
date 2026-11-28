@@ -1,9 +1,15 @@
-//! The BottomSheet's numbers, its DOM and what a rebuild carries over: the heights of the four
-//! detents, where a drag settles, the keys on the grip, the grip's name and value.
+//! The BottomSheet's DOM and what a rebuild carries over: the sheet's heights from its own numbers, the grip's name and
+//! value, what is wired where, the key of its root. (The rules of the detents are `detents_test.rs`.)
 
-use azul_core::dom::TabIndex;
+use std::sync::{Arc, Mutex};
+
+use azul_core::{
+    dom::{DomId, NodeId, TabIndex},
+    styled_dom::{NodeHierarchyItemId, StyledDom},
+};
 
 use super::*;
+use crate::{callbacks::CallbackChange, widgets::roving::test_support as rv};
 
 fn has_class(dom: &Dom, class: &str) -> bool {
     dom.root.get_ids_and_classes().as_ref().iter().any(|c| c.as_class() == Some(class))
@@ -48,51 +54,7 @@ fn state(detent: SheetDetent, height: f32) -> DragState {
     }
 }
 
-const ALL: [SheetDetent; 4] =
-    [SheetDetent::Collapsed, SheetDetent::Peek, SheetDetent::Half, SheetDetent::Full];
-
-// ---- the heights ----
-
-#[test]
-fn the_defaults_are_44_148_half_and_the_container_less_56() {
-    let h = Heights::new(0.0, 0.0, 0.0, 0.0);
-    assert!(near(h.collapsed, 44.0) && near(h.peek, 148.0));
-    assert!(near(h.half, 400.0) && near(h.full, 744.0), "an unnamed container is 800 px: {h:?}");
-}
-
-#[test]
-fn the_four_heights_are_in_order_whatever_the_numbers() {
-    let numbers = [0.0, -5.0, 1.0, 30.0, 148.0, 500.0, 10_000.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY];
-    for container in numbers {
-        for collapsed in numbers {
-            for peek in numbers {
-                for margin in numbers {
-                    let h = Heights::new(container, collapsed, peek, margin);
-                    assert!(
-                        h.collapsed <= h.peek && h.peek <= h.half && h.half <= h.full,
-                        "{container} {collapsed} {peek} {margin}: {h:?}"
-                    );
-                    assert!(h.collapsed > 0.0 && h.full.is_finite());
-                    assert!(h.full <= length(container, CONTAINER_HEIGHT_DEFAULT).max(h.peek));
-                }
-            }
-        }
-    }
-}
-
-#[test]
-fn a_container_shorter_than_the_peek_makes_every_detent_the_container() {
-    let h = Heights::new(100.0, 44.0, 148.0, 56.0);
-    assert!(near(h.peek, 100.0) && near(h.half, 100.0) && near(h.full, 100.0));
-    assert!(near(h.collapsed, 44.0));
-}
-
-#[test]
-fn a_bad_number_is_the_default_and_never_an_error() {
-    let ok = Heights::new(800.0, 44.0, 148.0, 56.0);
-    assert_eq!(Heights::new(f32::NAN, f32::NAN, f32::NAN, f32::NAN), ok);
-    assert_eq!(Heights::new(-1.0, -1.0, -1.0, -1.0), ok);
-}
+// ---- the heights of this sheet ----
 
 #[test]
 fn the_sheets_own_numbers_set_the_heights_of_its_detents() {
@@ -104,104 +66,17 @@ fn the_sheets_own_numbers_set_the_heights_of_its_detents() {
 }
 
 #[test]
+fn a_sheet_that_names_nothing_has_the_wireframes_numbers() {
+    let s = sheet();
+    assert!(near(s.height_of(SheetDetent::Collapsed), 30.0) && near(s.height_of(SheetDetent::Peek), 130.0));
+    assert!(near(s.height_of(SheetDetent::Half), 400.0) && near(s.height_of(SheetDetent::Full), 680.0));
+}
+
+#[test]
 fn a_detent_outside_the_range_has_the_height_of_the_nearest_in_it() {
     let s = sheet().with_lowest(SheetDetent::Peek).with_highest(SheetDetent::Half);
-    assert!(near(s.height_of(SheetDetent::Collapsed), 148.0));
+    assert!(near(s.height_of(SheetDetent::Collapsed), 130.0));
     assert!(near(s.height_of(SheetDetent::Full), 400.0));
-}
-
-// ---- where a drag settles ----
-
-#[test]
-fn a_sheet_let_go_settles_on_the_nearest_detent_in_range() {
-    let h = Heights::new(800.0, 44.0, 148.0, 56.0);
-    let (lo, hi) = (SheetDetent::Collapsed, SheetDetent::Full);
-    assert_eq!(h.nearest(10.0, lo, hi), SheetDetent::Collapsed);
-    assert_eq!(h.nearest(100.0, lo, hi), SheetDetent::Peek);
-    assert_eq!(h.nearest(260.0, lo, hi), SheetDetent::Peek);
-    assert_eq!(h.nearest(300.0, lo, hi), SheetDetent::Half);
-    assert_eq!(h.nearest(600.0, lo, hi), SheetDetent::Half);
-    assert_eq!(h.nearest(700.0, lo, hi), SheetDetent::Full);
-    // a detent the app ruled out is never the answer
-    assert_eq!(h.nearest(10.0, SheetDetent::Peek, hi), SheetDetent::Peek);
-    assert_eq!(h.nearest(790.0, lo, SheetDetent::Half), SheetDetent::Half);
-    // as near to two: the higher one
-    assert_eq!(h.nearest(274.0, lo, hi), SheetDetent::Half);
-}
-
-#[test]
-fn a_fling_carries_the_sheet_on_to_the_detent_it_was_heading_for() {
-    let h = Heights::new(800.0, 44.0, 148.0, 56.0);
-    let (lo, hi) = (SheetDetent::Collapsed, SheetDetent::Full);
-    // let go just above the peek: slowly it falls back, flung upwards it goes on to the half or more
-    assert_eq!(h.settle(180.0, 0.0, lo, hi), SheetDetent::Peek);
-    assert_eq!(h.settle(180.0, 3.0, lo, hi), SheetDetent::Peek, "a slow drag is no fling");
-    assert!(h.settle(180.0, 20.0, lo, hi) >= SheetDetent::Half);
-    // and downwards from the half it goes to the peek or less
-    assert_eq!(h.settle(380.0, 0.0, lo, hi), SheetDetent::Half);
-    assert!(h.settle(380.0, -20.0, lo, hi) <= SheetDetent::Peek);
-    // a number that is not one is no fling
-    assert_eq!(h.settle(380.0, f32::NAN, lo, hi), SheetDetent::Half);
-}
-
-#[test]
-fn the_pointer_going_up_grows_the_sheet_by_the_same_distance_held_to_the_range() {
-    let h = Heights::new(800.0, 44.0, 148.0, 56.0);
-    let (lo, hi) = (SheetDetent::Peek, SheetDetent::Full);
-    assert!(near(h.dragged(148.0, 700.0, 600.0, lo, hi), 248.0));
-    assert!(near(h.dragged(148.0, 700.0, 800.0, lo, hi), 148.0), "no lower than the peek");
-    assert!(near(h.dragged(148.0, 700.0, 0.0, lo, hi), 744.0), "no higher than the full height");
-    assert!(near(h.dragged(300.0, 400.0, f32::NAN, lo, hi), 300.0), "a pointer that is no number keeps the height");
-    // a range named the wrong way round holds the sheet between the same two heights
-    let swapped = h.dragged(148.0, 700.0, 0.0, SheetDetent::Full, SheetDetent::Peek);
-    assert!(near(swapped, 744.0));
-}
-
-// ---- the keys and the tap ----
-
-#[test]
-fn the_keys_on_the_grip_step_the_detents() {
-    let (lo, hi) = (SheetDetent::Collapsed, SheetDetent::Full);
-    assert_eq!(detent_after_key(VirtualKeyCode::Up, SheetDetent::Peek, lo, hi), Some(SheetDetent::Half));
-    assert_eq!(detent_after_key(VirtualKeyCode::Down, SheetDetent::Peek, lo, hi), Some(SheetDetent::Collapsed));
-    assert_eq!(detent_after_key(VirtualKeyCode::PageUp, SheetDetent::Half, lo, hi), Some(SheetDetent::Full));
-    assert_eq!(detent_after_key(VirtualKeyCode::Home, SheetDetent::Peek, lo, hi), Some(SheetDetent::Full));
-    assert_eq!(detent_after_key(VirtualKeyCode::End, SheetDetent::Half, lo, hi), Some(SheetDetent::Collapsed));
-    assert_eq!(detent_after_key(VirtualKeyCode::Left, SheetDetent::Half, lo, hi), None, "a key the grip does not know");
-    assert_eq!(detent_after_key(VirtualKeyCode::A, SheetDetent::Half, lo, hi), None);
-}
-
-#[test]
-fn the_keys_stay_inside_the_range() {
-    let (lo, hi) = (SheetDetent::Peek, SheetDetent::Half);
-    assert_eq!(detent_after_key(VirtualKeyCode::Up, SheetDetent::Half, lo, hi), Some(SheetDetent::Half));
-    assert_eq!(detent_after_key(VirtualKeyCode::Down, SheetDetent::Peek, lo, hi), Some(SheetDetent::Peek));
-    assert_eq!(detent_after_key(VirtualKeyCode::Home, SheetDetent::Peek, lo, hi), Some(SheetDetent::Half));
-    assert_eq!(detent_after_key(VirtualKeyCode::End, SheetDetent::Half, lo, hi), Some(SheetDetent::Peek));
-    // a range named the wrong way round is the same range
-    assert_eq!(detent_after_key(VirtualKeyCode::Home, SheetDetent::Peek, hi, lo), Some(SheetDetent::Half));
-}
-
-#[test]
-fn a_tap_or_enter_steps_up_and_from_the_highest_back_to_the_lowest() {
-    let (lo, hi) = (SheetDetent::Peek, SheetDetent::Full);
-    assert_eq!(step_round(SheetDetent::Peek, lo, hi), SheetDetent::Half);
-    assert_eq!(step_round(SheetDetent::Half, lo, hi), SheetDetent::Full);
-    assert_eq!(step_round(SheetDetent::Full, lo, hi), SheetDetent::Peek);
-    for key in [VirtualKeyCode::Return, VirtualKeyCode::NumpadEnter, VirtualKeyCode::Space] {
-        assert_eq!(detent_after_key(key, SheetDetent::Half, lo, hi), Some(SheetDetent::Full), "{key:?}");
-    }
-    assert_eq!(step_round(SheetDetent::Peek, hi, lo), SheetDetent::Half, "a range the wrong way round");
-}
-
-#[test]
-fn every_detent_has_a_higher_and_a_lower_one_and_the_ends_stay() {
-    assert_eq!(SheetDetent::Full.higher(), SheetDetent::Full);
-    assert_eq!(SheetDetent::Collapsed.lower(), SheetDetent::Collapsed);
-    for d in ALL {
-        assert!(d.higher() >= d && d.lower() <= d);
-    }
-    assert_eq!(SheetDetent::Collapsed.higher().lower(), SheetDetent::Collapsed);
 }
 
 // ---- the DOM ----
@@ -239,9 +114,9 @@ fn a_detent_the_app_ruled_out_is_not_built() {
     assert!(has_class(&high, BOTTOM_SHEET_HALF_CLASS) && !has_class(&high, BOTTOM_SHEET_FULL_CLASS));
     let low = sheet().with_detent(SheetDetent::Collapsed).with_lowest(SheetDetent::Peek).dom();
     assert!(has_class(&low, BOTTOM_SHEET_PEEK_CLASS) && !has_class(&low, BOTTOM_SHEET_COLLAPSED_CLASS));
-    // a range named the wrong way round is the same range
+    // a range named the wrong way round is the same range: collapsed to half
     let swapped = sheet().with_detent(SheetDetent::Full).with_lowest(SheetDetent::Half).with_highest(SheetDetent::Collapsed).dom();
-    assert!(has_class(&swapped, BOTTOM_SHEET_FULL_CLASS));
+    assert!(has_class(&swapped, BOTTOM_SHEET_HALF_CLASS) && !has_class(&swapped, BOTTOM_SHEET_FULL_CLASS));
 }
 
 #[test]
@@ -394,4 +269,239 @@ fn a_sheet_taken_out_leaves_an_empty_one() {
     assert_eq!(taken.detent, SheetDetent::Full);
     assert_eq!(s.detent, SheetDetent::Peek);
     assert!(s.label.as_str().is_empty());
+}
+
+#[test]
+fn the_root_keeps_one_identity_whatever_detent_or_height_the_app_builds_it_at() {
+    // A drag's override follows the node's identity through a rebuild; the override is handed back when the pointer is up, so
+    // nothing of it reaches the next build and the key need not change with the detent.
+    let key = |s: BottomSheet| s.dom().root.get_key();
+    let peek = key(sheet());
+    assert!(peek.is_some(), "the sheet's root is keyed");
+    assert_eq!(peek, key(sheet()), "the same sheet is the same node across a rebuild");
+    assert_eq!(peek, key(sheet().with_detent(SheetDetent::Half)), "another detent is the same node");
+    assert_eq!(peek, key(sheet().with_peek_height(120.0).with_container_height(1200.0)), "another height too");
+}
+
+// ---- what a key on the grip does to the node ----
+
+type Log = Arc<Mutex<Vec<BottomSheetEvent>>>;
+
+extern "C" fn record(mut data: RefAny, _info: CallbackInfo, event: BottomSheetEvent) -> Update {
+    if let Some(log) = data.downcast_ref::<Log>() {
+        log.lock().expect("log").push(event);
+    }
+    Update::DoNothing
+}
+
+/// The styled DOM of a sheet at `detent` that logs what it tells the app, and the node of its grip.
+fn logged(detent: SheetDetent) -> (StyledDom, DomNodeId, Log) {
+    let log: Log = Arc::new(Mutex::new(Vec::new()));
+    let styled = StyledDom::create_from_dom(
+        sheet()
+            .with_detent(detent)
+            .with_on_event(RefAny::new(log.clone()), record as BottomSheetOnEventCallbackType)
+            .dom(),
+    );
+    let grip = styled
+        .node_data
+        .as_ref()
+        .iter()
+        .position(|nd| nd.get_ids_and_classes().as_ref().iter().any(|c| c.as_class() == Some(BOTTOM_SHEET_GRIP_CLASS)))
+        .expect("the grip is in the DOM");
+    let node = DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(grip))),
+    };
+    (styled, node, log)
+}
+
+/// The height writes of `changes`, in order: whether each is the override channel's, and what it writes.
+fn height_writes(changes: &[CallbackChange]) -> Vec<(bool, CssProperty)> {
+    changes
+        .iter()
+        .filter_map(|c| {
+            let (overridden, properties) = match c {
+                CallbackChange::ChangeNodeCssProperties { properties, .. } => (false, properties),
+                CallbackChange::OverrideNodeCssProperties { properties, .. } => (true, properties),
+                _ => return None,
+            };
+            properties
+                .as_ref()
+                .iter()
+                .find(|p| p.get_type() == CssPropertyType::Height)
+                .map(|p| (overridden, p.clone()))
+        })
+        .collect()
+}
+
+#[test]
+fn a_key_on_the_grip_settles_the_sheet_writes_its_height_and_hands_the_override_back() {
+    let (styled, grip, log) = logged(SheetDetent::Peek);
+    let (_, changes) = rv::press(&styled, grip, VirtualKeyCode::Up, &[]).expect("the grip takes the key");
+    assert!(rv::prevented(&changes), "the key's own action (scrolling) is cancelled");
+    let events = log.lock().expect("log").clone();
+    assert_eq!(events.len(), 1);
+    assert_eq!((events[0].kind, events[0].detent), (BottomSheetEventKind::Settled, SheetDetent::Half));
+    assert!(near(events[0].height, 400.0));
+    // the node's own style takes 400 px, then the override that a drag may have left is dropped: the next build is the truth
+    assert_eq!(
+        height_writes(&changes),
+        vec![
+            (false, height_property(400.0)),
+            (true, CssProperty::initial(CssPropertyType::Height)),
+        ]
+    );
+}
+
+#[test]
+fn a_key_the_grip_does_not_know_is_not_taken() {
+    let (styled, grip, log) = logged(SheetDetent::Peek);
+    let (_, changes) = rv::press(&styled, grip, VirtualKeyCode::A, &[]).expect("the grip is wired");
+    assert!(!rv::prevented(&changes) && height_writes(&changes).is_empty());
+    assert!(log.lock().expect("log").is_empty());
+}
+
+#[test]
+fn the_highest_detent_stays_when_the_key_goes_up_and_the_app_is_still_told() {
+    let (styled, grip, log) = logged(SheetDetent::Full);
+    let (_, changes) = rv::press(&styled, grip, VirtualKeyCode::Up, &[]).expect("the grip takes the key");
+    let events = log.lock().expect("log").clone();
+    assert_eq!(events.last().map(|e| e.detent), Some(SheetDetent::Full));
+    assert_eq!(height_writes(&changes).first(), Some(&(false, height_property(680.0))));
+}
+
+// ---- the drag ----
+
+/// A sheet at its peek (130 px) in an 800 px box, its top edge at 670.
+fn peeking() -> DragState {
+    state(SheetDetent::Peek, 130.0)
+}
+
+#[test]
+fn a_press_on_the_grip_arms_the_sheet_and_a_tap_on_it_steps_a_detent_up() {
+    let mut st = peeking();
+    assert!(st.press(672.0, 670.0, 130.0, 800.0));
+    assert!(st.armed && st.on_grip && !st.dragging);
+    assert!(near(st.start_y, 672.0) && near(st.start_height, 130.0));
+    assert_eq!(st.lift(false), Some(SheetDetent::Half), "a tap on the grip: the next detent up");
+    assert!(!st.armed, "the press is over");
+    assert_eq!(st.lift(false), None, "and a second lift has nothing to settle");
+}
+
+#[test]
+fn the_highest_detent_goes_round_to_the_lowest_on_a_tap() {
+    let mut st = state(SheetDetent::Full, 680.0);
+    assert!(st.press(122.0, 120.0, 680.0, 800.0));
+    assert_eq!(st.lift(false), Some(SheetDetent::Collapsed));
+}
+
+#[test]
+fn a_press_in_the_band_under_the_grip_is_armed_but_a_release_without_a_drag_belongs_to_what_is_there() {
+    let mut st = peeking();
+    st.grab = 90.0;
+    assert!(st.press(730.0, 670.0, 130.0, 800.0), "60 px down, inside the 90 px band");
+    assert!(st.armed && !st.on_grip);
+    assert_eq!(st.lift(false), None, "a press and release that did not move reach the buttons in the band");
+    assert!(!st.armed);
+}
+
+#[test]
+fn a_press_outside_the_band_is_not_the_sheets() {
+    let mut st = peeking();
+    st.container = 777.0;
+    assert!(!st.press(720.0, 670.0, 130.0, 800.0), "50 px down is the content, not the grip");
+    assert!(!st.press(660.0, 670.0, 130.0, 800.0), "above the sheet is not the sheet");
+    assert!(!st.press(f32::NAN, 670.0, 130.0, 800.0));
+    assert!(!st.armed && near(st.container, 777.0), "nothing of the sheet changed");
+}
+
+#[test]
+fn a_press_takes_the_height_the_layout_gave_the_sheet_when_it_is_a_number() {
+    let mut st = peeking();
+    assert!(st.press(672.0, 670.0, 211.0, 900.0));
+    assert!(near(st.height, 211.0) && near(st.start_height, 211.0) && near(st.container, 900.0));
+    let mut other = peeking();
+    assert!(other.press(672.0, 670.0, f32::NAN, 800.0));
+    assert!(near(other.height, 130.0), "no number from the layout: the sheet's own");
+}
+
+#[test]
+fn a_move_inside_the_slop_is_still_a_press_and_one_past_it_starts_the_drag() {
+    let mut st = peeking();
+    assert!(st.press(672.0, 670.0, 130.0, 800.0));
+    assert_eq!(st.drag_to(672.0 - TAP_SLOP), None, "exactly the slop is not past it");
+    assert!(!st.dragging);
+    let first = st.drag_to(672.0 - TAP_SLOP - 1.0).expect("past the slop");
+    assert!(first.started && st.dragging);
+    assert!(near(first.height, 139.0), "130 px and the 9 px the pointer went up: {first:?}");
+    let second = st.drag_to(600.0).expect("a drag in flight");
+    assert!(!second.started);
+    assert!(near(second.height, 202.0) && near(st.height, 202.0));
+}
+
+#[test]
+fn a_move_without_a_press_does_nothing() {
+    assert_eq!(peeking().drag_to(10.0), None);
+}
+
+#[test]
+fn the_pointer_going_up_grows_the_sheet_only_as_far_as_its_highest_detent_and_down_as_far_as_the_lowest() {
+    let mut st = peeking();
+    assert!(st.press(672.0, 670.0, 130.0, 800.0));
+    assert!(near(st.drag_to(-5000.0).expect("a drag").height, 680.0), "no taller than full");
+    assert!(near(st.drag_to(9000.0).expect("a drag").height, 30.0), "no lower than collapsed");
+    let mut ranged = peeking();
+    ranged.lowest = SheetDetent::Peek;
+    ranged.highest = SheetDetent::Half;
+    assert!(ranged.press(672.0, 670.0, 130.0, 800.0));
+    assert!(near(ranged.drag_to(-5000.0).expect("a drag").height, 400.0));
+    assert!(near(ranged.drag_to(9000.0).expect("a drag").height, 130.0));
+}
+
+#[test]
+fn the_app_is_told_the_detent_the_sheet_is_nearest_to_while_it_is_dragged() {
+    let mut st = peeking();
+    assert!(st.press(672.0, 670.0, 130.0, 800.0));
+    st.drag_to(672.0 - 120.0).expect("a drag");
+    assert_eq!(st.detent, SheetDetent::Peek, "250 px: nearer 130 than 400");
+    st.drag_to(672.0 - 150.0).expect("a drag");
+    assert_eq!(st.detent, SheetDetent::Half, "280 px: nearer 400 than 130");
+}
+
+#[test]
+fn a_slow_drag_settles_on_the_nearest_detent_and_a_fling_carries_on() {
+    let mut slow = peeking();
+    assert!(slow.press(672.0, 670.0, 130.0, 800.0));
+    slow.drag_to(600.0).expect("a drag");
+    slow.drag_to(599.0).expect("a drag");
+    assert_eq!(slow.lift(false), Some(SheetDetent::Peek), "203 px, moving a pixel at a time: the peek");
+    assert!(!slow.dragging && !slow.armed);
+
+    let mut fling = peeking();
+    assert!(fling.press(672.0, 670.0, 130.0, 800.0));
+    fling.drag_to(650.0).expect("a drag");
+    assert_eq!(fling.lift(false), Some(SheetDetent::Half), "152 px, last step 22 px: it would land at 416, nearest half");
+}
+
+#[test]
+fn a_pointer_that_leaves_with_the_button_up_settles_a_drag_and_lets_a_tap_go() {
+    let mut dragging = peeking();
+    assert!(dragging.press(672.0, 670.0, 130.0, 800.0));
+    dragging.drag_to(600.0).expect("a drag");
+    dragging.drag_to(599.0).expect("a drag");
+    assert_eq!(dragging.lift(true), Some(SheetDetent::Peek), "the drag ends where it was, as a release would");
+    let mut tapping = peeking();
+    assert!(tapping.press(672.0, 670.0, 130.0, 800.0));
+    assert_eq!(tapping.lift(true), None, "a press that never moved is let go, it is no tap");
+    assert!(!tapping.armed);
+}
+
+#[test]
+fn the_sheet_rests_at_the_height_of_its_detent() {
+    let mut st = peeking();
+    assert!(near(st.rest(SheetDetent::Half), 400.0));
+    assert!(st.detent == SheetDetent::Half && near(st.height, 400.0));
+    st.container = 1000.0;
+    assert!(near(st.rest(SheetDetent::Half), 500.0), "half of the box it floats in now");
 }

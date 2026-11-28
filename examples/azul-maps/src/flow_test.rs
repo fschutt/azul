@@ -20,16 +20,16 @@ fn a_window_from_560_px_has_the_panel_at_the_left_and_a_narrower_one_the_sheet()
 fn the_flow_starts_on_the_search() {
     let f = Flow::default();
     assert_eq!(f.panel, Panel::Browse);
-    assert!(f.place.is_none() && !f.collapsed && !f.layers_open);
+    assert!(f.place.is_none() && !f.collapsed);
 }
 
 #[test]
 fn a_place_is_shown_and_the_panel_unfolds_for_it() {
-    let mut f = Flow { collapsed: true, layers_open: true, ..Flow::default() };
+    let mut f = Flow { collapsed: true, ..Flow::default() };
     f.show_place(card("Tübingen", None));
     assert_eq!(f.panel, Panel::Place);
     assert_eq!(f.place.as_ref().map(|p| p.name.as_str()), Some("Tübingen"));
-    assert!(!f.collapsed && !f.layers_open);
+    assert!(!f.collapsed);
 }
 
 #[test]
@@ -70,17 +70,12 @@ fn clearing_goes_to_the_search_from_anywhere() {
 }
 
 #[test]
-fn the_panel_folds_and_the_layers_menu_opens_and_each_shuts_the_other() {
+fn the_panel_folds_and_comes_back() {
     let mut f = Flow::default();
-    f.toggle_layers();
-    assert!(f.layers_open);
     f.toggle_collapsed();
-    assert!(f.collapsed && !f.layers_open, "folding the panel shuts the menu");
+    assert!(f.collapsed);
     f.toggle_collapsed();
     assert!(!f.collapsed);
-    f.toggle_layers();
-    f.toggle_layers();
-    assert!(!f.layers_open);
 }
 
 #[test]
