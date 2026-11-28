@@ -9,6 +9,7 @@
 //! 4. `instanced`: a VAO with a vertex buffer, an index buffer and a per-instance buffer holding a `vec4` and an `ivec4` (integer
 //!    attribute, divisor 1), drawn with `glDrawElementsInstanced`, sampling the same texture: `composite` of WebRender;
 //! 5. `data_textures`: an RGBA32F and an RGBA32I texture fetched with `texelFetch`: WebRender's GPU cache and prim headers;
+//! 5b. `scatter`: WebRender's GPU cache update, points with a `gl_PointSize` shader into an RGBA32F texture through its framebuffer;
 //! 6. `depth`: a framebuffer with a colour texture and a 24-bit depth renderbuffer, depth cleared with `glClearBufferfv`, two
 //!    triangles at two depths with `LEQUAL`: the depth pass of a tile.
 //!
@@ -188,6 +189,10 @@ const FETCH_INT_FS: &str = "#version 300 es\nprecision highp float;\nprecision h
 const INSTANCED_VS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nlayout(location = 0) in vec2 aPosition;\nlayout(location = 1) in vec4 aRect;\nlayout(location = 2) in ivec4 aData;\nuniform mat4 uTransform;\nout vec2 vUv;\nflat out ivec4 vData;\nvoid main() {\n    vec2 pos = aRect.xy + aPosition * aRect.zw;\n    gl_Position = uTransform * vec4(pos, 0.0, 1.0);\n    vUv = aPosition;\n    vData = aData;\n}\n";
 const INSTANCED_FS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nuniform sampler2D sColor0;\nin vec2 vUv;\nflat in ivec4 vData;\nout vec4 oColour;\nvoid main() {\n    vec4 c = texture(sColor0, vUv);\n    oColour = vec4(c.r * float(vData.x), c.g * float(vData.y) * 0.5, c.b, 1.0);\n}\n";
 
+/// WebRender's `gpu_cache_update`: one point per texel, written into a float texture (the GPU cache of every phone's frame).
+const SCATTER_VS: &str = "#version 300 es\nin vec4 aValue;\nin vec2 aPosition;\nout highp vec4 vData;\nvoid main() {\n    vData = aValue;\n    gl_Position = vec4(aPosition * 2.0 - 1.0, 0.0, 1.0);\n    gl_PointSize = 1.0;\n}\n";
+const SCATTER_FS: &str = "#version 300 es\nprecision highp float;\nin highp vec4 vData;\nout vec4 oValue;\nvoid main() {\n    oValue = vData;\n}\n";
+
 /// The programs of the ladder, the ones that built; a phase whose program did not says why.
 struct Programs {
     flat: Result<u32, String>,
@@ -195,6 +200,7 @@ struct Programs {
     fetch_float: Result<u32, String>,
     fetch_int: Result<u32, String>,
     instanced: Result<u32, String>,
+    scatter: Result<u32, String>,
 }
 
 impl Programs {
@@ -210,11 +216,12 @@ impl Programs {
                 INSTANCED_FS,
                 &[(0, "aPosition"), (1, "aRect"), (2, "aData")],
             ),
+            scatter: program_of(gl, SCATTER_VS, SCATTER_FS, &[(0, "aPosition"), (1, "aValue")]),
         }
     }
 
     fn delete(&self, gl: &GenericGlContext) {
-        for program in [&self.flat, &self.texture, &self.fetch_float, &self.fetch_int, &self.instanced]
+        for program in [&self.flat, &self.texture, &self.fetch_float, &self.fetch_int, &self.instanced, &self.scatter]
             .into_iter()
             .flatten()
         {
@@ -230,6 +237,7 @@ impl Programs {
             ("fetch_float", &self.fetch_float),
             ("fetch_int", &self.fetch_int),
             ("instanced", &self.instanced),
+            ("scatter", &self.scatter),
         ]
         .into_iter()
         .filter_map(|(name, result)| result.as_ref().err().map(|why| format!("program {name}: {why}")))
@@ -624,6 +632,140 @@ fn phase_data_textures(gl: &GenericGlContext, target: Target, programs: &Program
     result
 }
 
+/// 5b. WebRender's GPU cache update: five points drawn with `gpu_cache_update`'s shaders into a 16 x 4 RGBA32F texture through its
+/// framebuffer (positions as normalised unsigned shorts, values as floats, `gl_PointSize` 1, blending off), the texels read back as
+/// floats, then fetched with `texelFetch` into the window as four bands.
+fn phase_scatter(gl: &GenericGlContext, target: Target, programs: &Programs) -> Row {
+    let (scatter, fetch) = match (&programs.scatter, &programs.fetch_float) {
+        (Ok(s), Ok(f)) => (*s, *f),
+        (Err(why), _) | (_, Err(why)) => return failed("scatter", format!("a program did not build: {why}")),
+    };
+    let size = target.size;
+    let texture = gl.gen_textures(1).first().copied().unwrap_or(0);
+    gl.active_texture(glconst::TEXTURE0);
+    gl.bind_texture(glconst::TEXTURE_2D, texture);
+    gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
+    gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
+    gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA32F, 16, 4);
+    let framebuffer = gl.gen_framebuffers(1).first().copied().unwrap_or(0);
+    gl.bind_framebuffer(draw_target(target), framebuffer);
+    gl.framebuffer_texture_2d(
+        draw_target(target),
+        glconst::COLOR_ATTACHMENT0,
+        glconst::TEXTURE_2D,
+        texture,
+        0,
+    );
+    let status = gl.check_frame_buffer_status(draw_target(target));
+    gl.viewport(0, 0, 16, 4);
+    gl.disable(glconst::SCISSOR_TEST);
+    gl.disable(glconst::DEPTH_TEST);
+    gl.disable(glconst::BLEND);
+    gl.color_mask(true, true, true, true);
+    gl.clear_color(0.0, 0.0, 0.0, 0.0);
+    gl.clear(glconst::COLOR_BUFFER_BIT);
+
+    // Five texels of row 0: u = 0, 1, 2, 3 and 5. The position of texel u is ((2u + 1) << 15) / 16, of row 0 ((1) << 15) / 4.
+    let texels: [(u16, [f32; 4]); 5] = [
+        (0, [1.0, 0.0, 0.0, 1.0]),
+        (1, [0.0, 1.0, 0.0, 1.0]),
+        (2, [0.0, 0.0, 1.0, 1.0]),
+        (3, [1.0, 1.0, 1.0, 1.0]),
+        (5, [0.25, 0.5, 0.75, 2.0]),
+    ];
+    let mut position_bytes: Vec<u8> = Vec::new();
+    let mut value_bytes: Vec<u8> = Vec::new();
+    for (u, value) in &texels {
+        let x = ((2 * u32::from(*u) + 1) << 15) / 16;
+        let y = (1_u32 << 15) / 4;
+        position_bytes.extend(u16::try_from(x).unwrap_or(0).to_ne_bytes());
+        position_bytes.extend(u16::try_from(y).unwrap_or(0).to_ne_bytes());
+        value_bytes.extend(value.iter().flat_map(|v| v.to_ne_bytes()));
+    }
+    let vao = gl.gen_vertex_arrays(1).first().copied().unwrap_or(0);
+    let buffers = gl.gen_buffers(2);
+    let (positions, values) = (buffers.first().copied().unwrap_or(0), buffers.get(1).copied().unwrap_or(0));
+    gl.bind_vertex_array(vao);
+    gl.bind_buffer(glconst::ARRAY_BUFFER, positions);
+    gl.buffer_data_untyped(
+        glconst::ARRAY_BUFFER,
+        isize::try_from(position_bytes.len()).unwrap_or(0),
+        position_bytes.as_ptr().cast(),
+        glconst::STATIC_DRAW,
+    );
+    gl.enable_vertex_attrib_array(0);
+    gl.vertex_attrib_divisor(0, 0);
+    gl.vertex_attrib_pointer(0, 2, glconst::UNSIGNED_SHORT, true, 4, 0);
+    gl.bind_buffer(glconst::ARRAY_BUFFER, values);
+    gl.buffer_data_untyped(
+        glconst::ARRAY_BUFFER,
+        isize::try_from(value_bytes.len()).unwrap_or(0),
+        value_bytes.as_ptr().cast(),
+        glconst::STATIC_DRAW,
+    );
+    gl.enable_vertex_attrib_array(1);
+    gl.vertex_attrib_divisor(1, 0);
+    gl.vertex_attrib_pointer(1, 4, glconst::FLOAT, false, 16, 0);
+    gl.use_program(scatter);
+    gl.draw_arrays(glconst::POINTS, 0, 5);
+    gl.finish();
+
+    // The texels as floats.
+    read_from(gl, target, framebuffer);
+    let mut found_all = true;
+    let mut detail: Vec<String> = Vec::new();
+    for (u, value) in &texels {
+        let mut bytes = [0_u8; 16];
+        gl.read_pixels_into_buffer(i32::from(*u), 0, 1, 1, glconst::RGBA, glconst::FLOAT, &mut bytes);
+        let got: Vec<f32> = bytes.chunks_exact(4).map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]])).collect();
+        let same = got.iter().zip(value.iter()).all(|(g, e)| (g - e).abs() < 0.002);
+        found_all &= same;
+        detail.push(format!("texel {u} expect {value:?} got {got:?}"));
+    }
+    let error_after_read = gl.get_error();
+
+    gl.use_program(0);
+    gl.bind_vertex_array(0);
+    gl.bind_buffer(glconst::ARRAY_BUFFER, 0);
+    gl.delete_vertex_arrays(&[vao]);
+    gl.delete_buffers(&[positions, values]);
+
+    // The texture as a source: its first four texels as bands in the window.
+    window_target(gl, target);
+    gl.clear_color(0.2, 0.2, 0.2, 1.0);
+    gl.clear(glconst::COLOR_BUFFER_BIT);
+    gl.active_texture(glconst::TEXTURE0);
+    gl.bind_texture(glconst::TEXTURE_2D, texture);
+    gl.use_program(fetch);
+    let sampler = gl.get_uniform_location(fetch, "sData");
+    gl.uniform_1i(sampler, 0);
+    full_screen(gl, fetch, 0.0);
+    gl.finish();
+    let (w, h) = (size.0.max(8), size.1.max(8));
+    let bands = [RED, GREEN, BLUE, WHITE];
+    let names = ["band 1", "band 2", "band 3", "band 4"];
+    let mut checks: Vec<(&str, [u8; 4], [u8; 4])> = Vec::new();
+    for (i, name) in names.into_iter().enumerate() {
+        let x = w * (2 * u32::try_from(i).unwrap_or(0) + 1) / 8;
+        checks.push((name, bands[i], px(gl, x, h / 2)));
+    }
+    let error = gl.get_error() | error_after_read;
+    let note = format!(
+        "float framebuffer status 0x{status:x}; read back as floats: {}; {}",
+        if found_all { "all as written" } else { "WRONG" },
+        detail.join("; ")
+    );
+    let mut result = row("scatter", &checks, error, &note);
+    result.ok &= found_all && status == glconst::FRAMEBUFFER_COMPLETE;
+
+    gl.bind_framebuffer(draw_target(target), target.window);
+    read_from(gl, target, target.window);
+    gl.bind_texture(glconst::TEXTURE_2D, 0);
+    gl.delete_framebuffers(&[framebuffer]);
+    gl.delete_textures(&[texture]);
+    result
+}
+
 /// 6. The depth pass of a tile: a framebuffer with a colour texture and a 24-bit depth renderbuffer, depth cleared to 1.0 with
 /// `glClearBufferfv` (the way the device layer clears an ES context), a green triangle at depth 0.25 and a red one behind it at 0.75
 /// with `LEQUAL`: the red one must fail the test. The result is shown in the window through the sampling shader.
@@ -718,7 +860,16 @@ fn phase_depth(gl: &GenericGlContext, target: Target, programs: &Programs) -> Ro
 }
 
 /// The phases, by name, in the order the ladder runs them.
-pub const PHASES: [&str; 7] = ["clear", "shader", "dummy_texture", "fbo_sample", "instanced", "data_textures", "depth"];
+pub const PHASES: [&str; 8] = [
+    "clear",
+    "shader",
+    "dummy_texture",
+    "fbo_sample",
+    "instanced",
+    "data_textures",
+    "scatter",
+    "depth",
+];
 
 /// What the ladder found: the rows of the first drawing of every phase, and the programs that did not build.
 #[derive(Debug, Clone)]
@@ -743,6 +894,7 @@ pub fn run_ladder(gl: &GenericGlContext, target: Target, show: &mut dyn FnMut(&'
             "fbo_sample" => phase_fbo_sample(gl, target, &programs),
             "instanced" => phase_instanced(gl, target, &programs),
             "data_textures" => phase_data_textures(gl, target, &programs),
+            "scatter" => phase_scatter(gl, target, &programs),
             _ => phase_depth(gl, target, &programs),
         }
     };

@@ -18,7 +18,10 @@ fn a_row_is_wrong_when_a_pixel_is_off_or_an_error_is_left() {
 
 #[test]
 fn the_phases_have_the_names_the_log_and_the_report_use() {
-    assert_eq!(PHASES, ["clear", "shader", "dummy_texture", "fbo_sample", "instanced", "data_textures", "depth"]);
+    assert_eq!(
+        PHASES,
+        ["clear", "shader", "dummy_texture", "fbo_sample", "instanced", "data_textures", "scatter", "depth"]
+    );
 }
 
 #[test]
