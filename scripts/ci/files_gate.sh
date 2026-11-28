@@ -203,6 +203,7 @@ contracts() {
     --test file_picker_tells_the_truth_contract \
     --test android_share_open_contract \
     --test android_documents_contract \
+    --test mobile_assets_contract \
     --test android_picker_contract \
     --test file_picker_export_contract \
     --test android_extras_java_glue_contract \
