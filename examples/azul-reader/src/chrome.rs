@@ -44,7 +44,8 @@ pub const SIDE_SHARE: f32 = 0.3;
 /// area without width is the middle's.
 #[must_use]
 pub fn tap_at(x: f32, width: f32) -> Tap {
-    if !(width > 0.0) || !x.is_finite() || x < 0.0 || x > width {
+    // (A tap that is not a number, or off the area, fails `contains`.)
+    if !(width.is_finite() && width > 0.0) || !(0.0..=width).contains(&x) {
         return Tap::Toggle;
     }
     let share = x / width;
