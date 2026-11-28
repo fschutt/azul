@@ -15,7 +15,8 @@ pub(crate) const DE: &str = include_str!("../resources/de.ftl");
 /// AzMaps's resources per language.
 static RESOURCES: [(&str, &str); 2] = [("en", EN), ("de", DE)];
 
-/// Every resource the engine gets, per language: appkit's, then AzMaps's.
+/// Every resource the engine gets, per language: appkit's, then AzMaps's (what the tests of its words read).
+#[cfg(test)]
 #[must_use]
 pub(crate) fn sources() -> Vec<(String, String)> {
     l10n::sources(&RESOURCES)

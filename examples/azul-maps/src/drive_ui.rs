@@ -526,7 +526,7 @@ pub(crate) fn tick(app: &RefAny, info: &mut CallbackInfo, platform: Option<(f64,
         let Some(mut s) = state.downcast_mut::<MapState>() else {
             return false;
         };
-        let due = s.drive.last_shown.map_or(true, |at| at.elapsed() >= SHOW_EVERY);
+        let due = s.drive.last_shown.is_none_or(|at| at.elapsed() >= SHOW_EVERY);
         if !due {
             return false;
         }

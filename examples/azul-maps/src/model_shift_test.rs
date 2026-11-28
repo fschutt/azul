@@ -53,5 +53,5 @@ fn the_searched_places_marker_is_no_pin_and_the_pins_are_far_below_it() {
     assert_eq!(pin_of_marker(FROM_MARKER), None);
     assert_eq!(pin_of_marker(0), Some(0));
     assert_eq!(pin_of_marker(41), Some(41));
-    assert!(PLACE_MARKER < FROM_MARKER && FROM_MARKER < TO_MARKER && TO_MARKER < HERE_MARKER);
+    const _: () = assert!(PLACE_MARKER < FROM_MARKER && FROM_MARKER < TO_MARKER && TO_MARKER < HERE_MARKER);
 }
