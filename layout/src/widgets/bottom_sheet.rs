@@ -174,7 +174,7 @@ azul_core::impl_managed_callback! {
     extra_args:     [ event: BottomSheetEvent ],
 }
 
-/// The BottomSheet: its content under a grip, at a detent.
+/// The `BottomSheet`: its content under a grip, at a detent.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct BottomSheet {
@@ -411,6 +411,7 @@ impl BottomSheet {
     }
 
     /// Takes the sheet out, leaving an empty one: the move the C ABI makes.
+    #[must_use]
     pub fn swap_with_default(&mut self) -> Self {
         core::mem::take(self)
     }

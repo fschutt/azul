@@ -120,7 +120,8 @@ fn a_sheet_let_go_settles_on_the_nearest_detent_in_range() {
     assert_eq!(h.nearest(100.0, lo, hi), SheetDetent::Peek);
     assert_eq!(h.nearest(260.0, lo, hi), SheetDetent::Peek);
     assert_eq!(h.nearest(300.0, lo, hi), SheetDetent::Half);
-    assert_eq!(h.nearest(600.0, lo, hi), SheetDetent::Half);
+    assert_eq!(h.nearest(560.0, lo, hi), SheetDetent::Half);
+    assert_eq!(h.nearest(600.0, lo, hi), SheetDetent::Full, "nearer to the 744 px of the full height than to the 400 of the half");
     assert_eq!(h.nearest(700.0, lo, hi), SheetDetent::Full);
     // a detent the app ruled out is never the answer
     assert_eq!(h.nearest(10.0, SheetDetent::Peek, hi), SheetDetent::Peek);
@@ -239,9 +240,9 @@ fn a_detent_the_app_ruled_out_is_not_built() {
     assert!(has_class(&high, BOTTOM_SHEET_HALF_CLASS) && !has_class(&high, BOTTOM_SHEET_FULL_CLASS));
     let low = sheet().with_detent(SheetDetent::Collapsed).with_lowest(SheetDetent::Peek).dom();
     assert!(has_class(&low, BOTTOM_SHEET_PEEK_CLASS) && !has_class(&low, BOTTOM_SHEET_COLLAPSED_CLASS));
-    // a range named the wrong way round is the same range
+    // a range named the wrong way round is the same range: collapsed to half
     let swapped = sheet().with_detent(SheetDetent::Full).with_lowest(SheetDetent::Half).with_highest(SheetDetent::Collapsed).dom();
-    assert!(has_class(&swapped, BOTTOM_SHEET_FULL_CLASS));
+    assert!(has_class(&swapped, BOTTOM_SHEET_HALF_CLASS) && !has_class(&swapped, BOTTOM_SHEET_FULL_CLASS));
 }
 
 #[test]
