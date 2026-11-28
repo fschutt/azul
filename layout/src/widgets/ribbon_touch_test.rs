@@ -105,10 +105,10 @@ fn the_other_looks_are_built_as_they_were() {
 fn in_the_status_bars_band_the_row_sits_in_a_header_with_a_cover_over_the_camera() {
     let dom = touch(5).with_status_bar(pixel_8_band()).dom_desktop();
     // The first child of the ribbon is the header of the band: the leather of the two lanes beside
-    // the camera, the row, and one cover for the one gap.
+    // the camera, the row, the two fades of each lane, and one cover for the one gap.
     let header = &dom.children.as_ref()[0];
     assert!(!has_class(header, TAB_BAR), "the row is inside the header");
-    assert_eq!(header.children.as_ref().len(), 2 + 1 + 1);
+    assert_eq!(header.children.as_ref().len(), 2 + 1 + 2 * 2 + 1);
     assert!(header.children.as_ref().iter().any(|c| has_class(c, TAB_BAR)));
 }
 

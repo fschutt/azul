@@ -574,7 +574,10 @@ radius (slightly rounded corners, no capsule ends). On a phone (Android or iOS, 
 the desktop size and `Rectangular` the classic square tabs. A button is 32 px tall in a 48 px row; the target is the
 whole row (padded, not the picture). The row is longer than the window and
 scrolls sideways under a finger, with the wheel and with the keys, without a scrollbar, and the selected pill scrolls
-into view (centred) by itself whoever changed the selection: a tap, an arrow key, a flip, the app. The pills are tabs for
+into view (centred) by itself whoever changed the selection: a tap, an arrow key, a flip, the app. A pill that slides
+out of its lane (off the window's edge, under the camera's cover) fades into the leather over the last 16 px of the
+lane instead of being cut; the first and the last pill stand 16 px in, so at rest and at the ends nothing is dimmed.
+Pills that do not fit are never folded into a "more" pill: the row scrolls. The pills are tabs for
 TalkBack and VoiceOver (the tab role, the name, the selected state) and the arrow keys move between them.
 
 **The strip in the status bar's band.** An app that does not need the clock and the battery while the user works (a
