@@ -667,7 +667,12 @@ class Run:
             bad = [c for c in s.checks if not c["ok"] and c["required"]]
             res = "PASS" if s.ok else "FAIL"
             why = "; ".join(f"{c['what']} ({c['detail']})" if c["detail"] else c["what"] for c in bad) or s.error
-            lines.append(f"| {s.name} | {res} | {s.seconds:.0f} | {s.what} | {(why if not s.ok else '; '.join(s.notes))[:300]} |")
+            shown = "; ".join(s.notes)
+            # an informational check that FAILED must not hide behind PASS (the page that ignored the system text size did, from the first run on)
+            info_bad = [c for c in s.checks if not c["ok"] and not c["required"]]
+            if s.ok and info_bad:
+                shown = "INFO FAILED: " + "; ".join(f"{c['what']} ({c['detail']})" if c["detail"] else c["what"] for c in info_bad)[:170] + (f"; {shown}" if shown else "")
+            lines.append(f"| {s.name} | {res} | {s.seconds:.0f} | {s.what} | {(why if not s.ok else shown)[:300]} |")
         # The standing section every run fills the same way (the GPU work reads and writes the same columns):
         # one row per AZ_BACKEND request, which renderer RAN, and the numbers per backend
         if self.render_table:

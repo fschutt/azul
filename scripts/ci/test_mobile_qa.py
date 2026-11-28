@@ -157,6 +157,24 @@ class RunRecordTests(unittest.TestCase):
             run.step("a", "x", lambda s: (s.check("must", True), s.check("nice", False, required=False)))
             self.assertTrue(run.steps[0].ok)
 
+    def test_an_informational_check_that_failed_shows_in_the_table_of_the_passing_step(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "android", {})
+            run.step("a", "x", lambda s: (s.check("must", True), s.check("the page reacts", False, "differs 0.000", required=False), s.note("a note")))
+            row = next(l for l in (Path(d) / "qa.md").read_text().splitlines() if l.startswith("| a |"))
+            self.assertIn("| PASS |", row)
+            self.assertIn("INFO FAILED: the page reacts (differs 0.000); a note", row)
+
+    def test_an_informational_check_that_passed_adds_nothing(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "android", {})
+            run.step("a", "x", lambda s: (s.check("nice", True, required=False), s.note("a note")))
+            row = next(l for l in (Path(d) / "qa.md").read_text().splitlines() if l.startswith("| a |"))
+            self.assertNotIn("INFO FAILED", row)
+            self.assertIn("a note", row)
+
 
 class StartupMetricNoteTests(unittest.TestCase):
     """WP-S's startup fix moves the system's launch metric (Displayed, TotalTime) from the blank window to the first Azul picture: the QA says so
