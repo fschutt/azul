@@ -196,6 +196,23 @@ def main(argv):
             time.sleep(8.0)
             shot(f"azmail-dark{tag}")
             dev.sh("cmd uimode night no")
+            if hit:
+                # BACK closes the compose window - a view pushed over the inbox - and the inbox is on the screen again (the engine takes the
+                # system's Back first: a popup, then the pushed view; the app's own CloseRequested callbacks may ask "save the draft?" for a
+                # draft that is not empty). A window that stays, or an app that left, is what the next picture and the dump say.
+                time.sleep(2.0)
+                dev.sh("input keyevent KEYCODE_BACK")
+                time.sleep(5.0)
+                shot(f"azmail-after-back{tag}")
+                xml = dump_ui(dev, out, f"after-back{tag}")
+                inbox_again = find_label(xml, NEW_MAIL) is not None
+                step(
+                    "back-from-compose",
+                    inbox_again,
+                    "the inbox is on the screen again (the New E-mail command is in the dump)"
+                    if inbox_again
+                    else "the New E-mail command is not in the dump: the compose window is still on top, or the app left",
+                )
     log = app_log()
     (out / "azmail-first-start.log").write_text(first_log, encoding="utf-8")
     (out / "azmail.log").write_text(log, encoding="utf-8")

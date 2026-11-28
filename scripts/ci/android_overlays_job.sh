@@ -55,8 +55,35 @@ if [ -n "${AZ_OVERLAYS_AZMAIL_RUN:-}" ]; then
   fi
 fi
 
+# The soft keyboard is no part of the engine's frames and the recording of the session is not playable (screenrecord is stopped before it
+# writes its index): while the session runs, a device picture is taken whenever the keyboard is on the screen (`mInputShown`), a frame that
+# differs from the last, at most 24 of them - the dialog with the text field standing on the keyboard.
+export PATH="$ANDROID_HOME/platform-tools:$PATH"
+mkdir -p demo-out/qa-tabs/keyboard-up
+(
+  n=0
+  last=""
+  while [ "$n" -lt 24 ]; do
+    if adb shell dumpsys input_method 2>/dev/null | grep -q "mInputShown=true"; then
+      adb exec-out screencap -p > demo-out/qa-tabs/keyboard-up/current.png 2>/dev/null
+      sum="$(md5sum demo-out/qa-tabs/keyboard-up/current.png 2>/dev/null | cut -d' ' -f1)"
+      if [ -s demo-out/qa-tabs/keyboard-up/current.png ] && [ "$sum" != "$last" ]; then
+        n=$((n + 1))
+        cp demo-out/qa-tabs/keyboard-up/current.png "demo-out/qa-tabs/keyboard-up/$(printf '%03d' "$n").png"
+        last="$sum"
+      fi
+      sleep 2
+    else
+      sleep 1
+    fi
+  done
+) >/dev/null 2>&1 &
+sampler=$!
 AZ_QA_TABS_FILES="${AZ_QA_TABS_FILES:-overlays_phone}" \
 AZ_ANDROID_DEVICE=pixel_8 AZ_ANDROID_OVERLAYS="com.android.internal.emulation.pixel_8 com.android.systemui.emulation.pixel_8" \
   timeout 4500 bash scripts/ci/android_qa.sh demo-out/qa-tabs "$apk" swiftshader_indirect "AzWidgets overlays" tabs
 echo "SESSION overlays: exit $?"
+kill "$sampler" 2>/dev/null || true
+rm -f demo-out/qa-tabs/keyboard-up/current.png
+ls -la demo-out/qa-tabs/keyboard-up | head -30
 exit 0
