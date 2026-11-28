@@ -136,6 +136,9 @@ pub mod settings;
 /// The accessibility and display-comfort preferences of the system (text size, bold text, contrast,
 /// reduced motion, ...), typed, with the override the tests and the environment pin.
 pub mod accessibility;
+/// What each platform's readers hand over (UIKit, the Android framework, the registry, gsettings,
+/// AppKit) and the typed preferences it means: the mappings, pure and tested on every host.
+pub mod accessibility_raw;
 /// Native OS theme discovery: system colors, fonts, and DPI.
 pub mod system;
 /// The theme chain (`xyz:pink -> xyz -> flat`): which app themes are live.
