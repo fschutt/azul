@@ -1515,19 +1515,7 @@ fn parse_media_feature(feature: &str) -> Option<DynamicSelector> {
             }
         }
         "prefers-contrast" | "prefers-high-contrast" => {
-            if value.eq_ignore_ascii_case("more")
-                || value.eq_ignore_ascii_case("high")
-                || value.eq_ignore_ascii_case("active")
-            {
-                return Some(DynamicSelector::PrefersHighContrast(BoolCondition::True));
-            } else if value.eq_ignore_ascii_case("no-preference")
-                || value.eq_ignore_ascii_case("none")
-            {
-                return Some(DynamicSelector::PrefersHighContrast(BoolCondition::False));
-            }
-            // `less` and `custom`: the accessibility conditions
-            return crate::accessibility::AccessibilityCondition::from_media_feature(key, value)
-                .map(DynamicSelector::Accessibility);
+            return parse_contrast_feature(key, value);
         }
         "aspect-ratio" => {
             if let Some(ratio) = parse_ratio_value(value) {
@@ -1562,6 +1550,22 @@ fn parse_media_feature(feature: &str) -> Option<DynamicSelector> {
     }
 
     None
+}
+
+/// `prefers-contrast: <value>`: `more` / `high` (the older `PrefersHighContrast` selector), the
+/// `no-preference` that undoes it, and `less` / `custom` (the accessibility conditions).
+fn parse_contrast_feature(key: &str, value: &str) -> Option<DynamicSelector> {
+    if value.eq_ignore_ascii_case("more")
+        || value.eq_ignore_ascii_case("high")
+        || value.eq_ignore_ascii_case("active")
+    {
+        Some(DynamicSelector::PrefersHighContrast(BoolCondition::True))
+    } else if value.eq_ignore_ascii_case("no-preference") || value.eq_ignore_ascii_case("none") {
+        Some(DynamicSelector::PrefersHighContrast(BoolCondition::False))
+    } else {
+        crate::accessibility::AccessibilityCondition::from_media_feature(key, value)
+            .map(DynamicSelector::Accessibility)
+    }
 }
 
 /// Parses a pixel value like "800px" and returns the numeric value

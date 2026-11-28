@@ -26,14 +26,16 @@ use crate::{
     env::EnvSource,
 };
 
-/// The smallest text scale the engine applies: 50 % of the platform's default text size (GNOME's
-/// `text-scaling-factor` allows 0.5, Android's smallest font scale is 0.85, iOS's smallest content
-/// size category is 0.82).
+/// The smallest text scale the engine applies: 50 % of the default text size.
+///
+/// GNOME's `text-scaling-factor` allows 0.5, Android's smallest font scale is 0.85, iOS's
+/// smallest content size category is 0.82.
 pub const MIN_TEXT_SCALE: f32 = 0.5;
 
-/// The greatest text scale the engine applies: 400 % (iOS's largest accessibility size is 3.12,
-/// GNOME's `text-scaling-factor` allows 3.0, Windows 2.25, Android 2.0). A larger report is a
-/// broken value and is read as this, with a diagnostic.
+/// The greatest text scale the engine applies: 400 %.
+///
+/// iOS's largest accessibility size is 3.12, GNOME's `text-scaling-factor` allows 3.0, Windows
+/// 2.25, Android 2.0. A larger report is a broken value and is read as this, with a diagnostic.
 pub const MAX_TEXT_SCALE: f32 = 4.0;
 
 /// The greatest animation speed factor read (Android's `animator_duration_scale` offers 10).
@@ -338,7 +340,7 @@ impl TextSizeCategory {
         }
     }
 
-    /// Reads a category from any spelling it has: the simctl names, UIKit's constants
+    /// Reads a category from any spelling it has: the simctl names, `UIKit`'s constants
     /// (`UIContentSizeCategoryExtraSmall`), the raw strings `preferredContentSizeCategory`
     /// answers (`UICTContentSizeCategoryXS`, `UICTContentSizeCategoryAccessibilityXXXL`), and the
     /// short forms `xs`, `s`, `m`, `l`, `xl`, `xxl`, `xxxl`, `ax1` to `ax5`. Case, dashes and
@@ -383,11 +385,12 @@ impl TextSizeCategory {
     }
 }
 
-/// A text scale as the engine takes it: finite, within [`MIN_TEXT_SCALE`] and
-/// [`MAX_TEXT_SCALE`]. `None` for a value that is not a number. The second value says the scale
-/// had to be capped (the caller logs it).
+/// A text scale as the engine takes it: finite, within [`MIN_TEXT_SCALE`] and [`MAX_TEXT_SCALE`].
+///
+/// `None` for a value that is not a number. The second value says the scale had to be capped
+/// (the caller logs it).
 #[must_use]
-pub fn clamp_text_scale(factor: f32) -> Option<(f32, bool)> {
+pub const fn clamp_text_scale(factor: f32) -> Option<(f32, bool)> {
     if factor.is_nan() {
         return None;
     }
@@ -419,7 +422,7 @@ pub struct AccessibilityPreferences {
     /// "Increase contrast" and its siblings.
     pub contrast: ContrastPreference,
     /// A contrast theme replaces the colours of the app (Windows high contrast themes, the
-    /// GNOME HighContrast theme): the app must use the system's palette, not its own.
+    /// GNOME `HighContrast` theme): the app must use the system's palette, not its own.
     pub forced_colors: SettingState,
     /// "Invert colors" (classic or smart).
     pub invert_colors: SettingState,
@@ -452,7 +455,7 @@ pub struct AccessibilityPreferences {
     /// "Dim flashing lights" (iOS 17+), Android "Reduce bright colors".
     pub dim_flashing_lights: SettingState,
     // ---- assistive technology that is running ----
-    /// A screen reader runs: VoiceOver, TalkBack, Narrator, NVDA, JAWS, Orca.
+    /// A screen reader runs: `VoiceOver`, `TalkBack`, Narrator, NVDA, JAWS, Orca.
     pub screen_reader: SettingState,
     /// Switch Control (iOS), Switch Access (Android).
     pub switch_access: SettingState,
@@ -727,7 +730,7 @@ impl AccessibilityPreferences {
     }
 
     /// The `text_scale` field from its text: a size category (`ax5`, `large`, the simctl and
-    /// UIKit spellings), a factor (`1.3`), or the words that put it back to unknown.
+    /// `UIKit` spellings), a factor (`1.3`), or the words that put it back to unknown.
     fn set_text_scale_from_text(&mut self, value: &str) -> Result<Option<String>, String> {
         if let Some(category) = TextSizeCategory::parse(value) {
             self.set_text_size_category(category);

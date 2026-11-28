@@ -6,6 +6,9 @@
 //! scale gave the same picture as the default (QA runs 46094960851, 46089359452: 0.046 % and 0 %
 //! of the pixels differed).
 
+// a test builds the preferences one option at a time, as a user's settings screen does
+#![allow(clippy::field_reassign_with_default)]
+
 use azul_core::{dom::Dom, styled_dom::StyledDom};
 use azul_css::{
     accessibility::{AccessibilityPreferences, MAX_TEXT_SCALE},

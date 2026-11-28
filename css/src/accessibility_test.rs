@@ -1,6 +1,9 @@
 //! The typed accessibility preferences: what each word means, what the categories scale to, how an
 //! override layers on what the platform reported, and what the environment pins.
 
+// a test builds the preferences one option at a time, as a user's settings screen does
+#![allow(clippy::field_reassign_with_default)]
+
 use alloc::string::ToString;
 
 use super::*;

@@ -1,6 +1,6 @@
 //! What each platform's readers hand over, and the typed preferences it means.
 //!
-//! The shells read the platform (UIKit, the Android framework, the registry, gsettings, AppKit)
+//! The shells read the platform (`UIKit`, the Android framework, the registry, gsettings, `AppKit`)
 //! and fill one `Raw*` struct each: a field is `None` where the platform has no such option, the
 //! symbol or the key is missing on this version, or the read failed - and `None` becomes
 //! [`SettingState::Unknown`], never `Off`. The mapping from the raw values to the
@@ -50,7 +50,7 @@ pub const fn either(a: Option<bool>, b: Option<bool>) -> Option<bool> {
 // iOS and iPadOS
 // ---------------------------------------------------------------------------------------------
 
-/// What UIKit answered. `UIApplication.preferredContentSizeCategory` (or the view's trait
+/// What `UIKit` answered. `UIApplication.preferredContentSizeCategory` (or the view's trait
 /// collection), the `UIAccessibility` flags, and `UIFontMetrics` as the fallback for a category
 /// name this build does not know.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -148,7 +148,7 @@ pub struct RawAndroid {
     /// `Configuration.fontScale`.
     pub font_scale: Option<f32>,
     /// The factor the framework itself converts an `sp` with at the body size:
-    /// `TypedValue.applyDimension(COMPLEX_UNIT_SP, 16, metrics) / applyDimension(COMPLEX_UNIT_DIP,
+    /// `TypedValue.`applyDimension`(COMPLEX_UNIT_SP, 16, metrics) / `applyDimension`(COMPLEX_UNIT_DIP,
     /// 16, metrics)`. Nonlinear on Android 14 and later, where `fontScale` alone is not what an
     /// `sp` becomes.
     pub sp_scale: Option<f32>,
@@ -169,7 +169,7 @@ pub struct RawAndroid {
     pub daltonizer_enabled: Option<bool>,
     /// `Settings.Secure` `accessibility_display_daltonizer` (0 is monochromacy: grayscale).
     pub daltonizer_type: Option<i32>,
-    /// `AccessibilityManager.isTouchExplorationEnabled()` (TalkBack).
+    /// `AccessibilityManager.isTouchExplorationEnabled()` (`TalkBack`).
     pub touch_exploration: Option<bool>,
     /// `AccessibilityManager.isEnabled()`: some accessibility service is on.
     pub accessibility_enabled: Option<bool>,
@@ -334,7 +334,7 @@ impl RawWindows {
 // macOS
 // ---------------------------------------------------------------------------------------------
 
-/// What AppKit answered (`NSWorkspace.shared.accessibilityDisplayShould...`).
+/// What `AppKit` answered (`NSWorkspace.shared.accessibilityDisplayShould...`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RawMacos {
     /// `accessibilityDisplayShouldReduceMotion`.

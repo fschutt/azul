@@ -133,11 +133,15 @@ pub mod shape_parser;
 /// `AZ_RICING`, `AZ_THEME`, `AZ_MODE` and the desktop session: the one place of the crate that
 /// names its variables.
 pub mod settings;
-/// The accessibility and display-comfort preferences of the system (text size, bold text, contrast,
-/// reduced motion, ...), typed, with the override the tests and the environment pin.
+/// The accessibility and display-comfort preferences of the system, typed.
+///
+/// Text size, bold text, contrast, reduced motion, ...: with the override the tests and the
+/// environment pin.
 pub mod accessibility;
-/// What each platform's readers hand over (UIKit, the Android framework, the registry, gsettings,
-/// AppKit) and the typed preferences it means: the mappings, pure and tested on every host.
+/// What each platform's readers hand over, and the typed preferences it means.
+///
+/// UIKit, the Android framework, the registry, gsettings, AppKit: the mappings, pure and tested on
+/// every host.
 pub mod accessibility_raw;
 /// Native OS theme discovery: system colors, fonts, and DPI.
 pub mod system;
