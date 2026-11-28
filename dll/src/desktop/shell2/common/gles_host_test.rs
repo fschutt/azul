@@ -330,9 +330,23 @@ impl<'a> GpuSession<'a> {
         let renderer = &mut parts.renderer;
         renderer.update();
         let size = webrender::api::units::DeviceIntSize::new(self.size_px.0 as i32, self.size_px.1 as i32);
+        // EXPERIMENT (the Android GPU root-cause hunt): `AZ_GPU_DRAWS=1` reads back what every draw call of the frame changed.
+        let probe = std::env::var_os("AZ_GPU_DRAWS").is_some();
+        if probe {
+            renderer.debug_set_draw_probe(true);
+        }
         renderer
             .render(size, 0)
             .map_err(|errors| format!("the frame did not render: {errors:?}"))?;
+        if probe {
+            for line in renderer.debug_take_draw_probe() {
+                eprintln!("[probe] {line}");
+            }
+            renderer.debug_set_draw_probe(false);
+            eprintln!("[probe] {}", renderer.debug_probe_textures());
+            eprintln!("[probe] {}", renderer.debug_gpu_cache_probe());
+            eprintln!("[probe] {}", renderer.debug_composite_probe());
+        }
         let mut pixels =
             AzulPixmap::new(self.size_px.0, self.size_px.1).ok_or("a pixmap of that size")?;
         pixels

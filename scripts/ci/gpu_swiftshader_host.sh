@@ -76,7 +76,7 @@ for entry in $stacks; do
     esac
     mkdir -p "$PWD/$out/pixels-$name"
     runner=""; command -v xvfb-run >/dev/null 2>&1 && runner="xvfb-run -a"
-    env -u EGL_PLATFORM AZ_REQUIRE_GLES=1 AZ_GLES_HOST_TESTS=1 AZ_GPU_PIXELS_DIR="$PWD/$out/pixels-$name" AZ_GL_TRACE="2:$PWD/$out/gltrace-$name-$t.txt" \
+    env -u EGL_PLATFORM AZ_REQUIRE_GLES=1 AZ_GLES_HOST_TESTS=1 AZ_GPU_DRAWS=1 AZ_GPU_PIXELS_DIR="$PWD/$out/pixels-$name" AZ_GL_TRACE="2:$PWD/$out/gltrace-$name-$t.txt" \
       timeout 900 $runner env LD_LIBRARY_PATH="$ld" "$bin" "$filter" --test-threads=1 --nocapture >"$out/$name-$t.log" 2>&1
     status=$?
     echo "exit $status"
