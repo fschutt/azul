@@ -90,16 +90,16 @@
       },
       {
         "op": "scroll_into_view",
-        "selector": ".__azul-native-dropdown",
         "block": "center",
-        "behavior": "instant"
+        "behavior": "instant",
+        "text": "Blue"
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "click",
-        "selector": ".__azul-native-dropdown"
+        "text": "Blue"
       },
       {
         "op": "wait_frame"
@@ -350,16 +350,16 @@
       },
       {
         "op": "scroll_into_view",
-        "selector": ".__azul-native-dropdown",
         "block": "center",
-        "behavior": "instant"
+        "behavior": "instant",
+        "text": "Blue"
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "click",
-        "selector": ".__azul-native-dropdown"
+        "text": "Blue"
       },
       {
         "op": "wait_frame"
@@ -594,16 +594,16 @@
       },
       {
         "op": "scroll_into_view",
-        "selector": ".__azul-native-dropdown",
         "block": "center",
-        "behavior": "instant"
+        "behavior": "instant",
+        "text": "Blue"
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "click",
-        "selector": ".__azul-native-dropdown"
+        "text": "Blue"
       },
       {
         "op": "wait_frame"
