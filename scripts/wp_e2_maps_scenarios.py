@@ -143,6 +143,17 @@ def phone_file():
             "only_on": DESKTOPS,
             "steps": window(tag, w, h, preset) + phone_steps() if w < h else window(tag, w, h, preset) + desktop_steps(),
         })
+    # The ghosts of the Android audit (the buttons of the title drawn twice on the device, once at the place the first layout gave
+    # them): the engine's own soundness check - every pixel that differs from a full repaint lies inside the frame's damage.
+    tests.append({
+        "name": "azul_maps_phone_insets_arriving_leave_no_stale_pixels_host",
+        "description": "The system's insets arrive after the first frame (a display preset stands for them): everything that moved is "
+                       "repainted where it was and where it is, and nothing is left of the first layout (no pictures).",
+        "only_on": DESKTOPS,
+        "steps": [op("resize", width=411.0, height=914.0), op("set_display_preset", preset="off")] + settle()
+                 + [op("snapshot_frame", **{"as": "first_layout"}), op("set_display_preset", preset="pixel8")] + settle()
+                 + [op("assert_damage_covers_changes", vs="first_layout")],
+    })
     tests.append({
         "name": "azul_maps_phone_search_place_way_device",
         "description": "AzMaps on the phone itself (the window is the phone's, upright: no resize, no display preset). Pictures, in order: "
