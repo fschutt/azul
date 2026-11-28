@@ -152,7 +152,9 @@ def flat_frame(sig):
 
 def flat_runs(sigs):
     """[(start, end_exclusive)] maximal runs of flat frames with a normal frame on BOTH sides (a recording that starts or ends in one
-    colour has no 'between')."""
+    colour has no 'between'). A stretch of flat frames that changes from black to a lighter colour (or back) is TWO runs: the system's
+    white starting window held for 13 frames and the 13 black frames after it were one run of 26 frames whose middle frame was black, and the
+    whole 0.87 s was called black (the Android shell agent's frame-by-frame count: 0.43 s of white, then 0.43 s of black)."""
     runs, i, n = [], 0, len(sigs)
     while i < n:
         if not flat_frame(sigs[i]):
@@ -162,7 +164,14 @@ def flat_runs(sigs):
         while j < n and flat_frame(sigs[j]):
             j += 1
         if i > 0 and j < n:
-            runs.append((i, j))
+            k = i
+            while k < j:
+                black = mean_luma(sigs[k]) < BLACK_LUMA
+                m = k
+                while m < j and (mean_luma(sigs[m]) < BLACK_LUMA) == black:
+                    m += 1
+                runs.append((k, m))
+                k = m
         i = j
     return runs
 

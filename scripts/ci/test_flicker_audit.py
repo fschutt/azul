@@ -390,6 +390,34 @@ class MonotonicTests(unittest.TestCase):
         self.assertTrue(f.monotonic([500, 400, 300, 120], direction=-1)[0])
 
 
+class SplashThenBlackTests(unittest.TestCase):
+    """the held white starting window and the black frames after it are two runs, each with its own length (E46: a 0.87 s run called black)"""
+
+    def test_a_white_splash_and_black_frames_after_it_are_two_runs(self):
+        normal = sig((90, 140, 200), (250, 250, 60))
+        sigs = [normal] + [sig((255, 255, 255))] * 13 + [sig((0, 0, 0))] * 13 + [normal]
+        self.assertEqual(f.flat_runs(sigs), [(1, 14), (14, 27)])
+        flagged = f.flag_frames(sigs)
+        flats = [x for x in flagged if x["kind"] == "flat"]
+        self.assertEqual([(x["frames"], x["black"]) for x in flats], [(13, False), (13, True)])
+        black = [x for x in flats if x["black"]][0]
+        self.assertEqual(black["ms"], 433)
+        self.assertTrue(black["fail"], "13 black frames at 30 fps are 433 ms: over the 100 ms limit")
+
+    def test_one_black_frame_after_a_splash_is_told_not_failed(self):
+        normal = sig((90, 140, 200), (250, 250, 60))
+        sigs = [normal] + [sig((255, 255, 255))] * 3 + [sig((0, 0, 0))] + [normal]
+        flats = [x for x in f.flag_frames(sigs) if x["kind"] == "flat"]
+        black = [x for x in flats if x["black"]][0]
+        self.assertEqual(black["frames"], 1)
+        self.assertFalse(black["fail"])
+
+    def test_a_run_of_one_colour_stays_one_run(self):
+        normal = sig((90, 140, 200), (250, 250, 60))
+        sigs = [normal] + [sig((0, 0, 0))] * 5 + [normal]
+        self.assertEqual(f.flat_runs(sigs), [(1, 6)])
+
+
 class IosAuditSourceTests(unittest.TestCase):
     """The iOS audit is driven by `simctl`, which this machine has not: what it must do first is read from its source."""
 
