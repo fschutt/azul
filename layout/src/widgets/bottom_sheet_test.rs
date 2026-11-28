@@ -42,6 +42,7 @@ fn state(detent: SheetDetent, height: f32) -> DragState {
         peek: 0.0,
         top_margin: 0.0,
         container: 800.0,
+        inset: 0.0,
         grab: GRIP_HEIGHT,
         height,
         armed: false,
@@ -531,4 +532,39 @@ fn the_second_report_of_one_move_is_no_step_and_does_not_make_a_stop_of_it() {
     assert_eq!(st.drag_to(650.0, 5), None, "the same place again");
     assert!(near(st.step, 22.0), "the step of the real move stays: {}", st.step);
     assert_eq!(st.lift(false, 5), Some(SheetDetent::Half), "and the fling it makes carries the sheet on");
+}
+
+// ---- the keyboard's room ----
+
+#[test]
+fn the_keyboard_takes_its_room_from_the_detents_the_sheet_never_reaches_under_it() {
+    // 800 px box, a 300 px keyboard under the sheet: the room is 500 px; half of it, and the room less the top margin.
+    let s = sheet().with_bottom_inset(300.0).with_top_margin(100.0);
+    assert!(near(s.height_of(SheetDetent::Peek), 130.0));
+    assert!(near(s.height_of(SheetDetent::Half), 250.0));
+    assert!(near(s.height_of(SheetDetent::Full), 400.0), "the full sheet's top edge is 100 px from the box's top");
+    // without a top margin it is 85 % of the room
+    assert!(near(sheet().with_bottom_inset(300.0).height_of(SheetDetent::Full), 425.0));
+    // the root keeps its own place: it lies above the keyboard
+    assert!(root_css(250.0, 300.0).contains("bottom: 300px;"));
+}
+
+#[test]
+fn a_keyboard_that_is_no_number_or_taller_than_the_box_leaves_a_pixel_of_room_not_a_failure() {
+    assert!(near(room(800.0, f32::NAN), 800.0) && near(room(800.0, -50.0), 800.0));
+    assert!(near(room(800.0, 5000.0), 1.0));
+    assert!(near(room(0.0, 100.0), 700.0), "no container named: the default 800");
+    assert!(near(room(f32::NAN, 0.0), 800.0));
+    let s = sheet().with_bottom_inset(5000.0);
+    assert!(s.height_of(SheetDetent::Full).is_finite() && s.height_of(SheetDetent::Full) >= 1.0);
+}
+
+#[test]
+fn the_drag_state_measures_its_detents_over_the_same_room() {
+    let dom = sheet().with_bottom_inset(300.0).with_top_margin(100.0).dom();
+    let mut cb = dom.root.callbacks.as_ref()[0].refany.clone();
+    let st = cb.downcast_ref::<DragState>().expect("state");
+    assert!(near(st.inset, 300.0));
+    let h = st.heights();
+    assert!(near(h.half, 250.0) && near(h.full, 400.0), "{h:?}");
 }

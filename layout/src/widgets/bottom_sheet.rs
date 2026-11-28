@@ -38,7 +38,9 @@
 //!
 //! Heights. `Peek` (130 px) and `Collapsed` (30 px) are px ([`BottomSheet::with_peek_height`],
 //! [`BottomSheet::with_collapsed_height`]), `Half` is half the container, `Full` 85 % of it or the
-//! container less the top margin the app names; the four are kept in order whatever the numbers, and
+//! container less the top margin the app names (the room above the keyboard, when the app names
+//! one: [`BottomSheet::with_bottom_inset`] lifts the sheet's lower edge and takes its room from the
+//! detents); the four are kept in order whatever the numbers, and
 //! a detent the app rules out ([`BottomSheet::with_lowest`] / [`BottomSheet::with_highest`]) is never
 //! settled on. A number that is not finite is replaced by its default, never an error. The pure
 //! part - the detents, where a drag settles, what the keys do - is `widgets::detents`, shared with
@@ -165,7 +167,9 @@ pub struct BottomSheet {
     /// The room the full detent leaves above the sheet, px (the status bar, the search bar a map
     /// keeps in view); 0 is 15 % of the container (the full detent is 85 % of it).
     pub top_margin: f32,
-    /// How far the sheet's lower edge lies above the container's: the on-screen keyboard.
+    /// How far the sheet's lower edge lies above the container's: the on-screen keyboard. The detents are heights of the room above
+    /// it (half of it, the room less the top margin): a sheet drawn up to its full height ends under the app's bar, not under the
+    /// keyboard.
     pub bottom_inset: f32,
     /// The room the content keeps at its end: the home indicator, the navigation bar.
     pub safe_bottom: f32,
@@ -383,7 +387,7 @@ impl BottomSheet {
 
     fn heights(&self) -> Heights {
         Heights::new(
-            self.container_height,
+            room(self.container_height, self.bottom_inset),
             self.collapsed_height,
             self.peek_height,
             self.top_margin,
@@ -428,6 +432,8 @@ struct DragState {
     peek: f32,
     top_margin: f32,
     container: f32,
+    /// How far the sheet's lower edge lies above the container's (the keyboard): the detents are heights of the room above it.
+    inset: f32,
     grab: f32,
     /// The sheet's height now, px.
     height: f32,
@@ -458,7 +464,7 @@ struct DragStep {
 
 impl DragState {
     fn heights(&self) -> Heights {
-        Heights::new(self.container, self.collapsed, self.peek, self.top_margin)
+        Heights::new(room(self.container, self.inset), self.collapsed, self.peek, self.top_margin)
     }
 
     /// A press at window `y` on the sheet whose top edge is at `top` and which is `height` tall, in a box `container` tall (as the
@@ -536,6 +542,14 @@ impl DragState {
         self.height = self.heights().of(detent);
         self.height
     }
+}
+
+/// The room the detents are heights of: the container less what lies under the sheet (the keyboard). A container that is no number is
+/// the default one; an inset that is no number, or negative, is none; the room is never less than a pixel.
+fn room(container: f32, inset: f32) -> f32 {
+    let container = length(container, CONTAINER_HEIGHT_DEFAULT);
+    let inset = if inset.is_finite() { inset.max(0.0) } else { 0.0 };
+    (container - inset).max(1.0)
 }
 
 fn height_property(px: f32) -> CssProperty {
@@ -816,6 +830,7 @@ fn build(sheet: BottomSheet) -> Dom {
         peek: peek_height,
         top_margin,
         container: container_height,
+        inset: bottom_inset,
         grab,
         height,
         armed: false,

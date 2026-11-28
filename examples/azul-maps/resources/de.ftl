@@ -220,7 +220,6 @@ azmaps-saved = Gespeichert
 azmaps-list-favourites = Favoriten
 azmaps-list-recents = Letzte Ziele
 azmaps-clear-recent-destinations = Letzte Ziele und Suchen löschen
-azmaps-favourite = Favorit
 azmaps-lists-unsaved = Die gespeicherten Orte konnten nicht geschrieben werden: { $why }
 azmaps-places-title = Import und Export
 azmaps-import-file = Datei importieren …
