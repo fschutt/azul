@@ -202,6 +202,7 @@ fn the_sidebar(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Sidebar {
         .with_state(state_of(demo))
         .with_surface(surface_of(demo))
         .with_form(form_of(demo))
+        .with_frame_width(if demo.form == 1 { 411.0 } else { 0.0 })
         .with_theme(theme)
         .with_on_event(data.clone(), on_sidebar as SidebarOnEventCallbackType)
 }

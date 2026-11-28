@@ -90,6 +90,8 @@ api_functions=(
   Sidebar.with_window_controls
   Sidebar.set_handle_in_cycle
   Sidebar.with_handle_in_cycle
+  Sidebar.set_frame_width
+  Sidebar.with_frame_width
   Sidebar.set_theme
   Sidebar.with_theme
   Sidebar.set_on_event
@@ -135,7 +137,6 @@ api_functions=(
   SidebarStatus.with_detail
   SidebarStatus.set_popover
   SidebarStatus.with_popover
-  FormFactor.is_phone
   FormFactor.resolved
   SidebarState.toggled
   SidebarState.from_handle

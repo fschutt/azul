@@ -275,26 +275,16 @@ pub struct SidebarRow {
     /// The icon, a Material name (`Dom::create_icon`); empty for none. A row with an icon is a
     /// button of the rail.
     pub icon: AzString,
-    /// A colour for the icon (Mail's blue, a calendar's colour); none: the sidebar's ink.
-    pub tint: OptionColorU,
     /// The count after the label ("329"); empty for none.
     pub badge: AzString,
+    /// What the rail's button says under the pointer and on a long press; empty: the label.
+    pub tooltip: AzString,
     /// What the app calls this row: handed back in every event about it.
     pub tag: usize,
     /// How deep a tree row is, 0 at the top (held to `MAX_DEPTH`).
     pub depth: usize,
-    /// Whether the row has children: it shows a disclosure triangle.
-    pub has_children: bool,
-    /// Whether the children show (the triangle points down).
-    pub expanded: bool,
-    /// Whether this is the row the main view shows: a rounded highlight.
-    pub selected: bool,
     /// A check box before the icon.
     pub mark: SidebarRowMark,
-    /// Whether the row is a button of the rail (a row with an icon is by default).
-    pub in_rail: bool,
-    /// What the rail's button says under the pointer and on a long press; empty: the label.
-    pub tooltip: AzString,
     /// How far this row's own pie is, 0 to 1 (a document's sync state); a number below 0 (or no
     /// number) is no pie. APPENDED for ABI stability.
     pub pie_fraction: f32,
@@ -302,6 +292,16 @@ pub struct SidebarRow {
     pub pie_tone: PieTone,
     /// The row's collaboration icon: none, off or on.
     pub collab: SidebarCollab,
+    /// A colour for the icon (Mail's blue, a calendar's colour); none: the sidebar's ink.
+    pub tint: OptionColorU,
+    /// Whether the row has children: it shows a disclosure triangle.
+    pub has_children: bool,
+    /// Whether the children show (the triangle points down).
+    pub expanded: bool,
+    /// Whether this is the row the main view shows: a rounded highlight.
+    pub selected: bool,
+    /// Whether the row is a button of the rail (a row with an icon is by default).
+    pub in_rail: bool,
 }
 
 impl_option!(SidebarRow, OptionSidebarRow, copy = false, [Debug, Clone, PartialEq]);
@@ -792,6 +792,12 @@ pub struct Sidebar {
     pub on_event: OptionSidebarOnEvent,
     /// The widget theme this sidebar is PINNED to, or `None` to follow the app theme.
     pub theme: OptionUiTheme,
+    /// The width of the frame the sidebar stands in, px; 0 when the app does not say. With it a
+    /// phone's drawer has a width in px (a share of the frame up to its cap) like the rail and the
+    /// handle, so the column's width can be TWEENED between the states (the sidebar slides open
+    /// and shut); without it the drawer is a percent share and the column jumps. APPENDED for
+    /// ABI stability.
+    pub frame_width: f32,
 }
 
 impl_option!(Sidebar, OptionSidebar, copy = false, [Debug, Clone]);
@@ -815,6 +821,7 @@ impl Sidebar {
             handle_in_cycle: false,
             on_event: OptionSidebarOnEvent::None,
             theme: OptionUiTheme::None,
+            frame_width: 0.0,
         }
     }
 
@@ -954,6 +961,19 @@ impl Sidebar {
     #[must_use]
     pub const fn with_window_controls(mut self, left: f32, height: f32) -> Self {
         self.set_window_controls(left, height);
+        self
+    }
+
+    /// The width of the frame the sidebar stands in, px (what `LayoutCallbackInfo::get_window_width`
+    /// says for an app whose window is the frame): the column then animates between its states.
+    pub const fn set_frame_width(&mut self, width: f32) {
+        self.frame_width = width;
+    }
+
+    /// [`Self::set_frame_width`] for the builder chain.
+    #[must_use]
+    pub const fn with_frame_width(mut self, width: f32) -> Self {
+        self.set_frame_width(width);
         self
     }
 
@@ -1825,10 +1845,20 @@ fn build(sb: Sidebar) -> Dom {
         handle_in_cycle,
         on_event,
         theme,
+        frame_width,
     } = sb;
     let phone = form.is_phone();
     let look = surface.look();
-    let col = column_width(state, form, expanded_width, controls_left);
+    let mut col = column_width(state, form, expanded_width, controls_left);
+    // a frame of a known width: the drawer's share is a width in px as well, so the column can
+    // be tweened between its states
+    if frame_width.is_finite() && frame_width > 0.0 && col.percent > 0.0 {
+        col = SidebarColumnWidth {
+            px: col.in_frame(frame_width),
+            percent: 0.0,
+            max_px: 0.0,
+        };
+    }
     let (sections, statuses) = limited(sections.into_library_owned_vec(), statuses.into_library_owned_vec());
 
     // the keyboard stop: the selected row, else the first
@@ -1867,8 +1897,11 @@ fn build(sb: Sidebar) -> Dom {
     let mut root_css = format!(
         "display: flex; flex-direction: column; flex-shrink: 0; flex-grow: 0; height: 100%; box-sizing: border-box; \
          overflow: hidden; position: relative; font-size: 13px; user-select: none; \
-         border-right: 1px solid system:separator; {} {}",
+         border-right: 1px solid system:separator; {} {} {}",
         width_css(col),
+        // the column slides between its states (a transition of the width: it needs a width in px
+        // on both sides, see `frame_width`; where the engine does not tween, the width jumps)
+        if col.percent > 0.0 { "" } else { "animation: width 200ms ease-out;" },
         look.root
     );
     if state != SidebarState::Expanded {

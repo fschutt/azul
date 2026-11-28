@@ -680,3 +680,87 @@ fn the_tab_row_keeps_clear_of_the_controls_only_where_the_sidebar_is_narrower_th
     assert!((controls(SidebarState::Handle) - 62.0).abs() < 0.001, "the 16 px handle covers 16 of the 78");
     assert!((mail().with_state(SidebarState::Handle).header_left_pad() - 0.0).abs() < 0.001, "no controls at the left");
 }
+
+// ---- the column slides: its width is a transition between the states ----
+
+use azul_css::props::{basic::SizeMetric, layout::LayoutWidth, property::CssProperty};
+
+/// The root's declared width as (metric, number), the last one declared.
+fn root_width(dom: &Dom) -> Option<(SizeMetric, f32)> {
+    dom.root
+        .style
+        .iter_inline_properties()
+        .filter_map(|(p, _)| match p {
+            CssProperty::Width(v) => match v.get_property() {
+                Some(LayoutWidth::Px(px)) => Some((px.metric, px.number.get())),
+                _ => None,
+            },
+            _ => None,
+        })
+        .last()
+}
+
+fn slides(dom: &Dom) -> bool {
+    dom.root
+        .style
+        .iter_inline_properties()
+        .any(|(p, _)| matches!(p, CssProperty::Animation(_)))
+}
+
+#[test]
+fn a_column_of_a_known_width_slides_between_the_rail_and_the_expanded_sidebar() {
+    for state in [SidebarState::Rail, SidebarState::Expanded] {
+        let dom = mail().with_state(state).dom();
+        assert!(slides(&dom), "{state:?}: the width is a transition");
+        let (metric, _) = root_width(&dom).expect("a width");
+        assert_eq!(metric, SizeMetric::Px, "{state:?}: in px, so it can be tweened");
+    }
+}
+
+#[test]
+fn a_phones_drawer_in_a_frame_of_a_known_width_is_in_px_and_slides() {
+    let dom = mail()
+        .with_form(FormFactor::Phone)
+        .with_state(SidebarState::Expanded)
+        .with_frame_width(411.0)
+        .dom();
+    let (metric, px) = root_width(&dom).expect("a width");
+    assert_eq!(metric, SizeMetric::Px);
+    assert!((px - 411.0 * 0.76).abs() < 0.01, "76 % of the frame: {px}");
+    assert!(slides(&dom));
+}
+
+#[test]
+fn the_drawers_cap_holds_in_a_wide_frame() {
+    let dom = mail()
+        .with_form(FormFactor::Phone)
+        .with_state(SidebarState::Expanded)
+        .with_frame_width(1000.0)
+        .dom();
+    let (_, px) = root_width(&dom).expect("a width");
+    assert!((px - 360.0).abs() < 0.01, "{px}");
+}
+
+#[test]
+fn a_phones_drawer_in_a_frame_of_no_known_width_is_a_share_and_does_not_slide() {
+    let dom = mail()
+        .with_form(FormFactor::Phone)
+        .with_state(SidebarState::Expanded)
+        .dom();
+    let (metric, number) = root_width(&dom).expect("a width");
+    assert_eq!(metric, SizeMetric::Percent);
+    assert!((number - 76.0).abs() < 0.01);
+    assert!(!slides(&dom), "no px on one side: the column jumps");
+}
+
+#[test]
+fn a_frame_width_that_is_no_number_is_no_frame_width() {
+    for w in [f32::NAN, f32::INFINITY, -5.0, 0.0] {
+        let dom = mail()
+            .with_form(FormFactor::Phone)
+            .with_state(SidebarState::Expanded)
+            .with_frame_width(w)
+            .dom();
+        assert_eq!(root_width(&dom).expect("a width").0, SizeMetric::Percent, "{w}");
+    }
+}
