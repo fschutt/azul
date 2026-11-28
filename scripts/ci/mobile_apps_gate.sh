@@ -117,7 +117,7 @@ run red_layout_on_the_previous_files red_layout
 
 # 1c. everything that compiles, type-checked without building a library (minutes, not an hour): the dll with its tests, the
 #     apps with theirs (they link nothing in a check)
-run dll_check cargo check -p azul-dll --features build-dll --lib --test headless_safe_area_moved --test localization_headless --test android_language_contract --test menu_rows_are_a_touch_target_on_a_phone --test headless_touch_floor_on_a_phone
+run dll_check cargo check -p azul-dll --features build-dll --lib --test headless_safe_area_moved --test localization_headless --test android_language_contract --test menu_rows_are_a_touch_target_on_a_phone --test headless_touch_floor_on_a_phone --test lifecycle_headless
 run apps_check cargo check -p azul-appkit -p AzPaint -p AzMaps -p AzMeet -p AzWriter -p AzWidgets --lib --profile test --features azul-appkit/azul
 
 # 1d. RED of the ribbon's tests: the picker without the application button's row and the group list's rows 44 px tall, as they were
@@ -295,6 +295,9 @@ run autofix autofix
 
 # 7. the double-drop invariant and the guide links (the CI's azul-doc job)
 run doc_check cargo run -r -p azul-doc -- check
+
+# 7a. the tests of the lifecycle work in the layout crate (the mailbox, the e2e op), without the whole workspace
+run lifecycle_tests cargo test -p azul-layout --lib --features azul-layout/e2e-server -- managers::lifecycle e2e::tooling_tests
 
 # 7b. the tests of azul-doc itself (the CI's "azul-doc tests + invariants": the e2e ops' classification, the guide's checks)
 run doc_tests cargo test -r -p azul-doc --bins --no-fail-fast
