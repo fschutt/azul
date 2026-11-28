@@ -9,12 +9,14 @@
 use core::ffi::c_void;
 
 use azul_css::{
+    accessibility::AccessibilityPreferences,
+    accessibility_raw::RawMacos,
     corety::AzString,
     dynamic_selector::{BoolCondition, OsVersion},
     props::basic::color::{ColorU, OptionColorU},
     system::{
-        defaults, AccessibilitySettings, InputMetrics, Platform, ScrollbarPreferences,
-        ScrollbarTrackClick, ScrollbarVisibility, SystemStyle, TextRenderingHints, DarkLightMode,
+        defaults, InputMetrics, Platform, ScrollbarPreferences, ScrollbarTrackClick,
+        ScrollbarVisibility, SystemStyle, TextRenderingHints, DarkLightMode,
     },
 };
 
@@ -259,6 +261,73 @@ fn nsstring_to_string(lib: &ObjcLib, nsstr: Id) -> Option<String> {
     }
 }
 
+// ── The accessibility flags of the workspace ─────────────────────────────
+
+/// `[target sel]` as a `BOOL`, `None` where this AppKit does not answer the selector (an unknown
+/// selector is an uncaught Objective-C exception, not a nil: asking first is what keeps an older
+/// macOS from aborting).
+unsafe fn workspace_flag(lib: &ObjcLib, target: Id, selector: &[u8]) -> Option<bool> { unsafe {
+    if target.is_null() {
+        return None;
+    }
+    let sel = lib.sel(selector);
+    // `respondsToSelector:` sent to the object itself: the instance answers for its own methods
+    let f: unsafe extern "C" fn(Id, Sel, Sel) -> i8 = core::mem::transmute(lib.msg_send);
+    if f(target, lib.sel(b"respondsToSelector:\0"), sel) == 0 {
+        return None;
+    }
+    Some(lib.send_bool(target, sel))
+}}
+
+/// What `NSWorkspace` (and `NSApplication`) answer of the user's accessibility settings: reduce
+/// motion, increase contrast, reduce transparency, differentiate without colour, invert colours,
+/// VoiceOver, Switch Control, Full Keyboard Access. A flag this macOS does not know is `None`.
+///
+/// MAIN THREAD ONLY (AppKit), and cheap: eight message sends.
+fn read_workspace_flags(lib: &ObjcLib) -> RawMacos {
+    // SAFETY: the selectors are NUL-terminated byte strings; every send is guarded by
+    // `respondsToSelector:`; the workspace and the application are the process's singletons.
+    unsafe {
+        let workspace = lib.send_id(lib.cls(b"NSWorkspace\0"), lib.sel(b"sharedWorkspace\0"));
+        let application = lib.send_id(lib.cls(b"NSApplication\0"), lib.sel(b"sharedApplication\0"));
+        RawMacos {
+            reduce_motion: workspace_flag(lib, workspace, b"accessibilityDisplayShouldReduceMotion\0"),
+            increase_contrast: workspace_flag(
+                lib,
+                workspace,
+                b"accessibilityDisplayShouldIncreaseContrast\0",
+            ),
+            reduce_transparency: workspace_flag(
+                lib,
+                workspace,
+                b"accessibilityDisplayShouldReduceTransparency\0",
+            ),
+            differentiate_without_color: workspace_flag(
+                lib,
+                workspace,
+                b"accessibilityDisplayShouldDifferentiateWithoutColor\0",
+            ),
+            invert_colors: workspace_flag(
+                lib,
+                workspace,
+                b"accessibilityDisplayShouldInvertColors\0",
+            ),
+            voice_over: workspace_flag(lib, workspace, b"isVoiceOverEnabled\0"),
+            switch_control: workspace_flag(lib, workspace, b"isSwitchControlEnabled\0"),
+            full_keyboard_access: workspace_flag(lib, application, b"isFullKeyboardAccessEnabled\0"),
+            scrollers_always_shown: None,
+        }
+    }
+}
+
+/// The accessibility preferences the workspace answers now, for the poll that notices a change
+/// (`NSWorkspace.accessibilityDisplayOptionsDidChangeNotification` is posted on the workspace's own
+/// notification centre; the 2 s poll the appearance already has reads them as well, so no
+/// observer object is needed). `None` where AppKit is not there.
+pub(crate) fn probe_preferences() -> Option<AccessibilityPreferences> {
+    with_probe_lib(|lib| Some(read_workspace_flags(lib).into_preferences()))
+}
+
 // ── Public entry point ───────────────────────────────────────────────────
 
 /// Discover the macOS system style by loading AppKit via dlopen.
@@ -474,38 +543,12 @@ pub(crate) fn discover_timed(
         };
 
         // ── 6. Accessibility from NSWorkspace ────────────────────────
-        let nsworkspace = lib.cls(b"NSWorkspace\0");
-        let ws = lib.send_id(nsworkspace, lib.sel(b"sharedWorkspace\0"));
-        if !ws.is_null() {
-            native_accessibility = true;
-            let reduce_motion =
-                lib.send_bool(ws, lib.sel(b"accessibilityDisplayShouldReduceMotion\0"));
-            let increase_contrast =
-                lib.send_bool(ws, lib.sel(b"accessibilityDisplayShouldIncreaseContrast\0"));
-            let reduce_transparency = lib.send_bool(
-                ws,
-                lib.sel(b"accessibilityDisplayShouldReduceTransparency\0"),
-            );
-
-            if reduce_motion {
-                style.prefers_reduced_motion = BoolCondition::True;
-            }
-            if increase_contrast {
-                style.prefers_high_contrast = BoolCondition::True;
-            }
-
-            style.accessibility = AccessibilitySettings {
-                prefers_reduced_motion: reduce_motion,
-                prefers_high_contrast: increase_contrast,
-                prefers_reduced_transparency: reduce_transparency,
-                text_scale_factor: 1.0,
-                ..Default::default()
-            };
-
-            style.text_rendering.increased_contrast = increase_contrast;
-
-            // ── 6b. Animation metrics from accessibility ─────────────
-            style.animation.animations_enabled = !reduce_motion;
+        // Every flag AppKit answers, as the typed preferences (a selector this macOS does not
+        // answer stays unknown, never off); `set_preferences` writes the older mirrors too.
+        let raw = read_workspace_flags(&lib);
+        native_accessibility = raw != RawMacos::default();
+        if native_accessibility {
+            style.set_preferences(raw.into_preferences());
         }
 
         startup.mark("style:input_scrollbar_accessibility_read");
@@ -586,11 +629,17 @@ pub(crate) fn discover_timed(
     // and `defaults read` twice cost 12 ms of the first 61 of `App::create` on the window's thread, for the answer the
     // native query had already given.
     use crate::desktop::shell2::common::style_discovery::cli_fallback_wanted;
-    if cli_fallback_wanted(native_accessibility, style.prefers_reduced_motion) {
-        style.prefers_reduced_motion = detect_macos_reduced_motion();
-    }
-    if cli_fallback_wanted(native_accessibility, style.prefers_high_contrast) {
-        style.prefers_high_contrast = detect_macos_high_contrast();
+    if cli_fallback_wanted(native_accessibility, style.prefers_reduced_motion)
+        || cli_fallback_wanted(native_accessibility, style.prefers_high_contrast)
+    {
+        let mut preferences = style.preferences;
+        preferences.reduced_motion = azul_css::accessibility::SettingState::from_bool(
+            detect_macos_reduced_motion() == BoolCondition::True,
+        );
+        preferences.contrast = azul_css::accessibility_raw::contrast_of(Some(
+            detect_macos_high_contrast() == BoolCondition::True,
+        ));
+        style.set_preferences(preferences);
     }
 
     // The user's stylesheets (`~/.azul/css/<theme>/`, and the legacy
@@ -848,6 +897,11 @@ fn detect_language_macos() -> AzString {
 /// thread. It is affordable there: one `objc_msgSend` pair and a short string
 /// read, no IPC and no subprocess.
 pub(crate) fn probe_effective_appearance() -> Option<DarkLightMode> {
+    with_probe_lib(probe_with)
+}
+
+/// Runs `probe` with the AppKit handle every poll shares.
+fn with_probe_lib<T>(probe: impl FnOnce(&ObjcLib) -> Option<T>) -> Option<T> {
     // Loaded ONCE, not per poll. `ObjcLib::load()` dlopens libobjc + AppKit and
     // its Drop dlcloses them, so calling it from a 500 ms poll would open and
     // close AppKit twice a second on the main thread forever. The handles are
@@ -862,7 +916,7 @@ pub(crate) fn probe_effective_appearance() -> Option<DarkLightMode> {
 
     LIB.with(|lib| {
         let lib = lib.as_ref()?;
-        probe_with(lib)
+        probe(lib)
     })
 }
 
@@ -964,18 +1018,32 @@ fn adopt_probed_theme(
 ) -> Option<alloc::sync::Arc<SystemStyle>> {
     use azul_core::window::DarkLightMode;
 
-    let theme = probe_effective_appearance()?;
-    let theme = match theme {
+    // The appearance AND the accessibility preferences (reduce motion, increase contrast, ...):
+    // either moving is a change of the system's style. The preferences are compared with what the
+    // platform reported the last time (`detected_preferences`), not with what the window shows
+    // (the environment's pins and the window's own override are laid over those).
+    let theme = probe_effective_appearance().map(|theme| match theme {
         DarkLightMode::Dark => DarkLightMode::Dark,
         DarkLightMode::Light => DarkLightMode::Light,
+    });
+    let reported = probe_preferences();
+    let theme_moved = theme.is_some_and(|theme| common.desktop_theme() != theme);
+    let preferences_moved = reported.is_some_and(|reported| reported != common.detected_preferences);
+    if !theme_moved && !preferences_moved {
+        return None;
+    }
+    let held_language = common.system_style.language.clone();
+    let Some(theme) = theme.filter(|_| theme_moved) else {
+        // Only the accessibility settings moved: the style is discovered again (an increased
+        // contrast and a reduced transparency change the system colours too), nothing of the
+        // window's theme is touched.
+        common.snapshot_window_state_baseline("macos.adopt_observed_preferences");
+        return Some(alloc::sync::Arc::new(discover(core::slice::from_ref(&held_language))));
     };
     // The DESKTOP's light / dark, which is not necessarily the window's: an
     // app that pins its mode keeps its window where it is, but the desktop is
     // still recorded and its style re-discovered, so switching the app back
     // to "follow the system" lands on the desktop's current mode at once.
-    if common.desktop_theme() == theme {
-        return None;
-    }
     let window_theme = common.adopt_desktop_theme(theme);
 
     // The diff pipeline compares against previous_window_state to decide that a
@@ -997,7 +1065,7 @@ fn adopt_probed_theme(
     // startup; handing it back as the known list keeps its RTL-ness across
     // the switch (an empty list re-resolved every language as LTR, so an
     // Arabic UI flipped to left-to-right on its first appearance change).
-    let held_language = common.system_style.language.clone();
+    // (`held_language` is read above, before the window's theme was touched.)
     Some(rediscovered_style_for(
         theme,
         core::slice::from_ref(&held_language),
