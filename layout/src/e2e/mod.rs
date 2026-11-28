@@ -107,6 +107,16 @@ mod tab_content_toggle_ops_tests;
 #[cfg(test)]
 mod popup_ops_tests;
 
+// A callback that writes a layout property on the override channel is laid out by the pass the write asks for, on every
+// write: the touch ops (no hover to ride on) and the mouse, through the real dispatcher.
+#[cfg(test)]
+mod override_dirt_tests;
+
+// The release of a button pressed on a node reaches it once, a node that holds the pointer included: the two captures of
+// the pointer (`LayoutWindow::apply_input_captures`), through the real dispatcher.
+#[cfg(test)]
+mod captured_release_tests;
+
 // A click by text lands where the text is DRAWN in a scrolled page (the label inside a button has no
 // hit-test area; its laid-out box is in content coordinates).
 #[cfg(test)]

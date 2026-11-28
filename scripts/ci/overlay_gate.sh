@@ -42,7 +42,7 @@ tests() {
   local code=0
   # the tests of this work by name: the module names carry them
   cargo test -p azul-css -p azul-core -p azul-layout --lib --features "$features" --no-fail-fast -- \
-    transient event_boundary menu_overlay 2>&1 | tee overlay-tests.txt
+    transient event_boundary menu_overlay input_capture override_dirt captured_release 2>&1 | tee overlay-tests.txt
   local first=${PIPESTATUS[0]}
   cargo test -p azul-layout --features "$features" --test all --no-fail-fast -- \
     a_window_with_one_surface a_menu_of_a_window a_popover_fits a_screen_reader_reaches 2>&1 | tee overlay-tests-integration.txt

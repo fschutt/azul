@@ -642,6 +642,10 @@ pub mod menu_overlay;
 /// The Dom pass of those menus: the popup that holds the rows of each, at the end of the page.
 #[cfg(all(feature = "text_layout", feature = "widgets"))]
 pub mod menu_overlay_dom;
+/// The pointer captures of an event pass (the node a button was pressed on and the node that holds the pointer get the
+/// release), one body for the shells and the e2e runner.
+#[cfg(feature = "text_layout")]
+pub mod input_capture;
 /// Where a floating surface (tooltip, menu, popover) opens against its anchor and screen.
 pub mod placement;
 /// Render an icon-registry entry to RGBA pixels, for the system tray.

@@ -1035,76 +1035,14 @@ fn apply_focus_restyle_in_dom(
     }
 }
 
+/// The css diff of a restyle, staged for the next layout pass of `dom_id`: `LayoutWindow::stage_css_dirty`, which the e2e runner
+/// and the content chokepoint call as well (this was a second copy of its body).
 fn stage_css_dirty(
     layout_window: &mut LayoutWindow,
     dom_id: DomId,
     restyle_result: &azul_core::styled_dom::RestyleResult,
 ) {
-    if restyle_result.changed_nodes.is_empty() {
-        return;
-    }
-    let mut dirty = Vec::new();
-    for (node_id, changes) in &restyle_result.changed_nodes {
-        let mut max_scope = azul_css::props::property::RelayoutScope::None;
-        for change in changes {
-            let scope = change.current_prop.get_type().relayout_scope(true);
-            if scope > max_scope {
-                max_scope = scope;
-            }
-        }
-        dirty.push((*node_id, max_scope));
-    }
-    if dirty.is_empty() {
-        return;
-    }
-    let current = layout_window
-        .pending_css_dirty
-        .take()
-        .unwrap_or((dom_id, Vec::new()));
-    if current.0 == dom_id {
-        // MERGE PER NODE, never append. This list says WHICH nodes are dirty
-        // and how far each one has to be re-solved, so a node that changes
-        // twice is one entry with the wider scope — appending made it two.
-        //
-        // Nothing drains the list on a paint-only frame: the shells answer
-        // `ShouldUpdateDisplayListCurrentWindow` by invalidating and redrawing
-        // (macos/mod.rs, windows' `route_main_window_result`), and only a real
-        // layout pass consumes it. `apply_hover_restyle` runs on every
-        // MouseEnter/MouseLeave, so a toolbar whose `:hover` changes nothing
-        // but a colour grew this vector for as long as the pointer kept
-        // moving, and the next resize replayed all of it — stale dirt from
-        // hover states long since reverted — as one hitch proportional to how
-        // long the user had been hovering. Merged, the list cannot outgrow the
-        // DOM however long that goes on.
-        let mut merged: BTreeMap<NodeId, azul_css::props::property::RelayoutScope> =
-            current.1.into_iter().collect();
-        for (node_id, scope) in dirty {
-            merged
-                .entry(node_id)
-                .and_modify(|existing| {
-                    if scope > *existing {
-                        *existing = scope;
-                    }
-                })
-                .or_insert(scope);
-        }
-        layout_window.pending_css_dirty = Some((dom_id, merged.into_iter().collect()));
-    } else {
-        // The slot holds ONE DOM's dirt, and it is another DOM's. Dirt that asks for layout
-        // is not dropped for the newcomer: it waits beside the slot for its DOM's pass
-        // (`LayoutWindow::hold_css_dirt`). A pass that restyles two DOMs - the pointer
-        // leaves a node of the window and enters one of a view - returned "relayout" for
-        // the first and then lost what to lay out. Paint-only dirt was served by the
-        // restyle that staged it (a list patched or built) and goes, as before.
-        let (other_dom, other_dirt) = current;
-        if other_dirt
-            .iter()
-            .any(|(_, scope)| *scope > azul_css::props::property::RelayoutScope::None)
-        {
-            layout_window.hold_css_dirt(other_dom, other_dirt);
-        }
-        layout_window.pending_css_dirty = Some((dom_id, dirty));
-    }
+    layout_window.stage_css_dirty(dom_id, restyle_result);
 }
 
 /// Apply an incremental `:active` restyle for this pass's press / release.
@@ -12901,60 +12839,15 @@ pub trait PlatformWindow {
             }
         }
 
-        // PRESS-TARGET CAPTURE: the node a button was pressed on gets that
-        // button's release even when the pointer released elsewhere (or the
-        // window lost focus and the OS handler cleared the button). See
-        // `HoverManager::apply_press_target_capture` — this is THE fix for the
-        // "stuck input" family; widgets no longer need "leave = release".
+        // The pointer captures (`LayoutWindow::apply_input_captures`, one body for every shell and the e2e runner): the
+        // explicit one a node asked for (`CallbackInfo::capture_pointer`, W3C `setPointerCapture`) first - while a node
+        // holds the pointer, the capturing seat's moves and release are ITS, and the release ends the capture - then the
+        // press-target capture: the node a button was pressed on gets that button's release even when the pointer
+        // released elsewhere (or the window lost focus and the OS handler cleared the button; the fix of the "stuck
+        // input" family, widgets no longer need "leave = release"). In that order the pressed node of a capture holder
+        // is not given a second release of its own.
         if let Some(lw) = self.get_layout_window_mut() {
-            let layout_results = &lw.layout_results;
-            let in_release_path =
-                |press: azul_core::dom::DomNodeId, release: azul_core::dom::DomNodeId| -> bool {
-                    // Is `press` the release target or one of its DOM ancestors
-                    // (i.e. already on the release's propagation path)?
-                    if press.dom != release.dom {
-                        return false;
-                    }
-                    let (Some(press_node), Some(mut current)) = (
-                        press.node.into_crate_internal(),
-                        release.node.into_crate_internal(),
-                    ) else {
-                        return false;
-                    };
-                    let Some(lr) = layout_results.get(&release.dom) else {
-                        return false;
-                    };
-                    let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-                    loop {
-                        if current == press_node {
-                            return true;
-                        }
-                        match hierarchy.get(current).and_then(|n| n.parent_id()) {
-                            Some(parent) => current = parent,
-                            None => return false,
-                        }
-                    }
-                };
-            lw.hover_manager
-                .apply_press_target_capture(&mut synthetic_events, &in_release_path);
-        }
-
-        // Pointer capture: while a node holds the pointer, moves and the
-        // release go to IT, not to whatever the hit test found. The capture
-        // ends with the release (W3C `setPointerCapture` semantics).
-        // PER SEAT (9b-ii-b): only the capturing seat's events are retargeted,
-        // and only that seat's release ends the capture - the rule and its
-        // test live in `hover::apply_pointer_capture`.
-        if let Some(captured) = self.get_layout_window().and_then(|lw| lw.pointer_capture) {
-            let released = azul_layout::managers::hover::apply_pointer_capture(
-                &mut synthetic_events,
-                captured,
-            );
-            if released {
-                if let Some(lw) = self.get_layout_window_mut() {
-                    lw.pointer_capture = None;
-                }
-            }
+            lw.apply_input_captures(&mut synthetic_events);
         }
 
         // Clear the sensor/gamepad pending-event flags now that this pass has

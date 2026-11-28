@@ -3222,6 +3222,11 @@ impl CallbackInfo {
     /// higher priority than the static cascade, so this does not invalidate
     /// the styled DOM's CSS rules. Pass `CssProperty::Initial` for a given
     /// property type to remove any prior override for that type.
+    ///
+    /// A property that moves boxes (`height`, `width`, a margin, ...) is laid
+    /// out by the pass this write asks for, like any other write: the diff of
+    /// the override is staged as css dirt for it, since the layout pass reads
+    /// node data and interaction states and the override is neither.
     pub fn override_node_css_properties(
         &mut self,
         dom_id: DomId,

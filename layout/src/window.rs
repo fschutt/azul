@@ -13561,7 +13561,10 @@ impl LayoutWindow {
             .map(|prop| (node_id, prop.clone()))
             .chain(seeded.iter().map(|tr| (tr.node, tr.from.clone())))
             .collect();
-        drop(layout_result.styled_dom.restyle_user_properties(&writes));
+        // What the write changed, node by node (measured against the cascade before it): an override
+        // is no part of the node's data, so this diff is the ONLY thing that says which boxes the
+        // layout pass owes (see where it is staged below).
+        let restyled = layout_result.styled_dom.restyle_user_properties(&writes);
         // A style the app wrote (not a value the list binds: that path returned above): the
         // DOM is another one (`DomGenerations`).
         self.dom_generations.bump(dom_id);
@@ -13578,6 +13581,25 @@ impl LayoutWindow {
         // (a per-frame animated colour would re-layout the world).
         let props_vec: azul_css::props::property::CssPropertyVec = props.into();
         let needs_relayout = crate::callbacks::css_properties_need_relayout(&props_vec);
+
+        // THE LAYOUT PASS READS NODE DATA AND INTERACTION STATES, NEVER OVERRIDES. A write on the override
+        // channel changes neither (it leaves the inline style alone, which is its point), so the pass the
+        // `Relayout` tier asks the host for - the reconcile of the retained tree - finds every node as it
+        // was and keeps its box, unless something ELSE staged the node as css dirt for that pass: a
+        // `:hover` / `:active` / `:focus` restyle of it, or the tick of a tween. A write of `height` from a
+        // callback was laid out only when the pointer happened to change the node's state in the same
+        // pass (the mouse flow), and not by a touch that moves inside it (the e2e runner's touch ops).
+        // The diff of the write IS the dirt: stage it as every restyle does (`stage_css_dirty`) - for a
+        // write that is laid out only, because the list is drained by layout passes alone.
+        if override_only && needs_relayout {
+            self.stage_css_dirty(
+                dom_id,
+                &azul_core::styled_dom::RestyleResult {
+                    changed_nodes: restyled,
+                    ..Default::default()
+                },
+            );
+        }
 
         if !override_only {
             if needs_relayout && dom_id == DomId::ROOT_ID {

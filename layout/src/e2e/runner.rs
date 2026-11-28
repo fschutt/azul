@@ -1194,49 +1194,14 @@ impl Runner {
             .hover_manager
             .mark_hover_changes_delivered();
 
-        // PRESS-TARGET CAPTURE: the node a button was pressed on gets that
-        // button's release even when the pointer released elsewhere. The DLL
-        // does this immediately after determination (shell2/common/event.rs),
-        // and `HoverManager::apply_press_target_capture` says to "call once
-        // per pass, after `determine_all_events`, before dispatch" — this
-        // runner is a port of that pass and had not been given the call, so
-        // `press_targets` stayed empty here and the Click synthesis in
-        // `event_determination`, which is guarded on
-        // `press_target_for(seat).is_some()`, never fired. A pointer click
-        // therefore ran no handler in the harness while the device was fine.
-        {
-            let lw = &mut self.layout_window;
-            let layout_results = &lw.layout_results;
-            let in_release_path =
-                |press: DomNodeId, release: DomNodeId| -> bool {
-                    // Is `press` the release target or one of its DOM ancestors
-                    // (i.e. already on the release's propagation path)?
-                    if press.dom != release.dom {
-                        return false;
-                    }
-                    let (Some(press_node), Some(mut current)) = (
-                        press.node.into_crate_internal(),
-                        release.node.into_crate_internal(),
-                    ) else {
-                        return false;
-                    };
-                    let Some(lr) = layout_results.get(&release.dom) else {
-                        return false;
-                    };
-                    let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-                    loop {
-                        if current == press_node {
-                            return true;
-                        }
-                        match hierarchy.get(current).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
-                            Some(parent) => current = parent,
-                            None => return false,
-                        }
-                    }
-                };
-            lw.hover_manager
-                .apply_press_target_capture(&mut synthetic_events, &in_release_path);
-        }
+        // THE POINTER CAPTURES: the explicit one a node asked for (`CallbackInfo::capture_pointer`) and the press-target
+        // capture (the node a button was pressed on gets that button's release even when the pointer released
+        // elsewhere), in the one body the shells call (`LayoutWindow::apply_input_captures`, `input_capture.rs`). A pointer
+        // click ran no handler in this harness while the device was fine, once, because `press_targets` stayed empty here
+        // (the step had not been ported); the capture a widget stored (`CallbackChange::CapturePointer`) was never applied
+        // here either, so a scenario's drag that left the node's box stopped following the mouse. Called, not copied: the
+        // order of the two steps decides how many releases a capturing node hears.
+        self.layout_window.apply_input_captures(&mut synthetic_events);
 
         // Clear the one-shot pending-event flags now that this pass has
         // collected them — one event per change, not one per frame (the DLL
