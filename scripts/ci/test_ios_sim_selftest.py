@@ -44,6 +44,49 @@ class Devices(unittest.TestCase):
         self.assertIsNone(sim.pick_device(sim.parse_devices(LISTING), "iPhone 99"))
 
 
+TYPES = json.dumps({"devicetypes": [
+    {"name": "iPhone 16 Pro", "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro"},
+    {"name": "iPhone SE (3rd generation)", "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation"},
+]})
+RUNTIMES = json.dumps({"runtimes": [
+    {"identifier": "com.apple.CoreSimulator.SimRuntime.iOS-17-5", "name": "iOS 17.5", "version": "17.5", "isAvailable": True},
+    {"identifier": "com.apple.CoreSimulator.SimRuntime.iOS-26-2", "name": "iOS 26.2", "version": "26.2", "isAvailable": True},
+    {"identifier": "com.apple.CoreSimulator.SimRuntime.iOS-18-0", "name": "iOS 18.0", "version": "18.0", "isAvailable": False},
+    {"identifier": "com.apple.CoreSimulator.SimRuntime.watchOS-11-0", "name": "watchOS 11.0", "version": "11.0", "isAvailable": True},
+]})
+
+
+class Resolve(unittest.TestCase):
+    def test_runtimes_are_the_available_ios_ones_newest_first(self):
+        self.assertEqual([r["version"] for r in sim.parse_runtimes(RUNTIMES)], ["26.2", "17.5"])
+
+    def test_an_existing_device_is_used_as_it_is(self):
+        action, device, note = sim.resolve_device("iPhone 16 Pro", sim.parse_devices(LISTING), sim.parse_device_types(TYPES), sim.parse_runtimes(RUNTIMES))
+        self.assertEqual((action, device["udid"], note), ("use", "NEW-PRO", ""))
+
+    def test_a_missing_device_whose_type_exists_is_made_on_the_newest_runtime(self):
+        devices = [d for d in sim.parse_devices(LISTING) if d["name"] != "iPhone SE (3rd generation)"]
+        action, value, note = sim.resolve_device("iPhone SE (3rd generation)", devices, sim.parse_device_types(TYPES), sim.parse_runtimes(RUNTIMES))
+        self.assertEqual(action, "create")
+        self.assertEqual(value, ("AzSelfTest iPhone SE (3rd generation)", "com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation",
+                                 "com.apple.CoreSimulator.SimRuntime.iOS-26-2"))
+        self.assertIn("device type", note)
+
+    def test_a_model_this_machine_does_not_have_falls_back_to_the_newest_plain_iphone_and_says_so(self):
+        devices = sim.parse_devices(json.dumps({"devices": {"com.apple.CoreSimulator.SimRuntime.iOS-26-2": [
+            {"name": "iPhone 16", "udid": "A", "state": "Shutdown", "isAvailable": True},
+            {"name": "iPhone 17", "udid": "B", "state": "Shutdown", "isAvailable": True},
+            {"name": "iPhone 17 Pro", "udid": "C", "state": "Shutdown", "isAvailable": True},
+        ]}}))
+        action, device, note = sim.resolve_device("iPhone 5c", devices, [], sim.parse_runtimes(RUNTIMES))
+        self.assertEqual((action, device["udid"]), ("use", "B"))
+        self.assertIn("iPhone 17", note)
+        self.assertIn("iPhone 5c", note)
+
+    def test_no_iphone_at_all_is_none(self):
+        self.assertEqual(sim.resolve_device("iPhone 99", [], [], [])[0], "none")
+
+
 class Launch(unittest.TestCase):
     def test_the_app_environment_goes_through_the_simctl_child_prefix(self):
         env = sim.launch_env()
