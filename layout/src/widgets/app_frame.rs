@@ -53,6 +53,14 @@
 //!    stands beside it); `Ribbon::with_content_inset` says so.
 //! 5. The first tab is the location (`RibbonTab::with_location`); the Preview is opt-in: no
 //!    `with_preview`, no dock, no grip and no bottom pane.
+//! 6. SAFE AREA: the engine insets the window's root by the shell's insets (status bar, navigation
+//!    bar, camera housing) unless the app sets `WindowFlags::extend_into_safe_area`: the frame
+//!    then needs nothing. An app that extends into it (AzWriter puts its tab row into the status
+//!    bar's band) pads the frame itself from `get_safe_area_insets()` and says where the tab row
+//!    ends with [`AppFrame::with_rail_top`].
+//! 7. TOUCH SIZES: a row, a slot of the rail and a button of the location block are 48 px tall on
+//!    a touch platform (Android's 48 dp, iOS's 44 pt); the rail's WIDTH is the one deliberate
+//!    exception (18 px drawn, 36 px hit): the user's design.
 //!
 //! Key types: [`AppFrame`].
 

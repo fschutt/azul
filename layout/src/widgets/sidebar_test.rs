@@ -526,7 +526,7 @@ fn a_phone_row_is_a_finger_tall_and_a_desktop_row_is_not() {
         on_event: OptionSidebarOnEvent::None,
         stop: 0,
     };
-    assert!((phone.row_h() - 44.0).abs() < 0.001 && (phone.slot_h() - 44.0).abs() < 0.001);
+    assert!((phone.row_h() - 48.0).abs() < 0.001 && (phone.slot_h() - 48.0).abs() < 0.001);
     let desktop = Ctx { touch: false, ..phone };
     assert!((desktop.row_h() - 28.0).abs() < 0.001 && (desktop.slot_h() - 30.0).abs() < 0.001);
 }
