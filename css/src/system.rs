@@ -1693,13 +1693,18 @@ impl Default for AnimationMetrics {
 /// Audio-feedback preferences from the OS.
 ///
 /// Controls whether the app should make sounds on events (error pings,
-/// notifications) or on input (clicks, key presses).
+/// notifications) or on input (clicks, key presses). `azul_core::sound::route` reads it to
+/// decide whether a `SystemSound` plays.
 ///
 /// # Platform APIs
-/// - **Windows:** `SystemParametersInfo(SPI_GETBEEP)`
-/// - **macOS:** `NSSound.soundEffectAudioVolume`
+/// - **Android:** `input_feedback_sounds_enabled` is `Settings.System.SOUND_EFFECTS_ENABLED` ("Touch
+///   sounds"), read at the start and at every resume; events follow the ringer mode and Do Not
+///   Disturb, which the system applies itself.
+/// - **Windows:** `SystemParametersInfo(SPI_GETBEEP)` (the warning beeper, not the sound scheme)
 /// - **Linux:** `org.gnome.desktop.sound event-sounds`, `org.gnome.desktop.sound
 ///   input-feedback-sounds`
+/// - **macOS, iOS:** not read (the defaults stand): macOS applies "Play user interface sound
+///   effects" inside System Sound Services, and iOS answers with haptics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct AudioMetrics {

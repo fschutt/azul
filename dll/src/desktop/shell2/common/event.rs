@@ -698,6 +698,45 @@ fn play_haptic_native(request: &azul_core::haptics::HapticRequest) {
     }
 }
 
+/// Hand ONE admitted system sound to whatever the platform plays it with, and say how that went.
+///
+/// A free function for the same reason as `play_haptic_native`: nothing about the sound depends
+/// on the window. The decision (the route, the app's mute, the OS switches, the pacing) was made
+/// by the window's `SoundManager` before this is called; what is left is the platform call.
+/// A haptic route goes through the haptic path, so it is the same call a `play_haptic` makes.
+fn play_sound_native(
+    decision: &azul_core::sound::SoundDecision,
+) -> azul_core::sound::SoundOutcome {
+    use azul_core::sound::{SoundOutcome, SoundRoute};
+
+    match &decision.route {
+        SoundRoute::Haptic(pattern) => {
+            play_haptic_native(&azul_core::haptics::HapticRequest::new(
+                *pattern,
+                azul_core::haptics::HapticTarget::System,
+            ));
+            SoundOutcome::Played
+        }
+        SoundRoute::Silent(why) => SoundOutcome::Skipped(String::from(why.code())),
+        route @ (SoundRoute::Effect { .. }
+        | SoundRoute::Ringtone { .. }
+        | SoundRoute::MediaAction { .. }) => play_route_native(route),
+    }
+}
+
+/// The platform's player of a sound route (an effect, a tone, a camera sound).
+#[cfg(target_os = "android")]
+fn play_route_native(route: &azul_core::sound::SoundRoute) -> azul_core::sound::SoundOutcome {
+    crate::desktop::shell2::android::play_system_sound(route)
+}
+
+/// The desktops' players (the macOS alert sound and beep, Windows' `MessageBeep`); a platform
+/// that has no player for a route says so as a failure instead of playing nothing in silence.
+#[cfg(not(target_os = "android"))]
+fn play_route_native(route: &azul_core::sound::SoundRoute) -> azul_core::sound::SoundOutcome {
+    crate::desktop::extra::system_sounds::play(route)
+}
+
 /// What a restyle that changed nothing but `transform` and `opacity`
 /// (`RestyleResult::gpu_only_changes`) asks of the shell. Both are values the
 /// display list binds by key (`GpuValueCache`) and both compositors read live,
@@ -8876,6 +8915,18 @@ pub trait PlatformWindow {
                 }
                 ProcessEventResult::DoNothing
             }
+            CallbackChange::PlaySound { sound } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.sound_manager.play(*sound);
+                }
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::SetSoundsMuted { muted } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.sound_manager.set_muted(*muted);
+                }
+                ProcessEventResult::DoNothing
+            }
             CallbackChange::RequestSoftKeyboard { visible } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.text_edit_manager.request_soft_keyboard(*visible);
@@ -11808,6 +11859,97 @@ pub trait PlatformWindow {
         any_refresh
     }
 
+    /// Play the haptic requests the callbacks asked for (`CallbackInfo::play_haptic`).
+    ///
+    /// Called at the end of the OUTERMOST event pass and at the end of a timer / thread turn
+    /// ([`Self::process_timers_and_threads`]): a request made by a timer callback (a fling's
+    /// momentum, an animation) has no event pass after it, and waited for the next click.
+    fn drain_haptics(&mut self) {
+        let pending = self
+            .get_layout_window_mut()
+            .filter(|lw| lw.haptic_manager.has_pending())
+            .map(|lw| lw.haptic_manager.take_pending())
+            .unwrap_or_default();
+        for request in &pending {
+            play_haptic_native(request);
+        }
+    }
+
+    /// Whether this window hands system sounds and haptics to the OS. A headless window only
+    /// RECORDS them: its `SoundManager` holds what `assert_sound` reads, and nothing is played.
+    fn plays_system_sounds(&self) -> bool {
+        true
+    }
+
+    /// Decide the system sounds the callbacks of this pass asked for and play the ones that play.
+    ///
+    /// `CallbackInfo::play_system_sound()` queued them in the window's `SoundManager`; this is
+    /// the end of the outermost pass. The manager decides each request (the route of the
+    /// platform, the app's mute, the OS's switches, the pacing: the same sound again within its
+    /// minimum interval, and an event sound as the third identical one in a row, are dropped),
+    /// records every request with the reason it did not play, and returns the ones to play.
+    /// `AZ_SOUNDS=off` records and plays none, `AZ_SOUNDS=log` prints one line per request.
+    fn drain_system_sounds(&mut self) {
+        use azul_core::sound::{SoundOutcome, SoundPlatform};
+
+        use crate::desktop::shell_settings::SoundsMode;
+
+        if !self
+            .get_layout_window()
+            .is_some_and(|lw| lw.sound_manager.has_pending())
+        {
+            return;
+        }
+        let mode = self.get_app_shared().settings().shell.sounds;
+        let headless = !self.plays_system_sounds();
+        let audio = self.get_system_style().audio;
+        let now_ms = azul_layout::probe::monotonic_now_nanos() / 1_000_000;
+
+        let Some(lw) = self.get_layout_window_mut() else {
+            return;
+        };
+        let first_sequence = lw.sound_manager.next_sequence();
+        let decisions = lw
+            .sound_manager
+            .process(SoundPlatform::current(), audio, Some(now_ms));
+        let dropped = lw.sound_manager.take_dropped();
+        let skipped = if headless {
+            Some("headless")
+        } else if mode == SoundsMode::Off {
+            Some("AZ_SOUNDS=off")
+        } else {
+            None
+        };
+        for decision in &decisions {
+            let outcome = skipped.map_or_else(
+                || play_sound_native(decision),
+                |why| SoundOutcome::Skipped(String::from(why)),
+            );
+            lw.sound_manager.record_outcome(decision.sequence, outcome);
+        }
+        if dropped > 0 {
+            log_warn!(
+                super::debug_server::LogCategory::Input,
+                "[sound] {dropped} sound request(s) dropped: more than {} waited for one pass",
+                azul_core::sound::MAX_PENDING_SOUNDS,
+            );
+        }
+        if mode == SoundsMode::Log {
+            for record in lw
+                .sound_manager
+                .records()
+                .filter(|record| record.sequence >= first_sequence)
+            {
+                super::log_gate::emit_at(
+                    super::debug_server::LogLevel::Info,
+                    super::debug_server::LogCategory::Input,
+                    format!("[sound] {}", record.describe()),
+                    None,
+                );
+            }
+        }
+    }
+
     /// Process all window events using the state-diffing system.
     ///
     /// Main entry point for processing window events.
@@ -12159,14 +12301,15 @@ pub trait PlatformWindow {
         // continuously instead of ticking once — the exact failure the
         // coalescing exists to prevent.
         if depth == 0 {
-            let pending = self
-                .get_layout_window_mut()
-                .filter(|lw| lw.haptic_manager.has_pending())
-                .map(|lw| lw.haptic_manager.take_pending())
-                .unwrap_or_default();
-            for request in &pending {
-                play_haptic_native(request);
-            }
+            self.drain_haptics();
+        }
+
+        // SYSTEM SOUNDS. `CallbackInfo::play_system_sound()` -> `CallbackChange::PlaySound` ->
+        // `SoundManager::play()`, drained at the OUTERMOST pass only for the reason the haptics
+        // are: the manager merges identical neighbours of one pass, which only works when the
+        // drain is less frequent than the callbacks. The platform call stays out of the recursion.
+        if depth == 0 {
+            self.drain_system_sounds();
         }
 
         // WINDOW RAISE (9h-i-a-ii). A desktop's media widget clicking MPRIS
@@ -14879,6 +15022,13 @@ pub trait PlatformWindow {
         // harness, an app timer editing text) and build the display list that
         // starts the tween — arm its driver here too, not only after input.
         self.arm_animation_drivers_if_needed();
+
+        // SOUNDS AND HAPTICS the callbacks of this turn asked for. The drains of the event pass
+        // (`process_window_events` at depth 0) never run for a timer: a fling's momentum is a
+        // timer, and the tick of every page it crosses would wait for the next click. This
+        // function runs at top level, never inside a pass, so it is the same moment.
+        self.drain_haptics();
+        self.drain_system_sounds();
 
         needs_redraw
     }
