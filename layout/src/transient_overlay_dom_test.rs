@@ -104,8 +104,13 @@ fn every_layer_is_a_target_of_the_pointer() {
 fn the_scrim_leaves_room_for_the_keyboard() {
     let mut page = page_with(popup(TransientAnchor::Dialog, Some("Sign in"), vec![named("panel")]));
     present_transient_windows(&mut page, WindowPresentation::OneSurface);
+    // An `env()` value may be kept as a conditional property: any inline declaration of the property counts.
     assert!(
-        has_inline(popup_of(&page), |p| matches!(p, CssProperty::PaddingBottom(_))),
+        popup_of(&page)
+            .root
+            .get_style()
+            .iter_inline_properties()
+            .any(|(property, _)| matches!(property, CssProperty::PaddingBottom(_))),
         "the scrim has a bottom padding"
     );
 }
