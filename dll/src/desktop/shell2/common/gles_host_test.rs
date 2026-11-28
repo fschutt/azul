@@ -44,7 +44,7 @@ use webrender::render_api::Transaction;
 use super::{
     egl_gles::{DisplayKind, EglApi, EglSession, GlesFunctions},
     egl_pure::EGL_PBUFFER_BIT,
-    gpu_renderer::{init_webrender, webrender_text_aa, GpuParts, InitParams, TextRendering},
+    gpu_renderer::{init_webrender, webrender_text_aa, GpuParts, InitParams, GpuTextRendering},
     gpu_select::FailPlan,
 };
 use crate::desktop::wr_translate2::{generate_frame, wr_translate_document_id, Notifier};
@@ -70,7 +70,7 @@ const TEXT_PAGE_MAX_MEAN: f64 = 4.0;
 const SHAPES_MAX_SHARE: f64 = 0.003;
 
 /// The text of a phone: grayscale (the platform default there, and what the CPU picture of these tests is drawn with).
-pub(super) fn phone_text() -> TextRendering {
+pub(super) fn phone_text() -> GpuTextRendering {
     webrender_text_aa(TextAntialiasMode::Grayscale, true)
 }
 
