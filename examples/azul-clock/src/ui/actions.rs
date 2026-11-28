@@ -8,7 +8,7 @@ use azul::{
     dom::VirtualKeyCode,
     prelude::*,
     widgets::{
-        DateRepeatRule, ModalState, NumberInputState, OnTextInputReturn, SegmentedState, SwitchState,
+        DateRepeatRule, ModalState, NumberInputState, OnTextInputReturn, SwitchState,
         TextInputState, TextInputValid, TimePickerState,
     },
 };
@@ -45,8 +45,6 @@ pub enum Action {
     CityRemove(usize),
     CityUp(usize),
     CityDown(usize),
-    /// Show a city's time on the face (`None` = here).
-    FaceCity(Option<usize>),
     CloseCitySearch,
     /// Start a new timer of this many minutes.
     TimerPreset(u32),
@@ -221,7 +219,6 @@ pub(crate) fn run(s: &mut ClockApp, info: &mut CallbackInfo, action: Action) {
         Action::CityRemove(i) => {
             if i < s.cities.len() {
                 s.cities.remove(i);
-                s.face_city = None;
                 save_world(s);
             }
         }
@@ -235,7 +232,6 @@ pub(crate) fn run(s: &mut ClockApp, info: &mut CallbackInfo, action: Action) {
                 save_world(s);
             }
         }
-        Action::FaceCity(c) => s.face_city = c.filter(|i| *i < s.cities.len()),
         Action::CloseCitySearch => s.city_search = None,
         Action::TimerPreset(minutes) => {
             let mut t = CountdownTimer::new(&store::new_id(), "", i64::from(minutes) * MINUTE_MS);
@@ -302,10 +298,10 @@ pub(crate) fn run(s: &mut ClockApp, info: &mut CallbackInfo, action: Action) {
     }
 }
 
-/// The mode switch.
-pub extern "C" fn on_screen(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+/// A place of the bottom bar was chosen: its index (the order of [`Screen::ALL`]).
+pub extern "C" fn on_tab(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
     with_app(&mut data, &mut info, |s, info, _| {
-        set_screen(s, info, Screen::ALL[state.selected_index.min(Screen::ALL.len() - 1)]);
+        set_screen(s, info, Screen::ALL[index.min(Screen::ALL.len() - 1)]);
     })
 }
 

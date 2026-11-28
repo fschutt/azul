@@ -18,6 +18,8 @@
 //! [`ui`] is the window on top of it (azul + azul-appkit).
 
 pub mod alarm;
+/// The ops of the scenario files and the debug server (the sample, a ring).
+pub mod e2e_ops;
 pub mod fmt;
 /// The DOM ids and classes (`__azclock_` prefix), each defined once.
 pub mod ids;

@@ -6,8 +6,11 @@ authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
     AzClock - alarms, timers, a stopwatch and a world clock (the plan:
-    azul-apps/planning/core/clock.md), on azul's S9 UtilityShell with the
-    app-drawn Titlebar, flat and flora, light and dark. Alarms repeat by an
+    azul-apps/planning/core/clock.md), as simple as the default Android
+    clock: one narrow column on azul's S11 MobileShell (the time big at the
+    top, the list of the page, a bottom bar with Alarm, Clock, Timer and
+    Stopwatch), the same on a phone and on a desktop, flat and flora, light
+    and dark. Alarms repeat by an
     RRULE (azul's DateRepeatPicker) and ring in the window while AzClock runs;
     their next occurrences are also handed to the OS as scheduled
     notifications (Notification::with_deliver_at), so on macOS and Windows

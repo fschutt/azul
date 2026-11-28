@@ -1,25 +1,31 @@
-//! The DOM of AzClock's screens: the mode row, the world clock (an analog
-//! face of rotated divs and the cities), the alarms, the timer, the
-//! stopwatch, the dialogs and the ringing overlay, and the clock's own
-//! settings sections. Every id and class is a `__azclock_` name from
-//! `ids.rs`; every button carries an [`Act`](super::actions::Act).
+//! The DOM of AzClock: the narrow column every screen is (the big time over
+//! the page's list, the four places in the bottom bar, "+" floating over
+//! the list), the dialogs, the ringing overlay and the clock's own settings
+//! sections. Every id and class is a `__azclock_` name from `ids.rs`; every
+//! button carries an [`Act`](super::actions::Act).
+//!
+//! The window is azul's S11 `MobileShell` (the app bar holds only Settings,
+//! the page host the list and the floating button, the bottom tabs the four
+//! places) in a column that never grows past [`COLUMN_MAX`] px: a desktop
+//! shows the same column a phone does, centred.
 
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, DateRepeatPickerOnChangeCallbackType,
-        DropDownOnChoiceChangeCallbackType, ModalOnCloseCallbackType,
-        NumberInputOnValueChangeCallbackType, SegmentedOnChangeCallbackType,
-        SwitchOnToggleCallbackType, TextInputOnTextInputCallbackType,
-        TimePickerOnChangeCallbackType,
+        DropDownOnChoiceChangeCallbackType, MobileShellOnTabCallbackType, ModalOnCloseCallbackType,
+        NumberInputOnValueChangeCallbackType, SwitchOnToggleCallbackType,
+        TextInputOnTextInputCallbackType, TimePickerOnChangeCallbackType,
     },
+    dom::{AccessibilityInfo, AccessibilityRole},
     menu::{Menu, MenuItem, StringMenuItem},
     option::OptionString,
     prelude::*,
+    shells::{MobileShell, ShellBottomTab},
     str::String as AzString,
     vec::StringVec,
     widgets::{
         ButtonType, DatePickerWeekStart, DateRepeatPicker, DropDown, Gauge, GaugeKind, Modal,
-        NumberInput, Segmented, Switch, TextInput, TimePicker,
+        NumberInput, Switch, TextInput, TimePicker,
     },
 };
 use azul_appkit::{
@@ -35,8 +41,8 @@ use super::{
 };
 use crate::{fmt, ids, stopwatch::LapMark, tone::Sound, world};
 
-/// From this width the world clock's face and list sit side by side.
-pub const WIDE: f32 = 640.0;
+/// The widest the column grows, in px: on a desktop it is centred in the window.
+pub const COLUMN_MAX: f32 = 520.0;
 /// "Ring for" (minutes).
 pub const RING_MINUTES: [u32; 5] = [1, 5, 10, 15, 30];
 
@@ -71,6 +77,16 @@ fn primary(name: &str, app: &RefAny, action: Action) -> Dom {
         .dom()
 }
 
+/// A button that shows only `icon`, named `name` (a key, or plain words) for a screen reader and
+/// as its tooltip.
+fn icon_button(icon: &str, name: &str, app: &RefAny, action: Action) -> Dom {
+    Button::create("")
+        .with_icon(icon)
+        .with_on_click(act(app, action), actions::on_act as ButtonOnClickCallbackType)
+        .dom()
+        .with_accessibility_assign(AccessibilityInfo::named(label(name), AccessibilityRole::PushButton))
+}
+
 fn row_css(gap: u32) -> String {
     format!("display: flex; flex-direction: row; align-items: center; column-gap: {gap}px;")
 }
@@ -80,165 +96,139 @@ fn row_css(gap: u32) -> String {
 // secondary text is the label ink rather than a faded ink, the rules are the grid's.
 const COLUMN: &str = "display: flex; flex-direction: column;";
 const SPACER: &str = "flex-grow: 1;";
-const SECONDARY: &str = "font-size: 12px; opacity: 0.7; @theme(flora) { opacity: 1; color: \
+/// A column that takes what its parent leaves.
+const FILL: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: 0px;";
+const SECONDARY: &str = "font-size: 13px; opacity: 0.7; @theme(flora) { opacity: 1; color: \
                          system:secondary-text; }";
-const EMPTY: &str = "padding: 24px; opacity: 0.7; font-size: 14px; text-align: center; \
+const EMPTY: &str = "padding: 32px 24px; opacity: 0.7; font-size: 15px; text-align: center; \
                      @theme(flora) { opacity: 1; color: system:secondary-text; }";
-/// A scrolling list that fills the rest of the screen.
-const LIST: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; padding: 4px 12px;";
-const ROW: &str = "display: flex; flex-direction: row; align-items: center; column-gap: 12px; padding: 8px 4px; border-bottom: 1px solid rgba(128,128,128,0.25); @theme(flora) { border-bottom: 1px solid system:grid; }";
+/// A scrolling list that fills the rest of the page; the bottom padding keeps the last row clear
+/// of the floating button.
+const LIST: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; padding: 0px 8px 88px 8px;";
+const ROW: &str = "display: flex; flex-direction: row; align-items: center; column-gap: 12px; min-height: 64px; padding: 8px 8px; border-bottom: 1px solid rgba(128,128,128,0.25); @theme(flora) { border-bottom: 1px solid system:grid; }";
 /// A time, a lap, a countdown: flat's monospace, flora's Garamond (appended after the
 /// part's own `font-family: monospace`).
 const FIGURES_FLORA: &str = "@theme(flora) { font-family: EB Garamond, Georgia, serif; \
                              font-variant-numeric: tabular-nums lining-nums; }";
+/// The time of day at the top of the Alarm and Clock pages: big, light, and smaller in a short
+/// window (a phone on its side).
+const BIG_TIME: &str = "font-size: 72px; font-weight: 300; line-height: 1.05; \
+                        @media (max-height: 520px) { font-size: 48px; } \
+                        @media (max-width: 340px) { font-size: 60px; } \
+                        @theme(flora) { font-family: EB Garamond, Georgia, serif; \
+                        font-variant-numeric: tabular-nums lining-nums; }";
 
-// ==== The mode row ====
+// ==== The window ====
 
-/// World / Alarms / Timer / Stopwatch, then "+" for the screen and Settings.
-pub fn modes_row(s: &ClockApp, app: &RefAny) -> Dom {
-    let labels: Vec<&str> = Screen::ALL.iter().map(|m| m.label()).collect();
-    let mut row = Dom::create_div()
-        .with_css("display: flex; flex-direction: row; align-items: center; column-gap: 8px; padding: 4px 8px;")
-        .with_child(
-            Segmented::create(strs(&labels))
-                .with_selected_index(s.screen.index())
-                .with_on_change(app.clone(), actions::on_screen as SegmentedOnChangeCallbackType)
-                .dom()
-                .with_id(ids::MODES),
-        )
-        .with_child(Dom::create_div().with_css(SPACER));
-    let new = match s.screen {
-        Screen::World => Some("azclock-add-city"),
-        Screen::Alarms => Some("azclock-new-alarm"),
-        Screen::Timer => Some("azclock-new-timer"),
-        Screen::Stopwatch => None,
+/// What the window knows about the screen it is on, from the layout pass.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Env {
+    /// The room the system keeps at the window's four edges (a cutout, the home indicator), px.
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
+    /// A phone: no window controls to leave room for, no window to drag.
+    pub phone: bool,
+}
+
+/// The four places of the bottom bar, in their order (the Screen's order).
+fn tabs() -> Vec<ShellBottomTab> {
+    Screen::ALL
+        .iter()
+        .map(|screen| ShellBottomTab::create(label(screen.label()), AzString::from("")))
+        .collect()
+}
+
+/// The settings button of the app bar: a gear, named for a screen reader.
+fn settings_button(app: &RefAny) -> Dom {
+    icon_button("settings", "azclock-settings", app, Action::OpenSettings).with_id(ids::SETTINGS)
+}
+
+/// The floating "+" of the page that has one: a new alarm, a city.
+fn fab(s: &ClockApp, app: &RefAny) -> Option<Dom> {
+    let name = match s.screen {
+        Screen::Alarms => "azclock-new-alarm",
+        Screen::World => "azclock-add-city",
+        Screen::Timer | Screen::Stopwatch => return None,
     };
-    if let Some(name) = new {
-        row.add_child(
-            Button::create(label(name))
-                .with_icon("add")
-                .with_on_click(act(app, Action::New), actions::on_act as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::NEW),
-        );
-    }
-    row.with_child(
-        Button::create(label("azclock-settings"))
-            .with_icon("settings")
-            .with_on_click(act(app, Action::OpenSettings), actions::on_act as ButtonOnClickCallbackType)
+    Some(
+        Button::with_type(AzString::from(""), ButtonType::Primary)
+            .with_icon("add")
+            .with_on_click(act(app, Action::New), actions::on_act as ButtonOnClickCallbackType)
             .dom()
-            .with_id(ids::SETTINGS),
+            .with_id(ids::NEW)
+            .with_accessibility_assign(AccessibilityInfo::named(label(name), AccessibilityRole::PushButton)),
     )
 }
 
-// ==== The screen ====
+/// The whole window below the settings page: the column, its shell, the dialogs over it.
+pub fn window(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, env: &Env) -> Dom {
+    let mut shell = MobileShell::create(AzString::from(""))
+        .with_page(page(s, app, now))
+        .with_actions(settings_button(app))
+        .with_tabs(azul::vec::ShellBottomTabVec::from_vec(tabs()))
+        .with_active_tab(s.screen.index())
+        .with_top_inset(env.top)
+        .with_on_tab(app.clone(), actions::on_tab as MobileShellOnTabCallbackType);
+    if let Some(fab) = fab(s, app) {
+        shell = shell.with_fab(fab);
+    }
+    let mut column = Dom::create_div()
+        .with_css(format!(
+            "{FILL} position: relative; width: 100%; max-width: {COLUMN_MAX}px;"
+        ))
+        .with_child(shell.dom());
+    if !env.phone {
+        // A window without a title bar: the empty part of the app bar moves it (the controls sit
+        // over its left end, the gear is clear of it).
+        column.add_child(
+            Dom::create_div()
+                .with_css(
+                    "position: absolute; top: 0px; left: 0px; right: 64px; height: 48px; \
+                     -azul-app-region: drag;",
+                ),
+        );
+    }
+    for overlay in overlays(s, app, now) {
+        column.add_child(overlay);
+    }
+    // The column, centred; the system's room at the edges around it.
+    Dom::create_div()
+        .with_css(format!(
+            "{FILL} flex-direction: row; justify-content: center; padding: 0px {}px {}px {}px;",
+            env.right, env.bottom, env.left
+        ))
+        .with_child(column)
+}
 
-/// The screen the mode row chose, over the status line.
-pub fn screen(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom {
-    let content = if !s.loaded {
+// ==== The page ====
+
+/// The page the bottom bar chose: the header and the list of the place, over the notice.
+pub fn page(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
+    let body = if !s.loaded {
         line("azclock-loading", EMPTY)
     } else {
         match s.screen {
-            Screen::World => world_view(s, app, now, wide),
-            Screen::Alarms => alarms_view(s, app, now),
-            Screen::Timer => timer_view(s, app),
-            Screen::Stopwatch => stopwatch_view(s, app),
+            Screen::Alarms => alarms_page(s, app, now),
+            Screen::World => world_page(s, app, now),
+            Screen::Timer => timer_page(s, app),
+            Screen::Stopwatch => stopwatch_page(s, app),
         }
     };
-    Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(
+    let mut page = Dom::create_div().with_css(FILL).with_child(body);
+    if !s.notice.is_empty() {
+        page.add_child(
             Dom::create_div()
-                .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-                .with_child(content),
-        )
-        .with_child(status_line(s, now))
-}
-
-/// The line under the screen: a notice, else when the next alarm rings,
-/// else whether the system rings alarms while AzClock is closed.
-fn status_line(s: &ClockApp, now: DateTime<Utc>) -> Dom {
-    let text = if !s.notice.is_empty() {
-        s.notice.clone()
-    } else {
-        match s.next_alarm(now) {
-            Some((i, at)) => {
-                let a = &s.alarms[i];
-                format!(
-                    "{}{}",
-                    t_args("azclock-next-alarm-in", &[("span", Arg::from(fmt::until((at - now).num_milliseconds())))]),
-                    if a.label.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" - {}", a.label)
-                    }
+                .with_id(ids::NOTICE)
+                .with_css(
+                    "padding: 8px 16px; font-size: 13px; border-top: 1px solid rgba(128,128,128,0.25); \
+                     @theme(flora) { border-top: 1px solid system:grid; }",
                 )
-            }
-            None => t("azclock-no-alarm-on"),
-        }
-    };
-    let id = if s.notice.is_empty() { ids::STATUS } else { ids::NOTICE };
-    Dom::create_div()
-        .with_id(id)
-        .with_css(
-            "padding: 6px 12px; font-size: 12px; border-top: 1px solid rgba(128,128,128,0.25); \
-             @theme(flora) { border-top: 1px solid system:grid; }",
-        )
-        .with_child(Dom::create_span_with_text(text))
-}
-
-// ==== World ====
-
-/// An analog face: twelve ticks and three hands, rotated divs (CSS
-/// `transform: rotate`), no canvas. Flat draws it in a mid grey with a red
-/// second hand; flora in its inks - the ring and ticks in the quiet ink, the
-/// hour and minute hands in the ink, the second hand and the hub in the
-/// stone (its glow at night).
-fn analog_face(hour: u32, minute: u32, second: u32, size: f32) -> Dom {
-    let c = size / 2.0;
-    let mut face = Dom::create_div().with_id(ids::FACE).with_css(format!(
-        "position: relative; width: {size}px; height: {size}px; border-radius: {c}px; \
-         border: 2px solid rgba(128,128,128,0.6); flex-shrink: 0; @theme(flora) {{ border: 2px \
-         solid system:tertiary-text; }}"
-    ));
-    for i in 0..12 {
-        let long = i % 3 == 0;
-        let (w, h) = if long { (3.0, 12.0) } else { (2.0, 6.0) };
-        face.add_child(Dom::create_div().with_css(format!(
-            "position: absolute; left: {}px; top: 4px; width: {w}px; height: {h}px; \
-             background: rgba(128,128,128,0.9); transform-origin: {}px {}px; transform: rotate({}deg); \
-             @theme(flora) {{ background: system:tertiary-text; }}",
-            c - w / 2.0,
-            w / 2.0,
-            c - 4.0,
-            i * 30
-        )));
+                .with_child(Dom::create_span_with_text(s.notice.as_str())),
+        );
     }
-    let hand = |degrees: f32, width: f32, length: f32, color: &str, flora: &str, class: AzString| {
-        Dom::create_div().with_class(class).with_css(format!(
-            "position: absolute; left: {}px; top: {}px; width: {width}px; height: {length}px; \
-             background: {color}; border-radius: {}px; transform-origin: {}px {length}px; \
-             transform: rotate({degrees:.1}deg); @theme(flora) {{ background: {flora}; }}",
-            c - width / 2.0,
-            c - length,
-            width / 2.0,
-            width / 2.0
-        ))
-    };
-    let seconds = second as f32;
-    let minutes = minute as f32 + seconds / 60.0;
-    let hours = (hour % 12) as f32 + minutes / 60.0;
-    let ink = "system:text";
-    let stone = "system:accent";
-    face.add_child(hand(hours * 30.0, 5.0, size * 0.25, "rgba(128,128,128,1)", ink, ids::HAND_HOUR));
-    face.add_child(hand(minutes * 6.0, 3.0, size * 0.36, "rgba(128,128,128,1)", ink, ids::HAND_MINUTE));
-    face.add_child(hand(seconds * 6.0, 1.5, size * 0.42, "#d0453c", stone, ids::HAND_SECOND));
-    face.with_child(Dom::create_div().with_css(format!(
-        "position: absolute; left: {}px; top: {}px; width: 8px; height: 8px; border-radius: 4px; \
-         background: #d0453c; @theme(flora) {{ background: {stone}; }}",
-        c - 4.0,
-        c - 4.0
-    )))
+    page
 }
 
 /// "Friday 9 October": the kit's words for a day.
@@ -247,124 +237,50 @@ fn day_text(day: chrono::NaiveDate) -> String {
     l10n::date_text(DateStyle::WeekdayDayMonth, day.year(), day.month(), day.day(), day.weekday().num_days_from_monday())
 }
 
-fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom {
-    let twelve = s.twelve_hour();
-    // The face shows here, or the city clicked last.
-    let face_city = s.face_city.and_then(|i| s.cities.get(i));
-    let (h, m, sec, date, place, abbreviation) = match face_city.and_then(|c| world::parse_zone(&c.zone).map(|z| (c, z))) {
-        Some((city, zone)) => {
-            let t = now.with_timezone(&zone);
-            (
-                t.hour(),
-                t.minute(),
-                t.second(),
-                day_text(t.date_naive()),
-                city.name.clone(),
-                world::abbreviation(zone, now),
-            )
-        }
-        None => {
-            let t = now.with_timezone(&Local);
-            let zone = world::local_zone();
-            (
-                t.hour(),
-                t.minute(),
-                t.second(),
-                day_text(t.date_naive()),
-                zone.map_or_else(
-                    || l10n::t("azclock-here"),
-                    |z| t_args("azclock-city-here", &[("city", Arg::from(world::city_name(z.name())))]),
-                ),
-                zone.map(|z| world::abbreviation(z, now)).unwrap_or_default(),
-            )
-        }
-    };
-    let clock_text = if twelve {
-        format!("{}:{sec:02}", fmt::clock(h, m, true))
-    } else {
-        format!("{h:02}:{m:02}:{sec:02}")
-    };
-    let mut face_panel = Dom::create_div()
-        .with_css("display: flex; flex-direction: column; align-items: center; row-gap: 6px; padding: 16px;")
-        .with_child(analog_face(h, m, sec, 180.0))
-        .with_child(
-            Dom::create_div()
-                .with_id(ids::FACE_TIME)
-                .with_css(format!("font-size: 28px; font-weight: 600; font-family: monospace; {FIGURES_FLORA}"))
-                .with_child(text(&format!("{clock_text} {abbreviation}"))),
-        )
-        .with_child(line(&date, "font-size: 14px;"))
-        .with_child(line(&place, SECONDARY));
-    if s.face_city.is_some() {
-        face_panel.add_child(button("azclock-show-here", app, Action::FaceCity(None)));
+/// The time here, big, over the day; `extra` (when the next alarm rings, the place) under them.
+fn header(s: &ClockApp, now: DateTime<Utc>, extra: Option<(String, AzString)>) -> Dom {
+    let local = now.with_timezone(&Local);
+    let (time, half) = fmt::clock_parts(local.hour(), local.minute(), s.twelve_hour());
+    let mut big = Dom::create_div()
+        .with_id(ids::BIG_TIME)
+        .with_css(format!("{BIG_TIME} display: flex; flex-direction: row; align-items: baseline;"))
+        .with_child(text(&time));
+    if let Some(half) = half {
+        big.add_child(line(half, "font-size: 24px; font-weight: 400; margin-left: 8px;"));
     }
-
-    let mut list = Dom::create_div().with_id(ids::CITIES).with_css(LIST);
-    if s.cities.is_empty() {
-        list.add_child(line("azclock-no-cities", EMPTY));
+    let mut header = Dom::create_div()
+        .with_id(ids::HEADER)
+        .with_css("display: flex; flex-direction: column; flex-shrink: 0; padding: 4px 20px 12px 20px;")
+        .with_child(big)
+        .with_child(line(&day_text(local.date_naive()), "font-size: 17px; opacity: 0.8;").with_id(ids::DATE));
+    if let Some((extra, id)) = extra {
+        header.add_child(line(&extra, SECONDARY).with_id(id));
     }
-    for (i, city) in s.cities.iter().enumerate() {
-        let Some(r) = world::row(city, &Local, now) else {
-            continue;
-        };
-        let when = format!(
-            "{} - {} - {}",
-            t(world::day_label(r.day_offset)),
-            fmt::offset_difference(r.difference_min),
-            t(if r.daytime { "azclock-day" } else { "azclock-night" })
-        );
-        list.add_child(
-            Dom::create_div()
-                .with_class(ids::CITY_ROW)
-                .with_css(ROW)
-                .with_child(
-                    Dom::create_div()
-                        .with_css(format!("{COLUMN} flex-grow: 1; cursor: pointer;"))
-                        .with_child(line(&r.name, "font-size: 15px;"))
-                        .with_child(line(&when, SECONDARY))
-                        .clickable(&r.name, act(app, Action::FaceCity(Some(i))), actions::on_act),
-                )
-                .with_child(line(
-                    &fmt::clock(r.hour, r.minute, twelve),
-                    &format!("font-size: 22px; font-family: monospace; {FIGURES_FLORA}"),
-                ))
-                .with_child(button("azclock-up", app, Action::CityUp(i)))
-                .with_child(button("azclock-remove", app, Action::CityRemove(i)))
-                .with_context_menu(city_menu(app, i, s.cities.len())),
-        );
-    }
-    let css = if wide {
-        "display: flex; flex-direction: row; flex-grow: 1; min-height: 0px;"
-    } else {
-        "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;"
-    };
-    Dom::create_div()
-        .with_id(ids::WORLD_VIEW)
-        .with_css(css)
-        .with_child(face_panel)
-        .with_child(list)
+    header
 }
 
-/// A city row's context menu: Move up (not the first), Move down (not the
-/// last), Remove.
-fn city_menu(app: &RefAny, i: usize, count: usize) -> Menu {
-    let item = |name: &str, action: Action| {
-        MenuItem::string(StringMenuItem::create(label(name)).with_callback(act(app, action), actions::on_act))
-    };
-    let mut items = Vec::new();
-    if i > 0 {
-        items.push(item("azclock-move-up", Action::CityUp(i)));
+/// When the next alarm rings (the header of the Alarm page).
+fn next_alarm_line(s: &ClockApp, now: DateTime<Utc>) -> String {
+    match s.next_alarm(now) {
+        Some((i, at)) => {
+            let a = &s.alarms[i];
+            format!(
+                "{}{}",
+                t_args("azclock-next-alarm-in", &[("span", Arg::from(fmt::until((at - now).num_milliseconds())))]),
+                if a.label.is_empty() {
+                    String::new()
+                } else {
+                    format!(" - {}", a.label)
+                }
+            )
+        }
+        None => t("azclock-no-alarm-on"),
     }
-    if i + 1 < count {
-        items.push(item("azclock-move-down", Action::CityDown(i)));
-    }
-    items.push(item("azclock-remove", Action::CityRemove(i)));
-    Menu::create(items)
 }
 
 // ==== Alarms ====
 
-fn alarms_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
+fn alarms_page(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
     let twelve = s.twelve_hour();
     let mut list = Dom::create_div().with_id(ids::ALARMS).with_css(LIST);
     if s.alarms.is_empty() {
@@ -387,20 +303,17 @@ fn alarms_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
                 .with_css(ROW)
                 .with_child(
                     Dom::create_div()
-                        .with_css(format!("{} flex-grow: 1; cursor: pointer;{dim}", row_css(16)))
+                        .with_css(format!("{} flex-grow: 1; min-width: 0px; cursor: pointer;{dim}", row_css(14)))
                         .with_child(line(
                             &fmt::clock(a.hour, a.minute, twelve),
-                            &format!(
-                                "font-size: 30px; font-family: monospace; min-width: 110px; \
-                                 {FIGURES_FLORA}"
-                            ),
+                            &format!("font-size: 32px; font-weight: 300; {FIGURES_FLORA}"),
                         ))
                         .with_child(
                             Dom::create_div()
-                                .with_css(COLUMN)
+                                .with_css(format!("{COLUMN} min-width: 0px;"))
                                 .with_child(line(
                                     if a.label.is_empty() { "azclock-alarm" } else { a.label.as_str() },
-                                    "font-size: 15px;",
+                                    "font-size: 16px;",
                                 ))
                                 .with_child(line(&detail, SECONDARY)),
                         )
@@ -425,33 +338,103 @@ fn alarms_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
                 ),
         );
     }
-    let mut column = Dom::create_div()
-        .with_id(ids::ALARMS_VIEW)
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(list);
     if !s.os_rings.0 {
-        column.add_child(line(
+        list.add_child(line(
             &t_args("azclock-ring-while-running", &[("why", Arg::from(&s.os_rings.1))]),
-            "padding: 4px 12px; font-size: 12px; opacity: 0.7; @theme(flora) { opacity: 1; \
+            "padding: 12px 8px; font-size: 12px; opacity: 0.7; @theme(flora) { opacity: 1; \
              color: system:secondary-text; }",
         ));
     }
-    column
+    Dom::create_div()
+        .with_id(ids::ALARMS_VIEW)
+        .with_css(FILL)
+        .with_child(header(s, now, Some((next_alarm_line(s, now), ids::NEXT_ALARM))))
+        .with_child(list)
+}
+
+// ==== World ====
+
+/// A city row's context menu: Move up (not the first), Move down (not the
+/// last), Remove.
+fn city_menu(app: &RefAny, i: usize, count: usize) -> Menu {
+    let item = |name: &str, action: Action| {
+        MenuItem::string(StringMenuItem::create(label(name)).with_callback(act(app, action), actions::on_act))
+    };
+    let mut items = Vec::new();
+    if i > 0 {
+        items.push(item("azclock-move-up", Action::CityUp(i)));
+    }
+    if i + 1 < count {
+        items.push(item("azclock-move-down", Action::CityDown(i)));
+    }
+    items.push(item("azclock-remove", Action::CityRemove(i)));
+    Menu::create(items)
+}
+
+fn world_page(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
+    let twelve = s.twelve_hour();
+    let here = world::local_zone().map_or_else(
+        || l10n::t("azclock-here"),
+        |z| t_args("azclock-city-here", &[("city", Arg::from(world::city_name(z.name())))]),
+    );
+    let mut list = Dom::create_div().with_id(ids::CITIES).with_css(LIST);
+    if s.cities.is_empty() {
+        list.add_child(line("azclock-no-cities", EMPTY));
+    }
+    for (i, city) in s.cities.iter().enumerate() {
+        let Some(r) = world::row(city, &Local, now) else {
+            continue;
+        };
+        let when = format!(
+            "{} - {} - {}",
+            t(world::day_label(r.day_offset)),
+            fmt::offset_difference(r.difference_min),
+            t(if r.daytime { "azclock-day" } else { "azclock-night" })
+        );
+        list.add_child(
+            Dom::create_div()
+                .with_class(ids::CITY_ROW)
+                .with_css(ROW)
+                .with_child(
+                    Dom::create_div()
+                        .with_css(format!("{COLUMN} flex-grow: 1; min-width: 0px;"))
+                        .with_child(line(&r.name, "font-size: 17px;"))
+                        .with_child(line(&when, SECONDARY)),
+                )
+                .with_child(line(
+                    &fmt::clock(r.hour, r.minute, twelve),
+                    &format!("font-size: 26px; font-weight: 300; {FIGURES_FLORA}"),
+                ))
+                .with_child(icon_button(
+                    "close",
+                    &t_args("azclock-remove-named", &[("name", Arg::from(&r.name))]),
+                    app,
+                    Action::CityRemove(i),
+                ))
+                .with_context_menu(city_menu(app, i, s.cities.len())),
+        );
+    }
+    Dom::create_div()
+        .with_id(ids::WORLD_VIEW)
+        .with_css(FILL)
+        .with_child(header(s, now, Some((here, ids::PLACE))))
+        .with_child(list)
 }
 
 // ==== Timer ====
 
-fn timer_view(s: &ClockApp, app: &RefAny) -> Dom {
+fn timer_page(s: &ClockApp, app: &RefAny) -> Dom {
     let now = now_ms();
     let mut view = Dom::create_div()
         .with_id(ids::TIMER_VIEW)
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
+        .with_css(FILL)
+        .with_css("overflow-y: auto;");
     match s.shown_timer() {
         Some(i) => {
             let t = &s.timers[i];
             let percent = t.fraction_left(now) * 100.0;
             let running = t.is_running();
-            let mut controls = Dom::create_div().with_css(format!("{} justify-content: center;", row_css(8)));
+            let mut controls = Dom::create_div().with_css(format!("{} justify-content: center; flex-wrap: wrap;", row_css(8)));
             controls.add_child(primary(
                 if running { "azclock-pause" } else { "azclock-start" },
                 app,
@@ -461,7 +444,7 @@ fn timer_view(s: &ClockApp, app: &RefAny) -> Dom {
             controls.add_child(button("azclock-plus-minute", app, Action::TimerPlusMinute(t.id.clone())));
             view.add_child(
                 Dom::create_div()
-                    .with_css("display: flex; flex-direction: column; align-items: center; row-gap: 8px; padding: 20px 16px;")
+                    .with_css("display: flex; flex-direction: column; align-items: center; row-gap: 8px; padding: 20px 16px; flex-shrink: 0;")
                     // The ring drains with the time left; the countdown is in its centre,
                     // "of 5:00 - Tea" under it.
                     .with_child(
@@ -489,10 +472,10 @@ fn timer_view(s: &ClockApp, app: &RefAny) -> Dom {
         }
         None => view.add_child(line("azclock-no-timer", EMPTY)),
     }
-    // The presets.
+    // The presets: a tap starts a timer of that length.
     let mut presets = Dom::create_div()
         .with_id(ids::PRESETS)
-        .with_css(format!("{} padding: 8px 12px; flex-wrap: wrap;", row_css(6)))
+        .with_css(format!("{} padding: 8px 16px; flex-wrap: wrap; row-gap: 8px; flex-shrink: 0;", row_css(8)))
         .with_child(line("azclock-presets", SECONDARY));
     for minutes in crate::timer::PRESETS_MIN {
         presets.add_child(button(&fmt::minutes(minutes), app, Action::TimerPreset(minutes)));
@@ -500,7 +483,7 @@ fn timer_view(s: &ClockApp, app: &RefAny) -> Dom {
     view.add_child(presets);
     // Every timer, the shown one marked.
     let shown = s.shown_timer();
-    let mut list = Dom::create_div().with_id(ids::TIMERS).with_css(LIST);
+    let mut list = Dom::create_div().with_id(ids::TIMERS).with_css("display: flex; flex-direction: column; padding: 0px 8px 16px 8px; flex-shrink: 0;");
     for (i, t) in s.timers.iter().enumerate() {
         let left = || Arg::from(fmt::countdown(t.remaining_ms(now)));
         let state = if t.is_finished() {
@@ -522,8 +505,8 @@ fn timer_view(s: &ClockApp, app: &RefAny) -> Dom {
                 .with_css(ROW)
                 .with_child(
                     Dom::create_div()
-                        .with_css(format!("{} flex-grow: 1; cursor: pointer;{mark}", row_css(12)))
-                        .with_child(line(&name, "font-size: 14px;"))
+                        .with_css(format!("{COLUMN} flex-grow: 1; min-width: 0px; cursor: pointer;{mark}"))
+                        .with_child(line(&name, "font-size: 16px;"))
                         .with_child(line(&state, SECONDARY))
                         .clickable(&name, act(app, Action::TimerSelect(t.id.clone())), actions::on_act),
                 )
@@ -532,7 +515,12 @@ fn timer_view(s: &ClockApp, app: &RefAny) -> Dom {
                     app,
                     Action::TimerToggle(t.id.clone()),
                 ))
-                .with_child(button("azclock-remove", app, Action::TimerRemove(t.id.clone()))),
+                .with_child(icon_button(
+                    "close",
+                    &t_args("azclock-remove-named", &[("name", Arg::from(&name))]),
+                    app,
+                    Action::TimerRemove(t.id.clone()),
+                )),
         );
     }
     view.with_child(list)
@@ -540,11 +528,11 @@ fn timer_view(s: &ClockApp, app: &RefAny) -> Dom {
 
 // ==== Stopwatch ====
 
-fn stopwatch_view(s: &ClockApp, app: &RefAny) -> Dom {
+fn stopwatch_page(s: &ClockApp, app: &RefAny) -> Dom {
     let now = now_ms();
     let w = &s.stopwatch;
     let running = w.is_running();
-    let mut controls = Dom::create_div().with_css(format!("{} justify-content: center;", row_css(8)));
+    let mut controls = Dom::create_div().with_css(format!("{} justify-content: center; flex-wrap: wrap; row-gap: 8px;", row_css(8)));
     controls.add_child(button("azclock-lap", app, Action::StopwatchLap));
     controls.add_child(primary(if running { "azclock-stop" } else { "azclock-start" }, app, Action::StopwatchToggle));
     controls.add_child(button("azclock-reset", app, Action::StopwatchReset));
@@ -566,19 +554,15 @@ fn stopwatch_view(s: &ClockApp, app: &RefAny) -> Dom {
         // Under flora the fastest lap is the leaf stone, the slowest the clay (their glows at
         // night) - flora's alternates, not flat's green and red.
         let color = match r.mark {
-            LapMark::Fastest => {
-                " color: system:success;"
-            }
-            LapMark::Slowest => {
-                " color: system:danger;"
-            }
+            LapMark::Fastest => " color: system:success;",
+            LapMark::Slowest => " color: system:danger;",
             LapMark::None => "",
         };
         list.add_child(
             Dom::create_div()
                 .with_class(ids::LAP_ROW)
                 .with_css(format!(
-                    "{} padding: 4px; font-family: monospace; {FIGURES_FLORA}{color}",
+                    "{} padding: 6px 4px; font-family: monospace; {FIGURES_FLORA}{color}",
                     row_css(12)
                 ))
                 .with_child(line(&r.number.to_string(), "width: 48px;"))
@@ -589,16 +573,17 @@ fn stopwatch_view(s: &ClockApp, app: &RefAny) -> Dom {
     }
     Dom::create_div()
         .with_id(ids::STOPWATCH_VIEW)
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        .with_css(FILL)
         .with_child(
             Dom::create_div()
-                .with_css("display: flex; flex-direction: column; align-items: center; row-gap: 12px; padding: 24px 16px;")
+                .with_css("display: flex; flex-direction: column; align-items: center; row-gap: 12px; padding: 24px 16px; flex-shrink: 0;")
                 .with_child(
                     // The fast tick retexts this text node in place (its marker).
                     Dom::create_div()
                         .with_id(ids::STOPWATCH_BOX)
                         .with_css(format!(
-                            "font-size: 48px; font-weight: 600; font-family: monospace; {FIGURES_FLORA}"
+                            "font-size: 48px; font-weight: 300; font-family: monospace; \
+                             @media (max-width: 400px) {{ font-size: 40px; }} {FIGURES_FLORA}"
                         ))
                         .with_child(
                             Dom::create_text_do_not_use_without_block_level_wrapper(fmt::stopwatch(w.elapsed(now)))
@@ -629,8 +614,8 @@ pub fn overlays(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Vec<Dom> {
             Dom::create_div()
                 .with_id(ids::TOAST)
                 .with_css(
-                    "position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); \
-                     padding: 8px 16px; border-radius: 6px; background: rgba(40,40,40,0.92); \
+                    "position: absolute; left: 50%; bottom: 80px; transform: translateX(-50%); \
+                     max-width: 90%; padding: 8px 16px; border-radius: 6px; background: rgba(40,40,40,0.92); \
                      color: #ffffff; font-size: 13px;",
                 )
                 .with_child(text(message))
@@ -664,7 +649,7 @@ fn editor(s: &ClockApp, d: &super::AlarmDraft, app: &RefAny) -> Dom {
     };
     let sounds: Vec<&str> = Sound::ALL.iter().map(|s| s.label()).collect();
     let presets = Dom::create_div()
-        .with_css(row_css(6))
+        .with_css(format!("{} flex-wrap: wrap; row-gap: 6px;", row_css(6)))
         .with_child(button("azclock-repeat-once", app, Action::RepeatPreset(0)))
         .with_child(button("azclock-repeat-every-day", app, Action::RepeatPreset(1)))
         .with_child(button("azclock-repeat-weekdays", app, Action::RepeatPreset(2)))
@@ -683,7 +668,7 @@ fn editor(s: &ClockApp, d: &super::AlarmDraft, app: &RefAny) -> Dom {
     footer.add_child(primary("azclock-save", app, Action::EditorSave).with_id(ids::EDITOR_SAVE));
     let content = Dom::create_div()
         .with_id(ids::EDITOR)
-        .with_css("display: flex; flex-direction: column; padding: 8px 4px; min-width: 420px;")
+        .with_css("display: flex; flex-direction: column; padding: 8px 4px; width: 100%; max-width: 420px; min-width: 0px; box-sizing: border-box;")
         .with_child(field(
             "azclock-time",
             picker
@@ -765,7 +750,7 @@ fn city_search(query: &str, app: &RefAny) -> Dom {
         );
     }
     let content = Dom::create_div()
-        .with_css("display: flex; flex-direction: column; min-width: 380px; padding: 8px 4px;")
+        .with_css("display: flex; flex-direction: column; width: 100%; max-width: 380px; min-width: 0px; padding: 8px 4px; box-sizing: border-box;")
         .with_child(
             TextInput::create_search()
                 .with_text(query)
@@ -821,7 +806,7 @@ fn ringing(s: &ClockApp, r: &Ringing, app: &RefAny, now: DateTime<Utc>) -> Dom {
     let local = now.with_timezone(&Local);
     let content = Dom::create_div()
         .with_id(ids::RING)
-        .with_css("display: flex; flex-direction: column; align-items: center; row-gap: 12px; padding: 24px 32px; min-width: 320px;")
+        .with_css("display: flex; flex-direction: column; align-items: center; row-gap: 12px; padding: 24px 16px; width: 100%; max-width: 360px; min-width: 0px; box-sizing: border-box;")
         .with_child(line(
             &big,
             &format!("font-size: 52px; font-weight: 600; font-family: monospace; {FIGURES_FLORA}"),

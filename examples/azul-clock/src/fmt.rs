@@ -48,6 +48,16 @@ pub fn countdown(ms: i64) -> String {
 /// A time of day: `06:30` (24 h) or `6:30 AM` (12 h).
 #[must_use]
 pub fn clock(hour: u32, minute: u32, twelve_hour: bool) -> String {
+    match clock_parts(hour, minute, twelve_hour) {
+        (time, Some(half)) => format!("{time} {half}"),
+        (time, None) => time,
+    }
+}
+
+/// A time of day in the two parts the big clock sets apart: `06:30` and nothing (24 h), or `6:30`
+/// and `AM` / `PM` (12 h), which the clock sets small beside the time.
+#[must_use]
+pub fn clock_parts(hour: u32, minute: u32, twelve_hour: bool) -> (String, Option<&'static str>) {
     let (hour, minute) = (hour % 24, minute % 60);
     if twelve_hour {
         let h12 = match hour % 12 {
@@ -55,9 +65,9 @@ pub fn clock(hour: u32, minute: u32, twelve_hour: bool) -> String {
             h => h,
         };
         let half = if hour < 12 { "AM" } else { "PM" };
-        format!("{h12}:{minute:02} {half}")
+        (format!("{h12}:{minute:02}"), Some(half))
     } else {
-        format!("{hour:02}:{minute:02}")
+        (format!("{hour:02}:{minute:02}"), None)
     }
 }
 
@@ -204,3 +214,7 @@ mod tests {
         assert_eq!(minutes(90), "1 h 30 min");
     }
 }
+
+#[cfg(test)]
+#[path = "fmt_test.rs"]
+mod fmt_test;

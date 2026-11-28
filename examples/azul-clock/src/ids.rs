@@ -15,24 +15,24 @@ macro_rules! names {
 }
 
 names! {
-    // ---- the mode row ----
-    /// The World / Alarms / Timer / Stopwatch switch.
-    MODES = "modes";
-    /// "+": a new alarm, timer or city.
+    // ---- the column ----
+    /// The floating "+": a new alarm or a city.
     NEW = "new";
+    /// The gear in the app bar.
     SETTINGS = "settings";
-    /// The line under the content: the next alarm, a notice.
-    STATUS = "status";
+    /// The line over the bottom bar: a notice (a failed save, ...).
     NOTICE = "notice";
     TOAST = "toast";
+    /// The time and the day over the list of the Alarm and the Clock page.
+    HEADER = "header";
+    BIG_TIME = "big-time";
+    DATE = "date";
+    /// The line under the day: when the next alarm rings (Alarm page).
+    NEXT_ALARM = "next-alarm";
+    /// The line under the day: where the time is from (Clock page).
+    PLACE = "place";
     // ---- world ----
     WORLD_VIEW = "world-view";
-    FACE = "face";
-    /// Classes of the face's hands.
-    HAND_HOUR = "hand-hour";
-    HAND_MINUTE = "hand-minute";
-    HAND_SECOND = "hand-second";
-    FACE_TIME = "face-time";
     CITIES = "cities";
     /// Class of one city row.
     CITY_ROW = "city-row";
@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn every_name_carries_the_app_prefix() {
-        for name in [MODES, NEW, SETTINGS, STATUS, NOTICE, STOPWATCH_TIME, EDITOR_SAVE, RING_DISMISS] {
+        for name in [NEW, SETTINGS, BIG_TIME, NOTICE, STOPWATCH_TIME, EDITOR_SAVE, RING_DISMISS] {
             assert!(name.as_str().starts_with(PREFIX), "{}", name.as_str());
         }
         assert_eq!(named("alarm-0").as_str(), "__azclock_alarm-0");

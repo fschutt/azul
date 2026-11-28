@@ -1,14 +1,14 @@
-//! AzClock's window: azul's S9 `UtilityShell` with the app-drawn title row
-//! (`NoTitle` + `Titlebar`), the mode switch (World, Alarms, Timer,
-//! Stopwatch), the screens ([`views`]), the alarm editor, the add-city
-//! search and the ringing overlay (each a `Modal`), and azul-appkit's
-//! settings page.
+//! AzClock's window: one narrow column (the same on a phone and on a desktop), azul's
+//! S11 `MobileShell` with the four places in its bottom bar (Alarm, Clock, Timer, Stopwatch),
+//! the screens ([`views`]), the alarm editor, the add-city search and the ringing overlay (each
+//! a `Modal`), and azul-appkit's settings page.
 //!
-//! Time: one azul `Timer` ticks every second (the clocks, the countdowns,
-//! the alarms that are due); a second one ticks 30 times a second only while
-//! the stopwatch runs on screen, and retexts the stopwatch's text node in
-//! place (a marker + `change_node_text`, no relayout). Everything is derived
-//! from the wall clock (`model`), so a slow frame never loses time.
+//! Time: one azul `Timer` ticks every second (the alarms that are due, a ring that goes on),
+//! but the window is built again only when something on screen changes: the minute of the big
+//! time, a running timer's countdown, an event; a dialog being typed in is left alone. A second
+//! timer ticks 30 times a second only while the stopwatch runs on screen, and retexts the
+//! stopwatch's text node in place (a marker + `change_node_text`, no relayout). Everything is
+//! derived from the wall clock (`model`), so a slow frame never loses time.
 //!
 //! Ringing: while AzClock runs an alarm or a timer rings in the window (the
 //! overlay, a tone through `AudioSink`, the window raised). Its next
@@ -41,7 +41,7 @@ use azul::{
     callbacks::CallbackType,
     notification::{Notification, NotificationEventType, NotificationSound},
     prelude::*,
-    shells::{ShellThemeAccent, ShellThemeScope, UtilityShell},
+    shells::{ShellThemeAccent, ShellThemeScope},
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
     widgets::{DatePickerState, DateRepeatRule},
@@ -124,9 +124,10 @@ const DEFAULT_RING_MINUTES: u32 = 10;
 
 // ==== State ====
 
-/// The four screens of the mode switch.
+/// The four places of the bottom bar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
+    /// The clock of the Clock place: the time here and the cities.
     World,
     Alarms,
     Timer,
@@ -134,14 +135,15 @@ pub enum Screen {
 }
 
 impl Screen {
-    pub const ALL: [Screen; 4] = [Screen::World, Screen::Alarms, Screen::Timer, Screen::Stopwatch];
+    /// In the bottom bar's order.
+    pub const ALL: [Screen; 4] = [Screen::Alarms, Screen::World, Screen::Timer, Screen::Stopwatch];
 
-    /// The mode switch's word (a key of AzClock's resources).
+    /// The bottom bar's word (a key of AzClock's resources).
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            Screen::World => "azclock-screen-world",
-            Screen::Alarms => "azclock-screen-alarms",
+            Screen::World => "azclock-tab-clock",
+            Screen::Alarms => "azclock-tab-alarm",
             Screen::Timer => "azclock-timer",
             Screen::Stopwatch => "azclock-screen-stopwatch",
         }
@@ -211,8 +213,6 @@ pub struct ClockApp {
     /// The timer shown big (else the first).
     pub selected_timer: Option<String>,
     pub cities: Vec<City>,
-    /// The city whose time the face shows (`None` = here).
-    pub face_city: Option<usize>,
     pub stopwatch: Stopwatch,
     /// Writes waiting for the file thread, and the batch in flight.
     pub queue: WriteQueue,
@@ -244,6 +244,9 @@ pub struct ClockApp {
     pub zone: String,
     /// The day the alarms were last planned on (a new day tops the schedule up).
     pub day: NaiveDate,
+    /// The minute (since 1970) the window was last built for on a tick: the big time and the
+    /// "in 7 h" lines change with it.
+    pub built_minute: i64,
 }
 
 /// Milliseconds since 1970 by the wall clock.
@@ -291,7 +294,6 @@ impl ClockApp {
             timers: Vec::new(),
             selected_timer: None,
             cities: Vec::new(),
-            face_city: None,
             stopwatch: Stopwatch::default(),
             queue: WriteQueue::new(),
             in_flight: Vec::new(),
@@ -312,6 +314,27 @@ impl ClockApp {
             fast_tick: None,
             zone: zone_name(),
             day: Local::now().date_naive(),
+            built_minute: 0,
+        }
+    }
+
+    /// Takes what the files said (or the sample) as the state; `save_all` queues every record's
+    /// file (the sample is written on the first start).
+    pub(crate) fn adopt(&mut self, loaded: store::Loaded, save_all: bool) {
+        self.alarms = loaded.alarms;
+        self.timers = loaded.timers;
+        self.cities = loaded.world.map(|w| w.cities).unwrap_or_default();
+        self.stopwatch = loaded.stopwatch.unwrap_or_default();
+        self.selected_timer = None;
+        if save_all {
+            for i in 0..self.alarms.len() {
+                save_alarm(self, i);
+            }
+            for i in 0..self.timers.len() {
+                save_timer(self, i);
+            }
+            save_world(self);
+            save_stopwatch(self);
         }
     }
 
@@ -413,6 +436,7 @@ pub fn start() {
     // `--language`; the system's otherwise).
     let mut config = kit::app_config(&kit_ref);
     crate::l10n::register(&mut config);
+    crate::e2e_ops::register_ops(&mut config);
     let mut kit_now = kit_ref.clone();
     let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
     if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
@@ -787,13 +811,28 @@ extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCal
         changed = true;
     }
     follow_up(s, cb, &app);
-    // The stopwatch screen and the settings page show no clock: no rebuild
-    // unless something happened.
-    let still = s.screen == Screen::Stopwatch || kit::settings_open(&s.kit);
-    if changed || !still {
+    let minute = now.timestamp().div_euclid(60);
+    if changed || needs_rebuild(s, minute) {
+        s.built_minute = minute;
         TimerCallbackReturn::continue_and_refresh_dom()
     } else {
         TimerCallbackReturn::continue_unchanged()
+    }
+}
+
+/// Whether what is on screen is out of date at `minute` (since 1970) without anything having
+/// happened: the big time and the "in 7 h" lines of the Alarm and Clock places change with the
+/// minute, a running timer's ring and countdown with the second; the stopwatch is retexted in
+/// place, the settings page shows no clock, and a dialog that is being typed in is left alone
+/// (the window under it is not rebuilt every second).
+pub(crate) fn needs_rebuild(s: &ClockApp, minute: i64) -> bool {
+    if kit::settings_open(&s.kit) || s.editor.is_some() || s.city_search.is_some() {
+        return false;
+    }
+    match s.screen {
+        Screen::Alarms | Screen::World => minute != s.built_minute,
+        Screen::Timer => s.timers.iter().any(CountdownTimer::is_running),
+        Screen::Stopwatch => false,
     }
 }
 
@@ -857,20 +896,7 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
             if first_sample {
                 loaded = store::sample(Utc::now(), &Local);
             }
-            s.alarms = loaded.alarms;
-            s.timers = loaded.timers;
-            s.cities = loaded.world.map(|w| w.cities).unwrap_or_default();
-            s.stopwatch = loaded.stopwatch.unwrap_or_default();
-            if first_sample {
-                for i in 0..s.alarms.len() {
-                    save_alarm(s, i);
-                }
-                for i in 0..s.timers.len() {
-                    save_timer(s, i);
-                }
-                save_world(s);
-                save_stopwatch(s);
-            }
+            s.adopt(loaded, first_sample);
             s.loaded = true;
             println!(
                 "AZCLOCK_LOADED {} {} {}",
@@ -971,36 +997,26 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
-    let wide = info.window_width_greater_than(views::WIDE);
+    let env = env_of(&info);
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<ClockApp>() else {
         return Dom::create_body();
     };
     let s = &*guard;
     let now = Utc::now();
-    let settings = kit::settings_open(&s.kit);
-    let content = if settings {
-        kit::settings_page(&s.kit, views::settings_sections(s, &app))
-    } else {
-        views::screen(s, &app, now, wide)
-    };
-    let mut shell = UtilityShell::create(content)
-        .with_title_row(kit::title_row(SPEC.name))
-        .with_label(SPEC.name)
-        .with_min_size(360.0, 480.0);
-    if !settings {
-        shell = shell.with_modes(views::modes_row(s, &app));
-    }
-    let mut column = Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(shell.dom());
-    if !settings {
-        for overlay in views::overlays(s, &app, now) {
-            column.add_child(overlay);
+    let content = if kit::settings_open(&s.kit) {
+        // The settings page keeps the window's own title row (a phone has none to draw).
+        let mut page = Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
+        if !env.phone {
+            page.add_child(kit::title_row(SPEC.name));
         }
-    }
+        page.with_child(kit::settings_page(&s.kit, views::settings_sections(s, &app)))
+    } else {
+        views::window(s, &app, now, &env)
+    };
     // The scope as the window's body: no UA margin, the full window height.
-    ShellThemeScope::create(column)
+    ShellThemeScope::create(content)
         .with_accent(ShellThemeAccent::Plum)
         .body()
         .with_callback(
@@ -1013,6 +1029,23 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             app,
             on_close_requested,
         )
+}
+
+/// What the window knows about its screen: the room the system keeps at the edges, and whether
+/// it is a phone.
+fn env_of(info: &LayoutCallbackInfo) -> views::Env {
+    let safe = info.get_safe_area_insets();
+    let px = |v: azul::option::OptionPixelValue| {
+        v.into_option().map_or(0.0, |p| p.to_pixels(0.0, 16.0, 16.0))
+    };
+    let clean = |v: f32| if v.is_finite() && v > 0.0 { v } else { 0.0 };
+    views::Env {
+        top: clean(px(safe.top)),
+        right: clean(px(safe.right)),
+        bottom: clean(px(safe.bottom)),
+        left: clean(px(safe.left)),
+        phone: cfg!(any(target_os = "android", target_os = "ios")),
+    }
 }
 
 /// Closing the window while an alarm or a timer is armed, where the OS
