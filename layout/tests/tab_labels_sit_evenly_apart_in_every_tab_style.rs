@@ -137,37 +137,6 @@ fn header_tabs(lw: &LayoutWindow) -> Vec<LogicalRect> {
 }
 
 #[test]
-fn an_aurora_label_sits_8px_inside_its_tab_and_the_tabs_stand_a_curve_s_width_apart() {
-    for theme in [UiTheme::Flora, UiTheme::Flat] {
-        let lw = laid_out(
-            TabHeader::create(labels())
-                .with_active_tab(1)
-                .with_theme(theme)
-                .with_style(TabStyle::Aurora)
-                .dom(),
-        );
-        let tabs = header_tabs(&lw);
-        assert_eq!(tabs.len(), 3, "{theme:?}: three tabs");
-        assert!(
-            (tabs[0].origin.x - 18.0).abs() < 0.5,
-            "{theme:?}: the first tab stands 18px in, room for its left curve: {:?}",
-            tabs[0]
-        );
-        for gap in gaps(&tabs) {
-            assert!((gap - 18.0).abs() < 0.5, "{theme:?}: the tabs are 18px apart, not {gap}");
-        }
-        let glyphs = glyph_xs(&lw);
-        for tab in &tabs {
-            let inset = label_inset(&glyphs, tab);
-            assert!(
-                (inset - 8.0).abs() < 1.0,
-                "{theme:?}: the label sits 8px inside its tab, not {inset:.1}: {tab:?}"
-            );
-        }
-    }
-}
-
-#[test]
 fn a_rectangular_row_starts_at_the_strip_s_edge_with_its_tabs_2px_apart() {
     let lw = laid_out(
         TabHeader::create(labels())
@@ -286,7 +255,7 @@ fn tab_doms(header: &Dom) -> Vec<&Dom> {
 /// its right side: its padding there is a tracking less than on its left.
 #[test]
 fn a_tracked_tab_label_gives_its_trailing_tracking_back() {
-    for style in [TabStyle::Aurora, TabStyle::Rectangular] {
+    for style in [TabStyle::Rectangular] {
         let header = TabHeader::create(labels())
             .with_active_tab(0)
             .with_theme(UiTheme::Flora)

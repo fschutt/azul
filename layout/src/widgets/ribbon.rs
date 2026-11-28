@@ -3591,9 +3591,9 @@ impl Ribbon {
         self
     }
 
-    /// The shape of the tabs: the theme's own row (`Auto`), Aurora's
-    /// curves, square tabs, or `Pills` - the theme's buttons in a row as
-    /// tall as a title bar, on one leather surface with the content.
+    /// The shape of the tabs: the theme's buttons floating on the leather (`Auto`, the default,
+    /// at touch sizes on a phone; `Pills` names them on a desktop, `TouchPills` at touch sizes),
+    /// in a row as tall as a title bar on one leather surface with the content.
     pub const fn set_tab_style(&mut self, style: crate::widgets::tabs::TabStyle) {
         self.tab_style = style;
     }
@@ -3839,7 +3839,7 @@ impl Ribbon {
         scales: &[GroupScale],
         view: &RevealView,
     ) -> Dom {
-        let resolved = self.tab_style.resolved(theme);
+        let resolved = self.tab_style.resolved_for(theme, crate::widgets::tabs::phone_build());
         let touch = resolved == crate::widgets::tabs::TabStyle::TouchPills;
         let pills = resolved == crate::widgets::tabs::TabStyle::Pills || touch;
         let mut curves = TabRowCurves::default();
@@ -4455,7 +4455,7 @@ impl Ribbon {
                 // The touch row in the status bar's band: in a box as tall as the band, with the
                 // window's background, and a cover over each gap the cutouts leave.
                 let tab_bar = match band.as_ref() {
-                    Some(band) if touch => crate::widgets::tabs::touch_header(tab_bar, band),
+                    Some(band) if touch => crate::widgets::tabs::touch_header(tab_bar, band, theme),
                     _ => tab_bar,
                 };
                 let mut v = vec![tab_bar, content];
@@ -7438,7 +7438,7 @@ mod tests {
         let dom = Ribbon::new(RibbonTabVec::from_vec(vec![
             tab,
             RibbonTab::new("PAGE LAYOUT".into()),
-        ]))
+        ])).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
         .with_app_button(RibbonAppButton::new("FILE".into()))
         .dom();
         let mut bad = Vec::new();
@@ -7598,7 +7598,7 @@ mod tests {
     #[test]
     fn ribbon_new_defaults_to_office_2010_with_tab_zero_active() {
         for count in [0usize, 1, 2, 9] {
-            let r = Ribbon::new(tabs(count));
+            let r = Ribbon::new(tabs(count)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular);
             assert_eq!(r.tabs.len(), count);
             assert_eq!(r.active_tab, 0);
             assert!(r.on_tab_click.is_none());
@@ -7614,13 +7614,13 @@ mod tests {
 
     #[test]
     fn set_active_tab_clamps_to_the_last_valid_index() {
-        let mut r = Ribbon::new(RibbonTabVec::from_vec(Vec::new()));
+        let mut r = Ribbon::new(RibbonTabVec::from_vec(Vec::new())).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular);
         for index in [0usize, 1, usize::MAX / 2, usize::MAX] {
             r.set_active_tab(index);
             assert_eq!(r.active_tab, 0, "empty ribbon must clamp {index} to 0");
         }
 
-        let mut r = Ribbon::new(tabs(4));
+        let mut r = Ribbon::new(tabs(4)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular);
         for index in 0..4 {
             r.set_active_tab(index);
             assert_eq!(r.active_tab, index);
@@ -7653,7 +7653,7 @@ mod tests {
 
     #[test]
     fn dom_of_an_empty_ribbon_has_only_the_filler_in_the_bar() {
-        let dom = Ribbon::new(RibbonTabVec::from_vec(Vec::new())).dom();
+        let dom = Ribbon::new(RibbonTabVec::from_vec(Vec::new())).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular).dom();
         assert!(has_class(&dom, "__azul-native-ribbon"));
 
         let (bar, content) = parts(&dom);
@@ -7672,7 +7672,7 @@ mod tests {
 
     #[test]
     fn dom_desktop_emits_only_the_desktop_chrome() {
-        let r = Ribbon::new(tabs(3));
+        let r = Ribbon::new(tabs(3)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular);
         let dom = r.dom_desktop();
         let ch = dom.children.as_ref();
         assert_eq!(ch.len(), 2, "desktop chrome = [tab bar, content]");
@@ -7688,7 +7688,7 @@ mod tests {
         for label in ["Clipboard", "Font", "Paragraph"] {
             tab = tab.with_group(RibbonGroup::new(AzString::from(label)));
         }
-        let r = Ribbon::new(RibbonTabVec::from_vec(vec![tab]));
+        let r = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular);
         let dom = r.dom_mobile();
         let ch = dom.children.as_ref();
         assert_eq!(ch.len(), 3, "mobile chrome = [tab button, overlay, band]");
@@ -7742,7 +7742,7 @@ mod tests {
 
     #[test]
     fn dom_renders_app_button_tabs_and_filler_in_order() {
-        let r = Ribbon::new(tabs(3))
+        let r = Ribbon::new(tabs(3)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
             .with_theme(UiTheme::Flat)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .with_active_tab(1);
@@ -7778,7 +7778,7 @@ mod tests {
 
     #[test]
     fn dom_with_an_out_of_range_active_tab_highlights_nothing_and_renders_no_groups() {
-        let mut r = Ribbon::new(tabs(3));
+        let mut r = Ribbon::new(tabs(3)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular);
         r.active_tab = usize::MAX; // public field bypasses the clamp
         let dom = r.dom();
         let (bar, content) = parts(&dom);
@@ -7790,7 +7790,7 @@ mod tests {
 
     #[test]
     fn dom_without_a_callback_attaches_no_user_tab_handler() {
-        let dom = Ribbon::new(tabs(4)).dom();
+        let dom = Ribbon::new(tabs(4)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular).dom();
         let (bar, _) = parts(&dom);
         for tab in bar.children.as_ref() {
             assert!(
@@ -7806,7 +7806,7 @@ mod tests {
 
     #[test]
     fn dom_gives_every_tab_a_mouseup_callback_with_its_own_index() {
-        let dom = Ribbon::new(tabs(5))
+        let dom = Ribbon::new(tabs(5)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
             .with_on_tab_click(
                 RefAny::new(IndexLog { seen: Vec::new() }),
                 record_index as RibbonOnTabClickCallbackType,
@@ -7845,7 +7845,7 @@ mod tests {
             RefAny::new(0u8),
             noop as super::super::button::ButtonOnClickCallbackType,
         );
-        let dom = Ribbon::new(tabs(1)).with_app_button(ab).dom();
+        let dom = Ribbon::new(tabs(1)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular).with_app_button(ab).dom();
         let (bar, _) = parts(&dom);
         let cbs = bar.children.as_ref()[0].root.get_callbacks();
         assert_eq!(cbs.as_ref().len(), 1);
@@ -7926,7 +7926,7 @@ mod tests {
             RibbonGroup::new(AzString::from("Clipboard"))
                 .with_item(RibbonItem::SmallButton(small_btn("content_cut", "Cut"))),
         );
-        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom();
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular).dom();
         let (_, content) = parts(&dom);
         assert_eq!(content.children.as_ref().len(), 1);
         assert!(has_class(
@@ -7953,7 +7953,7 @@ mod tests {
             noop as super::super::button::ButtonOnClickCallbackType,
         );
         let tab = RibbonTab::new(AzString::from("HOME")).with_group(group);
-        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom();
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular).dom();
         let (_, content) = parts(&dom);
         let (_, footer) = group_parts(content, 0);
 
@@ -7979,7 +7979,7 @@ mod tests {
     fn render_item(item: RibbonItem) -> Dom {
         let tab = RibbonTab::new(AzString::from("t"))
             .with_group(RibbonGroup::new(AzString::from("g")).with_item(item));
-        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
             .with_theme(UiTheme::Flat)
             .dom();
         let (_, content) = parts(&dom);
@@ -8225,7 +8225,7 @@ mod tests {
     fn every_ribbon_state_rule_has_a_dark_twin_chosen_for_its_surface() {
         use azul_css::StringVec;
 
-        let dom = Ribbon::new(tabs(2))
+        let dom = Ribbon::new(tabs(2)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
             .with_theme(UiTheme::Flat)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
@@ -8537,7 +8537,7 @@ mod tests {
             RibbonGroup::new(AzString::from("g"))
                 .with_item(RibbonItem::SmallButton(small_btn("format_bold", ""))),
         );
-        let mut r = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+        let mut r = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
             .with_theme(UiTheme::Flat);
         r.style.small_button_style = OptionCssPropertyWithConditionsVec::Some(injected.clone());
         let dom = r.dom();
@@ -8574,7 +8574,7 @@ mod tests {
                 RibbonGroup::new(AzString::from("Styles"))
                     .with_item(RibbonItem::Gallery(gallery(6))),
             );
-        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
 
@@ -8591,7 +8591,7 @@ mod tests {
         // per-tab RefAny payloads and two RefAnys never compare equal.
         // Inert: the default behaviors mint a fresh chrome `RefAny` per call
         // and two RefAnys never compare equal.
-        let inert = || Ribbon::new(tabs(3)).with_behavior(RibbonBehavior::inert());
+        let inert = || Ribbon::new(tabs(3)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular).with_behavior(RibbonBehavior::inert());
         assert_eq!(Dom::from(inert()), inert().dom());
     }
 
@@ -8734,12 +8734,12 @@ mod tests {
             !i.collapsible && !i.peek_on_hover && !i.auto_select_gallery && !i.expandable_gallery
         );
         assert!(!i.mobile_tab_overlay);
-        assert_eq!(Ribbon::new(tabs(1)).behavior, RibbonBehavior::office_2013());
+        assert_eq!(Ribbon::new(tabs(1)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular).behavior, RibbonBehavior::office_2013());
     }
 
     #[test]
     fn collapsible_tabs_carry_double_click_and_peek_handlers() {
-        let dom = Ribbon::new(tabs(3)).dom();
+        let dom = Ribbon::new(tabs(3)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular).dom();
         let (bar, _) = parts(&dom);
         for tab in &bar.children.as_ref()[..3] {
             let events: Vec<EventFilter> = tab
@@ -8760,7 +8760,7 @@ mod tests {
 
     #[test]
     fn inert_behavior_attaches_no_chrome_handlers() {
-        let dom = Ribbon::new(tabs(2))
+        let dom = Ribbon::new(tabs(2)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
             .with_behavior(RibbonBehavior::inert())
             .dom();
         let (bar, _) = parts(&dom);
@@ -8778,7 +8778,7 @@ mod tests {
             peek_on_hover: false,
             ..RibbonBehavior::office_2013()
         };
-        let dom = Ribbon::new(tabs(1)).with_behavior(behavior).dom();
+        let dom = Ribbon::new(tabs(1)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular).with_behavior(behavior).dom();
         let (bar, _) = parts(&dom);
         let events: Vec<EventFilter> = bar.children.as_ref()[0]
             .root
@@ -8834,7 +8834,7 @@ mod tests {
             expandable_gallery: false,
             ..RibbonBehavior::office_2013()
         };
-        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
             .with_behavior(behavior)
             .dom();
         let (_, content) = parts(&dom);
@@ -8857,7 +8857,7 @@ mod tests {
         let tab = RibbonTab::new(AzString::from("t")).with_group(
             RibbonGroup::new(AzString::from("g")).with_item(RibbonItem::Gallery(gallery(2))),
         );
-        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
             .with_behavior(RibbonBehavior::inert())
             .dom();
         let (_, content) = parts(&dom);
@@ -8877,7 +8877,7 @@ mod tests {
     /// groups) without a second widget tree.
     #[test]
     fn mobile_chrome_is_emitted_alongside_the_desktop_chrome() {
-        let dom = Ribbon::new(tabs(3)).with_active_tab(1).dom();
+        let dom = Ribbon::new(tabs(3)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular).with_active_tab(1).dom();
         let ch = dom.children.as_ref();
 
         for class in [
@@ -9011,7 +9011,7 @@ mod tests {
 
     #[test]
     fn inert_behavior_leaves_the_mobile_tab_button_without_a_toggle() {
-        let dom = Ribbon::new(tabs(2))
+        let dom = Ribbon::new(tabs(2)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
             .with_behavior(RibbonBehavior::inert())
             .dom();
         let btn = dom
@@ -9096,7 +9096,7 @@ mod tests {
     fn the_light_look_of_the_chrome_is_unchanged_by_the_dark_twins() {
         use crate::widgets::theme_probe::unconditional;
 
-        let dom = Ribbon::new(tabs(2))
+        let dom = Ribbon::new(tabs(2)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
             .with_theme(UiTheme::Flat)
             // The Office 2013 palette: the twins of plain colours.
             .with_style(RibbonStyle::office_2013())
@@ -9156,7 +9156,7 @@ mod tests {
     fn the_light_colours_of_the_tab_strip_are_unchanged_by_the_dark_twins() {
         use CssPropertyType as T;
 
-        let dom = Ribbon::new(tabs(2))
+        let dom = Ribbon::new(tabs(2)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
             .with_theme(UiTheme::Flat)
             // The Office 2013 palette: the twins of plain colours.
             .with_style(RibbonStyle::office_2013())
@@ -9395,7 +9395,7 @@ mod tests {
     fn the_accent_keeps_its_blue_in_dark_mode() {
         use crate::widgets::theme_probe::dark;
 
-        let dom = Ribbon::new(tabs(2))
+        let dom = Ribbon::new(tabs(2)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
             .with_theme(UiTheme::Flat)
             // The Office 2013 palette: the twins of plain colours.
             .with_style(RibbonStyle::office_2013())
@@ -9450,7 +9450,7 @@ mod tests {
     fn the_chrome_goes_dark_with_the_window() {
         use crate::widgets::theme_probe::dark;
 
-        let dom = Ribbon::new(tabs(2)).with_theme(UiTheme::Flat)
+        let dom = Ribbon::new(tabs(2)).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular).with_theme(UiTheme::Flat)
             // The Office 2013 palette: the twins of plain colours.
             .with_style(RibbonStyle::office_2013()).dom();
         let (bar, content) = parts(&dom);
@@ -9525,7 +9525,7 @@ mod flora_tests {
                 .with_group(clipboard)
                 .with_group(styles),
             RibbonTab::new("INSERT".into()),
-        ]))
+        ])).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
         .with_app_button(RibbonAppButton::new("FILE".into()))
     }
 
@@ -9759,7 +9759,7 @@ mod flora_tests {
                     .with_item(RibbonItem::Combo(combo("a")))
                     .with_item(RibbonItem::Combo(combo("b").with_theme(other))),
             );
-            let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+            let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
                 .with_theme(theme)
                 .dom();
             assert!(tc::has_class(&dom, marker(theme)), "the root carries its theme marker");
@@ -10198,7 +10198,7 @@ mod office_2010_kinds_tests {
     fn items_of(group: RibbonGroup) -> Dom {
         let dom = Ribbon::new(RibbonTabVec::from_vec(vec![
             RibbonTab::new(AzString::from("Home")).with_group(group),
-        ]))
+        ])).with_tab_style(crate::widgets::tabs::TabStyle::Rectangular)
         .with_theme(UiTheme::Flat)
         .dom_desktop();
         let content = dom

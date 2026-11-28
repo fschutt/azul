@@ -7731,52 +7731,6 @@ pub(crate) fn tab_curves(raised: bool) -> crate::widgets::tabs::TabCurveLook {
     }
 }
 
-/// The curves of an unselected tab of flora's Aurora row: the shape of the
-/// selected tab's, a gauge shorter (the tab stands on the rule), the S a
-/// hairline; bare at rest, and - as parts of the tab, which take its hover
-/// and press - the hover face inside the S with its edge in `--fl-bd` under
-/// the pointer, the pressed face held, fading at the tab's pace. No
-/// run-outs: the tab does not break the rule.
-#[must_use]
-#[allow(clippy::cast_precision_loss)] // a tab's height in px
-pub(crate) fn unselected_tab_curves() -> crate::widgets::tabs::TabCurveLook {
-    use super::decl;
-    type P = CssPropertyWithConditions;
-    let part = CssPropertyWithConditionsVec::from_vec;
-    let fill = || {
-        let mut v = vec![
-            P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(1))),
-            P::simple(CssProperty::background_clip(StyleBackgroundClipVec::from_vec(
-                alloc::vec![StyleBackgroundClip::ContentBox],
-            ))),
-            P::simple(decl::fill(ColorU::TRANSPARENT)),
-        ];
-        v.extend(decl::hover_layers(
-            vec![HOVER_FACE_LIGHT],
-            vec![HOVER_FACE_DARK],
-        ));
-        v.extend(decl::active_layers(
-            vec![PRESSED_FACE_LIGHT],
-            vec![PRESSED_FACE_DARK],
-        ));
-        v.extend(flora_fade(&["background"], FL_DUR_MS));
-        part(v)
-    };
-    let mut metal = vec![P::simple(decl::fill(ColorU::TRANSPARENT))];
-    metal.extend(decl::hover_fill(LIGHT_BD, DARK_BD));
-    metal.extend(flora_fade(&["background"], FL_DUR_MS));
-    crate::widgets::tabs::TabCurveLook {
-        height: (TAB_HEIGHT - TAB_GAUGE) as f32,
-        gauge: 1.0,
-        left_fill: fill(),
-        right_fill: fill(),
-        metal: part(metal),
-        runout: 0.0,
-        runout_left: CssPropertyWithConditionsVec::from_const_slice(&[]),
-        runout_right: CssPropertyWithConditionsVec::from_const_slice(&[]),
-    }
-}
-
 /// The parts of a flora tab row - the strip, an unselected tab, the selected
 /// tab - each on `established` (the part's structure and the geometry it
 /// was laid out with, whose own paint is dropped; see `chrome_part`) with
@@ -7842,49 +7796,6 @@ pub(crate) mod australis {
         v.extend(flora_fade(FLORA_FACE, FL_DUR_MS));
     }
 
-    /// An unselected tab of the Aurora row: cut like the selected one, its
-    /// sides S curves (`unselected_tab_curves`, hung on it as parts that
-    /// light with it), but standing on the rule in the unselected tab's box.
-    /// Bare at rest; under the pointer the hover face, its head in the
-    /// `--fl-bd` hairline and the house ink; held, the pressed face under a
-    /// `--fl-bd3` head (`.nav-links a:active`) - every change over
-    /// `--fl-dur`, a press at once.
-    pub(crate) fn aurora_tab(v: &mut Vec<CssPropertyWithConditions>, border_box: bool) {
-        use super::super::decl;
-        type P = CssPropertyWithConditions;
-        australis_tab_box(v, false, border_box, CURVED_TABS);
-        tab_caps(v);
-        // The curves hang off its box, and stand under the selected tab's.
-        v.push(decl::position(azul_css::props::layout::LayoutPosition::Relative));
-        v.push(P::simple(CssProperty::const_z_index(
-            azul_css::props::layout::LayoutZIndex::Integer(0),
-        )));
-        v.extend(decl::radius(0));
-        v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
-        v.push(P::simple(decl::fill(ColorU::TRANSPARENT)));
-        // Its sides are the curves: only the head takes the hairline.
-        v.extend(decl::border_colors(ColorU::TRANSPARENT).map(P::simple));
-        // States last: a resting dark twin matches in every state.
-        v.extend(decl::hover_layers(
-            vec![HOVER_FACE_LIGHT],
-            vec![HOVER_FACE_DARK],
-        ));
-        v.extend(decl::hover_ink(LIGHT_INK, DARK_INK));
-        v.extend(P::themed_on_hover(
-            CssProperty::const_border_top_color(StyleBorderTopColor { inner: LIGHT_BD }),
-            CssProperty::const_border_top_color(StyleBorderTopColor { inner: DARK_BD }),
-        ));
-        v.extend(decl::active_layers(
-            vec![PRESSED_FACE_LIGHT],
-            vec![PRESSED_FACE_DARK],
-        ));
-        v.extend(P::themed_on_active(
-            CssProperty::const_border_top_color(StyleBorderTopColor { inner: LIGHT_BD3 }),
-            CssProperty::const_border_top_color(StyleBorderTopColor { inner: DARK_BD3 }),
-        ));
-        v.extend(flora_fade(FLORA_FACE, FL_DUR_MS));
-    }
-
     /// The selected tab: the upright stone in `--fl-on-acc` on its padding
     /// box, over the rolled metal on its border box - seen through the
     /// transparent head (its sides are its curves, `tab_curves`) - and the
@@ -7944,20 +7855,14 @@ pub(crate) mod australis {
     }
 }
 
-/// A flora tab row of `shape` on the navigation strip's raised chrome,
-/// closed by the rule ("the Australis tab"). In the Aurora row every tab
-/// carries curves (`tab_curves` on the selected one, run-outs included;
-/// `unselected_tab_curves` on the rest), which `TabHeader::dom` hangs on
-/// the tabs.
+/// A flora tab row of square tabs on the navigation strip's raised chrome, closed by the rule
+/// ("the Australis tab" metal): the selected tab a stone with eased top corners.
 #[must_use]
-fn tab_row_look(shape: TabShape) -> crate::widgets::tabs::TabHeaderLook {
+fn tab_row_look() -> crate::widgets::tabs::TabHeaderLook {
     use super::decl;
     type P = CssPropertyWithConditions;
     let part = CssPropertyWithConditionsVec::from_vec;
-    let spacing = match shape {
-        TabShape::Aurora => CURVED_TABS,
-        TabShape::Rectangular => SQUARE_TABS,
-    };
+    let spacing = SQUARE_TABS;
 
     // Every part is the widget's base (`tabs::HEADER_BASE`, `AFTER_BASE`,
     // `TAB_BASE`: its structure), then flora's skin.
@@ -7981,10 +7886,8 @@ fn tab_row_look(shape: TabShape) -> crate::widgets::tabs::TabHeaderLook {
     ));
     header.push(over_metal_clips(1));
 
-    // The first tab starts `lead` in: a fixed spacer (flat's grows) and the
-    // gap after it. Aurora's lead is a curve's width, where the first tab's
-    // foot lands; square tabs need none, so their spacer leaves the row and
-    // takes its gap with it.
+    // Square tabs need no room before the first one: their spacer leaves
+    // the row and takes its gap with it.
     let mut before = vec![
         P::simple(CssProperty::const_width(LayoutWidth::const_px(
             (spacing.lead - spacing.gap).max(0),
@@ -8006,23 +7909,18 @@ fn tab_row_look(shape: TabShape) -> crate::widgets::tabs::TabHeaderLook {
         v
     };
     let mut tab = tab_box();
-    match shape {
-        TabShape::Aurora => australis::aurora_tab(&mut tab, false),
-        TabShape::Rectangular => australis::tab(&mut tab, false, spacing),
-    }
+    australis::tab(&mut tab, false, spacing);
     tab.extend(decl::focus_halo_inset_stacked(LIGHT_ACC, DARK_GLOW));
 
     let mut active = tab_box();
     australis::selected(&mut active, false, spacing);
-    if shape == TabShape::Rectangular {
-        // Square, its top corners eased like an unselected tab's.
-        active.extend(decl::radius_corners(4, 4, 0, 0));
-    }
+    // Square, its top corners eased like an unselected tab's.
+    active.extend(decl::radius_corners(4, 4, 0, 0));
     active.extend(decl::focus_halo_inset_stacked(LIGHT_GLOW, DARK_GLOW));
 
     // No seams: a tab next to the selected one is a tab like any other.
     let tab = part(tab);
-    let mut look = crate::widgets::tabs::TabHeaderLook::plain(
+    crate::widgets::tabs::TabHeaderLook::plain(
         part(header),
         part(before),
         part(after),
@@ -8031,46 +7929,24 @@ fn tab_row_look(shape: TabShape) -> crate::widgets::tabs::TabHeaderLook {
         tab.clone(),
         tab,
         Some(super::style_kit::FLORA_CLASS),
-    );
-    if shape == TabShape::Aurora {
-        look.selected_curves = Some(tab_curves(false));
-        look.tab_curves = Some(unselected_tab_curves());
-    }
-    look
+    )
 }
 
-/// The two tab shapes flora draws on its own strip.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TabShape {
-    /// Every tab cut with Australis curves.
-    Aurora,
-    /// Square tabs, the selected one a stone with eased top corners.
-    Rectangular,
-}
-
-/// Flora's tab-bar look: the Aurora row, every tab cut as Firefox's.
-#[must_use]
-pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
-    tab_row_look(TabShape::Aurora)
-}
-
-/// Flora's tab-bar look in `style`: the Aurora row (what `Auto` means in
-/// flora), the same strip with square tabs, or the pills of flora's
-/// commands on leather.
+/// Flora's tab-bar look in `style`: the buttons on the leather (what `Auto` means in every
+/// theme) or, for an app that names them, square tabs on the strip.
 #[must_use]
 pub(crate) fn tab_header_look_in(
     style: crate::widgets::tabs::TabStyle,
 ) -> crate::widgets::tabs::TabHeaderLook {
     use crate::widgets::tabs::TabStyle;
     match style.resolved(super::UiTheme::Flora) {
-        TabStyle::Rectangular => tab_row_look(TabShape::Rectangular),
+        TabStyle::Rectangular => tab_row_look(),
         // The touch pills have a DOM of their own (`TabHeader::dom_touch`); the look is only asked
         // for by the code that builds the other styles, and takes the desktop pills' parts.
-        TabStyle::Pills | TabStyle::TouchPills => crate::widgets::tabs::pill_look(
+        TabStyle::Pills | TabStyle::TouchPills | TabStyle::Auto => crate::widgets::tabs::pill_look(
             super::UiTheme::Flora,
             Some(super::style_kit::FLORA_CLASS),
         ),
-        TabStyle::Aurora | TabStyle::Auto => tab_row_look(TabShape::Aurora),
     }
 }
 
@@ -11541,18 +11417,15 @@ mod australis_tab_tests {
         assert!((right - (8.0 - trailing())).abs() < 0.01, "app button: {right}");
     }
 
-    /// A selected tab's curve hangs a curve's width past its box: in a
-    /// curved row the gap is that wide, so the S lies in it and clear of
-    /// both labels; a square row hangs none and keeps its tabs 2px apart.
+    /// A selected tab's curve hangs a curve's width past its box: in the ribbon's curved row the
+    /// gap is that wide, so the S lies in it and clear of both labels; a square tab bar hangs
+    /// none and keeps its tabs 2px apart.
     #[test]
-    fn a_curved_flora_row_is_a_curve_wide_between_tabs_and_a_square_one_2px() {
+    fn a_curved_flora_ribbon_row_is_a_curve_wide_between_tabs_and_a_square_tab_bar_2px() {
         let mut strip = Vec::new();
         australis::strip(&mut strip);
-        let aurora = tab_header_look_in(crate::widgets::tabs::TabStyle::Aurora).header;
         let square = tab_header_look_in(crate::widgets::tabs::TabStyle::Rectangular).header;
-        for (name, v) in [("ribbon strip", strip.as_slice()), ("tab bar", aurora.as_ref())] {
-            assert_eq!(column_gap(v), crate::widgets::tabs::CURVE_WIDTH, "{name}");
-        }
+        assert_eq!(column_gap(strip.as_slice()), crate::widgets::tabs::CURVE_WIDTH, "ribbon strip");
         assert_eq!(column_gap(square.as_ref()), 2.0, "square tabs");
     }
 

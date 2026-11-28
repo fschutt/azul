@@ -1,9 +1,10 @@
 //! The "Tab looks" section: one set of tabs in every look a tab bar has.
 //!
-//! The same three tabs are drawn as Aurora (flora's curved tabs), as
-//! Rectangular (classic square tabs) and as Pills (the theme's buttons on a
-//! leather strip that closes on a golden line), all on ONE selection: a click
-//! in any of them selects that tab in all three. Under them one panel shows
+//! The same three tabs are drawn as Auto (the theme's buttons floating on a
+//! leather strip that closes on a golden line: the look of every theme on every
+//! platform), as Rectangular (classic square tabs, for an app that names them)
+//! and as Pills (what Auto is on a desktop), all on ONE selection: a click in
+//! any of them selects that tab in all three. Under them one panel shows
 //! the selected tab's text and slides in from the side of the switch
 //! (`TabContent::with_switch`). Last, a small ribbon on the leather, its tabs
 //! as buttons, like AzDrive's title bar.
@@ -128,13 +129,13 @@ pub(crate) fn tab_looks_section(data: &RefAny, demo: &TabLooksDemo, theme: UiThe
     section(
         "Tab looks",
         vec![
-            captioned("Aurora - flora's curved tabs", header(data, demo, TabStyle::Aurora, theme)),
+            captioned("Auto - the buttons on the leather", header(data, demo, TabStyle::Auto, theme)),
             captioned(
                 "Rectangular - square tabs",
                 header(data, demo, TabStyle::Rectangular, theme),
             ),
             captioned(
-                "Pills - buttons on the leather",
+                "Pills - what Auto is on a desktop",
                 header(data, demo, TabStyle::Pills, theme),
             ),
             captioned("The panel slides in from the side of the switch", panel),
@@ -253,10 +254,49 @@ pub(crate) fn phone_strip(
     band: StatusBarBand,
 ) -> Dom {
     if demo.ribbon_band {
-        ribbon_strip(data, demo, theme, band)
+        // The ribbon over a document, as a word processor shows it.
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-shrink: 0;")
+            .with_child(ribbon_strip(data, demo, theme, band))
+            .with_child(document_sheet())
     } else {
         touch_header(data, demo, theme, Some(band))
     }
+}
+
+/// The lines of the sheet under the ribbon.
+const SHEET_LINES: [&str; 5] = [
+    "The tab row above takes the place of the clock and the battery and slides around the camera.",
+    "Drag it sideways to reach a tab that is out of view; the selected tab comes into view by itself.",
+    "A vertical swipe on the groups, or on the page under them, flips to the next or the previous tab.",
+    "The sheet is what a word processor shows under its ribbon: a white page on the desk.",
+    "Turn the phone and the tab row finds its lanes around the camera again.",
+];
+
+/// A document under the ribbon, the way AzWriter shows one: a white sheet on the desk with a title and a few
+/// lines (the sheet is paper, white in every mode).
+fn document_sheet() -> Dom {
+    let mut sheet = Dom::create_div()
+        .with_css(
+            "box-sizing: border-box; width: 100%; max-width: 560px; min-height: 220px; padding: 20px 22px; \
+             background: #ffffff; border-radius: 2px; box-shadow: 0px 1px 4px rgba(0, 0, 0, 0.3);",
+        )
+        .with_child(
+            Dom::create_p_with_text("Notes on the tab row")
+                .with_css("margin: 0px 0px 12px 0px; font-size: 22px; font-weight: bold; color: #202124;"),
+        );
+    for line in SHEET_LINES {
+        sheet = sheet.with_child(
+            Dom::create_p_with_text(line)
+                .with_css("margin: 0px 0px 8px 0px; font-size: 14px; line-height: 20px; color: #202124;"),
+        );
+    }
+    Dom::create_div()
+        .with_css(
+            "display: flex; flex-direction: column; align-items: center; box-sizing: border-box; \
+             padding: 14px 12px; background-color: system:under-page-background;",
+        )
+        .with_child(sheet)
 }
 
 /// A word processor's ribbon in the band: its tabs are the strip (the touch pills), the groups of
