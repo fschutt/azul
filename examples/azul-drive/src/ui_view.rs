@@ -27,7 +27,7 @@ use azul::{
         TextInputOnFocusLostCallbackType, TextInputOnTextInputCallbackType,
         TextInputOnVirtualKeyDownCallbackType, TileOnClickCallbackType, ToastOnDismissCallbackType,
     },
-    dom::{AttributeType, DomId, FocusTarget, NodeId, VirtualKeyCode},
+    dom::{AttributeType, DomId, DomNodeId, FocusTarget, NodeId, VirtualKeyCode},
     prelude::*,
     shells::ShellEmptyState,
     str::String as AzString,
@@ -1674,15 +1674,21 @@ fn view_scrolled(mut data: RefAny, mut info: CallbackInfo, ended: bool) -> Updat
     else {
         return Update::DoNothing;
     };
-    let hit = info.get_hit_node();
-    let Some(raw) = hit.node.into_raw().checked_sub(1) else {
+    // The view's own node, found by its id: the node a report of the scroll names may be a row in the
+    // view's document (the report comes up from where the pointer is), and a row has no scroll offset.
+    let dom = DomId { inner: 0 };
+    let host = info.get_node_id_by_id_attribute(dom, ids::FOLDER_ROWS);
+    let Some(raw) = host.into_raw().checked_sub(1) else {
         return Update::DoNothing;
     };
     let offset = info
-        .get_scroll_offset_for_node(hit.dom, NodeId { inner: raw })
+        .get_scroll_offset_for_node(dom, NodeId { inner: raw })
         .into_option()
         .map_or(0.0, |p| p.y);
-    let height = info.get_node_size(hit).into_option().map_or(0.0, |size| size.height);
+    let height = info
+        .get_node_size(DomNodeId { dom, node: host })
+        .into_option()
+        .map_or(0.0, |size| size.height);
     let handle = app.clone();
     let Some(mut guard) = app.downcast_mut::<DriveState>() else {
         return Update::DoNothing;
