@@ -6,7 +6,7 @@
 #
 # The steps to run are named in scripts/ci/sounds_gate.steps (one per line, # comments): the command string stays the
 # same from run to run, so the runner's build cache is reused. No such file, or an empty one: every step runs.
-#   COMPILE gate (before a push):  java_compile core_tests layout_check dll_check android_check ios_cross_check apps_check autofix doc_check
+#   COMPILE gate (before a push):  java_compile core_tests layout_check dll_check android_check ios_cross_check apps_check dll_tests_check autofix doc_check
 #   TEST gate (on the pushed sha): layout_sound_tests dll_sound_tests clippy_features clippy_default workspace_tests dll_default_tests srcgate
 # A step that fails does not stop the ones after it, so one run says everything that is wrong; the last lines are one
 # `STEP <name> <exit>` each, and the exit code of the script is 0 only when every step passed.
@@ -65,6 +65,10 @@ run android_check bash scripts/ci/android_check.sh
 run ios_cross_check bash scripts/ci/ios_cross_check.sh
 # the apps compile against the generated API (the Sounds section of AzWidgets names SystemSound and the new CallbackInfo methods)
 run apps_check cargo check -p azul-appkit -p AzWidgets --lib --profile test --features azul-appkit/azul --message-format short
+
+# 4b. every test of the dll compiles (the lib's tests and the integration tests): a check of the test targets, which the
+#     CI's `cd dll && cargo test` runs; the lib's own check above is reused, so this is the test builds only
+run dll_tests_check cargo check -p azul-dll --features build-dll --tests --message-format short
 
 # 5. api.json against the source: autofix must find nothing more, and a SECOND round on the same tree nothing either
 #    (autofix.diff is the tree after round 1, autofix2.diff after round 2: both must be empty). The first run on a tree with a
