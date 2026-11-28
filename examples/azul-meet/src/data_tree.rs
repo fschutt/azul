@@ -355,6 +355,8 @@ pub(crate) extern "C" fn room_tick(mut data: RefAny, mut info: TimerCallbackInfo
             let s = &mut *guard;
             // A direct call nobody took, a connection that never said hello.
             let direct_changed = direct_call::tick(s);
+            // A bind that failed because the platform was not ready yet is tried again.
+            retry_bind(s);
             refresh_ticket(s);
             let ts = call_signer_ts(s);
             let signer = s.identity.as_ref().zip(ts);
@@ -780,6 +782,9 @@ pub(crate) fn enter_room(
     app: &RefAny,
     found: RoomInfo,
 ) -> Option<HttpJob> {
+    // The endpoint is bound now, the first time a meeting is entered (not when the app starts); its ticket comes with its `Ready` event,
+    // and the announcement waits for it (`first_job`, `next_job`).
+    ensure_endpoint(s, false);
     ensure_chat(s, &found);
     let id = found.room.clone();
     if let Some(chat) = s.chats.get_mut(&id) {

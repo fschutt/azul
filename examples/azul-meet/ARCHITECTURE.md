@@ -88,6 +88,15 @@ overrides both for one run. "No relay" is not offered: `--relay off` exists for 
 meetings service on the same computer means a local test and no relay as well. Changing the relay
 binds the device's iroh endpoint anew, so it can only be changed outside a meeting.
 
+The endpoint is bound when the first thing that needs it starts, not when the app starts: a meeting entered, a room's view opened,
+the direct-call screen opened or a direct call dialed (`connection::ensure_endpoint`). The start screen and the settings need none
+and say nothing about one. A bind starts the engine's network: on iOS and macOS the system asks about the local network then, and on
+Android the activity does not exist yet in the library's constructor (the engine answers "the Android context is not ready", which
+is tried again every second, 20 times, from the room tick). The rooms bind without the engine's local-network discovery: the meeting
+server's peers list gives each peer's ticket, which carries its direct addresses and its relay, so nothing is announced or browsed. The
+direct-call screen binds with it (or binds again with it when nothing is connected): a call by a bare id finds the peer by its key on
+the local network.
+
 Small rooms are a full mesh: up to the mesh cap (4 today, 8 in the design) everyone sends to
 everyone. Above it the best-connected participants (by the capacity reports) form a backbone.
 Every other participant sends its media once, to its backbone parent, and receives everything

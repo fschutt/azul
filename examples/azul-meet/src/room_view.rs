@@ -29,7 +29,8 @@ pub(crate) fn open_room_view(s: &mut MeetState, id: &str, join: bool) {
     s.notice.clear();
     println!("AZMEET_OPEN {id}");
     remember_room(s, id);
-    // Between calls the room's chat travels over the members online.
+    // Between calls the room's chat travels over the members online: the endpoint is bound now, the first time a room's view is opened.
+    ensure_endpoint(s, false);
     chat_link::open(s, id);
 }
 
