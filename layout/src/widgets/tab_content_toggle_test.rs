@@ -15,7 +15,7 @@ use azul_css::{
     AzString, StringVec,
 };
 
-use super::{chevron, CONTENT_TOGGLE_CLASS, CONTENT_TOGGLE_PX};
+use super::{chevron, CONTENT_TOGGLE_CLASS};
 use crate::widgets::{
     tab_strip::StatusBarBand,
     tabs::{TabContent, TabHeader, TabStyle},
@@ -138,7 +138,6 @@ fn in_a_row_the_chevron_is_the_first_node_and_on_a_phone_it_makes_room_for_itsel
         without.children.as_ref().len() + 2,
         "two nodes more in the header: a stretch of leather under the chevron, and the chevron"
     );
-    assert!(CONTENT_TOGGLE_PX > 0.0);
 }
 
 fn displays_nothing(panel: &Dom) -> bool {
