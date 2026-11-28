@@ -157,6 +157,24 @@ class RunRecordTests(unittest.TestCase):
             run.step("a", "x", lambda s: (s.check("must", True), s.check("nice", False, required=False)))
             self.assertTrue(run.steps[0].ok)
 
+    def test_an_informational_check_that_failed_shows_in_the_table_of_the_passing_step(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "android", {})
+            run.step("a", "x", lambda s: (s.check("must", True), s.check("the page reacts", False, "differs 0.000", required=False), s.note("a note")))
+            row = next(l for l in (Path(d) / "qa.md").read_text().splitlines() if l.startswith("| a |"))
+            self.assertIn("| PASS |", row)
+            self.assertIn("INFO FAILED: the page reacts (differs 0.000); a note", row)
+
+    def test_an_informational_check_that_passed_adds_nothing(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "android", {})
+            run.step("a", "x", lambda s: (s.check("nice", True, required=False), s.note("a note")))
+            row = next(l for l in (Path(d) / "qa.md").read_text().splitlines() if l.startswith("| a |"))
+            self.assertNotIn("INFO FAILED", row)
+            self.assertIn("a note", row)
+
 
 class StartupMetricNoteTests(unittest.TestCase):
     """WP-S's startup fix moves the system's launch metric (Displayed, TotalTime) from the blank window to the first Azul picture: the QA says so
@@ -1145,6 +1163,29 @@ class RunFolderTests(unittest.TestCase):
                 self.assertTrue(str(run.logs_dir).endswith("demo-out/qa/logs"))
             finally:
                 os.chdir(old)
+
+
+class TextSizeNoteTests(unittest.TestCase):
+    """An informational check that fails (the page does not follow the system text size) must show in qa.md: as a step note, because the step still passes."""
+
+    TEXT = (Path(__file__).resolve().parent / "mobile_qa.py").read_text(encoding="utf-8")
+
+    def test_both_text_size_steps_note_a_page_that_did_not_change(self):
+        self.assertEqual(self.TEXT.count("s.note(TEXT_SIZE_IGNORED.format("), 2)
+        self.assertIn("THE PAGE DID NOT CHANGE", q.TEXT_SIZE_IGNORED)
+        self.assertIn("ignores the system text size", q.TEXT_SIZE_IGNORED)
+
+    def test_the_note_lands_in_the_table_of_a_passing_step(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "ios", {"label": "t"})
+
+            def step(s):
+                s.check("the page reacts to the text size", False, "differs 0.000", required=False)
+                s.note(q.TEXT_SIZE_IGNORED.format(what="the largest accessibility text size", diff=0.0))
+            run.step("06-text-size", "x", step)
+            self.assertTrue(run.steps[0].ok)
+            self.assertIn("THE PAGE DID NOT CHANGE", (Path(d) / "qa.md").read_text())
 
 
 class MapsScriptTests(unittest.TestCase):
