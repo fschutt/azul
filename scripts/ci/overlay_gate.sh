@@ -42,10 +42,10 @@ tests() {
   local code=0
   # the tests of this work by name: the module names carry them
   cargo test -p azul-css -p azul-core -p azul-layout --lib --features "$features" --no-fail-fast -- \
-    transient event_boundary 2>&1 | tee overlay-tests.txt
+    transient event_boundary menu_overlay 2>&1 | tee overlay-tests.txt
   local first=${PIPESTATUS[0]}
   cargo test -p azul-layout --features "$features" --test all --no-fail-fast -- \
-    a_window_with_one_surface a_popover_fits a_screen_reader_reaches 2>&1 | tee overlay-tests-integration.txt
+    a_window_with_one_surface a_menu_of_a_window a_popover_fits a_screen_reader_reaches 2>&1 | tee overlay-tests-integration.txt
   local second=${PIPESTATUS[0]}
   [ "$first" -eq 0 ] && [ "$second" -eq 0 ] || code=1
   return "$code"
@@ -154,7 +154,8 @@ dll_tests() {
   cargo test -p azul-dll --features build-dll --lib --no-fail-fast -- transient 2>&1 | tee dll-lib-tests.txt
   [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
   cargo test -p azul-dll --features build-dll --no-fail-fast \
-    --test a_one_surface_window_shows_its_popups_inside_itself --test transient_window_layout 2>&1 | tee dll-tests.txt
+    --test a_one_surface_window_shows_its_popups_inside_itself --test a_menu_on_a_phone_opens_inside_the_window \
+    --test transient_window_layout 2>&1 | tee dll-tests.txt
   [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
   return "$code"
 }

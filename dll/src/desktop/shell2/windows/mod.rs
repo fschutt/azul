@@ -3599,6 +3599,11 @@ impl Win32Window {
     /// the OUTERMOST one, so a box with its own menu inside a page with
     /// another opened the page's.
     fn try_show_context_menu(&mut self, client_x: i32, client_y: i32) -> bool {
+        // A window with one surface shows its context menu inside itself: the engine opens it
+        // from the long press / the secondary press the common event pass sees.
+        if crate::desktop::shell2::common::event::PlatformWindow::shows_menus_inside_itself(&*self) {
+            return false;
+        }
         let Some((owner, menu)) = self
             .common
             .layout_window

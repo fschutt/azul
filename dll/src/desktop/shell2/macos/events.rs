@@ -1715,6 +1715,11 @@ impl MacOSWindow {
     /// platform half. Presentation is deliberately not done here — see
     /// `pending_context_menu` and `take_pending_context_menu` in `macos/mod.rs`.
     fn resolve_context_menu(&mut self, position: LogicalPosition) -> Option<()> {
+        // A window with one surface shows its context menu inside itself: the engine opens it
+        // from the long press / the secondary press the common event pass sees.
+        if crate::desktop::shell2::common::event::PlatformWindow::shows_menus_inside_itself(&*self) {
+            return None;
+        }
         let (owner, context_menu) = self
             .common
             .layout_window

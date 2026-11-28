@@ -173,18 +173,24 @@ fn backdrop_of(skin: &DialogSkin) -> Vec<CssPropertyWithConditions> {
 /// A press on the close box of a sheet: the user dismisses the window, as the OS's close box did
 /// (the `Dismissed` event, focus back to what opened it).
 extern "C" fn close_box_pressed(_data: RefAny, mut info: CallbackInfo) -> Update {
+    close_window_around(&mut info);
+    Update::DoNothing
+}
+
+/// Closes the window the control this callback runs on is in: the nearest `<transient-window>`
+/// above it that is open (a sheet can sit inside the sheet of another window), as the user
+/// dismissing it. What the close box of a sheet does, and what a menu does when one of its items
+/// is picked.
+pub(crate) fn close_window_around(info: &mut CallbackInfo) {
     let mut node = Some(info.get_hit_node());
     for _ in 0..MAX_DEPTH {
         let Some(n) = node else { break };
-        // The nearest `<transient-window>` above the box that is open: the window it is the close
-        // box of (a sheet can sit inside the sheet of another window).
         if info.is_transient_window_open(n) {
             info.set_transient_window_open(n, false);
             break;
         }
         node = info.get_parent(n);
     }
-    Update::DoNothing
 }
 
 /// Presents every `<transient-window>` of `dom` (with `dock="popup"`, the default) as an overlay of

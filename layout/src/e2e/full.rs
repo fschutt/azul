@@ -3291,8 +3291,9 @@ pub enum DebugEvent {
     /// `"overlay"`, `rect` is where it is, `covers_window` marks a modal's scrim, `top` the one
     /// Escape and the back button close first). The answer is `{ "popup_count": n, "popups":
     /// [ { "dom_id", "node_id", "selector", "anchor", "dismiss", "shown", "title", "rect",
-    /// "covers_window", "top" } ] }`, oldest first. An overlay is part of the window's own
-    /// document: address its content with `selector` like any other node.
+    /// "covers_window", "top", "is_menu" } ] }`, oldest first (`is_menu`: the popup shows a menu an
+    /// app opened). An overlay is part of the window's own document: address its content with
+    /// `selector` like any other node - the rows of a menu are `.__azul-menu-item`.
     ListPopups,
     /// Get the raw node hierarchy (for debugging DOM structure issues).
     /// Address a child DOM (a `VirtualView` / transient-window document) with
@@ -20007,6 +20008,7 @@ fn serve_debug_event(
                         }),
                         "covers_window": p.covers_window,
                         "top": p.top,
+                        "is_menu": p.is_menu,
                     })
                 })
                 .collect();

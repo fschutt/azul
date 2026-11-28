@@ -6856,6 +6856,11 @@ impl WaylandWindow {
     /// menu. This used to start at the highest `NodeId` of the LOWEST dom, so
     /// a page composited over its host was never asked.
     fn try_show_context_menu_for(&mut self, seat_id: u64, position: LogicalPosition) -> bool {
+        // A window with one surface shows its context menu inside itself: the engine opens it
+        // from the long press / the secondary press the common event pass sees.
+        if crate::desktop::shell2::common::event::PlatformWindow::shows_menus_inside_itself(&*self) {
+            return false;
+        }
         let Some((owner, context_menu)) = self
             .common
             .layout_window

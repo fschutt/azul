@@ -1970,6 +1970,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         hover_manager: _,
         virtual_view_manager: _,
         transient_windows: _,
+        // At most `MAX_OPEN_MENUS` menus, each one `Menu` the app built.
+        menu_overlays: _,
         laid_out_dock_generation: _,
         inline_tear: _,
         pointer_capture: _,
@@ -2788,6 +2790,9 @@ pub struct LayoutWindow {
     /// and under which `DomId` each one's content is laid out. See
     /// `crate::transient`.
     pub transient_windows: crate::transient::TransientWindowManager,
+    /// The menus this window shows inside itself when it has one surface (a phone): every
+    /// `Menu` an app opened, until it is picked from or closed. See `crate::menu_overlay`.
+    pub menu_overlays: crate::menu_overlay::MenuOverlays,
     /// The node that captured the pointer (`CallbackInfo::capture_pointer`):
     /// while set, mouse moves and the release are delivered to THIS node no
     /// matter what is under the cursor — W3C `setPointerCapture`. A slider
@@ -4741,6 +4746,7 @@ impl LayoutWindow {
             laid_out_dock_generation: 0,
             inline_tear: None,
             transient_windows: crate::transient::TransientWindowManager::new(),
+            menu_overlays: crate::menu_overlay::MenuOverlays::new(),
             pointer_capture: None,
             pending_transient_diff: crate::transient::TransientDiff::default(),
             gpu_state_manager: GpuStateManager::new(
@@ -8878,6 +8884,8 @@ impl LayoutWindow {
         source_node: NodeId,
     ) -> Option<crate::transient::OpenTransientWindow> {
         let closed = self.transient_windows.dismiss(source_node)?;
+        // A popup that showed a menu: the menu is over.
+        self.forget_menu_overlay_at(source_node);
         self.layout_results.remove(&closed.content_dom);
         self.pending_transient_diff
             .merge(crate::transient::TransientDiff {

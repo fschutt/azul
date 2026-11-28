@@ -5939,6 +5939,66 @@ pub trait PlatformWindow {
         }
     }
 
+    /// Does this window show its menus inside itself - a window with one surface, a phone or a
+    /// desktop window put on a phone display? Then a menu is no native menu and no window of its
+    /// own: the engine shows it over the page ([`LayoutWindow::open_menu_overlay`]).
+    fn shows_menus_inside_itself(&self) -> bool {
+        let state = self.get_current_window_state();
+        self.get_layout_window()
+            .is_some_and(|lw| lw.effective_presentation(state).is_one_surface())
+    }
+
+    /// Opens `menu` inside this window if it shows its menus there ([`Self::shows_menus_inside_itself`]):
+    /// it hangs from `anchor` (the control's rect), or from `at` when it was opened at a point. The
+    /// menu is part of the page the next regeneration builds, so one is asked for. Returns whether
+    /// the window took the menu; `false` leaves it to the shell.
+    fn open_menu_inside_window(
+        &mut self,
+        menu: &azul_core::menu::Menu,
+        at: LogicalPosition,
+        anchor: Option<azul_core::geom::LogicalRect>,
+    ) -> bool {
+        if !self.shows_menus_inside_itself() {
+            return false;
+        }
+        let window = self.get_current_window_state().size.dimensions;
+        let anchor = anchor.unwrap_or_else(|| {
+            azul_core::geom::LogicalRect::new(at, azul_core::geom::LogicalSize::zero())
+        });
+        if let Some(lw) = self.get_layout_window_mut() {
+            lw.open_menu_overlay(menu, anchor, window);
+        }
+        self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        true
+    }
+
+    /// A window that shows its menus inside itself shows the context menu of the node under the
+    /// pointer there: the secondary press (the `ContextMenu` request the engine makes of a right
+    /// release, the menu key and the accessibility action) and the long press of a finger ask for
+    /// it. `None`: nothing was asked, or the shell shows menus its own way.
+    fn open_context_menu_overlay(
+        &mut self,
+        events: &[azul_core::events::SyntheticEvent],
+    ) -> Option<ProcessEventResult> {
+        use azul_core::events::EventType;
+
+        if !events
+            .iter()
+            .any(|e| matches!(e.event_type, EventType::ContextMenu | EventType::LongPress))
+            || !self.shows_menus_inside_itself()
+        {
+            return None;
+        }
+        let at = self
+            .get_current_window_state()
+            .mouse_state
+            .cursor_position
+            .get_position()?;
+        let (_owner, menu) = self.get_layout_window()?.context_menu_under_pointer()?;
+        self.open_menu_inside_window(&menu, at, None)
+            .then_some(ProcessEventResult::ShouldRegenerateDomCurrentWindow)
+    }
+
     /// `<transient-window>`, parent side: this window is going away, so the
     /// popups it opened go with it (`common::transient::close_parent`) - a
     /// popup's own popup has no other parent to close it. Every backend's
@@ -7919,8 +7979,14 @@ pub trait PlatformWindow {
                     cursor,
                     *anchor,
                 );
-                self.show_menu_from_callback(menu, pos, *anchor);
-                ProcessEventResult::ShouldReRenderCurrentWindow
+                // A window with one surface has no second window and no native menu for it: the
+                // engine shows the menu over the page, which the regeneration builds.
+                if self.open_menu_inside_window(menu, pos, *anchor) {
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    self.show_menu_from_callback(menu, pos, *anchor);
+                    ProcessEventResult::ShouldReRenderCurrentWindow
+                }
             }
 
             CallbackChange::CapturePointer { node, seat_id } => {
@@ -12939,6 +13005,9 @@ pub trait PlatformWindow {
             return accelerator_result;
         }
 
+        // A window with one surface shows a context menu inside itself.
+        let context_menu_result = self.open_context_menu_overlay(&synthetic_events);
+
         // Tooltip-delay timer: on hover transitions onto (or off of) a node
         // with a `title` (the only tooltip source, as in Chrome), start or
         // stop `TOOLTIP_DELAY_TIMER_ID`. Delay comes from
@@ -14921,6 +14990,9 @@ pub trait PlatformWindow {
             result = result.max(r);
         }
         result = result.max(accelerator_result);
+        if let Some(r) = context_menu_result {
+            result = result.max(r);
+        }
 
         // End-of-pass housekeeping (top-level pass only):
         // - MWA-A1: re-sync the pump timer — callbacks above may have added / removed the DOM's

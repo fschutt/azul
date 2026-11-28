@@ -1559,6 +1559,11 @@ impl X11Window {
     /// to how menu bar menus work, but spawns at cursor position instead of below a trigger rect.
     /// Returns true if a menu was shown
     fn try_show_context_menu(&mut self, position: LogicalPosition) -> bool {
+        // A window with one surface shows its context menu inside itself: the engine opens it
+        // from the long press / the secondary press the common event pass sees.
+        if crate::desktop::shell2::common::event::PlatformWindow::shows_menus_inside_itself(&*self) {
+            return false;
+        }
         let Some((owner, context_menu)) = self
             .common
             .layout_window

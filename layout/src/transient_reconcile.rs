@@ -166,6 +166,9 @@ impl LayoutWindow {
         }
         // The chrome is built from the live theme, like every widget of this window.
         let _theme = azul_core::app_theme::ThemeScope::enter(self.app_theme.clone());
+        // The menus the app opened become popups of the page first, so the pass below presents them
+        // like every other.
+        crate::menu_overlay_dom::present_menu_overlays(dom, &self.menu_overlays);
         crate::transient_overlay::present_transient_windows(dom, presentation)
     }
 }
@@ -209,6 +212,8 @@ impl LayoutWindow {
         // rings the invoker only if none did.
         let keyboard_owned_before = self.transient_keyboard_owner().is_some();
         let presentation = self.effective_presentation(window_state);
+        // A menu belongs to the shape of the window it was opened in.
+        self.close_stale_menu_overlays(window_state.size.dimensions);
 
         // 1. What does the parent layout say is open, and where is each anchor?
         let wanted = {
@@ -223,12 +228,20 @@ impl LayoutWindow {
             let overrides = self.transient_windows.anchor_overrides();
             // Anchors are VIEWPORT rects (scroll taken off): the popup must open where the anchor
             // is on screen, not where the unscrolled layout has it.
-            collect_open_transient_windows(styled, &forced, &overrides, |node| {
+            let mut found = collect_open_transient_windows(styled, &forced, &overrides, |node| {
                 self.get_node_rect_in_viewport(DomNodeId {
                     dom: DomId::ROOT_ID,
                     node: NodeHierarchyItemId::from_crate_internal(Some(node)),
                 })
-            })
+            });
+            // A menu hangs from the control it was opened for (or the point it was opened at), not
+            // from the node that holds it at the end of the page.
+            for placement in &mut found {
+                if let Some(anchor) = self.menu_overlay_anchor(styled, placement.node) {
+                    placement.anchor_rect = anchor;
+                }
+            }
+            found
         };
         // `anchor="viewport"` (a modal dialog's top layer) covers the whole window instead of
         // hanging off its anchor node: anchored to the viewport and laid out at its size, so a
@@ -714,6 +727,9 @@ pub struct PopupInfo {
     /// The overlay Escape and the back button close first: the one opened last. Only overlays
     /// have a top; a window has the window manager's focus.
     pub top: bool,
+    /// The popup shows a menu an app opened (`CallbackInfo::open_menu`), not a
+    /// `<transient-window>` the app made.
+    pub is_menu: bool,
 }
 
 impl LayoutWindow {
@@ -753,6 +769,10 @@ impl LayoutWindow {
                     rect: w.overlay.map(|o| o.rect),
                     covers_window: w.overlay.is_some_and(|o| o.cover),
                     top: top == Some(w.source_node),
+                    is_menu: root.is_some_and(|r| {
+                        crate::menu_overlay::menu_overlay_id_of(&r.styled_dom, w.source_node)
+                            .is_some()
+                    }),
                 }
             })
             .collect()
