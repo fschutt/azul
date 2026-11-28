@@ -69,14 +69,18 @@ pub struct IrohConfig {
     /// the relay carries the traffic). Needs a relay; `port` does not apply.
     pub relay_only: bool,
     /// Find peers on the local network by their endpoint id (mDNS), without a ticket's saved
-    /// addresses or a relay, and announce this endpoint there. On by default; see
-    /// [`IrohConfig::with_local_discovery`] for what is announced and how to turn it off.
+    /// addresses or a relay, and announce this endpoint there. OFF by default: the first
+    /// announcement makes iOS and macOS ask the user for the Local Network permission, which must
+    /// come when the app starts a feature that needs the local network, not at launch. See
+    /// [`IrohConfig::with_local_discovery`] for what is announced and how to turn it on.
     pub local_discovery: bool,
 }
 
 impl IrohConfig {
     /// Config for the protocol `alpn`: default relays, a new identity, any free port, 16 MiB frames,
-    /// local-network discovery on.
+    /// local-network discovery OFF (turn it on with `with_local_discovery(true)` where the user
+    /// starts a feature that works on the local network: iOS and macOS ask them for the Local
+    /// Network permission when it starts).
     pub fn create(alpn: AzString) -> Self {
         IrohConfig {
             alpn,
@@ -89,7 +93,7 @@ impl IrohConfig {
             allowed_peers: OptionStringVec::None,
             port: 0,
             max_frame_bytes: 16 * 1024 * 1024,
-            local_discovery: true,
+            local_discovery: false,
         }
     }
 
@@ -152,12 +156,17 @@ impl IrohConfig {
         self
     }
 
-    /// Returns the config with local-network discovery switched on or off. On (the default), the
-    /// endpoint finds peers on the local network by their endpoint id alone (mDNS), so a phone
-    /// finds a Mac whose address changed without the ticket's saved addresses or a relay, and it
-    /// announces itself there: its endpoint id (a public key) and its network addresses, to the
-    /// local link only (multicast, never routed; its relay is not announced). Turn it off for a
-    /// server or an app that must not announce itself to the network it sits on. An endpoint
+    /// Returns the config with local-network discovery switched on or off. Off (the default), the
+    /// endpoint uses tickets' addresses and relays only and touches the local network not at all:
+    /// no multicast, no announcement, and so no Local Network permission dialog on iOS and macOS.
+    /// On, the endpoint finds peers on the local network by their endpoint id alone (mDNS), so a
+    /// phone finds a Mac whose address changed without the ticket's saved addresses or a relay,
+    /// and it announces itself there: its endpoint id (a public key) and its network addresses, to
+    /// the local link only (multicast, never routed; its relay is not announced). Turn it on
+    /// where the user starts a feature that works on the local network (pairing, a call between
+    /// two devices of the same network): the system's permission dialog then comes at that moment,
+    /// not at launch; keep it off for a server or an app that must not announce itself to the
+    /// network it sits on. Android holds the multicast lock only while it is on. An endpoint
     /// that accepts nobody (`with_allowed_peers` with an empty list) only looks and does not
     /// announce, and `relay_only` never uses it. When the network or the OS refuses multicast
     /// the endpoint works without it; `IrohEndpoint::local_discovery_status` says why.
