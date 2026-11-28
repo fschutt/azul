@@ -30,6 +30,7 @@ import plistlib
 import re
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -49,6 +50,11 @@ PHONE_MUST_PASS = (
 # What to do, in plain words, for the rows a person has to help with (the app writes its own text into `detail`; these
 # are the words the script adds in front when the app's row is NEEDS-HUMAN).
 HUMAN_PREFIX = "NEEDS A PERSON: "
+
+
+def report_in(text):
+    """Whether the console already holds a complete report line."""
+    return bool(parse_reports(text))
 
 
 def parse_reports(text):
@@ -123,16 +129,27 @@ def launch(device, bundle, seconds, attended):
         env["AZ_SELFTEST"] = "1"
     cmd = ["xcrun", "devicectl", "device", "process", "launch", "--device", device, "--terminate-existing",
            "--environment-variables", json.dumps(env), "--console", bundle]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
-    try:
-        out, _ = proc.communicate(timeout=seconds)
-    except subprocess.TimeoutExpired:
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", bufsize=1)
+    lines = []
+
+    def pump():
+        for line in proc.stdout:
+            lines.append(line)
+
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
+    # An iPhone app does not exit when its window closes (UIApplicationMain never returns): the console stays attached for
+    # as long as the app lives, so the client is stopped as soon as the report is in (the app keeps running on the phone).
+    deadline = time.time() + seconds
+    while time.time() < deadline and proc.poll() is None:
+        time.sleep(0.5)
+        if report_in("".join(lines[-200:])):
+            time.sleep(1.0)
+            break
+    if proc.poll() is None:
         proc.terminate()
-        try:
-            out, _ = proc.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            out = ""
-    return out or ""
+    reader.join(timeout=10)
+    return "".join(lines)
 
 
 DEFAULT_BUNDLE = "com.azul.AzSelfTest"
