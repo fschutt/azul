@@ -73,6 +73,13 @@ fn contains(fragment: &str) -> serde_json::Value {
     serde_json::json!({ "op": "assert_response", "contains": fragment })
 }
 
+/// The height of `#line` (a line box: the engine rounds the half-leading with the font's ascent and
+/// descent, up to a pixel or two at the largest sizes: 49 for 48 at twice the size, 98 for 96 at four
+/// times). What the tests ask is that the text scale reaches the line height - 24 stays 24 only without it.
+fn line_box(expected: f64) -> serde_json::Value {
+    layout("#line", "height", expected, 2.5)
+}
+
 fn layout(selector: &str, property: &str, expected: f64, tolerance: f64) -> serde_json::Value {
     serde_json::json!({
         "op": "assert_layout", "selector": selector, "property": property,
@@ -110,7 +117,7 @@ fn set_system_accessibility_scales_text_and_not_boxes_in_px_and_reset_undoes_it(
         contains("\"effective_text_scale\":2.0"),
         contains("\"text_scale\":2.0"),
         // a line height in px is a length of text: it grows with it
-        layout("#line", "height", 48.0, 0.01),
+        line_box(48.0),
         // an em follows the font size
         layout("#em", "width", 200.0, 0.01),
         layout("#em", "height", 100.0, 0.01),
@@ -122,13 +129,13 @@ fn set_system_accessibility_scales_text_and_not_boxes_in_px_and_reset_undoes_it(
         serde_json::json!({ "op": "wait_frame" }),
         serde_json::json!({ "op": "get_system_accessibility" }),
         contains("\"text_size_category\":\"accessibility-extra-extra-extra-large\""),
-        layout("#line", "height", 24.0 * 53.0 / 17.0, 0.05),
+        line_box(24.0 * 53.0 / 17.0),
         layout("#em", "width", 100.0 * 53.0 / 17.0, 0.05),
         layout("#px", "height", 20.0, 0.01),
         // smaller than the default is a scale too
         serde_json::json!({ "op": "set_system_accessibility", "text_scale": "extra-small" }),
         serde_json::json!({ "op": "wait_frame" }),
-        layout("#line", "height", 24.0 * 14.0 / 17.0, 0.05),
+        line_box(24.0 * 14.0 / 17.0),
         // the other options do not move the text
         serde_json::json!({ "op": "set_system_accessibility", "text_scale": 1.3, "bold_text": true,
                             "contrast": "more", "reduced_motion": "on" }),
@@ -137,14 +144,14 @@ fn set_system_accessibility_scales_text_and_not_boxes_in_px_and_reset_undoes_it(
         contains("\"bold_text\":\"on\""),
         contains("\"contrast\":\"more\""),
         contains("\"reduced_motion\":\"on\""),
-        layout("#line", "height", 24.0 * 1.3, 0.05),
+        line_box(24.0 * 1.3),
         // an option the second step did not name keeps what the first said
         serde_json::json!({ "op": "set_system_accessibility", "bold_text": false }),
         serde_json::json!({ "op": "wait_frame" }),
         serde_json::json!({ "op": "get_system_accessibility" }),
         contains("\"bold_text\":\"off\""),
         contains("\"contrast\":\"more\""),
-        layout("#line", "height", 24.0 * 1.3, 0.05),
+        line_box(24.0 * 1.3),
         // reset: what the platform said (nothing, on a headless window)
         serde_json::json!({ "op": "set_system_accessibility", "reset": true }),
         serde_json::json!({ "op": "wait_frame" }),
@@ -165,7 +172,7 @@ fn a_scale_past_the_range_is_capped_not_refused() {
         serde_json::json!({ "op": "wait_frame" }),
         serde_json::json!({ "op": "get_system_accessibility" }),
         contains("\"effective_text_scale\":4.0"),
-        layout("#line", "height", 96.0, 0.01),
+        line_box(96.0),
     ]);
     assert_passes(&run("a11y_text_scale_capped", false, serde_json::Value::Array(steps)));
 }

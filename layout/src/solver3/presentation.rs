@@ -83,18 +83,18 @@ fn exempt(styled_dom: &StyledDom, node: NodeId) -> bool {
 /// for an image.
 fn layer_colour(layer: &StyleBackgroundContent) -> Option<ColorU> {
     fn mean(stops: impl Iterator<Item = ColorOrSystem>) -> Option<ColorU> {
-        let (mut r, mut g, mut b, mut a, mut n) = (0_u32, 0_u32, 0_u32, 0_u32, 0_u32);
+        let (mut red, mut green, mut blue, mut alpha, mut count) = (0_u32, 0_u32, 0_u32, 0_u32, 0_u32);
         for stop in stops {
-            let ColorOrSystem::Color(c) = stop else { continue };
-            r += u32::from(c.r);
-            g += u32::from(c.g);
-            b += u32::from(c.b);
-            a += u32::from(c.a);
-            n += 1;
+            let ColorOrSystem::Color(colour) = stop else { continue };
+            red += u32::from(colour.r);
+            green += u32::from(colour.g);
+            blue += u32::from(colour.b);
+            alpha += u32::from(colour.a);
+            count += 1;
         }
         // each sum is at most 255 * the number of stops: the mean fits a byte
-        let byte = |sum: u32| u8::try_from(sum / n).unwrap_or(u8::MAX);
-        (n > 0).then(|| ColorU { r: byte(r), g: byte(g), b: byte(b), a: byte(a) })
+        let byte = |sum: u32| u8::try_from(sum / count).unwrap_or(u8::MAX);
+        (count > 0).then(|| ColorU { r: byte(red), g: byte(green), b: byte(blue), a: byte(alpha) })
     }
     match layer {
         StyleBackgroundContent::Color(c) => Some(*c),
