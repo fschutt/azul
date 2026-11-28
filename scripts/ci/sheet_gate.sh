@@ -6,11 +6,13 @@
 #
 # Steps (SHEET_ONLY names them; none named = all of them):
 #   tests      the widget's tests by name, in azul-layout, with the CI's feature list
+#   e2e_all    every test of azul-layout's e2e module (the runner's pointer capture)
 #   phone_tests  the integration tests of the phone layouts of AzMaps (layout/tests/azul_maps_*): the floating layout and the banner
 #   clippy     the CI's clippy line of azul-layout, the test targets included
 #   autofix    api.json through azul-doc: `autofix add` for the new functions, patches until there are none, normalize; the result is
 #              api.json (upload it) and api.diff; then a SECOND round that must change nothing
 #   doc_check  azul-doc check (the double-drop invariant, the guide links) and azul-doc check layout
+#   srcgate    the repository's source rules alone (cargo test -p azul-srcgate): no libazul, no codegen
 #   dll_check  codegen of the bindings from the api.json as it stands, cargo check of azul-dll, the srcgate tests
 #   apps       the two apps over the bindings: cargo check --lib --tests and the apps' own unit tests (no engine crate builds in them)
 #   apps_clippy  clippy -D warnings of the two apps
@@ -45,10 +47,17 @@ tests() {
 }
 run tests tests
 
+# every scenario of the e2e module of azul-layout: the runner applies pointer capture now (as the shells do), which must not move another one
+e2e_all() {
+  AZ_REQUIRE_TEST_FONTS=1 cargo test -p azul-layout --lib --features "$features" --no-fail-fast -- e2e:: 2>&1 | tee e2e-all.txt
+  return "${PIPESTATUS[0]}"
+}
+run e2e_all e2e_all
+
 # the integration tests of the phone layouts of AzMaps (they read the app's source: ui.rs, lib.rs, flow.rs, drive_ui.rs)
 phone_tests() {
   AZ_REQUIRE_TEST_FONTS=1 cargo test -p azul-layout --features "$features" --no-fail-fast \
-    --test azul_maps_floating_layout_fits_a_phone --test azul_maps_drive_banner_fits_a_phone 2>&1 | tee phone-tests.txt
+    --test all -- azul_maps_floating azul_maps_drive 2>&1 | tee phone-tests.txt
   return "${PIPESTATUS[0]}"
 }
 run phone_tests phone_tests
@@ -157,6 +166,13 @@ dll_check() {
   return "$code"
 }
 run dll_check dll_check
+
+# the source rules of the repository (no global state, aggregates as statics, tests in adjacent files, ...) over the tree as it is
+srcgate() {
+  cargo test -p azul-srcgate --no-fail-fast 2>&1 | tee srcgate.txt
+  return "${PIPESTATUS[0]}"
+}
+run srcgate srcgate
 
 apps() {
   local code=0

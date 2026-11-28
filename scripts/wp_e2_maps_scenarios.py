@@ -4,10 +4,11 @@
     python3 scripts/wp_e2_maps_scenarios.py [--check]
 
 The files are what QA re-runs unchanged on every platform (scripts/ci/e2e_matrix.py: the desktop host, the Android emulator, the
-iOS Simulator): the steps are written once here, and each file holds a `host` test (a window the test resizes to the acceptance
-size of the brief: the desktop 1280x800, a Pixel 8, an iPhone 16 Pro, a small phone, a phone on its side) and a `device` test
-(the phone is the window: no resize, no display preset), `only_on` says where each runs. `--check` fails when a file on disk is
-not what this script writes (the generator is the source, the files are its output).
+iOS Simulator): the steps are written once here. ONE FILE PER TEST: the app of a file runs all its tests in one process, so a
+test that follows another starts with the state the first left (a search typed, a sheet drawn up); a file of its own is a fresh
+start. A `host` test resizes the window to an acceptance size of the brief (the desktop 1280x800, a Pixel 8, an iPhone 16 Pro, a
+small phone, a phone on its side), the `device` test is the phone itself (no resize, no display preset); `only_on` says where each
+runs. `--check` fails when a file on disk is not what this script writes (the generator is the source, the files are its output).
 
 Every test is one picture set; the pictures are `take_screenshot` steps, numbered in capture order from 1 in each run of the app
 (AZ_E2E_SHOT_DIR), and each test's `description` names them in that order.
@@ -57,6 +58,16 @@ def type_search(text):
     )
 
 
+def results_in():
+    """The search rested, the geocoder worker answered, the window was rebuilt for the answer (a chip is a search too)."""
+    return [op("wait", ms=600, real=True), op("tick_ms", ms=300), op("wait", ms=900, real=True)] + frames(3) + [op("tick_ms", ms=200)] + frames(2)
+
+
+def map_redrawn():
+    """The map's tiles are drawn again in the other style a moment after the window is (the map's own render, not the window's)."""
+    return [op("wait", ms=1500, real=True)] + frames(3)
+
+
 def tiles():
     """The world's tiles ship in the binary; a network brings the finer ones: a real wait, short."""
     return [op("wait", ms=3000, real=True)] + frames(3)
@@ -84,12 +95,13 @@ def desktop_steps():
           op("assert_exists", selector="#__azmaps_locate"), op("assert_exists", selector="#__azmaps_layers"),
           op("assert_not_exists", selector="#__azmaps_sheet")]
     s += shot()                                                   # 1 first look: the panel, the chips, the keys
-    s += type_search("Stutt") + [op("assert_exists", selector="#__azmaps_results")] + shot()          # 2 results
+    s += type_search("Stuttgart") + [op("assert_exists", selector="#__azmaps_results")] + shot()          # 2 results
     s += click("#__azmaps_suggestion-0") + [op("assert_exists", selector="#__azmaps_place")] + shot()  # 3 the place
+    s += click("#__azmaps_place-share") + [op("assert_exists", selector="#__azmaps_link-copied")] + shot()   # 3b Share: the notice
     s += click("#__azmaps_place-route") + [op("assert_exists", selector="#__azmaps_travel")] + shot()  # 4 the way
     s += click("#__azmaps_back") + click("#__azmaps_back") + [op("assert_exists", selector="#__azmaps_chips")]
-    s += click("#__azmaps_chip-0") + shot()                       # 5 a chip's search
-    s += [op("set_mode", mode="dark")] + shot()                   # 6 dark
+    s += click("#__azmaps_chip-0") + results_in() + [op("assert_exists", selector="#__azmaps_results")] + shot()   # 5 a chip's search
+    s += [op("set_mode", mode="dark")] + map_redrawn() + shot()   # 6 dark
     s += [op("set_mode", mode="light")] + click("#__azmaps_panel-toggle") + [op("assert_exists", selector="#__azmaps_panel-show")] + shot()  # 7 folded
     s += click("#__azmaps_panel-show") + [op("assert_exists", selector="#__azmaps_panel")]
     return s
@@ -97,8 +109,8 @@ def desktop_steps():
 
 def desktop_file():
     desc = ("AzMaps on a desktop, 1280 x 800: the map fills the window, the panel at the left (search, chips, then the results, the place, "
-            "the way), the zoom, locate and map-style keys at the right. Pictures, in order: 1 first look, 2 the results of 'Stutt', 3 the "
-            "place, 4 the way (Route), 5 a chip's search, 6 dark, 7 the panel folded away to its search key. (The map styles' popover is a "
+            "the way), the zoom, locate and map-style keys at the right. Pictures, in order: 1 first look, 2 the results of 'Stuttgart', 3 the "
+            "place, 3b Share (the notice that the link is on the clipboard), 4 the way (Route), 5 a chip's search, 6 dark, 7 the panel folded away to its search key. (The map styles' popover is a "
             "window of its own: the host's picture is of the main window, so no step opens it.)")
     return [{
         "name": "azul_maps_desktop_panel_search_place_way",
@@ -110,42 +122,76 @@ def desktop_file():
 
 # ---- the phone ----
 
-def phone_steps():
+def sheet_at(height, root_top, root_height):
+    """The sheet's own box when it is `height` tall in a root `root_height` tall that starts `root_top` under the window's top: it
+    lies on the root's lower edge, so its top edge is `root_height - height` under the root's top."""
+    return [op("assert_layout", selector="#__azmaps_sheet", property="y", expected=root_top + root_height - height, tolerance=1.5),
+            op("assert_layout", selector="#__azmaps_sheet", property="height", expected=height, tolerance=1.5)]
+
+
+def phone_steps(root_top=None, root_height=None):
+    """The walk of a phone upright. `root_top` / `root_height`: where the window's root starts and how tall it is when a display
+    preset stands for the bars (a host test), None on a device (its own bars): with them the boxes of the bar and the sheet are
+    asserted, which is what keeps a full sheet from reaching over the search bar."""
+    boxes = root_top is not None
     s = [op("set_mode", mode="light")] + tiles()
     s += [op("assert_exists", selector="#__azmaps_map"), op("assert_exists", selector="#__azmaps_sheet"),
           op("assert_exists", selector="#__azmaps_search-bar"), op("assert_exists", selector="#__azmaps_chips"),
           op("assert_exists", selector="#__azmaps_layers"), op("assert_exists", selector="#__azmaps_locate"),
           op("assert_not_exists", selector="#__azmaps_panel")]
+    if boxes:
+        s += [op("assert_layout", selector="#__azmaps_search-bar", property="y", expected=root_top + 8.0, tolerance=1.5)]
+        s += sheet_at(168.0, root_top, root_height)
     s += shot()                                                   # 1 first look: the bar, the chips, the sheet at its peek
-    s += type_search("Stutt") + [op("assert_exists", selector="#__azmaps_results")] + shot()          # 2 results
+    s += type_search("Stuttgart") + [op("assert_exists", selector="#__azmaps_results")] + shot()      # 2 results
     s += click("#__azmaps_suggestion-0") + [op("assert_exists", selector="#__azmaps_place")] + shot()  # 3 the place at its peek
     s += grip_keys("Up") + shot()                                 # 4 half
+    if boxes:
+        s += sheet_at(root_height / 2.0, root_top, root_height)
     s += grip_keys("Up") + shot()                                 # 5 full
+    if boxes:
+        # the full sheet leaves the search bar in sight: 8 px, the bar's 56, 8 px (ui::TOP_ROOM) under the root's top
+        s += sheet_at(root_height - 80.0, root_top, root_height)
     s += grip_keys("Down", "Down") + [op("assert_exists", selector="#__azmaps_place-route")]
     s += click("#__azmaps_place-route") + [op("assert_exists", selector="#__azmaps_travel")] + shot()  # 6 the way
-    s += click("#__azmaps_back") + click("#__azmaps_back") + click("#__azmaps_chip-0") + shot()       # 7 a chip's search
-    s += [op("set_mode", mode="dark")] + shot()                                                      # 8 dark
+    s += click("#__azmaps_back") + click("#__azmaps_back") + click("#__azmaps_chip-0") + results_in()
+    s += [op("assert_exists", selector="#__azmaps_results")] + shot()                                # 7 a chip's search
+    s += [op("set_mode", mode="dark")] + map_redrawn() + shot()                                      # 8 dark
     s += [op("set_mode", mode="light")]
     return s
 
 
-def phone_file():
-    names = "1 first look, 2 the results of 'Stutt', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 a chip's search, 8 dark"
-    sizes = [("pixel8", 411, 914, "pixel8"), ("iphone", 402, 874, "iphone_island"), ("small", 360, 640, "off"),
-             ("landscape", 914, 411, "pixel8")]
-    tests = []
-    for tag, w, h, preset in sizes:
-        tests.append({
+PICTURES = "1 first look, 2 the results of 'Stuttgart', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 a chip's search, 8 dark"
+
+# tag, width, height, display preset, (status bar, navigation bar) the preset stands for
+UPRIGHT = [
+    ("pixel8", 411, 914, "pixel8", 48.0, 24.0),
+    ("iphone", 402, 874, "iphone_island", 59.0, 34.0),
+    ("small", 360, 640, "off", 0.0, 0.0),
+]
+
+
+def phone_files():
+    out = {}
+    for tag, w, h, preset, top, bottom in UPRIGHT:
+        out[f"maps_phone_{tag}.json"] = [{
             "name": f"azul_maps_phone_{tag}_search_place_way_host",
-            "description": f"AzMaps in a {w} x {h} window ({preset}), as a phone shows it: the search bar and the chips on top of the map, the "
-                           f"sheet from the bottom ({'the panel at the left: a phone on its side is wide' if w > h else 'peek, half, full'}). "
-                           f"Pictures, in order: {names}.",
+            "description": f"AzMaps in a {w} x {h} window ({preset}), as a phone shows it: the search bar and the chips on top of the map, "
+                           f"the sheet from the bottom (peek, half, full). Pictures, in order: {PICTURES}.",
             "only_on": DESKTOPS,
-            "steps": window(tag, w, h, preset) + phone_steps() if w < h else window(tag, w, h, preset) + desktop_steps(),
-        })
+            "steps": window(tag, w, h, preset) + phone_steps(root_top=top, root_height=h - top - bottom),
+        }]
+    out["maps_phone_landscape.json"] = [{
+        "name": "azul_maps_phone_landscape_search_place_way_host",
+        "description": "AzMaps in a 914 x 411 window (pixel8, turned on its side): wide, so the panel at the left, as on a desktop. Pictures, "
+                       "in order: 1 first look, 2 the results of 'Stuttgart', 3 the place, 3b Share, 4 the way, 5 a chip's search, 6 dark, 7 the "
+                       "panel folded away.",
+        "only_on": DESKTOPS,
+        "steps": window("landscape", 914, 411, "pixel8") + desktop_steps(),
+    }]
     # The ghosts of the Android audit (the buttons of the title drawn twice on the device, once at the place the first layout gave
     # them): the engine's own soundness check - every pixel that differs from a full repaint lies inside the frame's damage.
-    tests.append({
+    out["maps_phone_insets.json"] = [{
         "name": "azul_maps_phone_insets_arriving_leave_no_stale_pixels_host",
         "description": "The system's insets arrive after the first frame (a display preset stands for them): everything that moved is "
                        "repainted where it was and where it is, and nothing is left of the first layout (no pictures).",
@@ -153,26 +199,31 @@ def phone_file():
         "steps": [op("resize", width=411.0, height=914.0), op("set_display_preset", preset="off")] + settle()
                  + [op("snapshot_frame", **{"as": "first_layout"}), op("set_display_preset", preset="pixel8")] + settle()
                  + [op("assert_damage_covers_changes", vs="first_layout")],
-    })
-    tests.append({
+    }]
+    out["maps_phone_device.json"] = [{
         "name": "azul_maps_phone_search_place_way_device",
         "description": "AzMaps on the phone itself (the window is the phone's, upright: no resize, no display preset). Pictures, in order: "
-                       + names + ".",
+                       + PICTURES + ".",
         "only_on": PHONES,
         "steps": phone_steps(),
-    })
-    return tests
+    }]
+    return out
 
 
-FILES = {"maps_desktop.json": desktop_file, "maps_phone.json": phone_file}
+def files():
+    """File name -> the tests it holds."""
+    out = {"maps_desktop.json": desktop_file()}
+    out.update(phone_files())
+    return out
 
 
 def main():
     check = "--check" in sys.argv
     bad = 0
     os.makedirs(OUT, exist_ok=True)
-    for name, make in FILES.items():
-        text = json.dumps(make(), indent=2, ensure_ascii=False) + "\n"
+    made = files()
+    for name, tests in made.items():
+        text = json.dumps(tests, indent=2, ensure_ascii=False) + "\n"
         path = os.path.join(OUT, name)
         if check:
             have = open(path, encoding="utf-8").read() if os.path.exists(path) else None
@@ -182,7 +233,12 @@ def main():
         else:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(text)
-            print("wrote %s (%d tests)" % (path, len(json.loads(text))))
+            print("wrote %s (%d tests)" % (path, len(tests)))
+    # a file of the folder the generator does not write is a file nobody keeps up
+    for name in sorted(os.listdir(OUT)):
+        if name.endswith(".json") and name not in made:
+            print("%s is not written by the generator (list it for the cleanup, or add it here)" % os.path.join(OUT, name))
+            bad = 1
     return bad
 
 

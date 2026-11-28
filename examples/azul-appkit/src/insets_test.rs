@@ -46,3 +46,14 @@ fn no_keyboard_leaves_nothing_and_a_keyboard_shorter_than_the_bar_cannot_make_a_
     assert_eq!(Insets::new(0.0, 0.0, 48.0, 0.0, 30.0).inside_root().keyboard, 0.0);
     assert!(Insets::default().inside_root().is_none());
 }
+
+#[test]
+fn the_root_of_a_window_is_the_window_less_the_four_sides_and_never_negative() {
+    let i = Insets::new(48.8, 0.0, 48.0, 0.0, 300.0);
+    let (w, h) = i.root_size((411.0, 914.0));
+    assert_eq!((w, h), (411.0, 914.0 - 48.8 - 48.0), "the keyboard is no part of the root's inset");
+    let landscape = Insets::new(0.0, 48.0, 0.0, 48.0, 0.0);
+    assert_eq!(landscape.root_size((914.0, 411.0)), (914.0 - 96.0, 411.0));
+    assert_eq!(Insets::new(900.0, 0.0, 900.0, 0.0, 0.0).root_size((400.0, 800.0)).1, 0.0);
+    assert_eq!(Insets::default().root_size((1280.0, 800.0)), (1280.0, 800.0));
+}

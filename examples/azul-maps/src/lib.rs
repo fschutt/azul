@@ -1530,8 +1530,14 @@ fn screen(s: &MapState, app: &RefAny, dark: bool, frame: &ui::Frame) -> Dom {
     for part in ui::floating(s, app, frame) {
         root.add_child(part);
     }
-    // The routing server's credit beside the map's, while routes are asked of it.
-    let mut credits = s.layer.attribution.as_str().to_string();
+    // The credit of the map as it is shown: the data's, the style on show (the layer's own line names both halves of a style that
+    // follows the window's mode), and the routing server's while routes are asked of it.
+    let mut credits = MapTileLayer::default().attribution.as_str().to_string();
+    let style_credit = s.layer.theme.credit(if dark { DarkLightMode::Dark } else { DarkLightMode::Light });
+    if !style_credit.as_str().is_empty() {
+        credits.push_str(" \u{b7} ");
+        credits.push_str(style_credit.as_str());
+    }
     if s.routing.is_none() && s.online.is_some() {
         credits.push_str(" \u{b7} ");
         credits.push_str(label("azmaps-routing-credit").as_str());
@@ -1541,11 +1547,15 @@ fn screen(s: &MapState, app: &RefAny, dark: bool, frame: &ui::Frame) -> Dom {
     } else {
         format!("position: absolute; left: 6px; bottom: {:.0}px; max-width: 72%;", above + 4.0)
     };
-    root.add_child(
-        Dom::create_div()
-            .with_css(format!("{spot} {ATTRIBUTION_LOOK}").as_str())
-            .with_child(Dom::create_span_with_text(credits)),
-    );
+    // A sheet drawn up to its full height hides the map but a strip under the search bar: the credit would stand over the bar
+    // there, so it waits (with the keys) until the sheet comes down.
+    if wide || s.drive.nav.is_some() || s.sheet != SheetDetent::Full {
+        root.add_child(
+            Dom::create_div()
+                .with_css(format!("{spot} {ATTRIBUTION_LOOK}").as_str())
+                .with_child(Dom::create_span_with_text(credits)),
+        );
+    }
     if s.location_denied {
         // The refusal of the location: the text, and the way back (a refused permission is not asked again).
         root.add_child(
@@ -1587,14 +1597,17 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode makes a light / dark switch rebuild the window (the
     // tiles' style follows it).
     let dark = matches!(info.get_mode(), DarkLightMode::Dark);
-    let size = (info.get_window_width(), info.get_window_height());
+    let window = (info.get_window_width(), info.get_window_height());
     let app = data.clone();
     let Some(s) = data.downcast_ref::<MapState>() else {
         return Dom::create_body();
     };
+    // The engine insets the window's root by the bars and the cutout: the root is what the layout has to lay out in, and what is left
+    // of the system's room is the keyboard.
+    let raw = Insets::of(&info);
+    let size = raw.root_size(window);
     s.size.set(size);
-    // The engine insets the window's root by the bars and the cutout; what is left of the system's room is the keyboard.
-    let frame = ui::Frame { size, insets: Insets::of(&info).inside_root(), title: kit::title_insets(&info) };
+    let frame = ui::Frame { size, insets: raw.inside_root(), title: kit::title_insets(&info) };
     s.frame.set(Some(frame));
     let content = if kit::settings_open(&s.kit) {
         // azul-appkit's settings page: Appearance, Data, Shortcuts, About.

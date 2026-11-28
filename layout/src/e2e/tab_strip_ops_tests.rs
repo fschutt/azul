@@ -232,3 +232,95 @@ fn scrollbar_width_none_in_css_text_hides_the_bar_as_the_typed_property_does() {
         ]),
     ));
 }
+
+// ---- the desktop's row of 22 px pills: a fixed box with a row inside that scrolls ----
+
+fn desktop_row(tabs: &[&str]) -> StyledDom {
+    let labels = StringVec::from_vec(tabs.iter().map(|s| AzString::from(*s)).collect());
+    // in a box with an id, as the AzWidgets page holds its row (its scenario finds the row by that id)
+    let mut dom = Dom::create_body().with_child(Dom::create_div().with_id(AzString::from("wide-pills")).with_child(
+        TabHeader::create(labels)
+            .with_active_tab(0)
+            .with_theme(crate::widgets::themes::UiTheme::Flora)
+            .with_style(TabStyle::Pills)
+            .dom(),
+    ));
+    // 80 px a pill whatever the machine's fonts are (a runner without fonts measures no text at all)
+    let (css, _) = azul_css::parser2::new_from_str(
+        "* { margin: 0; padding: 0; } .__azul-native-tabs-tab-active, .__azul-native-tabs-tab-not-active { min-width: 80px; }",
+    );
+    StyledDom::create(&mut dom, css)
+}
+
+const SHORT: [&str; 4] = ["Home", "Insert", "Draw", "View"];
+const LONG: [&str; 12] = [
+    "Overview", "Mailings", "References", "Developer", "Navigation", "Properties", "Statistics", "Templates",
+    "Annotations", "Calendars", "Documents", "Reviewing",
+];
+
+/// 1280, 700 and 480 px (the last two narrower than the long row): a row that fits does not scroll, one
+/// that does not fit scrolls sideways and shows no scrollbar, at rest and while it is scrolled.
+#[test]
+fn a_desktop_pill_row_scrolls_when_it_does_not_fit_and_shows_no_scrollbar() {
+    let strip = "#wide-pills .__azul-native-tabs-pill-strip";
+    for width in [1280, 700, 480] {
+        // four tabs fit in all three
+        assert_passes(&run_at(
+            "desktop_row_fits",
+            desktop_row(&SHORT),
+            serde_json::json!([
+                { "op": "wait_frame" },
+                { "op": "get_scrollable_nodes" },
+                { "op": "assert_response", "not_contains": "\"can_scroll_x\":true" },
+                bar_of(strip),
+                has_no_bar(),
+            ]),
+            width,
+            96,
+        ));
+    }
+    for width in [700, 480] {
+        // twelve long ones do not fit in 700 or 480
+        assert_passes(&run_at(
+            "desktop_row_overflows",
+            desktop_row(&LONG),
+            serde_json::json!([
+                { "op": "wait_frame" },
+                { "op": "get_scrollable_nodes" },
+                { "op": "assert_response", "contains": "\"can_scroll_x\":true" },
+                bar_of(strip),
+                has_no_bar(),
+                // scrolled by hand: the row moves, still no bar
+                { "op": "scroll_node_by", "selector": strip, "delta_x": 150.0, "delta_y": 0.0 },
+                { "op": "wait_frame" },
+                { "op": "tick_ms", "ms": 400 },
+                { "op": "assert_scroll", "selector": strip, "x": 150.0, "tolerance": 3.0 },
+                bar_of(strip),
+                has_no_bar(),
+            ]),
+            width,
+            96,
+        ));
+    }
+}
+
+/// The wheel: a vertical notch over a row that only scrolls sideways moves it sideways (every browser does,
+/// and the engine maps it): a notch of 200 px (the engine's sign: negative is "down") ends 200 px along.
+#[test]
+fn the_wheel_over_a_desktop_pill_row_moves_it_sideways() {
+    let strip = "#wide-pills .__azul-native-tabs-pill-strip";
+    assert_passes(&run_at(
+        "desktop_row_wheel",
+        desktop_row(&LONG),
+        serde_json::json!([
+            { "op": "wait_frame" },
+            { "op": "wheel", "x": 200.0, "y": 14.0, "delta_x": 0.0, "delta_y": -200.0 },
+            { "op": "wait_frame" },
+            { "op": "tick_ms", "ms": 800 },
+            { "op": "wait_frame" },
+            { "op": "assert_scroll", "selector": strip, "x": 200.0, "tolerance": 30.0 },
+        ]),
+        480,
+        96,
+    ));
+}

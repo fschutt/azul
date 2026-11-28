@@ -87,7 +87,6 @@ azmaps-collapse-panel = Seitenleiste einklappen
 azmaps-back = Zurück
 azmaps-home-hint = Such einen Ort oder tippe auf die Karte, um eine Markierung zu setzen.
 azmaps-place = Ort
-azmaps-place-at = { $lat }, { $lon }
 azmaps-sheet = Ort und Route
 azmaps-sheet-grip = Ziehen, um mehr oder weniger zu zeigen
 azmaps-route = Route

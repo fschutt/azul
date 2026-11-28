@@ -26,12 +26,16 @@
 //! detent up (from the highest back to the lowest), and the focused grip answers the keys: Up /
 //! Down step a detent, Home / End go to the highest / lowest, Enter and Space step as a tap does.
 //!
+//! A press that began on the sheet is followed wherever the pointer goes: the moves and the release are window-level events
+//! (a finger or a mouse that outruns the sheet's top edge before the layout catches up keeps the drag; a touch is delivered to the
+//! node under it only, and pointer capture is of the mouse's events only).
+//!
 //! The sheet owns nothing: the app keeps the detent, hears every drag step and every settling
 //! through ONE callback ([`BottomSheetOnEvent`]) and rebuilds with the detent it heard (a sheet whose
 //! app does not store it goes back to the detent it was built at, when the app next builds). A drag
 //! in flight survives a rebuild (`merge_sheet_state`): while the pointer is down it wins. The live
-//! height of a drag is a runtime override of the sheet's node (the engine's override channel: cheap
-//! for every step); when the pointer is up the node's own style takes the settled height and the
+//! height of a drag is a runtime override of the sheet's node (written with `set_css_property`, which
+//! pins it); when the pointer is up the node's own style takes the settled height and the
 //! override is handed back, so the app's next build is the truth again and a detent the app sets
 //! later is obeyed. The node is keyed, so it keeps its identity (and the override of a drag in
 //! flight) through a rebuild whatever the app builds around it.
@@ -55,7 +59,7 @@ use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole},
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClassVec, TabIndex},
-    events::FocusEventFilter,
+    events::{FocusEventFilter, WindowEventFilter},
     refany::{OptionRefAny, RefAny},
     window::VirtualKeyCode,
 };
@@ -451,6 +455,9 @@ struct DragState {
     step: f32,
     /// When the last of them came, ms on the press's clock: a pointer that rested before it was lifted does not fling.
     last_ms: u64,
+    /// The sheet's root node, found at the press (the event hits the grip or the content, not always the root, and a window-level
+    /// event hits whatever is under the pointer): where the moves and the release write the height.
+    root: Option<DomNodeId>,
     /// The clock's zero (the first press); the pure rules below only see milliseconds.
     origin: Option<azul_core::task::Instant>,
 }
@@ -556,10 +563,11 @@ fn height_property(px: f32) -> CssProperty {
     CssProperty::const_height(LayoutHeight::px(px))
 }
 
-/// A step of a drag: the live height, on the engine's override channel (cheap for every frame, and it follows the node through a
-/// rebuild while the pointer is down).
+/// A step of a drag: the live height, written like any restyle (laid out at once; the override it pins follows the node through a
+/// rebuild while the pointer is down, and is handed back at rest). The override channel alone (`override_css_property`) is the
+/// per-frame animation path: the runner does not lay out for it after a touch.
 fn follow_pointer(info: &mut CallbackInfo, root: DomNodeId, px: f32) {
-    info.override_css_property(root, height_property(px));
+    info.set_css_property(root, height_property(px));
 }
 
 /// The sheet rests at `px`: the node's own style says so, and the drag's override is handed back, so the app's next build is the
@@ -597,6 +605,26 @@ fn window_y(info: &CallbackInfo) -> Option<f32> {
         .filter(|y| y.is_finite())
 }
 
+/// The sheet's root, from `start` (a node of the sheet: where an event hit, or the root remembered) up: an event hits the deepest node
+/// under the pointer - the grip, the content - and the handlers sit on the root.
+fn sheet_root(info: &CallbackInfo, start: DomNodeId) -> Option<DomNodeId> {
+    let mut current = Some(start);
+    for _ in 0..16 {
+        let node = current?;
+        if super::roving::has_class(info, node, BOTTOM_SHEET_CLASS) {
+            return Some(node);
+        }
+        current = info.get_parent(node);
+    }
+    None
+}
+
+/// The root remembered at the press, if it is still the sheet's (a rebuild may have moved the node: the drag is then over).
+fn remembered_root(info: &CallbackInfo, st: &DragState) -> Option<DomNodeId> {
+    let root = st.root?;
+    super::roving::has_class(info, root, BOTTOM_SHEET_CLASS).then_some(root)
+}
+
 /// Milliseconds on the sheet's clock (zero at its first press): the engine's clock, which a scenario's `tick_ms` advances.
 fn millis(info: &CallbackInfo, st: &mut DragState) -> u64 {
     let now = info.get_current_time();
@@ -605,9 +633,8 @@ fn millis(info: &CallbackInfo, st: &mut DragState) -> u64 {
 }
 
 /// The height of the box the sheet floats in, as the layout has it now (the build's number when
-/// the layout has none: the sheet's parent is the positioned box).
-fn measured_container(info: &CallbackInfo, built: f32) -> f32 {
-    let root = info.get_hit_node();
+/// the layout has none): the height of the parent of the sheet's `root`, the positioned box.
+fn measured_container(info: &CallbackInfo, root: DomNodeId, built: f32) -> f32 {
     info.get_parent(root)
         .and_then(|parent| info.get_node_size(parent))
         .map(|size| size.height)
@@ -619,15 +646,20 @@ extern "C" fn on_press(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some(y) = window_y(&info) else {
         return Update::DoNothing;
     };
-    let Some(rect) = info.get_hit_node_rect() else {
+    let Some(root) = sheet_root(&info, info.get_hit_node()) else {
+        return Update::DoNothing;
+    };
+    let Some(rect) = info.get_node_rect(root) else {
         return Update::DoNothing;
     };
     let Some(mut st) = data.downcast_mut::<DragState>() else {
         return Update::DoNothing;
     };
-    let container = measured_container(&info, st.container);
+    let container = measured_container(&info, root, st.container);
     let now = millis(&info, &mut st);
-    st.press(y, rect.origin.y, rect.size.height, container, now);
+    if st.press(y, rect.origin.y, rect.size.height, container, now) {
+        st.root = Some(root);
+    }
     Update::DoNothing
 }
 
@@ -641,15 +673,18 @@ extern "C" fn on_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(y) = window_y(&info) else {
         return Update::DoNothing;
     };
+    let Some(root) = remembered_root(&info, &st) else {
+        // The sheet is not where the press found it: the drag is over.
+        st.armed = false;
+        st.dragging = false;
+        return Update::DoNothing;
+    };
     let now = millis(&info, &mut st);
     let Some(step) = st.drag_to(y, now) else {
         return Update::DoNothing;
     };
-    let root = info.get_hit_node();
-    if step.started {
-        // Past the slop the press is a drag: the pointer is the sheet's until it is let go.
-        info.capture_pointer(root);
-    }
+    // A press that began on the sheet is followed wherever the pointer goes (the moves and the release are window-level events, see
+    // `build`): a finger or a mouse that outruns the sheet's top edge does not lose the drag.
     follow_pointer(&mut info, root, step.height);
     report(&mut st, info, BottomSheetEventKind::Dragged)
 }
@@ -661,8 +696,10 @@ fn finish(st: &mut DragState, mut info: CallbackInfo, leaving: bool) -> Update {
     let Some(detent) = st.lift(leaving, now) else {
         return Update::DoNothing;
     };
+    let Some(root) = remembered_root(&info, st) else {
+        return Update::DoNothing;
+    };
     let px = st.rest(detent);
-    let root = info.get_hit_node();
     rest_at(&mut info, root, px);
     report(st, info, BottomSheetEventKind::Settled)
 }
@@ -687,6 +724,15 @@ extern "C" fn on_leave(mut data: RefAny, info: CallbackInfo) -> Update {
     finish(&mut st, info, true)
 }
 
+/// The system took the touch (a swipe from the edge, an incoming call): a drag in flight ends where it was and settles as a release
+/// would, a press that never moved is let go.
+extern "C" fn on_cancel(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(mut st) = data.downcast_mut::<DragState>() else {
+        return Update::DoNothing;
+    };
+    finish(&mut st, info, true)
+}
+
 /// The keys on the focused grip.
 extern "C" fn on_grip_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(code) = info.get_current_keyboard_state().current_virtual_keycode.into_option() else {
@@ -699,12 +745,11 @@ extern "C" fn on_grip_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     info.prevent_default();
-    // The grip's parent is the sheet; the keys come to the grip, the height goes to the sheet.
-    let grip = info.get_hit_node();
-    let Some(root) = info.get_parent(grip) else {
+    // The keys come to the grip, the height goes to the sheet: the grip's parent.
+    let Some(root) = sheet_root(&info, info.get_hit_node()) else {
         return Update::DoNothing;
     };
-    st.container = measured_container(&info, st.container);
+    st.container = measured_container(&info, root, st.container);
     let px = st.rest(wanted);
     rest_at(&mut info, root, px);
     report(&mut st, info, BottomSheetEventKind::Settled)
@@ -730,7 +775,8 @@ pub extern "C" fn merge_sheet_state(mut new_data: RefAny, mut old_data: RefAny) 
                 new_g.last_y = old_g.last_y;
                 new_g.step = old_g.step;
                 new_g.last_ms = old_g.last_ms;
-                new_g.origin = old_g.origin.clone();
+                new_g.root = old_g.root;
+                new_g.origin.clone_from(&old_g.origin);
                 if old_g.dragging {
                     new_g.height = old_g.height;
                     new_g.detent = old_g.detent;
@@ -841,6 +887,7 @@ fn build(sheet: BottomSheet) -> Dom {
         last_y: 0.0,
         step: 0.0,
         last_ms: 0,
+        root: None,
         origin: None,
     });
 
@@ -879,7 +926,7 @@ fn build(sheet: BottomSheet) -> Dom {
         Dom::create_div().with_child(content),
         &format!(
             "display: flex; flex-direction: column; flex-grow: 1; flex-basis: 0px; min-height: 0px; \
-             min-width: 0px; overflow-y: auto; padding-bottom: {safe_bottom}px; box-sizing: border-box;"
+             min-width: 0px; overflow-x: hidden; overflow-y: auto; padding-bottom: {safe_bottom}px; box-sizing: border-box;"
         ),
     )
     .with_ids_and_classes(classes(&[BOTTOM_SHEET_CONTENT_CLASS]));
@@ -897,13 +944,15 @@ fn build(sheet: BottomSheet) -> Dom {
     .with_accessibility_info(AccessibilityInfo::named(label, AccessibilityRole::Pane))
     .with_callbacks(
         alloc::vec![
+            // the press must land on the sheet; everything after it is followed wherever the pointer goes
             cb(EventFilter::Hover(HoverEventFilter::MouseDown), state.clone(), on_press),
-            cb(EventFilter::Hover(HoverEventFilter::MouseOver), state.clone(), on_move),
-            cb(EventFilter::Hover(HoverEventFilter::MouseUp), state.clone(), on_release),
-            cb(EventFilter::Hover(HoverEventFilter::MouseLeave), state.clone(), on_leave),
             cb(EventFilter::Hover(HoverEventFilter::TouchStart), state.clone(), on_press),
-            cb(EventFilter::Hover(HoverEventFilter::TouchMove), state.clone(), on_move),
-            cb(EventFilter::Hover(HoverEventFilter::TouchEnd), state.clone(), on_release),
+            cb(EventFilter::Window(WindowEventFilter::MouseOver), state.clone(), on_move),
+            cb(EventFilter::Window(WindowEventFilter::TouchMove), state.clone(), on_move),
+            cb(EventFilter::Window(WindowEventFilter::MouseUp), state.clone(), on_release),
+            cb(EventFilter::Window(WindowEventFilter::TouchEnd), state.clone(), on_release),
+            cb(EventFilter::Window(WindowEventFilter::TouchCancel), state.clone(), on_cancel),
+            cb(EventFilter::Hover(HoverEventFilter::MouseLeave), state.clone(), on_leave),
         ]
         .into(),
     )

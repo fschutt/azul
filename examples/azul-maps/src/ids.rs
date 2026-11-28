@@ -22,8 +22,10 @@ names! {
     PANEL_SHOW = "panel-show";
     /// The bottom sheet of a phone upright: the place, the results or the way.
     SHEET = "sheet";
-    /// The search bar: the field, its clear key and the microphone.
+    /// A phone's search bar, the floating surface on top of the map (its box is the bar's: 56 dp tall, 12 px from the sides).
     SEARCH_BAR = "search-bar";
+    /// The row inside it (and in the desktop panel's head): the search icon, the field, its clear key and the microphone.
+    SEARCH_ROW = "search-row";
     /// The search field. (The destination's field of the travel panel is [`TRAVEL_TO`]: a search and a destination are the
     /// same text, and one of the two shows.)
     SEARCH = "search";

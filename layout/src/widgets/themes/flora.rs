@@ -931,6 +931,124 @@ pub(crate) fn flora_fade_on_curves(
     ]
 }
 
+/// The ink of a command's label, for the one step it makes when its face changes.
+///
+/// It is what the ink is on a face of the command's own kind: flora's paper and its metal-edged command
+/// wear dark ink on light faces, a stone wears light ink on a dark one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LabelInk {
+    /// Dark ink on a light face: paper, the metal-edged command.
+    Dark,
+    /// Light ink on a dark face: a stone.
+    Light,
+}
+
+impl LabelInk {
+    /// How far into the time of its face's change a label holds its old colour, in permille, before it
+    /// takes the new one at once.
+    ///
+    /// A rebuild reads the transitions from the node it REPLACES (`begin_reconciliation`), so a
+    /// paper's table is the one in force when a button becomes a stone, and a stone's when it
+    /// becomes paper. The label must not fade with the face - dark to light ink under a face that goes
+    /// light to dark crosses it at one frame, where the ink IS the colour of the face (1.08:1 at 133 ms
+    /// of 420: the iOS Simulator's blank pill, QA 2026-11-28) - and must not snap at the first frame
+    /// either (a white label on a face that is cream for the better part of a second). It holds, then
+    /// switches where the old ink and the new one read equally well on the face as it is by then; the
+    /// frames the CPU renderer paints for flora's accent stone and its paper put that at
+    ///
+    /// * 59 % of the face's time for a DARK label that becomes light (paper to stone: 3.7:1 either
+    ///   side of the step at 250 ms of 420, 3:1 or better from 44 % to 79 %), and
+    /// * 9.75 % for a LIGHT label that becomes dark (stone to paper: 3.7:1 either side at 117 ms of
+    ///   1200, 3:1 or better from 4 % to 15 %): the stone's face is a mid blue, not navy, so the
+    ///   light ink loses its 3:1 as soon as the face has lightened a third of the way.
+    ///
+    /// `layout/tests/a_buttons_label_never_loses_its_contrast_while_its_face_changes.rs` runs
+    /// the rebuild and holds every frame to 3:1.
+    #[must_use]
+    pub(crate) const fn held_permille(self) -> u32 {
+        match self {
+            Self::Dark => 590,
+            Self::Light => 97,
+        }
+    }
+}
+
+impl FloraButtonKind {
+    /// The ink of this kind's label, `None` for a command whose face does not change with its kind
+    /// (the quiet note: brass ink, its colour fades with the pointer).
+    #[must_use]
+    pub(crate) const fn label_ink(self) -> Option<LabelInk> {
+        match self {
+            Self::Standard | Self::Illuminated => Some(LabelInk::Dark),
+            Self::Stone(_) => Some(LabelInk::Light),
+            Self::Quiet => None,
+        }
+    }
+}
+
+/// [`flora_fade_on_curves`] for a face whose LABEL changes colour with it.
+///
+/// The label's `color` is not faded with the face: it has an entry of its own that holds the old colour
+/// for `ink`'s share of the face's time ([`LabelInk::held_permille`]) and then takes the new one at once.
+/// A `color` among `tweens` is dropped: the label has one entry, here.
+#[must_use]
+pub(crate) fn flora_fade_switching_the_label(
+    tweens: &[(&'static str, FadeCurve)],
+    ms: u32,
+    ink: LabelInk,
+) -> [CssPropertyWithConditions; 2] {
+    use azul_css::props::{
+        basic::{
+            animation::{AnimationIterationCount, AnimationTiming, StyleAnimation, StyleAnimationVec},
+            time::CssDuration,
+        },
+        property::StyleAnimationVecValue,
+    };
+    let list = |duration: u32| {
+        let mut entries: Vec<StyleAnimation> = tweens
+            .iter()
+            .filter(|&&(name, _)| name != "color")
+            .map(|&(name, timing)| StyleAnimation {
+                name: AzString::from_const_str(name),
+                duration: CssDuration::from_millis(duration),
+                delay: CssDuration::from_millis(0),
+                iterations: AnimationIterationCount::Count(1),
+                timing,
+                clip: true,
+            })
+            .collect();
+        // The step: a transition of one millisecond that starts when the label's time has come.
+        entries.push(StyleAnimation {
+            name: AzString::from_const_str("color"),
+            duration: CssDuration::from_millis(1),
+            delay: CssDuration::from_millis(duration * ink.held_permille() / 1000),
+            iterations: AnimationIterationCount::Count(1),
+            timing: AnimationTiming::Linear,
+            clip: true,
+        });
+        CssProperty::Animation(StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(entries)))
+    };
+    [
+        CssPropertyWithConditions::simple(list(ms)),
+        // A press is quick, and the label's step with it, in the same proportion.
+        CssPropertyWithConditions::on_active(list(FL_DUR_FAST_MS)),
+    ]
+}
+
+/// The fade of a flora command's face when it changes state, or kind, over `ms`.
+///
+/// Every part of it is on `--fl-ease` ([`FLORA_FACE`]), as a button that becomes the primary one changes
+/// kind; the label of a kind whose face changes with it steps ([`flora_fade_switching_the_label`]), the
+/// quiet note's ink fades.
+#[must_use]
+pub(crate) fn flora_face_fade(kind: FloraButtonKind, ms: u32) -> [CssPropertyWithConditions; 2] {
+    let tweens: Vec<(&'static str, FadeCurve)> = FLORA_FACE.iter().map(|name| (*name, FL_EASE)).collect();
+    match kind.label_ink() {
+        Some(ink) => flora_fade_switching_the_label(&tweens, ms, ink),
+        None => flora_fade_on_curves(&tweens, ms),
+    }
+}
+
 /// White at `a`: a lit lip.
 const fn white(a: u8) -> ColorU {
     ColorU::new(255, 255, 255, a)
@@ -2073,11 +2191,14 @@ pub fn button(mut btn: Button) -> Dom {
             // at the house pace. A press is quick either way.
             container_style.extend(match kind {
                 FloraButtonKind::Stone(_) | FloraButtonKind::Illuminated => {
-                    flora_fade_on_curves(LIT_FACE, FL_DUR_SLOW_MS)
+                    flora_fade_switching_the_label(
+                        LIT_FACE,
+                        FL_DUR_SLOW_MS,
+                        kind.label_ink().unwrap_or(LabelInk::Dark),
+                    )
                 }
-                FloraButtonKind::Standard | FloraButtonKind::Quiet => {
-                    flora_fade(FLORA_FACE, FL_DUR_MS)
-                }
+                FloraButtonKind::Standard => flora_face_fade(kind, FL_DUR_MS),
+                FloraButtonKind::Quiet => flora_fade(FLORA_FACE, FL_DUR_MS),
             });
         }
         // The keyboard ring, last: it wins the Left and Bottom slots over a

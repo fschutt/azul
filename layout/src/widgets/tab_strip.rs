@@ -7,8 +7,11 @@
 //! battery icons: the room it has is not one stretch but LANES, the band minus every cutout (and
 //! a margin around each). The row slides under the camera like a strip of paper behind a hole:
 //! what lies under a cutout is covered, never drawn, and a pill half in one lane is the hint
-//! that there is more on the other side. The selected pill is never left half under the camera:
-//! [`scroll_for_pill`] picks a scroll offset at which it stands whole inside one lane.
+//! that there is more on the other side. AT REST, though, no pill stands under the camera: a pill
+//! that would is given the room to start the next lane ([`room_around_cutouts`]), so that a strip of
+//! four tabs reads `FILE HOME (camera) INSERT VIEW`, not `FILE HOME (blank) VIEW`. The selected pill
+//! is never left half under the camera either: [`scroll_for_pill`] picks a scroll offset at which it
+//! stands whole inside one lane.
 //!
 //! Everything here is plain numbers in the strip's own coordinates (x from its left edge, in
 //! logical px), so the rules are tested without a window. The DOM of the strip and its
@@ -268,6 +271,60 @@ pub fn scroll_for_pill(
         .copied()
         .max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0)));
     widest.map_or(now, |(left, _)| (x - left).clamp(0.0, max))
+}
+
+/// The room each pill of a strip needs in front of it, so that at rest no pill stands under a camera.
+///
+/// It is on top of the `gap` between pills: at rest (the strip scrolled to its start) no pill stands
+/// in a gap of the band, or under the fade at a lane's end.
+///
+/// `widths` are the pills' widths in order, `lead` is where the first one starts (the room before it,
+/// the chevron's included), `lanes` the band's lanes in the strip's coordinates, `inset` the room a
+/// pill keeps from the edge of a lane, which is the width of the fade at its end. The pills are laid
+/// out one after the other as they flow; one that does not fit what is left of its lane - from where it
+/// would start to the lane's edge less `inset` - starts the next lane, `inset` from its edge, and the
+/// pills after it follow. The last lane takes what comes: a strip longer than the lanes scrolls, and
+/// what scrolls under a camera is covered, as it always was. A strip of fewer than two lanes has no
+/// camera in it: no room is added.
+///
+/// The returned vector has one entry per pill, none negative: the pill's own `margin-left`.
+#[must_use]
+pub fn room_around_cutouts(
+    widths: &[f32],
+    lead: f32,
+    gap: f32,
+    lanes: &[(f32, f32)],
+    inset: f32,
+) -> Vec<f32> {
+    let mut room = vec![0.0_f32; widths.len()];
+    if lanes.len() < 2 || !lead.is_finite() || !gap.is_finite() {
+        return room;
+    }
+    // What of lane `k` a pill may stand on: the first lane from where the strip starts (it holds the
+    // chevron, when there is one), the others from `inset` in; every lane to `inset` before its end.
+    let usable = |k: usize| -> (f32, f32) {
+        let (left, right) = lanes[k];
+        (if k == 0 { lead } else { left + inset }, right - inset)
+    };
+    let mut x = lead;
+    let mut lane = 0;
+    for (index, &width) in widths.iter().enumerate() {
+        if !width.is_finite() || width <= 0.0 {
+            continue;
+        }
+        loop {
+            let (from, to) = usable(lane);
+            let start = x.max(from);
+            if start + width <= to + 0.01 || lane + 1 >= lanes.len() {
+                room[index] = start - x;
+                x = start;
+                break;
+            }
+            lane += 1;
+        }
+        x += width + gap;
+    }
+    room
 }
 
 /// The rects of the covers a strip in the band lays over its gaps: one per gap, as tall as the band,

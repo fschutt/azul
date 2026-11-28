@@ -8,7 +8,7 @@
 //! `flow::WIDE_WIDTH`) they are as wide as the screen less 8 px each side; a desktop window keeps the boxes it had.
 //!
 //! The app is an example crate this one cannot link, so this reads its SOURCE, the way
-//! `azul_maps_sidebar_is_a_sheet_on_a_phone.rs` does: the styles are the constants of
+//! `azul_maps_floating_layout_fits_a_phone.rs` does: the styles are the constants of
 //! `examples/azul-maps/src/drive_ui.rs` and `lib.rs`, the keys are the engine's own buttons in the Android
 //! style, the root is the map's own root inside the bars of the emulator.
 
