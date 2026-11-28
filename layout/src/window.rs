@@ -26477,6 +26477,9 @@ impl LayoutWindow {
     /// [`Self::run_all_threads`], and which thread was the first to answer something other than `DoNothing` (a write-back
     /// that returned `RefreshDom`, a worker that sent an update): the startup timeline names the thread's owner as the
     /// producer of the layout pass that answer asks for.
+    #[cfg(feature = "std")]
+    // The same boundary as `run_all_threads`: every dll backend hands the style over as an `Arc`.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn run_all_threads_naming_the_asker(
         &mut self,
         data: &mut RefAny,
