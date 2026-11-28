@@ -22,6 +22,9 @@ pub mod style_kit;
 pub(crate) mod theme_blocks;
 #[cfg(test)]
 pub(crate) mod theme_checks;
+/// Increased contrast over the widgets of both themes: every text 7:1, every visible border 4.5:1.
+#[cfg(test)]
+mod contrast_tests;
 
 /// The visual theme for a widget.
 #[repr(C)]
