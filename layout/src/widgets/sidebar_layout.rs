@@ -33,6 +33,8 @@
 //! overhang it: the tab row starts after them ([`header_left_pad`]). A layout without a sidebar
 //! leaves the room before its first tab in the same way.
 
+use azul_css::system::Handedness;
+
 use crate::widgets::tabs::phone_build;
 
 /// Which form factor a widget of the sidebar family is built for.
@@ -114,6 +116,102 @@ impl SidebarState {
             Self::Handle => Self::Rail,
             other => other,
         }
+    }
+}
+
+// ---- the edges: which side of the window a part stands at ----
+
+/// An edge of the window.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Edge {
+    /// The left edge.
+    Left,
+    /// The right edge.
+    Right,
+}
+
+impl Edge {
+    /// The border of a part at this edge that faces the content beside it (`border-right` of a
+    /// part at the left edge).
+    #[must_use]
+    pub const fn inner_border(self) -> &'static str {
+        match self {
+            Self::Left => "border-right",
+            Self::Right => "border-left",
+        }
+    }
+
+    /// The offset property that places something against this edge of its box (`left`).
+    #[must_use]
+    pub const fn offset(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+        }
+    }
+
+    /// The margin property on the side of a part at this edge that faces the window's edge (the
+    /// 1 px a button keeps from it).
+    #[must_use]
+    pub const fn margin_outer(self) -> &'static str {
+        match self {
+            Self::Left => "margin-left",
+            Self::Right => "margin-right",
+        }
+    }
+
+    /// The offset property that places something against the side of a box that faces AWAY from
+    /// this edge (`left` of a pane that is docked at the right edge: its border with the body).
+    #[must_use]
+    pub const fn inward_offset(self) -> &'static str {
+        match self {
+            Self::Left => "right",
+            Self::Right => "left",
+        }
+    }
+
+    /// The `align-items` value that puts a column's children against this edge.
+    #[must_use]
+    pub const fn align_start(self) -> &'static str {
+        match self {
+            Self::Left => "flex-start",
+            Self::Right => "flex-end",
+        }
+    }
+
+    /// +1.0 where "inward" (away from this edge) is toward larger x, -1.0 where it is toward smaller x:
+    /// the sign of a swipe that opens the drawer.
+    #[must_use]
+    pub const fn inward(self) -> f32 {
+        match self {
+            Self::Left => 1.0,
+            Self::Right => -1.0,
+        }
+    }
+}
+
+/// The hand the family is built for: right-handed users only, for now. EVERYTHING mirrors for a
+/// left-handed user later (the sidebar's side, the rail, the sheet's grips, the Preview's dock,
+/// the chevron, the close buttons); the mirror is not built, and each left / right decision of a
+/// widget is made in ONE place: [`sidebar_edge`] and [`preview_edge`], which read [`Handedness`].
+pub const BUILT_FOR: Handedness = Handedness::RightHanded;
+
+/// The edge the sidebar (its rail, its quick access, its drawer) stands at: the left for a
+/// right-handed user, whose thumb sweeps the lower left of a phone held upright.
+#[must_use]
+pub const fn sidebar_edge(hand: Handedness) -> Edge {
+    match hand {
+        Handedness::RightHanded => Edge::Left,
+        Handedness::LeftHanded => Edge::Right,
+    }
+}
+
+/// The edge the Preview's right dock stands at: the right for a right-handed user.
+#[must_use]
+pub const fn preview_edge(hand: Handedness) -> Edge {
+    match hand {
+        Handedness::RightHanded => Edge::Right,
+        Handedness::LeftHanded => Edge::Left,
     }
 }
 
@@ -263,6 +361,13 @@ pub fn controls_height(controls_left: f32, title_height: f32) -> f32 {
 #[must_use]
 pub fn swipe_opens(dx: f32, dy: f32) -> bool {
     dx.is_finite() && dy.is_finite() && dx >= EDGE_SWIPE_PX && dx > 2.0 * dy.abs()
+}
+
+/// [`swipe_opens`] for the sidebar standing at `edge`: `dx` is the drag's x in window coordinates,
+/// which is inward where `edge.inward()` says.
+#[must_use]
+pub fn swipe_opens_at(edge: Edge, dx: f32, dy: f32) -> bool {
+    swipe_opens(dx * edge.inward(), dy)
 }
 
 /// How far the tab row keeps from the window's left edge to clear the window controls the sidebar
@@ -442,6 +547,14 @@ pub fn dragged_pane_height(start_h: f32, grab_y: f32, now_y: f32, container_h: f
 #[must_use]
 pub fn dragged_preview_width(start_w: f32, grab_x: f32, now_x: f32, container_w: f32) -> f32 {
     let moved = if grab_x.is_finite() && now_x.is_finite() { grab_x - now_x } else { 0.0 };
+    clamp_preview_width(start_w + moved, container_w)
+}
+
+/// [`dragged_preview_width`] for a dock at `edge`: the pane grows as the pointer goes INWARD, away
+/// from the edge.
+#[must_use]
+pub fn dragged_preview_width_at(edge: Edge, start_w: f32, grab_x: f32, now_x: f32, container_w: f32) -> f32 {
+    let moved = if grab_x.is_finite() && now_x.is_finite() { (now_x - grab_x) * edge.inward() } else { 0.0 };
     clamp_preview_width(start_w + moved, container_w)
 }
 
