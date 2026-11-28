@@ -154,6 +154,40 @@ class VideoFrameTests(unittest.TestCase):
         self.assertGreater(q.sig_diff(sig_a, f.signature_of(frames[1], w, h)), 0.2)
 
 
+class ScrollSampleTests(unittest.TestCase):
+    class FakeServer:
+        """a page scroller whose offset follows the clock: `rate` px per second from the first question"""
+        def __init__(self, rate):
+            self.rate, self.t0 = rate, None
+
+        def op(self, op, timeout=3, **params):
+            import time as _t
+            self.t0 = self.t0 or _t.time()
+            return {"data": {"value": {"scroll_states": [{"node_id": 7, "scroll_y": (_t.time() - self.t0) * self.rate, "max_scroll_y": 2000}, {"node_id": 9, "scroll_y": 5}]}}}
+
+    def test_the_scroller_is_sampled_while_the_swipe_runs(self):
+        import time as _t
+        samples = f.scroll_samples_during(self.FakeServer(500), lambda: _t.sleep(0.3), 7, interval=0.02)
+        self.assertGreaterEqual(len(samples), 5)
+        self.assertTrue(all(b[1] >= a[1] for a, b in zip(samples, samples[1:])))
+        ok, text = f.scroll_verdict(samples, +1)
+        self.assertTrue(ok, text)
+
+    def test_a_snap_back_or_no_move_fails(self):
+        snap = [(0.0, 0.0), (0.1, 100.0), (0.2, 40.0), (0.3, 160.0)]
+        ok, text = f.scroll_verdict(snap, +1)
+        self.assertFalse(ok)
+        self.assertIn("worst step back 60", text)
+        still = [(0.0, 10.0), (0.1, 10.0), (0.2, 10.0)]
+        self.assertFalse(f.scroll_verdict(still, +1)[0])
+        self.assertFalse(f.scroll_verdict([(0.0, 1.0)], +1)[0])
+
+    def test_the_way_back_decreases(self):
+        back = [(0.0, 300.0), (0.1, 220.0), (0.2, 90.0)]
+        self.assertTrue(f.scroll_verdict(back, -1)[0])
+        self.assertFalse(f.scroll_verdict(back, +1)[0])
+
+
 class MonotonicTests(unittest.TestCase):
     def test_an_offset_that_advances_is_fine(self):
         self.assertEqual(f.monotonic([0, 30, 90, 200, 360, 420, 430]), (True, 0.0))
