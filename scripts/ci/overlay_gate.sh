@@ -46,7 +46,7 @@ tests() {
     transient event_boundary menu_overlay input_capture override_dirt pointer_capture_ops 2>&1 | tee overlay-tests.txt
   local first=${PIPESTATUS[0]}
   cargo test -p azul-layout --features "$features" --test all --no-fail-fast -- \
-    a_window_with_one_surface a_menu_of_a_window a_popover_fits a_screen_reader_reaches 2>&1 | tee overlay-tests-integration.txt
+    a_window_with_one_surface a_menu_of_a_window a_popover_fits a_screen_reader_reaches a_padded_flex_panel 2>&1 | tee overlay-tests-integration.txt
   local second=${PIPESTATUS[0]}
   [ "$first" -eq 0 ] && [ "$second" -eq 0 ] || code=1
   return "$code"
