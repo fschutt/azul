@@ -66,7 +66,8 @@ done
 AZ_SMOKE_TAPS="$(grep '^smoke_taps=' demo-out/plan.txt | cut -d= -f2-)"
 AZ_SMOKE_EXPECTS="$(grep '^smoke_expects=' demo-out/plan.txt | cut -d= -f2-)"
 AZ_SMOKE_AFTER="$(grep '^smoke_after=' demo-out/plan.txt | cut -d= -f2-)"
-export AZ_SMOKE_TAPS AZ_SMOKE_EXPECTS AZ_SMOKE_AFTER
+AZ_SMOKE_LOGS="$(grep '^smoke_logs=' demo-out/plan.txt | cut -d= -f2-)"
+export AZ_SMOKE_TAPS AZ_SMOKE_EXPECTS AZ_SMOKE_AFTER AZ_SMOKE_LOGS
 bash scripts/ci/android_smoke.sh demo-out/smoke 20 demo-out/apps/*.apk || echo "SMOKE: exit $?"
 for f in demo-out/smoke/*/result.json; do
   python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print(r["app"], "PASS" if r["pass"] else "FAIL", "-", r["reason"])' "$f"
