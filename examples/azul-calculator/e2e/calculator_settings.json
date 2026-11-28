@@ -11,6 +11,7 @@
       {"op": "wait_frame"},
       {"op": "wait_settled"},
       {"op": "assert_exists", "selector": "#appkit-settings"},
+      {"op": "wait", "ms": 800},
       {"op": "print", "text": "frame: the settings page"},
       {"op": "take_screenshot"}
     ]

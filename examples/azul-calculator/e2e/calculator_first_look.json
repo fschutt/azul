@@ -10,6 +10,7 @@
       {"op": "assert_exists", "selector": "#__azcalc_display"},
       {"op": "assert_exists", "selector": "#__azcalc_keypad"},
       {"op": "assert_exists", "selector": "#__azcalc_memory-row"},
+      {"op": "wait", "ms": 800},
       {"op": "print", "text": "frame: the standard calculator, first look (the mode tabs, the display, the memory row, the keypad)"},
       {"op": "take_screenshot"},
       {"op": "azcalculator_type", "text": "12*7="},
@@ -18,6 +19,7 @@
       {"op": "wait_settled"},
       {"op": "find_node_by_text", "text": "84"},
       {"op": "assert_response", "contains": "\"found\":true"},
+      {"op": "wait", "ms": 800},
       {"op": "print", "text": "frame: 12 x 7 = 84"},
       {"op": "take_screenshot"},
       {"op": "azcalculator_type", "text": "/0="},
@@ -26,6 +28,7 @@
       {"op": "wait_settled"},
       {"op": "find_node_by_text", "text": "Cannot divide"},
       {"op": "assert_response", "contains": "\"found\":true"},
+      {"op": "wait", "ms": 800},
       {"op": "print", "text": "frame: a division by zero says so and does not crash"},
       {"op": "take_screenshot"},
       {"op": "key_down", "key": "escape", "modifiers": {}},
@@ -39,6 +42,7 @@
       {"op": "wait_settled"},
       {"op": "find_node_by_text", "text": "0.3"},
       {"op": "assert_response", "contains": "\"found\":true"},
+      {"op": "wait", "ms": 800},
       {"op": "print", "text": "frame: 0.1 + 0.2 = 0.3 (exact decimals)"},
       {"op": "take_screenshot"}
     ]
