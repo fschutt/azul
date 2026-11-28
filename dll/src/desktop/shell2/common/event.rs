@@ -5336,9 +5336,11 @@ pub trait PlatformWindow {
             // An inline-docked panel dropped onto another zone (or torn off /
             // docked back) re-grafts the layout tree: that is a layout change
             // of its own, whether or not its `Docked` handler asked for one.
-            let docks_changed = self
-                .get_layout_window()
-                .is_some_and(|lw| lw.transient_docks_changed());
+            // ... and an overlay that opened, closed or moved (a one-surface window shows its
+            // popups inside the page) is a layout change of its own.
+            let docks_changed = self.get_layout_window().is_some_and(|lw| {
+                lw.transient_docks_changed() || lw.transient_overlays_changed()
+            });
             let lifecycle_wants_pass = self.dispatch_pending_lifecycle_events();
             if !lifecycle_wants_pass && !docks_changed {
                 self.refill_a11y_tree_unless_refreshed(a11y_updates_before);
@@ -6172,7 +6174,7 @@ pub trait PlatformWindow {
             lw.transient_windows.open_windows().iter().any(|w| {
                 w.placement.anchor == azul_core::transient::TransientAnchor::Dialog
                     && w.torn.is_none()
-                    && !w.is_inline()
+                    && !w.has_no_surface()
             })
         });
         if modal_dialog_open && super::transient::fresh_press(&previous, &current) {

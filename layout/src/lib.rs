@@ -627,6 +627,10 @@ pub mod thread;
 #[allow(clippy::non_canonical_partial_ord_impl)]
 pub mod timer;
 pub mod transient;
+/// The reconcile pass of a window's transient windows: what is open, how big its content is, where
+/// it goes - for a desktop's OS windows and for a phone's overlays alike.
+#[cfg(feature = "text_layout")]
+pub mod transient_reconcile;
 /// Where a floating surface (tooltip, menu, popover) opens against its anchor and screen.
 pub mod placement;
 /// Render an icon-registry entry to RGBA pixels, for the system tray.

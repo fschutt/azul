@@ -94,6 +94,22 @@ pub(crate) fn resolve_position_offsets(
     let Some(id) = dom_id else {
         return PositionOffsets::default();
     };
+
+    // An OVERLAY - a `<transient-window>` shown inside its window (`TransientDocks::overlay`) - is
+    // where the transient manager put it, whatever its CSS says: the manager measured it and placed
+    // it by the one placement rule. Both insets of an axis set and the size `auto` is exactly that
+    // box (§10.3.7 / §10.6.4 stretch-fit), for the solve here and for the sizing that asks for it
+    // before the subtree is laid out.
+    if let Some([top, right, bottom, left]) =
+        super::layout_tree::overlay_insets_of(id, viewport_size)
+    {
+        return PositionOffsets {
+            top: Some(top),
+            right: Some(right),
+            bottom: Some(bottom),
+            left: Some(left),
+        };
+    }
     let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
 
     // Create resolution context with font sizes and containing block size

@@ -609,46 +609,12 @@ fn popup_bounds(
         .unwrap_or_else(|| LogicalRect::new(LogicalPosition::zero(), parent_size))
 }
 
-/// How far a popup stays off the edges of the screen's work area.
-const POPUP_SCREEN_MARGIN: f32 = 8.0;
-
-/// The most room a popup anchored at `anchor` may take, for a parent of
-/// `parent_size` among `screens` (both in the parent's logical px): the work
-/// area of the screen the ANCHOR is on less a margin on every side, so a
-/// popover too big for the screen comes up at the screen's size and scrolls
-/// (the placement then keeps it on the screen). Without a screen to go by -
-/// Wayland, which never tells, or a layout pass off the main thread - the width
-/// is the parent's (what a popup was always measured against there) and the
-/// height is not limited; the compositor's positioner keeps the popup on
-/// screen there.
-#[must_use]
-pub fn popup_room(
-    parent_size: LogicalSize,
-    screens: &[ScreenRects],
-    anchor: LogicalRect,
-) -> LogicalSize {
-    match screen_for_anchor(anchor, screens) {
-        Some(wa) => LogicalSize::new(
-            (wa.size.width - 2.0 * POPUP_SCREEN_MARGIN).max(1.0),
-            (wa.size.height - 2.0 * POPUP_SCREEN_MARGIN).max(1.0),
-        ),
-        None => LogicalSize::new(parent_size.width, f32::INFINITY),
-    }
-}
-
-/// Room enough for a title bar: 28 pt on macOS, about 31 px on Windows, up
-/// to 46 px for a GNOME header bar.
-const TITLE_BAR_ROOM: f32 = 48.0;
-
-/// The room a popup's content has in `room`: less a title bar, when its
-/// window has one.
-pub fn content_room(room: LogicalSize, titled: bool) -> LogicalSize {
-    if titled {
-        LogicalSize::new(room.width, (room.height - TITLE_BAR_ROOM).max(1.0))
-    } else {
-        room
-    }
-}
+// The room a popup is measured in - the screen its anchor is on, less a margin - and the title bar
+// a window of its own takes from it are the ENGINE's (`azul_layout::transient_reconcile`): the one
+// reconcile pass runs for every shell, and for a phone's overlays too.
+pub use azul_layout::transient_reconcile::{
+    content_room, popup_room, transient_has_titlebar, transient_window_title, POPUP_SCREEN_MARGIN,
+};
 
 /// Every screen, in the logical px of the window `window` maps onto the
 /// screen; none without a mapping (Wayland, headless). Off the main thread on
@@ -717,28 +683,6 @@ pub fn as_dialog_window(window_state: &mut FullWindowState, title: &str) {
         .platform_specific_options
         .linux_options
         .x11_override_redirect = false;
-}
-
-/// Whether the window of the `<transient-window>` at `node` has a title bar:
-/// its `titlebar` attribute, else a dialog window (`anchor="dialog"`) has
-/// one and a popover none.
-pub(crate) fn transient_has_titlebar(
-    styled: &azul_core::styled_dom::StyledDom,
-    node: NodeId,
-    anchor: TransientAnchor,
-) -> bool {
-    use azul_core::dom::AttributeType;
-    styled
-        .node_data
-        .as_container()
-        .get(node)
-        .and_then(|nd| {
-            nd.attributes().as_ref().iter().find_map(|a| match a {
-                AttributeType::Titlebar(on) => Some(*on),
-                _ => None,
-            })
-        })
-        .unwrap_or(anchor == TransientAnchor::Dialog)
 }
 
 /// The window kind of a just-opened transient window: a window with a title
@@ -923,10 +867,11 @@ pub fn sync_parent(
     // The screens are asked of the operating system when a popup first needs them, not on every pass.
     let mut screens: Option<Vec<ScreenRects>> = None;
     for w in open {
-        if w.is_inline() {
-            // Inline content of its parent / zone: laid out by the parent's
-            // own pass, no surface of its own. (Its torn-off form is a
-            // toplevel like any other, created below once `torn` is set.)
+        if w.has_no_surface() {
+            // Inline content of its parent / zone, or an overlay over its page (a
+            // one-surface window): laid out by the parent's own pass, no surface of
+            // its own. (A torn-off inline panel is a toplevel like any other,
+            // created below once `torn` is set.)
             continue;
         }
         let Some(styled) = root.as_ref() else { break };
@@ -1083,33 +1028,6 @@ pub fn sync_parent(
 /// its parent, whose rebuild woke the dialog again - without end in a real window.
 fn looks_different(old: &Dom, new: &Dom) -> bool {
     azul_core::dom::fingerprint_built_dom(old).0 != azul_core::dom::fingerprint_built_dom(new).0
-}
-
-/// The title of a transient window - a popup, a torn-off toplevel, a dialog
-/// window: the `<transient-window>` node's `title` attribute, else its
-/// accessible name (`aria-label`, what a modal names its window by), else
-/// `parent_title`. A dialog the app did not name belongs to the window that
-/// opened it, so it carries that window's title, as a message box does.
-fn transient_window_title(
-    styled: &azul_core::styled_dom::StyledDom,
-    node: NodeId,
-    parent_title: &str,
-) -> String {
-    use azul_core::dom::AttributeType;
-    let nodes = styled.node_data.as_container();
-    nodes
-        .get(node)
-        .and_then(|nd| {
-            nd.attributes().as_ref().iter().find_map(|a| match a {
-                AttributeType::Title(t) | AttributeType::AriaLabel(t)
-                    if !t.as_str().trim().is_empty() =>
-                {
-                    Some(t.as_str().to_owned())
-                }
-                _ => None,
-            })
-        })
-        .unwrap_or_else(|| parent_title.to_owned())
 }
 
 /// What the popup side found in its mailbox this pass.
@@ -1545,7 +1463,7 @@ pub fn dismiss_on_escape(
         .transient_windows
         .open_windows()
         .iter()
-        .filter(|w| !w.is_inline() && w.torn.is_none())
+        .filter(|w| !w.has_no_surface() && w.torn.is_none())
         // `none` never closes, and `outside-only` leaves Escape to the
         // content (the forwarded key reaches its handler instead).
         .filter(|w| {
@@ -1624,7 +1542,7 @@ pub fn dismiss_outside_on_press(
         // Light-dismiss is a POPUP's behaviour: an inline-docked panel is
         // content, a torn-off palette is a window of its own - a press in
         // the parent is not "outside" either.
-        .filter(|w| !w.is_inline() && w.torn.is_none())
+        .filter(|w| !w.has_no_surface() && w.torn.is_none())
         .filter(|w| {
             matches!(
                 w.placement.dismiss,
@@ -1673,7 +1591,7 @@ pub fn dismiss_list_popups_on_deactivation(
         lw.transient_windows
             .open_windows()
             .iter()
-            .filter(|w| !w.is_inline() && w.torn.is_none())
+            .filter(|w| !w.has_no_surface() && w.torn.is_none())
             .filter(|w| {
                 matches!(
                     w.placement.dismiss,
@@ -1776,6 +1694,7 @@ mod tests {
             torn: None,
             anchor_override: None,
             attr_torn: false,
+            overlay: None,
         }
     }
 

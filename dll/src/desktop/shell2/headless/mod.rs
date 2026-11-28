@@ -17193,6 +17193,7 @@ mod child_window_tests {
             torn: None,
             anchor_override: None,
             attr_torn: false,
+            overlay: None,
         };
         crate::desktop::shell2::common::transient::popup_create_options(
             0,

@@ -5722,7 +5722,7 @@ pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDispla
         .get(node_id)
         .map(NodeData::get_node_type)
     {
-        if !transient_node_is_inline(node_id, cfg) {
+        if !transient_node_is_shown(node_id, cfg) {
             return LayoutDisplay::None;
         }
     }
@@ -5791,14 +5791,29 @@ pub fn with_transient_docks<R>(
     f()
 }
 
-/// Is the `<transient-window>` `node` laid out inline this pass?
-fn transient_node_is_inline(
+/// Is the `<transient-window>` `node` part of this window's layout this pass: inline
+/// content of its parent, or an overlay over the page ([`crate::transient::TransientDocks::shows`])?
+fn transient_node_is_shown(
     node: NodeId,
     cfg: &azul_core::transient::TransientWindowConfig,
 ) -> bool {
     TRANSIENT_DOCKS.with(|d| match d.borrow().as_ref() {
-        Some(docks) => docks.is_inline(node, cfg),
+        Some(docks) => docks.shows(node, cfg),
         None => cfg.dock == azul_core::transient::TransientDock::Inline && cfg.open && !cfg.torn,
+    })
+}
+
+/// The insets `[top, right, bottom, left]` of `node` against a viewport of `viewport_size` when it
+/// is an overlay (a `<transient-window>` presented inside its window,
+/// [`crate::transient::OverlayBox`]); `None` for every other node. Read where the solver resolves
+/// the insets of an out-of-flow box: the one place, whoever asks.
+#[must_use]
+pub(crate) fn overlay_insets_of(node: NodeId, viewport_size: LogicalSize) -> Option<[f32; 4]> {
+    TRANSIENT_DOCKS.with(|d| {
+        d.borrow()
+            .as_ref()
+            .filter(|docks| !docks.overlay.is_empty())
+            .and_then(|docks| docks.overlay_insets(node, viewport_size))
     })
 }
 

@@ -8912,6 +8912,15 @@ impl LayoutWindow {
         self.transient_windows.dock_generation() != self.laid_out_dock_generation
     }
 
+    /// Have the overlays - transient windows shown over the page on a one-surface window - changed
+    /// since the root was last laid out: one opened, closed or moved? The layout fast path
+    /// (identical DOM -> keep the retained layout) must not skip a pass that has to show or place
+    /// one. Not a dock change: that lays the root out cold, an overlay only has to be laid out.
+    #[must_use]
+    pub fn transient_overlays_changed(&self) -> bool {
+        self.transient_windows.overlays_changed()
+    }
+
     /// The inline-docked `<transient-window>` that `node` (a pressed drag
     /// region) belongs to, walking up the DOM: the panel a grip drag tears
     /// off. `None` if the press was not inside an inline-docked panel.
@@ -9526,7 +9535,7 @@ impl LayoutWindow {
             .iter()
             .rev()
             .find(|w| {
-                !w.is_inline()
+                !w.has_no_surface()
                     && w.torn.is_none()
                     && root.is_none_or(|s| {
                         crate::transient::transient_takes_focus(s, w.source_node)
@@ -9546,7 +9555,7 @@ impl LayoutWindow {
             .iter()
             .rev()
             .find(|w| {
-                !w.is_inline()
+                !w.has_no_surface()
                     && w.torn.is_none()
                     && !crate::transient::transient_takes_focus(root, w.source_node)
             })
@@ -9606,6 +9615,11 @@ impl LayoutWindow {
         let parent = self.layout_results.get(&DomId::ROOT_ID)?;
         let mut dom =
             azul_core::transient::extract_subtree_as_dom(&parent.styled_dom, source_node)?;
+        // On a one-surface window the node is shown over the page, `position: fixed`; measured as
+        // the root of a window of its own it is the content, in flow.
+        dom.root.upsert_inline_css_property(CssProperty::const_position(
+            azul_css::props::layout::LayoutPosition::Static,
+        ));
         azul_core::transient::fit_root_to(&mut dom, room);
         let mut styled = StyledDom::create_from_dom(dom);
         styled.dom_id = content_dom;
@@ -9721,6 +9735,23 @@ impl LayoutWindow {
         let mut insets = preset.safe_area(window_state.size.dimensions);
         insets.keyboard = self.safe_area_insets.keyboard;
         insets
+    }
+
+    /// How this window presents the windows an app and its widgets ask for
+    /// ([`crate::transient::WindowPresentation`]): one surface when the shell reported it
+    /// ([`crate::transient::TransientWindowManager::set_shell_presentation`]) or when
+    /// `WindowFlags::display_preset` puts the window on a phone - every preset is one. THE one
+    /// place the engine asks whether a window can open another; no widget looks at the platform.
+    #[must_use]
+    pub fn effective_presentation(
+        &self,
+        window_state: &FullWindowState,
+    ) -> crate::transient::WindowPresentation {
+        if window_state.flags.display_preset.is_simulated() {
+            crate::transient::WindowPresentation::OneSurface
+        } else {
+            self.transient_windows.shell_presentation()
+        }
     }
 
     /// The shell's report of the display's cutouts, corners, bars and fingerprint sensor, in
@@ -10875,7 +10906,20 @@ impl LayoutWindow {
                 self.layout_cache.display_list_patch_counters = patch_counters;
             }
             self.laid_out_dock_generation = self.transient_windows.dock_generation();
-            self.transient_windows.layout_docks()
+            let mut docks = self.transient_windows.layout_docks();
+            // An overlay's box is in the window's coordinates, the solver's insets are the
+            // viewport's: the safe area takes the status bar and the cutout off the window.
+            docks.viewport_origin = viewport.origin;
+            // The overlays that opened, moved or closed since the pass before are built fresh;
+            // the rest of the tree is kept. An overlay is shown, not docked: it is no reason to
+            // lay the root out cold (above), only for the overlay itself to be laid out.
+            css_dirty_for_this_pass.extend(
+                self.transient_windows
+                    .take_overlay_dirt()
+                    .into_iter()
+                    .map(|node| (node, azul_css::props::property::RelayoutScope::Full)),
+            );
+            docks
         } else {
             crate::transient::TransientDocks::default()
         };
@@ -28542,10 +28586,10 @@ impl LayoutWindow {
                         .open_windows()
                         .iter()
                         .find(|w| w.source_node == n);
-                    // An inline-docked window is laid out here, so
+                    // An inline-docked window or an overlay is laid out here, so
                     // `rendered_nodes` already answered for its content.
                     if let Some(window) = owned {
-                        return !window.is_inline();
+                        return !window.has_no_surface();
                     }
                     if !cfg.open {
                         return false;

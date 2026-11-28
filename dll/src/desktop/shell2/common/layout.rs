@@ -891,10 +891,15 @@ pub fn regenerate_layout(
         // another zone, torn off, docked back) still has to re-graft: the
         // retained layout reflects the OLD docking.
         let docks_changed = layout_window.transient_docks_changed();
+        // The same for the overlays of a one-surface window (a popup or dialog shown over the page):
+        // one opened, closed or moved since the root was laid out, so it has to be laid out again - not
+        // cold (that is a dock change), only for the overlay to be shown or placed.
+        let overlays_changed = layout_window.transient_overlays_changed();
         if !window_size_changed_precheck
             && !safe_area_moved_precheck
             && !states_changed
             && !docks_changed
+            && !overlays_changed
             && !theme_changed_precheck
             && !overlay_retires
         {
@@ -2896,166 +2901,26 @@ fn layout_rect_to_logical(r: azul_css::props::basic::LayoutRect) -> azul_core::g
 /// and reconcile the manager. Stores the resulting diff on the window so the
 /// backend can act on it after layout.
 ///
-/// Split out of `regenerate_layout` because it needs `&mut layout_window`
-/// twice in ways the borrow checker will not allow inline: once to read the
-/// root layout (for anchor rects) and once to lay out each popup's content.
+/// The pass is the engine's ([`LayoutWindow::reconcile_transients`]): the same for every shell, and
+/// for the overlays a one-surface window shows instead of windows. What is the shell's is where
+/// the room of a popup comes from - the screens around the window.
 pub(crate) fn reconcile_transient_windows(
     layout_window: &mut LayoutWindow,
     current_window_state: &FullWindowState,
 ) {
-    use azul_core::dom::DomId;
-    use azul_layout::transient::collect_open_transient_windows;
-
-    // Whether a popup held the keyboard when this pass's display list was
-    // built: the list rings the invoker only if none did.
-    let keyboard_owned_before = layout_window.transient_keyboard_owner().is_some();
-
-    // 1. What does the parent layout say is open, and where is each anchor?
-    let wanted = {
-        let Some(root) = layout_window.layout_results.get(&DomId::ROOT_ID) else {
-            return;
-        };
-        let styled = &root.styled_dom;
-        // Anchor rects come from the ROOT dom's layout. Borrow the result
-        // immutably for the whole collection, then drop it before laying out.
-        let forced: Vec<_> = layout_window.transient_windows.forced_open_nodes().to_vec();
-        // A window the user docked onto a drop zone anchors to the zone.
-        let overrides = layout_window.transient_windows.anchor_overrides();
-        // Anchors are VIEWPORT rects (scroll taken off): the popup must open
-        // where the anchor is on screen, not where the unscrolled layout has it.
-        let rects: Vec<_> = collect_open_transient_windows(styled, &forced, &overrides, |node| {
-            layout_window.get_node_rect_in_viewport(azul_core::dom::DomNodeId {
-                dom: DomId::ROOT_ID,
-                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node)),
-            })
-        });
-        rects
-    };
-    // `anchor="viewport"` (a modal dialog's top layer) covers the whole
-    // window instead of hanging off its anchor node: anchored to the
-    // viewport and laid out at its size, so a resize of this window resizes
-    // the cover on the next pass.
-    let viewport = current_window_state.size.dimensions;
-    let wanted: Vec<_> = wanted
-        .into_iter()
-        .map(|p| p.cover_viewport(viewport))
-        .collect();
-
-    // 2. Reconcile, measuring each popup's content on demand (on scratch caches — the popup window
-    //    lays the content out itself).
-    let diff = {
-        // `reconcile` wants a closure that reads layout_window while the
-        // manager is borrowed mutably — split the borrow by taking the
-        // manager out, reconciling, and putting it back.
-        let mut manager = core::mem::take(&mut layout_window.transient_windows);
-        // Where focus is as popups open: owed back on close, whichever way
-        // they opened (see `remember_focus_for_opened` below).
-        let focus_at_open = layout_window
-            .focus_manager
-            .get_focused_node()
-            .copied()
-            .map(|n| (n, layout_window.focus_manager.focus_is_visible));
-        // The screens around this window in its logical px, read once a pass and
-        // only when a popup is measured; each popup gets the room of the screen
-        // its anchor is on.
-        let window = layout_window.screen_mapping;
-        let mut screens = None;
-        let diff = manager.reconcile(&wanted, |content_dom, placement| {
-            let screens =
-                screens.get_or_insert_with(|| super::transient::screens_seen_from(window));
-            let room = super::transient::popup_room(
-                current_window_state.size.dimensions,
-                screens,
-                placement.anchor_rect,
-            );
-            // A window with a title bar has that much less room for its content.
-            let titled = layout_window
-                .layout_results
-                .get(&DomId::ROOT_ID)
-                .is_some_and(|r| {
-                    super::transient::transient_has_titlebar(
-                        &r.styled_dom,
-                        placement.node,
-                        placement.anchor,
-                    )
-                });
-            let room = super::transient::content_room(room, titled);
-            let measured = layout_window.layout_transient_content(
-                placement.node,
-                content_dom,
-                placement.size,
-                current_window_state,
-                room,
-            )?;
-            // A DROP-DOWN IS AT LEAST AS WIDE AS THE CONTROL IT DROPS OUT OF.
-            // A popup on the top or bottom edge is the `<select>` shape - a
-            // combo box's option list, a date field's calendar - and one
-            // narrower than its own field reads as a stray context menu
-            // (2026-09-01 request, alongside the same rule for native menus).
-            // A MINIMUM only: wider content still wins, and an app that gave
-            // an explicit `size` has already been handed it back above, so
-            // this cannot override it. Left/right anchors are side panels,
-            // where the anchor's width means nothing.
-            let widened = if matches!(
-                placement.anchor,
-                azul_core::transient::TransientAnchor::Bottom
-                    | azul_core::transient::TransientAnchor::Top
-            ) {
-                azul_core::geom::LogicalSize::new(
-                    measured
-                        .width
-                        .max(placement.anchor_rect.size.width)
-                        .min(room.width.max(measured.width)),
-                    measured.height,
-                )
-            } else {
-                measured
-            };
-            Some(widened)
-        });
-        // A window opened by its `open` ATTRIBUTE reached no callback seam
-        // that could have recorded the focus it owes back.
-        manager.remember_focus_for_opened(&diff, focus_at_open);
-        layout_window.transient_windows = manager;
-        diff
-    };
-
-    // The app's `torn` attribute tore a window off / docked it: the node
-    // hears about it like it hears about a drag.
-    for (node, torn, bounds) in &diff.torn_changes {
-        let now = std::time::Instant::now().into();
-        layout_window
-            .pending_lifecycle_events
-            .push(azul_core::diff::create_tearoff_event(
-                *node,
-                DomId::ROOT_ID,
-                &now,
-                *torn,
-                *bounds,
-            ));
-    }
-    if !diff.opened.is_empty() || !diff.closed.is_empty() || !diff.moved.is_empty() {
+    let window = layout_window.screen_mapping;
+    layout_window.reconcile_transients(current_window_state, &mut || {
+        super::transient::screens_seen_from(window)
+    });
+    let pending = &layout_window.pending_transient_diff;
+    if !pending.is_empty() {
         log_debug!(
             LogCategory::Layout,
-            "[transient] opened={} moved={} closed={}",
-            diff.opened.len(),
-            diff.moved.len(),
-            diff.closed.len()
+            "[transient] pending: opened={} moved={} closed={}",
+            pending.opened.len(),
+            pending.moved.len(),
+            pending.closed.len()
         );
-    }
-    // Accumulate, never assign: a layout call may run several passes before
-    // the backend takes the diff, and an exit that reaches no reconcile (the
-    // fingerprint-equal "layout unchanged" path) must not replay an older
-    // pass's opened/closed list either — the continuity test caught a popup
-    // about to be re-created that way. `merge` also cancels an open+close
-    // pair the backend never saw, so nothing flashes.
-    layout_window.pending_transient_diff.merge(diff);
-
-    // A popup took the keyboard (its invoker stops being ringed) or handed
-    // it back (the ring returns). The list was built BEFORE this reconcile,
-    // with the old answer, so rebuild it now.
-    if layout_window.transient_keyboard_owner().is_some() != keyboard_owned_before {
-        layout_window.refresh_focus_ring();
     }
 }
 

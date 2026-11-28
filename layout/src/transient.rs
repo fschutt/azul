@@ -581,6 +581,117 @@ mod tests {
 }
 
 // ============================================================================
+// Presentation: what a window can show besides its own surface
+// ============================================================================
+
+/// How a window's shell presents the windows an app and its widgets ask for.
+///
+/// The shell reports it next to the safe-area insets
+/// (`LayoutWindow::transient_windows`'s [`TransientWindowManager::set_shell_presentation`]);
+/// `WindowFlags::display_preset` simulates it (a phone preset is a phone: one surface),
+/// and `LayoutWindow::effective_presentation` answers with both. It is THE one place the
+/// engine asks "can this window open another OS window?": widgets, apps and the transient
+/// manager never look at the platform.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum WindowPresentation {
+    /// The shell opens an OS window for every popup, dialog and window that is asked for:
+    /// a desktop. The default.
+    #[default]
+    Windows,
+    /// The shell has one surface and cannot open another (a phone: Android, iOS). Every popup,
+    /// dialog and menu is presented INSIDE the window, over its content, as an overlay
+    /// ([`OverlayBox`]); a second window of the app is a view pushed over the first.
+    OneSurface,
+}
+
+impl WindowPresentation {
+    /// Whether this window has no other surface to open.
+    #[must_use]
+    pub const fn is_one_surface(self) -> bool {
+        matches!(self, Self::OneSurface)
+    }
+}
+
+/// Where an overlay - a `<transient-window>` presented inside its parent window - is, and
+/// what it covers.
+///
+/// The overlay is the `<transient-window>` node itself, laid out `position: fixed` over the
+/// page at this box (the solver reads it where it resolves the insets of an out-of-flow
+/// box). It is an INPUT of the layout pass, so a change of it - the overlay opens, closes
+/// or moves - asks the root for a pass, but not a cold one: the page under the overlay keeps
+/// its cache.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct OverlayBox {
+    /// The border box of the overlay in WINDOW coordinates (origin at the window's top left).
+    pub rect: LogicalRect,
+    /// The overlay is the window's whole top layer, the scrim of a modal dialog: its box is
+    /// the window and the panel sits on it. Otherwise it is an anchored panel (a popover, a
+    /// list) at its own place.
+    pub cover: bool,
+}
+
+/// What a reconcile pass needs to know about the window the popups open from, besides the
+/// placements themselves.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ReconcileEnv {
+    /// How this window presents what it is asked for. [`WindowPresentation::Windows`] leaves
+    /// the rest of this struct unread.
+    pub presentation: WindowPresentation,
+    /// The size of the whole window, for an overlay that covers it.
+    pub window: LogicalSize,
+    /// Where an anchored overlay may be, in window coordinates: the window less the safe area,
+    /// the keyboard and a margin. The placement rule flips and slides within it.
+    pub bounds: LogicalRect,
+    /// The pointer, for a popup anchored at it.
+    pub cursor: Option<azul_core::geom::LogicalPosition>,
+}
+
+impl Default for ReconcileEnv {
+    fn default() -> Self {
+        Self {
+            presentation: WindowPresentation::Windows,
+            window: LogicalSize::zero(),
+            bounds: LogicalRect::zero(),
+            cursor: None,
+        }
+    }
+}
+
+/// Where the overlay of `placement` goes, for content that measured `size`.
+///
+/// A dialog (`anchor="dialog"`) and a viewport cover are the window's top layer. Everything
+/// else is placed by the one rule every floating surface follows
+/// ([`crate::placement::floating_frame`]): it flips to the other side of its anchor and slides
+/// back into `env.bounds`, and a surface longer than the bounds is shortened to them (its
+/// content scrolls).
+#[must_use]
+pub fn overlay_box_for(
+    placement: &TransientPlacement,
+    size: LogicalSize,
+    env: &ReconcileEnv,
+) -> OverlayBox {
+    if matches!(
+        placement.anchor,
+        TransientAnchor::Viewport | TransientAnchor::Dialog
+    ) {
+        return OverlayBox {
+            rect: LogicalRect::new(azul_core::geom::LogicalPosition::zero(), env.window),
+            cover: true,
+        };
+    }
+    // Never bigger than the room there is: a panel taller than the window less its keyboard
+    // comes up at that size and scrolls inside (the Dom pass makes it a scroll container).
+    let size = LogicalSize::new(
+        size.width.min(env.bounds.size.width),
+        size.height.min(env.bounds.size.height),
+    );
+    OverlayBox {
+        rect: floating_frame(&placement.floating(env.cursor), size, env.bounds),
+        cover: false,
+    }
+}
+
+// ============================================================================
 // The manager: which transient windows are open, and their laid-out content
 // ============================================================================
 
@@ -620,6 +731,10 @@ pub struct OpenTransientWindow {
     /// The app's `torn` attribute as last seen, so a CHANGE of it can be
     /// told from the user's own drags. Bookkeeping, not state a backend reads.
     pub attr_torn: bool,
+    /// `Some` while the window is presented INSIDE its parent, as an overlay over the page
+    /// ([`WindowPresentation::OneSurface`]): it has no surface of its own, the
+    /// `<transient-window>` node is laid out at this box. `None` for a window with a surface.
+    pub overlay: Option<OverlayBox>,
 }
 
 impl OpenTransientWindow {
@@ -629,6 +744,15 @@ impl OpenTransientWindow {
     #[must_use]
     pub fn is_inline(&self) -> bool {
         self.placement.dock == TransientDock::Inline && self.torn.is_none()
+    }
+
+    /// Has no surface of its own to create: it is inline content of its parent
+    /// ([`Self::is_inline`]) or an overlay over it ([`Self::overlay`]). What a shell
+    /// skips when it turns the open set into windows, and what never holds the
+    /// keyboard of a separate window.
+    #[must_use]
+    pub fn has_no_surface(&self) -> bool {
+        self.is_inline() || self.overlay.is_some()
     }
 }
 
@@ -647,9 +771,18 @@ pub struct TransientDocks {
     /// Inline nodes -> the zone they are grafted onto (`None` = laid out in
     /// place, as a child of their own DOM parent).
     pub inline: alloc::collections::BTreeMap<NodeId, Option<NodeId>>,
-    /// Every transient node the manager has an opinion about (open ones).
-    /// A node not in here is judged by its config alone.
+    /// Every transient node the manager has an opinion about (open ones that are
+    /// not overlays). A node not in here is judged by its config alone.
     pub known: alloc::collections::BTreeSet<NodeId>,
+    /// The overlays of this pass: transient nodes shown over the page at a box
+    /// ([`OverlayBox`]). An overlay is neither `known` nor `inline`: it does not
+    /// move in the layout tree (a dock change is a cold relayout of the root), it
+    /// is only shown, `position: fixed`, where the manager put it.
+    pub overlay: alloc::collections::BTreeMap<NodeId, OverlayBox>,
+    /// The top left of the viewport the root is laid out in, in window coordinates (the safe area
+    /// takes the status bar and the cutout off the window): an overlay's box is in the window's
+    /// coordinates, the solver's insets are the viewport's.
+    pub viewport_origin: azul_core::geom::LogicalPosition,
 }
 
 impl TransientDocks {
@@ -661,6 +794,37 @@ impl TransientDocks {
         } else {
             cfg.dock == TransientDock::Inline && cfg.open && !cfg.torn
         }
+    }
+
+    /// Is `node` part of THIS window's layout this pass: inline content of its
+    /// parent, or an overlay over the page? Every other `<transient-window>` is
+    /// `display: none` here (closed, or a window of its own).
+    #[must_use]
+    pub fn shows(&self, node: NodeId, cfg: &TransientWindowConfig) -> bool {
+        self.overlay.contains_key(&node) || self.is_inline(node, cfg)
+    }
+
+    /// The box `node` is shown at this pass, if it is an overlay.
+    #[must_use]
+    pub fn overlay_box(&self, node: NodeId) -> Option<OverlayBox> {
+        self.overlay.get(&node).copied()
+    }
+
+    /// The insets `[top, right, bottom, left]` an overlay `node` has against the viewport it is
+    /// fixed to, a viewport of `viewport_size`: what makes the box the manager chose the box the
+    /// solver lays out (both insets of an axis set and the size `auto` is exactly that box).
+    /// `None` for a node that is not an overlay.
+    #[must_use]
+    pub fn overlay_insets(&self, node: NodeId, viewport_size: LogicalSize) -> Option<[f32; 4]> {
+        let rect = self.overlay.get(&node)?.rect;
+        let left = rect.origin.x - self.viewport_origin.x;
+        let top = rect.origin.y - self.viewport_origin.y;
+        Some([
+            top,
+            viewport_size.width - left - rect.size.width,
+            viewport_size.height - top - rect.size.height,
+            left,
+        ])
     }
 
     /// Is `node` an inline transient node grafted onto a zone OTHER than
@@ -750,6 +914,13 @@ pub struct TransientWindowManager {
     /// layout fast path compares it with the generation it last laid out:
     /// an identical DOM whose docking changed must still re-layout.
     dock_generation: u64,
+    /// What the shell reports of its windows ([`Self::set_shell_presentation`]). The
+    /// window's [`WindowPresentation`] is this, or a phone when its display is simulated.
+    shell_presentation: WindowPresentation,
+    /// The overlays the last root layout pass laid out, by node: what
+    /// [`Self::overlays_changed`] compares the open set with, and
+    /// [`Self::take_overlay_dirt`] diffs. Keyed by node, so a rebuild remaps it.
+    laid_out_overlays: alloc::collections::BTreeMap<NodeId, OverlayBox>,
 }
 
 /// What changed between two parent layouts, so the backend knows which
@@ -826,7 +997,23 @@ impl TransientWindowManager {
             focus_before_open: Vec::new(),
             pending_focus_restore: None,
             dock_generation: 0,
+            shell_presentation: WindowPresentation::Windows,
+            laid_out_overlays: alloc::collections::BTreeMap::new(),
         }
+    }
+
+    /// The shell says how it presents windows (see [`WindowPresentation`]): a phone's shell
+    /// says [`WindowPresentation::OneSurface`] where it makes the window, like it writes the
+    /// safe-area insets. Never changes for the life of a window.
+    pub const fn set_shell_presentation(&mut self, presentation: WindowPresentation) {
+        self.shell_presentation = presentation;
+    }
+
+    /// What the shell reported ([`Self::set_shell_presentation`]); the window's effective
+    /// answer is `LayoutWindow::effective_presentation`.
+    #[must_use]
+    pub const fn shell_presentation(&self) -> WindowPresentation {
+        self.shell_presentation
     }
 
     /// Every currently open window.
@@ -998,7 +1185,8 @@ impl TransientWindowManager {
         self.get(dom).is_some()
     }
 
-    /// Bring the open set in line with what the parent's latest layout says.
+    /// Bring the open set in line with what the parent's latest layout says, for a window
+    /// that opens real windows ([`ReconcileEnv::default`]: [`WindowPresentation::Windows`]).
     ///
     /// `wanted` is what [`collect_open_transient_windows`] found this pass.
     /// `content_size_of` lays out a window's content and reports its extent;
@@ -1013,10 +1201,29 @@ impl TransientWindowManager {
     pub fn reconcile(
         &mut self,
         wanted: &[TransientPlacement],
+        content_size_of: impl FnMut(DomId, &TransientPlacement) -> Option<LogicalSize>,
+    ) -> TransientDiff {
+        self.reconcile_in(wanted, &ReconcileEnv::default(), content_size_of)
+    }
+
+    /// [`Self::reconcile`] for a window in `env`: on a [`WindowPresentation::OneSurface`]
+    /// window every popup (`dock="popup"`, the default) is presented as an OVERLAY inside
+    /// the window - it gets an [`OverlayBox`] instead of a surface, is never torn off, and
+    /// is placed within `env.bounds` by the one placement rule. A window already open that
+    /// is shown the other way now (the presentation changed under it: a desktop window put
+    /// on a phone preset) changes KIND like a popup that is torn off: the shell's surface
+    /// goes, or one is made.
+    pub fn reconcile_in(
+        &mut self,
+        wanted: &[TransientPlacement],
+        env: &ReconcileEnv,
         mut content_size_of: impl FnMut(DomId, &TransientPlacement) -> Option<LogicalSize>,
     ) -> TransientDiff {
         let mut diff = TransientDiff::default();
-        let docks_before = self.layout_docks();
+        // The structure the layout tree builder reads: which windows are open and which of them
+        // are grafted inline where. Overlays are not in it (`layout_structure`): they are shown
+        // where they are, they move nothing in the tree.
+        let docks_before = self.layout_structure();
 
         // 0. A dismissed node is re-armed the moment the app stops asking for it (`open=false`);
         //    while it still asks, the dismissal wins.
@@ -1041,16 +1248,40 @@ impl TransientWindowManager {
 
         // 2. Update or open each wanted window.
         for p in &wanted {
+            // Shown inside the window? Only a popup is: inline content already is, and the
+            // window the app tore off has none to be in.
+            let overlay_wanted = env.presentation.is_one_surface() && p.dock == TransientDock::Popup;
             if let Some(i) = self.open.iter().position(|w| w.source_node == p.node) {
+                // Presented the other way than it was: a window becomes an overlay (its surface
+                // goes) or an overlay becomes a window (one is made). A torn-off toplevel is a
+                // window of its own and stays one until the presentation says otherwise.
+                if self.open[i].overlay.is_some() != overlay_wanted && !self.open[i].is_inline() {
+                    let (old, new) = self.recreate(i);
+                    diff.closed.push(old);
+                    diff.opened.push(new);
+                    self.open[i].overlay = None;
+                    self.open[i].torn = None;
+                    self.open[i].attr_torn = p.torn;
+                    // The window's focus bookkeeping moves with it: an overlay owes the invoker its
+                    // focus back like a popup does.
+                }
                 let existing = &mut self.open[i];
                 let moved = existing.placement != *p;
                 existing.placement = *p;
                 // A popup follows its content's measure. A torn-off toplevel
                 // keeps the size it was torn off at (its content reflows
                 // inside; a `width: 100%` panel measures to nothing on its
-                // own), and an inline panel is sized by its zone's layout.
-                let remeasure = existing.torn.is_none() && !existing.is_inline();
-                if let Some(sz) = if remeasure {
+                // own), and an inline panel is sized by its zone's layout. The
+                // overlay that covers the window is the window's size.
+                let covers = overlay_wanted
+                    && matches!(p.anchor, TransientAnchor::Viewport | TransientAnchor::Dialog);
+                let remeasure = existing.torn.is_none() && !existing.is_inline() && !covers;
+                if covers {
+                    if existing.content_size != env.window {
+                        existing.content_size = env.window;
+                        diff.moved.push(existing.content_dom);
+                    }
+                } else if let Some(sz) = if remeasure {
                     content_size_of(existing.content_dom, p)
                 } else {
                     None
@@ -1062,11 +1293,22 @@ impl TransientWindowManager {
                 } else if moved {
                     diff.moved.push(existing.content_dom);
                 }
+                // Where an overlay is: placed anew every pass (the anchor moves with the page, the
+                // keyboard comes and goes), a change is a move the layout must see.
+                let overlay = overlay_wanted.then(|| overlay_box_for(p, existing.content_size, env));
+                if overlay != existing.overlay {
+                    existing.overlay = overlay;
+                    if !diff.moved.contains(&existing.content_dom)
+                        && !diff.opened.contains(&existing.content_dom)
+                    {
+                        diff.moved.push(existing.content_dom);
+                    }
+                }
                 // The app flipped `torn`: follow it. Unchanged, the user's
-                // own drags stand.
+                // own drags stand. (An overlay is never torn off.)
                 if p.torn != existing.attr_torn {
                     existing.attr_torn = p.torn;
-                    let want = p.torn && p.tearoff != TransientTearoff::None;
+                    let want = p.torn && p.tearoff != TransientTearoff::None && !overlay_wanted;
                     if want != existing.torn.is_some() {
                         let origin = p.resolve(existing.content_size, None);
                         existing.torn = want.then_some(origin);
@@ -1086,10 +1328,17 @@ impl TransientWindowManager {
 
             let content_dom = transient_dom_id(self.next_index);
             self.next_index += 1;
-            let Some(content_size) = content_size_of(content_dom, p) else {
-                continue; // content could not be laid out; do not open onto nothing
+            let covers = overlay_wanted
+                && matches!(p.anchor, TransientAnchor::Viewport | TransientAnchor::Dialog);
+            let content_size = if covers {
+                env.window
+            } else {
+                let Some(measured) = content_size_of(content_dom, p) else {
+                    continue; // content could not be laid out; do not open onto nothing
+                };
+                measured
             };
-            let torn = (p.torn && p.tearoff != TransientTearoff::None)
+            let torn = (p.torn && p.tearoff != TransientTearoff::None && !overlay_wanted)
                 .then(|| p.resolve(content_size, None));
             if torn.is_some() {
                 // Opened as a toplevel of its own: it owes nobody focus (see
@@ -1105,6 +1354,7 @@ impl TransientWindowManager {
                 torn,
                 anchor_override: None,
                 attr_torn: p.torn,
+                overlay: overlay_wanted.then(|| overlay_box_for(p, content_size, env)),
             });
             diff.opened.push(content_dom);
         }
@@ -1113,7 +1363,7 @@ impl TransientWindowManager {
         // open and which of them are grafted inline where. A window that
         // merely moved followed its anchor, which the parent's layout has
         // just placed - another pass would lay the page out again, cold.
-        let docks_after = self.layout_docks();
+        let docks_after = self.layout_structure();
         // A window the manager had not met was drawn by its config alone by the
         // pass this reconcile follows (`TransientDocks::is_inline`: "inline on
         // its very first frame instead of one frame late"). Opening it as the
@@ -1180,12 +1430,64 @@ impl TransientWindowManager {
     pub fn layout_docks(&self) -> TransientDocks {
         let mut docks = TransientDocks::default();
         for w in &self.open {
+            if let Some(overlay) = w.overlay {
+                // Shown over the page where it is: not docked, not moved in the tree.
+                docks.overlay.insert(w.source_node, overlay);
+                continue;
+            }
             docks.known.insert(w.source_node);
             if w.is_inline() {
                 docks.inline.insert(w.source_node, w.anchor_override);
             }
         }
         docks
+    }
+
+    /// [`Self::layout_docks`] without the overlays: the docking STRUCTURE, what a change of
+    /// asks for a cold layout of the root. An overlay opening, closing or moving is a change
+    /// of what is shown, not of how the tree is built ([`Self::overlays_changed`]).
+    #[must_use]
+    pub fn layout_structure(&self) -> TransientDocks {
+        let mut docks = self.layout_docks();
+        docks.overlay.clear();
+        docks
+    }
+
+    /// The overlays of the open windows, by node: what the next layout pass lays out.
+    #[must_use]
+    pub fn overlay_boxes(&self) -> alloc::collections::BTreeMap<NodeId, OverlayBox> {
+        self.open
+            .iter()
+            .filter_map(|w| w.overlay.map(|overlay| (w.source_node, overlay)))
+            .collect()
+    }
+
+    /// Do the open overlays differ from the ones the last layout pass of the root laid out
+    /// (one opened, closed or moved)? Then the retained layout of the root is stale, though
+    /// the DOM and the docking are the same: the shell asks for a pass that keeps the cache.
+    #[must_use]
+    pub fn overlays_changed(&self) -> bool {
+        self.overlay_boxes() != self.laid_out_overlays
+    }
+
+    /// The root layout pass is about to lay the overlays out: takes them as what it lays out,
+    /// and returns the nodes whose box differs from the pass before (opened, moved, closed),
+    /// which the pass rebuilds fresh.
+    pub fn take_overlay_dirt(&mut self) -> Vec<NodeId> {
+        let now = self.overlay_boxes();
+        let mut dirt = Vec::new();
+        for (node, overlay) in &now {
+            if self.laid_out_overlays.get(node) != Some(overlay) {
+                dirt.push(*node);
+            }
+        }
+        for node in self.laid_out_overlays.keys() {
+            if !now.contains_key(node) {
+                dirt.push(*node);
+            }
+        }
+        self.laid_out_overlays = now;
+        dirt
     }
 
     /// See the `dock_generation` field.
@@ -1317,6 +1619,12 @@ impl crate::managers::NodeIdRemap for TransientWindowManager {
             .forced_open
             .iter()
             .filter_map(|n| map.resolve(*n))
+            .collect();
+        // What the last pass laid out follows its nodes too: an overlay whose node
+        // unmounted is gone, one that shifted is the same overlay at the same box.
+        self.laid_out_overlays = core::mem::take(&mut self.laid_out_overlays)
+            .into_iter()
+            .filter_map(|(node, overlay)| Some((map.resolve(node)?, overlay)))
             .collect();
         // Focus owed back follows its nodes too - both the popup that
         // remembered it and the node the focus goes to (which lives in this
@@ -1799,3 +2107,7 @@ mod focus_return_tests {
 #[cfg(test)]
 #[path = "transient_dock_test.rs"]
 mod transient_dock_test;
+
+#[cfg(test)]
+#[path = "transient_overlay_test.rs"]
+mod transient_overlay_test;
