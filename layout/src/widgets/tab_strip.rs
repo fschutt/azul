@@ -217,6 +217,20 @@ pub fn scroll_for_pill(
     max_scroll: f32,
     lanes: &[(f32, f32)],
 ) -> f32 {
+    scroll_for_pill_inset(pill, scroll, max_scroll, lanes, LANE_INSET)
+}
+
+/// [`scroll_for_pill`] with the room a pill keeps from a lane's edge, `inset`, given: a row whose first
+/// pill stands 10 px in (the desktop's) keeps 10, so that a first or last pill at its place at rest STAYS.
+#[must_use]
+pub fn scroll_for_pill_inset(
+    pill: (f32, f32),
+    scroll: f32,
+    max_scroll: f32,
+    lanes: &[(f32, f32)],
+    inset: f32,
+) -> f32 {
+    let inset_wanted = if inset.is_finite() { inset.max(0.0) } else { LANE_INSET };
     let max = if max_scroll.is_finite() && max_scroll > 0.0 {
         max_scroll
     } else {
@@ -235,7 +249,7 @@ pub fn scroll_for_pill(
     let span = pill_span(pill, now);
     let stays = lanes.iter().any(|&(left, right)| {
         let spare = ((right - left) - width).max(0.0) / 2.0;
-        let inset = LANE_INSET.min(spare);
+        let inset = inset_wanted.min(spare);
         span.0 >= left + inset && span.1 <= right - inset
     });
     if stays {
@@ -249,7 +263,7 @@ pub fn scroll_for_pill(
         if room < width {
             continue;
         }
-        let inset = LANE_INSET.min((room - width) / 2.0);
+        let inset = inset_wanted.min((room - width) / 2.0);
         let lowest = (x + width - right + inset).max(0.0);
         let highest = (x - left - inset).min(max);
         if lowest > highest {

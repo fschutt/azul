@@ -2082,6 +2082,14 @@ impl TabHeader {
 /// scenario or a test finds the band's row by, whatever other strips the page has.
 pub const BAND_STRIP_CLASS: &str = "__azul-native-tabs-touch-band";
 
+/// What a row of pills asks of the system's text scale: a cap of 1.3.
+///
+/// The labels and the absolute line heights below the row scale with the user's text size up to this
+/// factor and no further (`--azul-text-scale-max`, a custom property that inherits). The pills are 22 / 32 px
+/// boxes in a 28 / 48 px row, and in the status bar's band the height is the system's own: a label that grew
+/// past them would overflow; the page below the row follows the full scale.
+pub(crate) const TEXT_SCALE_CAP_CSS: &str = "--azul-text-scale-max: 1.3;";
+
 /// The classes of the touch strip's header, its scrolling row and its pills.
 static TOUCH_HEADER_CLASSES: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-tabs-touch-header"))];
@@ -2116,6 +2124,10 @@ pub(crate) struct StripScrollData {
     /// `false` for a strip whose pills are placed by other means (a row of icons at positions of its
     /// own).
     pub(crate) camera_room: bool,
+    /// The room a pill keeps from the edge of a lane when the strip scrolls the selected one into place
+    /// ([`crate::widgets::tab_strip::LANE_INSET`]): never more than the room the first pill has at rest, or
+    /// the first pill would be scrolled out of its place.
+    pub(crate) inset: f32,
 }
 
 impl StripScrollData {
@@ -2137,6 +2149,7 @@ impl StripScrollData {
             lanes,
             pill_classes,
             camera_room: true,
+            inset: crate::widgets::tab_strip::LANE_INSET,
         }
     }
 }
@@ -2159,13 +2172,16 @@ static SELECTED_MARKER_CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str(
 /// their room around the cutouts and scrolls the strip so that the selected pill stands whole in a lane -
 /// whoever changed the selection (a tap, an arrow key, a flip of the panel, the app).
 pub(crate) fn selected_marker(data: StripScrollData, tab: usize) -> Dom {
-    // What the room of the pills was planned for (FNV-1a over the numbers): a strip with other lanes
-    // plans again.
+    // What the room of the pills was planned for (FNV-1a over the numbers and the classes of its pills): a
+    // strip with other lanes plans again, and so does another kind of strip in the same band - a ribbon's
+    // row that takes the place of a tab bar's keeps the tab's number, and a keyed node that is found again
+    // is not mounted again.
     let lanes = data
         .lanes
         .iter()
         .flat_map(|(left, right)| [left.to_bits(), right.to_bits()])
         .chain([data.lead.to_bits(), u32::from(data.camera_room)])
+        .chain(data.pill_classes.iter().flat_map(|class| class.bytes().map(u32::from)))
         .fold(0xcbf2_9ce4_8422_2325_u64, |hash, word| (hash ^ u64::from(word)).wrapping_mul(0x0100_0000_01b3));
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SELECTED_MARKER_CLASSES))
@@ -2308,7 +2324,7 @@ fn scroll_selected_into_lane(
     } else {
         data.lanes
     };
-    let target = tab_strip::scroll_for_pill(spans[index], now, max, &lanes);
+    let target = tab_strip::scroll_for_pill_inset(spans[index], now, max, &lanes, data.inset);
     if (target - now).abs() >= 0.5 {
         info.scroll_to_animated(strip.dom, strip_id, LogicalPosition { x: target, y: 0.0 });
     }
@@ -2595,7 +2611,7 @@ impl TabHeader {
 
         let mut header_css = format!(
             "position: relative; box-sizing: border-box; width: 100%; height: {row}px; \
-             flex-shrink: 0; overflow: hidden;"
+             flex-shrink: 0; overflow: hidden; {TEXT_SCALE_CAP_CSS}"
         );
         let mut strip = strip;
         if band.is_some() {

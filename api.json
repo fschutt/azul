@@ -7064,7 +7064,6 @@
                                 "FocusLost": {},
                                 "CloseRequested": {},
                                 "ThemeChanged": {},
-                                "SystemStyleChanged": {},
                                 "WindowFocusReceived": {},
                                 "WindowFocusLost": {},
                                 "PenDown": {},
@@ -21877,52 +21876,6 @@
                                     }
                                 ],
                                 "fn_body": "object.set_lifecycle_handler(data, azul_layout::callbacks::Callback::create(callback).to_core())"
-                            },
-                            "get_accessibility_preferences": {
-                                "doc": [
-                                    "What the user set in the system's accessibility and display settings, as this window",
-                                    "lays out and styles itself under it: text size, bold text, contrast, reduced motion,",
-                                    "... Every option may be `Unknown` (the platform has no such option, or did not answer);",
-                                    "the engine treats it as the default look. The system changing one of them is a restyle",
-                                    "of every window (no `layout()` run unless it declared it reads them, or the whole system",
-                                    "style): the window event `WindowEventFilter::SystemStyleChanged`. In `layout()`:",
-                                    "`LayoutCallbackInfo::get_accessibility_preferences`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "AccessibilityPreferences"
-                                },
-                                "fn_body": "object.get_accessibility_preferences()"
-                            },
-                            "set_accessibility_override": {
-                                "doc": [
-                                    "Say what the system's accessibility settings are, for THIS window, whatever the platform",
-                                    "reports: every field `preferences` knows (is not `Unknown` / `None` in) replaces what the",
-                                    "system said, the others keep the system's; `reset` drops an earlier override first. The",
-                                    "window restyles at once (a text scale changes every size of text); a later change of the",
-                                    "SYSTEM's setting that the override names does not show until the override is dropped",
-                                    "(`reset` with an empty `preferences`).",
-                                    "",
-                                    "The hook of the `set_system_accessibility` e2e op and of an app that offers its own",
-                                    "large-text or high-contrast mode. A scale outside of [`MIN_TEXT_SCALE`, `MAX_TEXT_SCALE`]",
-                                    "(`azul_css::accessibility`) is read as the nearest end of the range."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "preferences": "AccessibilityPreferences"
-                                    },
-                                    {
-                                        "reset": "bool"
-                                    }
-                                ],
-                                "fn_body": "object.set_accessibility_override(preferences, reset)"
                             }
                         },
                         "repr": "C"
@@ -22709,26 +22662,6 @@
                                     "type": "DisplayFeatures"
                                 },
                                 "fn_body": "object.get_display_features()"
-                            },
-                            "get_accessibility_preferences": {
-                                "doc": [
-                                    "What the user set in the system's accessibility and display settings: text size, bold",
-                                    "text, contrast, reduced motion, ... (every option may be `Unknown`: the platform has no",
-                                    "such option, or did not answer).",
-                                    "",
-                                    "Declares [`SystemStyleDependency::Accessibility`]: when one of them changes, this",
-                                    "window's `layout()` runs again. An app that only styles itself with",
-                                    "`@media (prefers-contrast: more)` and its siblings needs no call: the cascade reads them."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "AccessibilityPreferences"
-                                },
-                                "fn_body": "object.get_accessibility_preferences()"
                             }
                         },
                         "repr": "C"
@@ -26791,6 +26724,25 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "BottomSheetOnEventCallbackType": {
+                        "external": "azul_layout::widgets::bottom_sheet::BottomSheetOnEventCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "BottomSheetEvent"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
                     }
                 }
             },
@@ -35475,11 +35427,9 @@
                     },
                     "AccessibilitySettings": {
                         "external": "azul_css::system::AccessibilitySettings",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
+                            "Default",
                             "Clone",
                             "PartialEq",
                             "Copy"
@@ -40761,165 +40711,33 @@
                         ],
                         "repr": "C"
                     },
-                    "AccessibilityCondition": {
-                        "external": "azul_css::accessibility::AccessibilityCondition",
-                        "derive": [
-                            "Debug",
+                    "BottomSheetOnEventCallback": {
+                        "external": "azul_layout::widgets::bottom_sheet::BottomSheetOnEventCallback",
+                        "custom_impls": [
                             "Clone",
-                            "Copy",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
                             "PartialEq",
                             "Eq",
                             "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "TextScaleAtLeast": {
-                                    "type": "u32"
-                                },
-                                "TextScaleAtMost": {
-                                    "type": "u32"
-                                },
-                                "BoldText": {
-                                    "type": "BoolCondition"
-                                },
-                                "Contrast": {
-                                    "type": "ContrastPreference"
-                                },
-                                "ForcedColors": {
-                                    "type": "BoolCondition"
-                                },
-                                "ReducedTransparency": {
-                                    "type": "BoolCondition"
-                                },
-                                "InvertedColors": {
-                                    "type": "BoolCondition"
-                                },
-                                "DifferentiateWithoutColor": {
-                                    "type": "BoolCondition"
-                                },
-                                "ButtonShapes": {
-                                    "type": "BoolCondition"
-                                },
-                                "OnOffLabels": {
-                                    "type": "BoolCondition"
-                                },
-                                "ScreenReader": {
-                                    "type": "BoolCondition"
-                                },
-                                "CrossFade": {
-                                    "type": "BoolCondition"
-                                },
-                                "KeyboardNavigation": {
-                                    "type": "BoolCondition"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "AccessibilityPreferences": {
-                        "external": "azul_css::accessibility::AccessibilityPreferences",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash",
-                            "Default"
+                            "Ord"
                         ],
                         "struct_fields": [
                             {
-                                "text_scale": {
-                                    "type": "OptionF32"
+                                "cb": {
+                                    "type": "BottomSheetOnEventCallbackType"
                                 },
-                                "text_size_category": {
-                                    "type": "TextSizeCategory"
-                                },
-                                "bold_text": {
-                                    "type": "SettingState"
-                                },
-                                "bold_weight_adjustment": {
-                                    "type": "OptionI16"
-                                },
-                                "contrast": {
-                                    "type": "ContrastPreference"
-                                },
-                                "forced_colors": {
-                                    "type": "SettingState"
-                                },
-                                "invert_colors": {
-                                    "type": "SettingState"
-                                },
-                                "grayscale": {
-                                    "type": "SettingState"
-                                },
-                                "color_filter": {
-                                    "type": "SettingState"
-                                },
-                                "differentiate_without_color": {
-                                    "type": "SettingState"
-                                },
-                                "reduced_transparency": {
-                                    "type": "SettingState"
-                                },
-                                "button_shapes": {
-                                    "type": "SettingState"
-                                },
-                                "on_off_labels": {
-                                    "type": "SettingState"
-                                },
-                                "reduced_motion": {
-                                    "type": "SettingState"
-                                },
-                                "cross_fade_transitions": {
-                                    "type": "SettingState"
-                                },
-                                "animation_scale": {
-                                    "type": "OptionF32"
-                                },
-                                "autoplay_animated_images": {
-                                    "type": "SettingState"
-                                },
-                                "autoplay_video": {
-                                    "type": "SettingState"
-                                },
-                                "dim_flashing_lights": {
-                                    "type": "SettingState"
-                                },
-                                "screen_reader": {
-                                    "type": "SettingState"
-                                },
-                                "switch_access": {
-                                    "type": "SettingState"
-                                },
-                                "voice_control": {
-                                    "type": "SettingState"
-                                },
-                                "keyboard_navigation": {
-                                    "type": "SettingState"
-                                },
-                                "magnifier": {
-                                    "type": "SettingState"
-                                },
-                                "captions": {
-                                    "type": "SettingState"
-                                },
-                                "mono_audio": {
-                                    "type": "SettingState"
-                                },
-                                "haptics": {
-                                    "type": "SettingState"
-                                },
-                                "pointer_scale": {
-                                    "type": "OptionF32"
-                                },
-                                "long_press_ms": {
-                                    "type": "OptionU32"
-                                },
-                                "action_timeout_ms": {
-                                    "type": "OptionU32"
+                                "callable": {
+                                    "type": "OptionRefAny"
                                 }
                             }
                         ],
@@ -54427,9 +54245,6 @@
                                 "audio": {
                                     "type": "AudioMetrics"
                                 },
-                                "preferences": {
-                                    "type": "AccessibilityPreferences"
-                                },
                                 "run_destructor": {
                                     "type": "bool"
                                 }
@@ -59140,9 +58955,6 @@
                                 },
                                 "Mode": {
                                     "type": "ModeCondition"
-                                },
-                                "Accessibility": {
-                                    "type": "AccessibilityCondition"
                                 }
                             }
                         ],
@@ -63171,86 +62983,6 @@
                                 "StyleTextDecorationStyle"
                             ]
                         }
-                    },
-                    "ContrastPreference": {
-                        "external": "azul_css::accessibility::ContrastPreference",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Unknown": {},
-                                "NoPreference": {},
-                                "More": {},
-                                "Less": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "SettingState": {
-                        "external": "azul_css::accessibility::SettingState",
-                        "custom_impls": [
-                            "From"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Unknown": {},
-                                "Off": {},
-                                "On": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "TextSizeCategory": {
-                        "external": "azul_css::accessibility::TextSizeCategory",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Unknown": {},
-                                "ExtraSmall": {},
-                                "Small": {},
-                                "Medium": {},
-                                "Large": {},
-                                "ExtraLarge": {},
-                                "ExtraExtraLarge": {},
-                                "ExtraExtraExtraLarge": {},
-                                "AccessibilityMedium": {},
-                                "AccessibilityLarge": {},
-                                "AccessibilityExtraLarge": {},
-                                "AccessibilityExtraExtraLarge": {},
-                                "AccessibilityExtraExtraExtraLarge": {}
-                            }
-                        ],
-                        "repr": "C"
                     }
                 }
             },
@@ -117990,6 +117722,661 @@
                                 "Off": {},
                                 "AtEdges": {},
                                 "Always": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BottomSheet": {
+                        "external": "azul_layout::widgets::bottom_sheet::BottomSheet",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "content": {
+                                    "type": "Dom"
+                                },
+                                "label": {
+                                    "type": "String"
+                                },
+                                "grip_label": {
+                                    "type": "String"
+                                },
+                                "detent": {
+                                    "type": "SheetDetent"
+                                },
+                                "lowest": {
+                                    "type": "SheetDetent"
+                                },
+                                "highest": {
+                                    "type": "SheetDetent"
+                                },
+                                "container_height": {
+                                    "type": "f32"
+                                },
+                                "peek_height": {
+                                    "type": "f32"
+                                },
+                                "collapsed_height": {
+                                    "type": "f32"
+                                },
+                                "top_margin": {
+                                    "type": "f32"
+                                },
+                                "bottom_inset": {
+                                    "type": "f32"
+                                },
+                                "safe_bottom": {
+                                    "type": "f32"
+                                },
+                                "grab_height": {
+                                    "type": "f32"
+                                },
+                                "on_event": {
+                                    "type": "OptionBottomSheetOnEvent"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A sheet of `content` at its peek."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "content": "Dom"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::bottom_sheet::BottomSheet::create(content)"
+                            }
+                        },
+                        "functions": {
+                            "dom": {
+                                "doc": [
+                                    "The sheet's DOM."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            },
+                            "height_of": {
+                                "doc": [
+                                    "The height of the sheet at `detent`, px, with this sheet's numbers: where an app puts what",
+                                    "floats above the sheet (a map's locate key)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "detent": "SheetDetent"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.height_of(detent)"
+                            },
+                            "set_bottom_inset": {
+                                "doc": [
+                                    "How far the sheet's lower edge lies above the container's, px (the keyboard)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "inset": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_bottom_inset(inset)"
+                            },
+                            "set_collapsed_height": {
+                                "doc": [
+                                    "The collapsed detent's height, px."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_collapsed_height(height)"
+                            },
+                            "set_container_height": {
+                                "doc": [
+                                    "The height of the box the sheet floats in, px."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_container_height(height)"
+                            },
+                            "set_detent": {
+                                "doc": [
+                                    "Where the sheet rests."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "detent": "SheetDetent"
+                                    }
+                                ],
+                                "fn_body": "object.set_detent(detent)"
+                            },
+                            "set_grab_height": {
+                                "doc": [
+                                    "The height of the band at the top that drags, px, the grip included."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_grab_height(height)"
+                            },
+                            "set_grip_label": {
+                                "doc": [
+                                    "The grip's accessible name."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_grip_label(label)"
+                            },
+                            "set_highest": {
+                                "doc": [
+                                    "The highest detent a drag may settle on."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "detent": "SheetDetent"
+                                    }
+                                ],
+                                "fn_body": "object.set_highest(detent)"
+                            },
+                            "set_label": {
+                                "doc": [
+                                    "The sheet's accessible name."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_label(label)"
+                            },
+                            "set_lowest": {
+                                "doc": [
+                                    "The lowest detent a drag may settle on."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "detent": "SheetDetent"
+                                    }
+                                ],
+                                "fn_body": "object.set_lowest(detent)"
+                            },
+                            "set_on_event": {
+                                "doc": [
+                                    "Every step of a drag and every settling."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_event": "BottomSheetOnEventCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_event(data, on_event)"
+                            },
+                            "set_peek_height": {
+                                "doc": [
+                                    "The peek detent's height, px."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_peek_height(height)"
+                            },
+                            "set_safe_bottom": {
+                                "doc": [
+                                    "The room the content keeps at its end, px (the home indicator)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "inset": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_safe_bottom(inset)"
+                            },
+                            "set_top_margin": {
+                                "doc": [
+                                    "The room the full detent leaves above the sheet, px."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "margin": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_top_margin(margin)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Takes the sheet out, leaving an empty one: the move the C ABI makes."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "with_bottom_inset": {
+                                "doc": [
+                                    "[`Self::set_bottom_inset`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "inset": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_bottom_inset(inset)"
+                            },
+                            "with_collapsed_height": {
+                                "doc": [
+                                    "[`Self::set_collapsed_height`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_collapsed_height(height)"
+                            },
+                            "with_container_height": {
+                                "doc": [
+                                    "[`Self::set_container_height`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_container_height(height)"
+                            },
+                            "with_detent": {
+                                "doc": [
+                                    "[`Self::set_detent`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "detent": "SheetDetent"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_detent(detent)"
+                            },
+                            "with_grab_height": {
+                                "doc": [
+                                    "[`Self::set_grab_height`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_grab_height(height)"
+                            },
+                            "with_grip_label": {
+                                "doc": [
+                                    "[`Self::set_grip_label`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_grip_label(label)"
+                            },
+                            "with_highest": {
+                                "doc": [
+                                    "[`Self::set_highest`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "detent": "SheetDetent"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_highest(detent)"
+                            },
+                            "with_label": {
+                                "doc": [
+                                    "[`Self::set_label`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_label(label)"
+                            },
+                            "with_lowest": {
+                                "doc": [
+                                    "[`Self::set_lowest`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "detent": "SheetDetent"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_lowest(detent)"
+                            },
+                            "with_on_event": {
+                                "doc": [
+                                    "[`Self::set_on_event`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_event": "BottomSheetOnEventCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_on_event(data, on_event)"
+                            },
+                            "with_peek_height": {
+                                "doc": [
+                                    "[`Self::set_peek_height`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_peek_height(height)"
+                            },
+                            "with_safe_bottom": {
+                                "doc": [
+                                    "[`Self::set_safe_bottom`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "inset": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_safe_bottom(inset)"
+                            },
+                            "with_top_margin": {
+                                "doc": [
+                                    "[`Self::set_top_margin`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "margin": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_top_margin(margin)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "BottomSheetOnEvent": {
+                        "external": "azul_layout::widgets::bottom_sheet::BottomSheetOnEvent",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "BottomSheetOnEventCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SheetDetent": {
+                        "external": "azul_layout::widgets::detents::SheetDetent",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Collapsed": {},
+                                "Peek": {},
+                                "Half": {},
+                                "Full": {}
+                            }
+                        ],
+                        "functions": {
+                            "higher": {
+                                "doc": [
+                                    "The detent above this one (the highest stays)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SheetDetent"
+                                },
+                                "fn_body": "object.higher()"
+                            },
+                            "lower": {
+                                "doc": [
+                                    "The detent below this one (the lowest stays)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SheetDetent"
+                                },
+                                "fn_body": "object.lower()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "BottomSheetEvent": {
+                        "external": "azul_layout::widgets::bottom_sheet::BottomSheetEvent",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "kind": {
+                                    "type": "BottomSheetEventKind"
+                                },
+                                "detent": {
+                                    "type": "SheetDetent"
+                                },
+                                "height": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BottomSheetEventKind": {
+                        "external": "azul_layout::widgets::bottom_sheet::BottomSheetEventKind",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Dragged": {},
+                                "Settled": {}
                             }
                         ],
                         "repr": "C"
@@ -193667,6 +194054,36 @@
                                 "None": {},
                                 "Some": {
                                     "type": "LifecycleEvent"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionBottomSheetOnEvent": {
+                        "external": "azul_layout::widgets::bottom_sheet::OptionBottomSheetOnEvent",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "BottomSheetOnEvent"
                                 }
                             }
                         ],

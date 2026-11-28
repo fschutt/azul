@@ -1,4 +1,4 @@
-//! Saved places in the app: the lists in the sidebar (favourites, named and imported lists,
+//! Saved places in the app: the lists in the search view (favourites, named and imported lists,
 //! the recent destinations - kept on their own and clearable), a list's places on the map, the
 //! star on a place's card; Settings > Places: imports (a file, a Google Takeout folder, a shared
 //! link), the review of the places an import could not place by itself, and the exports.
@@ -94,7 +94,7 @@ pub(crate) struct ListsState {
     pub loaded: bool,
     /// The lists changed since they were last written, by id; the searches by [`SEARCHES_FILE`].
     pub dirty: BTreeSet<String>,
-    /// The list shown open in the sidebar (an index into `lists`).
+    /// The list shown open in the search view (an index into `lists`).
     pub open: Option<usize>,
     /// The key prefix of the lists' files in the data tree (`maps/lists/`).
     pub lists_prefix: String,
@@ -340,7 +340,7 @@ pub(crate) fn is_favourite(s: &MapState, at: (f64, f64)) -> bool {
         .any(|l| l.kind == ListKind::Favourites && l.has_place_at(at))
 }
 
-// ==== The sidebar ====
+// ==== The saved lists in the search view ====
 
 /// A list's row or a place's: which, and the app.
 struct ListRef {
@@ -349,8 +349,8 @@ struct ListRef {
     place: usize,
 }
 
-/// The saved lists in the sidebar: a row per list with its count (the open one shows its
-/// places; a click on one makes it the destination). Nothing while every list is empty.
+/// The saved lists in the search view: a row per list with its count (the open one shows its
+/// places; a click on one opens it as a place). Nothing while every list is empty.
 pub(crate) fn saved_section(s: &MapState, app: &RefAny) -> Option<Dom> {
     let lists = &s.lists.lists;
     if lists.iter().all(|l| l.places.is_empty()) {
@@ -473,7 +473,7 @@ extern "C" fn on_list(mut data: RefAny, _info: CallbackInfo) -> Update {
             east = east.max(*lon);
         }
         let _ = last;
-        let inset = if s.sidebar_open { crate::SIDEBAR_INSET } else { 0.0 };
+        let (inset, _) = s.covered();
         let (lat, lon, zoom) = crate::model::fit_view((south, west), (north, east), s.size.get(), inset);
         s.viewport.zoom = zoom.min(16.0);
         s.centre_on(lat, lon);
@@ -481,7 +481,7 @@ extern "C" fn on_list(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// A saved place clicked: it becomes the destination.
+/// A saved place clicked: its view opens, and the map shows it.
 extern "C" fn on_saved_place(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, list, place)) = data.downcast_ref::<ListRef>().map(|r| (r.app.clone(), r.list, r.place)) else {
         return Update::DoNothing;
@@ -493,15 +493,15 @@ extern "C" fn on_saved_place(mut data: RefAny, mut info: CallbackInfo) -> Update
         let Some(p) = s.lists.lists.get(list).and_then(|l| l.places.get(place)).cloned() else {
             return Update::DoNothing;
         };
-        let name = if p.name.is_empty() { crate::model::place_text(p.at.0, p.at.1) } else { p.name.clone() };
-        s.travel.to = name.clone();
-        s.travel.to_pick = Some(crate::Picked { label: name, at: p.at });
+        s.travel.to = p.name.clone();
+        s.travel.to_pick = (!p.name.is_empty()).then(|| crate::Picked { label: p.name.clone(), at: p.at });
         s.suggestions = None;
-        s.centre_on(p.at.0, p.at.1);
+        s.open_place(crate::flow::PlaceCard { name: p.name.clone(), kind: "azmaps-kind-saved", at: p.at, pin: None });
+        let zoom = s.viewport.zoom.max(crate::PICKED_PLACE_ZOOM);
+        s.show_place_at(p.at, zoom);
         s.announce_travel();
     }
     crate::adopt_field_texts(&mut info);
-    crate::ask_route(&app, &mut info);
     Update::RefreshDom
 }
 
@@ -1025,7 +1025,8 @@ fn stamp() -> i64 {
 }
 
 /// Exports `bytes` as `name`: offered to the system's save dialog, and kept in the data
-/// folder (`maps/exports/`) either way.
+/// folder (`maps/exports/`) either way; the note says which of the two happened (a phone's save dialog answers false).
+// TODO(WP-F): on a phone share the kept file once it is written: `info.share(ShareRequest::file(path))` (on_files, TAG_EXPORT).
 fn export(app: &RefAny, info: &mut CallbackInfo, name: &str, mime: &str, bytes: Vec<u8>) {
     let offered = FileDialog::save_bytes(name, mime, bytes.clone());
     let mut state = app.clone();

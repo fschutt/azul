@@ -70,7 +70,7 @@ const FRESH_S: u64 = 5;
 const CAR_MARKER: u64 = u64::MAX - 10;
 
 /// Where the banner and the bar sit: centred, 460 and 560 px wide, in a desktop window; on a phone (a window narrower
-/// than [`crate::COMPACT_WIDTH`]) as wide as the screen less 8 px each side. The two fixed widths ran out of the screen
+/// than [`crate::flow::WIDE_WIDTH`]) as wide as the screen less 8 px each side. The two fixed widths ran out of the screen
 /// on both sides of a 411 dp phone (by 25 and 75 dp).
 const BANNER_SPOT: &str = "position: absolute; left: 50%; top: 48px; width: 460px; margin-left: -230px;";
 const BANNER_SPOT_PHONE: &str = "position: absolute; left: 8px; right: 8px; top: 64px;";
@@ -129,8 +129,6 @@ pub(crate) struct DriveState {
     /// whose moment looks the same rewrites only the texts that differ. Written by
     /// [`banner`] during the build, hence the cell.
     pub banner_shown: RefCell<Option<Shown>>,
-    /// Whether the sidebar was open when the navigation started (it is closed meanwhile).
-    pub sidebar_was_open: bool,
     /// The settings' text field for a device or a replay file.
     pub source_text: String,
 }
@@ -154,7 +152,6 @@ impl DriveState {
             reroute_latest: Arc::new(AtomicU64::new(0)),
             last_shown: None,
             banner_shown: RefCell::new(None),
-            sidebar_was_open: false,
             source_text,
         }
     }
@@ -323,7 +320,7 @@ pub(crate) fn start_row(s: &MapState, app: &RefAny) -> Option<Dom> {
 
 /// The choices of Settings > Navigation > Routing tiles after "as the tile set suggests":
 /// days a downloaded road tile is kept before it is fetched again.
-const KEEP_DAYS: [u32; 4] = [7, 14, 28, 56];
+static KEEP_DAYS: [u32; 4] = [7, 14, 28, 56];
 
 /// The routing tiles' keep setting as settings.json holds it (`None`: as the tile set suggests).
 fn keep_days_setting(s: &MapState) -> Option<String> {
@@ -413,8 +410,7 @@ pub(crate) fn start(app: &RefAny, info: &mut CallbackInfo) -> bool {
         );
         s.drive.nav = Some(nav);
         s.drive.last_shown = None;
-        s.drive.sidebar_was_open = s.sidebar_open;
-        s.sidebar_open = false;
+        // The panel and the sheet give way to the banner and the bar while the navigation runs.
         s.selected = None;
         // The platform's position needs its probe mounted (the location shown).
         if s.drive.simulate_mps.is_none() && s.drive.source == Source::Platform {
@@ -443,7 +439,6 @@ pub(crate) fn end(app: &RefAny, info: &mut CallbackInfo) {
         if s.drive.nav.take().is_none() {
             return;
         }
-        s.sidebar_open = s.drive.sidebar_was_open;
         s.viewport.bearing_deg = 0.0;
         s.drive.reroute_latest.fetch_add(1, Ordering::AcqRel);
     }
@@ -531,7 +526,7 @@ pub(crate) fn tick(app: &RefAny, info: &mut CallbackInfo, platform: Option<(f64,
         let Some(mut s) = state.downcast_mut::<MapState>() else {
             return false;
         };
-        let due = s.drive.last_shown.map_or(true, |at| at.elapsed() >= SHOW_EVERY);
+        let due = s.drive.last_shown.is_none_or(|at| at.elapsed() >= SHOW_EVERY);
         if !due {
             return false;
         }
@@ -776,7 +771,7 @@ pub(crate) fn banner(s: &MapState, app: &RefAny, dark_window: bool) -> Vec<Dom> 
     };
     let look = shown.look;
     let car = look.car;
-    let phone = s.size.get().0 < crate::COMPACT_WIDTH;
+    let phone = !crate::flow::is_wide(s.size.get().0);
     let banner_spot = if phone { BANNER_SPOT_PHONE } else { BANNER_SPOT };
     let banner_css = if look.night {
         format!("{banner_spot} {BANNER} {BANNER_NIGHT}")
@@ -884,7 +879,7 @@ fn show_in_place(app: &RefAny, info: &mut CallbackInfo) -> bool {
         if now.look != before.look {
             return false;
         }
-        (before, now, s.viewport, crate::map_overlays(&s, app))
+        (before, now, s.viewport, crate::map_overlays(&s))
     };
     let Some(map) = info.get_node_id_by_marker(ids::MAP_VIEW).into_option() else {
         return false;
@@ -959,7 +954,7 @@ pub(crate) fn overlays(s: &MapState) -> Vec<MapOverlay> {
 // ==== Settings > Location ====
 
 /// The sources the settings offer, in order.
-const SOURCES: [&str; 4] = ["azmaps-gps-platform", "azmaps-gps-gpsd", "azmaps-gps-device", "azmaps-gps-replay"];
+static SOURCES: [&str; 4] = ["azmaps-gps-platform", "azmaps-gps-gpsd", "azmaps-gps-device", "azmaps-gps-replay"];
 
 fn source_index(source: &Source) -> usize {
     match source {

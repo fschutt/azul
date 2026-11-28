@@ -237,7 +237,7 @@ for mode in "${mode_list[@]}"; do
       --plan "${AZ_QA_FONTWAIT_PLAN:?AZ_QA_FONTWAIT_PLAN}" --label "$label" 2>&1 | tee "$d/fontwait.log"
   fi
   if [ "$session" = tabs ] && [ "$mode" = "${mode_list[0]}" ]; then
-    # THE TAB STRIP on the phone: the files of AZ_QA_TABS_FILES (parts of the file names, default tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures tab_content_toggle: tab_touch_diag runs every step whatever the one before said, for the TABS agent's diagnosis of the clicks on a phone)
+    # THE TAB STRIP on the phone: the files of AZ_QA_TABS_FILES (parts of the file names, default tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures tab_content_toggle tab_label_frames: tab_touch_diag runs every step whatever the one before said, for the TABS agent's diagnosis of the clicks on a phone)
     # against the e2e APK, per orientation: (1) the device's own pictures of a plain start, light and dark (the system draws the cutout), (2) per file a
     # recording of its run and the engine's frames of it (AZ_E2E_SHOT_DIR, pulled by scripts/ci/e2e_matrix.py --shots), its verdicts in the table
     adb shell dumpsys window displays 2>/dev/null | grep -i -E "cutout|init=|DisplayInfo" | head -n 24 >"$d/display.txt" || true
@@ -302,7 +302,7 @@ for mode in "${mode_list[@]}"; do
       done
       adb shell settings put system font_scale 1.0; sleep 3
       adb shell am force-stop "$pkg" >/dev/null 2>&1
-      for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures tab_content_toggle}; do
+      for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures tab_content_toggle tab_label_frames}; do
         bring_settings
         vid="/sdcard/tabs-$orient-${part%.json}.mp4"
         ( adb shell screenrecord --time-limit 170 "$vid" >/dev/null 2>&1 & )

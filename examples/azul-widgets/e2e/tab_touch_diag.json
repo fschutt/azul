@@ -30,5 +30,35 @@
       { "op": "get_display_features" },
       { "op": "assert_response", "contains": "\"preset\":\"off\"" }
     ]
+  },
+  {
+    "name": "azul_widgets_a_click_on_a_pill_of_the_twelve_tab_strip_that_is_out_of_a_small_phones_card",
+    "description": "The diagnosis of the iPhone SE in portrait (QA, 2026-11-28): tab_touch.json clicks \"Review\" and finds no \"Review panel\". Every step runs whatever the one before said; the answers are in the test log and the pictures (AZ_E2E_SHOT_DIR): get_all_nodes_layout lists EVERY node with its classes and its rect (so which nodes hold the text \"Review\" and where), then where the first one stands after the scroll, the scrollable nodes with their offsets, a picture, the click, the same again, and whether the panel's text changed.",
+    "config": {
+      "continue_on_failure": true
+    },
+    "steps": [
+      { "op": "set_theme", "theme": "flora" },
+      { "op": "wait_frame" },
+      { "op": "scroll_into_view", "text": "Review", "block": "center", "inline": "center", "behavior": "instant" },
+      { "op": "wait_frame" },
+      { "op": "get_all_nodes_layout" },
+      { "op": "get_node_layout", "text": "Review" },
+      { "op": "find_node_by_text", "text": "Review" },
+      { "op": "get_scrollable_nodes" },
+      { "op": "take_screenshot" },
+      { "op": "click", "text": "Review" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "get_node_layout", "text": "Review" },
+      { "op": "find_node_by_text", "text": "Review panel" },
+      { "op": "get_scrollable_nodes" },
+      { "op": "take_screenshot" },
+      { "op": "tick_ms", "ms": 500 },
+      { "op": "wait_frame" },
+      { "op": "find_node_by_text", "text": "Review panel" },
+      { "op": "assert_response", "contains": "\"found\":true" }
+    ]
   }
 ]

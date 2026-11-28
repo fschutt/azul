@@ -25,7 +25,6 @@ use std::{
 use azul::{
     callbacks::{ButtonOnClickCallbackType, TextInputOnTextInputCallbackType},
     prelude::*,
-    str::String as AzString,
     task::{Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg},
     widgets::{Button, ButtonType, MapViewport, MapWidget, OnTextInputReturn, TextInputState, TextInputValid},
 };
@@ -400,7 +399,7 @@ fn keep_area(
             stopped = true;
             return false;
         }
-        if last.map_or(true, |at| at.elapsed() >= PROGRESS_EVERY) || step.done == step.total {
+        if last.is_none_or(|at| at.elapsed() >= PROGRESS_EVERY) || step.done == step.total {
             last = Some(Instant::now());
             report(OfflineKind::Progress(step));
         }

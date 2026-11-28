@@ -94,6 +94,16 @@ mod accessibility_ops_tests;
 #[cfg(test)]
 mod display_ops_tests;
 
+// Pointer capture in the runner: a node that captures the pointer in its press handler gets the moves and the release wherever
+// the mouse goes, as in the shells.
+#[cfg(test)]
+mod pointer_capture_ops_tests;
+
+// The BottomSheet under a finger and under the keys: the touch ops, the sheet following the finger and settling on a detent, the
+// app told what a phone's app would be told, the layout at rest, through the real dispatcher on a headless window.
+#[cfg(test)]
+mod bottom_sheet_ops_tests;
+
 // A vertical swipe on a tab panel (`TabContent::with_flip_of`): the touch ops, the flip told to the app as a tap
 // on a pill is, the tab-change sound once per tab crossed, a fling's momentum (timers), through the real dispatcher.
 #[cfg(test)]
