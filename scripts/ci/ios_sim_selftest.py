@@ -348,6 +348,96 @@ def screenshot(udid, path):
     sh(["xcrun", "simctl", "io", udid, "screenshot", str(path)], timeout=60)
 
 
+# How long `simctl launch` may take (a Simulator that was booted a minute ago answers its first launch slowly), and how long a booted
+# device gets to settle: SpringBoard refuses launches ("denied by service delegate (SBMainWorkspace)") until it is ready, and
+# `bootstatus` can say "booted" a little before that (scripts/ci/ios_qa.sh waits 5 s after it, for the same reason).
+LAUNCH_TIMEOUT = 180
+BOOT_SETTLE_SECONDS = 5
+
+
+def launch_app(udid, bundle, stdout, stderr, env, attempts=2, timeout=LAUNCH_TIMEOUT):
+    """`simctl launch` with the app's output in two files. -> (ok, pid or None, what simctl said). A launch that hangs or that SpringBoard
+    refuses is tried once more after the device was asked again whether it has booted; an error is a result, never a traceback."""
+    said = ""
+    # ABSOLUTE paths: the Simulator's launchd opens `--stdout=<path>` itself, in its own root, so a path relative to this
+    # script's directory names nothing there and SpringBoard answers "denied by service delegate (SBMainWorkspace)"
+    # (scripts/ci/mobile_qa.py says the same; the first two jobs of this driver died of it)
+    stdout, stderr = os.path.abspath(stdout), os.path.abspath(stderr)
+    for attempt in range(attempts):
+        try:
+            p = subprocess.run(
+                ["xcrun", "simctl", "launch", "--terminate-running-process", f"--stdout={stdout}", f"--stderr={stderr}", udid, bundle],
+                capture_output=True, text=True, timeout=timeout, env=env)
+            said = (p.stdout + p.stderr).strip()
+            if p.returncode == 0:
+                m = re.search(r":\s*(\d+)\s*$", said)
+                return True, int(m.group(1)) if m else None, said
+        except subprocess.TimeoutExpired:
+            said = f"simctl launch did not return in {timeout} s"
+        except OSError as e:
+            return False, None, f"{type(e).__name__}: {e}"
+        if attempt + 1 < attempts:
+            time.sleep(10)
+            sh(["xcrun", "simctl", "bootstatus", udid, "-b"], timeout=180)
+    return False, None, said
+
+
+def boot_device(udid):
+    """Every other Simulator is shut down (two booted iOS Simulators on a runner starve each other), this one is booted, `bootstatus`
+    must say that it booted, and it gets a few seconds more. -> (ok, why not)"""
+    sh(["xcrun", "simctl", "shutdown", "all"], timeout=120)
+    code, said = sh(["xcrun", "simctl", "boot", udid], timeout=180)
+    if code != 0 and "Booted" not in said:
+        return False, f"simctl boot: {said[-300:]}"
+    code, said = sh(["xcrun", "simctl", "bootstatus", udid, "-b"], timeout=420)
+    if code != 0:
+        return False, f"simctl bootstatus: {said[-300:]}"
+    time.sleep(BOOT_SETTLE_SECONDS)
+    return True, ""
+
+
+def diagnostics(udid):
+    """What to read when a launch is refused: the devices and their states, and what SpringBoard logged in the last minutes."""
+    lines = []
+    for title, argv in (
+        ("devices", ["xcrun", "simctl", "list", "devices"]),
+        ("SpringBoard", ["xcrun", "simctl", "spawn", udid, "log", "show", "--last", "3m", "--style", "compact",
+                         "--predicate", 'process == "SpringBoard"']),
+    ):
+        _, text = sh(argv, timeout=120)
+        lines.append(f"-- {title}\n" + "\n".join(text.splitlines()[-60:]))
+    return "\n".join(lines)
+
+
+def launch_proof(udid, app, out, seconds=12):
+    """Another app of the job (AzMeet, AzCompanion): installed, started the way a person starts it, and looked at after `seconds`:
+    is its process alive, what do its first console lines say, what does the screen show. -> (ok, one line for the findings)"""
+    bundle = bundle_id_of(app)
+    name = Path(app).stem
+    if not bundle:
+        return False, f"{name}: {app}/Info.plist names no CFBundleIdentifier"
+    code, said = sh(["xcrun", "simctl", "install", udid, str(app)], timeout=300)
+    if code != 0:
+        return False, f"{name}: simctl install failed: {said[-200:]}"
+    stdout, stderr = out / f"proof-{name}.stdout.txt", out / f"proof-{name}.stderr.txt"
+    for f in (stdout, stderr):
+        f.write_text("", encoding="utf-8")
+    env = dict(os.environ, **launch_env(fed=False))
+    env.pop("SIMCTL_CHILD_AZ_SELFTEST", None)
+    ok, pid, said = launch_app(udid, bundle, stdout, stderr, env)
+    if not ok:
+        return False, f"{name}: launch failed: {said[-240:]}"
+    time.sleep(seconds)
+    alive_now = pid is not None and alive(pid)
+    screenshot(udid, out / f"proof-{name}.png")
+    text = stdout.read_text(encoding="utf-8", errors="replace") + "\n" + stderr.read_text(encoding="utf-8", errors="replace")
+    (out / f"proof-{name}.console.txt").write_text(text, encoding="utf-8")
+    sh(["xcrun", "simctl", "terminate", udid, bundle], timeout=30)
+    if not alive_now:
+        return False, f"{name}: the process (pid {pid}) was gone after {seconds} s; last console lines: " + " | ".join(text.strip().splitlines()[-4:])
+    return True, f"{name}: alive after {seconds} s (pid {pid})"
+
+
 def run_once(udid, bundle, name, out, seconds, touch):
     """One launch: the console, the report (or None), the lines that asked for a permission."""
     stdout = out / f"{name}.stdout.txt"
@@ -355,13 +445,8 @@ def run_once(udid, bundle, name, out, seconds, touch):
     for f in (stdout, stderr):
         f.write_text("", encoding="utf-8")
     env = dict(os.environ, **launch_env())
-    p = subprocess.run(
-        ["xcrun", "simctl", "launch", "--terminate-running-process", f"--stdout={stdout}", f"--stderr={stderr}", udid, bundle],
-        capture_output=True, text=True, timeout=60, env=env)
-    launched = (p.stdout + p.stderr).strip()
-    m = re.search(r":\s*(\d+)\s*$", launched)
-    pid = int(m.group(1)) if m else None
-    if p.returncode != 0:
+    launched_ok, pid, launched = launch_app(udid, bundle, stdout, stderr, env)
+    if not launched_ok:
         return {"console": launched, "report": None, "asked": [], "why": f"launch failed: {launched}"}
     seen, fed_keys, shot = {}, [], False
     refeed = []  # [commands, last fed at, times] of a face that matches: it is shown again while the run goes on
@@ -415,8 +500,11 @@ def fonts_proof(udid, bundle, out, seconds=20):
         env = dict(os.environ, **launch_env(fed=False, extra={"AZ_STARTUP": "1"}))
         # the self-test must not run unattended here: this is the app starting as a person starts it
         env.pop("SIMCTL_CHILD_AZ_SELFTEST", None)
-        subprocess.run(["xcrun", "simctl", "launch", "--terminate-running-process", f"--stdout={stdout}", f"--stderr={stderr}", udid, bundle],
-                       capture_output=True, text=True, timeout=60, env=env)
+        launched_ok, _, said = launch_app(udid, bundle, stdout, stderr, env)
+        if not launched_ok:
+            lines.append([])
+            held.append(f"launch {n}: the launch failed ({said[-200:]})")
+            continue
         t0, text = time.time(), ""
         while time.time() - t0 < seconds:
             time.sleep(0.5)
@@ -439,66 +527,32 @@ def table(report):
     return [f"  {r.get('verdict', '?'):<12} {r.get('id', ''):<{width}}  {r.get('detail', '')}" for r in report.get("rows", [])]
 
 
-def main(argv):
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--app", required=True, help="the AzSelfTest.app built for the Simulator (a folder)")
-    ap.add_argument("--device", default="iPhone 16 Pro", help="a name or a UDID among the available Simulators")
-    ap.add_argument("--bundle", help="the bundle identifier (default: the app's Info.plist)")
-    ap.add_argument("--touch", action="store_true", help="the device has Touch ID (the notifications of a finger, not a face)")
-    ap.add_argument("--seconds", type=int, default=300, help="how long one run may take (every row that waits has its own limit)")
-    ap.add_argument("--out", default="ios-sim-selftest", help="where the files are written")
-    args = ap.parse_args(argv)
-    app = Path(args.app)
-    if not app.is_dir():
-        print(f"{app} is not an app bundle (a folder ending in .app)")
-        return 2
-    bundle = args.bundle or bundle_id_of(app)
-    if not bundle:
-        print(f"{app}/Info.plist names no CFBundleIdentifier: pass --bundle")
-        return 2
-    code, listing = sh(["xcrun", "simctl", "list", "devices", "available", "-j"], timeout=60)
-    if code != 0:
-        print(f"`xcrun simctl` does not run here: this needs a Mac with Xcode\n{listing}")
-        return 2
-    devices = parse_devices(listing)
-    _, types_text = sh(["xcrun", "simctl", "list", "devicetypes", "-j"], timeout=60)
-    _, runtimes_text = sh(["xcrun", "simctl", "list", "runtimes", "-j"], timeout=60)
-    try:
-        types, runtimes = parse_device_types(types_text), parse_runtimes(runtimes_text)
-    except (ValueError, KeyError):
-        types, runtimes = [], []
-    action, value, note = resolve_device(args.device, devices, types, runtimes)
-    if action == "create":
-        name, type_id, runtime_id = value
-        existing = pick_device(devices, name)
-        if existing is None:
-            code, created = sh(["xcrun", "simctl", "create", name, type_id, runtime_id], timeout=120)
-            if code != 0:
-                # the model cannot be made here: the newest plain iPhone stands in, and the report says so
-                stand_in = newest_plain_iphone(devices)
-                note = f"could not make {name!r} ({created[-160:]}): ran on {stand_in['name'] if stand_in else 'nothing'} instead"
-                value = stand_in
-                existing = stand_in
-            else:
-                devices = parse_devices(sh(["xcrun", "simctl", "list", "devices", "available", "-j"], timeout=60)[1])
-                existing = pick_device(devices, created.strip().splitlines()[-1])
-        value = existing
-    if value is None:
-        print(note)
-        return 2
-    device = value
+def run_on_device(args, app, bundle, device, note, out):
+    """Everything that happens on one booted device. -> the exit code (1: a finding)."""
     udid = device["udid"]
-    if note:
-        print(f"note: {note}", flush=True)
-    out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
-    print(f"device {device['name']} {udid} ({device['runtime']}, {device['state']}); app {bundle}", flush=True)
-    if device["state"] != "Booted":
-        sh(["xcrun", "simctl", "boot", udid], check=True)
-        sh(["xcrun", "simctl", "bootstatus", udid, "-b"], timeout=300)
-    sh(["xcrun", "simctl", "install", udid, str(app)], timeout=300, check=True)
     findings, summary, reports = [], [], {}
     started_at = time.time()
+    ok, why = boot_device(udid)
+    if not ok:
+        print(f"\nTHE DEVICE DID NOT BOOT: {why}\n{diagnostics(udid)}")
+        return finish(out, [], [f"the Simulator did not boot: {why}"], {}, device, note)
+    code, said = sh(["xcrun", "simctl", "install", udid, str(app)], timeout=300)
+    if code != 0:
+        return finish(out, [], [f"simctl install failed: {said[-300:]}"], {}, device, note)
+    # THE LAUNCH PROOF comes first: the self-test app, then the other apps of the job, each started as a person starts it
+    print("\n================ launch proof (each app started, alive after a few seconds) ================", flush=True)
+    proofs = []
+    for index, proof_app in enumerate([app] + [Path(a) for a in args.also_app]):
+        ok, line = launch_proof(udid, proof_app, out)
+        print(f"  {'ok  ' if ok else 'FAIL'} {line}", flush=True)
+        proofs.append(f"launch proof: {line}")
+        if not ok:
+            findings.append(f"launch proof failed: {line}")
+            if index == 0:
+                # the self-test app itself does not start: the runs below would only repeat the refusal
+                print(diagnostics(udid))
+                (out / "diagnostics.txt").write_text(diagnostics(udid), encoding="utf-8")
+                return finish(out, proofs, findings, {}, device, note)
     first, second, held = fonts_proof(udid, bundle, out)
     print("\n================ font cache (two launches after the install) ================")
     for n, lines in ((1, first), (2, second)):
@@ -541,7 +595,13 @@ def main(argv):
     crashes = collect_crash_reports(app.stem, started_at, out)
     if crashes:
         findings.append(f"the app crashed during this job: {', '.join(crashes)} (copied to {out}/crash/)")
+    return finish(out, proofs + summary, findings, reports, device, note)
+
+
+def finish(out, summary, findings, reports, device, note):
+    """The summary of one device: printed, written (summary.txt, results.md). -> the exit code (1: a finding)."""
     print("\n================ summary ================")
+    summary = list(summary)
     if note:
         summary.append(f"device: {note}")
     print("; ".join(summary))
@@ -556,6 +616,78 @@ def main(argv):
         print("\n" + table_md)
     print(f"files: {out}/ (console, report and screenshot of every run)")
     return 1 if findings else 0
+
+
+def main(argv):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--app", required=True, help="the AzSelfTest.app built for the Simulator (a folder)")
+    ap.add_argument("--device", default="iPhone 16 Pro", help="a name or a UDID among the available Simulators")
+    ap.add_argument("--bundle", help="the bundle identifier (default: the app's Info.plist)")
+    ap.add_argument("--touch", action="store_true", help="the device has Touch ID (the notifications of a finger, not a face)")
+    ap.add_argument("--seconds", type=int, default=300, help="how long one run may take (every row that waits has its own limit)")
+    ap.add_argument("--out", default="ios-sim-selftest", help="where the files are written")
+    ap.add_argument("--also-app", action="append", default=[], help="another .app (AzMeet, AzCompanion) whose launch is proven on the same device first (repeatable)")
+    ap.add_argument("--reuse", action="store_true", help="use an existing Simulator of that name instead of making a fresh one (default: fresh, like scripts/ci/ios_qa.sh)")
+    args = ap.parse_args(argv)
+    app = Path(args.app)
+    if not app.is_dir():
+        print(f"{app} is not an app bundle (a folder ending in .app)")
+        return 2
+    bundle = args.bundle or bundle_id_of(app)
+    if not bundle:
+        print(f"{app}/Info.plist names no CFBundleIdentifier: pass --bundle")
+        return 2
+    code, listing = sh(["xcrun", "simctl", "list", "devices", "available", "-j"], timeout=60)
+    if code != 0:
+        print(f"`xcrun simctl` does not run here: this needs a Mac with Xcode\n{listing}")
+        return 2
+    devices = parse_devices(listing)
+    _, types_text = sh(["xcrun", "simctl", "list", "devicetypes", "-j"], timeout=60)
+    _, runtimes_text = sh(["xcrun", "simctl", "list", "runtimes", "-j"], timeout=60)
+    try:
+        types, runtimes = parse_device_types(types_text), parse_runtimes(runtimes_text)
+    except (ValueError, KeyError):
+        types, runtimes = [], []
+    # a fresh Simulator (the runner's own devices may never have been booted: their first launches hang or are refused), unless a UDID
+    # was named; resolve_device finds no existing device in an empty list and makes one of that type on the newest runtime that runs it
+    named_udid = re.fullmatch(r"[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", args.device) is not None
+    fresh = not args.reuse and not named_udid
+    action, value, note = resolve_device(args.device, [] if fresh else devices, types, runtimes)
+    if fresh and action != "create":
+        # a model this machine has no device type for: the old answer (an existing device, else the newest plain iPhone)
+        action, value, note = resolve_device(args.device, devices, types, runtimes)
+    if action == "create":
+        name, type_id, runtime_id = value
+        existing = pick_device(devices, name)
+        if existing is None:
+            code, created = sh(["xcrun", "simctl", "create", name, type_id, runtime_id], timeout=120)
+            if code != 0:
+                # the model cannot be made here: the newest plain iPhone stands in, and the report says so
+                stand_in = newest_plain_iphone(devices)
+                note = f"could not make {name!r} ({created[-160:]}): ran on {stand_in['name'] if stand_in else 'nothing'} instead"
+                value = stand_in
+                existing = stand_in
+            else:
+                devices = parse_devices(sh(["xcrun", "simctl", "list", "devices", "available", "-j"], timeout=60)[1])
+                existing = pick_device(devices, created.strip().splitlines()[-1])
+        value = existing
+    if value is None:
+        print(note)
+        return 2
+    device = value
+    udid = device["udid"]
+    if note:
+        print(f"note: {note}", flush=True)
+    out = Path(args.out).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    print(f"device {device['name']} {udid} ({device['runtime']}, {device['state']}); app {bundle}", flush=True)
+    try:
+        return run_on_device(args, app, bundle, device, note, out)
+    finally:
+        # nothing is erased: the device is only shut down, so that the next device of the job has the machine to itself
+        sh(["xcrun", "simctl", "shutdown", udid], timeout=120)
+
+
 
 
 if __name__ == "__main__":
