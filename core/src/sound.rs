@@ -6,8 +6,8 @@
 //! reason `no-system-route`, which the recording and the log say out loud, never silently.
 //!
 //! It is the output twin of [`crate::haptics`] and follows its path exactly: `CallbackInfo`
-//! queues a request, the shell drains the queue once per outermost event pass, and the backend
-//! plays. What the haptics path does not have, and a sound needs, is a DECISION between the
+//! queues a request, the shell drains the queue at the end of the outermost event pass and of a
+//! timer turn, and the backend plays. What the haptics path does not have, and a sound needs, is a DECISION between the
 //! request and the OS call: which route the platform has for the sound, whether the app or an OS
 //! switch silences it, and whether a fling of events would stack the same sound. That decision is
 //! [`route`] (a pure function of the sound, the platform, the app's config and the OS's
