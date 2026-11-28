@@ -5989,8 +5989,20 @@ impl CallbackInfo {
     /// window has no inset. Set by the platform shell (macOS `NSScreen` notch,
     /// iOS `UIView.safeAreaInsets`, Android `WindowInsets`).
     #[must_use]
-    pub const fn get_safe_area_insets(&self) -> azul_css::system::SafeAreaInsets {
-        self.get_layout_window().safe_area_insets
+    pub fn get_safe_area_insets(&self) -> azul_css::system::SafeAreaInsets {
+        self.get_layout_window()
+            .effective_safe_area_insets(self.get_current_window_state())
+    }
+
+    /// The cutouts of the display (a punch-hole camera, a notch, the Dynamic Island), its rounded
+    /// corners, the system bars and the fingerprint sensor, in logical px of the window (origin
+    /// top left). Where [`Self::get_safe_area_insets`] merges them into one number per side,
+    /// this has the shapes. Empty on a desktop window; the shell writes it after each rotation or
+    /// change of the window, and `WindowFlags::display_preset` simulates a phone's.
+    #[must_use]
+    pub fn get_display_features(&self) -> azul_core::display_features::DisplayFeatures {
+        self.get_layout_window()
+            .effective_display_features(self.get_current_window_state())
     }
 
     /// Get the latest state of the gamepad `id` (button bitset + analog
@@ -6054,15 +6066,16 @@ impl CallbackInfo {
     }
 
     /// Store `secret` under `key` in the OS keyring (Keychain / `KeyStore` /
-    /// libsecret / `CredentialLocker`), in the app's own namespace (its app
-    /// id). When `require_biometry` is set, a later `keyring_get` of this key
-    /// triggers the OS biometric prompt. Returns immediately; the outcome
-    /// arrives via `get_keyring_result()` on a later frame.
+    /// libsecret / Credential Manager), in the app's own namespace (its app
+    /// id), readable while the device is unlocked (`KeyringProtection::DeviceUnlocked`):
+    /// never a sheet. Returns immediately; the outcome arrives via `get_keyring_result()` on a
+    /// later frame. For a secret behind the user's biometric or passcode use
+    /// [`Self::keyring_store_protected`].
     ///
     /// The secret is marked as one (`AzString::set_secret`): the request, the
     /// backend's copy of it and every clone are zeroed when they are freed.
-    pub fn keyring_store(&mut self, key: AzString, secret: AzString, require_biometry: bool) {
-        self.keyring_store_in(azul_core::keyring::KeyringNamespace::app(), key, secret, require_biometry);
+    pub fn keyring_store(&mut self, key: AzString, secret: AzString) {
+        self.keyring_store_in(azul_core::keyring::KeyringNamespace::app(), key, secret);
     }
 
     /// [`Self::keyring_store`] in `namespace`: the entries apps share (the
@@ -6072,7 +6085,47 @@ impl CallbackInfo {
         namespace: azul_core::keyring::KeyringNamespace,
         key: AzString,
         secret: AzString,
-        require_biometry: bool,
+    ) {
+        self.keyring_store_protected_in(
+            namespace,
+            key,
+            secret,
+            azul_core::keyring::KeyringProtection::DeviceUnlocked,
+            azul_core::keyring::KeyringPrompt::default(),
+        );
+    }
+
+    /// Store `secret` under `key` in the app's own namespace, guarded as `protection` says: a
+    /// secret that only the user's biometric (`Biometric`) or biometric-or-passcode
+    /// (`UserPresence`) opens again ([`Self::keyring_unlock`]), released by the OS or the secure
+    /// hardware where the platform can (`Keyring::support` says where). Call it from the
+    /// callback of the user's action (a button): the platform may show its sheet, with `prompt`'s
+    /// text. The outcome arrives via `get_keyring_result()`: `Stored`, or why not (`NotEnrolled`:
+    /// the device cannot meet the level, nothing was stored; `Cancelled`; `Unavailable`).
+    pub fn keyring_store_protected(
+        &mut self,
+        key: AzString,
+        secret: AzString,
+        protection: azul_core::keyring::KeyringProtection,
+        prompt: azul_core::keyring::KeyringPrompt,
+    ) {
+        self.keyring_store_protected_in(
+            azul_core::keyring::KeyringNamespace::app(),
+            key,
+            secret,
+            protection,
+            prompt,
+        );
+    }
+
+    /// [`Self::keyring_store_protected`] in `namespace`.
+    pub fn keyring_store_protected_in(
+        &mut self,
+        namespace: azul_core::keyring::KeyringNamespace,
+        key: AzString,
+        secret: AzString,
+        protection: azul_core::keyring::KeyringProtection,
+        prompt: azul_core::keyring::KeyringPrompt,
     ) {
         let mut secret = secret;
         secret.set_secret(true);
@@ -6081,14 +6134,16 @@ impl CallbackInfo {
             azul_core::keyring::KeyringRequest::Store {
                 key,
                 secret,
-                require_biometry,
+                protection,
+                prompt,
             },
         );
     }
 
-    /// Read the secret stored under `key` in the app's own namespace (its app
-    /// id). A biometry-bound item shows the OS prompt first; the secret (or a
-    /// denial) arrives via `get_keyring_result()` on a later frame.
+    /// Read the secret stored under `key` in the app's own namespace (its app id) without the
+    /// user: an unprotected item arrives as `Retrieved` via `get_keyring_result()` on a later
+    /// frame; a protected one answers `WouldPrompt` and NO sheet shows (the app explains, then
+    /// calls [`Self::keyring_unlock`] from the user's action).
     pub fn keyring_get(&mut self, key: AzString) {
         self.keyring_get_in(azul_core::keyring::KeyringNamespace::app(), key);
     }
@@ -6101,8 +6156,36 @@ impl CallbackInfo {
         );
     }
 
+    /// Read the secret stored under `key` in the app's own namespace behind the user check its
+    /// protection asks: the ONLY read that shows the platform's sheet (biometric, or biometric
+    /// or passcode), with `prompt`'s text. Call it from the callback of the user's action.
+    /// Arrives via `get_keyring_result()` on a later frame, and the answer says why when the
+    /// secret does not: `Cancelled`, `Failed`, `LockedOut`, `NotEnrolled`, `Invalidated` (the
+    /// enrolled biometrics changed: store the secret again), `Denied` (the system refuses this
+    /// app). An unprotected item is read plainly, with no sheet.
+    pub fn keyring_unlock(
+        &mut self,
+        key: AzString,
+        prompt: azul_core::keyring::KeyringPrompt,
+    ) {
+        self.keyring_unlock_in(azul_core::keyring::KeyringNamespace::app(), key, prompt);
+    }
+
+    /// [`Self::keyring_unlock`] in `namespace`.
+    pub fn keyring_unlock_in(
+        &mut self,
+        namespace: azul_core::keyring::KeyringNamespace,
+        key: AzString,
+        prompt: azul_core::keyring::KeyringPrompt,
+    ) {
+        self.get_layout_window().app_services.keyring.push_request_in(
+            namespace,
+            azul_core::keyring::KeyringRequest::Unlock { key, prompt },
+        );
+    }
+
     /// Remove the item stored under `key` in the app's own namespace (no-op if
-    /// absent). The outcome arrives via `get_keyring_result()`.
+    /// absent). Never shows a sheet. The outcome arrives via `get_keyring_result()`.
     pub fn keyring_delete(&mut self, key: AzString) {
         self.keyring_delete_in(azul_core::keyring::KeyringNamespace::app(), key);
     }
@@ -6209,6 +6292,36 @@ impl CallbackInfo {
     #[must_use]
     pub fn get_tray_event(&self) -> Option<azul_core::tray::TrayEvent> {
         self.get_layout_window().app_services.tray.current_tray_event()
+    }
+
+    /// Inside the app's lifecycle handler ([`Self::set_lifecycle_handler`]): which event it runs for -
+    /// the app was sent to the background (`Paused`: write what a person would lose, the process may be
+    /// ended without another word), brought back (`Resumed`), is asked to give memory back
+    /// (`LowMemory`) or is about to end (`WillTerminate`). `None` in any other callback.
+    #[must_use]
+    pub fn get_lifecycle_event(&self) -> Option<azul_core::lifecycle::LifecycleEvent> {
+        self.get_layout_window()
+            .app_services
+            .lifecycle
+            .current_lifecycle_event()
+    }
+
+    /// Install the app's lifecycle handler, replacing any earlier one: `callback` runs with `data`
+    /// whenever the app is sent to the background, brought back, short of memory or about to end, and
+    /// reads which with [`Self::get_lifecycle_event`]. One handler for the app, not one per window:
+    /// the usual place is the window's create callback. An app that sets none hears nothing.
+    pub fn set_lifecycle_handler<I: Into<azul_core::callbacks::CoreCallback>>(
+        &self,
+        data: RefAny,
+        callback: I,
+    ) {
+        self.get_layout_window()
+            .app_services
+            .lifecycle
+            .set_lifecycle_handler(azul_core::menu::CoreMenuCallback {
+                refany: data,
+                callback: callback.into(),
+            });
     }
 
     /// Read the most recently observed permission state for `capability`

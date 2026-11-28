@@ -68,6 +68,7 @@ pub mod selection;
 pub mod sensors;
 /// A queue that every clone of it shares: how the platform's threads hand things to a window.
 pub mod shared_queue;
+pub mod stand_in_user;
 pub mod text_edit;
 pub mod text_input;
 /// Which node a background thread belongs to; the workers of unmounted nodes.
@@ -76,6 +77,10 @@ pub mod thread_owner;
 /// the icon, ...): the mailbox, the routing to the tray's callback, and the
 /// event a callback runs for.
 pub mod tray_event;
+/// The app's life (sent to the background, brought back, short of memory,
+/// about to end): the mailbox the shells queue it in, the app's handler, and
+/// the event a delivery runs for.
+pub mod lifecycle;
 pub mod undo_redo;
 pub mod virtual_view;
 /// `<webview>`: which native views a window has, where they are, what the

@@ -354,6 +354,11 @@ pub mod compact;
 pub mod diagnostics;
 /// DOM diffing: what changed between two `StyledDom`s, and how far it has to be re-solved.
 pub mod diff;
+/// What a phone's display has built in and the system draws over a window, in window coordinates:
+/// cutouts, rounded corners, system bars, the fingerprint sensor, and the test hook that
+/// simulates a Pixel 8 or an iPhone.
+///
+pub mod display_features;
 /// DOM construction: `Dom`, `NodeData`, `NodeType`, and the CSS-in-Rust API.
 pub mod dom;
 /// Drag context for text selection, scrollbar, node, and window drags.
@@ -509,6 +514,11 @@ pub mod tray;
 /// The queues live in `azul-layout` (`managers::notification`), the OS
 /// plumbing in `azul-dll` (`desktop/notifications`) - the tray's split.
 pub mod notification;
+/// App lifecycle POD type (`LifecycleEvent`): sent to the background, brought back, short of memory, about to end.
+///
+/// The queue and the handler live in `azul-layout` (`managers::lifecycle`), the shells raise the events
+/// (`azul-dll`, `desktop/lifecycle`) - the tray's split.
+pub mod lifecycle;
 /// Built-in user-agent default stylesheet.
 pub mod ua_css;
 /// Default font/text constants and small geometry helpers for layout.

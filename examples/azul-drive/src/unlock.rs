@@ -190,7 +190,13 @@ impl Read {
                 Read::Secret(Zeroizing::new(secret.as_str().to_string()))
             }
             KeyringResult::NotFound => Read::Missing,
-            KeyringResult::Denied => Read::Refused,
+            // The system refused, the user said no, or the keychain would have to ask (a quiet
+            // read met a dialog): the drive waits for the user's own action.
+            KeyringResult::Denied
+            | KeyringResult::WouldPrompt
+            | KeyringResult::Cancelled
+            | KeyringResult::Failed
+            | KeyringResult::LockedOut => Read::Refused,
             KeyringResult::Unavailable => Read::Unavailable,
             _ => Read::Failed,
         }

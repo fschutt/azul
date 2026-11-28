@@ -14,7 +14,7 @@ mod autotest_generated {
         "🔑🗝 ключ 鍵 مفتاح e\u{301}\u{202e}terces\u{202c}\u{fffd}\u{10ffff}";
 
     /// Every `KeyringResult` variant, in declaration order.
-    fn all_variants() -> [KeyringResult; 7] {
+    fn all_variants() -> [KeyringResult; 13] {
         [
             KeyringResult::Stored,
             KeyringResult::Retrieved(AzString::from("s3cr3t")),
@@ -23,6 +23,12 @@ mod autotest_generated {
             KeyringResult::Denied,
             KeyringResult::Unavailable,
             KeyringResult::Error,
+            KeyringResult::Cancelled,
+            KeyringResult::Failed,
+            KeyringResult::LockedOut,
+            KeyringResult::NotEnrolled,
+            KeyringResult::Invalidated,
+            KeyringResult::WouldPrompt,
         ]
     }
 
@@ -39,6 +45,12 @@ mod autotest_generated {
             KeyringResult::Denied => (false, false),
             KeyringResult::Unavailable => (false, false),
             KeyringResult::Error => (false, false),
+            KeyringResult::Cancelled
+            | KeyringResult::Failed
+            | KeyringResult::LockedOut
+            | KeyringResult::NotEnrolled
+            | KeyringResult::Invalidated
+            | KeyringResult::WouldPrompt => (false, false),
         }
     }
 
@@ -157,6 +169,16 @@ mod autotest_generated {
         assert!(!KeyringResult::Denied.is_ok());
         assert!(!KeyringResult::Unavailable.is_ok());
         assert!(!KeyringResult::Error.is_ok());
+        for refusal in [
+            KeyringResult::Cancelled,
+            KeyringResult::Failed,
+            KeyringResult::LockedOut,
+            KeyringResult::NotEnrolled,
+            KeyringResult::Invalidated,
+            KeyringResult::WouldPrompt,
+        ] {
+            assert!(!refusal.is_ok(), "{refusal:?} is not a success");
+        }
     }
 
     #[test]
@@ -359,31 +381,41 @@ mod autotest_generated {
 
     // ---- KeyringRequest: payload-carrying FFI enum ------------------------
 
+    fn store(key: &str, secret: &str, protection: KeyringProtection) -> KeyringRequest {
+        KeyringRequest::Store {
+            key: AzString::from(key),
+            secret: AzString::from(secret),
+            protection,
+            prompt: KeyringPrompt::default(),
+        }
+    }
+
     #[test]
-    fn request_equality_is_sensitive_to_key_secret_and_biometry_flag() {
-        let store = KeyringRequest::Store {
-            key: AzString::from("k"),
-            secret: AzString::from("s"),
-            require_biometry: false,
-        };
+    fn request_equality_is_sensitive_to_key_secret_protection_and_prompt() {
+        let store = store("k", "s", KeyringProtection::DeviceUnlocked);
         assert_eq!(store, store.clone());
 
         assert_ne!(
             store,
-            KeyringRequest::Store {
-                key: AzString::from("k"),
-                secret: AzString::from("s"),
-                require_biometry: true,
-            },
-            "require_biometry changes the stored access control — it must not be ignored"
+            self::store("k", "s", KeyringProtection::Biometric),
+            "the protection level changes the stored access control: it must not be ignored"
         );
         assert_ne!(
-            store,
-            KeyringRequest::Store {
+            self::store("k", "s", KeyringProtection::UserPresence),
+            self::store("k", "s", KeyringProtection::Biometric),
+            "a passcode fallback and no fallback are different items"
+        );
+        assert_ne!(store, self::store("k", "other", KeyringProtection::DeviceUnlocked));
+        assert_ne!(
+            KeyringRequest::Unlock {
                 key: AzString::from("k"),
-                secret: AzString::from("other"),
-                require_biometry: false,
-            }
+                prompt: KeyringPrompt::create(AzString::from("Unlock your vault")),
+            },
+            KeyringRequest::Unlock {
+                key: AzString::from("k"),
+                prompt: KeyringPrompt::default(),
+            },
+            "the sheet's text is part of the op"
         );
         assert_ne!(
             KeyringRequest::Get {
@@ -393,6 +425,16 @@ mod autotest_generated {
                 key: AzString::from("k")
             },
             "a read and a delete of the same key are different operations"
+        );
+        assert_ne!(
+            KeyringRequest::Get {
+                key: AzString::from("k")
+            },
+            KeyringRequest::Unlock {
+                key: AzString::from("k"),
+                prompt: KeyringPrompt::default(),
+            },
+            "a get never shows the sheet, an unlock may: they are different operations"
         );
         assert_ne!(
             KeyringRequest::Get {
@@ -410,7 +452,9 @@ mod autotest_generated {
         let req = KeyringRequest::Store {
             key: AzString::from(key.clone()),
             secret: AzString::from(NASTY_BYTES),
-            require_biometry: true,
+            protection: KeyringProtection::Biometric,
+            prompt: KeyringPrompt::create(AzString::from(NASTY_UNICODE))
+                .with_cancel_label(AzString::from("Use password")),
         };
 
         let clone = req.clone();
@@ -420,14 +464,129 @@ mod autotest_generated {
             KeyringRequest::Store {
                 key: k,
                 secret: s,
-                require_biometry,
+                protection,
+                prompt,
             } => {
                 assert_eq!(k.as_str(), key.as_str());
                 assert_eq!(s.as_str(), NASTY_BYTES);
-                assert!(*require_biometry);
+                assert_eq!(*protection, KeyringProtection::Biometric);
+                assert_eq!(prompt.reason.as_str(), NASTY_UNICODE);
+                assert_eq!(prompt.cancel_label.as_str(), "Use password");
             }
             other => unreachable!("constructed Store, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn only_an_unlock_and_a_protected_store_may_show_the_sheet() {
+        let key = || AzString::from("k");
+        assert!(!KeyringRequest::Get { key: key() }.may_show_sheet());
+        assert!(!KeyringRequest::Delete { key: key() }.may_show_sheet());
+        assert!(!store("k", "s", KeyringProtection::DeviceUnlocked).may_show_sheet());
+        assert!(store("k", "s", KeyringProtection::UserPresence).may_show_sheet());
+        assert!(store("k", "s", KeyringProtection::Biometric).may_show_sheet());
+        assert!(KeyringRequest::Unlock {
+            key: key(),
+            prompt: KeyringPrompt::default()
+        }
+        .may_show_sheet());
+    }
+
+    #[test]
+    fn every_request_names_its_key() {
+        for req in [
+            store("a", "s", KeyringProtection::UserPresence),
+            KeyringRequest::Get { key: AzString::from("a") },
+            KeyringRequest::Unlock {
+                key: AzString::from("a"),
+                prompt: KeyringPrompt::default(),
+            },
+            KeyringRequest::Delete { key: AzString::from("a") },
+        ] {
+            assert_eq!(req.key().as_str(), "a");
+        }
+    }
+
+    // ---- the protection level, the prompt, the probes ---------------------
+
+    #[test]
+    fn the_default_protection_is_the_one_that_never_shows_a_sheet() {
+        assert_eq!(KeyringProtection::default(), KeyringProtection::DeviceUnlocked);
+        assert!(!KeyringProtection::DeviceUnlocked.needs_user());
+        assert!(KeyringProtection::UserPresence.needs_user());
+        assert!(KeyringProtection::Biometric.needs_user());
+    }
+
+    #[test]
+    fn a_protection_level_round_trips_through_the_number_the_backends_keep() {
+        for level in [
+            KeyringProtection::DeviceUnlocked,
+            KeyringProtection::UserPresence,
+            KeyringProtection::Biometric,
+        ] {
+            assert_eq!(KeyringProtection::from_code(level.code()), Some(level));
+        }
+        assert_eq!(KeyringProtection::DeviceUnlocked.code(), 0);
+        assert_eq!(KeyringProtection::UserPresence.code(), 1);
+        assert_eq!(KeyringProtection::Biometric.code(), 2);
+        assert_eq!(KeyringProtection::from_code(3), None);
+        assert_eq!(KeyringProtection::from_code(255), None);
+    }
+
+    #[test]
+    fn the_levels_order_by_strength() {
+        assert!(KeyringProtection::DeviceUnlocked < KeyringProtection::UserPresence);
+        assert!(KeyringProtection::UserPresence < KeyringProtection::Biometric);
+    }
+
+    #[test]
+    fn a_prompt_keeps_its_reason_and_cancel_label() {
+        let plain = KeyringPrompt::create(AzString::from("Unlock your vault"));
+        assert_eq!(plain.reason.as_str(), "Unlock your vault");
+        assert_eq!(plain.cancel_label.as_str(), "", "no label: the platform's own Cancel");
+        let labelled = plain.clone().with_cancel_label(AzString::from("Use password"));
+        assert_eq!(labelled.cancel_label.as_str(), "Use password");
+        assert_eq!(labelled.reason, plain.reason);
+        assert_eq!(KeyringPrompt::default().reason.as_str(), "");
+    }
+
+    #[test]
+    fn the_refusals_of_the_user_are_told_from_the_ones_of_the_system() {
+        for r in all_variants() {
+            let user = matches!(
+                r,
+                KeyringResult::Cancelled | KeyringResult::Failed | KeyringResult::LockedOut
+            );
+            assert_eq!(r.is_user_refusal(), user, "is_user_refusal wrong for {r:?}");
+            assert_eq!(
+                r.needs_user(),
+                matches!(r, KeyringResult::WouldPrompt),
+                "needs_user wrong for {r:?}"
+            );
+        }
+        assert!(!KeyringResult::Denied.is_user_refusal(), "Denied is the system's");
+        assert!(!KeyringResult::Denied.needs_user());
+    }
+
+    #[test]
+    fn the_first_seven_results_keep_their_places_and_the_new_ones_come_after() {
+        // The C bindings number the variants in declaration order; an app built before the
+        // protection levels must read `Error` as `Error`.
+        let order = all_variants();
+        assert_eq!(order[0], KeyringResult::Stored);
+        assert_eq!(order[2], KeyringResult::Deleted);
+        assert_eq!(order[3], KeyringResult::NotFound);
+        assert_eq!(order[4], KeyringResult::Denied);
+        assert_eq!(order[5], KeyringResult::Unavailable);
+        assert_eq!(order[6], KeyringResult::Error);
+        assert_eq!(order[7], KeyringResult::Cancelled);
+        assert_eq!(order[12], KeyringResult::WouldPrompt);
+    }
+
+    #[test]
+    fn the_probe_answers_default_to_the_cautious_one() {
+        assert_eq!(KeyringNeed::default(), KeyringNeed::NotFound);
+        assert_eq!(KeyringSupport::default(), KeyringSupport::Unavailable);
     }
 
     #[test]
