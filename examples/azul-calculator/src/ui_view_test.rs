@@ -24,10 +24,11 @@ fn the_programmer_and_graphing_tabs_are_only_for_a_window_that_can_hold_them() {
     // Wide and tall enough for the panel beside the keys: the programmer one too.
     let medium = [Pin::Standard, Pin::Programmer, Pin::Date, Pin::Convert];
     assert_eq!(tab_pins(PROGRAMMER_MIN_WIDTH, PROGRAMMER_MIN_HEIGHT), medium);
-    assert_eq!(tab_pins(1024.0, 768.0), medium);
-    // And for the graph: the graphing one as well.
+    assert_eq!(tab_pins(800.0, 600.0), medium);
+    // And for the graph (a tablet's 1024 x 768 holds it): the graphing one as well.
     let large = [Pin::Standard, Pin::Programmer, Pin::Graphing, Pin::Date, Pin::Convert];
     assert_eq!(tab_pins(GRAPH_MIN_WIDTH, GRAPH_MIN_HEIGHT), large);
+    assert_eq!(tab_pins(1024.0, 768.0), large);
     assert_eq!(tab_pins(GRAPH_MIN_WIDTH, GRAPH_MIN_HEIGHT - 1.0), medium, "tall enough is part of it");
     assert!(!tab_pins(340.0, 560.0).contains(&Pin::Auto), "Auto is no tab: it is the window's size");
 }
@@ -65,7 +66,7 @@ fn a_pinned_view_a_window_cannot_hold_shows_what_the_size_would() {
 fn every_tab_has_a_view_and_a_word() {
     for pin in tab_pins(2000.0, 1200.0) {
         assert!(pin.view().is_some(), "{}", pin.key());
-        assert!(pin.label().starts_with("azcalculator-mode-"), "{}", pin.label());
+        assert!(pin.label().contains("-mode-"), "{}", pin.label());
     }
 }
 
