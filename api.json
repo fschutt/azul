@@ -12818,6 +12818,468 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "ShareItem": {
+                        "external": "azul_core::share::ShareItem",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "kind": {
+                                    "type": "ShareItemKind"
+                                },
+                                "value": {
+                                    "type": "String"
+                                },
+                                "mime": {
+                                    "type": "String"
+                                },
+                                "name": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "file": {
+                                "doc": [
+                                    "A file at `path`, shown to the receiver under the file's own name."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::share::ShareItem::file(path)"
+                            },
+                            "text": {
+                                "doc": [
+                                    "A text."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::share::ShareItem::text(text)"
+                            },
+                            "url": {
+                                "doc": [
+                                    "A link."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "url": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::share::ShareItem::url(url)"
+                            }
+                        },
+                        "functions": {
+                            "with_mime": {
+                                "doc": [
+                                    "This item with the MIME type `mime` (a file's `application/pdf`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "mime": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShareItem"
+                                },
+                                "fn_body": "object.with_mime(mime)"
+                            },
+                            "with_name": {
+                                "doc": [
+                                    "This item with the name `name` (the file name the receiver shows)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShareItem"
+                                },
+                                "fn_body": "object.with_name(name)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "ShareItemKind": {
+                        "external": "azul_core::share::ShareItemKind",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "File": {},
+                                "Text": {},
+                                "Url": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ShareRequest": {
+                        "external": "azul_core::share::ShareRequest",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "items": {
+                                    "type": "ShareItemVec"
+                                },
+                                "title": {
+                                    "type": "String"
+                                },
+                                "anchor": {
+                                    "type": "OptionLogicalRect"
+                                },
+                                "open_with": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "file": {
+                                "doc": [
+                                    "A request for one file."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::share::ShareRequest::file(path)"
+                            },
+                            "files": {
+                                "doc": [
+                                    "A request for these files (paths)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "paths": "StringVec"
+                                    }
+                                ],
+                                "fn_body": "azul_core::share::ShareRequest::files(paths)"
+                            },
+                            "create": {
+                                "doc": [
+                                    "A request with no items yet."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::share::ShareRequest::new()"
+                            },
+                            "text": {
+                                "doc": [
+                                    "A request for a text."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::share::ShareRequest::text(text)"
+                            },
+                            "url": {
+                                "doc": [
+                                    "A request for a link."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "url": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::share::ShareRequest::url(url)"
+                            }
+                        },
+                        "functions": {
+                            "with_anchor": {
+                                "doc": [
+                                    "This request anchored at `rect` (window coordinates): the button the user pressed."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "rect": "LogicalRect"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShareRequest"
+                                },
+                                "fn_body": "object.with_anchor(rect)"
+                            },
+                            "with_item": {
+                                "doc": [
+                                    "This request with one more item."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "item": "ShareItem"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShareRequest"
+                                },
+                                "fn_body": "object.with_item(item)"
+                            },
+                            "with_open_with": {
+                                "doc": [
+                                    "This request as \"Open with...\" (see [`ShareRequest::open_with`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "open_with": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShareRequest"
+                                },
+                                "fn_body": "object.with_open_with(open_with)"
+                            },
+                            "with_title": {
+                                "doc": [
+                                    "This request with the sheet's title / the mail's subject."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "title": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShareRequest"
+                                },
+                                "fn_body": "object.with_title(title)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "OpenAction": {
+                        "external": "azul_core::open_files::OpenAction",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "View": {},
+                                "Edit": {},
+                                "Send": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OpenRequest": {
+                        "external": "azul_core::open_files::OpenRequest",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "action": {
+                                    "type": "OpenAction"
+                                },
+                                "items": {
+                                    "type": "OpenedItemVec"
+                                },
+                                "launched_app": {
+                                    "type": "bool"
+                                },
+                                "skipped": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OpenedItem": {
+                        "external": "azul_core::open_files::OpenedItem",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                },
+                                "mime": {
+                                    "type": "String"
+                                },
+                                "uri": {
+                                    "type": "String"
+                                },
+                                "text": {
+                                    "type": "String"
+                                },
+                                "path": {
+                                    "type": "OptionString"
+                                },
+                                "error": {
+                                    "type": "OptionString"
+                                },
+                                "size": {
+                                    "type": "OptionU64"
+                                },
+                                "kind": {
+                                    "type": "OpenedKind"
+                                },
+                                "writable": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OpenedKind": {
+                        "external": "azul_core::open_files::OpenedKind",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "File": {},
+                                "Url": {},
+                                "Text": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ShareStatus": {
+                        "external": "azul_core::share::ShareStatus",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Shown": {},
+                                "Unsupported": {
+                                    "type": "String"
+                                },
+                                "Failed": {
+                                    "type": "String"
+                                },
+                                "Refused": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ShareItemVecSlice": {
+                        "external": "azul_core::share::ShareItemVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ShareItem",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OpenedItemVecSlice": {
+                        "external": "azul_core::open_files::OpenedItemVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "OpenedItem",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -21876,6 +22338,89 @@
                                     }
                                 ],
                                 "fn_body": "object.set_lifecycle_handler(data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            },
+                            "can_share": {
+                                "doc": [
+                                    "Whether this app can show a share sheet now: ask before a Share button is shown, and offer something else (reveal the",
+                                    "file, copy the link) where it cannot."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.can_share()"
+                            },
+                            "get_open_request": {
+                                "doc": [
+                                    "Inside the app's open handler ([`Self::set_open_handler`]): what the system asks the app to open - the items (each a file",
+                                    "with its working copy in the app's own folder, its name, type and size, or a link, or a text) and what the sender wants",
+                                    "done (`View`, `Edit`, `Send`). `None` in any other callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionOpenRequest"
+                                },
+                                "fn_body": "object.get_open_request().into()"
+                            },
+                            "set_open_handler": {
+                                "doc": [
+                                    "Install the app's open handler, replacing any earlier one: `callback` runs with `data` whenever the system asks the app to",
+                                    "open something - a file another app shared to it (\"Share to AzWriter\"), a file opened with it from a file manager or a",
+                                    "mail (\"Open with\"), a link of a scheme the app declared (`mailto:`, `geo:`), a text shared to it - and reads what with",
+                                    "[`Self::get_open_request`]. One handler for the app, not one per window: the usual place is the window's create callback.",
+                                    "",
+                                    "A request that arrives before the handler is installed (the intent that STARTED the app) is kept - at most 16 - and",
+                                    "delivered when the handler is set, so the file the person tapped is not lost. An app that sets no handler never hears of",
+                                    "the requests: the types it opens are declared in the app's manifest (`[[app.documents]]` of scripts/demo_apps.toml)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "CallbackType"
+                                    }
+                                ],
+                                "fn_body": "object.set_open_handler(data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            },
+                            "share": {
+                                "doc": [
+                                    "Hand files, a text or a link to ANOTHER app through the system's share sheet: Android's chooser, iOS's activity",
+                                    "view. With `request.open_with` the one file goes only to the apps that can OPEN it (\"Open with...\").",
+                                    "",
+                                    "Call it from the callback of the user's tap on a Share button: the sheet is an activity / a view controller of the",
+                                    "system and is shown on this thread. The answer is the real one: `ShareStatus::Shown` when the sheet is up,",
+                                    "`ShareStatus::Unsupported` with the reason where the platform has none (a desktop), `ShareStatus::Failed` when",
+                                    "it has one and could not show it (no app can take the file, the copy failed), `ShareStatus::Refused` when the",
+                                    "request itself is not one (no item, too many, a name or a size over the limit). Nothing is silent. What the user",
+                                    "then does in the sheet is not reported.",
+                                    "",
+                                    "The files are COPIED for the receiver under the name the request gives them, so that a share never shows the",
+                                    "receiver the app's data folder; the copies are removed after a day."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "request": "ShareRequest"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShareStatus"
+                                },
+                                "fn_body": "object.share(request)"
                             }
                         },
                         "repr": "C"
@@ -182528,6 +183073,431 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "ShareItemVec": {
+                        "external": "azul_core::share::ShareItemVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "ShareItem",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "ShareItemVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `ShareItemVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "ShareItemVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `ShareItemVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShareItemVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "share_item_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "share_item_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "share_item_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `ShareItemVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "ShareItem"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShareItemVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `ShareItemVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const ShareItem"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShareItemVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionShareItem"
+                                },
+                                "fn_body": "share_item_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `ShareItemVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShareItemVecSlice"
+                                },
+                                "fn_body": "share_item_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShareItemVecSlice"
+                                },
+                                "fn_body": "share_item_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "ShareItemVecDestructor": {
+                        "external": "azul_core::share::ShareItemVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "ShareItemVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ShareItemVecDestructorType": {
+                        "external": "azul_core::share::ShareItemVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "ShareItemVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "OpenedItemVec": {
+                        "external": "azul_core::open_files::OpenedItemVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "OpenedItem",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "OpenedItemVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `OpenedItemVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OpenedItemVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `OpenedItemVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OpenedItemVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "opened_item_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "opened_item_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "opened_item_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `OpenedItemVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "OpenedItem"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OpenedItemVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `OpenedItemVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const OpenedItem"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OpenedItemVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionOpenedItem"
+                                },
+                                "fn_body": "opened_item_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `OpenedItemVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OpenedItemVecSlice"
+                                },
+                                "fn_body": "opened_item_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OpenedItemVecSlice"
+                                },
+                                "fn_body": "opened_item_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "OpenedItemVecDestructor": {
+                        "external": "azul_core::open_files::OpenedItemVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "OpenedItemVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OpenedItemVecDestructorType": {
+                        "external": "azul_core::open_files::OpenedItemVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "OpenedItemVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -194084,6 +195054,79 @@
                                 "None": {},
                                 "Some": {
                                     "type": "BottomSheetOnEvent"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionShareItem": {
+                        "external": "azul_core::share::OptionShareItem",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "ShareItem",
+                                    "doc": [
+                                        "Some value of type ShareItem"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionOpenRequest": {
+                        "external": "azul_core::open_files::OptionOpenRequest",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "OpenRequest"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionOpenedItem": {
+                        "external": "azul_core::open_files::OptionOpenedItem",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "OpenedItem",
+                                    "doc": [
+                                        "Some value of type OpenedItem"
+                                    ]
                                 }
                             }
                         ],
