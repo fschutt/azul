@@ -65,11 +65,11 @@ the table behind it.
 
 | Platform | `UserPresence` | `Biometric` | Enforced by |
 |---|---|---|---|
-| iOS | `SecAccessControl` userPresence, read through `LAContext` | biometryCurrentSet | **hardware**: the Secure Enclave evaluates the access control and releases the key (verified on the Simulator; a device is the next proof) |
+| iOS | `SecAccessControl` userPresence, read through `LAContext` | biometryCurrentSet | **hardware**: the Secure Enclave evaluates the access control and releases the key (type-checked and its decision tables host-tested; the Simulator proof is pending, and the Simulator does not enforce keychain access control the way a device does, so a device is the next proof) |
 | macOS, signed with a keychain access group | the same on the data-protection keychain | biometryCurrentSet (Touch ID Macs) | **hardware** |
 | macOS, unsigned (development builds) | not available (`Unavailable`) | not available (`Unavailable`) | - (the legacy keychain has no access-control items) |
 | Android 9+ | a Keystore key per entry that needs the user (API 30+: biometric or device credential) opened with `BiometricPrompt` and a `CryptoObject` | biometric only, `setInvalidatedByBiometricEnrollment`, StrongBox where the device has one | **hardware** (the TEE or StrongBox releases the key after the auth token) |
-| Windows 10+ | a Windows Hello key; the secret is sealed with the Hello signature as entropy | `Unavailable`: Hello takes a PIN as readily as a finger and cannot be told otherwise | **hardware** where the device has a TPM, else a software key behind the Hello gesture. **Windows Hello: not verified on hardware** - written to Microsoft's documented API and compile-checked on Windows, but no machine with Hello has run it yet |
+| Windows 10+ | a Windows Hello key; the secret is sealed with the Hello signature as entropy | `Unavailable`: Hello takes a PIN as readily as a finger and cannot be told otherwise | **hardware** where the device has a TPM, else a software key behind the Hello gesture. **Windows Hello: not verified on hardware** - written to Microsoft's documented API and built by the Windows CI job, but no machine with Hello has run it yet |
 | Linux | the desktop's polkit dialog (action `io.azul.keyring.unlock`; a package installs `scripts/linux/io.azul.keyring.policy` as `/usr/share/polkit-1/actions/io.azul.keyring.policy`, else `Keyring::support` says `NotEnrolled`) | the fingerprint reader (fprintd) | **the library**: azul asks the user, then reads an item the Secret Service holds; another process of the same user can read it without the check |
 
 `Hardware` means the OS or the secure hardware gives the secret up only after the check.

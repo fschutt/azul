@@ -15,7 +15,7 @@ pub(crate) const COMMENT_PREFIX: &str = "azul-keyring:v1;p=";
 
 /// The comment of an item guarded as `protection`; `None` for the unprotected one, which has no
 /// record (it is the plain credential every azul app wrote before the levels).
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))] // only keyring/windows.rs and the tests use it
 pub(crate) fn comment_of(protection: KeyringProtection) -> Option<String> {
     protection
         .needs_user()
@@ -25,7 +25,7 @@ pub(crate) fn comment_of(protection: KeyringProtection) -> Option<String> {
 /// The level a credential's comment records (`DeviceUnlocked` for none, or one that is no record
 /// of ours: an unknown level is never read as a weaker one than the number says, and a text that
 /// does not parse is a credential of another program).
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))] // only keyring/windows.rs and the tests use it
 pub(crate) fn protection_of_comment(comment: Option<&str>) -> KeyringProtection {
     comment
         .and_then(|comment| comment.strip_prefix(COMMENT_PREFIX))
@@ -37,13 +37,13 @@ pub(crate) fn protection_of_comment(comment: Option<&str>) -> KeyringProtection 
 /// The fixed data the Windows Hello key signs: the signature (RSA PKCS#1 v1.5, which is
 /// deterministic: the same key and data give the same bytes) is the entropy the secret is sealed
 /// with, so it can be opened again only after the user's Hello gesture has produced it.
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))] // only keyring/windows.rs and the tests use it
 pub(crate) const HELLO_CHALLENGE: &[u8] = b"azul-keyring-hello-challenge-v1";
 
 /// The name of the Hello key of the item `key` in `service`. Hello keys are named by an account
 /// id of limited length, so the name is a hash of both; two items sharing a name would share a
 /// Hello key, which is harmless: the key only asks for the user's gesture.
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))] // only keyring/windows.rs and the tests use it
 pub(crate) fn hello_account(service: &str, key: &str) -> String {
     // 64-bit FNV-1a over `service NUL key`: a name, not a secret.
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
@@ -57,7 +57,7 @@ pub(crate) fn hello_account(service: &str, key: &str) -> String {
 /// What a `KeyCredentialStatus` (the number Windows Hello answers a create, an open or a sign
 /// with) means for the keyring.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))] // only keyring/windows.rs and the tests use it
 pub(crate) enum HelloStatus {
     /// `Success`: the key is there / the data is signed.
     Success,
@@ -75,7 +75,7 @@ pub(crate) enum HelloStatus {
 /// The meaning of a `KeyCredentialStatus` number: 0 `Success`, 1 `UnknownError`, 2 `NotFound`,
 /// 3 `UserCanceled`, 4 `UserPrefersPassword`, 5 `CredentialAlreadyExists`, 6
 /// `SecurityDeviceLocked`.
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))] // only keyring/windows.rs and the tests use it
 pub(crate) const fn hello_status(code: i32) -> HelloStatus {
     match code {
         0 => HelloStatus::Success,
@@ -92,11 +92,11 @@ pub(crate) const fn hello_status(code: i32) -> HelloStatus {
 /// The suffix of the key of an item's record: the record is a sibling item (a secret of its own,
 /// readable without a user check) where the platform's store has no room for it beside the
 /// secret. The unit separator is in no name an app picks.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))] // only keyring/linux.rs and the tests use it
 pub(crate) const META_SUFFIX: &str = "\u{1f}azul-meta";
 
 /// The key of the record of the item `key`.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))] // only keyring/linux.rs and the tests use it
 pub(crate) fn meta_key(key: &str) -> String {
     format!("{key}{META_SUFFIX}")
 }
@@ -104,7 +104,7 @@ pub(crate) fn meta_key(key: &str) -> String {
 /// What a library-gated item's record says: its level and, for `Biometric`, the digest of the
 /// fingers that were enrolled when it was stored.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))] // only keyring/linux.rs and the tests use it
 pub(crate) struct GateRecord {
     pub protection: KeyringProtection,
     pub enrolled: Option<String>,
@@ -112,7 +112,7 @@ pub(crate) struct GateRecord {
 
 impl GateRecord {
     /// The record as the text that is stored: `v1;p=<level>` and, when there is one, `;f=<digest>`.
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))] // only keyring/linux.rs and the tests use it
     pub(crate) fn text(&self) -> String {
         match &self.enrolled {
             Some(digest) => format!("v1;p={};f={digest}", self.protection.code()),
@@ -122,7 +122,7 @@ impl GateRecord {
 
     /// The record a text holds; `None` for a text that is no record of ours (an item with no
     /// record is read as unprotected).
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))] // only keyring/linux.rs and the tests use it
     pub(crate) fn parse(text: &str) -> Option<Self> {
         let mut parts = text.split(';');
         if parts.next()? != "v1" {
@@ -147,7 +147,7 @@ impl GateRecord {
 
 /// What the fingerprint service says about the enrolled fingers.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))] // only keyring/linux.rs and the tests use it
 pub(crate) enum Fingers {
     /// No fingerprint service or reader at all.
     Absent,
@@ -158,7 +158,7 @@ pub(crate) enum Fingers {
 }
 
 /// The digest of the enrolled fingers' names, whatever order the service lists them in.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))] // only keyring/linux.rs and the tests use it
 pub(crate) fn fingers_digest(names: &[String]) -> String {
     let mut sorted: Vec<&str> = names.iter().map(String::as_str).collect();
     sorted.sort_unstable();
@@ -174,7 +174,7 @@ pub(crate) fn fingers_digest(names: &[String]) -> String {
 
 /// What the desktop's authorisation service answered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))] // only keyring/linux.rs and the tests use it
 pub(crate) enum Authorization {
     /// The user proved who they are (password or fingerprint, as the system is set up).
     Granted,
@@ -190,7 +190,7 @@ pub(crate) enum Authorization {
 
 /// The services the library gate asks the user through: a fingerprint reader and the desktop's
 /// authorisation dialog. A trait so the decision below is tested without either.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))] // only keyring/linux.rs and the tests use it
 pub(crate) trait UserCheck {
     /// The enrolled fingers, asked quietly.
     fn fingers(&self) -> Fingers;
@@ -205,7 +205,7 @@ pub(crate) trait UserCheck {
 /// dialog (a password, or a fingerprint where the system's PAM takes one); `Biometric` through
 /// the fingerprint reader, and the fingers enrolled must still be the ones the item was stored
 /// under (`record.enrolled`), else it is `Invalidated`.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))] // only keyring/linux.rs and the tests use it
 pub(crate) fn run_check(
     record: &GateRecord,
     check: &dyn UserCheck,
@@ -244,7 +244,7 @@ pub(crate) fn run_check(
 }
 
 /// What a read of an item with `record` needs, from the record and the fingers alone.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))] // only keyring/linux.rs and the tests use it
 pub(crate) fn need_of_record(record: &GateRecord, fingers: &Fingers) -> azul_core::keyring::KeyringNeed {
     use azul_core::keyring::KeyringNeed;
     match record.protection {
