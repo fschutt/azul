@@ -1,5 +1,5 @@
-# The steps of this run of scripts/ci/sounds_gate.sh: the api.json entries against autofix, and the apps that name the new API.
+# The steps of this run of scripts/ci/sounds_gate.sh: the TEST gate of the sound work on the pushed tree, and the apps that name the new API.
+layout_sound_tests
+dll_sound_tests
+clippy_features
 apps_check
-autofix
-doc_check
-doc_check_layout

@@ -241,7 +241,7 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     with_window_listeners(body, &data)
 }
 
-/// What the window as a whole listens to: the keys, and what ends a stroke wherever it happens - the button let go
+/// What the window as a whole listens to: the keys, the window being asked to close (it ends the review session), and what ends a stroke wherever it happens - the button let go
 /// anywhere, the pointer leaving the window, the WINDOW losing the focus (not an element: `FocusLost` of a window
 /// listener is the blur of the element that had the focus, and a press on the page blurs the file picked in the tree).
 pub(crate) fn with_window_listeners(body: Dom, data: &RefAny) -> Dom {
@@ -279,6 +279,12 @@ pub(crate) fn with_window_listeners(body: Dom, data: &RefAny) -> Dom {
         EventFilter::Window(WindowEventFilter::WindowFocusReceived),
         data.clone(),
         crate::on_focus_received,
+    )
+    // the window being asked to close ends a review session that exists and closes the microphone now (the window is not held back)
+    .with_callback(
+        EventFilter::Window(WindowEventFilter::CloseRequested),
+        data.clone(),
+        crate::review_ctl::on_close_requested,
     )
 }
 
@@ -484,6 +490,8 @@ fn top_bar(s: &AppState, data: &RefAny, left_pad: f32) -> Dom {
         "display: flex; flex-direction: row; align-items: center; gap: 4px; flex: 1 1 0px; min-width: 0px; \
          justify-content: flex-end;",
     );
+    // The review session's key: always there, and the only way to make anything listen.
+    right.add_child(crate::review_ctl::pill(s, data));
     if let Some(presenter) = presenter_slot(s, data) {
         right.add_child(presenter);
     }

@@ -3174,6 +3174,24 @@ pub enum DebugEvent {
         theme: String,
     },
 
+    // The display the window sits on: cutouts, system bars, safe area
+    /// The cutouts, rounded corners, system bars and fingerprint sensor the window has, with the
+    /// safe-area insets they merge into (`CallbackInfo::get_display_features` /
+    /// `get_safe_area_insets`) and the preset the window simulates.
+    ///
+    /// `curl -s -X POST localhost:8765/ -d '{"op":"get_display_features"}'`
+    GetDisplayFeatures,
+    /// Make the window behave as if it sat on the display of a phone
+    /// (`WindowFlags::display_preset`): `"pixel8"`, `"iphone_island"`, `"iphone_notch"`,
+    /// `"iphone_home_button"`, `"corner_hole"`, `"double_hole"`, or `"off"` for what the platform
+    /// reports. The same file of a scenario then runs on a desktop and on a phone. Refuses any
+    /// other name.
+    ///
+    /// `curl -s -X POST localhost:8765/ -d '{"op":"set_display_preset","preset":"pixel8"}'`
+    SetDisplayPreset {
+        preset: String,
+    },
+
     // Queries
     GetState,
     GetDom,
@@ -17975,6 +17993,108 @@ fn serve_debug_event(
                         theme: name.to_string(),
                     })),
                 );
+            }
+        }
+
+        DebugEvent::GetDisplayFeatures => {
+            let state = callback_info.get_current_window_state();
+            let preset = state.flags.display_preset;
+            let insets = callback_info.get_safe_area_insets();
+            let features = callback_info.get_display_features();
+            let [top, bottom, left, right] =
+                crate::window::LayoutWindow::safe_area_px(&insets);
+            let rect = |r: &azul_core::geom::LogicalRect| {
+                serde_json::json!({
+                    "x": r.origin.x, "y": r.origin.y,
+                    "width": r.size.width, "height": r.size.height,
+                })
+            };
+            let bar = |b: &azul_core::display_features::OptionSystemBar| match b {
+                azul_core::display_features::OptionSystemBar::Some(bar) => {
+                    serde_json::json!({ "rect": rect(&bar.rect), "visible": bar.visible })
+                }
+                azul_core::display_features::OptionSystemBar::None => serde_json::Value::Null,
+            };
+            let cutouts: Vec<serde_json::Value> = features
+                .cutouts
+                .as_ref()
+                .iter()
+                .map(|c| {
+                    serde_json::json!({
+                        "rect": rect(&c.rect),
+                        "shape": format!("{:?}", c.shape),
+                        "approximate": c.approximate,
+                    })
+                })
+                .collect();
+            let fingerprint = match features.fingerprint {
+                azul_core::display_features::OptionFingerprintSensor::Some(sensor) => {
+                    serde_json::json!({
+                        "kind": format!("{:?}", sensor.kind),
+                        "spot": match sensor.spot {
+                            azul_core::display_features::OptionFingerprintSpot::Some(spot) => {
+                                serde_json::json!({
+                                    "x": spot.center.x, "y": spot.center.y, "radius": spot.radius,
+                                })
+                            }
+                            azul_core::display_features::OptionFingerprintSpot::None => {
+                                serde_json::Value::Null
+                            }
+                        },
+                    })
+                }
+                azul_core::display_features::OptionFingerprintSensor::None => {
+                    serde_json::Value::Null
+                }
+            };
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::Json(serde_json::json!({
+                    "preset": preset.name(),
+                    "window": {
+                        "width": state.size.dimensions.width,
+                        "height": state.size.dimensions.height,
+                    },
+                    "safe_area": { "top": top, "bottom": bottom, "left": left, "right": right },
+                    "cutouts": cutouts,
+                    "corner_radii": {
+                        "top_left": features.corner_radii.top_left,
+                        "top_right": features.corner_radii.top_right,
+                        "bottom_right": features.corner_radii.bottom_right,
+                        "bottom_left": features.corner_radii.bottom_left,
+                    },
+                    "status_bar": bar(&features.bars.status),
+                    "navigation_bar": bar(&features.bars.navigation),
+                    "fingerprint": fingerprint,
+                }))),
+            );
+        }
+
+        DebugEvent::SetDisplayPreset { preset } => {
+            match azul_core::display_features::DisplayPreset::from_name(preset) {
+                None => send_err(
+                    request,
+                    format!(
+                        "set_display_preset: \"{preset}\" is no preset - use \"off\", \"pixel8\", \
+                         \"iphone_island\", \"iphone_notch\", \"iphone_home_button\", \
+                         \"corner_hole\" or \"double_hole\""
+                    ),
+                ),
+                Some(wanted) => {
+                    log(
+                        LogLevel::Info,
+                        Window,
+                        format!("Display preset -> {}", wanted.name()),
+                        None,
+                    );
+                    // A window flag like any other: the diff pass sees the new insets and the
+                    // layout is built again for them.
+                    let mut new_state = callback_info.get_current_window_state().clone();
+                    new_state.flags.display_preset = wanted;
+                    callback_info.modify_window_state(new_state);
+                    send_ok(request, None, None);
+                }
             }
         }
 

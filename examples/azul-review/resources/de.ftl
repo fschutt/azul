@@ -263,11 +263,11 @@ azreview-whiteboard-import-failed = Diese Datei konnte nicht geöffnet werden: {
 
 ## Diktieren und die Seitenspalte der Notizen
 
-azreview-shortcut-dictate = Den Stift auf dem Code ruhen lassen, um eine Notiz zu diktieren; erneutes Ruhen, Wegbewegen oder Zeichnen beendet es
+azreview-shortcut-dictate = Während eine Review-Sitzung aufnimmt: den Stift auf dem Code ruhen lassen, um eine Notiz zu diktieren; erneutes Ruhen, Wegbewegen oder Zeichnen beendet es
 azreview-notes = Notizen
 azreview-notes-switch = Notizen ein- oder ausblenden
-azreview-notes-hint-pen = Lass den Stift { $seconds } s auf dem Code ruhen und sprich: Deine Worte werden hier zur Notiz. Startet nichts, meldet das System deinen Stift vielleicht nicht als Stift: Wähle unter Einstellungen > Diktieren "Stift oder Maus".
-azreview-notes-hint-any = Lass Stift oder Maus { $seconds } s auf dem Code ruhen und sprich: Deine Worte werden hier zur Notiz.
+azreview-notes-hint-pen = Drücke zuerst oben rechts "Review starten". Dann lass den Stift { $seconds } s auf dem Code ruhen und sprich: Deine Worte werden hier zur Notiz. Startet nichts, meldet das System deinen Stift vielleicht nicht als Stift: Wähle unter Einstellungen > Diktieren "Stift oder Maus".
+azreview-notes-hint-any = Drücke zuerst oben rechts "Review starten". Dann lass Stift oder Maus { $seconds } s auf dem Code ruhen und sprich: Deine Worte werden hier zur Notiz.
 azreview-notes-off = Diktieren ist aus. Einschalten unter Einstellungen > Diktieren.
 azreview-listening = Hört zu
 azreview-finishing = Schließt ab
@@ -340,7 +340,7 @@ azreview-dictation-pen = Stift
 azreview-dictation-any = Stift oder Maus
 azreview-dictation-rest = Ruhezeit
 azreview-dictation-quiet = Stopp nach Stille
-azreview-dictation-note = Den Stift auf dem Code ruhen zu lassen startet eine Notiz, die zuhört. Zeichnen, Wegbewegen, erneutes Ruhen, Escape oder eine Weile Stille beendet sie. Die Worte bleiben in der Notiz, die du bearbeiten kannst, und werden mit der Sitzung gespeichert.
+azreview-dictation-note = Nichts hört zu, bevor du eine Review-Sitzung startest (die Taste oben rechts oder Mod+Umschalt+M); den Stift über der Seite zu halten, zu bewegen oder ruhen zu lassen startet nichts. Während eine Sitzung aufnimmt, startet das Ruhen des Stifts auf dem Code eine Notiz, die zuhört. Zeichnen, Wegbewegen, erneutes Ruhen, Escape oder eine Weile Stille beendet sie. Die Worte bleiben in der Notiz, die du bearbeiten kannst, und werden mit der Sitzung gespeichert.
 azreview-rest-0-8 = 0,8 s
 azreview-rest-1-2 = 1,2 s
 azreview-rest-2-0 = 2 s
@@ -466,7 +466,7 @@ azreview-idle-15 = 15 s
 azreview-idle-30 = 30 s
 azreview-idle-120 = 2 Min.
 azreview-idle-600 = 10 Min.
-azreview-standby-note = Das Öffnen des Mikrofons dauert eine Drittelsekunde. Bereitgehalten, beginnt ein Diktat in dem Moment, in dem der Stift geruht hat, und behält die Worte, die kurz davor gesprochen wurden. "Wenn der Stift nah ist" öffnet das Mikrofon, sobald der Stift einer Seite nahekommt, und schließt es, wenn der Stift die Zeit oben weg war oder das Fenster nach hinten geht. Die Mikrofonanzeige des Systems ist an, solange das Mikrofon offen ist; bei "Immer" bleibt sie an, solange AzReview läuft.
+azreview-standby-note = Nur während eine Review-Sitzung aufnimmt: Das Öffnen des Mikrofons dauert eine Drittelsekunde. Bereitgehalten, beginnt ein Diktat in dem Moment, in dem der Stift geruht hat, und behält die Worte, die kurz davor gesprochen wurden. "Wenn der Stift nah ist" öffnet das Mikrofon, sobald der Stift einer Seite nahekommt, und schließt es, wenn der Stift die Zeit oben weg war oder das Fenster nach hinten geht. Die Mikrofonanzeige des Systems ist an, solange das Mikrofon offen ist; bei "Immer" bleibt sie an, solange AzReview läuft.
 azreview-chip-working = ein Agent arbeitet
 azreview-chip-suggested = ein Vorschlag wartet
 azreview-chip-done = erledigt
@@ -535,3 +535,15 @@ azreview-companion-buttons-title = Schnelltasten
 azreview-companion-buttons-note = Vier Anweisungen, die du immer wieder gibst. Ein Tippen auf dem Telefon schickt den Text an einen Agenten, mit dem Zusammenhang am Stift: der markierte Bereich, sonst die Zeile, sonst die Seite. Das Telefon zeigt sie auch und kann sie ändern.
 azreview-companion-button-label-name = Beschriftung der Taste { $n }
 azreview-companion-button-text-name = Anweisung der Taste { $n }
+
+# die Review-Sitzung: nichts hört zu, bevor sie gestartet ist
+azreview-review-start = Review starten
+azreview-review-start-name = Eine Review-Sitzung starten. Bis dahin hört nichts zu ({ $keys })
+azreview-review-recording = Aufnahme { $time }
+azreview-review-recording-name = Review-Sitzung nimmt auf, { $time }. Klicken zum Pausieren ({ $keys })
+azreview-review-paused = Pausiert { $time }
+azreview-review-paused-name = Review-Sitzung pausiert, { $time }. Klicken zum Fortsetzen ({ $keys })
+azreview-review-stop = Beenden
+azreview-review-stop-name = Die Review-Sitzung beenden und das Mikrofon schließen ({ $keys })
+azreview-shortcut-review-toggle = Review-Sitzung starten oder beenden: vorher hört nichts zu
+azreview-shortcut-review-pause = Review-Sitzung pausieren oder fortsetzen
