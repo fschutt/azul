@@ -1,0 +1,514 @@
+[
+  {
+    "name": "azul_widgets_overlays_on_a_phone",
+    "description": "The popups of a window with ONE surface (a phone, the emulator or the Simulator), in the flora theme, light: every popup, dialog and menu of the showcase is shown INSIDE the window, over its page. Taken in this order: 1 the modal Dialog 'Delete file...' (a bottom sheet on a narrow window: the scrim, the title, the close box), closed by Escape; 2 the DropDown open (its menu below the control, the chosen item ticked), 'Green' picked; 3 the context menu of the box 'Right-click me for a context menu' (a secondary press, where a long press is on a phone); 4 the Popover (a non-modal dialog below its button), closed by a press outside it. Every step that opens something asks `list_popups` and says HOW it is shown: 'overlay' on a phone, never a window of its own. The shell reports one surface itself, so no preset is set; the host's twin is overlays_pictures.json.",
+    "config": {
+      "continue_on_failure": true
+    },
+    "steps": [
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":0"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Delete file…",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Delete file…"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"shown\":\"overlay\""
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"covers_window\":true"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"top\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":0"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": ".__azul-native-dropdown",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-dropdown"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"is_menu\":true"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"shown\":\"overlay\""
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "Green"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":0"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Right-click me for a context menu",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Right-click me for a context menu",
+        "button": "right"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"is_menu\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":0"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Open popover",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Open popover"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"shown\":\"overlay\""
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "Overlays"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":0"
+      }
+    ],
+    "only_on": [
+      "android",
+      "ios"
+    ]
+  },
+  {
+    "name": "azul_widgets_overlays_on_a_phone_display_of_a_desktop_window",
+    "description": "The popups of a window with ONE surface on the host: the window is resized to a Pixel 8 (411 x 914 dp) and put on its display (`set_display_preset`), so the engine shows every popup, dialog and menu INSIDE it, as a phone does: the same steps and the same pictures as overlays_phone.json, which the emulator and the Simulator run with the shell's own report.",
+    "config": {
+      "continue_on_failure": true
+    },
+    "steps": [
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 914
+      },
+      {
+        "op": "set_display_preset",
+        "preset": "pixel8"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":0"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Delete file…",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Delete file…"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"shown\":\"overlay\""
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"covers_window\":true"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"top\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":0"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": ".__azul-native-dropdown",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-dropdown"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"is_menu\":true"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"shown\":\"overlay\""
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "Green"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":0"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Right-click me for a context menu",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Right-click me for a context menu",
+        "button": "right"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"is_menu\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":0"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Open popover",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Open popover"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"shown\":\"overlay\""
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "Overlays"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":0"
+      }
+    ],
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ]
+  }
+]
