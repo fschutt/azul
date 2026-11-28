@@ -631,14 +631,16 @@ const fn size_type(dock: PreviewDock) -> CssPropertyType {
     }
 }
 
-/// While the pointer or a key is moving the pane: a write of its size that is laid out at once.
-/// `set_css_property`, not the override channel: WP-E2's real-dispatcher tests of the bottom sheet
-/// found that through the touch path an override write of a layout property (a height) was not laid
-/// out at all (the app was told every step and the layout stayed at the built size for the whole
-/// drag), while `set_css_property` is, in a tap, a key and a drag. It pins the value as an override
-/// too, so a rebuild of the app in the middle of a drag keeps it; [`size_settled`] drops the pin.
+/// While the pointer or a key is moving the pane: a cascade-only write of its size (the override
+/// channel, cheap enough for every move of a drag; [`size_settled`] hands it back at rest).
+///
+/// An override of a layout property (a height) was NOT laid out through the touch path of the
+/// shells and of the e2e runner (WP-P found it: the restyle diff of the override was thrown away,
+/// so only a :hover / :active restyle ever staged the relayout: mouse yes, touch never); the fix
+/// is the engine's (`LayoutWindow::stage_css_dirty`, WP-P's branch), not this widget's: the
+/// widget keeps the intended channel and does not write around the bug.
 fn size_while_moving(info: &mut CallbackInfo, pane: azul_core::dom::DomNodeId, dock: PreviewDock, px: f32) {
-    info.set_css_property(pane, size_property(dock, px));
+    info.override_css_property(pane, size_property(dock, px));
 }
 
 /// When the size is settled: written into the pane's own style, and the override of the drag
