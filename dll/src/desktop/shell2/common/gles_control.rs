@@ -10,6 +10,7 @@
 //!    attribute, divisor 1), drawn with `glDrawElementsInstanced`, sampling the same texture: `composite` of WebRender;
 //! 4b. `flat_lowp`: the quad pipeline's varyings, `flat lowp ivec4` carrying values that need more than eight bits and a `flat mediump vec4`;
 //! 4c. `quad_u8norm`: the same draw with WebRender's own unit quad, normalized unsigned bytes with a stride of two;
+//! 4d. `texture_size`: `textureSize()` in the vertex stage, for render targets and uploaded textures of several sizes and formats;
 //! 5. `data_textures`: an RGBA32F and an RGBA32I texture fetched with `texelFetch`: WebRender's GPU cache and prim headers;
 //! 5d. `pbo_upload`: the same two textures filled through a pixel unpack buffer (`glMapBufferRange`, `glUnmapBuffer`, `glTexSubImage2D` from an
 //!     offset with `GL_UNPACK_ROW_LENGTH`, the buffer mapped a second time unsynchronized): WebRender's `TextureUploader`;
@@ -215,6 +216,8 @@ const VERTEX_FETCH_FS: &str = "#version 300 es\nprecision highp float;\nin vec4 
 /// WebRender's `gpu_cache_update`: one point per texel, written into a float texture (the GPU cache of every phone's frame).
 const SCATTER_VS: &str = "#version 300 es\nin vec4 aValue;\nin vec2 aPosition;\nout highp vec4 vData;\nvoid main() {\n    vData = aValue;\n    gl_Position = vec4(aPosition * 2.0 - 1.0, 0.0, 1.0);\n    gl_PointSize = 1.0;\n}\n";
 const SCATTER_FS: &str = "#version 300 es\nprecision highp float;\nin highp vec4 vData;\nout vec4 oValue;\nvoid main() {\n    oValue = vData;\n}\n";
+const SIZE_VS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\nuniform sampler2D sTex;\nuniform float uZ;\nflat out mediump vec4 v_size;\nout vec2 vUv;\nvoid main() {\n    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n    vUv = p;\n    vec2 size = vec2(textureSize(sTex, 0));\n    v_size = vec4(size / 2048.0, 0.0, 1.0);\n    gl_Position = vec4(p * 2.0 - 1.0, uZ, 1.0);\n}\n";
+const SIZE_FS: &str = "#version 300 es\nprecision highp float;\nflat in mediump vec4 v_size;\nout vec4 oColour;\nvoid main() {\n    oColour = v_size;\n}\n";
 const FLAGS_VS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nlayout(location = 0) in vec2 aPosition;\nlayout(location = 1) in vec4 aRect;\nlayout(location = 2) in ivec4 aData;\nuniform mat4 uTransform;\nflat out mediump vec4 v_color;\nflat out lowp ivec4 v_flags;\nvoid main() {\n    vec2 pos = aRect.xy + aPosition * aRect.zw;\n    gl_Position = uTransform * vec4(pos, 0.0, 1.0);\n    v_color = vec4(0.25, 0.5, 0.75, 1.0);\n    v_flags = aData;\n}\n";
 const FLAGS_FS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nflat in mediump vec4 v_color;\nflat in lowp ivec4 v_flags;\nout vec4 oColour;\nvoid main() {\n    bool first = v_flags.x == 1500 && v_flags.y == 300 && v_flags.z == 2 && v_flags.w == 1;\n    bool second = v_flags.x == 7 && v_flags.y == 3 && v_flags.z == 0 && v_flags.w == 0;\n    bool colour_ok = abs(v_color.r - 0.25) < 0.01 && abs(v_color.g - 0.5) < 0.01 && abs(v_color.b - 0.75) < 0.01;\n    oColour = (first || second) ? (colour_ok ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 1.0, 0.0, 1.0)) : vec4(1.0, 0.0, 0.0, 1.0);\n}\n";
 
@@ -228,6 +231,7 @@ struct Programs {
     scatter: Result<u32, String>,
     vertex_fetch: Result<u32, String>,
     flags: Result<u32, String>,
+    texture_size: Result<u32, String>,
 }
 
 impl Programs {
@@ -246,11 +250,12 @@ impl Programs {
             scatter: program_of(gl, SCATTER_VS, SCATTER_FS, &[(0, "aPosition"), (1, "aValue")]),
             vertex_fetch: program_of(gl, VERTEX_FETCH_VS, VERTEX_FETCH_FS, &[(0, "aPosition"), (1, "aData")]),
             flags: program_of(gl, FLAGS_VS, FLAGS_FS, &[(0, "aPosition"), (1, "aRect"), (2, "aData")]),
+            texture_size: program_of(gl, SIZE_VS, SIZE_FS, &[]),
         }
     }
 
     fn delete(&self, gl: &GenericGlContext) {
-        for program in [&self.flat, &self.texture, &self.fetch_float, &self.fetch_int, &self.instanced, &self.scatter, &self.vertex_fetch, &self.flags]
+        for program in [&self.flat, &self.texture, &self.fetch_float, &self.fetch_int, &self.instanced, &self.scatter, &self.vertex_fetch, &self.flags, &self.texture_size]
             .into_iter()
             .flatten()
         {
@@ -269,6 +274,7 @@ impl Programs {
             ("scatter", &self.scatter),
             ("vertex_fetch", &self.vertex_fetch),
             ("flags", &self.flags),
+            ("texture_size", &self.texture_size),
         ]
         .into_iter()
         .filter_map(|(name, result)| result.as_ref().err().map(|why| format!("program {name}: {why}")))
@@ -695,6 +701,61 @@ fn flags_phase(gl: &GenericGlContext, target: Target, programs: &Programs, name:
     gl.delete_vertex_arrays(&[vao]);
     gl.delete_buffers(&[corners, indices, instances]);
     result
+}
+
+/// 4d. `textureSize()` in the VERTEX stage (every textured shader of WebRender normalises its UV rectangle by it: `vs_init_sample_color0`, `brush_image`):
+/// textures of several sizes and kinds are bound, the vertex shader writes `size / 2048` into a `flat mediump vec4` varying, the window shows it. A
+/// size read as zero or wrong makes every UV of that texture NaN or infinite, and its draws paint nothing.
+fn phase_texture_size(gl: &GenericGlContext, target: Target, programs: &Programs) -> Row {
+    let program = match &programs.texture_size {
+        Ok(program) => *program,
+        Err(why) => return failed("texture_size", format!("the program did not build: {why}")),
+    };
+    let size = target.size;
+    // (name, internal format, side, drawn to first, the colour 255 * size / 2048 in red and green)
+    let cases: [(&str, u32, i32, bool, [u8; 4]); 5] = [
+        ("2048x2048 RGBA8 render target", glconst::RGBA8, 2048, true, [255, 255, 0, 255]),
+        ("1024x1024 RGBA8 render target", glconst::RGBA8, 1024, true, [127, 127, 0, 255]),
+        ("2048x2048 R8 render target", glconst::R8, 2048, true, [255, 255, 0, 255]),
+        ("2048x2048 RGBA8, never drawn to", glconst::RGBA8, 2048, false, [255, 255, 0, 255]),
+        ("64x64 RGBA8", glconst::RGBA8, 64, false, [8, 8, 0, 255]),
+    ];
+    let mut checks: Vec<(&str, [u8; 4], [u8; 4])> = Vec::new();
+    for (name, format, side, drawn_to, expected) in cases {
+        let texture = gl.gen_textures(1).first().copied().unwrap_or(0);
+        gl.active_texture(glconst::TEXTURE0);
+        bind_2d(gl, target, texture);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::LINEAR as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::LINEAR as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_S, glconst::CLAMP_TO_EDGE as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_T, glconst::CLAMP_TO_EDGE as i32);
+        gl.tex_storage_2d(glconst::TEXTURE_2D, 1, format, side, side);
+        if drawn_to {
+            let framebuffer = gl.gen_framebuffers(1).first().copied().unwrap_or(0);
+            gl.bind_framebuffer(draw_target(target), framebuffer);
+            gl.framebuffer_texture_2d(draw_target(target), glconst::COLOR_ATTACHMENT0, glconst::TEXTURE_2D, texture, 0);
+            gl.viewport(0, 0, side, side);
+            gl.clear_color(1.0, 0.0, 0.0, 1.0);
+            gl.clear(glconst::COLOR_BUFFER_BIT);
+            gl.bind_framebuffer(draw_target(target), target.window);
+            gl.delete_framebuffers(&[framebuffer]);
+        }
+        window_target(gl, target);
+        gl.clear_color(0.2, 0.2, 0.2, 1.0);
+        gl.clear(glconst::COLOR_BUFFER_BIT);
+        gl.active_texture(glconst::TEXTURE0);
+        bind_2d(gl, target, texture);
+        gl.use_program(program);
+        let sampler = gl.get_uniform_location(program, "sTex");
+        gl.uniform_1i(sampler, 0);
+        full_screen(gl, program, 0.0);
+        gl.finish();
+        checks.push((name, expected, px(gl, size.0 / 2, size.1 / 2)));
+        gl.bind_texture(glconst::TEXTURE_2D, 0);
+        gl.delete_textures(&[texture]);
+    }
+    let error = gl.get_error();
+    row("texture_size", &checks, error, "")
 }
 
 /// 5. Data textures: four texels of an RGBA32F texture on the top half, four of an RGBA32I texture on the bottom half, each read with
@@ -1405,7 +1466,7 @@ fn phase_shared_depth(gl: &GenericGlContext, target: Target, programs: &Programs
 }
 
 /// The phases, by name, in the order the ladder runs them.
-pub const PHASES: [&str; 14] = [
+pub const PHASES: [&str; 15] = [
     "clear",
     "shader",
     "dummy_texture",
@@ -1413,6 +1474,7 @@ pub const PHASES: [&str; 14] = [
     "instanced",
     "flat_lowp",
     "quad_u8norm",
+    "texture_size",
     "data_textures",
     "pbo_upload",
     "vertex_fetch",
@@ -1446,6 +1508,7 @@ pub fn run_ladder(gl: &GenericGlContext, target: Target, show: &mut dyn FnMut(&'
             "instanced" => phase_instanced(gl, target, &programs),
             "flat_lowp" => phase_flat_lowp(gl, target, &programs),
             "quad_u8norm" => phase_quad_u8norm(gl, target, &programs),
+            "texture_size" => phase_texture_size(gl, target, &programs),
             "data_textures" => phase_data_textures(gl, target, &programs),
             "pbo_upload" => phase_pbo_upload(gl, target, &programs),
             "vertex_fetch" => phase_vertex_fetch(gl, target, &programs),
