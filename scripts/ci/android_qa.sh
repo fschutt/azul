@@ -7,6 +7,7 @@
 #            e2e: scripts/ci/mobile_e2e.py, the debug server of a `mobile-e2e` APK driven from the runner (the scenario
 #                 files named in AZ_QA_SCENARIOS, space separated);
 #            both: qa, then e2e on the same boot;
+#            matrix: every e2e scenario file against its host app (scripts/ci/e2e_matrix.py; AZ_QA_MATRIX_APKS: the e2e APKs);
 #            audit: the phone-fit audit of QA-variant APKs (scripts/ci/mobile_e2e.py --audit-only) on the first mode only: the
 #                 APK, then every APK of AZ_QA_AUDIT_APKS (space separated), each in its own folder <out>/<mode>/audit/<apk name>/
 #                 (layout-audit.md and .json, the dumps, both pictures per orientation, the dark-mode verdict, and the app's own
@@ -133,6 +134,12 @@ for mode in "${mode_list[@]}"; do
       python3 "$here/mobile_qa.py" android --out "$d/apps/$xn" --apk "$xapk" --package "$xpkg" --activity "${xact:-}" \
         --label "$xn" --gpu "$mode" --only "${xonly:-${AZ_QA_ONLY_EXTRA:-03,08,09,12,13}}" ${xtap:+--tap-label "$xtap"} 2>&1 | tee "$d/apps/$xn.log"
     done
+  fi
+  if [ "$session" = matrix ] && [ "$mode" = "${mode_list[0]}" ]; then
+    # every e2e scenario file against its host app (scripts/ci/e2e_matrix.py): the e2e APK of each host (AZ_QA_MATRIX_APKS, space separated)
+    mapks=()
+    for mapk in "$apk" ${AZ_QA_MATRIX_APKS:-}; do mapks+=(--apk "$mapk"); done
+    python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
   fi
   if [ "$session" = audit ] && [ "$mode" = "${mode_list[0]}" ]; then
     aport=8795
