@@ -1,0 +1,30 @@
+[
+  {
+    "name": "azreader_reading_the_sample",
+    "description": "The sample book opened and its first page, light and dark: the page on a quiet ground (a desktop has the toolbar and the strip of pages beside it, a phone the page over the whole screen).",
+    "steps": [
+      {"op": "wait_frame"},
+      {"op": "wait_frame"},
+      {"op": "wait_settled"},
+      {"op": "azreader_open_sample"},
+      {"op": "azreader_wait", "for": "chapter"},
+      {"op": "wait_frame"},
+      {"op": "wait_frame"},
+      {"op": "wait_settled"},
+      {"op": "assert_exists", "selector": "#__azreader_reading"},
+      {"op": "assert_exists", "selector": ".__azreader_page"},
+      {"op": "print", "text": "frame: the first page of the sample book"},
+      {"op": "take_screenshot"},
+      {"op": "set_mode", "mode": "dark"},
+      {"op": "wait_frame"},
+      {"op": "wait_frame"},
+      {"op": "wait_settled"},
+      {"op": "print", "text": "frame: the same page in the dark mode"},
+      {"op": "take_screenshot"},
+      {"op": "set_mode", "mode": "light"},
+      {"op": "wait_frame"},
+      {"op": "wait_frame"},
+      {"op": "wait_settled"}
+    ]
+  }
+]

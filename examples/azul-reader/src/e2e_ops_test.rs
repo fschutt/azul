@@ -23,3 +23,25 @@ fn the_sample_the_ops_add_is_a_book_the_library_takes() {
     assert!(bytes.starts_with(b"PK"), "an EPUB is a zip");
     assert!(crate::library::Format::of_name(crate::sample::FILE_NAME).is_some());
 }
+
+#[test]
+fn a_wait_step_names_what_it_waits_for() {
+    assert_eq!(waited_for("{\"for\":\"library\"}"), "library");
+    assert_eq!(waited_for("{}"), "");
+    assert_eq!(waited_for("not json"), "");
+}
+
+#[test]
+fn the_library_and_the_chapter_are_ready_only_when_they_are() {
+    let mut st = crate::app::AppState::new(
+        RefAny::new(0u8),
+        std::path::PathBuf::from("."),
+        crate::settings::ReadingSettings::default(),
+        false,
+    );
+    assert_eq!(ready("library", &st), Some(false), "not read yet");
+    assert_eq!(ready("chapter", &st), Some(false), "no book open");
+    st.listed = true;
+    assert_eq!(ready("library", &st), Some(false), "read, but empty");
+    assert_eq!(ready("nonsense", &st), None);
+}

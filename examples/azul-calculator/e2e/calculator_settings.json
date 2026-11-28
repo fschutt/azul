@@ -1,0 +1,18 @@
+[
+  {
+    "name": "azcalculator_settings",
+    "description": "The settings page (the kit's: Display, General, Data, Shortcuts, About) on the window it is shown in.",
+    "steps": [
+      {"op": "wait_frame"},
+      {"op": "wait_frame"},
+      {"op": "wait_settled"},
+      {"op": "click", "selector": "#__azcalc_settings"},
+      {"op": "wait_frame"},
+      {"op": "wait_frame"},
+      {"op": "wait_settled"},
+      {"op": "assert_exists", "selector": "#appkit-settings"},
+      {"op": "print", "text": "frame: the settings page"},
+      {"op": "take_screenshot"}
+    ]
+  }
+]

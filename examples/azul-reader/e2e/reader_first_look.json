@@ -1,0 +1,26 @@
+[
+  {
+    "name": "azreader_first_look",
+    "description": "The first start: the library with its thin toolbar of icons (Add a book, the search, the sort, Settings) and the empty state, then the sample book added through the app's own e2e op (a phone has no command line for --sample) and its tile.",
+    "steps": [
+      {"op": "wait_frame"},
+      {"op": "wait_frame"},
+      {"op": "wait_settled"},
+      {"op": "assert_exists", "selector": "#__azreader_toolbar"},
+      {"op": "assert_exists", "selector": "#__azreader_empty"},
+      {"op": "find_node_by_text", "text": "Your library is empty"},
+      {"op": "assert_response", "contains": "\"found\":true"},
+      {"op": "print", "text": "frame: the library, first start, no book (the toolbar of icons, the empty state)"},
+      {"op": "take_screenshot"},
+      {"op": "azreader_import_sample"},
+      {"op": "azreader_wait", "for": "library"},
+      {"op": "wait_frame"},
+      {"op": "wait_frame"},
+      {"op": "wait_settled"},
+      {"op": "assert_node_count", "selector": ".__azreader_book", "expected": 1},
+      {"op": "assert_exists", "selector": "#__azreader_library"},
+      {"op": "print", "text": "frame: the library with the sample book (a tile: cover, title, author, how far)"},
+      {"op": "take_screenshot"}
+    ]
+  }
+]

@@ -1,0 +1,27 @@
+[
+  {
+    "name": "azcalculator_history",
+    "description": "The history: the sample calculations are loaded through the app's e2e op, the History button shows them over the keypad and hides them again.",
+    "steps": [
+      {"op": "wait_frame"},
+      {"op": "wait_frame"},
+      {"op": "wait_settled"},
+      {"op": "azcalculator_load_sample"},
+      {"op": "wait_frame"},
+      {"op": "wait_frame"},
+      {"op": "wait_settled"},
+      {"op": "click", "selector": "#__azcalc_toggle-panel"},
+      {"op": "wait_frame"},
+      {"op": "wait_frame"},
+      {"op": "wait_settled"},
+      {"op": "assert_exists", "selector": "#__azcalc_panel"},
+      {"op": "print", "text": "frame: the history over the keypad (the sample's three calculations)"},
+      {"op": "take_screenshot"},
+      {"op": "click", "selector": "#__azcalc_toggle-panel"},
+      {"op": "wait_frame"},
+      {"op": "wait_frame"},
+      {"op": "wait_settled"},
+      {"op": "assert_exists", "selector": "#__azcalc_keypad"}
+    ]
+  }
+]
