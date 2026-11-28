@@ -458,7 +458,7 @@ pub enum FrameDamage {
 
 impl FrameDamage {
     /// The damage of a frame the GPU path drew, as the window's frame report keeps it: nothing when
-    /// WebRender drew nothing (`drew` is false: 0 draw calls), else the logical rects it says it redrew
+    /// `WebRender` drew nothing (`drew` is false: 0 draw calls), else the logical rects it says it redrew
     /// (`dirty`), or the whole window when it names none.
     #[must_use]
     pub fn of_gpu_frame(drew: bool, dirty: &[LogicalRect]) -> Self {
