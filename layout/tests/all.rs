@@ -134,6 +134,8 @@ mod a_drag_selection_owns_the_scroll_of_its_field;
 mod a_hundred_and_twenty_nested_blocks_lay_out_on_a_two_megabyte_thread;
 #[path = "a_numeric_font_weight_draws_the_variable_font_at_exactly_that_weight.rs"]
 mod a_numeric_font_weight_draws_the_variable_font_at_exactly_that_weight;
+#[path = "a_padded_flex_panel_in_a_scrolling_root_is_measured_whole.rs"]
+mod a_padded_flex_panel_in_a_scrolling_root_is_measured_whole;
 #[path = "a_press_on_an_overflowing_field_selects.rs"]
 mod a_press_on_an_overflowing_field_selects;
 #[path = "a_scroll_box_scrolls_to_its_end_padding.rs"]

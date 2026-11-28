@@ -255,8 +255,9 @@ fn a_dialog_is_a_sheet_at_the_bottom_of_a_narrow_window() {
     let title = rect_of(&lw, node_with_class(&lw, "__azul-overlay-title")).expect("the title row");
     let close = rect_of(&lw, node_with_class(&lw, "__azul-overlay-close")).expect("the close box");
     assert!(title.origin.y >= sheet.origin.y && close.origin.y >= sheet.origin.y);
+    // (the card has a 1 px border: the band is inside it)
     assert!(
-        (title.origin.x - sheet.origin.x).abs() < 1.0 && (title.size.width - sheet.size.width).abs() < 1.0,
+        (title.origin.x - sheet.origin.x).abs() <= 1.5 && (sheet.size.width - title.size.width).abs() <= 3.0,
         "the title band spans the card, edge to edge (not past it): {title:?} in {sheet:?}"
     );
     assert!(
@@ -362,9 +363,51 @@ fn an_overlay_holds_the_dialog_widgets_panel_whole() {
 
     let overlay = rect_of(&lw, popup_node(&lw)).expect("the overlay is laid out");
     let panel = rect_of(&lw, node_with_class(&lw, "__azul-native-dialog-panel")).expect("the panel is laid out");
+    // What the measure said, and what the same subtree is when it is laid out on its own at that width: where the
+    // difference comes from, should the overlay be short.
+    let source = popup_node(&lw);
+    let room = lw.overlay_bounds(&ws).size;
+    let measured = lw.layout_transient_content(
+        source,
+        DomId { inner: 7 },
+        azul_core::geom::OptionLogicalSize::None,
+        &ws,
+        room,
+    );
+    let alone = measured.map(|size| {
+        let (mut lw2, ws2) = window(LogicalSize::new(size.width, 800.0), false);
+        let mut dom2 =
+            azul_core::transient::extract_subtree_as_dom(&lw.layout_results[&DomId::ROOT_ID].styled_dom, source)
+                .expect("the subtree");
+        dom2.root.upsert_inline_css_property(azul_css::props::property::CssProperty::const_position(
+            azul_css::props::layout::LayoutPosition::Static,
+        ));
+        let styled2 = StyledDom::create_from_dom(dom2);
+        lw2.layout_and_generate_display_list(
+            styled2,
+            &ws2,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut Some(Vec::new()),
+        )
+        .unwrap();
+        let part = |class: &str| rect_of(&lw2, node_with_class(&lw2, class));
+        (
+            rect_of(&lw2, NodeId::new(0)),
+            part("__azul-native-dialog-panel"),
+            part("__azul-native-dialog-title"),
+            part("__azul-native-dialog-content"),
+        )
+    });
+    let title = rect_of(&lw, node_with_class(&lw, "__azul-native-dialog-title"));
+    let content = rect_of(&lw, node_with_class(&lw, "__azul-native-dialog-content"));
+    let numbers = format!(
+        "measured {measured:?}; the subtree alone at that width (root, panel, title, content) {alone:?}; in the window: \
+         overlay {overlay:?}, panel {panel:?}, title {title:?}, content {content:?}"
+    );
     assert!(
         panel.origin.y + panel.size.height <= overlay.origin.y + overlay.size.height + 0.5,
-        "the overlay ends where the panel ends: panel {panel:?} in overlay {overlay:?}"
+        "the overlay ends where the panel ends: {numbers}"
     );
     assert!(
         panel.origin.x + panel.size.width <= overlay.origin.x + overlay.size.width + 0.5,
