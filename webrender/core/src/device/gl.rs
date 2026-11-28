@@ -3841,6 +3841,202 @@ impl Device {
         Ok(())
     }
 
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): the same 64 x 64 red RGBA8 texture built in several ways, each step of
+    /// `Device::create_texture` and of the texture binding added one at a time, and sampled by a plain program of this function's own into a 64 x 64
+    /// RGBA8 target: one line per way, the texel read back from the middle of the target (`#ff0000ff` when the texture samples as it was written).
+    pub fn debug_texture_matrix(&mut self) -> Vec<String> {
+        struct Way {
+            name: &'static str,
+            mag_first: bool,
+            unbind_pbo: bool,
+            alignment: bool,
+            usage: bool,
+            fbo: bool,
+            ext_unbind: bool,
+            swizzle: bool,
+            storage: bool,
+        }
+        let base = Way {
+            name: "",
+            mag_first: false,
+            unbind_pbo: false,
+            alignment: false,
+            usage: false,
+            fbo: false,
+            ext_unbind: false,
+            swizzle: false,
+            storage: true,
+        };
+        let ways = [
+            Way { name: "ladder order (min, mag, wrap), storage, upload", ..base },
+            Way { name: "+ mag before min", mag_first: true, ..base },
+            Way { name: "+ no pixel unpack buffer bound", mag_first: true, unbind_pbo: true, ..base },
+            Way { name: "+ unpack alignment 1", mag_first: true, unbind_pbo: true, alignment: true, ..base },
+            Way { name: "+ ANGLE texture usage", mag_first: true, unbind_pbo: true, alignment: true, usage: true, ..base },
+            Way { name: "+ a framebuffer on the texture", mag_first: true, unbind_pbo: true, alignment: true, usage: true, fbo: true, ..base },
+            Way { name: "+ external texture unbind (the emulator's)", mag_first: true, unbind_pbo: true, alignment: true, usage: true, fbo: true, ext_unbind: true, ..base },
+            Way { name: "+ swizzle set to bgra and back", mag_first: true, unbind_pbo: true, alignment: true, usage: true, fbo: true, ext_unbind: true, swizzle: true, ..base },
+            Way { name: "the first way with glTexImage2D instead of storage", storage: false, ..base },
+            Way { name: "everything, with glTexImage2D instead of storage", mag_first: true, unbind_pbo: true, alignment: true, usage: true, fbo: true, ext_unbind: true, swizzle: true, storage: false },
+        ];
+        const VS: &str = "#version 300 es\nout vec2 vUv;\nvoid main() {\n    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n    vUv = p;\n    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n}\n";
+        const FS: &str = "#version 300 es\nprecision mediump float;\nuniform sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
+        let ctx = &self.gl;
+        let compile = |kind: gl::GLenum, source: &str| -> Result<gl::GLuint, String> {
+            let mut bytes = source.as_bytes().to_vec();
+            bytes.push(0);
+            let shader = ctx.create_shader(kind);
+            ctx.shader_source(shader, &[bytes.as_slice()]);
+            ctx.compile_shader(shader);
+            let mut status = [0_i32];
+            unsafe { ctx.get_shader_iv(shader, gl::COMPILE_STATUS, &mut status) };
+            if status[0] == 0 {
+                let log = ctx.get_shader_info_log(shader);
+                ctx.delete_shader(shader);
+                return Err(log);
+            }
+            Ok(shader)
+        };
+        let vertex = match compile(gl::VERTEX_SHADER, VS) {
+            Ok(v) => v,
+            Err(e) => return vec![format!("the plain program did not build: {e}")],
+        };
+        let fragment = match compile(gl::FRAGMENT_SHADER, FS) {
+            Ok(f) => f,
+            Err(e) => {
+                ctx.delete_shader(vertex);
+                return vec![format!("the plain program did not build: {e}")];
+            }
+        };
+        let program = ctx.create_program();
+        ctx.attach_shader(program, vertex);
+        ctx.attach_shader(program, fragment);
+        ctx.link_program(program);
+        ctx.delete_shader(vertex);
+        ctx.delete_shader(fragment);
+        let mut status = [0_i32];
+        unsafe { ctx.get_program_iv(program, gl::LINK_STATUS, &mut status) };
+        if status[0] == 0 {
+            let log = ctx.get_program_info_log(program);
+            ctx.delete_program(program);
+            return vec![format!("the plain program did not link: {log}")];
+        }
+
+        // The target: an RGBA8 texture with a framebuffer.
+        let target_texture = ctx.gen_textures(1)[0];
+        ctx.active_texture(gl::TEXTURE0);
+        ctx.bind_texture(gl::TEXTURE_2D, target_texture);
+        ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as gl::GLint);
+        ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as gl::GLint);
+        ctx.tex_storage_2d(gl::TEXTURE_2D, 1, gl::RGBA8, 64, 64);
+        let target_fbo = ctx.gen_framebuffers(1)[0];
+        ctx.bind_framebuffer(gl::DRAW_FRAMEBUFFER, target_fbo);
+        ctx.framebuffer_texture_2d(gl::DRAW_FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, target_texture, 0);
+        let target_status = ctx.check_frame_buffer_status(gl::DRAW_FRAMEBUFFER);
+
+        let red: Vec<u8> = (0..64 * 64).flat_map(|_| [255_u8, 0, 0, 255]).collect();
+        let mut lines = vec![format!("target framebuffer status 0x{target_status:x}")];
+        let mut extra_fbos: Vec<gl::GLuint> = Vec::new();
+        let mut sources: Vec<gl::GLuint> = Vec::new();
+        for way in &ways {
+            let texture = ctx.gen_textures(1)[0];
+            sources.push(texture);
+            ctx.active_texture(gl::TEXTURE0);
+            if way.ext_unbind {
+                ctx.bind_texture(gl::TEXTURE_EXTERNAL_OES, 0);
+            }
+            ctx.bind_texture(gl::TEXTURE_2D, texture);
+            if way.mag_first {
+                ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as gl::GLint);
+                ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as gl::GLint);
+            } else {
+                ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as gl::GLint);
+                ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as gl::GLint);
+            }
+            ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as gl::GLint);
+            ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as gl::GLint);
+            if way.usage {
+                ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_USAGE_ANGLE, gl::FRAMEBUFFER_ATTACHMENT_ANGLE as gl::GLint);
+            }
+            if way.unbind_pbo {
+                ctx.bind_buffer(gl::PIXEL_UNPACK_BUFFER, 0);
+            }
+            if way.storage {
+                ctx.tex_storage_2d(gl::TEXTURE_2D, 1, gl::RGBA8, 64, 64);
+            } else {
+                ctx.tex_image_2d(
+                    gl::TEXTURE_2D,
+                    0,
+                    gl::RGBA8 as gl::GLint,
+                    64,
+                    64,
+                    0,
+                    gl::RGBA,
+                    gl::UNSIGNED_BYTE,
+                    None,
+                );
+            }
+            let mut fbo_status = String::new();
+            if way.fbo {
+                let fbo = ctx.gen_framebuffers(1)[0];
+                extra_fbos.push(fbo);
+                ctx.bind_framebuffer(gl::DRAW_FRAMEBUFFER, fbo);
+                ctx.framebuffer_texture_2d(gl::DRAW_FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, texture, 0);
+                fbo_status = format!(" (its framebuffer 0x{:x})", ctx.check_frame_buffer_status(gl::DRAW_FRAMEBUFFER));
+            }
+            if way.alignment {
+                ctx.pixel_store_i(gl::UNPACK_ALIGNMENT, 1);
+            }
+            ctx.bind_texture(gl::TEXTURE_2D, texture);
+            ctx.tex_sub_image_2d(gl::TEXTURE_2D, 0, 0, 0, 64, 64, gl::RGBA, gl::UNSIGNED_BYTE, &red);
+            if way.swizzle {
+                ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_SWIZZLE_R, gl::BLUE as gl::GLint);
+                ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_SWIZZLE_G, gl::GREEN as gl::GLint);
+                ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_SWIZZLE_B, gl::RED as gl::GLint);
+                ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_SWIZZLE_A, gl::ALPHA as gl::GLint);
+                ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_SWIZZLE_R, gl::RED as gl::GLint);
+                ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_SWIZZLE_G, gl::GREEN as gl::GLint);
+                ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_SWIZZLE_B, gl::BLUE as gl::GLint);
+                ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_SWIZZLE_A, gl::ALPHA as gl::GLint);
+            }
+            let upload_error = ctx.get_error();
+
+            // Sample it into the target with the plain program.
+            ctx.bind_framebuffer(gl::DRAW_FRAMEBUFFER, target_fbo);
+            ctx.viewport(0, 0, 64, 64);
+            ctx.disable(gl::BLEND);
+            ctx.disable(gl::DEPTH_TEST);
+            ctx.disable(gl::SCISSOR_TEST);
+            ctx.clear_color(0.0, 0.0, 0.0, 0.0);
+            ctx.clear(gl::COLOR_BUFFER_BIT);
+            ctx.bind_vertex_array(0);
+            ctx.use_program(program);
+            ctx.active_texture(gl::TEXTURE0);
+            ctx.bind_texture(gl::TEXTURE_2D, texture);
+            let location = ctx.get_uniform_location(program, "sTex");
+            ctx.uniform_1i(location, 0);
+            ctx.draw_arrays(gl::TRIANGLES, 0, 3);
+            ctx.use_program(0);
+            ctx.bind_framebuffer(gl::READ_FRAMEBUFFER, target_fbo);
+            let mut pixel = [0_u8; 4];
+            ctx.read_pixels_into_buffer(32, 32, 1, 1, gl::RGBA, gl::UNSIGNED_BYTE, &mut pixel);
+            let draw_error = ctx.get_error();
+            lines.push(format!(
+                "{}: #{:02x}{:02x}{:02x}{:02x}{}; glGetError after the upload 0x{:x}, after the draw 0x{:x}",
+                way.name, pixel[0], pixel[1], pixel[2], pixel[3], fbo_status, upload_error, draw_error
+            ));
+        }
+        ctx.bind_framebuffer(gl::DRAW_FRAMEBUFFER, 0);
+        ctx.bind_framebuffer(gl::READ_FRAMEBUFFER, 0);
+        ctx.delete_framebuffers(&extra_fbos);
+        ctx.delete_framebuffers(&[target_fbo]);
+        ctx.delete_textures(&sources);
+        ctx.delete_textures(&[target_texture]);
+        ctx.delete_program(program);
+        self.reset_state();
+        lines
+    }
+
     /// EXPERIMENT (the Android GPU root-cause hunt, never for master): what the context says is current: the active texture unit, the 2D texture of
     /// unit 0, the current program, and the value of the integer uniform `name` of `program` (the unit a sampler reads).
     pub fn debug_sampler_state(&self, program: u32, name: &str) -> String {

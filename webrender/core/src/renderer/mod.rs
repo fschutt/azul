@@ -1168,6 +1168,14 @@ impl Renderer {
         )
     }
 
+    /// EXPERIMENT: `Device::debug_texture_matrix` between a `begin_frame` and an `end_frame`, one line per way of building the texture.
+    pub fn debug_texture_matrix(&mut self) -> Vec<String> {
+        let _ = self.device.begin_frame();
+        let lines = self.device.debug_texture_matrix();
+        self.device.end_frame();
+        lines
+    }
+
     /// EXPERIMENT: three pixels of the 128 x 128 target of `debug_composite_probe`: inside the quad (centre, a corner) and outside it.
     fn probe_composite_pixels(&mut self, target: &Texture) -> String {
         self.device

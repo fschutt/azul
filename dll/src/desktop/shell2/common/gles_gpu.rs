@@ -1002,6 +1002,9 @@ impl GlesGpu {
         if self.presents == 0 && composite_probe_requested() {
             if let Some(renderer) = ctx.common.renderer.as_mut() {
                 log_info!(LogCategory::Rendering, "[render] {}", renderer.debug_composite_probe());
+                for line in renderer.debug_texture_matrix() {
+                    log_info!(LogCategory::Rendering, "[render] texture matrix: {}", line);
+                }
             }
         }
         if self.presents < DESCRIBED_PRESENTS {

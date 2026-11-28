@@ -346,6 +346,9 @@ impl<'a> GpuSession<'a> {
             eprintln!("[probe] {}", renderer.debug_probe_textures());
             eprintln!("[probe] {}", renderer.debug_gpu_cache_probe());
             eprintln!("[probe] {}", renderer.debug_composite_probe());
+            for line in renderer.debug_texture_matrix() {
+                eprintln!("[probe] texture matrix: {line}");
+            }
         }
         let mut pixels =
             AzulPixmap::new(self.size_px.0, self.size_px.1).ok_or("a pixmap of that size")?;
