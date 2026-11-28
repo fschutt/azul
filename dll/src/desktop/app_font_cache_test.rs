@@ -152,11 +152,9 @@ fn a_font_that_changed_is_rebuilt_and_the_next_start_is_a_hit() {
         Persisted::Written
     );
 
-    // The file is replaced by another one of another size (an OS update).
-    let file = fonts.join("RedHatMono.ttf");
-    let mut bytes = std::fs::read(&file).unwrap();
-    bytes.extend_from_slice(&[0u8; 16]);
-    std::fs::write(&file, &bytes).unwrap();
+    // The file is replaced by another font of another size (an OS update).
+    let other = Path::new(env!("CARGO_MANIFEST_DIR")).join("../layout/tests/fonts/azul-mock-kern.ttf");
+    std::fs::copy(&other, fonts.join("RedHatMono.ttf")).expect("another font of the repository");
 
     let second = registry_over(&fonts);
     let started = start_font_cache(&second, Some(manifest.as_path()), &key);
