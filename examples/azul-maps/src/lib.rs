@@ -444,6 +444,8 @@ struct MapState {
     stats: bool,
     /// The window rebuilds so far (`--stats`); a cell: the layout callback reads the state shared.
     layouts: Cell<u64>,
+    /// The window as the last build saw it (its size, the insets, the controls' room): what the framing between builds is done against.
+    frame: Cell<Option<ui::Frame>>,
     travel: Travel,
     mag_x: f32,
     mag_y: f32,
@@ -682,14 +684,13 @@ impl MapState {
         (0.0, sheet.min(height))
     }
 
-    /// The window as the sheet's numbers need it (its size, no insets known here: the build's own
-    /// are read where the sheet is built; this is for the framing between builds).
+    /// The window as the last build saw it (before the first build: its size, no insets).
     fn frame_of(&self) -> ui::Frame {
-        ui::Frame {
+        self.frame.get().unwrap_or(ui::Frame {
             size: self.size.get(),
             insets: Insets::default(),
             title: kit::TitleInsets { left: 0.0, right: 0.0, height: 0.0 },
-        }
+        })
     }
 
     /// Frames the way from `a` to `b` in the part of the window the panel and the sheet leave free.
@@ -1590,6 +1591,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     s.size.set(size);
     let frame = ui::Frame { size, insets: Insets::of(&info), title: kit::title_insets(&info) };
+    s.frame.set(Some(frame));
     let content = if kit::settings_open(&s.kit) {
         // azul-appkit's settings page: Appearance, Data, Shortcuts, About.
         Dom::create_div()
@@ -2491,6 +2493,7 @@ pub fn start() {
         toast: (String::new(), 0),
         stats: args.stats,
         layouts: Cell::new(0),
+        frame: Cell::new(None),
         travel: Travel::default(),
         mag_x: 0.0,
         mag_y: 0.0,
