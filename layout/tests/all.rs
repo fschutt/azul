@@ -996,6 +996,8 @@ mod focusing_a_search_field_by_its_id_focuses_its_text;
 mod a_button_fades_into_its_hover_face;
 #[path = "a_button_is_a_touch_target_on_a_phone.rs"]
 mod a_button_is_a_touch_target_on_a_phone;
+#[path = "a_break_of_the_reading_policy_falls_between_two_lines.rs"]
+mod a_break_of_the_reading_policy_falls_between_two_lines;
 #[path = "a_segmented_item_is_a_touch_target_on_a_phone.rs"]
 mod a_segmented_item_is_a_touch_target_on_a_phone;
 #[path = "a_toolbar_tool_is_a_touch_target_on_a_phone.rs"]
