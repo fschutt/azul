@@ -116,6 +116,24 @@ pub fn state_of_check(capability: Capability, granted: &[bool], rationale: bool)
     }
 }
 
+/// Whether a permission DIALOG may be started for a capability in `state`, and by whom.
+///
+/// A permission dialog comes from a user action, once: the diff-driven path (a probe node entered the DOM:
+/// `reask == false`) asks only while the state is `NotDetermined`; a denial is remembered (the state stays `Denied`)
+/// and the app is told, it does not get asked again behind the user's back. An explicit request a person made
+/// (`reask == true`: a button the app showed after explaining) asks again after ONE denial, while Android still offers
+/// a rationale (`rationale`: `shouldShowRequestPermissionRationale`); a permission denied for good ("don't ask
+/// again", or denied twice) shows no dialog at all and the system answers a request with a denial at once: the app
+/// sends the user to the settings instead.
+#[must_use]
+pub fn may_show_dialog(state: PermissionState, rationale: bool, reask: bool) -> bool {
+    match state {
+        PermissionState::NotDetermined => true,
+        PermissionState::Denied => reask && rationale,
+        _ => false,
+    }
+}
+
 /// The state from the answer to a request: whether every permission of it was granted, and whether any
 /// was. A user who grants the approximate location only has granted a REDUCED location, not denied it.
 #[must_use]

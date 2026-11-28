@@ -33,7 +33,7 @@ use azul_layout::managers::permission::{
 };
 
 #[cfg(target_os = "android")]
-use super::android_table::{needs, state_of_check, state_of_result, Needs};
+use super::android_table::{may_show_dialog, needs, state_of_check, state_of_result, Needs};
 
 /// requestCode → the capability it was requested for, so the async result
 /// callback can recover which permission resolved.
@@ -57,25 +57,30 @@ fn next_request_code() -> i32 {
 #[cfg(target_os = "android")]
 pub fn handle_event(event: &PermissionDiffEvent) {
     // Only a first Subscribe prompts; Release/Reconfigure have no Android
-    // action for a pure permission.
+    // action for a pure permission. The diff-driven path never asks AGAIN: a denial is remembered
+    // (`may_show_dialog`), the app is told and offers the settings.
     let capability = match event {
         PermissionDiffEvent::Subscribe { capability, .. } => *capability,
         PermissionDiffEvent::Release { .. } | PermissionDiffEvent::Reconfigure { .. } => return,
     };
-    let _ = request(capability);
+    let _ = request_with(capability, false);
 }
 
 /// Show the runtime-permission dialog for `capability` unless it is granted already or has none at this
 /// API level. Returns whether a dialog was requested; its answer arrives through
-/// `nativeOnPermissionResult`. Also the entry point of `CallbackInfo::request_notification_permission`
-/// (POST_NOTIFICATIONS, API 33 and up).
+/// `nativeOnPermissionResult`. The entry point of a PERSON's request (`CallbackInfo::request_notification_permission`:
+/// POST_NOTIFICATIONS, API 33 and up): it asks again after one denial, while Android offers a rationale.
 ///
 /// What is asked depends on the API level (`android_table::needs`): location as the fine + coarse pair in
-/// ONE request, notifications only from API 33. A capability the user denied once is asked again: Android
-/// shows the dialog a second time and answers a third request at once with a denial, which is the
-/// documented flow ("rationale: explain, then ask again"); the shell used to give up at the first denial.
+/// ONE request, notifications only from API 33; a capability's own permissions and nothing else.
 #[cfg(target_os = "android")]
 pub fn request(capability: Capability) -> bool {
+    request_with(capability, true)
+}
+
+/// [`request`], with whether a denial may be asked about again (`reask`, see `android_table::may_show_dialog`).
+#[cfg(target_os = "android")]
+fn request_with(capability: Capability, reask: bool) -> bool {
     let Some(sdk) = sdk_int() else {
         return false;
     };
@@ -83,9 +88,9 @@ pub fn request(capability: Capability) -> bool {
         Needs::Ask(perms) => perms,
         Needs::NothingToAsk | Needs::NotAPermission => return false,
     };
-    // Granted already (or the JNI failed): nothing to ask.
+    // Granted already (or the JNI failed), or denied and not to be asked again: no dialog.
     match probe_permissions(capability, perms) {
-        Some(PermissionState::NotDetermined | PermissionState::Denied) => {}
+        Some(probe) if may_show_dialog(probe.state, probe.rationale, reask) => {}
         _ => return false,
     }
 
@@ -116,7 +121,7 @@ pub fn probe_status(capability: Capability) -> PermissionState {
     match needs(capability, sdk) {
         Needs::Ask(perms) => {
             // JNI failure (VM not yet published, etc.) degrades to NotDetermined.
-            probe_permissions(capability, perms).unwrap_or(PermissionState::NotDetermined)
+            probe_permissions(capability, perms).map_or(PermissionState::NotDetermined, |probe| probe.state)
         }
         // Nothing to ask at this API level: an install-time permission, usable. Except notifications
         // below API 33, which have no runtime permission but a switch the user can turn off
@@ -203,15 +208,32 @@ fn attach<R>(f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Option<R
     f(&mut env, activity)
 }
 
-/// `Context.checkSelfPermission` of each permission of a request (+ the rationale flag on a denial), as the
-/// state `android_table::state_of_check` makes of them.
+/// What a quiet check of a capability's permissions found.
 #[cfg(target_os = "android")]
-fn probe_permissions(capability: Capability, perms: &[&str]) -> Option<PermissionState> {
+struct Probe {
+    /// The state `android_table::state_of_check` makes of it.
+    state: PermissionState,
+    /// Whether Android would still show its dialog after a denial (`shouldShowRequestPermissionRationale`).
+    rationale: bool,
+}
+
+/// `Context.checkSelfPermission` of each permission of a request, the rationale flag on a denial and whether a
+/// request for it ever ended in a "no" (`AzulPermissions.wasDenied`, kept in the app's own preferences: Android reads
+/// "never asked" and "denied and don't ask again" the same), as the state `android_table::state_of_check` makes of
+/// them. Never prompts.
+#[cfg(target_os = "android")]
+fn probe_permissions(capability: Capability, perms: &[&str]) -> Option<Probe> {
     use jni::objects::JValue;
 
     attach(|env, activity| {
         let mut granted = Vec::with_capacity(perms.len());
         let mut rationale = false;
+        let mut denied_before = false;
+        let helper = crate::desktop::extra::find_app_class(
+            env,
+            &activity,
+            "com/azul/permission/AzulPermissions",
+        );
         for perm in perms {
             let perm_jstr = env.new_string(*perm).ok()?;
 
@@ -231,8 +253,7 @@ fn probe_permissions(capability: Capability, perms: &[&str]) -> Option<Permissio
             if check != 0 {
                 // `shouldShowRequestPermissionRationale` is true only after a real user denial; on a
                 // fresh install it's false. Android can't distinguish "never asked" from "denied +
-                // don't ask again" (both false) — false reads as NotDetermined so the framework will
-                // attempt the prompt and learn the truth.
+                // don't ask again" (both false): the helper remembers the answers of OUR requests.
                 rationale |= env
                     .call_method(
                         &activity,
@@ -243,9 +264,28 @@ fn probe_permissions(capability: Capability, perms: &[&str]) -> Option<Permissio
                     .ok()?
                     .z()
                     .ok()?;
+                if let Some(helper) = helper.as_ref() {
+                    let remembered = env
+                        .call_static_method(
+                            helper,
+                            "wasDenied",
+                            "(Landroid/app/Activity;Ljava/lang/String;)Z",
+                            &[JValue::Object(&activity), JValue::Object(&perm_jstr)],
+                        )
+                        .and_then(|v| v.z());
+                    match remembered {
+                        Ok(was) => denied_before |= was,
+                        Err(_) => {
+                            let _ = env.exception_clear();
+                        }
+                    }
+                }
             }
         }
-        Some(state_of_check(capability, &granted, rationale))
+        Some(Probe {
+            state: state_of_check(capability, &granted, rationale || denied_before),
+            rationale,
+        })
     })
 }
 

@@ -14,10 +14,40 @@
 package com.azul.permission;
 
 import android.app.Activity;
+import android.content.Context;
+import android.content.SharedPreferences;
 
 public final class AzulPermissions {
 
     private AzulPermissions() {}
+
+    private static final String PREFS = "azul_permissions";
+
+    /**
+     * Whether a request of ours for `permission` ever ended in a "no": the system reads "never asked" and "denied, don't ask
+     * again" the same (`shouldShowRequestPermissionRationale` is false for both), and a denial that is forgotten at the next
+     * start is asked about again at every launch. Cleared by a later grant (the user turned it on in the settings).
+     */
+    public static boolean wasDenied(Activity activity, String permission) {
+        try {
+            return activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("denied." + permission, false);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    private static void remember(Activity activity, String[] permissions, int[] grantResults) {
+        try {
+            SharedPreferences.Editor edit = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit();
+            for (int i = 0; i < permissions.length && i < grantResults.length; i++) {
+                // PackageManager.PERMISSION_GRANTED == 0
+                edit.putBoolean("denied." + permissions[i], grantResults[i] != 0);
+            }
+            edit.apply();
+        } catch (RuntimeException e) {
+            // Not remembering is the lesser harm: the answer still reaches the app below.
+        }
+    }
 
     /**
      * Ask for runtime permissions, on the UI thread. Called from Rust on
@@ -61,6 +91,7 @@ public final class AzulPermissions {
             nativeOnPermissionResult(requestCode, false, false);
             return true;
         }
+        remember(activity, permissions, grantResults);
         boolean all = true;
         boolean any = false;
         for (int r : grantResults) {

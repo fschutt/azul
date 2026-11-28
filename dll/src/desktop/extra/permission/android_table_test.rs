@@ -140,3 +140,27 @@ fn the_answer_to_a_request_is_full_reduced_or_denied() {
     assert_eq!(state_of_result(Capability::Camera, false, true), PermissionState::Denied);
     assert_eq!(state_of_result(Capability::Camera, true, true), PermissionState::Granted(PermissionQuality::Full));
 }
+
+/// A denial is remembered and not asked again behind the user's back: the diff-driven path (a probe node in the
+/// DOM) asks only while the state is `NotDetermined`. A person's explicit request asks again after ONE denial,
+/// while the system offers a rationale; a permission denied for good shows no dialog.
+///
+/// Mutation: `Denied => true` (every rebuild that adds the probe node asked again: a dialog per render).
+#[test]
+fn a_denied_permission_is_not_asked_again_by_the_diff_and_only_once_more_by_a_person() {
+    let denied = PermissionState::Denied;
+    assert!(may_show_dialog(PermissionState::NotDetermined, false, false), "the first ask comes from the diff");
+    assert!(may_show_dialog(PermissionState::NotDetermined, false, true));
+    assert!(!may_show_dialog(denied, true, false), "the diff never asks again after a denial");
+    assert!(!may_show_dialog(denied, false, false));
+    assert!(may_show_dialog(denied, true, true), "a person's request after the first denial: the system shows its dialog again");
+    assert!(!may_show_dialog(denied, false, true), "denied for good: no dialog, the app opens the settings");
+    for state in [
+        PermissionState::Granted(PermissionQuality::Full),
+        PermissionState::Granted(PermissionQuality::Reduced),
+        PermissionState::Requested,
+        PermissionState::Restricted,
+    ] {
+        assert!(!may_show_dialog(state, true, true), "{state:?} asks for nothing");
+    }
+}
