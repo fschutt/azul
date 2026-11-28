@@ -213,3 +213,23 @@ fn a_url_opens_on_android_and_the_app_can_open_its_settings() {
     );
     assert!(java.contains("public static final String APP_SETTINGS = \"azul-settings:app\";"));
 }
+
+/// `PowerState::query` answered `(None, None)` on Android: on mains false and idle 0 for ever, on the charger too
+/// (AN-12). A phone is on mains when its battery is on a charger (`BatteryState::charging`, the monitor's reading of
+/// `BatteryManager`); no battery known is "the platform does not say".
+///
+/// Mutation: the Android arm removed (the state of 6ce827b284).
+#[test]
+fn a_phone_on_its_charger_is_on_mains() {
+    let power = rust_code("dll/src/desktop/extra/sensors/power.rs");
+    let arm = power
+        .find("#[cfg(target_os=\"android\")]modplatform{")
+        .expect("an Android arm of the power reading");
+    let android = body(&power[arm..], "modplatform{");
+    assert!(android.contains("crate::desktop::extra::sensors::battery::BatteryState::query()"));
+    assert!(android.contains("(battery.present.then_some(battery.charging),None)"));
+    let fallback = power
+        .find("#[cfg(not(any(target_os=\"macos\",target_os=\"windows\",target_os=\"linux\",target_os=\"android\")))]modplatform{")
+        .expect("the stub no longer claims Android");
+    assert!(fallback > arm);
+}
