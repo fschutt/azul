@@ -428,7 +428,7 @@ struct MapState {
     locating: bool,
     last_fix: Option<(f64, f64)>,
     /// The recent places (dropped pins), oldest first as the pins file
-    /// keeps them; the sidebar shows them newest first.
+    /// keeps them; the search view shows them newest first.
     pins: Vec<(f64, f64)>,
     /// The dropped pin whose card is open (an index into `pins`); `flow.place` holds the card.
     selected: Option<usize>,

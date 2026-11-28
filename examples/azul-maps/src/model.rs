@@ -12,7 +12,7 @@ pub const PINS_FILE: &str = "pins.json";
 /// The settings key of the last viewport (`lat,lon,zoom`).
 pub const VIEW_KEY: &str = "view";
 
-/// The settings key of the sidebar (`open` / `closed`).
+/// The settings key of the desktop panel's fold (`open` / `closed`); the key of the sidebar it replaced, so a saved choice stays.
 pub const SIDEBAR_KEY: &str = "sidebar";
 
 /// Where the map opens without a remembered viewport (San Francisco).
@@ -402,7 +402,7 @@ pub fn mercator_px(lat: f64, lon: f64, zoom: f32) -> (f64, f64) {
 }
 
 /// The view that frames a route from `a` to `b` in a `size` window whose left `left_inset`
-/// pixels the sidebar covers: both ends in the free part, a margin from its edges.
+/// pixels the panel covers: both ends in the free part, a margin from its edges.
 #[must_use]
 pub fn fit_view(a: (f64, f64), b: (f64, f64), size: (f32, f32), left_inset: f32) -> (f64, f64, f32) {
     use std::f64::consts::PI;
@@ -418,7 +418,7 @@ pub fn fit_view(a: (f64, f64), b: (f64, f64), size: (f32, f32), left_inset: f32)
     let fit = (free_w / dx.max(1e-9)).min(free_h / dy.max(1e-9));
     let zoom = (fit.log2() as f32).clamp(MIN_ZOOM, PLACE_ZOOM);
     // The ends' midpoint goes to the middle of the free part: the window's centre lies half
-    // the sidebar to the left of it.
+    // the panel to the left of it.
     let scale = 2f64.powf(f64::from(zoom));
     let world = 256.0 * scale;
     let x = (pa.0 + pb.0) / 2.0 * scale - inset / 2.0;

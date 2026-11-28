@@ -114,7 +114,7 @@ names! {
     OFFLINE_STOP = "offline-stop";
     OFFLINE_NOTE = "offline-note";
     // ---- saved places (`lists_ui.rs`) ----
-    /// The sidebar's saved lists (each row `list-<n>`, the open one's places `saved-place-<n>`).
+    /// The saved lists of the search view (each row `list-<n>`, the open one's places `saved-place-<n>`).
     SAVED = "saved";
     SAVED_LISTS = "saved-lists";
     CLEAR_RECENT_DESTINATIONS = "clear-recent-destinations";
