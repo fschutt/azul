@@ -84,11 +84,17 @@ api_functions=(
   Ribbon.with_flip
 )
 autofix_round() {
-  local out
-  out=$(cargo run -r -p azul-doc -- autofix 2>&1) || { echo "$out" | tail -30; return 1; }
+  # a critical FFI error does not stop the round: the patches were written anyway ("fix the errors before proceeding with
+  # codegen"), so they are applied, the error is printed in full and the exit code of the LAST round carries it
+  local out code=0
+  out=$(cargo run -r -p azul-doc -- autofix 2>&1) || code=$?
   echo "$out" | grep -E "Types to add|Type modifications|Path fixes|Generated|^  [+~] " | head -40
+  if [ "$code" -ne 0 ]; then
+    echo "$out" | grep -A 40 "critical FFI safety errors" | head -80
+    echo "$out" | tail -8
+  fi
   if echo "$out" | grep -q "Generated 0 patches"; then
-    return 0
+    return "$code"
   fi
   cargo run -r -p azul-doc -- autofix explain >/dev/null 2>&1
   cargo run -r -p azul-doc -- patch safe target/autofix/patches || return 1
