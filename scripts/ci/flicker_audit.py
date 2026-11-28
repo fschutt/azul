@@ -18,6 +18,7 @@ The analysis functions are pure (tests: scripts/ci/test_flicker_audit.py).
 """
 import argparse
 import json
+import os
 import re
 import shutil
 import statistics
@@ -186,6 +187,16 @@ def mean_luma(sig):
     return sum(0.299 * sig[i] + 0.587 * sig[i + 1] + 0.114 * sig[i + 2] for i in range(0, pixels * 3, 3)) / pixels
 
 
+def mean_rgb(sig):
+    """The mean colour (r, g, b) of a signature between the system bars: what colour a flat run is (the starting window's, the black after it)."""
+    if len(sig) == q.COLS * q.ROWS * 3:
+        sig = sig[q.SYSTEM_BAR_ROWS[0] * q.COLS * 3:(q.ROWS - q.SYSTEM_BAR_ROWS[1]) * q.COLS * 3]
+    pixels = len(sig) // 3
+    if not pixels:
+        return (0, 0, 0)
+    return tuple(round(sum(sig[i + c] for i in range(0, pixels * 3, 3)) / pixels) for c in range(3))
+
+
 def flag_frames(sigs, fps=FPS, max_black_ms=MAX_BLACK_MS):
     """[{index, kind, detail, fail, frames?, ms?, black?}]: the frames of a recording that flicker. kinds: `flat` (a run of frames of one
     colour between two normal frames: `frames` long, from `index`; BLACK when its luminance is under BLACK_LUMA), `flash` (a frame
@@ -210,7 +221,8 @@ def flag_frames(sigs, fps=FPS, max_black_ms=MAX_BLACK_MS):
             detail += f" (limit {max_black_ms} ms)"
         if splash:
             detail += ": the system's starting window of the cold start, held on purpose (told, not failed)"
-        flagged.append({"index": start, "kind": "flat", "frames": length, "ms": ms, "black": black, "fail": fail, "splash": splash, "detail": detail})
+        flagged.append({"index": start, "kind": "flat", "frames": length, "ms": ms, "black": black, "fail": fail, "splash": splash, "detail": detail,
+                        "start_s": round(start / fps, 2), "rgb": list(mean_rgb(sigs[start + length // 2]))})
         flat.update(range(start, end))
     for i in range(1, n - 1):
         if i in flat:
@@ -422,7 +434,8 @@ def android_audit(args):
         dev = q.Android(run, pkg, act, args.serial)
         dev.adb("install", "-r", "-t", str(apk), timeout=300)
         dev.sh("settings put system accelerometer_rotation 0")
-        dev.sh("setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1'")
+        # AZ_FLICKER_STARTUP=1 also switches the engine's startup timeline on ([startup] table at the first present): for whoever measures E46
+        dev.sh("setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1" + (";AZ_STARTUP=1" if os.environ.get("AZ_FLICKER_STARTUP") == "1" else "") + "'")
         return dev
 
     # ---- 1. idle
@@ -464,10 +477,13 @@ def android_audit(args):
         def mark(label):
             marks.append((round(time.time() - t0, 1), label))
 
+        dev.adb("logcat", "-c")
         mark("cold start")
         dev.launch(cold=True)
         dev.wait_for_front(timeout=60)
         dev.settle(2.5)
+        # the whole log of the cold start (system and app, threadtime) next to the recording: the timeline of E46 (starting window, first present, black)
+        (out / "cold-start-logcat.txt").write_text(dev.adb("logcat", "-d", "-v", "threadtime", timeout=120), encoding="utf-8")
         mark("rotate to landscape")
         dev.rotate(1)
         dev.settle(3.0)

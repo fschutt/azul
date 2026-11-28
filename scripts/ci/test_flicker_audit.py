@@ -433,6 +433,19 @@ class SplashThenBlackTests(unittest.TestCase):
         self.assertEqual(f.flat_runs(sigs), [(1, 6)])
 
 
+class ColourTests(unittest.TestCase):
+    """what colour a flat run is, and when it starts: the raw numbers of E46 for whoever re-measures it"""
+
+    def test_a_flat_run_carries_its_start_time_and_its_colour(self):
+        normal = sig((90, 140, 200), (250, 250, 60))
+        sigs = [normal] * 3 + [sig((255, 255, 255))] * 13 + [sig((0, 0, 0))] * 33 + [normal]
+        flats = [x for x in f.flag_frames(sigs) if x["kind"] == "flat"]
+        self.assertEqual([(x["frames"], x["start_s"], x["rgb"]) for x in flats], [(13, 0.1, [255, 255, 255]), (33, 0.53, [0, 0, 0])])
+
+    def test_the_mean_colour_leaves_the_bars_out(self):
+        self.assertEqual(f.mean_rgb(sig((10, 20, 30))), (10, 20, 30))
+
+
 class IosAuditSourceTests(unittest.TestCase):
     """The iOS audit is driven by `simctl`, which this machine has not: what it must do first is read from its source."""
 
