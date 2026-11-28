@@ -94,7 +94,139 @@ fn a_rejected_finger_does_not_end_the_biometric_attempt() {
     let succeeded = method_body(&src, "public void onAuthenticationSucceeded(");
     assert!(succeeded.contains("RESULT_AUTHENTICATED"));
     let error = method_body(&src, "public void onAuthenticationError(");
-    assert!(error.contains("nativeOnBiometricResult(handle, mapped)"));
+    assert!(error.contains("nativeOnBiometricResult(handle, mapError(code))"));
+}
+
+/// One cause per biometric result (the model of 2026-11-28): the user closing the sheet - back, outside, the negative
+/// button, a timeout - is Cancelled and NEVER a fall back to the passcode (the old mapping answered FellBackToPasscode
+/// for the negative button and Failed for everything it did not know, lockouts included); too many tries are
+/// LockedOut; nothing enrolled is NotEnrolled; a passcode is reported only when the system says it was USED.
+///
+/// Mutation: `case ERR_NEGATIVE_BUTTON` returning `allowFallback ? RESULT_FALLBACK : RESULT_CANCELLED`.
+#[test]
+fn a_biometric_result_names_one_cause() {
+    let src = java_code("scripts/android/AzulBiometric.java");
+    let map = method_body(&src, "private static int mapError(");
+    let arm = |label: &str| -> String {
+        let at = map.find(label).unwrap_or_else(|| panic!("no `{label}` in mapError"));
+        let tail = &map[at..];
+        let end = tail.find("return ").unwrap();
+        tail[end..].split(';').next().unwrap().trim().to_string()
+    };
+    for cancel in ["ERR_USER_CANCELED", "ERR_CANCELED", "ERR_NEGATIVE_BUTTON", "ERR_TIMEOUT"] {
+        assert_eq!(arm(&format!("case {cancel}:")), "return RESULT_CANCELLED", "{cancel} is the user closing the sheet");
+    }
+    assert_eq!(arm("case ERR_LOCKOUT:"), "return RESULT_LOCKED_OUT");
+    assert_eq!(arm("case ERR_LOCKOUT_PERMANENT:"), "return RESULT_LOCKED_OUT");
+    assert_eq!(arm("case ERR_NO_BIOMETRICS:"), "return RESULT_NOT_ENROLLED");
+    assert_eq!(arm("case ERR_NO_DEVICE_CREDENTIAL:"), "return RESULT_NOT_ENROLLED");
+    assert_eq!(arm("case ERR_HW_NOT_PRESENT:"), "return RESULT_UNAVAILABLE");
+    assert!(!map.contains("RESULT_FALLBACK"), "the passcode is never inferred from an error code");
+    let succeeded = method_body(&src, "public void onAuthenticationSucceeded(");
+    assert!(
+        succeeded.contains("AUTHENTICATION_RESULT_TYPE_DEVICE_CREDENTIAL") && succeeded.contains("RESULT_FALLBACK"),
+        "FellBackToPasscode comes from the system's own statement of what the user used"
+    );
+    assert!(src.contains("RESULT_LOCKED_OUT = 6") && src.contains("RESULT_NOT_ENROLLED = 7"), "the codes the Rust side maps");
+}
+
+/// The keyring model on Android (briefs/mobile_capabilities_ledger_2026-11-28.md, MODEL): ONE Keystore key PER ENTRY
+/// (the old master key made the first store decide `setUserAuthenticationRequired` for every entry, and a protected
+/// read never went through the BiometricPrompt: the key was bound to the sensor on paper only).
+///
+/// Mutation: a constant `KEY_ALIAS = "azul_keyring_master"` used for every entry.
+#[test]
+fn every_keyring_entry_has_a_keystore_key_of_its_own() {
+    let src = java_code("scripts/android/AzulKeyring.java");
+    assert!(!src.contains("azul_keyring_master") && !src.contains("KEY_ALIAS"), "no master key for all entries");
+    assert!(src.contains("ALIAS_PREFIX + id"), "the alias is derived from the entry");
+    let id = method_body(&src, "private static String idOf(");
+    assert!(id.contains("SHA-256"), "the id of an entry is a digest of its name: any characters, any length");
+    let pair = method_body(&src, "private static PublicKey generatePair(");
+    assert!(
+        pair.contains("setUserAuthenticationRequired(true)") && pair.contains("KeyProperties.PURPOSE_DECRYPT)"),
+        "the private half of a protected entry's key pair requires the user check (the public half never does)"
+    );
+    assert!(
+        pair.contains("setInvalidatedByBiometricEnrollment(level == LEVEL_BIOMETRIC)"),
+        "only the Biometric level is invalidated by a change of the enrolled set"
+    );
+    assert!(
+        pair.contains("AUTH_BIOMETRIC_STRONG") && pair.contains("AUTH_DEVICE_CREDENTIAL") && pair.contains("setUserAuthenticationParameters(0,"),
+        "API 30+: per-use authentication (timeout 0) with the authenticators of the level"
+    );
+    let plain = method_body(&src, "private static SecretKey generate(");
+    assert!(
+        !plain.contains("setUserAuthenticationRequired"),
+        "the unprotected level never asks the user: its key has no user check"
+    );
+}
+
+/// The secret of a protected entry is released by the secure hardware only after the sheet: the cipher of the entry's
+/// key is the sheet's CryptoObject and the secret is decrypted with the cipher the SUCCESSFUL sheet hands back. A quiet
+/// read of a protected item answers Denied (Invalidated when its key is gone) and never decrypts.
+///
+/// Mutation: `unlock` decrypting with `o.cipher` straight after the sheet (a boolean 'the finger matched').
+#[test]
+fn a_protected_secret_is_released_only_by_the_cipher_of_the_sheet() {
+    let src = java_code("scripts/android/AzulKeyring.java");
+    let sheet = method_body(&src, "private static void sheet(");
+    assert!(sheet.contains("new BiometricPrompt.CryptoObject(cipher)"), "the sheet carries the cipher");
+    assert!(sheet.contains("result.getCryptoObject()") && sheet.contains("crypto.getCipher()"), "the authenticated cipher comes back");
+    let unlock = method_body(&src, "public static void unlock(");
+    assert!(unlock.contains("sheet(activity, o.cipher"), "unlock opens the sheet with the cipher of the entry's private key");
+    assert!(unlock.contains("unlocked.doFinal(o.wrapped)"), "and unwraps the data key with the cipher the sheet unlocked");
+    let after_sheet = &unlock[unlock.find("sheet(activity, o.cipher").unwrap()..];
+    assert!(!after_sheet.contains("o.cipher.doFinal"), "never with the locked cipher");
+    let quiet = method_body(&src, "public static String[] quiet(");
+    assert!(quiet.contains("level > LEVEL_DEVICE_UNLOCKED") && quiet.contains("WOULD_PROMPT") && quiet.contains("INVALIDATED"));
+    assert!(
+        quiet.find("level > LEVEL_DEVICE_UNLOCKED").unwrap() < quiet.find("open(activity, id)").unwrap(),
+        "the quiet read answers for a protected item BEFORE it opens a cipher"
+    );
+    let get = method_body(&src, "public static void get(");
+    assert!(get.contains("quiet(activity, OP_GET, key, null)"), "the async read is the quiet one: it never shows a sheet");
+    // Storing needs no sheet: the data key is wrapped with the PUBLIC half of the entry's key pair.
+    let store = method_body(&src, "public static void store(");
+    assert!(!store.contains("sheet("), "a store shows no sheet");
+    assert!(store.contains("wrap.init(Cipher.ENCRYPT_MODE, pub, OAEP)"), "the data key is wrapped with the public key");
+    assert!(store.contains("supportOf(activity, protection)"), "NotEnrolled / Unavailable are answered, never a weaker store");
+    assert!(store.contains("deleteKey(id)"), "a failed store leaves no key behind");
+}
+
+/// The result codes of the model, and what makes a protected item Invalidated rather than NotFound: the meta record
+/// (level, made when) is readable without a sheet and outlives the key, and a key the Keystore invalidated is
+/// KeyPermanentlyInvalidatedException at the cipher init.
+///
+/// Mutation: `open` answering NOT_FOUND when the key is missing but the meta record is there.
+#[test]
+fn a_protected_item_whose_key_is_gone_is_invalidated_not_missing() {
+    let src = java_code("scripts/android/AzulKeyring.java");
+    for (name, value) in [
+        ("CANCELLED", 7),
+        ("FAILED", 8),
+        ("LOCKED_OUT", 9),
+        ("NOT_ENROLLED", 10),
+        ("INVALIDATED", 11),
+    ] {
+        assert!(src.contains(&format!("{name} = {value};")), "result code {name} = {value}");
+    }
+    let open = method_body(&src, "private static Opened open(");
+    assert!(open.contains("catch (KeyPermanentlyInvalidatedException"), "an invalidated key at the cipher init");
+    assert!(open.contains("INVALIDATED"), "...is Invalidated");
+    assert!(open.contains("levelOf(ctx, id) >= 0 ? INVALIDATED : NOT_FOUND"), "a meta record without its item is Invalidated");
+    let keep = method_body(&src, "private static void keep(");
+    assert!(keep.contains("\"m.\" + id") && keep.contains("level=") && keep.contains("b."), "the meta record is written with the blob");
+    let quiet = method_body(&src, "public static String[] quiet(");
+    assert!(
+        quiet.contains("remove(\"b.\" + id)") && quiet.contains("remove(\"w.\" + id)") && quiet.contains("remove(\"m.\" + id)") && quiet.contains("deleteKey(id)"),
+        "a delete removes blob, wrapped key, meta and key"
+    );
+    assert!(src.contains("WOULD_PROMPT = 12;"), "a read without the user of a protected item answers WouldPrompt");
+    assert!(src.contains("FEATURE_STRONGBOX_KEYSTORE") && src.contains("catch (StrongBoxUnavailableException"), "StrongBox when present, dropped when it cannot");
+    // the quiet probes the Rust side asks before it decides between a blocking answer and WouldPrompt
+    assert!(src.contains("public static int needsPrompt(Activity activity, String key)"));
+    assert!(src.contains("public static int support(Activity activity, int level)"));
 }
 
 /// The copy of a picked document into the app's cache (`uriToCachedFile`: `ContentResolver.openInputStream`
