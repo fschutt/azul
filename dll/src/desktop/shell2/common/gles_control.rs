@@ -9,6 +9,8 @@
 //! 4. `instanced`: a VAO with a vertex buffer, an index buffer and a per-instance buffer holding a `vec4` and an `ivec4` (integer
 //!    attribute, divisor 1), drawn with `glDrawElementsInstanced`, sampling the same texture: `composite` of WebRender;
 //! 5. `data_textures`: an RGBA32F and an RGBA32I texture fetched with `texelFetch`: WebRender's GPU cache and prim headers;
+//! 5a. `vertex_fetch`: WebRender's data path in the vertex stage (an integer instance attribute names a texel of an integer texture which names
+//!     the texels of a float texture, `texelFetch` in the vertex shader);
 //! 5b. `scatter`: WebRender's GPU cache update, points with a `gl_PointSize` shader into an RGBA32F texture through its framebuffer;
 //! 6. `depth`: a framebuffer with a colour texture and a 24-bit depth renderbuffer, depth cleared with `glClearBufferfv`, two
 //!    triangles at two depths with `LEQUAL`: the depth pass of a tile.
@@ -189,6 +191,12 @@ const FETCH_INT_FS: &str = "#version 300 es\nprecision highp float;\nprecision h
 const INSTANCED_VS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nlayout(location = 0) in vec2 aPosition;\nlayout(location = 1) in vec4 aRect;\nlayout(location = 2) in ivec4 aData;\nuniform mat4 uTransform;\nout vec2 vUv;\nflat out ivec4 vData;\nvoid main() {\n    vec2 pos = aRect.xy + aPosition * aRect.zw;\n    gl_Position = uTransform * vec4(pos, 0.0, 1.0);\n    vUv = aPosition;\n    vData = aData;\n}\n";
 const INSTANCED_FS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nuniform sampler2D sColor0;\nin vec2 vUv;\nflat in ivec4 vData;\nout vec4 oColour;\nvoid main() {\n    vec4 c = texture(sColor0, vUv);\n    oColour = vec4(c.r * float(vData.x), c.g * float(vData.y) * 0.5, c.b, 1.0);\n}\n";
 
+/// WebRender's data path in the VERTEX shader: an integer attribute per instance names a texel of an integer texture, which names the
+/// texels of a float texture (the GPU cache) that hold the rectangle and the colour of the quad. Both fetches are `texelFetch` in the
+/// vertex stage, with WebRender's unsigned address arithmetic (`uint % 1024u`, `uint / 1024u`).
+const VERTEX_FETCH_VS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\nprecision highp isampler2D;\nuniform sampler2D sGpuCache;\nuniform isampler2D sHeaders;\nlayout(location = 0) in vec2 aPosition;\nlayout(location = 1) in ivec4 aData;\nout vec4 vColour;\nivec2 get_uv(int address) {\n    return ivec2(int(uint(address) % 1024u), int(uint(address) / 1024u));\n}\nvoid main() {\n    ivec4 header = texelFetch(sHeaders, ivec2(aData.x, 0), 0);\n    vec4 rect = texelFetch(sGpuCache, get_uv(header.x), 0);\n    vec4 colour = texelFetch(sGpuCache, get_uv(header.x + 1), 0);\n    vec2 pos = rect.xy + aPosition * rect.zw;\n    gl_Position = vec4(pos * 2.0 - 1.0, 0.0, 1.0);\n    vColour = colour;\n}\n";
+const VERTEX_FETCH_FS: &str = "#version 300 es\nprecision highp float;\nin vec4 vColour;\nout vec4 oColour;\nvoid main() {\n    oColour = vColour;\n}\n";
+
 /// WebRender's `gpu_cache_update`: one point per texel, written into a float texture (the GPU cache of every phone's frame).
 const SCATTER_VS: &str = "#version 300 es\nin vec4 aValue;\nin vec2 aPosition;\nout highp vec4 vData;\nvoid main() {\n    vData = aValue;\n    gl_Position = vec4(aPosition * 2.0 - 1.0, 0.0, 1.0);\n    gl_PointSize = 1.0;\n}\n";
 const SCATTER_FS: &str = "#version 300 es\nprecision highp float;\nin highp vec4 vData;\nout vec4 oValue;\nvoid main() {\n    oValue = vData;\n}\n";
@@ -201,6 +209,7 @@ struct Programs {
     fetch_int: Result<u32, String>,
     instanced: Result<u32, String>,
     scatter: Result<u32, String>,
+    vertex_fetch: Result<u32, String>,
 }
 
 impl Programs {
@@ -217,11 +226,12 @@ impl Programs {
                 &[(0, "aPosition"), (1, "aRect"), (2, "aData")],
             ),
             scatter: program_of(gl, SCATTER_VS, SCATTER_FS, &[(0, "aPosition"), (1, "aValue")]),
+            vertex_fetch: program_of(gl, VERTEX_FETCH_VS, VERTEX_FETCH_FS, &[(0, "aPosition"), (1, "aData")]),
         }
     }
 
     fn delete(&self, gl: &GenericGlContext) {
-        for program in [&self.flat, &self.texture, &self.fetch_float, &self.fetch_int, &self.instanced, &self.scatter]
+        for program in [&self.flat, &self.texture, &self.fetch_float, &self.fetch_int, &self.instanced, &self.scatter, &self.vertex_fetch]
             .into_iter()
             .flatten()
         {
@@ -238,6 +248,7 @@ impl Programs {
             ("fetch_int", &self.fetch_int),
             ("instanced", &self.instanced),
             ("scatter", &self.scatter),
+            ("vertex_fetch", &self.vertex_fetch),
         ]
         .into_iter()
         .filter_map(|(name, result)| result.as_ref().err().map(|why| format!("program {name}: {why}")))
@@ -632,6 +643,121 @@ fn phase_data_textures(gl: &GenericGlContext, target: Target, programs: &Program
     result
 }
 
+/// 5c. WebRender's data path in the vertex shader: two instances of a quad, each with an integer attribute that names a texel of an
+/// RGBA32I texture, which names the texels (rectangle, colour) of an RGBA32F texture, all fetched with `texelFetch` in the VERTEX stage.
+/// The left half of the window must come out red and the right half blue.
+fn phase_vertex_fetch(gl: &GenericGlContext, target: Target, programs: &Programs) -> Row {
+    let program = match &programs.vertex_fetch {
+        Ok(program) => *program,
+        Err(why) => return failed("vertex_fetch", format!("the program did not build: {why}")),
+    };
+    let size = target.size;
+    window_target(gl, target);
+    gl.clear_color(0.2, 0.2, 0.2, 1.0);
+    gl.clear(glconst::COLOR_BUFFER_BIT);
+
+    let textures = gl.gen_textures(2);
+    let (cache_texture, header_texture) = (
+        textures.first().copied().unwrap_or(0),
+        textures.get(1).copied().unwrap_or(0),
+    );
+    // The float texture, 1024 x 2 texels: a rectangle and a colour for each of two quads, at the addresses 1030 and 1034 (the second row, so
+    // that the address arithmetic of the shader has to divide).
+    let mut cache = vec![0.0_f32; 1024 * 2 * 4];
+    let put = |cache: &mut Vec<f32>, address: usize, value: [f32; 4]| {
+        cache[address * 4..address * 4 + 4].copy_from_slice(&value);
+    };
+    put(&mut cache, 1030, [0.0, 0.0, 0.5, 1.0]); // the left half
+    put(&mut cache, 1031, [1.0, 0.0, 0.0, 1.0]); // red
+    put(&mut cache, 1034, [0.5, 0.0, 0.5, 1.0]); // the right half
+    put(&mut cache, 1035, [0.0, 0.0, 1.0, 1.0]); // blue
+    let cache_bytes: Vec<u8> = cache.iter().flat_map(|v| v.to_ne_bytes()).collect();
+    gl.active_texture(glconst::TEXTURE0);
+    gl.bind_texture(glconst::TEXTURE_2D, cache_texture);
+    gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
+    gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
+    gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA32F, 1024, 2);
+    gl.tex_sub_image_2d(glconst::TEXTURE_2D, 0, 0, 0, 1024, 2, glconst::RGBA, glconst::FLOAT, &cache_bytes);
+    // The integer texture: two headers, the first names the address 1030 of the cache, the second 1034.
+    let headers: [i32; 8] = [1030, 0, 0, 0, 1034, 0, 0, 0];
+    let header_bytes: Vec<u8> = headers.iter().flat_map(|v| v.to_ne_bytes()).collect();
+    gl.active_texture(glconst::TEXTURE0 + 1);
+    gl.bind_texture(glconst::TEXTURE_2D, header_texture);
+    gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
+    gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
+    gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA32I, 2, 1);
+    gl.tex_sub_image_2d(glconst::TEXTURE_2D, 0, 0, 0, 2, 1, glconst::RGBA_INTEGER, glconst::INT, &header_bytes);
+
+    let vao = gl.gen_vertex_arrays(1).first().copied().unwrap_or(0);
+    let buffers = gl.gen_buffers(3);
+    let (corners, indices, instances) = (
+        buffers.first().copied().unwrap_or(0),
+        buffers.get(1).copied().unwrap_or(0),
+        buffers.get(2).copied().unwrap_or(0),
+    );
+    gl.bind_vertex_array(vao);
+    let quad: [f32; 8] = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+    let quad_bytes: Vec<u8> = quad.iter().flat_map(|v| v.to_ne_bytes()).collect();
+    gl.bind_buffer(glconst::ARRAY_BUFFER, corners);
+    gl.buffer_data_untyped(
+        glconst::ARRAY_BUFFER,
+        isize::try_from(quad_bytes.len()).unwrap_or(0),
+        quad_bytes.as_ptr().cast(),
+        glconst::STATIC_DRAW,
+    );
+    gl.vertex_attrib_pointer(0, 2, glconst::FLOAT, false, 8, 0);
+    gl.enable_vertex_attrib_array(0);
+    let records: [i32; 8] = [0, 0, 0, 0, 1, 0, 0, 0];
+    let record_bytes: Vec<u8> = records.iter().flat_map(|v| v.to_ne_bytes()).collect();
+    gl.bind_buffer(glconst::ARRAY_BUFFER, instances);
+    gl.buffer_data_untyped(
+        glconst::ARRAY_BUFFER,
+        isize::try_from(record_bytes.len()).unwrap_or(0),
+        record_bytes.as_ptr().cast(),
+        glconst::STATIC_DRAW,
+    );
+    gl.vertex_attrib_i_pointer(1, 4, glconst::INT, 16, 0);
+    gl.enable_vertex_attrib_array(1);
+    gl.vertex_attrib_divisor(1, 1);
+    let index_values: [u16; 6] = [0, 1, 2, 2, 1, 3];
+    let index_bytes: Vec<u8> = index_values.iter().flat_map(|v| v.to_ne_bytes()).collect();
+    gl.bind_buffer(glconst::ELEMENT_ARRAY_BUFFER, indices);
+    gl.buffer_data_untyped(
+        glconst::ELEMENT_ARRAY_BUFFER,
+        isize::try_from(index_bytes.len()).unwrap_or(0),
+        index_bytes.as_ptr().cast(),
+        glconst::STATIC_DRAW,
+    );
+    gl.use_program(program);
+    let cache_sampler = gl.get_uniform_location(program, "sGpuCache");
+    gl.uniform_1i(cache_sampler, 0);
+    let header_sampler = gl.get_uniform_location(program, "sHeaders");
+    gl.uniform_1i(header_sampler, 1);
+    gl.draw_elements_instanced(glconst::TRIANGLES, 6, glconst::UNSIGNED_SHORT, 0, 2);
+    gl.finish();
+
+    let (w, h) = (size.0.max(8), size.1.max(8));
+    let checks = [
+        ("left quad (red)", RED, px(gl, w / 4, h / 2)),
+        ("right quad (blue)", BLUE, px(gl, 3 * w / 4, h / 2)),
+    ];
+    let error = gl.get_error();
+    let result = row("vertex_fetch", &checks, error, "");
+
+    gl.use_program(0);
+    gl.bind_vertex_array(0);
+    gl.bind_buffer(glconst::ARRAY_BUFFER, 0);
+    gl.bind_buffer(glconst::ELEMENT_ARRAY_BUFFER, 0);
+    gl.delete_vertex_arrays(&[vao]);
+    gl.delete_buffers(&[corners, indices, instances]);
+    gl.active_texture(glconst::TEXTURE0 + 1);
+    gl.bind_texture(glconst::TEXTURE_2D, 0);
+    gl.active_texture(glconst::TEXTURE0);
+    gl.bind_texture(glconst::TEXTURE_2D, 0);
+    gl.delete_textures(&[cache_texture, header_texture]);
+    result
+}
+
 /// 5b. WebRender's GPU cache update: five points drawn with `gpu_cache_update`'s shaders into a 16 x 4 RGBA32F texture through its
 /// framebuffer (positions as normalised unsigned shorts, values as floats, `gl_PointSize` 1, blending off), the texels read back as
 /// floats, then fetched with `texelFetch` into the window as four bands.
@@ -859,16 +985,110 @@ fn phase_depth(gl: &GenericGlContext, target: Target, programs: &Programs) -> Ro
     result
 }
 
+/// 7. WebRender's depth buffer the way a frame uses it: two tile textures with their own framebuffers share ONE 24-bit depth renderbuffer.
+/// The first pass clears the depth with `glClearBufferfv`, the second with a quad (`DepthFunction::Always`, depth write on, colour write off,
+/// depth 1.0: `ps_clear`); each draws a near and a far triangle with `LEQUAL` (the far one must lose) and then invalidates the depth
+/// attachment, as `Device::invalidate_depth_target` does. Both tiles must hold the near colour afterwards.
+fn phase_shared_depth(gl: &GenericGlContext, target: Target, programs: &Programs) -> Row {
+    let flat = match &programs.flat {
+        Ok(program) => *program,
+        Err(why) => return failed("shared_depth", format!("the program did not build: {why}")),
+    };
+    if gl.glClearBufferfv.is_null() {
+        return failed("shared_depth", "glClearBufferfv is not loaded".to_owned());
+    }
+    let depth = gl.gen_renderbuffers(1).first().copied().unwrap_or(0);
+    gl.bind_renderbuffer(glconst::RENDERBUFFER, depth);
+    gl.renderbuffer_storage(glconst::RENDERBUFFER, glconst::DEPTH_COMPONENT24, 128, 128);
+    let textures = gl.gen_textures(2);
+    let framebuffers = gl.gen_framebuffers(2);
+    let mut checks: Vec<(&str, [u8; 4], [u8; 4])> = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
+    for pass in 0..2_usize {
+        let texture = textures.get(pass).copied().unwrap_or(0);
+        let framebuffer = framebuffers.get(pass).copied().unwrap_or(0);
+        gl.active_texture(glconst::TEXTURE0);
+        gl.bind_texture(glconst::TEXTURE_2D, texture);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
+        gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA8, 128, 128);
+        gl.bind_framebuffer(draw_target(target), framebuffer);
+        gl.framebuffer_texture_2d(
+            draw_target(target),
+            glconst::COLOR_ATTACHMENT0,
+            glconst::TEXTURE_2D,
+            texture,
+            0,
+        );
+        gl.framebuffer_renderbuffer(
+            draw_target(target),
+            glconst::DEPTH_ATTACHMENT,
+            glconst::RENDERBUFFER,
+            depth,
+        );
+        notes.push(format!("pass {pass} framebuffer status 0x{:x}", gl.check_frame_buffer_status(draw_target(target))));
+        gl.viewport(0, 0, 128, 128);
+        gl.disable(glconst::SCISSOR_TEST);
+        gl.disable(glconst::BLEND);
+        gl.color_mask(true, true, true, true);
+        gl.depth_mask(true);
+        gl.clear_color(0.0, 0.0, 0.0, 0.0);
+        gl.clear(glconst::COLOR_BUFFER_BIT);
+        if pass == 0 {
+            let one = 1.0_f32;
+            // SAFETY: a non-null `glClearBufferfv` of the table is the function of that name: `void (GLenum buffer, GLint drawbuffer, const GLfloat *value)`.
+            let clear_buffer: extern "system" fn(u32, i32, *const f32) = unsafe { std::mem::transmute(gl.glClearBufferfv) };
+            clear_buffer(glconst::DEPTH, 0, &one);
+        } else {
+            // The depth cleared by a quad at depth 1.0 that always passes, writes only depth.
+            gl.enable(glconst::DEPTH_TEST);
+            gl.depth_func(glconst::ALWAYS);
+            gl.color_mask(false, false, false, false);
+            gl.use_program(flat);
+            set_colour(gl, flat, [0.0, 0.0, 0.0, 0.0]);
+            full_screen(gl, flat, 1.0);
+            gl.color_mask(true, true, true, true);
+        }
+        gl.enable(glconst::DEPTH_TEST);
+        gl.depth_func(glconst::LEQUAL);
+        gl.use_program(flat);
+        set_colour(gl, flat, [0.0, 1.0, 0.0, 1.0]);
+        full_screen(gl, flat, -0.5);
+        gl.use_program(flat);
+        set_colour(gl, flat, [1.0, 0.0, 0.0, 1.0]);
+        full_screen(gl, flat, 0.5);
+        gl.finish();
+        read_from(gl, target, framebuffer);
+        let name = if pass == 0 { "first tile (depth cleared by glClearBufferfv)" } else { "second tile (depth cleared by a quad)" };
+        checks.push((name, GREEN, px(gl, 64, 64)));
+        gl.disable(glconst::DEPTH_TEST);
+        // After the pass the depth attachment is invalidated; the next pass starts from what the driver makes of that.
+        gl.invalidate_framebuffer(draw_target(target), &[glconst::DEPTH_ATTACHMENT]);
+    }
+    let error = gl.get_error();
+    gl.bind_framebuffer(draw_target(target), target.window);
+    read_from(gl, target, target.window);
+    window_target(gl, target);
+    gl.use_program(0);
+    gl.bind_texture(glconst::TEXTURE_2D, 0);
+    gl.delete_framebuffers(&framebuffers);
+    gl.delete_renderbuffers(&[depth]);
+    gl.delete_textures(&textures);
+    row("shared_depth", &checks, error, &notes.join("; "))
+}
+
 /// The phases, by name, in the order the ladder runs them.
-pub const PHASES: [&str; 8] = [
+pub const PHASES: [&str; 10] = [
     "clear",
     "shader",
     "dummy_texture",
     "fbo_sample",
     "instanced",
     "data_textures",
+    "vertex_fetch",
     "scatter",
     "depth",
+    "shared_depth",
 ];
 
 /// What the ladder found: the rows of the first drawing of every phase, and the programs that did not build.
@@ -894,8 +1114,10 @@ pub fn run_ladder(gl: &GenericGlContext, target: Target, show: &mut dyn FnMut(&'
             "fbo_sample" => phase_fbo_sample(gl, target, &programs),
             "instanced" => phase_instanced(gl, target, &programs),
             "data_textures" => phase_data_textures(gl, target, &programs),
+            "vertex_fetch" => phase_vertex_fetch(gl, target, &programs),
             "scatter" => phase_scatter(gl, target, &programs),
-            _ => phase_depth(gl, target, &programs),
+            "depth" => phase_depth(gl, target, &programs),
+            _ => phase_shared_depth(gl, target, &programs),
         }
     };
     for name in PHASES {
