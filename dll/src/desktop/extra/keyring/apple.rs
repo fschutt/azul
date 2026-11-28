@@ -327,9 +327,16 @@ fn read_unprotected(service: &str, key: &str) -> KeyringResult {
 
 /// `keyring_unlock`: the ONLY read that may show the sheet. An unprotected item is read plainly.
 fn unlock(service: &str, key: &str, prompt: &KeyringPrompt, interaction: Interaction) -> KeyringResult {
-    let Some(level) = read_meta(service, key) else {
-        return read_unprotected(service, key);
-    };
+    let meta = read_meta(service, key);
+    if meta.is_none() {
+        // No meta record: a plain item, read as it is - unless the keychain says it is bound to a check anyway (an item an
+        // older azul made with an access control, before the records existed): the sheet below reads that one.
+        let plain = read_unprotected(service, key);
+        if plain != KeyringResult::WouldPrompt {
+            return plain;
+        }
+    }
+    let level = meta.unwrap_or(Level::UserPresence);
     if !interaction.user_check() {
         return KeyringResult::WouldPrompt;
     }
