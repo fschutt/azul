@@ -1345,6 +1345,26 @@ fn apply_ui_events(window: &mut AndroidWindow, events: Vec<UiEvent>) {
                     apply_insets(window, [top, bottom, left, right, ime]);
                 }
             }
+            UiEvent::DisplayFeatures(flat) => {
+                // The cutouts, rounded corners, bars and the fingerprint sensor of this window (physical px). Read back here; the
+                // engine's `DisplayFeatures` is filled from it where the shell applies the insets.
+                match crate::desktop::shell2::android_core::display::decode(&flat) {
+                    Some(features) => log_debug!(
+                        LogCategory::Window,
+                        "[Android] display features: {} cutout(s), corners {:?}, status bar {:?}, navigation bar {:?}, fingerprint sensor {}",
+                        features.cutouts.len(),
+                        features.corners,
+                        features.status,
+                        features.navigation,
+                        features.fingerprint,
+                    ),
+                    None => log_debug!(
+                        LogCategory::Window,
+                        "[Android] display features: an array of {} ints this version cannot read",
+                        flat.len(),
+                    ),
+                }
+            }
             UiEvent::Gesture(gesture) => apply_gesture(window, gesture),
             UiEvent::TrimMemory(level) => trim_memory(window, level),
         }

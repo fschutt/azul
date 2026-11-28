@@ -115,6 +115,7 @@ fn rust_spellings(java: &str) -> &'static [&'static str] {
         "byte" => &["i8", "jbyte"],
         "char" => &["u16", "jchar"],
         "String" => &["jstring"],
+        "int[]" => &["jintArray", "jarray"],
         _ => &["jobject", "jclass", "jarray", "jbyteArray", "jobjectArray", "jstring", "c_void", "*mut"],
     }
 }

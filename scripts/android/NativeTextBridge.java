@@ -117,6 +117,7 @@ public final class NativeTextBridge {
             View root = activity.getWindow().getDecorView();
             root.setOnApplyWindowInsetsListener((v, insets) -> {
                 dispatchInsets(nativePtr, insets);
+                dispatchDisplayFeatures(nativePtr, v, insets);
                 return insets;
             });
             root.requestApplyInsets();
@@ -146,6 +147,106 @@ public final class NativeTextBridge {
             right = insets.getSystemWindowInsetRight();
         }
         nativeOnWindowInsets(nativePtr, top, bottom, left, right, ime);
+    }
+
+    /**
+     * What the display has built in and the system draws over the window, flattened into ONE int array for Rust
+     * (the layout of the array is the contract of `android_core/display.rs`, version 1): the cutouts
+     * (`DisplayCutout.getBoundingRects()`, API 28), the radii of the rounded corners (`RoundedCorner`, API 31), the status
+     * and the navigation bar with the rect they have WHEN SHOWN and whether they are (`getInsetsIgnoringVisibility`,
+     * `isVisible`, API 30) and whether the device has a fingerprint sensor. Rects are in the window's own physical px.
+     *
+     * The fingerprint sensor's KIND and PLACE are not public API (`FingerprintSensorPropertiesInternal` is hidden): there is
+     * no reflection here, the array says only whether a sensor exists.
+     */
+    private static void dispatchDisplayFeatures(long nativePtr, View root, WindowInsets insets) {
+        try {
+            java.util.List<Rect> cutouts = null;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && insets.getDisplayCutout() != null) {
+                cutouts = insets.getDisplayCutout().getBoundingRects();
+            }
+            int count = cutouts == null ? 0 : cutouts.size();
+            int[] flat = new int[2 + 4 * count + 4 + 6 + 6 + 1];
+            int at = 0;
+            flat[at++] = 1;
+            flat[at++] = count;
+            for (int i = 0; i < count; i++) {
+                Rect r = cutouts.get(i);
+                flat[at++] = r.left;
+                flat[at++] = r.top;
+                flat[at++] = r.right;
+                flat[at++] = r.bottom;
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                flat[at++] = cornerRadius(insets, android.view.RoundedCorner.POSITION_TOP_LEFT);
+                flat[at++] = cornerRadius(insets, android.view.RoundedCorner.POSITION_TOP_RIGHT);
+                flat[at++] = cornerRadius(insets, android.view.RoundedCorner.POSITION_BOTTOM_RIGHT);
+                flat[at++] = cornerRadius(insets, android.view.RoundedCorner.POSITION_BOTTOM_LEFT);
+            } else {
+                at += 4;
+            }
+            int width = root.getWidth();
+            int height = root.getHeight();
+            int statusHeight;
+            int navBottom = 0;
+            int navLeft = 0;
+            int navRight = 0;
+            boolean statusVisible;
+            boolean navVisible;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Insets status = insets.getInsetsIgnoringVisibility(WindowInsets.Type.statusBars());
+                Insets nav = insets.getInsetsIgnoringVisibility(WindowInsets.Type.navigationBars());
+                statusHeight = status.top;
+                navBottom = nav.bottom;
+                navLeft = nav.left;
+                navRight = nav.right;
+                statusVisible = insets.isVisible(WindowInsets.Type.statusBars());
+                navVisible = insets.isVisible(WindowInsets.Type.navigationBars());
+            } else {
+                // Before API 30 the insets are the visible bars' only: a hidden bar reads 0.
+                statusHeight = insets.getSystemWindowInsetTop();
+                navBottom = insets.getSystemWindowInsetBottom();
+                navLeft = insets.getSystemWindowInsetLeft();
+                navRight = insets.getSystemWindowInsetRight();
+                statusVisible = statusHeight > 0;
+                navVisible = navBottom > 0 || navLeft > 0 || navRight > 0;
+            }
+            // the status bar: the band along the top edge
+            at = putBar(flat, at, statusHeight > 0, 0, 0, width, statusHeight, statusVisible);
+            // the navigation bar: along the bottom edge, else the side the three-button bar sits on in landscape
+            if (navBottom > 0) {
+                at = putBar(flat, at, true, 0, height - navBottom, width, height, navVisible);
+            } else if (navRight > 0) {
+                at = putBar(flat, at, true, width - navRight, 0, width, height, navVisible);
+            } else if (navLeft > 0) {
+                at = putBar(flat, at, true, 0, 0, navLeft, height, navVisible);
+            } else {
+                at = putBar(flat, at, false, 0, 0, 0, 0, false);
+            }
+            boolean fingerprint = root.getContext().getPackageManager()
+                    .hasSystemFeature(android.content.pm.PackageManager.FEATURE_FINGERPRINT);
+            flat[at] = fingerprint ? 0 : -1;
+            nativeOnDisplayFeatures(nativePtr, flat);
+        } catch (RuntimeException e) {
+            // The display features are an extra: a platform that refuses one of the calls leaves the app with the insets.
+            Log.w("AzulDisplay", "display features not reported: " + e);
+        }
+    }
+
+    private static int cornerRadius(WindowInsets insets, int position) {
+        android.view.RoundedCorner corner = insets.getRoundedCorner(position);
+        return corner == null ? 0 : corner.getRadius();
+    }
+
+    private static int putBar(int[] flat, int at, boolean present, int left, int top, int right, int bottom,
+                              boolean visible) {
+        flat[at++] = present ? 1 : 0;
+        flat[at++] = left;
+        flat[at++] = top;
+        flat[at++] = right;
+        flat[at++] = bottom;
+        flat[at++] = visible ? 1 : 0;
+        return at;
     }
 
     // ---- Native text selection --------------------------------------------
@@ -666,6 +767,9 @@ public final class NativeTextBridge {
 
     private static native void nativeOnWindowInsets(long nativePtr, int top, int bottom,
                                                     int left, int right, int ime);
+
+    /** The display features of `dispatchDisplayFeatures` (the array layout: android_core/display.rs). */
+    private static native void nativeOnDisplayFeatures(long nativePtr, int[] flat);
 
     // int, not boolean: the Rust side returns `i32` (`jint`), and a jboolean is
     // a byte — declaring it boolean here would read one byte of a four-byte
