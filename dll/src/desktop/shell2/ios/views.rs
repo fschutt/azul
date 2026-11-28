@@ -88,6 +88,7 @@ impl IOSWindow {
             &self.view_config,
             &self.common.app,
             &self.font_registry,
+            false,
         ) {
             Ok(layout_window) => layout_window,
             Err(e) => {

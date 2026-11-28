@@ -27,7 +27,7 @@ use azul_routing::{
 
 use crate::{
     model::{distance_km, End},
-    places::{fold, gazetteer, Suggestion, SuggestionKind, SuggestionSource, SUGGESTION_LIMIT},
+    places::{fold, Gazetteer, Suggestion, SuggestionKind, SuggestionSource, SUGGESTION_LIMIT},
     route::Stop,
     saved::{search as search_saved, PlaceList},
 };
@@ -131,6 +131,8 @@ pub struct SearchRequest {
     pub language: String,
     /// The saved lists, as they were when the search was asked.
     pub saved: Arc<Vec<PlaceList>>,
+    /// AzMaps' own list of cities (`places.tsv`), parsed at the start of the app.
+    pub cities: Arc<Gazetteer>,
     /// The newest search's number, shared with the app.
     pub latest: Arc<AtomicU64>,
     /// The write-back that hands the reply to the app, on the UI thread.
@@ -161,7 +163,7 @@ pub extern "C" fn search_worker(
     mut sender: ThreadSender,
     mut receiver: ThreadReceiver,
 ) {
-    let Some((id, end, query, near, latest, on_done, online, language, saved)) =
+    let Some((id, end, query, near, latest, on_done, online, language, saved, table)) =
         init.downcast_ref::<SearchRequest>().map(|r| {
             (
                 r.id,
@@ -173,6 +175,7 @@ pub extern "C" fn search_worker(
                 r.online.clone(),
                 r.language.clone(),
                 Arc::clone(&r.saved),
+                Arc::clone(&r.cities),
             )
         })
     else {
@@ -184,7 +187,7 @@ pub extern "C" fn search_worker(
     }
     let started = std::time::Instant::now();
     let mine = saved_suggestions(&saved, &query, SUGGESTION_LIMIT);
-    let cities = gazetteer().search(&query, near, SUGGESTION_LIMIT);
+    let cities = table.search(&query, near, SUGGESTION_LIMIT);
     let online = online.filter(|_| query.trim().chars().count() >= ONLINE_MIN_CHARS);
     let mut send = |suggestions: Vec<Suggestion>, complete: bool, offline: bool| {
         let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(

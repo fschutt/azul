@@ -43,7 +43,7 @@ tests() {
   local code=0
   # the tests of this work by name: the module names carry them
   cargo test -p azul-css -p azul-core -p azul-layout --lib --features "$features" --no-fail-fast -- \
-    transient event_boundary menu_overlay input_capture override_dirt captured_release 2>&1 | tee overlay-tests.txt
+    transient event_boundary menu_overlay input_capture override_dirt pointer_capture_ops 2>&1 | tee overlay-tests.txt
   local first=${PIPESTATUS[0]}
   cargo test -p azul-layout --features "$features" --test all --no-fail-fast -- \
     a_window_with_one_surface a_menu_of_a_window a_popover_fits a_screen_reader_reaches 2>&1 | tee overlay-tests-integration.txt
@@ -94,7 +94,7 @@ b = """    hover.apply_press_target_capture(events, in_release_path);
 assert a in s, "the capture order moved: update the teeth step"
 open(p, "w").write(s.replace(a, b, 1))
 PY
-  cargo test -p azul-css -p azul-core -p azul-layout --lib --features "$features" -- input_capture captured_release 2>&1 | tee teeth-capture.txt
+  cargo test -p azul-css -p azul-core -p azul-layout --lib --features "$features" -- input_capture pointer_capture_ops 2>&1 | tee teeth-capture.txt
   if [ "${PIPESTATUS[0]}" -eq 0 ]; then
     echo "TEETH capture: the tests PASS in the old order - they prove nothing"
     code=1

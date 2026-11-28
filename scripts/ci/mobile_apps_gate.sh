@@ -76,7 +76,7 @@ run workspace_tests workspace_tests
 # the tests of the tags (fluent_test.rs) run only with the feature; the filter is theirs: the generated autotests of the module are
 # not run by any CI job and one of them (the f64 text of i64::MAX) fails on master too
 run layout_fluent cargo test -p azul-layout --lib --features fluent -- fluent_test
-run phone_tests cargo test -p azul-layout --test all -- safe_area_inset azul_widgets_video azul_widgets_mail azul_maps_sidebar azul_maps_drive azul_paint_toolbar azul_writer_phone a_button_is_a_touch azul_widgets_toolbar
+run phone_tests cargo test -p azul-layout --test all -- safe_area_inset azul_widgets_video azul_widgets_mail azul_maps_floating azul_maps_drive azul_paint_toolbar azul_writer_phone a_button_is_a_touch azul_widgets_toolbar
 
 # 1b. RED of the layout tests of the phone work: with the themes of the engine and the files of the apps as they were on the
 #     base commit (MOBILE_APPS_BASE, a commit of master before the fixes) the tests that see the bugs must FAIL (the touch floor
@@ -93,7 +93,7 @@ red_layout() {
   git checkout -q "$base" -- "${files[@]}" || { echo "cannot take the previous files from $base"; return 2; }
   local out
   out="$(mktemp)"
-  cargo test -p azul-layout --test all -- a_button_is_a_touch azul_widgets_video azul_widgets_mail azul_maps_sidebar azul_maps_drive azul_paint_toolbar azul_writer_phone > "$out" 2>&1
+  cargo test -p azul-layout --test all -- a_button_is_a_touch azul_widgets_video azul_widgets_mail azul_maps_drive azul_paint_toolbar azul_writer_phone > "$out" 2>&1
   git checkout -q HEAD -- "${files[@]}"
   must_fail "$out" \
     a_button_is_a_touch_target_on_a_phone::a_button_is_48_dp_in_each_direction_on_android_in_every_theme \
@@ -105,8 +105,6 @@ red_layout() {
     azul_widgets_video_card_fits_a_phone::no_node_of_the_video_card_crosses_the_right_edge_of_a_phone \
     azul_widgets_video_card_fits_a_phone::the_stage_is_as_wide_as_the_page_leaves_it_up_to_the_clips_480_and_keeps_16_to_9 \
     azul_widgets_mail_window_fits_a_phone::on_a_phone_the_three_panes_stand_one_over_the_other_inside_the_card \
-    azul_maps_sidebar_is_a_sheet_on_a_phone::on_a_portrait_phone_the_sheet_leaves_the_map_visible_below_it \
-    azul_maps_sidebar_is_a_sheet_on_a_phone::a_short_sidebar_is_as_tall_as_its_content_on_a_phone \
     azul_maps_drive_banner_fits_a_phone::on_a_phone_the_banner_and_the_bar_are_the_screen_less_8_px_each_side_and_no_node_crosses_an_edge \
     azul_maps_drive_banner_fits_a_phone::the_end_key_of_the_bar_is_on_the_screen_and_a_finger_wide \
     azul_paint_toolbar_fits_a_phone::the_six_keys_fit_the_narrowest_phone_and_are_48_dp_each \

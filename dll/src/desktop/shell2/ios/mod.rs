@@ -2409,6 +2409,7 @@ fn make_layout_window(
     config: &AppConfig,
     app_shared: &Arc<crate::desktop::shell2::common::app_shared::AppShared>,
     font_registry: &Option<Arc<FcFontRegistry>>,
+    first_window: bool,
 ) -> Result<LayoutWindow, WindowError> {
     let mut layout_window = LayoutWindow::new(fc_cache.as_ref().clone())
         .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
@@ -2441,6 +2442,12 @@ fn make_layout_window(
     layout_window
         .font_manager
         .register_app_fonts(config.bundled_fonts.as_ref());
+    // The marks of this function split the step between `ios:application_did_finish_launching` and `render_backend`
+    // (1332 ms on a start without a font cache, 74 ms on a start with one: the iOS Simulator of 2026-11-28). The
+    // start-up timeline is the first window's: a view pushed later marks nothing.
+    if first_window {
+        app_shared.startup().mark("ios:layout_window");
+    }
     // `<webview>`s are WKWebViews (`webview::IosWebViews`).
     layout_window
         .webviews
@@ -2449,6 +2456,9 @@ fn make_layout_window(
     // chain starts with is registered here when the registry does not know it.
     if let Some(registry) = font_registry.as_ref() {
         system_font::ensure_system_ui_font(registry);
+    }
+    if first_window {
+        app_shared.startup().mark("ios:system_ui_font");
     }
     Ok(layout_window)
 }
@@ -2515,8 +2525,14 @@ impl IOSWindow {
         let icon_provider_handle = core::mem::take(&mut config.icon_provider);
         let icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
 
-        let layout_window =
-            make_layout_window(&full_window_state, &fc_cache, &config, &app_shared, &font_registry)?;
+        let layout_window = make_layout_window(
+            &full_window_state,
+            &fc_cache,
+            &config,
+            &app_shared,
+            &font_registry,
+            true,
+        )?;
 
         // The editable `UITextInteraction`, made below and attached while a node is being edited.
         let mut text_interaction: *mut Object = ptr::null_mut();
@@ -2664,6 +2680,7 @@ impl IOSWindow {
             // `Id::from_ptr` retains the object; balanced by Drop.
             (Id::from_ptr(window), Id::from_ptr(vc), Id::from_ptr(view))
         };
+        app_shared.startup().mark("ios:uikit_window");
 
         let common = make_common(
             full_window_state,

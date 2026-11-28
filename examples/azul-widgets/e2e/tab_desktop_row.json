@@ -1,0 +1,128 @@
+[
+  {
+    "name": "azul_widgets_a_desktop_pill_row_longer_than_its_box_scrolls",
+    "description": "The desktop's row of 22 px buttons with twelve tabs in a 360 px box: it is a fixed box on the leather with the row inside, which scrolls (a drag, the wheel, the keys) and shows no scrollbar; the first and the last pill stand 10 px in, a fade of that width in the leather's colour lies over each end, and the golden line under the row stays. Frames: at rest (Alpha selected), scrolled 200 px, Lima clicked (the click scrolls it into view and selects it), the same in dark. Flora. Desktop hosts only (the scenario scrolls by pointer-sized numbers).",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Pills - twelve tabs in a 360 px box: the row scrolls",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "get_scrollable_nodes"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"can_scroll_x\":true"
+      },
+      {
+        "op": "get_scrollbar_info",
+        "selector": "#wide-pills .__azul-native-tabs-pill-strip",
+        "orientation": "horizontal"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":false"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "scroll_node_by",
+        "selector": "#wide-pills .__azul-native-tabs-pill-strip",
+        "delta_x": 200.0,
+        "delta_y": 0.0
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 400
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "assert_scroll",
+        "selector": "#wide-pills .__azul-native-tabs-pill-strip",
+        "x": 200.0,
+        "tolerance": 3.0
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "Lima"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "get_scrollbar_info",
+        "selector": "#wide-pills .__azul-native-tabs-pill-strip",
+        "orientation": "horizontal"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":false"
+      },
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "wait_frame"
+      }
+    ]
+  }
+]

@@ -615,10 +615,12 @@ word processor) gives that row to its tabs: the window draws under the bars (`ex
 bar (`system_bars.status` as `HiddenTransient`), draws into the cutout area (`system_bars.draw_into_cutout`) and builds
 its tab bar with `with_status_bar`, given the band the display makes: `StatusBarBand::from_display` takes
 `info.get_display_features()`, `info.get_safe_area_insets()` and the window's size. The strip is then the lanes either
-side of the camera (and a margin of 8 px around it), a stretch of leather in each with the camera between them: it slides
-under the camera as a strip of paper behind a hole, what lies under a cutout is covered by the window's background and
-never drawn, a pill that straddles it is cut at the lane's
-edge (the hint that there is more), and the selected pill always stands whole inside a lane. With one hole that is two
+side of the camera (and a margin of 8 px around it), a stretch of leather in each with the camera between them. At rest
+no pill stands under the camera: the pill that would starts the next lane (the strip gives it the room), so four tabs
+read `FILE HOME (camera) INSERT VIEW`. A strip that is longer than the lanes scrolls, and then it slides under the camera
+as a strip of paper behind a hole: what lies under a cutout is covered by the window's background and never drawn, a
+pill that straddles it is cut at the lane's edge (the hint that there is more), and the selected pill always stands
+whole inside a lane. With one hole that is two
 lanes, with two three, and a window without a cutout or a status bar has an ordinary row. A rotation or a resize runs
 `layout()` again and the strip is built around the new window. The `Ribbon` does the same with
 `with_tab_style(TabStyle::TouchPills)`, `with_status_bar` and `dom_desktop`: its tabs are the strip, its groups the band

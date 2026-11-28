@@ -72,6 +72,7 @@ def pick(app, field, text, end_key):
     the first; the field's end becomes a place."""
     app.must("focus_node", selector="#__azmaps_travel-%s" % field)
     app.frame()
+    app.key("a", primary=True)   # the field may hold a place already: the text replaces it
     app.must("text_input", text=text)
     app.frame()
     app.until("the suggestions for %s" % text, lambda: app.has_id("__azmaps_suggestion-0"))
@@ -83,14 +84,25 @@ def pick(app, field, text, end_key):
     return app.last("AZMAPS_TRAVEL")
 
 
+def open_way(app, to):
+    """Shows the way to `to`: its coordinates typed into the search open the place, Route shows the way with it as the
+    destination (the panel's start stays empty: where you are)."""
+    app.text_input("#__azmaps_search", "%.4f, %.4f" % to)
+    app.until("the place of the destination", lambda: app.has_id("__azmaps_place"))
+    app.click(selector="#__azmaps_place-route")
+    app.until("the way", lambda: app.has_id("__azmaps_travel-from"))
+
+
 def type_ends(app, frm, to):
+    """Both ends as coordinates: the destination through the search and Route, the start typed into its field."""
+    open_way(app, to)
     app.text_input("#__azmaps_travel-from", "%.4f, %.4f" % frm)
-    app.text_input("#__azmaps_travel-to", "%.4f, %.4f" % to)
 
 
 def transit(args, logs, out):
     app = start(args, logs, "transit", os.path.join(logs, "transit-data"), [])
     try:
+        open_way(app, DRIVE_TO)
         app.click(selector="#__azmaps_travel-transit")
         pick(app, "from", "Berlin Hbf", "from")
         travel = pick(app, "to", "Leipzig Hbf", "to")
@@ -227,6 +239,7 @@ def offline(args, logs, out):
         app.until("the route on the panel", lambda: app.printed("AZMAPS_ROAD", r"car .*"))
         app.must("focus_node", selector="#__azmaps_travel-to")
         app.frame()
+        app.key("a", primary=True)
         app.must("text_input", text="Leipzig Hbf")
         app.frame()
         app.until("the places from the cache", lambda: app.printed("AZMAPS_SUGGEST_SOURCE", r"to [1-9]\d* offline"))
