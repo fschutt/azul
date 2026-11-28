@@ -272,8 +272,10 @@ weight = 1
 package = "AzCalendar"
 dir = "examples/azul-calendar"
 description = "a calendar with a week view and event files; it mints AzMeet links"
-platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 2
+mobile_lib = "mobile"
+e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
 
 [[app]]
 package = "AzClock"
