@@ -50,6 +50,38 @@ bundle="$(find demo-out/selftest-app -maxdepth 2 -name '*.app' -type d | head -n
 [ -n "$bundle" ] || { echo "the zip holds no .app"; exit 1; }
 echo "== the app: $bundle"
 
+# E63 (AzMeet / AzCompanion did not build for iOS: the symbol gate found SystemConfiguration symbols that iOS marks unavailable in the
+# iroh dependencies): the two apps against the library built above (their e2e library is this one), and what the SDK says about the
+# symbols. Not part of the self-test: nothing here changes the exit code of the job.
+for other in AzCompanion AzMeet; do
+  echo "== E63 symbol gate: $other on $lib"
+  python3 scripts/demo_build.py ios --target "$target" --apps "$other" --libs demo-out/libs --out demo-out/apps \
+    --results demo-out/results --variant "$lib" || echo "E63_APP_EXIT[$other]=$?"
+done
+for f in demo-out/results/AzCompanion*.json demo-out/results/AzMeet*.json; do
+  [ -f "$f" ] || continue
+  echo "-- $f"
+  python3 -I - "$f" <<'PY' || true
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+keep = {k: d[k] for k in ("app", "status", "first_error", "imports", "unchecked") if k in d}
+violations = d.get("violations")
+if isinstance(violations, list):
+    violations = [v.get("name", v) if isinstance(v, dict) else v for v in violations]
+print(keep, "violations:", violations)
+PY
+done
+sc_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path 2>/dev/null || true)"
+sc_tbd="$sc_sdk/System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration.tbd"
+echo "== E63 the iPhoneSimulator SDK: $sc_sdk"
+for sym in SCDynamicStoreCopyValue SCDynamicStoreCreateWithOptions SCNetworkInterfaceCopyAll SCDynamicStoreCopyProxies; do
+  printf '%s: tbd lines %s; header: ' "$sym" "$(grep -c "_$sym" "$sc_tbd" 2>/dev/null || echo 0)"
+  grep -rh -A2 "$sym" "$sc_sdk/System/Library/Frameworks/SystemConfiguration.framework/Headers" 2>/dev/null | tr '\n' ' ' | cut -c1-240
+  echo
+done
+
 xcrun simctl list devicetypes | grep -i "iphone" | head -30 || true
 xcrun simctl list runtimes | head -10 || true
 
