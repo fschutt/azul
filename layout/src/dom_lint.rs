@@ -1445,6 +1445,42 @@ mod semantic_and_a11y_lint_tests {
         azul_core::diagnostics::clear();
     }
 
+    /// The divider between the items of a bar (the Toolbar's separator) has a
+    /// role and nothing to be called: no finding. A separator somebody can
+    /// click is a control, and still wants its name.
+    #[test]
+    fn a_separator_with_no_name_is_a_divider_and_no_finding() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        let separator = || {
+            Dom::create_div().with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Separator,
+                ..Default::default()
+            })
+        };
+        warn_a11y_shape(&styled(Dom::create_body().with_child(separator())));
+        assert_eq!(
+            printed("[azul][a11y-shape]"),
+            0,
+            "a divider is no anonymous control: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+        let clickable = separator().with_callback(
+            azul_core::dom::EventFilter::Hover(azul_core::dom::HoverEventFilter::MouseUp),
+            azul_core::refany::RefAny::new(()),
+            crate::callbacks::Callback::from_ptr(noop_cb),
+        );
+        warn_a11y_shape(&styled(Dom::create_body().with_child(clickable)));
+        assert_eq!(
+            printed("[azul][a11y-shape]"),
+            1,
+            "a separator that can be clicked is a control and wants a name: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
     /// The lints say each problem once per WINDOW: a window that lays out the
     /// same shape again stays quiet, a second window says it once more.
     #[test]
@@ -2169,6 +2205,14 @@ fn shape_finding(
     // map whose container carries the name. Demanding a name here would make
     // a screen reader read out every tile.
     if matches!(role, AccessibilityRole::Nothing) && !has_name && !interactive && !focusable {
+        return None;
+    }
+
+    // A separator (ARIA's role="separator") that nobody can click or tab to is
+    // the divider between the items of a bar: it announces "separator" and
+    // has nothing to be called. Demanding a name here would make every
+    // toolbar's dividers findings (the find bar of AzCode, the formatting bar).
+    if matches!(role, AccessibilityRole::Separator) && !has_name && !interactive && !focusable {
         return None;
     }
 

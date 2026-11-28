@@ -3071,10 +3071,12 @@ pub(crate) fn build_lines(resolved: CodeViewResolved, look: &CodeViewLook) -> Do
             Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(TRACK_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_vec(track))
-                .with_accessibility_info(AccessibilityInfo::named(
-                    AzString::from_const_str("Lines"),
-                    AccessibilityRole::ScrollBar,
-                ))
+                .with_accessibility_info(AccessibilityInfo {
+                    accessibility_name: azul_css::OptionString::Some(AzString::from_const_str("Lines")),
+                    role: AccessibilityRole::ScrollBar,
+                    accessibility_value: azul_css::OptionString::Some(AzString::from(scrolled_percent(view.top_line, cv.line_count).to_string())),
+                    ..Default::default()
+                })
                 .with_child(
                     Dom::create_div()
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(THUMB_CLASS))
@@ -3090,6 +3092,18 @@ pub(crate) fn build_lines(resolved: CodeViewResolved, look: &CodeViewLook) -> Do
         .with_ids_and_classes(IdOrClassVec::from_const_slice(LINES_CLASS))
         .with_css_props(CssPropertyWithConditionsVec::from_vec(root))
         .with_children(DomVec::from_vec(children))
+}
+
+/// How far down the text the view is scrolled, in whole percent (the value of the scroll bar a screen reader announces): the first
+/// line shown against the last line the view can be scrolled to (the view never scrolls past the last line).
+fn scrolled_percent(top_line: u32, line_count: u32) -> u32 {
+    let last = line_count.saturating_sub(1);
+    if last == 0 {
+        return 0;
+    }
+    let percent = u64::from(top_line.min(last)) * 100 / u64::from(last);
+    // at most 100 by construction
+    u32::try_from(percent).unwrap_or(100)
 }
 
 /// The lines of `resolved` in the view's look: the theme it is pinned to,

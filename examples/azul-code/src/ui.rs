@@ -475,7 +475,7 @@ fn tab(app: &RefAny, index: usize, doc: &Doc, active: bool) -> Dom {
             "display: flex; flex-direction: row; align-items: center; padding: 0px 4px 0px 12px; \
              cursor: pointer;",
         )
-        .with_accessibility_name(doc.name.as_str())
+        .with_accessibility_info(AccessibilityInfo::named(doc.name.clone(), AccessibilityRole::PageTab))
         .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), tab_ref(), on_tab_click)
         .with_child(
             Dom::create_icon("description").with_css(format!("font-size: 16px; padding-right: 6px; {SOFT_GLYPH}")),

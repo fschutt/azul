@@ -851,6 +851,25 @@ fn the_view_builds_its_lines_with_the_kind_classes_and_the_caret() {
 }
 
 #[test]
+fn the_scroll_bar_says_how_far_the_view_is_scrolled() {
+    // A scroll bar without its value is announced as "slider" and never how far along it is.
+    assert_eq!(
+        (scrolled_percent(0, 1000), scrolled_percent(500, 1000), scrolled_percent(999, 1000), scrolled_percent(5000, 1000)),
+        (0, 50, 100, 100),
+        "the first line, half way, the last line, past the last line"
+    );
+    assert_eq!((scrolled_percent(0, 0), scrolled_percent(3, 1), scrolled_percent(7, 0)), (0, 0, 0), "no line to scroll to");
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let mut cv = generated(1000, &asked);
+    cv.view.top_line = 500;
+    let lines = lines_dom(resolve(cv));
+    let track = tc::find(&lines, TRACK_CLASS_NAME).expect("1000 lines in a 22-line view have a scroll bar");
+    let info = track.root.get_accessibility_info().expect("the bar declares accessibility");
+    assert_eq!(info.role, azul_core::a11y::AccessibilityRole::ScrollBar);
+    assert_eq!(info.accessibility_value.as_ref().map(|v| v.as_str()), Some("50"));
+}
+
+#[test]
 fn the_view_node_asks_for_no_line_its_virtual_view_asks_for_the_lines_in_view() {
     let asked = Arc::new(Mutex::new(Vec::new()));
     let _view = generated(1000, &asked).dom();
