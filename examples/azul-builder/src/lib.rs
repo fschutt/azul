@@ -73,7 +73,8 @@ pub fn run_app() {
     if !scripted() {
         std::env::set_var("AZ_DEBUG", debug_port());
     }
-    let config = AppConfig::create();
+    // Every Az app starts in flora.
+    let config = AppConfig::create().with_theme("flora");
     let app = App::create(RefAny::new(()), config);
     let mut options = WindowCreateOptions::create(layout);
     options.window_state.flags.is_always_on_top = true;

@@ -19,9 +19,8 @@ use std::path::PathBuf;
 /// the liturgical set of the design system (`flora:green` Ordinary,
 /// `flora:red` Pentecost, `flora:purple` Advent, `flora:gold` Easter,
 /// `flora:rose` Gaudete; azul's `widgets::themes::spin`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Theme {
-    #[default]
     Flat,
     Flora,
     FloraGreen,
@@ -29,6 +28,14 @@ pub enum Theme {
     FloraPurple,
     FloraGold,
     FloraRose,
+}
+
+impl Default for Theme {
+    /// The look a user who chose none gets: every Az app starts in flora, on every platform. A theme the user
+    /// chose (the settings page, the shared config) or a `--theme` switch wins over it.
+    fn default() -> Self {
+        Self::Flora
+    }
 }
 
 impl Theme {
