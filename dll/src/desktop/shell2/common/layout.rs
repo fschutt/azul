@@ -317,23 +317,22 @@ impl SystemFontsGate for RegistryGate {
 /// What this pass did about the font scan, for the frame report and the startup timeline: it waited (the first thing it
 /// needed from the system is the reason the mark prints) or went on (the faces in memory drew its text). Called after a
 /// pass that began while the scan was pending.
+///
+/// A pass that waited for nothing while the scan finished DURING it (the scan was over when a face was first needed, so
+/// the gate was not asked) is neither: it decided nothing, and says nothing.
 fn report_font_waits(
     layout_window: &mut LayoutWindow,
     startup: &crate::desktop::startup_timeline::StartupTimeline,
 ) {
-    let waits = layout_window
-        .font_manager
-        .system_fonts_gate
-        .as_deref()
-        .map(SystemFontsGate::take_waits)
-        .unwrap_or_default();
+    let gate = layout_window.font_manager.system_fonts_gate.clone();
+    let waits = gate.as_deref().map(SystemFontsGate::take_waits).unwrap_or_default();
     if let Some(first) = waits.first() {
         layout_window.frame_report.font_waits_blocked =
             layout_window.frame_report.font_waits_blocked.saturating_add(1);
         let millis: f64 = waits.iter().map(|wait| wait.millis).sum();
         // The reason is the first thing the DOM needs the system for: what an app that wants the skip changes.
         startup.mark_once_with("fonts:first_layout_wait", || format!("waited {millis:.1} ms: {}", first.why));
-    } else {
+    } else if gate.as_deref().is_some_and(SystemFontsGate::pending) {
         layout_window.frame_report.font_waits_skipped =
             layout_window.frame_report.font_waits_skipped.saturating_add(1);
         startup.mark_once_with("fonts:first_layout_wait", || {
