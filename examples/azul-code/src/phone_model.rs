@@ -15,12 +15,12 @@ pub const COMPACT_WIDTH: f32 = 600.0;
 pub const COMPACT_HEIGHT: f32 = 500.0;
 /// The smallest touch target, px: Android's 48 dp (iOS asks for 44 pt, which this covers).
 pub const TOUCH: f32 = 48.0;
-/// The top bar's height without the status bar's room, px.
-pub const TOP_BAR: f32 = 48.0;
+/// The top bar's height, px: a finger's 48 under the hairline that ends it (the device audit measured 47 in a bar of 48).
+pub const TOP_BAR: f32 = 49.0;
 /// The key row's height, px: its keys are a finger tall ([`TOUCH`]) with a little air above and below.
 pub const KEY_ROW: f32 = 56.0;
-/// The status bar's height without the home indicator's room, px: its segments are touch targets (Android asks 48 dp, iOS 44 pt).
-pub const STATUS_BAR: f32 = 48.0;
+/// The status bar's height, px: its segments are touch targets (Android asks 48 dp, iOS 44 pt) under the hairline that opens it.
+pub const STATUS_BAR: f32 = 49.0;
 /// The drawer's share of the window's width, and its limits, px.
 pub const DRAWER_SHARE: f32 = 0.84;
 /// The drawer is at least this wide, px.
