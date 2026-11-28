@@ -1,0 +1,65 @@
+[
+  {
+    "name": "azul_maps_search_takes_at_most_256_characters_desktop",
+    "description": "A text longer than the search takes (300 characters, a paste) is refused with a notice, not searched (no pictures).",
+    "only_on": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "steps": [
+      {
+        "op": "set_display_preset",
+        "preset": "off"
+      },
+      {
+        "op": "resize",
+        "width": 1280.0,
+        "height": 800.0
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "click",
+        "selector": "#__azmaps_search"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "text_input",
+        "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_link-copied"
+      }
+    ]
+  }
+]

@@ -253,6 +253,13 @@ def phone_files():
 def files():
     """File name -> the tests it holds."""
     out = {"maps_desktop.json": desktop_file()}
+    out["maps_search_limit.json"] = [{
+        "name": "azul_maps_search_takes_at_most_256_characters_desktop",
+        "description": "A text longer than the search takes (300 characters, a paste) is refused with a notice, not searched (no pictures).",
+        "only_on": DESKTOPS,
+        "steps": window("desktop", 1280, 800, "off") + [op("set_mode", mode="light")] + click("#__azmaps_search")
+                 + [op("text_input", text="x" * 300)] + frames(3) + [op("assert_exists", selector="#__azmaps_link-copied")],
+    }]
     out["maps_back_desktop.json"] = [{
         "name": "azul_maps_back_steps_out_one_view_at_a_time_desktop",
         "description": "Back (an Escape) in a 1280 x 800 window: the way goes to its place, the place to the search, the search's text goes "
