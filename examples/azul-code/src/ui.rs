@@ -628,9 +628,11 @@ fn link(
 ) -> Dom {
     let mut row = clickable(
         id,
-        // Under flora a link is flora's brass.
+        // A link is the editor's link blue in each scheme (the system accent of a dark window can be a
+        // blue that is about 1.7:1 against the dark ground: the first look's first thing was unreadable);
+        // under flora it is flora's brass.
         "display: flex; flex-direction: row; align-items: center; padding: 4px 0px; cursor: pointer; \
-         color: var(--az-accent, #3794FF); :hover { opacity: 0.8; } @theme(flora) { color: \
+         color: #006AB1; :hover { opacity: 0.8; } @theme(dark) { color: #3794FF; } @theme(flora) { color: \
          system:link; }",
         title,
         AccessibilityRole::Link,
@@ -666,8 +668,9 @@ fn find_bar(app: &RefAny, st: &AppState) -> Dom {
         ToolbarItem::create_custom(ids::FIND_INPUT, l10n::label("azcode-action-find"), find_input(app, st, ids::FIND_INPUT), 220.0)
             .with_never_overflow(true),
         ToolbarItem::create_custom(ids::FIND_COUNT, l10n::label("azcode-find-results-title"), text(&count).with_id(ids::FIND_COUNT), 90.0),
-        ToolbarItem::create_button(ids::FIND_PREVIOUS, l10n::label("azcode-find-previous"), ""),
-        ToolbarItem::create_button(ids::FIND_NEXT, l10n::label("azcode-find-next"), ""),
+        // The arrows are icon tools (named, and with a tooltip, by their label): bare words had no look of a button.
+        ToolbarItem::create_button(ids::FIND_PREVIOUS, l10n::label("azcode-find-previous"), "keyboard_arrow_up"),
+        ToolbarItem::create_button(ids::FIND_NEXT, l10n::label("azcode-find-next"), "keyboard_arrow_down"),
         ToolbarItem::create_separator(),
         ToolbarItem::create_toggle(ids::MATCH_CASE, "Aa", "", st.find.how.match_case).with_tooltip(l10n::label("azcode-match-case")),
         ToolbarItem::create_toggle(ids::WHOLE_WORD, l10n::label("azcode-word"), "", st.find.how.whole_word)
