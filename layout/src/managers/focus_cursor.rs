@@ -536,7 +536,9 @@ fn collect_tab_order(
             continue;
         }
         let hierarchy = layout.styled_dom.node_hierarchy.as_container();
-        let laid_out = !layout.layout_tree.dom_to_layout.is_empty();
+        // Whether this DOM has a geometry: a layout pass placed its boxes. A tree that only mirrors
+        // the DOM (no pass ran) says nothing about what is shown.
+        let laid_out = !layout.calculated_positions.is_empty();
         let transient_roots: Vec<NodeId> = (0..node_data.len())
             .map(NodeId::new)
             .filter(|n| {

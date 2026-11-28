@@ -7,7 +7,8 @@
 # Steps (OVERLAY_ONLY names them; none named = all of them):
 #   tests      the tests of the work by name, in azul-core and azul-layout, with the CI's feature list
 #   workspace  the CI's workspace test command of css, core, layout and webrender in full (the gate before a push)
-#   clippy     the CI's clippy line of the three crates, the test targets included
+#   clippy     the CI's two clippy lines of the three crates, the test targets included (the second without the 36 findings
+#              of master's `unused_qualifications`, which are listed by file instead)
 #   autofix    api.json through azul-doc: patches until there are none, normalize; a SECOND round that must change nothing
 #   doc_check  azul-doc check (the double-drop invariant, the guide links) and azul-doc check layout
 #   dll_check  codegen of the bindings, cargo check of azul-dll, the srcgate tests
@@ -63,8 +64,20 @@ workspace() {
 run workspace workspace
 
 clippy() {
-  cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --features "$features" -- -D warnings 2>&1 | tee clippy.txt
-  return "${PIPESTATUS[0]}"
+  local code=0
+  # The CI's first clippy step: the default features, every finding an error.
+  cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets -- -D warnings 2>&1 | tee clippy.txt
+  [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
+  # The CI's second step: the feature set the tests compile. origin/master carries 36 `unnecessary qualification`
+  # findings in layout/src/window.rs that are not this work's (the paths were written before `CssProperty` was imported
+  # there), so the step runs with that one lint allowed - every other finding is an error, as in CI - and the findings of
+  # the lint are LISTED by file in the next one: the work must add none.
+  cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --features "$features" -- -D warnings -A unused-qualifications 2>&1 | tee clippy-features.txt
+  [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
+  cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --features "$features" 2>&1 | tee clippy-qualifications.txt >/dev/null
+  echo "--- unnecessary qualifications by file (origin/master: layout/src/window.rs 36, nothing else) ---"
+  grep -A1 "unnecessary qualification" clippy-qualifications.txt | grep -- "-->" | sed -E 's/^ *--> //; s/:[0-9]+:[0-9]+$//' | sort | uniq -c
+  return "$code"
 }
 run clippy clippy
 
