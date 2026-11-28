@@ -68,7 +68,7 @@ use azul_css::AzString;
 use super::{
     preview::{Preview, OptionPreview},
     sidebar::{OptionSidebar, OptionSidebarOnEvent, Sidebar, SidebarEvent, SidebarEventKind, SidebarOnEvent},
-    sidebar_layout::{pushes_main, FormFactor, SidebarState},
+    sidebar_layout::{pushes_main, sidebar_edge, Edge, FormFactor, SidebarState, BUILT_FOR},
     tab_strip::TOUCH_ROW,
 };
 use crate::callbacks::CallbackInfo;
@@ -305,9 +305,11 @@ fn build(frame: AppFrame) -> Dom {
         .as_ref()
         .is_some_and(|sb| pushes_main(sb.state, if phone { FormFactor::Phone } else { FormFactor::Desktop }));
     let catcher_on_event = sidebar.as_ref().map(|sb| sb.on_event.clone());
+    // the edge the sidebar stands at (the one place that decides it, `sidebar_edge`)
+    let edge = sidebar_edge(BUILT_FOR);
     // a phone's closed sidebar (the rail, the handle) stands below the tab row, beside the rest
     let inset = sidebar.as_ref().map_or(0.0, Sidebar::phone_content_inset);
-    let inset_css = if inset > 0.0 { format!(" margin-left: {inset}px;") } else { String::new() };
+    let inset_css = if inset > 0.0 { format!(" {}: {inset}px;", edge.margin_outer()) } else { String::new() };
 
     // ---- the middle: the body, with the Preview beside or under it ----
     let middle = match preview.into_option() {
@@ -384,7 +386,9 @@ fn build(frame: AppFrame) -> Dom {
     let main = styled(Dom::create_div().with_children(DomVec::from_vec(main_kids)), main_css)
         .with_ids_and_classes(classes(&[FRAME_MAIN_CLASS]));
 
+    // the sidebar's column in the row of the frame: first at the left edge, last at the right one
     let mut root_kids: Vec<Dom> = Vec::with_capacity(3);
+    let mut sidebar_column: Option<Dom> = None;
     if let Some(sb) = sidebar {
         if inset > 0.0 {
             // the phone's rail: out of the flow, below the tab row, over the left edge of the rest
@@ -393,17 +397,24 @@ fn build(frame: AppFrame) -> Dom {
                 styled(
                     Dom::create_div().with_child(sb.dom()),
                     &format!(
-                        "position: absolute; left: 0px; top: {top}px; bottom: 0px; display: flex; \
-                         flex-direction: column; z-index: 6;"
+                        "position: absolute; {}: 0px; top: {top}px; bottom: 0px; display: flex; \
+                         flex-direction: column; z-index: 6;",
+                        edge.offset()
                     ),
                 )
                 .with_ids_and_classes(classes(&[FRAME_RAIL_CLASS])),
             );
         } else {
-            root_kids.push(sb.dom());
+            sidebar_column = Some(sb.dom());
         }
     }
-    root_kids.push(main);
+    if edge == Edge::Left {
+        root_kids.extend(sidebar_column.take());
+        root_kids.push(main);
+    } else {
+        root_kids.push(main);
+        root_kids.extend(sidebar_column.take());
+    }
     if let Some(s) = sheet.into_option() {
         root_kids.push(s);
     }

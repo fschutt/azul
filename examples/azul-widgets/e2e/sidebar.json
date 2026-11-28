@@ -680,7 +680,7 @@
   },
   {
     "name": "azul_widgets_the_preview_docks_right_on_a_desktop_and_its_border_resizes_it_by_key",
-    "description": "The Preview of the Sidebar section on a desktop: docked at the right (no bottom pane), its left border is a focusable splitter that takes the arrow keys (16 px a press), the app keeps the size the pane reports, the pane closes and opens again from the button.",
+    "description": "The Preview of the Sidebar section on a desktop: docked at the right (no bottom pane), its left border is a focusable splitter that takes the arrow keys (16 px a press), the app keeps the size the pane reports, the pane closes and opens again from the button. When the app moves the pane by itself afterwards (a reset), the pane obeys: the override of the drag does not outlive it.",
     "only_on": [
       "linux",
       "windows",
@@ -799,6 +799,44 @@
       {
         "op": "assert_response",
         "contains": "\"found\":true"
+      },
+      {
+        "op": "key_down",
+        "key": "Left"
+      },
+      {
+        "op": "key_up",
+        "key": "Left"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-pane",
+        "property": "width",
+        "expected": 352,
+        "tolerance": 1.5
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-preview-reset"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-pane",
+        "property": "width",
+        "expected": 320,
+        "tolerance": 1.5
       },
       {
         "op": "click",

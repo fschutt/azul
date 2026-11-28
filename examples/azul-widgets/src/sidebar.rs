@@ -522,6 +522,13 @@ pub(crate) fn sidebar_section(data: &RefAny, demo: &SidebarDemo, theme: UiTheme)
                             .with_id("sidebar-preview-toggle"),
                     )
                     .with_child(
+                        Button::with_type("Reset the Preview's size", ButtonType::Default)
+                            .with_theme(theme)
+                            .with_on_click(data.clone(), on_preview_reset as ButtonOnClickCallbackType)
+                            .dom()
+                            .with_id("sidebar-preview-reset"),
+                    )
+                    .with_child(
                         Button::with_type(if demo.banner { "Remove the banner" } else { "Show a banner" }, ButtonType::Default)
                             .with_theme(theme)
                             .with_on_click(data.clone(), on_banner as ButtonOnClickCallbackType)
@@ -586,6 +593,15 @@ extern "C" fn on_surface(mut data: RefAny, _: CallbackInfo) -> Update {
 
 extern "C" fn on_preview_open(mut data: RefAny, _: CallbackInfo) -> Update {
     keep(&mut data, |s| s.sidebar.preview_open = !s.sidebar.preview_open)
+}
+
+/// The app moves the pane by itself: the size is the default again (the Preview obeys, although the
+/// user dragged it to another size before).
+extern "C" fn on_preview_reset(mut data: RefAny, _: CallbackInfo) -> Update {
+    keep(&mut data, |s| {
+        s.sidebar.preview_size = 0.0;
+        s.sidebar.last = String::from("preview reset");
+    })
 }
 
 extern "C" fn on_banner(mut data: RefAny, _: CallbackInfo) -> Update {

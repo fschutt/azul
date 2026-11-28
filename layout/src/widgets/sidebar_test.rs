@@ -519,6 +519,7 @@ fn the_phone_drawer_is_a_share_of_the_frame_and_the_phone_rail_is_18_like_the_de
 #[test]
 fn a_phone_row_is_a_finger_tall_and_a_desktop_row_is_not() {
     let phone = Ctx {
+        edge: Edge::Left,
         state: SidebarState::Expanded,
         touch: true,
         look: SidebarSurface::Theme.look(),

@@ -95,7 +95,7 @@ use super::{
     pie_marker::{disc_dom, PieTone},
     roving,
     sidebar_layout::{
-        column_width, controls_height, swipe_opens, SidebarColumnWidth,
+        column_width, controls_height, sidebar_edge, swipe_opens_at, Edge, SidebarColumnWidth, BUILT_FOR,
         INDENT_PER_DEPTH, MAX_DEPTH, MAX_QUICK_ACTIONS, MAX_ROWS, MAX_STATUSES,
         RAIL_BUTTON_DESKTOP, RAIL_BUTTON_PHONE, RAIL_ICON_PX, RAIL_SLOP, RAIL_STATUS_PX,
         RAIL_WIDTH, ROW_HEIGHT_DESKTOP, ROW_HEIGHT_PHONE, STATUS_PIE_PX,
@@ -1367,6 +1367,7 @@ extern "C" fn on_tip_hide(_data: RefAny, mut info: CallbackInfo) -> Update {
 /// pointer is captured and whether the drawer was asked for already in this gesture.
 struct SwipeRef {
     on_event: OptionSidebarOnEvent,
+    edge: Edge,
     anchor: Option<(f32, f32)>,
     captured: bool,
     fired: bool,
@@ -1394,12 +1395,12 @@ fn swipe_moved(data: &mut RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let (dx, dy) = (p.x - x0, p.y - y0);
-    if !s.captured && dx >= SWIPE_CAPTURE_PX && dx > 2.0 * dy.abs() {
+    if !s.captured && dx * s.edge.inward() >= SWIPE_CAPTURE_PX && (dx * s.edge.inward()) > 2.0 * dy.abs() {
         s.captured = true;
         let me = info.get_hit_node();
         info.capture_pointer(me);
     }
-    if !swipe_opens(dx, dy) {
+    if !swipe_opens_at(s.edge, dx, dy) {
         return Update::DoNothing;
     }
     s.fired = true;
@@ -1553,6 +1554,8 @@ fn callback(
 
 /// Everything one build of the sidebar shares.
 struct Ctx {
+    /// The edge of the window the sidebar stands at (`sidebar_edge`: the one place that decides it).
+    edge: Edge,
     state: SidebarState,
     /// Whether the rows and the rail's slots are finger-sized: the phone's form, or any touch
     /// platform (a tablet at 600 dp and more is the desktop's form with fingers on it).
@@ -1874,7 +1877,8 @@ fn slop(ctx: &Ctx) -> Dom {
     styled(
         Dom::create_div(),
         &format!(
-            "position: absolute; left: -1px; top: -3px; width: {}px; height: {}px; z-index: 1;",
+            "position: absolute; {}: -1px; top: -3px; width: {}px; height: {}px; z-index: 1;",
+            ctx.edge.offset(),
             RAIL_WIDTH + RAIL_SLOP,
             ctx.slot_h()
         ),
@@ -1887,10 +1891,11 @@ fn slop(ctx: &Ctx) -> Dom {
 fn face_css(ctx: &Ctx) -> String {
     format!(
         "display: flex; align-items: center; justify-content: center; box-sizing: border-box; flex-shrink: 0; \
-         position: relative; width: {}px; height: {}px; margin: 3px 0px 3px 1px; border-radius: 6px; \
+         position: relative; width: {}px; height: {}px; margin: 3px 0px; {}: 1px; border-radius: 6px; \
          cursor: pointer; ",
         RAIL_WIDTH - 2.0,
-        ctx.slot_h() - 6.0
+        ctx.slot_h() - 6.0,
+        ctx.edge.margin_outer()
     )
 }
 
@@ -2346,7 +2351,9 @@ fn build(sb: Sidebar) -> Dom {
         }
         _ => selected.unwrap_or(0),
     };
+    let edge = sidebar_edge(BUILT_FOR);
     let ctx = Ctx {
+        edge,
         state,
         touch: phone || TOUCH_PLATFORM,
         look,
@@ -2369,7 +2376,8 @@ fn build(sb: Sidebar) -> Dom {
     let mut root_css = format!(
         "display: flex; flex-direction: column; flex-shrink: 0; flex-grow: 0; height: 100%; box-sizing: border-box; \
          {overflow} position: relative; font-size: 13px; user-select: none; \
-         border-right: 1px solid system:separator; {} {} {}",
+         {}: 1px solid system:separator; {} {} {}",
+        edge.inner_border(),
         width_css(col),
         // the column slides between its states (a transition of the width: it needs a width in px
         // on both sides, see `frame_width`; where the engine does not tween, the width jumps)
@@ -2377,7 +2385,9 @@ fn build(sb: Sidebar) -> Dom {
         look.root
     );
     match state {
-        SidebarState::Rail => root_css.push_str(" align-items: flex-start;"),
+        SidebarState::Rail => {
+            let _ = write!(root_css, " align-items: {};", edge.align_start());
+        }
         SidebarState::Handle => root_css.push_str(" align-items: center;"),
         SidebarState::Expanded => {}
     }
@@ -2463,9 +2473,10 @@ fn build(sb: Sidebar) -> Dom {
             styled(
                 Dom::create_div().with_children(DomVec::from_vec(nav)),
                 &format!(
-                    "display: flex; flex-direction: column; align-items: flex-start; flex-grow: 1; flex-shrink: 1; \
+                    "display: flex; flex-direction: column; align-items: {}; flex-grow: 1; flex-shrink: 1; \
                      flex-basis: 0px; min-height: 0px; width: {group_w}px; overflow-y: auto; overflow-x: hidden; \
-                     scrollbar-width: none; padding: 4px 0px;"
+                     scrollbar-width: none; padding: 4px 0px;",
+                    edge.align_start()
                 ),
             )
             .with_ids_and_classes(classes(SIDEBAR_LIST_CLASS, &[]))
@@ -2481,8 +2492,9 @@ fn build(sb: Sidebar) -> Dom {
                 styled(
                     Dom::create_div().with_children(DomVec::from_vec(buttons)),
                     &format!(
-                        "display: flex; flex-direction: column; align-items: flex-start; flex-shrink: 0; \
-                         width: {group_w}px;"
+                        "display: flex; flex-direction: column; align-items: {}; flex-shrink: 0; \
+                         width: {group_w}px;",
+                        edge.align_start()
                     ),
                 )
                 .with_ids_and_classes(classes(SIDEBAR_QUICK_CLASS, &[])),
@@ -2513,8 +2525,9 @@ fn build(sb: Sidebar) -> Dom {
             styled(
                 Dom::create_div().with_children(DomVec::from_vec(foot)),
                 &format!(
-                    "display: flex; flex-direction: column; align-items: flex-start; flex-shrink: 0; \
-                     width: {group_w}px; padding: 0px 0px 6px 0px;"
+                    "display: flex; flex-direction: column; align-items: {}; flex-shrink: 0; \
+                     width: {group_w}px; padding: 0px 0px 6px 0px;",
+                    edge.align_start()
                 ),
             )
             .with_ids_and_classes(classes(SIDEBAR_FOOT_CLASS, &[])),
@@ -2522,6 +2535,7 @@ fn build(sb: Sidebar) -> Dom {
         let swipe_on = ctx.on_event.is_some();
         let swipe = RefAny::new(SwipeRef {
             on_event: ctx.on_event,
+            edge,
             anchor: None,
             captured: false,
             fired: false,

@@ -73,9 +73,9 @@ use super::{
     dialog::{Dialog, DialogClosedBy},
     sidebar::SidebarSurface,
     sidebar_layout::{
-        clamp_pane_height, clamp_preview_width, dragged_pane_height, dragged_preview_width, pane_max,
-        settle_pane_height, step_size, toggle_pane_height, FormFactor, GripKey, BORDER_GRAB,
-        GRIP_HEIGHT, GRIP_SLOP, PANE_COLLAPSED, PREVIEW_WIDTH_DEFAULT,
+        clamp_pane_height, clamp_preview_width, dragged_pane_height, dragged_preview_width_at, pane_max,
+        preview_edge, settle_pane_height, step_size, toggle_pane_height, Edge, FormFactor, GripKey,
+        BORDER_GRAB, BUILT_FOR, GRIP_HEIGHT, GRIP_SLOP, PANE_COLLAPSED, PREVIEW_WIDTH_DEFAULT,
     },
     themes::{OptionUiTheme, UiTheme},
     widget_p_with_text,
@@ -570,6 +570,8 @@ impl From<Preview> for Dom {
 #[derive(Clone)]
 struct DragState {
     on_event: OptionPreviewOnEvent,
+    /// The edge a right dock stands at (`preview_edge`: the one place that decides it).
+    edge: Edge,
     dock: PreviewDock,
     size: f32,
     dragging: bool,
@@ -589,7 +591,7 @@ impl DragState {
             let top = h - self.size;
             y >= top - 2.0 && y <= top + GRIP_HEIGHT
         } else {
-            let border = w - self.size;
+            let border = if self.edge == Edge::Right { w - self.size } else { self.size };
             (x - border).abs() <= BORDER_GRAB / 2.0 + 3.0
         }
     }
@@ -606,7 +608,7 @@ impl DragState {
     fn size_at(&self, now: f32, w: f32, h: f32) -> f32 {
         match self.dock {
             PreviewDock::Bottom => dragged_pane_height(self.start_size, self.start_main, now, h),
-            _ => dragged_preview_width(self.start_size, self.start_main, now, w),
+            _ => dragged_preview_width_at(self.edge, self.start_size, self.start_main, now, w),
         }
     }
 }
@@ -778,8 +780,13 @@ extern "C" fn on_grip_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let key = match code {
         VirtualKeyCode::Up if bottom => GripKey::Grow,
         VirtualKeyCode::Down if bottom => GripKey::Shrink,
-        VirtualKeyCode::Left if !bottom => GripKey::Grow,
-        VirtualKeyCode::Right if !bottom => GripKey::Shrink,
+        // a dock grows toward the inside: to the left from the right edge, to the right from the left
+        VirtualKeyCode::Left if !bottom => {
+            if st.edge == Edge::Right { GripKey::Grow } else { GripKey::Shrink }
+        }
+        VirtualKeyCode::Right if !bottom => {
+            if st.edge == Edge::Right { GripKey::Shrink } else { GripKey::Grow }
+        }
         VirtualKeyCode::Home => GripKey::ToMin,
         VirtualKeyCode::End => GripKey::ToMax,
         VirtualKeyCode::Return | VirtualKeyCode::Space if bottom => {
@@ -1022,10 +1029,18 @@ fn build(i: Preview) -> Dom {
         ..
     } = i;
     let bottom = dock == PreviewDock::Bottom;
+    // the edge a right dock stands at (the one place that decides it, `preview_edge`)
+    let edge = preview_edge(BUILT_FOR);
     let root_css = format!(
         "display: flex; flex-direction: {}; flex-grow: 1; min-width: 0px; min-height: 0px; width: 100%; \
          height: 100%; overflow: hidden; position: relative; box-sizing: border-box;",
-        if bottom { "column" } else { "row" }
+        if bottom {
+            "column"
+        } else if edge == Edge::Right {
+            "row"
+        } else {
+            "row-reverse"
+        }
     );
     let body = styled(
         Dom::create_div().with_child(body),
@@ -1045,6 +1060,7 @@ fn build(i: Preview) -> Dom {
 
     let state = RefAny::new(DragState {
         on_event,
+        edge,
         dock,
         size,
         dragging: false,
@@ -1077,8 +1093,9 @@ fn build(i: Preview) -> Dom {
         styled(
             Dom::create_div(),
             &format!(
-                "position: absolute; left: -{half}px; top: 0px; bottom: 0px; width: {BORDER_GRAB}px; \
+                "position: absolute; {side}: -{half}px; top: 0px; bottom: 0px; width: {BORDER_GRAB}px; \
                  cursor: col-resize; z-index: 3; :hover {{ background: rgba(127, 127, 127, 0.22); }}",
+                side = edge.inward_offset(),
                 half = BORDER_GRAB / 2.0
             ),
         )
@@ -1168,7 +1185,8 @@ fn build(i: Preview) -> Dom {
     } else {
         format!(
             "display: flex; flex-direction: column; flex-grow: 0; flex-shrink: 0; width: {size}px; height: 100%; \
-             box-sizing: border-box; position: relative; border-left: 1px solid system:separator; {}",
+             box-sizing: border-box; position: relative; {}: 1px solid system:separator; {}",
+            edge.inner_border(),
             ground(surface)
         )
     };

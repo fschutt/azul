@@ -253,6 +253,28 @@ fn nothing_is_inset_with_the_drawer_open_on_a_desktop_or_without_a_sidebar() {
 }
 
 #[test]
+fn a_preview_the_app_added_closed_has_no_pane_and_no_grip_and_opens_when_the_app_says_so() {
+    use crate::widgets::preview::{PREVIEW_GRIP_CLASS, PREVIEW_PANE_CLASS};
+    for form in [FormFactor::Desktop, FormFactor::Phone] {
+        let with = |open: bool| {
+            frame()
+                .with_form(form)
+                .with_preview(Preview::create(id_div("ignored"), id_div("pane")).with_open(open))
+                .dom()
+        };
+        let closed = with(false);
+        assert!(first(&closed, PREVIEW_PANE_CLASS).is_none(), "{form:?}: no pane");
+        assert!(first(&closed, PREVIEW_GRIP_CLASS).is_none(), "{form:?}: no grip");
+        assert!(has_id(&closed, "body"), "{form:?}: the body keeps the whole frame");
+        assert!(!has_id(&closed, "pane"), "{form:?}: nothing of the item");
+        // the app opens it from a callback: the same frame, the flag turned
+        let open = with(true);
+        assert!(first(&open, PREVIEW_PANE_CLASS).is_some() && first(&open, PREVIEW_GRIP_CLASS).is_some(), "{form:?}");
+        assert!(has_id(&open, "body") && has_id(&open, "pane"), "{form:?}");
+    }
+}
+
+#[test]
 fn an_app_that_adds_no_preview_has_no_dock_no_grip_and_no_bottom_pane() {
     use crate::widgets::preview::{PREVIEW_CLASS, PREVIEW_GRIP_CLASS, PREVIEW_PANE_CLASS};
     for form in [FormFactor::Desktop, FormFactor::Phone] {
