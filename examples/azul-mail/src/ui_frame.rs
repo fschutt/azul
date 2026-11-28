@@ -221,7 +221,12 @@ fn backstage_frame(s: &MailApp, app: &RefAny, info: &LayoutCallbackInfo, page: u
         phone: is_phone(s.form, width, touch_platform()),
     };
     let header = ui_main::ribbon(s, app, true, &strip);
-    let body = ui_backstage::backstage(s, app, page).with_id(ids::BACKSTAGE);
+    // the container the office shell gave the backstage: the page fills what the strip leaves
+    let body = Dom::create_div()
+        .with_id(ids::BACKSTAGE)
+        .with_class("__azul-native-office-shell-backstage")
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: 0px;")
+        .with_child(ui_backstage::backstage(s, app, page));
     AppFrame::create(header, body).with_form(s.form).dom()
 }
 
