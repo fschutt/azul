@@ -7,6 +7,7 @@
 # On a runner, from any ref that has the app in the manifest (`qa_only = true`) and this file:
 #   scripts/remote.sh run <ref> macos-15 'bash scripts/ci/ios_sim_selftest_job.sh' --codegen --artifacts 'demo-out/ios-sim-selftest-*/**
 #   demo-out/results/*
+#   demo-out/apps/*.zip
 #   demo-out/libs/*/libazul.info.json'
 #
 # The build is what scripts/ci/ios_build_qa.sh does for the `mobile-e2e` variant, without its boot test and lifecycle QA
@@ -53,10 +54,19 @@ echo "== the app: $bundle"
 # E63 (AzMeet / AzCompanion did not build for iOS: the symbol gate found SystemConfiguration symbols that iOS marks unavailable in the
 # iroh dependencies): the two apps against the library built above (their e2e library is this one), and what the SDK says about the
 # symbols. Not part of the self-test: nothing here changes the exit code of the job.
+also=()
 for other in AzCompanion AzMeet; do
   echo "== E63 symbol gate: $other on $lib"
   python3 scripts/demo_build.py ios --target "$target" --apps "$other" --libs demo-out/libs --out demo-out/apps \
     --results demo-out/results --variant "$lib" || echo "E63_APP_EXIT[$other]=$?"
+  # the app is started on the first Simulator below (the launch proof), next to the self-test app
+  other_zip="demo-out/apps/$other-e2e-$col.app.zip"
+  if [ -f "$other_zip" ]; then
+    mkdir -p "demo-out/proof-app-$other"
+    unzip -q -o "$other_zip" -d "demo-out/proof-app-$other"
+    other_bundle="$(find "demo-out/proof-app-$other" -maxdepth 2 -name '*.app' -type d | head -n 1)"
+    [ -n "$other_bundle" ] && also+=(--also-app "$other_bundle")
+  fi
 done
 for f in demo-out/results/AzCompanion*.json demo-out/results/AzMeet*.json; do
   [ -f "$f" ] || continue
@@ -88,7 +98,9 @@ xcrun simctl list runtimes | head -10 || true
 for device in "iPhone 16 Pro" "iPhone SE (3rd generation)"; do
   slug="$(printf '%s' "$device" | tr -c 'A-Za-z0-9' '-' | sed 's/-*$//')"
   echo "== self-test on $device"
-  python3 scripts/ci/ios_sim_selftest.py --app "$bundle" --device "$device" --out "demo-out/ios-sim-selftest-$slug" || status=$((status + 1))
+  python3 scripts/ci/ios_sim_selftest.py --app "$bundle" --device "$device" --out "demo-out/ios-sim-selftest-$slug" \
+    ${also[@]+"${also[@]}"} || status=$((status + 1))
+  also=()   # the other apps are proven on the first device only
 done
 
 echo "SELFTEST_STATUS=$status"
