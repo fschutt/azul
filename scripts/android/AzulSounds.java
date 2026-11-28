@@ -120,7 +120,9 @@ public final class AzulSounds {
             if (uri == null) {
                 return "failed:the phone has no default notification tone";
             }
-            Ringtone next = RingtoneManager.getRingtone(activity, uri);
+            // The application's context, not the activity: the tone is kept in a static field
+            // while it plays, and a Ringtone holds the context it was made with.
+            Ringtone next = RingtoneManager.getRingtone(activity.getApplicationContext(), uri);
             if (next == null) {
                 return "failed:no tone for " + uri;
             }

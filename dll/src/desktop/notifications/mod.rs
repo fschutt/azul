@@ -98,6 +98,8 @@ mod windows;
 /// Source-text invariants for the platform code a host cannot run.
 #[cfg(test)]
 mod platform_invariants;
+#[cfg(test)]
+mod sound_invariants;
 
 /// Set by `App::create` when `AZ_BACKEND=headless` asked for it, and by the headless run loop:
 /// no notification is shown, every post is RECORDED for tests and `assert_notification`.
