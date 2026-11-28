@@ -960,7 +960,10 @@ fn side_event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, event: 
         }
         SidebarEventKind::HelpClicked => crate::ui_command_bar::show_help(info, app, s),
         SidebarEventKind::RowLongPressed => {
-            s.sheet = Some(crate::ui_sheet::Sheet::Place(event.tag));
+            // A row with no menu (a section, "Add drive") opens no sheet.
+            if place_sheet(s, event.tag).is_some() {
+                s.sheet = Some(crate::ui_sheet::Sheet::Place(event.tag));
+            }
         }
         SidebarEventKind::RowDropped => {
             let copy = info.get_key_modifiers().primary_down();
