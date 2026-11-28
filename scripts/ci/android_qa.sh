@@ -114,15 +114,14 @@ for mode in "${mode_list[@]}"; do
   echo "emulator booted in ${boot_s}s: $(adb shell getprop ro.product.cpu.abi | tr -d '\r'), API $(adb shell getprop ro.build.version.sdk | tr -d '\r')"
   sleep 20   # the launcher and system UI settle (a first screenshot of a booting system shows an ANR dialog)
   if [ -n "${AZ_ANDROID_OVERLAYS:-}" ] && [ "$mode" = "${mode_list[0]}" ]; then
-    # `com.android.internal.emulation.pixel_8` = the Pixel 8's camera cutout (the system image carries one overlay per Pixel; the AVD's own profile is
-    # enabled at the boot: pixel_6 for a pixel_6 AVD). enable-exclusive turns the others of its category off; whatever other emulation overlay is still
-    # on afterwards is turned off too (two cutouts are not a phone). The first listing is what the image had, the last what it has now.
+    # `com.android.internal.emulation.pixel_8` = the Pixel 8's camera cutout and `com.android.systemui.emulation.pixel_8` = its status bar and corners (the system
+    # image carries one overlay of each per Pixel; the AVD's own profile is enabled at the boot: pixel_6 for a pixel_6 AVD). The wanted ones are enabled, then every
+    # OTHER emulation overlay of the two families that is still on is turned off (two cutouts are not a phone): the first run of this job left systemui's pixel_6 on.
+    # The first listing is what the image had, the last what it has now.
     adb shell cmd overlay list 2>/dev/null | tr -d '\r' | grep -i -E "cutout|emulation" | sed 's/^/before: /' >>"$d/overlays.log" || true
-    for ov in $AZ_ANDROID_OVERLAYS; do
-      adb shell cmd overlay enable-exclusive --category "$ov" 2>&1 | tee -a "$d/overlays.log"
-      for other in $(adb shell cmd overlay list 2>/dev/null | tr -d '\r' | sed -n 's/^\[x\] \(com\.android\.internal\..*emulation.*\)$/\1/p'); do
-        [ "$other" = "$ov" ] || adb shell cmd overlay disable "$other" 2>&1 | tee -a "$d/overlays.log"
-      done
+    for ov in $AZ_ANDROID_OVERLAYS; do adb shell cmd overlay enable "$ov" 2>&1 | tee -a "$d/overlays.log"; done
+    for other in $(adb shell cmd overlay list 2>/dev/null | tr -d '\r' | sed -n 's/^\[x\] \(com\.android\.[a-z]*\.emulation\..*\)$/\1/p'); do
+      case " $AZ_ANDROID_OVERLAYS " in *" $other "*) ;; *) adb shell cmd overlay disable "$other" 2>&1 | tee -a "$d/overlays.log" ;; esac
     done
     sleep 10
     adb shell cmd overlay list 2>/dev/null | tr -d '\r' | grep -i -E "cutout|emulation" | sed 's/^/after: /' >>"$d/overlays.log" || true
@@ -170,28 +169,56 @@ for mode in "${mode_list[@]}"; do
     # every e2e scenario file against its host app (scripts/ci/e2e_matrix.py): the e2e APK of each host (AZ_QA_MATRIX_APKS, space separated)
     mapks=()
     for mapk in "$apk" ${AZ_QA_MATRIX_APKS:-}; do mapks+=(--apk "$mapk"); done
-    # AZ_QA_MATRIX_ONLY=<text>: only the files whose path holds it (e.g. `sounds`: one scenario file of a new feature)
-    # AZ_QA_MATRIX_SHOTS=<folder>: the engine's frames of every file (its `take_screenshot` steps) are kept in <folder>/<file stem>/
-    python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${AZ_QA_MATRIX_SHOTS:+--shots "$AZ_QA_MATRIX_SHOTS"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
+    # AZ_QA_MATRIX_ONLY=<text>: only the files whose path holds it (e.g. `sounds`: one scenario file of a new feature). The engine's frames of every
+    # file (its take_screenshot steps) are kept in <matrix>/shots/<file stem>/shot-NNN.png (WP-E2's request: the pictures of a scenario run were lost)
+    python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" --shots "$d/matrix/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
   fi
   if [ "$session" = tabs ] && [ "$mode" = "${mode_list[0]}" ]; then
-    # THE TAB STRIP on the phone: the files of AZ_QA_TABS_FILES (parts of the file names, default tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag: the last one runs every step whatever the one before said, for the TABS agent's diagnosis of the clicks on a phone)
+    # THE TAB STRIP on the phone: the files of AZ_QA_TABS_FILES (parts of the file names, default tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures: tab_touch_diag runs every step whatever the one before said, for the TABS agent's diagnosis of the clicks on a phone)
     # against the e2e APK, per orientation: (1) the device's own pictures of a plain start, light and dark (the system draws the cutout), (2) per file a
     # recording of its run and the engine's frames of it (AZ_E2E_SHOT_DIR, pulled by scripts/ci/e2e_matrix.py --shots), its verdicts in the table
     adb shell dumpsys window displays 2>/dev/null | grep -i -E "cutout|init=|DisplayInfo" | head -n 24 >"$d/display.txt" || true
     # the APK on the phone FIRST: the plain start below needs it, and the matrix runs install it only later
     adb install -r -t "$apk" >"$d/install.log" 2>&1 || echo "the e2e APK did not install: $(tail -n 2 "$d/install.log")"
     adb shell settings put system accelerometer_rotation 0
-    # THE LAUNCHER LOCKS PORTRAIT: with it in front the display is portrait whatever user_rotation says, and an app started from it opens in portrait
-    # and turns only seconds later (a 6 s scenario run was portrait from its first frame to its last, the first run of this session). Settings turns
-    # with the user's rotation, so it is brought to the front before every start: the display is already in the orientation when the app's window is made.
-    wait_orientation() {   # wait_orientation <portrait|landscape>: up to 45 s until the display is in it
+    # THE LAUNCHER LOCKS PORTRAIT: with it in front the display is portrait whatever user_rotation says, and an app started from it opens in portrait and turns
+    # only seconds later (the first run: a 6 s scenario was portrait from its first frame to its last). The second run brought Settings to the front: the
+    # display did not turn at all (no landscape picture exists). Now the system itself is told to IGNORE the orientation an app requests (wm
+    # set-ignore-orientation-request true, API 31+): the display follows user_rotation whichever activity is in front, the launcher included. What the system says
+    # about the rotation goes into <pass>/rotation.log at every step, so that a pass that stays portrait says why.
+    wait_orientation() {   # wait_orientation <portrait|landscape> [seconds, default 45]: until the display is in it
       local want="cur=1080x2400"; [ "$1" = landscape ] && want="cur=2400x1080"
-      for _ in $(seq 1 45); do adb shell dumpsys window displays 2>/dev/null | grep -q "$want" && return 0; sleep 1; done
-      echo "the display did not turn to $1 within 45 s"; return 1
+      for _ in $(seq 1 "${2:-45}"); do adb shell dumpsys window displays 2>/dev/null | grep -q "$want" && return 0; sleep 1; done
+      echo "the display did not turn to $1 within ${2:-45} s"; return 1
     }
-    bring_settings() {   # the display in the orientation of this pass, with an app in front that does not lock it
-      adb shell am start -a android.settings.SETTINGS >/dev/null 2>&1; sleep 3; wait_orientation "$orient"; sleep 2
+    rotation_state() {   # one line of what the system says about the display and its rotation lock
+      echo "$(date +%H:%M:%S) $1: $(adb shell dumpsys window displays 2>/dev/null | tr -d '\r' | grep -o -E 'cur=[0-9]+x[0-9]+|mRotation=[0-9]+' | sort -u | tr '\n' ' ') ignore_orientation_request=$(adb shell wm get-ignore-orientation-request 2>&1 | tr -d '\r' | tr '\n' ' ') user_rotation=$(adb shell settings get system user_rotation | tr -d '\r') accelerometer_rotation=$(adb shell settings get system accelerometer_rotation | tr -d '\r') focus=$(adb shell dumpsys window 2>/dev/null | tr -d '\r' | grep -m1 mCurrentFocus | cut -c1-120)" >>"$td/rotation.log"
+    }
+    # THE KEEPER: the second run showed that no flag turns the display while the LAUNCHER is in front (rotation.log: cur=1080x2400, launcher focused), and a
+    # scenario file starts its app from the launcher (the app's window was made portrait, the engine's frames came out 1080 x 2400 in the landscape pass). An
+    # app of OURS that has been in front for a few seconds does turn the display (the plain start 30 s later was landscape, every time). So in the landscape pass
+    # such an app (AZ_QA_KEEPER_APK, default the AzMail APK) is started and waited for until the display is landscape; the scenario's app then starts OVER it
+    # (am start -S of another package: the keeper is never stopped, the launcher never shows) and the display stays turned.
+    keeper_pkg=""; keeper_act=""
+    keeper_apk="${AZ_QA_KEEPER_APK:-${AZ_QA_AZMAIL_APK:-}}"
+    if [ -n "$keeper_apk" ] && [ -e "$keeper_apk" ]; then
+      kb="$("$aapt2" dump badging "$keeper_apk" 2>/dev/null || true)"
+      keeper_pkg="$(echo "$kb" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+      keeper_act="$(echo "$kb" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" | head -n 1)"
+      adb install -r -t "$keeper_apk" >"$d/keeper-install.log" 2>&1 || echo "the keeper app did not install: $(tail -n 2 "$d/keeper-install.log")"
+    fi
+    bring_settings() {   # the display in the orientation of this pass (the name stays: the call sites are many)
+      adb shell wm set-ignore-orientation-request true >>"$td/rotation.log" 2>&1 || true
+      adb shell settings put system accelerometer_rotation 0
+      adb shell settings put system user_rotation "$([ "$orient" = portrait ] && echo 0 || echo 1)"
+      if [ "$orient" = landscape ] && [ -n "$keeper_pkg" ]; then
+        if [ -n "$keeper_act" ]; then adb shell am start -n "$keeper_pkg/$keeper_act" >/dev/null 2>&1; else adb shell monkey -p "$keeper_pkg" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1; fi
+        wait_orientation landscape 90 || true
+      else
+        wait_orientation "$orient" || true
+      fi
+      sleep 2
+      rotation_state "set $orient"
     }
     for orient in portrait landscape; do
       adb shell settings put system user_rotation "$([ "$orient" = portrait ] && echo 0 || echo 1)"
@@ -206,7 +233,7 @@ for mode in "${mode_list[@]}"; do
       adb exec-out screencap -p >"$td/device-dark-start.png" 2>/dev/null || true
       adb shell cmd uimode night no >/dev/null 2>&1; sleep 4
       adb shell am force-stop "$pkg" >/dev/null 2>&1
-      for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag}; do
+      for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures}; do
         bring_settings
         vid="/sdcard/tabs-$orient-${part%.json}.mp4"
         ( adb shell screenrecord --time-limit 170 "$vid" >/dev/null 2>&1 & )
@@ -242,6 +269,7 @@ for mode in "${mode_list[@]}"; do
           ${AZ_QA_AZMAIL_DATA:+--data "$AZ_QA_AZMAIL_DATA"} 2>&1 | tee "$td/azmail.log"
       fi
     done
+    adb shell wm set-ignore-orientation-request false >/dev/null 2>&1 || true
     adb shell settings put system accelerometer_rotation 1
   fi
   if [ "$session" = audit ] && [ "$mode" = "${mode_list[0]}" ]; then
