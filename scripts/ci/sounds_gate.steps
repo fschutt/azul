@@ -1,0 +1,5 @@
+# The steps of this run of scripts/ci/sounds_gate.sh: the api.json entries against autofix, and the apps that name the new API.
+apps_check
+autofix
+doc_check
+doc_check_layout
