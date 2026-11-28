@@ -6,7 +6,8 @@
 //! - [`Job::Import`]: a file the user picked becomes a book folder (the file, `info.json`,
 //!   `state.json`, a small `cover.png`);
 //! - [`Job::Open`]: a book's file read into its container and its package;
-//! - [`Job::Delete`]: a book's folder removed.
+//! - [`Job::Delete`]: a book's folder removed;
+//! - [`Job::ReadFile`]: a book's file as it was imported, for the copy the user saves.
 //!
 //! The work itself ([`scan`], [`import`], [`open`], [`delete`]) is plain functions on a
 //! `&dyn Drive`, tested on a folder.
@@ -53,6 +54,12 @@ pub enum Job {
     Delete {
         id: String,
     },
+    /// A book's own file (named `name`, the file it was imported from), read for "Download".
+    ReadFile {
+        id: String,
+        format: Format,
+        name: String,
+    },
 }
 
 /// What a job did.
@@ -74,6 +81,12 @@ pub enum Done {
     Deleted {
         id: String,
         result: Result<(), String>,
+    },
+    /// A book's file, for the copy the user saves under `name`.
+    File {
+        name: String,
+        format: Format,
+        result: Result<Vec<u8>, String>,
     },
 }
 
@@ -217,6 +230,13 @@ pub fn open(
     read_book(&bytes, format, title)
 }
 
+/// The file of book `id` as it was imported (the bytes of the EPUB, the text, the HTML).
+pub fn read_file(drive: &dyn Drive, id: &str, format: Format) -> Result<Vec<u8>, String> {
+    drive
+        .get(&library::book_key(id, format))
+        .map_err(|e| e.to_string())
+}
+
 /// Removes book `id`'s folder: every file in it, the info first (a folder without an info
 /// is no book even if a removal fails half-way).
 pub fn delete(drive: &dyn Drive, id: &str) -> Result<(), String> {
@@ -300,6 +320,11 @@ fn run(root: PathBuf, job: Job) -> Done {
         Job::Delete { id } => Done::Deleted {
             result: delete(&drive, &id),
             id,
+        },
+        Job::ReadFile { id, format, name } => Done::File {
+            result: read_file(&drive, &id, format),
+            name,
+            format,
         },
     }
 }
@@ -411,3 +436,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "jobs_file_test.rs"]
+mod jobs_file_test;

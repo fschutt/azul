@@ -13,10 +13,12 @@ use std::path::PathBuf;
 use azul::{
     callbacks::{CallbackInfo, RefAny, Update},
     dialog::{FileDialog, FileOpenResult},
-    dom::NodeId,
+    dom::{Dom, NodeId},
     file::FileTypeList,
     option::{OptionFileTypeList, OptionString},
+    pdf::Pdf,
     str::String as AzString,
+    vec::U8Vec,
 };
 use azul_appkit::{
     l10n::{t, t_args, Arg},
@@ -90,16 +92,13 @@ pub fn run(app: &mut RefAny, cmd: Command, info: &mut CallbackInfo) -> Update {
     };
     let st = &mut *guard;
     match cmd {
-        Command::RibbonTab(index) => st.ribbon_tab = index,
         Command::ShowLibrary => {
             st.screen = Screen::Library;
-            st.ribbon_tab = 0;
             scan_library(st, info, &handle);
         }
         Command::ShowReader => {
             if st.open.is_some() {
                 st.screen = Screen::Reader;
-                st.ribbon_tab = 0;
             }
         }
         Command::Shelf(shelf) => st.shelf = shelf,
@@ -178,8 +177,52 @@ pub fn run(app: &mut RefAny, cmd: Command, info: &mut CallbackInfo) -> Update {
         }
         Command::Pane(pane) => {
             st.pane = if st.pane == pane { Pane::None } else { pane };
+            st.pane_chosen = true;
             // The reading area changes: measured again after the next frame.
             st.area = None;
+        }
+        Command::ToggleChrome => st.chrome = !st.chrome,
+        Command::GoToPage(page) => {
+            let Some(count) = st.chapter.as_ref().map(|c| c.pages.page_count()) else {
+                return Update::DoNothing;
+            };
+            let per_view = st.geometry().per_view;
+            st.page = position::view_start(page.min(count.saturating_sub(1)), per_view);
+            st.turned = None;
+            moved(st, info, &handle);
+            ensure_pages_drawn(st, info, &handle);
+        }
+        Command::Seek(progress) => {
+            let Some(at) = st
+                .open
+                .as_ref()
+                .map(|o| position::position_at_progress(&o.weights, progress))
+            else {
+                return Update::DoNothing;
+            };
+            // A drag asks for a place once, not for every pixel of it.
+            let asked = u32::try_from(crate::chrome::slider_value(progress) as i64).unwrap_or(0);
+            if st.last_seek == Some(asked) {
+                return Update::DoNothing;
+            }
+            st.last_seek = Some(asked);
+            go_to(st, info, &handle, at.chapter, Target::Fraction(at.fraction));
+        }
+        Command::Download => {
+            let Some(open) = st.open.as_ref() else {
+                return Update::DoNothing;
+            };
+            let job = Job::ReadFile {
+                id: open.info.id.clone(),
+                format: open.info.format,
+                name: open.info.original_name.clone(),
+            };
+            jobs::spawn(info, &handle, &st.data_root, job, on_job_done);
+        }
+        Command::Print => print_chapter(st, info),
+        Command::CycleLayout => {
+            st.settings.layout = crate::chrome::next_layout(st.settings.layout);
+            settings_changed(st, info, &handle);
         }
         Command::FontSize(step) => {
             st.settings.font_px = step_in(st.settings.font_px, step, FONT_MIN, FONT_MAX);
@@ -210,7 +253,7 @@ pub fn run(app: &mut RefAny, cmd: Command, info: &mut CallbackInfo) -> Update {
             settings_changed(st, info, &handle);
         }
         Command::Settings => kit::open_settings(&st.kit, Some("Reading")),
-        Command::About => st.about_open = true,
+        Command::About => kit::open_settings(&st.kit, Some("About")),
     }
     Update::RefreshDom
 }
@@ -219,6 +262,49 @@ pub fn run(app: &mut RefAny, cmd: Command, info: &mut CallbackInfo) -> Update {
 fn step_in(value: u32, step: i32, min: u32, max: u32) -> u32 {
     let moved = i64::from(value) + i64::from(step);
     u32::try_from(moved.clamp(i64::from(min), i64::from(max))).unwrap_or(min)
+}
+
+/// The sheet a chapter is printed on: A4 at 96 dpi, and its margin on every side.
+const PRINT_W: f32 = 794.0;
+const PRINT_H: f32 = 1123.0;
+const PRINT_MARGIN: f32 = 56.0;
+
+/// The chapter on screen as the PDF to print: black on white paper, the reader's type and
+/// spacing, the engine's slicer cutting the pages. The save dialog asks where it goes.
+fn print_chapter(st: &mut AppState, info: &mut CallbackInfo) {
+    let (Some(open), Some(chapter)) = (st.open.as_ref(), st.chapter.as_ref()) else {
+        return;
+    };
+    let name = format!(
+        "{} - {}.pdf",
+        library::safe_file_stem(&open.info.title),
+        open.book.chapter_title(chapter.chapter)
+    );
+    let page = Dom::create_body()
+        .with_css(format!(
+            "margin: 0px; padding: {PRINT_MARGIN}px; background: #ffffff; color: #1a1a1a;"
+        ))
+        .with_child(paginate::column_dom(
+            &chapter.content.xml,
+            &st.settings,
+            PRINT_W - 2.0 * PRINT_MARGIN,
+            false,
+        ));
+    let bytes = Pdf::create()
+        .from_dom_in_callback(*info, page, PRINT_W, PRINT_H)
+        .as_ref()
+        .to_vec();
+    st.notice = if bytes.is_empty() {
+        t("azreader-pdf-failed")
+    } else if FileDialog::save_bytes(
+        AzString::from(name.as_str()),
+        AzString::from("application/pdf"),
+        U8Vec::from_vec(bytes),
+    ) {
+        t_args("azreader-saved-a-copy", &[("name", Arg::from(name))])
+    } else {
+        t("azreader-copy-not-saved")
+    };
 }
 
 /// The books the file dialog offers.
@@ -462,6 +548,7 @@ fn moved(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
     if let Some(chapter) = st.chapter.as_ref() {
         println!("AZREADER_PAGE {} {}", chapter.chapter, st.page);
     }
+    st.last_seek = None;
     if let Some(open) = st.open.as_mut() {
         open.state.position = position;
         open.state.progress = progress;
@@ -801,7 +888,13 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
                     st.pending = None;
                     st.page = 0;
                     st.screen = Screen::Reader;
-                    st.ribbon_tab = 0;
+                    st.last_seek = None;
+                    st.chrome = false;
+                    if !st.phone && !st.pane_chosen {
+                        // A desktop opens the strip of pages with the book; a phone keeps the page whole.
+                        st.pane = Pane::Pages;
+                        st.area = None;
+                    }
                     st.notice.clear();
                     request_chapter(
                         st,
@@ -814,6 +907,21 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
                 Err(e) => st.notice = t_args("azreader-not-opened", &[("why", Arg::from(e))]),
             }
         }
+        Done::File { name, format, result } => match result {
+            Ok(bytes) => {
+                let saved = FileDialog::save_bytes(
+                    AzString::from(name.as_str()),
+                    AzString::from(format.mime()),
+                    U8Vec::from_vec(bytes),
+                );
+                st.notice = if saved {
+                    t_args("azreader-saved-a-copy", &[("name", Arg::from(name))])
+                } else {
+                    t("azreader-copy-not-saved")
+                };
+            }
+            Err(e) => st.notice = t_args("azreader-copy-failed", &[("why", Arg::from(e))]),
+        },
         Done::Deleted { id, result } => match result {
             Ok(()) => {
                 st.covers.remove(&id);

@@ -20,6 +20,27 @@ pub const APP_FOLDER: &str = "reader";
 /// The books' folder.
 pub const BOOKS: &str = "reader/books/";
 
+/// A title as the start of a file name: what a file name cannot hold is `_`, no longer than
+/// 80 characters, "book" for a title with nothing left.
+#[must_use]
+pub fn safe_file_stem(title: &str) -> String {
+    let cleaned: String = title
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    let trimmed: String = cleaned.trim().trim_matches('.').chars().take(80).collect();
+    let trimmed = trimmed.trim().to_string();
+    if trimmed.is_empty() {
+        "book".to_string()
+    } else {
+        trimmed
+    }
+}
+
 /// A book's file format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -37,6 +58,16 @@ impl Format {
             Format::Epub => "epub",
             Format::Text => "txt",
             Format::Html => "html",
+        }
+    }
+
+    /// The MIME type of the book's file: what the save dialog is told for a copy of it.
+    #[must_use]
+    pub const fn mime(self) -> &'static str {
+        match self {
+            Format::Epub => "application/epub+zip",
+            Format::Text => "text/plain",
+            Format::Html => "text/html",
         }
     }
 
@@ -568,3 +599,7 @@ mod tests {
         assert_eq!(title_from_file_name("   "), "Untitled");
     }
 }
+
+#[cfg(test)]
+#[path = "library_stem_test.rs"]
+mod library_stem_test;

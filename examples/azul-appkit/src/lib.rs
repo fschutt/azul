@@ -64,6 +64,8 @@
 //! - `ribbon` (feature `azul`): the office apps' ribbon buttons, columns,
 //!   rows and groups (one builder; the app's command type implements
 //!   `RibbonCommand`).
+//! - `insets` (feature `azul`): the room the system keeps at the window's edges (a cutout, the
+//!   home indicator) and whether a window is a phone's, as every app asks them.
 //! - `ui` (feature `azul`): the settings page in the shape of Outlook 2010's
 //!   Options dialog (the app's own categories, then General, Data, Shortcuts,
 //!   About; a header line, banded sections, OK / Cancel), the
@@ -110,6 +112,8 @@ mod clickable_tests;
 
 #[cfg(feature = "azul")]
 pub mod backstage;
+#[cfg(feature = "azul")]
+pub mod insets;
 #[cfg(feature = "look")]
 pub mod l10n;
 #[cfg(feature = "look")]

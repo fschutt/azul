@@ -1,8 +1,9 @@
-//! The app's state and the commands its ribbon, panes, status bar and keys run.
+//! The app's state and the commands its toolbar, strip, slider and keys run.
 
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use azul::{callbacks::RefAny, font::FontCacheSnapshot, image::ImageRef, str::String as AzString};
+use azul_appkit::pieces::ToolbarFit;
 
 use crate::{
     epub::{Book, Container},
@@ -21,17 +22,17 @@ pub enum Screen {
     Reader,
 }
 
-/// The reader's side pane.
+/// The reader's strip beside the pages: what it lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
+    /// Closed: the page has the whole window.
     None,
+    /// The pages of the chapter on screen, as thumbnails.
+    Pages,
+    /// The table of contents.
     Contents,
     Bookmarks,
 }
-
-/// The ribbon's tabs (the library's, then the reader's): keys of AzReader's words.
-pub const LIBRARY_TABS: [&str; 2] = ["azreader-tab-home", "azreader-tab-view"];
-pub const READER_TABS: [&str; 2] = ["azreader-tab-read", "azreader-tab-view"];
 
 /// Where a chapter being laid out opens.
 #[derive(Debug, Clone, PartialEq)]
@@ -69,7 +70,6 @@ pub struct AppState {
     /// The data root (the bucket's root, later).
     pub data_root: PathBuf,
     pub screen: Screen,
-    pub ribbon_tab: usize,
 
     // ---- the library ----
     pub entries: Vec<LibraryEntry>,
@@ -108,6 +108,17 @@ pub struct AppState {
     /// The counter of layouts asked for.
     pub generation: u64,
     pub pane: Pane,
+    /// The user opened or closed the strip: it stays as chosen (else a desktop opens it with a
+    /// book, a phone keeps it closed).
+    pub pane_chosen: bool,
+    /// The toolbar and the slider show over a phone's page (a tap in the middle of it).
+    pub chrome: bool,
+    /// The window is a phone's (a touch platform, a narrow window), from the last layout.
+    pub phone: bool,
+    /// The toolbar's measured fit: what the bar did with its tools at its width.
+    pub toolbar_fit: ToolbarFit,
+    /// The place the slider asked for last (thousandths of the book): a drag asks once a place.
+    pub last_seek: Option<u32>,
     pub settings: ReadingSettings,
     /// The window's fonts, for the pagination thread (taken in `layout`).
     pub fonts: Option<FontCacheSnapshot>,
@@ -128,7 +139,6 @@ pub struct AppState {
     // ---- the rest ----
     /// The last notice for the user ("" = none).
     pub notice: String,
-    pub about_open: bool,
     /// Fill an empty library with the sample book (`--sample`), once.
     pub sample: bool,
     pub sample_done: bool,
@@ -144,7 +154,6 @@ impl AppState {
             kit,
             data_root,
             screen: Screen::Library,
-            ribbon_tab: 0,
             entries: Vec::new(),
             covers: BTreeMap::new(),
             listed: false,
@@ -164,6 +173,11 @@ impl AppState {
             pending: None,
             generation: 0,
             pane: Pane::None,
+            pane_chosen: false,
+            chrome: false,
+            phone: false,
+            toolbar_fit: ToolbarFit::default(),
+            last_seek: None,
             settings,
             fonts: None,
             window: (1180.0, 820.0),
@@ -173,7 +187,6 @@ impl AppState {
             dark: false,
             flora: false,
             notice: String::new(),
-            about_open: false,
             sample,
             sample_done: false,
             import_on_start: Vec::new(),
@@ -181,25 +194,27 @@ impl AppState {
     }
 
     /// The size the pages have to fit in: the measured reading area, else an estimate from the
-    /// window (the title row, the ribbon, the status bar and the side pane taken off).
+    /// window (the toolbar and the strip taken off; on a phone nothing: they float).
     #[must_use]
     pub fn reading_area(&self) -> (f32, f32) {
         if let Some(area) = self.area {
             return area;
         }
-        let pane = if self.pane == Pane::None { 0.0 } else { 280.0 };
-        (
-            (self.window.0 - pane).max(200.0),
-            (self.window.1 - 190.0).max(200.0),
-        )
+        crate::chrome::reading_room(self.window, self.phone, self.pane != Pane::None)
     }
 
-    /// The pages' geometry now.
+    /// The pages' geometry now: made for what the reading area leaves after the arrows, the
+    /// gutters, the borders and the running head and the folio (a phone's margin is cut so the
+    /// text keeps its width).
     #[must_use]
     pub fn geometry(&self) -> PageGeometry {
         let (w, h) = self.reading_area();
-        // The running head and the folio take a line each above and below the pages.
-        crate::settings::page_geometry(&self.settings, w, (h - 48.0).max(200.0))
+        let (across, down) = crate::chrome::page_allowance(self.phone);
+        let mut settings = self.settings;
+        if self.phone {
+            settings.margin_px = settings.margin_px.min(crate::chrome::PHONE_MARGIN_MAX_PX);
+        }
+        crate::settings::page_geometry(&settings, (w - across).max(120.0), (h - down).max(200.0))
     }
 
     /// The layout key the current settings and area give ([`ReadingSettings::layout_key`]).
@@ -267,7 +282,6 @@ impl AppState {
 /// What a button, a key or a pane asks of the app.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
-    RibbonTab(usize),
     ShowLibrary,
     /// Back to the open book.
     ShowReader,
@@ -289,6 +303,18 @@ pub enum Command {
     ToggleBookmark,
     RemoveBookmark(usize),
     Pane(Pane),
+    /// The toolbar and the slider of a phone show or hide.
+    ToggleChrome,
+    /// The page field: page `n` (0-based) of the chapter on screen.
+    GoToPage(usize),
+    /// The slider: the book's progress (`0..=1`).
+    Seek(f32),
+    /// A copy of the open book's file, into the exports folder.
+    Download,
+    /// The chapter on screen as a PDF (to print), into the exports folder.
+    Print,
+    /// The page layout after the one it is on: Auto, one page, two.
+    CycleLayout,
     /// The font size by this many px.
     FontSize(i32),
     /// The line spacing by this many tenths.

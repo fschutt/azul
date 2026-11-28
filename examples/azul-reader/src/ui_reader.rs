@@ -1,5 +1,6 @@
-//! The reader: the side pane (the table of contents or the bookmarks), the pages, the status
-//! bar.
+//! The reader: the thin toolbar, the strip beside the pages (a desktop), the pages on a quiet
+//! ground, and - on a phone - the page over the whole screen with the toolbar and a slider that
+//! a tap in the middle of the page shows and hides.
 //!
 //! A page on screen is the chapter's reading column ([`paginate::column_dom`], the box the
 //! pagination laid out) seen through a clip window: the paper (the page's margins and colours)
@@ -11,29 +12,29 @@
 //! over its picture instead of the column; the column is laid out only for a page not drawn yet.
 
 use azul::{
-    callbacks::{ButtonOnClickCallbackType, RefAny},
+    callbacks::{
+        CallbackInfo, RefAny, SliderOnValueChangeCallbackType, Update,
+    },
     css::{Css, EventFilter, HoverEventFilter},
-    dom::Dom,
+    dom::{AccessibilityInfo, AccessibilityRole, Dom},
     option::OptionString,
     str::String as AzString,
-    widgets::{Button, StatusBar, StatusBarSegment},
+    widgets::{Slider, SliderState},
 };
 
-use azul_appkit::l10n::{t, t_args, Arg};
+use azul_appkit::l10n::{label, t, t_args, Arg};
 
 use crate::{
-    app::{command, AppState, Command, Pane},
-    commands::{on_command, on_wheel},
+    app::{command, AppState, Command},
+    chrome::{self, Tap},
+    commands::{on_command, on_wheel, run},
     ids,
     pagecache::PageRun,
     paginate,
     position::{self, PageMap},
     settings::{PageGeometry, PaperColors},
+    strip, toolbar,
 };
-
-fn s(text: &str) -> AzString {
-    AzString::from(text)
-}
 
 fn text(content: &str, css: &str) -> Dom {
     Dom::create_div()
@@ -52,109 +53,6 @@ const KEYFRAMES: &str = "\
 @keyframes azr-fade-out { from { opacity: 1; } to { opacity: 0; } }
 ";
 
-const PANE_CSS: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
-                        overflow-y: auto; padding: 6px 0px; background: system:window-background;";
-const PANE_TITLE_CSS: &str = "padding: 6px 14px; font-size: 12px; font-weight: 600; \
-                              color: system:secondary-text;";
-
-/// The side pane (`None` when it is closed).
-#[must_use]
-pub fn navigation(app: &RefAny, st: &AppState) -> Option<Dom> {
-    let open = st.open.as_ref()?;
-    match st.pane {
-        Pane::None => None,
-        Pane::Contents => {
-            let current = st.chapter.as_ref().map(|c| c.chapter);
-            let current_entry =
-                current.and_then(|c| open.book.toc.iter().position(|e| e.chapter == Some(c)));
-            let mut pane = Dom::create_div()
-                .with_id(ids::TOC)
-                .with_css(PANE_CSS)
-                .with_child(text(&t("azreader-pane-contents"), PANE_TITLE_CSS));
-            for (i, entry) in open.book.toc.iter().enumerate() {
-                let on = current_entry == Some(i);
-                let mut row = Dom::create_div()
-                    .with_id(ids::indexed(&ids::TOC_ROW, i))
-                    .with_class(ids::TOC_ROW_CLASS)
-                    .with_css(format!(
-                        "padding: 5px 14px 5px {}px; font-size: 13px; {} {}",
-                        14 + 14 * entry.depth.min(6),
-                        if entry.chapter.is_some() {
-                            "color: system:text; cursor: pointer;"
-                        } else {
-                            "color: system:secondary-text;"
-                        },
-                        if on {
-                            "background: system:selection-background; font-weight: 600;"
-                        } else {
-                            ""
-                        }
-                    ))
-                    .with_accessibility_name(entry.label.as_str())
-                    .with_child(Dom::create_span_with_text(entry.label.as_str()));
-                if on {
-                    row.add_class(ids::TOC_CURRENT_CLASS);
-                }
-                if entry.chapter.is_some() {
-                    row.add_callback(
-                        EventFilter::Hover(HoverEventFilter::Click),
-                        command(app, Command::GoToEntry(i)),
-                        on_command,
-                    );
-                }
-                pane.add_child(row);
-            }
-            Some(pane)
-        }
-        Pane::Bookmarks => {
-            let mut pane = Dom::create_div()
-                .with_id(ids::BOOKMARKS)
-                .with_css(PANE_CSS)
-                .with_child(text(&t("azreader-pane-bookmarks"), PANE_TITLE_CSS));
-            if open.state.bookmarks.is_empty() {
-                pane.add_child(text(
-                    &t("azreader-no-bookmark"),
-                    "padding: 6px 14px; font-size: 12px; color: system:secondary-text;",
-                ));
-            }
-            for (i, mark) in open.state.bookmarks.iter().enumerate() {
-                let percent =
-                    position::percent_label(position::book_progress(&open.weights, mark.position));
-                let mut body = Dom::create_div()
-                    .with_css(
-                        "display: flex; flex-direction: column; flex-grow: 1; cursor: pointer;",
-                    )
-                    .with_child(text(
-                        &format!("{} - {percent}", mark.chapter_title),
-                        "font-size: 11px; color: system:secondary-text;",
-                    ))
-                    .with_child(text(&mark.label, "font-size: 13px; color: system:text;"));
-                body.add_callback(
-                    EventFilter::Hover(HoverEventFilter::Click),
-                    command(app, Command::GoToBookmark(i)),
-                    on_command,
-                );
-                let remove = Button::create("")
-                    .with_icon("close")
-                    .with_on_click(
-                        command(app, Command::RemoveBookmark(i)),
-                        on_command as ButtonOnClickCallbackType,
-                    )
-                    .dom();
-                pane.add_child(
-                    Dom::create_div()
-                        .with_id(ids::indexed(&ids::BOOKMARK_ROW, i))
-                        .with_class(ids::BOOKMARK_ROW_CLASS)
-                        .with_css("display: flex; flex-direction: row; align-items: center; padding: 6px 8px 6px 14px;")
-                        .with_child(body)
-                        .with_child(remove),
-                );
-            }
-            Some(pane)
-        }
-    }
-}
-
 /// One page: the paper, and on it the clip window over the reading column.
 fn page_frame(
     column: Dom,
@@ -162,6 +60,7 @@ fn page_frame(
     geometry: &PageGeometry,
     colors: &PaperColors,
     index: usize,
+    gutter: f32,
 ) -> Dom {
     let (top, height) = span;
     let width = geometry.text_width;
@@ -177,7 +76,7 @@ fn page_frame(
              flex-shrink: 0;"
         ))
         .with_child(shift);
-    paper(clip, geometry, colors, index)
+    paper(clip, geometry, colors, index, gutter)
 }
 
 /// One page drawn ahead ([`crate::pagecache`]): the paper, and on it a clip window over the
@@ -188,6 +87,7 @@ fn page_picture(
     geometry: &PageGeometry,
     colors: &PaperColors,
     index: usize,
+    gutter: f32,
 ) -> Dom {
     let width = geometry.text_width;
     let height = geometry.text_height;
@@ -204,17 +104,17 @@ fn page_picture(
              {height}px; flex-shrink: 0;"
         ))
         .with_child(picture);
-    paper(clip, geometry, colors, index)
+    paper(clip, geometry, colors, index, gutter)
 }
 
 /// A page's paper (its margins and colours) around `content`.
-fn paper(content: Dom, geometry: &PageGeometry, colors: &PaperColors, index: usize) -> Dom {
+fn paper(content: Dom, geometry: &PageGeometry, colors: &PaperColors, index: usize, gutter: f32) -> Dom {
     Dom::create_div()
         .with_id(ids::indexed(&ids::PAGE, index))
         .with_class(ids::PAGE_CLASS)
         .with_css(format!(
             "display: flex; flex-direction: column; flex-shrink: 0; box-sizing: content-box; \
-             width: {}px; height: {}px; padding: {}px; margin: 0px 12px; background: {}; \
+             width: {}px; height: {}px; padding: {}px; margin: 0px {gutter}px; background: {}; \
              color: {}; overflow: hidden; border: 1px solid system:separator;",
             geometry.text_width, geometry.text_height, geometry.margin, colors.background, colors.text
         ))
@@ -222,26 +122,27 @@ fn paper(content: Dom, geometry: &PageGeometry, colors: &PaperColors, index: usi
 }
 
 /// An empty paper (the right page of a spread after the chapter's last page).
-fn blank_page(geometry: &PageGeometry, colors: &PaperColors, index: usize) -> Dom {
+fn blank_page(geometry: &PageGeometry, colors: &PaperColors, index: usize, gutter: f32) -> Dom {
     Dom::create_div()
         .with_id(ids::indexed(&ids::PAGE, index))
         .with_class(ids::PAGE_CLASS)
         .with_css(format!(
             "display: block; flex-shrink: 0; box-sizing: content-box; width: {}px; height: {}px; \
-         padding: {}px; margin: 0px 12px; background: {}; border: 1px solid system:separator;",
+         padding: {}px; margin: 0px {gutter}px; background: {}; border: 1px solid system:separator;",
             geometry.text_width, geometry.text_height, geometry.margin, colors.background
         ))
 }
 
-/// A side zone that turns the page.
+/// A desktop's arrow beside the pages that turns the page.
 fn turn_zone(app: &RefAny, id: AzString, glyph: &str, cmd: Command) -> Dom {
     let mut zone = Dom::create_div()
         .with_id(id)
-        .with_css(
+        .with_css(format!(
             "display: flex; flex-direction: column; justify-content: center; align-items: center; \
-             width: 36px; flex-shrink: 0; align-self: stretch; font-size: 28px; \
+             width: {}px; flex-shrink: 0; align-self: stretch; font-size: 28px; \
              color: system:tertiary-text; cursor: pointer;",
-        )
+            chrome::ARROW_PX
+        ))
         .with_accessibility_name(t(if matches!(cmd, Command::PrevPage) {
             "azreader-previous-page"
         } else {
@@ -280,6 +181,7 @@ fn spread(
         }
         None => "-azul-animation-out: azr-fade-out 200ms ease-in;",
     };
+    let gutter = if st.phone { 0.0 } else { chrome::GUTTER_PX };
     let mut row = Dom::create_div()
         .with_id(AzString::from(format!("{}-{chapter}-{}", ids::SPREAD_PREFIX, st.page)))
         .with_css(format!(
@@ -292,19 +194,21 @@ fn spread(
         let page = st.page + i;
         let picture = st.pictures.find(page).filter(|_| drawn);
         if let Some((run, k)) = picture {
-            row.add_child(page_picture(run, k, geometry, colors, i));
+            row.add_child(page_picture(run, k, geometry, colors, i, gutter));
         } else if page < pages.page_count() {
             let column = paginate::column_dom(xml, &st.settings, geometry.text_width, st.flora)
                 .with_class(ids::COLUMN_CLASS);
-            row.add_child(page_frame(column, pages.span(page), geometry, colors, i));
+            row.add_child(page_frame(column, pages.span(page), geometry, colors, i, gutter));
         } else {
-            row.add_child(blank_page(geometry, colors, i));
+            row.add_child(blank_page(geometry, colors, i, gutter));
         }
     }
     row
 }
 
-/// The reading area: the running head, the pages between the turn zones, the folio.
+/// The reading area: the running head, the pages (between the arrows of a desktop), the folio.
+/// On a phone the area takes three zones over it (a tap on a side turns the page, a tap in the
+/// middle shows or hides the toolbar and the slider).
 #[must_use]
 pub fn pages(app: &RefAny, st: &AppState) -> Dom {
     let geometry = st.geometry();
@@ -314,9 +218,9 @@ pub fn pages(app: &RefAny, st: &AppState) -> Dom {
         .with_marker(OptionString::Some(st.area_marker.clone()))
         .with_component_css(Css::from_string(KEYFRAMES))
         .with_css(
-            "display: flex; flex-direction: column; align-items: center; justify-content: center; \
-             flex-grow: 1; min-height: 0px; min-width: 0px; overflow: hidden; \
-             background: system:under-page-background;",
+            "position: relative; display: flex; flex-direction: column; align-items: center; \
+             justify-content: center; flex-grow: 1; min-height: 0px; min-width: 0px; \
+             overflow: hidden; background: system:under-page-background;",
         );
     let open = st.open.as_ref();
     let chapter = st
@@ -336,15 +240,10 @@ pub fn pages(app: &RefAny, st: &AppState) -> Dom {
         .with_id(ids::RUNNING_HEAD),
     );
     let mut row = Dom::create_div()
-        .with_css(
-            "display: flex; flex-direction: row; align-items: center; justify-content: center;",
-        )
-        .with_child(turn_zone(
-            app,
-            ids::PREV_ZONE,
-            "\u{2039}",
-            Command::PrevPage,
-        ));
+        .with_css("display: flex; flex-direction: row; align-items: center; justify-content: center;");
+    if !st.phone {
+        row.add_child(turn_zone(app, ids::PREV_ZONE, "\u{2039}", Command::PrevPage));
+    }
     match chapter {
         Some(c) => row.add_child(spread(st, &c.pages, &c.content.xml, &geometry, &colors)),
         None => row.add_child(
@@ -352,18 +251,15 @@ pub fn pages(app: &RefAny, st: &AppState) -> Dom {
                 .with_id(ids::LOADING)
                 .with_css(format!(
                     "display: flex; flex-direction: column; justify-content: center; align-items: center; \
-                     width: {}px; height: {}px; padding: {}px; margin: 0px 12px; background: {}; color: {};",
+                     width: {}px; height: {}px; padding: {}px; background: {}; color: {};",
                     geometry.text_width, geometry.text_height, geometry.margin, colors.background, colors.muted
                 ))
                 .with_child(Dom::create_span_with_text(t("azreader-laying-out-pages"))),
         ),
     }
-    row.add_child(turn_zone(
-        app,
-        ids::NEXT_ZONE,
-        "\u{203a}",
-        Command::NextPage,
-    ));
+    if !st.phone {
+        row.add_child(turn_zone(app, ids::NEXT_ZONE, "\u{203a}", Command::NextPage));
+    }
     area.add_child(row);
     let folio = match chapter {
         Some(c) => {
@@ -384,6 +280,9 @@ pub fn pages(app: &RefAny, st: &AppState) -> Dom {
         )
         .with_id(ids::FOLIO),
     );
+    if st.phone {
+        area.add_child(tap_zones(app));
+    }
     area.add_callback(
         EventFilter::Hover(HoverEventFilter::Scroll),
         app.clone(),
@@ -402,40 +301,113 @@ pub fn pages(app: &RefAny, st: &AppState) -> Dom {
     area
 }
 
-/// The status bar: the chapter, its page, the book's progress, the notice.
-#[must_use]
-pub fn status_bar(st: &AppState) -> Dom {
-    let mut segments = Vec::new();
-    if let (Some(open), Some(c)) = (st.open.as_ref(), st.chapter.as_ref()) {
-        segments.push(StatusBarSegment::create(t_args(
-            "azreader-chapter-of",
-            &[
-                ("chapter", Arg::from(c.chapter + 1)),
-                ("count", Arg::from(open.book.spine.len())),
-            ],
-        )));
-        segments.push(StatusBarSegment::create(t_args(
-            "azreader-page-of",
-            &[
-                ("page", Arg::from(st.page + 1)),
-                ("count", Arg::from(c.pages.page_count())),
-            ],
-        )));
-    }
-    segments.push(
-        StatusBarSegment::create(t_args(
-            "azreader-percent-read",
-            &[("percent", Arg::from(position::percent_label(st.progress())))],
-        ))
-        .with_marker(ids::PROGRESS),
+/// The three zones over a phone's page: the left third turns back, the right third forward, the
+/// middle shows or hides the toolbar and the slider. They sit over the text (a reader has no
+/// selection to make), each named for a screen reader.
+fn tap_zones(app: &RefAny) -> Dom {
+    let zone = |id: AzString, left: &str, width: &str, tap: Tap| {
+        let (cmd, name) = match tap {
+            Tap::Previous => (Command::PrevPage, "azreader-previous-page"),
+            Tap::Next => (Command::NextPage, "azreader-next-page"),
+            Tap::Toggle => (Command::ToggleChrome, "azreader-toggle-controls"),
+        };
+        let mut zone = Dom::create_div()
+            .with_id(id)
+            .with_css(format!(
+                "position: absolute; top: 0px; bottom: 0px; left: {left}; width: {width};"
+            ))
+            .with_accessibility_info(AccessibilityInfo::named(label(name), AccessibilityRole::PushButton));
+        zone.add_callback(EventFilter::Hover(HoverEventFilter::Click), command(app, cmd), on_command);
+        zone
+    };
+    let side = format!("{}%", (chrome::SIDE_SHARE * 100.0).round());
+    let middle = format!("{}%", (100.0 - 2.0 * chrome::SIDE_SHARE * 100.0).round());
+    Dom::create_div()
+        .with_css("position: absolute; top: 0px; bottom: 0px; left: 0px; right: 0px;")
+        .with_child(zone(ids::ZONE_LEFT, "0%", &side, Tap::Previous))
+        .with_child(zone(ids::ZONE_MIDDLE, &side, &middle, Tap::Toggle))
+        .with_child(zone(ids::ZONE_RIGHT, &format!("{}%", (100.0 - chrome::SIDE_SHARE * 100.0).round()), &side, Tap::Next))
+}
+
+/// The slider row under a phone's page: the contents button, the slider through the book, where
+/// the reader is.
+fn slider_row(app: &RefAny, st: &AppState) -> Dom {
+    let progress = st.progress();
+    // While a jump waits for its chapter the thumb stays where the finger put it.
+    let thumb = match (st.pending.is_some(), st.last_seek) {
+        (true, Some(asked)) => asked as f32,
+        _ => chrome::slider_value(progress),
+    };
+    let count = st.chapter.as_ref().map_or(0, |c| c.pages.page_count());
+    let page = chrome::page_number(st.page, count);
+    let place = t_args(
+        "azreader-where",
+        &[
+            ("percent", Arg::from(position::percent_label(progress))),
+            ("page", Arg::from(page)),
+            ("count", Arg::from(count)),
+        ],
     );
-    if st.pending.is_some() {
-        segments.push(
-            StatusBarSegment::create(t("azreader-laying-out")).with_icon(s("hourglass_empty")),
-        );
+    Dom::create_div()
+        .with_id(ids::SLIDER_ROW)
+        .with_css(format!(
+            "display: flex; flex-direction: column; row-gap: 2px; padding: 4px 16px 8px 16px; \
+             min-height: {}px; background: system:window-background; \
+             border-top: 1px solid system:separator;",
+            chrome::SLIDER_ROW_PX
+        ))
+        .with_child(
+            Slider::create(thumb, 0.0, chrome::SLIDER_MAX)
+                .with_accessibility_name(label("azreader-seek"))
+                .with_on_value_change(app.clone(), on_slider as SliderOnValueChangeCallbackType)
+                .dom()
+                .with_id(ids::SLIDER),
+        )
+        .with_child(text(&place, "font-size: 12px; text-align: center; color: system:secondary-text;"))
+}
+
+/// The slider moved: the reader goes there.
+extern "C" fn on_slider(mut data: RefAny, mut info: CallbackInfo, state: SliderState) -> Update {
+    run(&mut data, Command::Seek(chrome::slider_progress(state.value)), &mut info)
+}
+
+/// The reader's screen: the toolbar over the strip and the pages (a desktop), the pages over the
+/// whole screen with the toolbar and the slider floating over them while a tap has them shown (a
+/// phone).
+#[must_use]
+pub fn screen(app: &RefAny, st: &AppState) -> Dom {
+    let pages = pages(app, st);
+    let strip = strip::strip(app, st);
+    if st.phone {
+        let mut stage = Dom::create_div()
+            .with_css("position: relative; display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: 0px;")
+            .with_child(pages);
+        if st.chrome {
+            stage.add_child(
+                Dom::create_div()
+                    .with_css("position: absolute; top: 0px; left: 0px; right: 0px;")
+                    .with_child(toolbar::reader(app, st)),
+            );
+        }
+        if let Some(strip) = strip {
+            stage.add_child(strip);
+        }
+        let mut screen = Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+            .with_child(stage);
+        if st.chrome {
+            screen.add_child(slider_row(app, st));
+        }
+        return screen;
     }
-    if !st.notice.is_empty() {
-        segments.push(StatusBarSegment::create(s(&st.notice)));
+    let mut body = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; flex-grow: 1; min-height: 0px; min-width: 0px;");
+    if let Some(strip) = strip {
+        body.add_child(strip);
     }
-    StatusBar::create(segments).dom()
+    body.add_child(pages);
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        .with_child(toolbar::reader(app, st))
+        .with_child(body)
 }

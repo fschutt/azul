@@ -85,6 +85,37 @@ azreader-page-of = PAGE { $page } OF { $count }
 azreader-percent-read = { $percent } READ
 azreader-laying-out = LAYING OUT
 
+## The toolbar, the strip and the slider
+
+azreader-toolbar = Reader tools
+azreader-strip = Pages and contents
+azreader-title = Title
+azreader-page = Page
+azreader-page-count-name = Number of pages in the chapter
+azreader-zoom-out = Smaller text
+azreader-zoom-in = Larger text
+azreader-zoom = Text size
+azreader-smallest-text = This is the smallest text.
+azreader-largest-text = This is the largest text.
+azreader-first-page-now = This is the first page of the chapter.
+azreader-last-page-now = This is the last page of the chapter.
+azreader-fit-layout = Pages: { $layout } (click to change)
+azreader-download = Save a copy of the book
+azreader-print = Save the chapter as a PDF to print
+azreader-sort-by = Sort by: { $sort } (click to change)
+azreader-thumbnails = Pages
+azreader-page-n = Page { $n }
+azreader-remove-named = Remove { $name }
+azreader-where = { $percent } read, page { $page } of { $count }
+azreader-seek = Place in the book
+azreader-toggle-controls = Show or hide the controls
+azreader-shelves = Shelves
+azreader-this-book = This book
+azreader-saved-a-copy = Saved { $name }
+azreader-copy-not-saved = Nothing was saved.
+azreader-copy-failed = The copy could not be made: { $why }
+azreader-pdf-failed = The PDF could not be made.
+
 ## Settings
 
 azreader-text-size = Text size

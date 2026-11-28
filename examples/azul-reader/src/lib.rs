@@ -7,11 +7,12 @@
 //! lines, widows / orphans - [`paginate`]); a page on screen is a clip window over that column
 //! ([`position::PageMap`]). Plain text and HTML files are books too ([`plainbook`]).
 //!
-//! The window is the S1 `DocumentShell` (the ribbon, whose tab strip is the title bar the
-//! window drags by, the navigation pane, the document, the status bar; the settings page keeps
-//! the app-drawn `Titlebar`) inside a `ShellThemeScope`; it follows the app theme (flat / flora) and the OS mode;
-//! the PAPER (auto / white / sepia / night) is the reader's own. The library is the shelves
-//! and a covers grid; the reader the pages, the table of contents and the bookmarks.
+//! The window is like the Chrome PDF viewer's: a thin toolbar of icons over the page on a quiet
+//! ground, with a strip of page thumbnails (the contents, the bookmarks) beside it on a desktop;
+//! on a phone the page fills the screen, a tap in its middle shows the toolbar and a slider
+//! under it that jumps through the book, a tap on its sides turns the page. It is inside a
+//! `ShellThemeScope`, follows the app theme (flat / flora) and the OS mode; the PAPER (auto /
+//! white / sepia / night) is the reader's own. The library is the shelves and a covers grid.
 //!
 //! Every book is a folder in the data tree (`reader/books/<uuid>/` - [`library`]) written
 //! through azul-storage's `Drive` from an azul `Thread` ([`jobs`]); the reading settings are
@@ -22,8 +23,11 @@
 
 pub mod app;
 pub mod bookcss;
+pub mod chrome;
 pub mod commands;
 pub mod content;
+/// The ops of the scenario files and the debug server (the sample book).
+pub mod e2e_ops;
 pub mod epub;
 pub mod ids;
 pub mod jobs;
@@ -35,9 +39,10 @@ pub mod pagecache;
 pub mod paginate;
 pub mod plainbook;
 pub mod position;
-mod ribbon;
 pub mod sample;
 pub mod settings;
+mod strip;
+mod toolbar;
 mod ui_library;
 mod ui_reader;
 mod ui_settings;
@@ -51,17 +56,16 @@ use azul::{
     css::{DarkLightMode, EventFilter},
     dom::{Dom, VirtualKeyCode},
     font::FontCacheSnapshot,
-    shells::{DocumentShell, ShellThemeAccent, ShellThemeScope},
-    str::String as AzString,
+    shells::{ShellThemeAccent, ShellThemeScope},
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
-    widgets::{AboutDialog, Modal, ModalState, StandardDialogEvent},
     window::WindowEventFilter,
 };
 use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec, LanguagePref},
-    l10n::{app_word, begin_layout, t, t_args, Arg},
+    insets::{phone_window, SafeInsets},
+    l10n::begin_layout,
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -96,7 +100,7 @@ pub const ABOUT: AboutInfo = AboutInfo {
 
 /// The keyboard shortcuts the settings page lists: the groups and what the keys do are keys of
 /// AzReader's words.
-pub const SHORTCUTS: [Shortcut; 9] = [
+pub const SHORTCUTS: [Shortcut; 10] = [
     Shortcut::new(
         "azreader-category-reading",
         "Right / Down / PageDown / Space",
@@ -119,6 +123,7 @@ pub const SHORTCUTS: [Shortcut; 9] = [
     ),
     Shortcut::new("azreader-category-reading", "Mod+T", "azreader-contents"),
     Shortcut::new("azreader-category-reading", "Mod+B", "azreader-bookmarks"),
+    Shortcut::new("azreader-category-reading", "Mod+P", "azreader-print"),
     Shortcut::new(
         "azreader-category-reading",
         "Mod+Plus / Mod+Minus",
@@ -147,6 +152,7 @@ pub fn start() {
     // `--language`; the system's otherwise).
     let mut config = kit::app_config(&kit_ref);
     l10n::register(&mut config);
+    e2e_ops::register_ops(&mut config);
     let mut kit_now = kit_ref.clone();
     let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
     if let Some(language) = language.filter(|l| *l != LanguagePref::System) {
@@ -179,43 +185,6 @@ pub fn start() {
 
 // ==== The window ====
 
-fn column(children: Vec<Dom>) -> Dom {
-    let mut column = Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
-    for child in children {
-        column.add_child(child);
-    }
-    column
-}
-
-/// The About box (open while `about_open`).
-fn about_modal(app: &RefAny, st: &AppState) -> Dom {
-    let about = AboutDialog::create(
-        AzString::from(ABOUT.name),
-        AzString::from(t_args(
-            "azreader-version",
-            &[("version", Arg::from(ABOUT.version))],
-        )),
-    )
-    .with_icon(AzString::from("auto_stories"))
-    .with_description(AzString::from(app_word(
-        ABOUT.name,
-        "about-summary",
-        ABOUT.summary,
-    )))
-    .with_copyright(AzString::from(t("azreader-copyright")))
-    .with_credit(AzString::from("azul"), AzString::from("MIT"))
-    .with_labels(t("azreader-about-credits"), t("kit-button-ok"))
-    .with_on_event(app.clone(), on_about)
-    .dom()
-    .with_id(ids::ABOUT);
-    Modal::create(about)
-        .with_title(AzString::from(t("azreader-about-title")))
-        .with_open(st.about_open)
-        .with_on_close(app.clone(), on_modal_close)
-        .dom()
-}
-
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // The window's language for every word this pass says.
     begin_layout(&info);
@@ -223,14 +192,21 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let mode = info.get_mode();
     let theme = info.get_theme();
     let size = (info.get_window_width(), info.get_window_height());
+    let safe = SafeInsets::of(&info);
+    let phone = phone_window(size.0, size.1);
     let app = data.clone();
     if let Some(mut st) = data.downcast_mut::<AppState>() {
         st.dark = matches!(mode, DarkLightMode::Dark);
         // flora and its spins ("flora:green") - a switch lays the open chapter out again
         // (the theme is part of the layout key: flora's serif is another face).
         st.flora = theme.as_str() == "flora" || theme.as_str().starts_with("flora:");
-        if st.window != size {
+        if st.window != size || st.phone != phone {
             st.window = size;
+            st.phone = phone;
+            if phone && !st.pane_chosen {
+                // A phone keeps the page whole: the strip is a sheet the reader opens.
+                st.pane = Pane::None;
+            }
             // Measured again after this frame.
             st.area = None;
         }
@@ -243,40 +219,31 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         return Dom::create_body();
     };
     let st = &*guard;
-    let title = st.title();
     let content = if kit::settings_open(&st.kit) {
-        column(vec![
-            kit::title_row(&title),
-            kit::settings_page_with_reload(
-                &st.kit,
-                vec![ui_settings::section(&app, st)],
-                &app,
-                commands::reload_settings,
-            ),
-        ])
+        let mut page = Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
+        if !phone && cfg!(not(any(target_os = "android", target_os = "ios"))) {
+            page.add_child(kit::title_row(&st.title()));
+        }
+        page.with_child(kit::settings_page_with_reload(
+            &st.kit,
+            vec![ui_settings::section(&app, st)],
+            &app,
+            commands::reload_settings,
+        ))
     } else {
         match st.screen {
-            // No title row while the ribbon shows: its tabs are the title bar.
-            Screen::Library => DocumentShell::create(ui_library::content(&app, st))
-                .with_navigation(ui_library::navigation(&app, st))
-                .office_shell()
-                .with_ribbon(ribbon::ribbon(&app, st))
-                .with_status_bar(ui_library::status_bar(st))
-                .dom(),
-            Screen::Reader => {
-                let mut shell = DocumentShell::create(ui_reader::pages(&app, st));
-                if let Some(pane) = ui_reader::navigation(&app, st) {
-                    shell = shell.with_navigation(pane);
-                }
-                shell
-                    .office_shell()
-                    .with_ribbon(ribbon::ribbon(&app, st))
-                    .with_status_bar(ui_reader::status_bar(st))
-                    .dom()
-            }
+            Screen::Library => ui_library::screen(&app, st),
+            Screen::Reader => ui_reader::screen(&app, st),
         }
     };
-    let root = column(vec![content, about_modal(&app, st)]);
+    // The room the system keeps at the window's edges (a camera cutout, the home indicator).
+    let root = Dom::create_div()
+        .with_css(format!(
+            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; {}",
+            safe.padding()
+        ))
+        .with_child(content);
     Dom::create_body()
         .with_css("display: flex; flex-direction: column; margin: 0px; padding: 0px; height: 100%;")
         .with_child(
@@ -344,29 +311,11 @@ extern "C" fn area_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
     TimerCallbackReturn::continue_unchanged()
 }
 
-extern "C" fn on_about(
-    mut data: RefAny,
-    _info: CallbackInfo,
-    _event: StandardDialogEvent,
-) -> Update {
-    if let Some(mut st) = data.downcast_mut::<AppState>() {
-        st.about_open = false;
-    }
-    Update::RefreshDom
-}
-
-extern "C" fn on_modal_close(mut data: RefAny, _info: CallbackInfo, _state: ModalState) -> Update {
-    if let Some(mut st) = data.downcast_mut::<AppState>() {
-        st.about_open = false;
-    }
-    Update::RefreshDom
-}
-
 /// The window's keys: the kit's first (settings, F1), then the reader's and the library's.
 extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((kit_ref, screen, about_open)) = data
+    let Some((kit_ref, screen)) = data
         .downcast_ref::<AppState>()
-        .map(|s| (s.kit.clone(), s.screen, s.about_open))
+        .map(|s| (s.kit.clone(), s.screen))
     else {
         return Update::DoNothing;
     };
@@ -386,13 +335,6 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let primary = info.get_key_modifiers().primary_down();
     let reading = screen == Screen::Reader;
     let cmd = match (key, primary) {
-        (VirtualKeyCode::Escape, false) if about_open => {
-            if let Some(mut st) = data.downcast_mut::<AppState>() {
-                st.about_open = false;
-            }
-            info.prevent_default();
-            return Update::RefreshDom;
-        }
         (VirtualKeyCode::O, true) => Command::AddBooks,
         (VirtualKeyCode::L, true) => Command::ShowLibrary,
         (
@@ -408,6 +350,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         (VirtualKeyCode::Home, false) if reading => Command::BookStart,
         (VirtualKeyCode::D, true) if reading => Command::ToggleBookmark,
         (VirtualKeyCode::T, true) if reading => Command::Pane(Pane::Contents),
+        (VirtualKeyCode::P, true) if reading => Command::Print,
         (VirtualKeyCode::B, true) if reading => Command::Pane(Pane::Bookmarks),
         (VirtualKeyCode::Equals | VirtualKeyCode::Plus | VirtualKeyCode::NumpadAdd, true)
             if reading =>

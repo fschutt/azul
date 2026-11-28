@@ -1034,16 +1034,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 /// What the window knows about its screen: the room the system keeps at the edges, and whether
 /// it is a phone.
 fn env_of(info: &LayoutCallbackInfo) -> views::Env {
-    let safe = info.get_safe_area_insets();
-    let px = |v: azul::option::OptionPixelValue| {
-        v.into_option().map_or(0.0, |p| p.to_pixels(0.0, 16.0, 16.0))
-    };
-    let clean = |v: f32| if v.is_finite() && v > 0.0 { v } else { 0.0 };
+    let safe = azul_appkit::insets::SafeInsets::of(info);
     views::Env {
-        top: clean(px(safe.top)),
-        right: clean(px(safe.right)),
-        bottom: clean(px(safe.bottom)),
-        left: clean(px(safe.left)),
+        top: safe.top,
+        right: safe.right,
+        bottom: safe.bottom,
+        left: safe.left,
         phone: cfg!(any(target_os = "android", target_os = "ios")),
     }
 }

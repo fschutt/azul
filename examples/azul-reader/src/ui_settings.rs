@@ -1,6 +1,7 @@
 //! The reader's own section of the settings page ("Reading", first on azul-appkit's page):
 //! the text size, the line spacing, the margins, the font, the paper, the pages side by side
-//! and the alignment - the same commands the ribbon's VIEW tab runs.
+//! and the alignment, then the two file jobs of the open book - the same commands the toolbar
+//! and the keys run.
 
 use azul::{
     callbacks::{
@@ -116,6 +117,29 @@ pub fn section(app: &RefAny, st: &AppState) -> AppSection {
                 .dom(),
         ))
         .with_child(kit::note("azreader-settings-note"));
+    // A copy of the book and the chapter as a PDF: in the toolbar on a desktop, here on a phone,
+    // whose toolbar holds only what a thumb needs while it reads.
+    let content = if st.open.is_some() {
+        content.with_child(kit::row(
+            "azreader-this-book",
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; flex-wrap: wrap; column-gap: 8px; row-gap: 8px;")
+                .with_child(
+                    Button::create(t("azreader-download"))
+                        .with_on_click(command(app, Command::Download), on_command as ButtonOnClickCallbackType)
+                        .dom()
+                        .with_id(ids::SETTINGS_DOWNLOAD),
+                )
+                .with_child(
+                    Button::create(t("azreader-print"))
+                        .with_on_click(command(app, Command::Print), on_command as ButtonOnClickCallbackType)
+                        .dom()
+                        .with_id(ids::SETTINGS_PRINT),
+                ),
+        ))
+    } else {
+        content
+    };
     AppSection {
         category: 0,
         title: t("azreader-category-reading"),

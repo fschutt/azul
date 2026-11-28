@@ -85,6 +85,37 @@ azreader-page-of = SEITE { $page } VON { $count }
 azreader-percent-read = { $percent } GELESEN
 azreader-laying-out = WIRD GESETZT
 
+## The toolbar, the strip and the slider
+
+azreader-toolbar = Leseleiste
+azreader-strip = Seiten und Inhalt
+azreader-title = Titel
+azreader-page = Seite
+azreader-page-count-name = Seitenzahl des Kapitels
+azreader-zoom-out = Kleinerer Text
+azreader-zoom-in = Größerer Text
+azreader-zoom = Schriftgröße
+azreader-smallest-text = Das ist die kleinste Schriftgröße.
+azreader-largest-text = Das ist die größte Schriftgröße.
+azreader-first-page-now = Das ist die erste Seite des Kapitels.
+azreader-last-page-now = Das ist die letzte Seite des Kapitels.
+azreader-fit-layout = Seiten: { $layout } (Klick zum Wechseln)
+azreader-download = Kopie des Buches speichern
+azreader-print = Kapitel als PDF zum Drucken speichern
+azreader-sort-by = Sortiert nach: { $sort } (Klick zum Wechseln)
+azreader-thumbnails = Seiten
+azreader-page-n = Seite { $n }
+azreader-remove-named = { $name } entfernen
+azreader-where = { $percent } gelesen, Seite { $page } von { $count }
+azreader-seek = Stelle im Buch
+azreader-toggle-controls = Bedienelemente ein- oder ausblenden
+azreader-shelves = Regale
+azreader-this-book = Dieses Buch
+azreader-saved-a-copy = { $name } gespeichert
+azreader-copy-not-saved = Es wurde nichts gespeichert.
+azreader-copy-failed = Die Kopie konnte nicht erstellt werden: { $why }
+azreader-pdf-failed = Das PDF konnte nicht erstellt werden.
+
 ## Settings
 
 azreader-text-size = Schriftgröße
