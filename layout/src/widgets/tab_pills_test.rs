@@ -365,3 +365,85 @@ fn the_strip_listens_to_its_own_resize() {
     assert_eq!(resize(strip_of(&dom)), 1, "a turn of the phone moves the lanes: the strip hears it");
     assert_eq!(resize(&dom), 0, "the header around it is not the strip");
 }
+
+#[test]
+fn a_flora_pill_fades_its_face_together_and_its_label_steps_where_both_inks_read_whatever_it_changes_to() {
+    use crate::widgets::{button::ButtonType, themes::flora::FloraButtonKind};
+    use azul_css::props::property::CssProperty;
+    for button_type in [ButtonType::Default, ButtonType::Primary] {
+        let ink = FloraButtonKind::of(button_type).label_ink().expect("a pill's label has an ink");
+        for metrics in [&super::PILL_DESKTOP, &super::PILL_TOUCH] {
+            let css = super::pill_sized(UiTheme::Flora, button_type, metrics);
+            // The animation that governs the pill at rest: the last one declared with no condition.
+            let list = css
+                .as_ref()
+                .iter()
+                .rev()
+                .filter(|p| p.apply_if.as_ref().is_empty())
+                .find_map(|p| match &p.property {
+                    CssProperty::Animation(value) => value.get_property().cloned(),
+                    _ => None,
+                })
+                .expect("the pill declares its fade");
+            let entries = list.as_ref();
+            let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+            assert!(names.contains(&"color") && names.contains(&"background"), "{button_type:?}: {names:?}");
+            for entry in entries {
+                if entry.name.as_str() == "color" {
+                    // The label does not fade with the face (dark to light ink under a face that goes light to
+                    // dark crosses it at one frame): it holds, then takes its new colour at once.
+                    assert!(entry.duration.inner <= 5, "{button_type:?}: the label's colour steps: {} ms", entry.duration.inner);
+                    assert_eq!(
+                        entry.delay.inner,
+                        super::PILL_FADE_MS * ink.held_permille() / 1000,
+                        "{button_type:?}: a {ink:?} label is held for its share of the face's time"
+                    );
+                } else {
+                    assert_eq!(
+                        entry.duration.inner,
+                        super::PILL_FADE_MS,
+                        "{button_type:?}: {} fades over the same time as the rest",
+                        entry.name.as_str()
+                    );
+                }
+            }
+        }
+    }
+}
+
+// ---- one rule for the phone's forms: a phone's size, on a phone or a stand-in for one ----
+
+fn is_touch_pills(dom: &azul_core::dom::Dom) -> bool {
+    fn has_touch_header(dom: &azul_core::dom::Dom) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, azul_core::dom::IdOrClass::Class(n) if n.as_str() == "__azul-native-tabs-touch-header"))
+    }
+    has_touch_header(dom)
+}
+
+#[test]
+fn auto_is_the_touch_pills_in_a_window_under_600_dp_that_sits_on_a_phone_and_the_buttons_elsewhere() {
+    use azul_core::callbacks::WindowSizeScope;
+    // (width in dp, sits on a simulated phone): the phone's forms only for a phone narrower than 600 dp.
+    for (width, preset, touch) in [
+        (412.0, true, true),     // a phone, portrait
+        (599.0, true, true),
+        (640.0, true, false),    // a phone on its side (852 dp in life) and a tablet: the desktop form
+        (852.0, true, false),
+        (1280.0, true, false),
+        (412.0, false, false),   // a desktop window that is narrow: never the phone's form
+        (1280.0, false, false),
+    ] {
+        let _scope = WindowSizeScope::enter_for_window(LogicalSize { width, height: 900.0 }, false, preset);
+        let dom = TabHeader::create(labels(4)).with_theme(UiTheme::Flora).dom();
+        assert_eq!(
+            is_touch_pills(&dom),
+            touch,
+            "{width} dp, preset {preset}: {}",
+            if touch { "touch pills" } else { "the desktop form" }
+        );
+    }
+}
