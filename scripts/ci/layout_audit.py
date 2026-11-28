@@ -11,7 +11,7 @@ The inputs are the dumps of ONE moment of ONE orientation (mobile_e2e.py writes 
     dumpsys-window-<o>.txt    Android's `dumpsys window`: the status and navigation bars' frames, the app's bounds
 
 What it lists, per orientation (every list names the node: tag#id.class, the role and the text the accessibility tree gives it, the box in dp):
-    edge          boxes that cross the window's right or left edge (the page does not fit the width; scrolled strips show up too)
+    edge          boxes that cross the window's right or left edge (the page does not fit the width); what lies inside a sideways scroller that fits the window is not counted (it is listed as a scroller)
     bars          boxes of tappable or text nodes that lie under a system bar (a button no finger can reach, a text nobody can read)
     small         tappable nodes smaller than 48 dp in either direction (Android's touch target guideline), without those inside a
                   large enough tappable parent (the finger lands on the parent anyway)
@@ -232,8 +232,27 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
                 return border
         return content
 
+    # -- the scroll containers whose content is wider than they are and that fit the window themselves (a chips row, a strip of tabs): what lies inside one and passes
+    # its edge is scrolled content, reached by scrolling, not a box that does not fit the window. (The first AzMaps audit counted the chips row's children as crossing.)
+    scroller_ids = set()
+    for st in scroll_states(scroll_answer):
+        lay = layout_by_id.get(st.get("node_id"))
+        r = lay.get("rect") if lay else None
+        if st.get("max_scroll_x", 0.0) > SLACK_DP and r and r.get("width", 0) > 0 and r["x"] >= -SLACK_DP and r["x"] + r["width"] <= width_dp + SLACK_DP:
+            scroller_ids.add(st.get("node_id"))
+    scroller_boxes = [_rect_dp(layout_by_id[i]["rect"]) for i in scroller_ids]
+
+    def in_scroller(info, box):
+        """True when the node lies inside a sideways scroller: an accessibility ancestor IS one, or its box starts inside a scroller's box and within its height."""
+        hops, parent = 0, by_id.get(info.get("parent")) if info else None
+        while parent is not None and hops < 64:
+            if parent.get("node_id") in scroller_ids and parent.get("dom_id") in (0, None):
+                return True
+            parent, hops = by_id.get(parent.get("parent")), hops + 1
+        return any(box[0] >= l - SLACK_DP and box[0] < r and box[1] >= t - SLACK_DP and box[3] <= b + SLACK_DP for l, t, r, b in scroller_boxes)
+
     # -- the window's edges (every DOM node of the layout)
-    right, left = [], []
+    right, left, scrolled = [], [], {"right": 0, "left": 0}
     for n in nodes:
         r = n.get("rect")
         if not r or r.get("width", 0) <= 0 or r.get("height", 0) <= 0:
@@ -243,13 +262,19 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
         if info and info.get("hidden"):
             continue
         if box[0] < width_dp and box[2] > width_dp + SLACK_DP:
-            right.append(_entry(n, info, box, f"right edge at {width_dp:.0f}: box ends at {box[2]:.0f}"))
+            if in_scroller(info, box):
+                scrolled["right"] += 1
+            else:
+                right.append(_entry(n, info, box, f"right edge at {width_dp:.0f}: box ends at {box[2]:.0f}"))
         if box[2] > 0 and box[0] < -SLACK_DP:
-            left.append(_entry(n, info, box, f"left edge at 0: box starts at {box[0]:.0f}"))
+            if in_scroller(info, box):
+                scrolled["left"] += 1
+            else:
+                left.append(_entry(n, info, box, f"left edge at 0: box starts at {box[0]:.0f}"))
     for name, found in (("right", right), ("left", left)):
         found.sort(key=lambda e: (-e["w"], e["y"]))
         outer = _outer(found)
-        result[f"edge_{name}"] = {"count": len(found), "outer": len(outer), "top": outer, "by_widget": by_widget(outer)}
+        result[f"edge_{name}"] = {"count": len(found), "outer": len(outer), "top": outer, "by_widget": by_widget(outer), "in_sideways_scrollers": scrolled[name]}
 
     # -- under the bars (the a11y tree: device pixels)
     bands = (bars or {}).get("bands") or []
@@ -343,15 +368,17 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
         if box[2] - box[0] <= 0:
             continue
         why = None
-        if box[2] > width_dp + SLACK_DP and box[0] < width_dp:
+        inside_scroller = in_scroller(a, box)
+        if box[2] > width_dp + SLACK_DP and box[0] < width_dp and not inside_scroller:
             why = f"crosses the window's right edge ({box[2]:.0f} > {width_dp:.0f})"
-        elif box[0] < -SLACK_DP and box[2] > 0:
+        elif box[0] < -SLACK_DP and box[2] > 0 and not inside_scroller:
             why = f"crosses the window's left edge ({box[0]:.0f} < 0)"
         else:
             parent = by_id.get(a.get("parent"))
             while parent is not None and why is None:
                 pb = parent.get("bounds")
-                if parent.get("clips_children") and pb:
+                # a sideways scroller clips its children by design: its edge is not a cut
+                if parent.get("clips_children") and pb and parent.get("node_id") not in scroller_ids:
                     pbox = tuple(v / scale for v in pb)
                     if box[2] > pbox[2] + SLACK_DP and box[0] < pbox[2]:
                         why = f"crosses the right edge of a clipping parent ({box[2]:.0f} > {pbox[2]:.0f})"
@@ -414,6 +441,8 @@ def report_markdown(audits, label=""):
         for side in ("right", "left"):
             e = a[f"edge_{side}"]
             out += [f"### Boxes crossing the {side} edge: {e['count']} ({e['outer']} outermost)", ""]
+            if e.get("in_sideways_scrollers"):
+                out += [f"Not counted: {e['in_sideways_scrollers']} boxes inside a scroll container that scrolls sideways (listed below) and passes its edge: scrolled content, not a page that does not fit.", ""]
             if e.get("by_widget"):
                 out += ["by widget (outermost): " + _top_widgets(e["by_widget"]), ""]
             out += _table(e["top"], ["node", "role", "text", "x", "y", "w", "h", "why"])
