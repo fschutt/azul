@@ -208,20 +208,20 @@ fn a_worker_asks_once_and_waits_for_the_answer() {
 #[test]
 fn a_location_subscription_made_before_the_answer_starts_at_the_grant() {
     let java = java_code("scripts/android/AzulGeolocation.java");
-    let subscribe = body(&java, "public static void subscribe(");
+    let subscribe = body(&java, "public static synchronized void subscribe(");
     let none = subscribe.find("if (!fine && !coarse) {").expect("the no-permission case");
     let remembered = subscribe[none..].find("waitingHandle = handle;").expect("the wish is kept") + none;
     let ret = subscribe[none..].find("return;").expect("and the call returns") + none;
     assert!(remembered < ret, "stored before it returns");
     assert!(subscribe.contains("waitingHandle = 0;"), "a started subscription is no longer waiting");
 
-    let answered = body(&java, "public static void onPermissionAnswered(");
+    let answered = body(&java, "public static synchronized void onPermissionAnswered(");
     assert!(answered.contains("subscribe(activity, handle, waitingHighAccuracy, waitingMinIntervalMs)"));
     assert!(answered.contains("!asksForLocation(requested)"), "an answer about the camera starts nothing");
     assert!(answered.contains("nativeOnLocationError(handle, ERROR_PERMISSION_DENIED)"), "a refusal is told to the engine");
     assert!(answered.contains("else if (!dropped)"), "a dropped request is not a refusal");
 
-    let release = body(&java, "public static void release(");
+    let release = body(&java, "public static synchronized void release(");
     assert!(release.contains("waitingHandle = 0"), "a released subscription does not start later");
 
     let permissions = java_code("scripts/android/AzulPermissions.java");

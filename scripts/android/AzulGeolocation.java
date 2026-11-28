@@ -40,8 +40,10 @@ public final class AzulGeolocation {
     /** What `nativeOnLocationError` reports (the engine reads them as the `code` of its location error). */
     private static final int ERROR_PERMISSION_DENIED = 1;
 
-    public static void subscribe(Activity activity, long handle, boolean highAccuracy,
-                                 int minIntervalMs) {
+    // synchronized: the engine's loop thread subscribes and releases, the UI thread delivers the permission answer
+    // (onPermissionAnswered): the wish of a subscription that waits for its permission is read by the other thread.
+    public static synchronized void subscribe(Activity activity, long handle, boolean highAccuracy,
+                                              int minIntervalMs) {
         if (activity == null) {
             return;
         }
@@ -125,7 +127,7 @@ public final class AzulGeolocation {
      * new probe node subscribe again). A request for another capability, or a dropped one, changes nothing.
      * Called on the UI thread by AzulPermissions.
      */
-    public static void onPermissionAnswered(Activity activity, String[] requested, boolean dropped) {
+    public static synchronized void onPermissionAnswered(Activity activity, String[] requested, boolean dropped) {
         final long handle = waitingHandle;
         if (handle == 0 || activity == null || !asksForLocation(requested)) {
             return;
@@ -155,7 +157,7 @@ public final class AzulGeolocation {
         return false;
     }
 
-    public static void release(long handle) {
+    public static synchronized void release(long handle) {
         if (handle == waitingHandle) {
             waitingHandle = 0;
         }
