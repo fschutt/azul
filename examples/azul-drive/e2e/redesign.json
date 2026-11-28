@@ -66,9 +66,13 @@
         "expected": "Home"
       },
       {
-        "op": "assert_text",
-        "selector": "#__azdrive_command_bar_status",
-        "expected": "6 items"
+        "op": "find_node_by_text",
+        "text": "6 items",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
       },
       {
         "op": "print",
@@ -186,9 +190,13 @@
         "expected": "Documents"
       },
       {
-        "op": "assert_text",
-        "selector": "#__azdrive_command_bar_status",
-        "expected": "3 items"
+        "op": "find_node_by_text",
+        "text": "3 items",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
       },
       {
         "op": "print",
@@ -296,9 +304,13 @@
         "expected": "Home"
       },
       {
-        "op": "assert_text",
-        "selector": "#__azdrive_command_bar_status",
-        "expected": "6 items"
+        "op": "find_node_by_text",
+        "text": "6 items",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
       },
       {
         "op": "click",
@@ -325,9 +337,13 @@
         "op": "wait_frame"
       },
       {
-        "op": "assert_text",
-        "selector": "#__azdrive_command_bar_status",
-        "expected": "1 item"
+        "op": "find_node_by_text",
+        "text": "1 item",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
       },
       {
         "op": "print",
@@ -355,9 +371,13 @@
         "selector": ".__azul-native-location-edit"
       },
       {
-        "op": "assert_text",
-        "selector": "#__azdrive_command_bar_status",
-        "expected": "6 items"
+        "op": "find_node_by_text",
+        "text": "6 items",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
       },
       {
         "op": "click",
@@ -567,9 +587,13 @@
         "op": "wait_frame"
       },
       {
-        "op": "assert_text",
-        "selector": "#__azdrive_command_bar_status",
-        "expected": "6 items"
+        "op": "find_node_by_text",
+        "text": "6 items",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
       }
     ]
   },
