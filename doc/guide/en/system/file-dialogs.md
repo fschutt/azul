@@ -341,12 +341,20 @@ documents.rename(locator, new_name);
 documents.delete(locator);
 documents.forget(locator);                   // release a granted folder (the folder itself is untouched)
 documents.all_files_access();                // Granted / NotGranted / Unavailable (Android's MANAGE_EXTERNAL_STORAGE, a flavour only)
+documents.origin(working_copy);              // where a file another app opened this app with came from, and whether it may be saved back
+documents.write_back(working_copy);          // the copy's bytes over the original (the same call as `write`)
 ```
 
 Every failure says what to do next: `Denied` (the person took the grant back, or never gave it: ask for the folder again with `open_folder`),
 `NotFound` (it vanished: forget it), `TimedOut` (a slow provider: retry or tell the person; a provider that never answers is refused after eight late
 calls instead of collecting a thread per retry), `Exists`, `NotADirectory`, `Unsupported`, `Cancelled`, `Failed(reason)`. `DocumentError::describe()` is
 the sentence for the person. A listing is cut at 20 000 entries and the cut is logged; a name is one plain segment (no `/`, `\`, NUL, at most 255 bytes).
+
+A file another app opened this app with is a WORKING COPY (a path `std::fs` opens); the engine remembers where it came from next to the copy, so
+that the app can save the person's edits back with `write_back` where the sender allowed writing (`DocumentOrigin::writable`: Android's `ACTION_EDIT`
+with a write grant). Where it did not (a read-only share, a copy iOS made in the app's own folder before the app saw it, a file the app made itself)
+`origin` says nothing and `write_back` answers `Unsupported` (no origin) or `Denied` (read-only): offer `FileDialog::export_bytes`, the system's
+"save as", instead.
 
 What a provider cannot do is said, not hidden: a write through Android's storage framework is in place (there is no atomic replace across providers; keep
 the working copy until the write came back), and a provider that renames instead of failing is checked first (`create_file` over a name that is taken
