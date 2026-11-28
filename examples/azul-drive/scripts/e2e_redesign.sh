@@ -73,7 +73,8 @@ for file in $files; do
     echo "$file (exit $status): ${summary:-no report}"
     # the phone's list follows its scroll: over the run the selection was the rows the top edge passed (the
     # first row, the rows of the two wheel scrolls, the tapped one) and ended on the row of the second scroll:
-    # the wheel's 600 + 900 px at 25 px a row is the 61st row (6 folders and file-055), give or take a few
+    # the wheel's 600 + 900 px at 48 px a row (a phone's rows are a finger's size) is the 32nd row (6 folders
+    # and file-026), give or take a few
     case $stem in
         redesign_phone)
             keys=$(sed "s/${esc}\[[0-9;]*m//g" "$log" | grep -a '^AZDRIVE_SELECTED 1 ' | awk '{print $3}')
@@ -86,9 +87,9 @@ for file in $files; do
                 bad=1
             fi
             case $last in
-                file-05[3-7].txt) ;;
+                file-02[4-8].txt) ;;
                 *)
-                    echo "$file: the selection did not end on the row at the top edge (file-055.txt, give or take two)"
+                    echo "$file: the selection did not end on the row at the top edge (file-026.txt, give or take two)"
                     bad=1
                     ;;
             esac
