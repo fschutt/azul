@@ -343,6 +343,14 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
+/// The Android activity loads this library; starting the app on load is how a `cdylib` app begins there
+/// (the binary's `main` is the desktop's and iOS's way in).
+#[cfg(target_os = "android")]
+#[ctor::ctor]
+fn azul_android_init() {
+    start();
+}
+
 #[cfg(test)]
 mod tests {
     use super::SHORTCUTS;

@@ -286,9 +286,10 @@ weight = 2
 package = "AzCode"
 dir = "examples/azul-code"
 description = "a code editor: file tree, tabs, syntax highlighting, find and replace"
-platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 3
-e2e = true   # the desktop QA build too (scripts/ci/desktop_e2e_build.sh): the audit pictures and the scenario files of the UI refactor (an artifact, never shipped)
+mobile_lib = "mobile"
+e2e = true   # the QA variants too (the desktop QA build of scripts/ci/desktop_e2e_build.sh, the phone libraries mobile-e2e): the audit pictures and the scenario files of the UI refactor (artifacts, never shipped)
 
 [[app]]
 package = "AzContacts"

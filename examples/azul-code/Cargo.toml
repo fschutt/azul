@@ -40,6 +40,11 @@ serde_json = "1"
 # through fancy-regex (already in the tree); no themes (azul's themes colour the token kinds).
 syntect = { version = "5.2", default-features = false, features = ["parsing", "default-syntaxes", "regex-fancy"] }
 
+# The Android activity loads the app's library and the library starts the app on load (as AzMaps' and
+# AzWriter's do); on iOS and the desktop the binary's `main` does.
+[target.'cfg(target_os = "android")'.dependencies]
+ctor = "0.2"
+
 [lib]
 name = "azcode"
 path = "src/lib.rs"
