@@ -26318,16 +26318,16 @@ mod e2e_artifact_write_tests {
         }
     }
 
-    /// A relative artefact path that cannot be written lands in the temp dir under its file name: the scenario that asked for a damage picture
-    /// (`target/e2e/mount_damage_smoke_patch.png`) must not fail on a phone for want of a writable working directory.
+    /// A relative artefact path that cannot be written lands in the window's shot folder under its file name: the scenario that asked for a
+    /// damage picture (`target/e2e/mount_damage_smoke_patch.png`) must not fail on a phone for want of a writable working directory.
     ///
-    /// Mutation: no fallback (the first error is returned) fails the `Ok`; a fallback that keeps the folders (`target/e2e/...` under the temp
-    /// dir) fails the path.
+    /// Mutation: no fallback (the first error is returned) fails the `Ok`; a fallback that keeps the folders (`target/e2e/...` under the shot
+    /// folder) fails the path.
     #[test]
-    fn a_relative_path_that_cannot_be_written_goes_to_the_temp_dir() {
+    fn a_relative_path_that_cannot_be_written_goes_to_the_shot_folder() {
         let written = RefCell::new(Vec::new());
         let got = write_e2e_artifact_with("target/e2e/patch.png", b"png", Some(Path::new("/tmp/app-cache")), &sandbox(&written))
-            .expect("the temp dir takes it");
+            .expect("the shot folder takes it");
         assert_eq!(got, PathBuf::from("/tmp/app-cache/patch.png"));
         assert_eq!(written.borrow().as_slice(), [PathBuf::from("/tmp/app-cache/patch.png")]);
     }
