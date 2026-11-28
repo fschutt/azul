@@ -3201,6 +3201,27 @@ pub struct RegenerationState {
     /// retire exactly the rebuild it observed (`rebuild_generation <= seen`)
     /// and keep one raised mid-flight by a lifecycle callback.
     rebuild_generation: u64,
+    /// WHERE the first request since the last layout pass was made (the caller of
+    /// [`CommonWindowState::request_regeneration`]): the producer of the pass that serves it.
+    /// A pass nobody expected (a second full layout right after the first picture) names its
+    /// producer in the startup timeline (`layout_begin ... by=file:line`) instead of a bare
+    /// `RefreshDom`, which every one of the 60-odd producers carries. `None` for the request a
+    /// window is born with, and after a pass consumed what was asked.
+    requested_at: Option<&'static core::panic::Location<'static>>,
+}
+
+/// What the startup timeline prints as the reason of a layout pass: the reason the request carries
+/// and, where it is known, the place that made the request (`RefreshDom by=<file>:<line>`).
+/// `RefreshDom` alone is the tag of most of the producers and does not say which one asked.
+#[must_use]
+pub fn layout_pass_reason(
+    reason: azul_core::callbacks::RelayoutReason,
+    requested_at: Option<&'static core::panic::Location<'static>>,
+) -> String {
+    match requested_at {
+        Some(at) => format!("{reason:?} by={}:{}", at.file(), at.line()),
+        None => format!("{reason:?}"),
+    }
 }
 
 impl RegenerationState {
@@ -3215,6 +3236,7 @@ impl RegenerationState {
             resize_relayout: false,
             rebuild_owed: true,
             rebuild_generation: 0,
+            requested_at: None,
         }
     }
 
@@ -3231,6 +3253,7 @@ impl RegenerationState {
             resize_relayout: false,
             rebuild_owed: false,
             rebuild_generation: 0,
+            requested_at: None,
         }
     }
 }
@@ -3495,7 +3518,13 @@ impl CommonWindowState {
         }
     }
 
+    #[track_caller]
     pub fn request_regeneration(&mut self, reason: azul_core::callbacks::RelayoutReason) {
+        // The FIRST ask since the last pass is the producer of the pass that serves it; a later ask
+        // for the same pass is merged into it and does not move the blame.
+        if self.regen.requested_at.is_none() {
+            self.regen.requested_at = Some(core::panic::Location::caller());
+        }
         self.regen.request.raise();
         self.regen.rebuild_owed = true;
         self.regen.rebuild_generation = self.regen.request.epoch();
@@ -3522,10 +3551,21 @@ impl CommonWindowState {
         self.regen.reason
     }
 
+    /// Where the pending regeneration was first asked for (`file:line` of the caller of
+    /// [`Self::request_regeneration`]), without consuming it; `None` for the request a window is
+    /// born with and when nothing was asked since the last pass. The startup timeline prints it
+    /// with every layout pass, so a pass nobody expected names who asked for it.
+    #[must_use]
+    pub fn regeneration_requested_at(&self) -> Option<&'static core::panic::Location<'static>> {
+        self.regen.requested_at
+    }
+
     /// Consume the reason for the `regenerate_layout()` call about to run, and
     /// reset it to the implicit `RefreshDom` so a later untagged regeneration
     /// does not inherit a stale `Resize`/`RouteChange`.
     pub fn take_relayout_reason(&mut self) -> azul_core::callbacks::RelayoutReason {
+        // The pass this serves has consumed what was asked: the next ask names its own producer.
+        self.regen.requested_at = None;
         std::mem::replace(
             &mut self.regen.reason,
             azul_core::callbacks::RelayoutReason::RefreshDom,
@@ -5316,7 +5356,11 @@ pub trait PlatformWindow {
         // the reason the pending request carries is the one this pass consumes.
         let startup = self.get_app_shared().startup_handle();
         let layout_no = if startup.enabled() {
-            let reason = format!("{:?}", self.get_common_mut().regeneration_reason());
+            let common = self.get_common_mut();
+            let reason = layout_pass_reason(
+                common.regeneration_reason(),
+                common.regeneration_requested_at(),
+            );
             startup.layout_begin(&reason)
         } else {
             0
@@ -5528,6 +5572,7 @@ pub trait PlatformWindow {
     /// (`regen_epoch()` + `clear_regeneration_unless_reraised()`) or, when no
     /// user callback can run in between, with
     /// [`CommonWindowState::take_regeneration`].
+    #[track_caller]
     fn request_regeneration(&mut self, reason: azul_core::callbacks::RelayoutReason) {
         self.get_common_mut().request_regeneration(reason);
     }
@@ -5541,6 +5586,7 @@ pub trait PlatformWindow {
     /// second, redundant regeneration on the next frame; a lifecycle callback
     /// that asks for another rebuild during this one still survives, because
     /// the epoch is captured before the work.
+    #[track_caller]
     fn regenerate_now(
         &mut self,
         reason: azul_core::callbacks::RelayoutReason,

@@ -13394,6 +13394,10 @@ mod tests {
     // (`tests/an_idle_page_asks_for_no_frame_and_a_caret_only_for_its_blinks.rs`).
     mod an_idle_page_asks_for_no_frame_and_a_caret_only_for_its_blinks;
 
+    // A layout pass names who asked for it: the first request since the last pass, as `file:line`
+    // in the startup timeline (`tests/a_layout_pass_names_who_asked_for_it.rs`, E76).
+    mod a_layout_pass_names_who_asked_for_it;
+
     // A file drop is one event, a drag move one hover, however many passes they cost
     // (`tests/file_drop.rs`).
     mod file_drop;
