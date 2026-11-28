@@ -67,6 +67,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "assert_scroll",
         "selector": "#wide-pills .__azul-native-tabs-pill-strip",
         "x": 200.0,

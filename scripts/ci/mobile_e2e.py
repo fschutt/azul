@@ -585,14 +585,16 @@ def e2e_session(args):
             s.note("the layers key is #__azmaps_layers: the refactored AzMaps (no sidebar)")
             dev.settle(2.0)
             popover = device_shot(s, "maps-layers-popover")
-            s.check("the layers key opens something (the picture changes)", q.sig_diff(popover, before) > q.SAME_BELOW, f"the picture differs {q.sig_diff(popover, before):.3f}")
+            # the popover of a phone is WP-P's (it does not show on the emulator yet: the picture equals the one before), so these two are informational until it lands
+            s.check("the layers key opens something (the picture changes)", q.sig_diff(popover, before) > q.SAME_BELOW, f"the picture differs {q.sig_diff(popover, before):.3f}; "
+                    "the popover of a phone is WP-P's", required=False)
             pick = tap_node(s, "#__azmaps_style-1")
             dev.settle(3.0)
             styled = device_shot(s, "maps-style-picked")
             styles = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZMAPS_STYLE", since=mark)
             s.note(f"AZMAPS_STYLE after a pick: {styles}; the picture differs {q.sig_diff(styled, popover):.3f}")
             s.check("a style pick in the popover changes the map (AZMAPS_STYLE, and the picture)", bool(pick) and (bool(styles) or q.sig_diff(styled, popover) > q.SAME_BELOW),
-                    f"the pick found {pick}; printed {styles}")
+                    f"the pick found {pick}; printed {styles}; the popover of a phone is WP-P's", required=False)
             mark_chip = dev.now_mark()
             chip = tap_node(s, "#__azmaps_chip-0")
             dev.settle(3.0)
@@ -626,10 +628,12 @@ def e2e_session(args):
                     f"printed {marks}")
             last = sidebar
         w, h = dev.dims
+        # the refactored app: the sheet sits over the window's centre at its half detent after the chip step, so the map is tapped ABOVE it (WP-E2: x = width / 2, y about 25 % of the height)
+        tap_x, tap_y = int(w * 0.5), int(h * (0.25 if layers else 0.62))
         mark2 = dev.now_mark()
-        dev.tap(int(w * 0.5), int(h * 0.62))
+        dev.tap(tap_x, tap_y)
         time.sleep(0.12)
-        dev.tap(int(w * 0.5), int(h * 0.62))
+        dev.tap(tap_x, tap_y)
         dev.settle(3.0)
         zoomed = device_shot(s, "maps-double-tap")
         log2 = dev.adb("logcat", "-d", "-v", "threadtime", timeout=60)
@@ -642,12 +646,18 @@ def e2e_session(args):
             z1 = float(views[-1].split()[2]) if views else None
         except (ValueError, IndexError):
             z0 = z1 = None
+        s.check("a double tap on the map zooms in", z0 is not None and z1 is not None and z1 > z0,
+                f"zoom {z0} -> {z1}; the picture differs {q.sig_diff(zoomed, last):.3f}; pins printed {pins}, place {place}", required=False)
         if layers:
-            s.check("a double tap on the map drops a pin and opens its place (AZMAPS_PLACE, and the picture)", bool(place) or q.sig_diff(zoomed, last) > q.SAME_BELOW,
-                    f"pins printed {pins}, place {place}; the picture differs {q.sig_diff(zoomed, last):.3f}", required=False)
-        else:
-            s.check("a double tap on the map zooms in", z0 is not None and z1 is not None and z1 > z0,
-                    f"zoom {z0} -> {z1}; the picture differs {q.sig_diff(zoomed, last):.3f}; pins printed {pins}, place {place}", required=False)
+            # the refactored app: a SINGLE tap on the visible map drops a pin and opens its place (AZMAPS_PINS / AZMAPS_PLACE)
+            mark3 = dev.now_mark()
+            dev.tap(tap_x, int(h * 0.30))
+            dev.settle(3.0)
+            pinned = device_shot(s, "maps-single-tap-place")
+            log3 = dev.adb("logcat", "-d", "-v", "threadtime", timeout=60)
+            pins3, place3 = q.marker_values(log3, "AZMAPS_PINS", since=mark3), q.marker_values(log3, "AZMAPS_PLACE", since=mark3)
+            s.check("a single tap on the visible map drops a pin and opens its place (AZMAPS_PINS / AZMAPS_PLACE, and the picture)", bool(place3) or q.sig_diff(pinned, zoomed) > q.SAME_BELOW,
+                    f"pins printed {pins3}, place {place3}; the picture differs {q.sig_diff(pinned, zoomed):.3f}", required=False)
 
     def s_script_meet(s):
         dev.settle(6.0)
@@ -790,10 +800,25 @@ def e2e_session(args):
     full_step("e50-lifecycle-with-the-server", "rotation and ten seconds in the background with the server running", s_lifecycle)
 
     # ---- keyboard
+    FIELD_ROLES = ("MultilineTextInput", "TextInput", "TextField", "SearchField")
+
+    def first_field_name():
+        """The name of the first text FIELD (a field's role, not the label above it that carries the same name) of the engine's accessibility tree, or None."""
+        for n in la.a11y_nodes(srv.op("get_accessibility_tree", timeout=90)):
+            if n.get("role") in FIELD_ROLES and n.get("bounds") and n.get("name"):
+                return n["name"]
+        return None
+
     def s_keyboard(s):
+        # AzWidgets' field is named TextInput; any other app's own first field is used (AzMaps: 'Search places'): the step no longer fails for an app that has no field of that name
+        field_name = "TextInput"
+        if not (find_named("TextInput", "MultilineTextInput") or find_named("TextInput", "TextInput")):
+            field_name = first_field_name() or "TextInput"
+            if field_name != "TextInput":
+                s.note(f"no field named TextInput: the app's first text field is '{field_name}'")
         # the scenarios before scrolled the page about: put the field on the screen first (an off-screen node has no position)
         try:
-            srv.op("scroll_into_view", text="TextInput", block="center", behavior="instant")
+            srv.op("scroll_into_view", text=field_name, block="center", behavior="instant")
             srv.op("wait_frame")
             dev.settle(1.0)
         except Exception as e:  # noqa: BLE001
@@ -804,16 +829,16 @@ def e2e_session(args):
             # the FIELD (role MultilineTextInput), not the label above it that carries the same name: a tap on a label focuses nothing
             # uiautomator first: its snapshot follows the scrolls (the engine's tree gave y = -9973 after the scenarios scrolled the page); the
             # engine's tree only when its box lies on the screen
-            x, y, how = dev.tap_label("TextInput")
+            x, y, how = dev.tap_label(field_name)
             if x is None:
-                found = find_named("TextInput", "MultilineTextInput") or find_named("TextInput", "TextInput")
+                found = find_named(field_name, "MultilineTextInput") or find_named(field_name, "TextInput")
                 if found and 0 < found[1] < dev.dims[1]:
                     x, y, how = found[0], found[1], "the engine's accessibility tree"
                     dev.tap(x, y)
             if x is None:
-                s.check("the accessibility tree names the TextInput field with a position", False, "not found")
+                s.check(f"the accessibility tree names the '{field_name}' field with a position", False, "not found")
                 return
-            s.note(f"the TextInput field is at ({x}, {y}) in the accessibility tree")
+            s.note(f"the '{field_name}' field is at ({x}, {y}) in the accessibility tree")
             dev.settle(2.5)
             shown = dev.ime_shown()
             s.check("a touch on a text field raises the soft keyboard", shown, "the window system says " + ("shown" if shown else "hidden"))

@@ -22,10 +22,19 @@ def runs(parts, rel):
     return any(part in rel for part in parts)
 
 
+def phone_capable(path):
+    """A scenario file has a test that can run on a phone: one without `only_on`, or one that names android or ios. A file whose tests are all desktop-only
+    (tab_desktop_row.json: the desktop pill row scroll) is skipped on a phone by design and need not be in the phone sessions."""
+    import json
+    tests = json.loads(Path(path).read_text(encoding="utf-8"))
+    return any(t.get("only_on") is None or {"android", "ios"} & set(t["only_on"]) for t in tests)
+
+
 class DefaultFilesTests(unittest.TestCase):
     def test_every_tab_scenario_of_azwidgets_runs_in_both_phone_sessions(self):
-        files = sorted(p.name for p in E2E.glob("tab_*.json"))
+        files = sorted(p.name for p in E2E.glob("tab_*.json") if phone_capable(p))
         self.assertIn("tab_content_toggle.json", files)
+        self.assertNotIn("tab_desktop_row.json", files)         # desktop only: skipped on a phone by design
         for script in ("android_qa.sh", "ios_qa.sh"):
             places = default_parts(script)
             self.assertTrue(places, script)
@@ -112,6 +121,37 @@ class MatrixTextSizeTests(unittest.TestCase):
         for name in ("android_qa.sh", "ios_qa.sh"):
             text = (HERE / name).read_text(encoding="utf-8")
             self.assertIn("else", text[text.index("AZ_QA_TEXT_SIZES"):])
+
+
+class AuditJobTests(unittest.TestCase):
+    TEXT = (HERE / "audit_job.sh").read_text(encoding="utf-8")
+
+    def test_the_job_builds_the_e2e_variant_of_the_app_and_runs_the_audit_session_on_it(self):
+        self.assertIn("mobile-e2e", self.TEXT)
+        self.assertIn('"$app audit" audit', self.TEXT)
+        self.assertIn("demo-out/qa-audit", self.TEXT)
+
+    def test_the_script_is_valid_shell(self):
+        import subprocess
+        self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "audit_job.sh")]).returncode, 0)
+
+    def test_the_audit_session_runs_an_app_script_for_azmaps_by_the_name_of_the_apk(self):
+        text = (HERE / "android_qa.sh").read_text(encoding="utf-8")
+        self.assertIn("AzMaps-*) ascript=maps", text)
+
+
+class MatrixRecordTests(unittest.TestCase):
+    TEXT = (HERE / "ios_qa.sh").read_text(encoding="utf-8")
+
+    def test_the_iphone_matrix_can_record_the_screen_of_the_whole_run(self):
+        self.assertIn("AZ_QA_MATRIX_RECORD", self.TEXT)
+        self.assertIn('recordVideo --codec=h264 --force "$out/matrix.mp4"', self.TEXT)
+        self.assertLess(self.TEXT.index('recordVideo --codec=h264 --force "$out/matrix.mp4"'), self.TEXT.index('--shots "$out/shots"'))
+        self.assertIn('kill -INT "$rec"', self.TEXT)
+
+    def test_the_script_is_valid_shell(self):
+        import subprocess
+        self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "ios_qa.sh")]).returncode, 0)
 
 
 class TextSizeJobTests(unittest.TestCase):
