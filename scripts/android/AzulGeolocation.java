@@ -8,6 +8,12 @@
 // (extra/permission/android.rs -> Activity.requestPermissions), so this checks
 // and reports rather than prompting — two prompt owners racing is how you get
 // a dialog that reopens forever.
+//
+// A subscription that comes BEFORE its permission (the probe node and the permission request are made in
+// the same layout pass: the dialog is still up when subscribe() runs) is remembered, not dropped, and starts
+// when the answer arrives (onPermissionAnswered, called by AzulPermissions on the UI thread): the first
+// run of an app used to get no fix at all until it was started a second time. An answer that is a "no"
+// is reported to the engine (nativeOnLocationError), so the app can say so.
 
 package com.azul.geolocation;
 
@@ -26,6 +32,14 @@ public final class AzulGeolocation {
     private static LocationManager manager;
     private static LocationListener listener;
 
+    /** A subscription waiting for its permission: its handle (0 = none) and options. */
+    private static long waitingHandle;
+    private static boolean waitingHighAccuracy;
+    private static int waitingMinIntervalMs;
+
+    /** What `nativeOnLocationError` reports (the engine reads them as the `code` of its location error). */
+    private static final int ERROR_PERMISSION_DENIED = 1;
+
     public static void subscribe(Activity activity, long handle, boolean highAccuracy,
                                  int minIntervalMs) {
         if (activity == null) {
@@ -39,12 +53,15 @@ public final class AzulGeolocation {
                     android.Manifest.permission.ACCESS_COARSE_LOCATION)
                     == PackageManager.PERMISSION_GRANTED;
             if (!fine && !coarse) {
-                // Silent: the subscription simply produces no fixes until the
-                // permission manager has been through its own flow. Throwing
-                // here would take down an app that asked politely and was told
-                // "not yet".
+                // Not an error yet: the permission manager may be in the middle of its own flow. The wish is kept
+                // and starts at the answer (onPermissionAnswered). Throwing here would take down an app that
+                // asked politely and was told "not yet".
+                waitingHandle = handle;
+                waitingHighAccuracy = highAccuracy;
+                waitingMinIntervalMs = minIntervalMs;
                 return;
             }
+            waitingHandle = 0;
             manager = (LocationManager) activity.getSystemService(Activity.LOCATION_SERVICE);
             if (manager == null) {
                 return;
@@ -101,7 +118,47 @@ public final class AzulGeolocation {
         }
     }
 
+    /**
+     * A permission request was answered (`dropped` = the system cancelled it without an answer): a subscription
+     * that was waiting for the location permission starts now when it is there, and is told to the engine as an
+     * error when the answer was a "no" (a refusal is final for this subscription; a grant in the settings and a
+     * new probe node subscribe again). A request for another capability, or a dropped one, changes nothing.
+     * Called on the UI thread by AzulPermissions.
+     */
+    public static void onPermissionAnswered(Activity activity, String[] requested, boolean dropped) {
+        final long handle = waitingHandle;
+        if (handle == 0 || activity == null || !asksForLocation(requested)) {
+            return;
+        }
+        boolean allowed = activity.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED
+                || activity.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
+        if (allowed) {
+            subscribe(activity, handle, waitingHighAccuracy, waitingMinIntervalMs);
+        } else if (!dropped) {
+            waitingHandle = 0;
+            nativeOnLocationError(handle, ERROR_PERMISSION_DENIED);
+        }
+    }
+
+    private static boolean asksForLocation(String[] requested) {
+        if (requested == null) {
+            return false;
+        }
+        for (String permission : requested) {
+            if (android.Manifest.permission.ACCESS_FINE_LOCATION.equals(permission)
+                    || android.Manifest.permission.ACCESS_COARSE_LOCATION.equals(permission)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static void release(long handle) {
+        if (handle == waitingHandle) {
+            waitingHandle = 0;
+        }
         try {
             if (manager != null && listener != null) {
                 manager.removeUpdates(listener);
@@ -111,6 +168,9 @@ public final class AzulGeolocation {
             listener = null;
         }
     }
+
+    /** The subscription of `handle` can produce no fix; `code` is one of the ERROR_ constants. */
+    private static native void nativeOnLocationError(long handle, int code);
 
     private static native void nativeOnLocationFix(long handle, double latitudeDeg,
                                                    double longitudeDeg, float accuracyM,
