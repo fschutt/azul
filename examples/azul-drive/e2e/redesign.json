@@ -1337,7 +1337,7 @@
       },
       {
         "op": "print",
-        "text": "SHOT The (?) in the Preview's header opened what there is to say about notes.txt: its name, kind, size and date, where it is, Open and Copy link"
+        "text": "SHOT The Preview's (?) pressed: what there is to say about notes.txt (its name, kind, size and date, where it is, Open and Copy link) is behind it, in a popover that is a window of its own, which a scenario cannot picture"
       },
       {
         "op": "take_screenshot"
@@ -1783,7 +1783,7 @@
       },
       {
         "op": "print",
-        "text": "SHOT The first status pie of the source list opened its popover: what it counts, in words"
+        "text": "SHOT The first status pie of the source list pressed: the sentence of what it counts is in a popover that is a window of its own, which a scenario cannot picture"
       },
       {
         "op": "take_screenshot"
