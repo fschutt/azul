@@ -118,4 +118,6 @@ azclock-ring-while-closed-long = Let the system ring alarms while AzClock is clo
 azclock-keep-running = Keep running
 azclock-keep-running-long = Keep running when the window is closed
 azclock-ring-for = Ring for
+azclock-ring-shorter = Ring for less time
+azclock-ring-longer = Ring for more time
 azclock-linux-note = Where the system cannot ring by itself (Linux), closing the window while an alarm or a timer is on keeps AzClock running, minimized.

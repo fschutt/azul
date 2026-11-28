@@ -67,6 +67,8 @@ pub enum Action {
     DismissNotice,
     /// A switch of the clock's settings, by its key in `settings.json`.
     Setting(String),
+    /// "Ring for": one step of the list of lengths, -1 shorter or 1 longer.
+    RingFor(i32),
 }
 
 /// A button's data: the app and what it does.
@@ -308,6 +310,7 @@ pub(crate) fn run(s: &mut ClockApp, info: &mut CallbackInfo, action: Action) {
         Action::DismissNotice => s.toast = None,
         // A switch's own callback sets it.
         Action::Setting(_) => {}
+        Action::RingFor(delta) => ring_for(s, info, delta),
     }
 }
 
@@ -450,12 +453,15 @@ pub extern "C" fn on_setting_switch(mut data: RefAny, mut info: CallbackInfo, st
     })
 }
 
-/// "Ring for": the minutes a ring lasts by itself.
-pub extern "C" fn on_ring_minutes(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    with_app(&mut data, &mut info, |s, info, _| {
-        let minutes = super::views::RING_MINUTES.get(index).copied().unwrap_or(10);
-        kit::set_value(&s.kit, info, "ring-minutes", &minutes.to_string());
-    })
+/// "Ring for": the minutes a ring lasts by itself, one step of the list either way (the ends
+/// stay).
+fn ring_for(s: &mut ClockApp, info: &mut CallbackInfo, delta: i32) {
+    let list = &super::views::RING_MINUTES;
+    let now = s.ring_minutes();
+    let at = list.iter().position(|m| *m == now).unwrap_or(2);
+    let last = list.len() - 1;
+    let next = if delta < 0 { at.saturating_sub(1) } else { (at + 1).min(last) };
+    kit::set_value(&s.kit, info, "ring-minutes", &list[next].to_string());
 }
 
 /// The window's keys (after the kit's: settings, F1, Escape there).

@@ -118,4 +118,6 @@ azclock-ring-while-closed-long = Das System Wecker klingeln lassen, während AzC
 azclock-keep-running = Weiterlaufen
 azclock-keep-running-long = Weiterlaufen, wenn das Fenster geschlossen ist
 azclock-ring-for = Klingeln für
+azclock-ring-shorter = Kürzer klingeln
+azclock-ring-longer = Länger klingeln
 azclock-linux-note = Wo das System nicht selbst klingeln kann (Linux), läuft AzClock minimiert weiter, wenn du das Fenster schließt, während ein Wecker oder Timer an ist.

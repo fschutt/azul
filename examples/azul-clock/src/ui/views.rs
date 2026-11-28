@@ -15,9 +15,9 @@
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, DateRepeatPickerOnChangeCallbackType,
-        DropDownOnChoiceChangeCallbackType, MobileShellOnTabCallbackType,
-        NumberInputOnValueChangeCallbackType, SwitchOnToggleCallbackType,
-        TextInputOnTextInputCallbackType, TimePickerOnChangeCallbackType,
+        MobileShellOnTabCallbackType, NumberInputOnValueChangeCallbackType,
+        SwitchOnToggleCallbackType, TextInputOnTextInputCallbackType,
+        TimePickerOnChangeCallbackType,
     },
     dom::{AccessibilityInfo, AccessibilityRole},
     menu::{Menu, MenuItem, StringMenuItem},
@@ -25,10 +25,9 @@ use azul::{
     prelude::*,
     shells::{MobileShell, ShellBottomTab},
     str::String as AzString,
-    vec::StringVec,
     widgets::{
-        ButtonType, DatePickerWeekStart, DateRepeatPicker, DropDown, Gauge, GaugeKind,
-        NumberInput, Switch, TextInput, TimePicker,
+        ButtonType, DatePickerWeekStart, DateRepeatPicker, Gauge, GaugeKind, NumberInput,
+        Switch, TextInput, TimePicker,
     },
 };
 use azul_appkit::{
@@ -50,11 +49,6 @@ pub const COLUMN_MAX: f32 = 520.0;
 pub const RING_MINUTES: [u32; 5] = [1, 5, 10, 15, 30];
 
 // ==== Small parts ====
-
-/// Choices: keys said in the window's language, plain words (a length) as they are.
-fn strs(items: &[&str]) -> StringVec {
-    StringVec::from_vec(items.iter().map(|s| label(s)).collect())
-}
 
 /// A key said, plain words (a name, a time) as they are.
 fn text(content: &str) -> Dom {
@@ -855,13 +849,36 @@ fn setting_switch(app: &RefAny, key: &str, on: bool, name: &str) -> Dom {
         .with_id(ids::named(&format!("set-{key}")))
 }
 
+/// `- 10 min +`: how long a ring lasts by itself, a step of [`RING_MINUTES`] either way. A
+/// drop-down would open a popup window, which a phone has none of.
+fn ring_stepper(app: &RefAny, index: usize) -> Dom {
+    // At either end of the list the button stays (it does nothing) but is dimmed.
+    let step = |icon: &str, name: &str, delta: i32, enabled: bool| {
+        let button = icon_button(icon, name, app, Action::RingFor(delta));
+        if enabled {
+            button
+        } else {
+            button.with_css("opacity: 0.4;")
+        }
+    };
+    let minutes = RING_MINUTES.get(index).copied().unwrap_or(10);
+    Dom::create_div()
+        .with_id(ids::SET_RING_MINUTES)
+        .with_css("display: flex; flex-direction: row; align-items: center; column-gap: 4px;")
+        .with_child(step("remove", "azclock-ring-shorter", -1, index > 0))
+        .with_child(
+            Dom::create_div()
+                .with_css("min-width: 72px; text-align: center; font-size: 13px;")
+                .with_child(Dom::create_span_with_text(fmt::minutes(minutes))),
+        )
+        .with_child(step("add", "azclock-ring-longer", 1, index + 1 < RING_MINUTES.len()))
+}
+
 /// The clock's own settings sections (before the kit's Appearance, Data,
 /// Shortcuts and About).
 pub fn settings_sections(s: &ClockApp, app: &RefAny) -> Vec<AppSection> {
     let minutes = s.ring_minutes();
     let ring_index = RING_MINUTES.iter().position(|m| *m == minutes).unwrap_or(2);
-    let ring_labels: Vec<String> = RING_MINUTES.iter().map(|m| fmt::minutes(*m)).collect();
-    let ring_refs: Vec<&str> = ring_labels.iter().map(String::as_str).collect();
     let os_line = if s.os_rings.0 {
         t_args("azclock-os-rings", &[("how", Arg::from(&s.os_rings.1))])
     } else {
@@ -893,12 +910,7 @@ pub fn settings_sections(s: &ClockApp, app: &RefAny) -> Vec<AppSection> {
                 ))
                 .with_child(kit::row(
                     "azclock-ring-for",
-                    DropDown::create(strs(&ring_refs))
-                        .with_selected(ring_index)
-                        .with_accessibility_name(label("azclock-ring-for"))
-                        .with_on_choice_change(app.clone(), actions::on_ring_minutes as DropDownOnChoiceChangeCallbackType)
-                        .dom()
-                        .with_id(ids::SET_RING_MINUTES),
+                    ring_stepper(app, ring_index),
                 ))
                 .with_child(kit::note(&os_line))
                 .with_child(kit::note("azclock-linux-note")),
