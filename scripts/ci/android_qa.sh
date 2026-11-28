@@ -171,7 +171,8 @@ for mode in "${mode_list[@]}"; do
     mapks=()
     for mapk in "$apk" ${AZ_QA_MATRIX_APKS:-}; do mapks+=(--apk "$mapk"); done
     # AZ_QA_MATRIX_ONLY=<text>: only the files whose path holds it (e.g. `sounds`: one scenario file of a new feature)
-    python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
+    # AZ_QA_MATRIX_SHOTS=<folder>: the engine's frames of every file (its `take_screenshot` steps) are kept in <folder>/<file stem>/
+    python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${AZ_QA_MATRIX_SHOTS:+--shots "$AZ_QA_MATRIX_SHOTS"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
   fi
   if [ "$session" = tabs ] && [ "$mode" = "${mode_list[0]}" ]; then
     # THE TAB STRIP on the phone: the files of AZ_QA_TABS_FILES (parts of the file names, default tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag: the last one runs every step whatever the one before said, for the TABS agent's diagnosis of the clicks on a phone)
