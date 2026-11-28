@@ -1573,8 +1573,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let content = if settings {
         let mut page = Dom::create_div()
             .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
-        if !touch {
-            page.add_child(kit::title_row(SPEC.name));
+        if let Some(strip) = kit::drag_strip(&info) {
+            page.add_child(strip);
         }
         page.with_child(kit::settings_page_with_reload(&s.kit, settings_sections(s, &app), &app, reload_settings))
     } else {

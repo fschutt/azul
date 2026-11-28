@@ -219,17 +219,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     let st = &*guard;
     let content = if kit::settings_open(&st.kit) {
-        let mut page = Dom::create_div()
-            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
-        if !phone && cfg!(not(any(target_os = "android", target_os = "ios"))) {
-            page.add_child(kit::title_row(&st.title()));
-        }
-        page.with_child(kit::settings_page_with_reload(
+        kit::settings_page_with_reload(
             &st.kit,
             vec![ui_settings::section(&app, st)],
             &app,
             commands::reload_settings,
-        ))
+        )
     } else {
         match st.screen {
             Screen::Library => ui_library::screen(&app, st),
@@ -237,9 +232,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         }
     };
     // (The engine lays the root out in the window minus the safe area: nothing to pad here.)
-    let root = Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(content);
+    let mut root = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
+    // A desktop window has no title bar: a strip along its top edge holds the window's controls
+    // and moves the window.
+    if let Some(strip) = kit::drag_strip(&info) {
+        root.add_child(strip);
+    }
+    let root = root.with_child(content);
     Dom::create_body()
         .with_css("display: flex; flex-direction: column; margin: 0px; padding: 0px; height: 100%;")
         .with_child(

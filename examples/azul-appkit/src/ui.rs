@@ -487,6 +487,20 @@ pub fn title_row(title: &str) -> Dom {
     Titlebar::create(title).without_border_bottom().dom()
 }
 
+/// The strip along the top edge of a window without a title bar (a desktop's): as tall as the
+/// window's controls (the traffic lights, the caption buttons) need, it holds them and moves the
+/// window, and it names nothing. `None` on a phone, which has no window to move and no controls.
+#[must_use]
+pub fn drag_strip(info: &LayoutCallbackInfo) -> Option<Dom> {
+    if cfg!(any(target_os = "android", target_os = "ios")) {
+        return None;
+    }
+    let height = title_insets(info).height;
+    Some(Dom::create_div().with_css(format!(
+        "height: {height}px; flex-shrink: 0; -azul-app-region: drag;"
+    )))
+}
+
 /// Where a ribbon app's tabs sit while its ribbon shows: there is no title row, the ribbon's
 /// tab strip IS the title bar (`Ribbon::with_tabs_in_titlebar`) - a grab strip above the tabs,
 /// the traffic lights' width before them on macOS, and everything around the tabs moves the

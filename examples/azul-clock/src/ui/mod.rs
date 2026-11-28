@@ -1044,7 +1044,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
-    let env = env_of();
+    let env = env_of(&info);
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<ClockApp>() else {
         return Dom::create_body();
@@ -1052,11 +1052,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let s = &*guard;
     let now = Utc::now();
     let content = if kit::settings_open(&s.kit) {
-        // The settings page keeps the window's own title row (a phone has none to draw).
+        // The settings page: the strip along the top edge of a desktop window (no title bar).
         let mut page = Dom::create_div()
             .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
-        if !env.phone {
-            page.add_child(kit::title_row(SPEC.name));
+        if let Some(strip) = kit::drag_strip(&info) {
+            page.add_child(strip);
         }
         page.with_child(kit::settings_page(&s.kit, views::settings_sections(s, &app)))
     } else {
@@ -1079,10 +1079,13 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 }
 
 /// What the window knows about its screen: whether it is a phone (the engine lays the root out in
-/// the window minus the safe area, so the room at the edges needs nothing here).
-fn env_of() -> views::Env {
+/// the window minus the safe area, so the room at the edges needs nothing here) and, on a
+/// desktop, the height of the strip that holds the window's controls.
+fn env_of(info: &LayoutCallbackInfo) -> views::Env {
+    let phone = cfg!(any(target_os = "android", target_os = "ios"));
     views::Env {
-        phone: cfg!(any(target_os = "android", target_os = "ios")),
+        phone,
+        strip: if phone { 0.0 } else { kit::title_insets(info).height },
     }
 }
 

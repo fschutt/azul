@@ -122,6 +122,9 @@ const BIG_TIME: &str = "font-size: 72px; font-weight: 300; line-height: 1.05; \
 pub struct Env {
     /// A phone: no window controls to leave room for, no window to drag.
     pub phone: bool,
+    /// A desktop's strip along the window's top edge, px: the room of the window's controls (the
+    /// traffic lights, the caption buttons), which moves the window (no title bar, no name).
+    pub strip: f32,
 }
 
 /// The four places of the bottom bar, in their order (the Screen's order).
@@ -162,28 +165,30 @@ pub fn window(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, env: &Env) -> Dom 
         None => shell(s, app, now),
     };
     let mut column = Dom::create_div()
-        .with_css(format!(
-            "{FILL} position: relative; width: 100%; max-width: {COLUMN_MAX}px;"
-        ))
+        .with_css(format!("{FILL} position: relative; width: 100%; max-width: {COLUMN_MAX}px;"))
         .with_child(body);
-    if !env.phone {
-        // A window without a title bar: the empty part of the top bar moves it (the controls sit
-        // over its left end, the gear is clear of it).
-        column.add_child(
-            Dom::create_div()
-                .with_css(
-                    "position: absolute; top: 0px; left: 0px; right: 64px; height: 48px; \
-                     -azul-app-region: drag;",
-                ),
-        );
-    }
     for overlay in overlays(s, app) {
         column.add_child(overlay);
     }
     // The column, centred (the engine keeps the system's room at the edges free).
-    Dom::create_div()
+    let centred = Dom::create_div()
         .with_css(format!("{FILL} flex-direction: row; justify-content: center;"))
-        .with_child(column)
+        .with_child(column);
+    if env.phone {
+        return centred;
+    }
+    // A desktop window has no title bar: a strip along its top edge holds the window's controls
+    // and moves the window, the whole width of it (the column is only as wide as a phone).
+    Dom::create_div()
+        .with_css(FILL)
+        .with_child(
+            Dom::create_div()
+                .with_css(format!(
+                    "height: {}px; flex-shrink: 0; -azul-app-region: drag;",
+                    env.strip
+                )),
+        )
+        .with_child(centred)
 }
 
 /// The shell of the places: the list page with the four places in the bottom bar and the
