@@ -879,7 +879,7 @@ fn build(sheet: BottomSheet) -> Dom {
         Dom::create_div().with_child(content),
         &format!(
             "display: flex; flex-direction: column; flex-grow: 1; flex-basis: 0px; min-height: 0px; \
-             min-width: 0px; overflow-y: auto; padding-bottom: {safe_bottom}px; box-sizing: border-box;"
+             min-width: 0px; overflow-x: hidden; overflow-y: auto; padding-bottom: {safe_bottom}px; box-sizing: border-box;"
         ),
     )
     .with_ids_and_classes(classes(&[BOTTOM_SHEET_CONTENT_CLASS]));

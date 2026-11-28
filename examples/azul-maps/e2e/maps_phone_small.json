@@ -1,0 +1,474 @@
+[
+  {
+    "name": "azul_maps_phone_small_search_place_way_host",
+    "description": "AzMaps in a 360 x 640 window (off), as a phone shows it: the search bar and the chips on top of the map, the sheet from the bottom (peek, half, full). Pictures, in order: 1 first look, 2 the results of 'Stuttgart', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 a chip's search, 8 dark.",
+    "only_on": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "steps": [
+      {
+        "op": "set_display_preset",
+        "preset": "off"
+      },
+      {
+        "op": "resize",
+        "width": 360.0,
+        "height": 640.0
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "wait",
+        "ms": 3000,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_map"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_sheet"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_search-bar"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_chips"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_layers"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_locate"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azmaps_panel"
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmaps_search-bar",
+        "property": "y",
+        "expected": 8.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmaps_sheet",
+        "property": "y",
+        "expected": 472.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmaps_sheet",
+        "property": "height",
+        "expected": 168.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azmaps_search"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "text_input",
+        "text": "Stuttgart"
+      },
+      {
+        "op": "wait",
+        "ms": 600,
+        "real": true
+      },
+      {
+        "op": "tick_ms",
+        "ms": 300
+      },
+      {
+        "op": "wait",
+        "ms": 900,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 200
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_results"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azmaps_suggestion-0"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_place"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "focus_node",
+        "selector": ".__azul-native-bottom-sheet-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Up"
+      },
+      {
+        "op": "key_up",
+        "key": "Up"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmaps_sheet",
+        "property": "y",
+        "expected": 320.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmaps_sheet",
+        "property": "height",
+        "expected": 320.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "focus_node",
+        "selector": ".__azul-native-bottom-sheet-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Up"
+      },
+      {
+        "op": "key_up",
+        "key": "Up"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmaps_sheet",
+        "property": "y",
+        "expected": 80.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmaps_sheet",
+        "property": "height",
+        "expected": 560.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "focus_node",
+        "selector": ".__azul-native-bottom-sheet-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Down"
+      },
+      {
+        "op": "key_up",
+        "key": "Down"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Down"
+      },
+      {
+        "op": "key_up",
+        "key": "Down"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_place-route"
+      },
+      {
+        "op": "click",
+        "selector": "#__azmaps_place-route"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_travel"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azmaps_back"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#__azmaps_back"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#__azmaps_chip-0"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 600,
+        "real": true
+      },
+      {
+        "op": "tick_ms",
+        "ms": 300
+      },
+      {
+        "op": "wait",
+        "ms": 900,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 200
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_results"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      },
+      {
+        "op": "wait",
+        "ms": 1500,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      }
+    ]
+  }
+]

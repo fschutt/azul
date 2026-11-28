@@ -87,7 +87,6 @@ azmaps-collapse-panel = Fold the panel away
 azmaps-back = Back
 azmaps-home-hint = Search for a place, or tap the map to drop a pin.
 azmaps-place = Place
-azmaps-place-at = { $lat }, { $lon }
 azmaps-sheet = Place and directions
 azmaps-sheet-grip = Drag to show more or less
 azmaps-route = Route

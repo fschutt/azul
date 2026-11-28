@@ -73,6 +73,14 @@ impl Insets {
         }
     }
 
+    /// The size of the ROOT of a window `size` px big that does not draw under the bars: the engine insets the root by the four
+    /// sides, so a layout that places things against the window's size (a sheet's height, the keys above it) must use this one, or a
+    /// sheet drawn up to its full height reaches over the bar at the top by the status bar's height.
+    #[must_use]
+    pub fn root_size(&self, size: (f32, f32)) -> (f32, f32) {
+        ((size.0 - self.left - self.right).max(0.0), (size.1 - self.top - self.bottom).max(0.0))
+    }
+
     /// Whether the window has no inset at all.
     #[must_use]
     pub fn is_none(&self) -> bool {

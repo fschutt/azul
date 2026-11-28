@@ -35,7 +35,7 @@ use azul::{
 };
 use azul_appkit::{
     insets::Insets,
-    l10n::{label, t_args, Arg},
+    l10n::label,
     ui as kit,
 };
 
@@ -83,8 +83,10 @@ const SEARCH_BAR: &str = "display: flex; flex-direction: row; align-items: cente
 /// The search bar inside the panel: no surface of its own.
 const SEARCH_ROW: &str = "display: flex; flex-direction: row; align-items: center; gap: 4px; flex-shrink: 0;";
 const FIELD: &str = "flex-grow: 1; min-width: 0px;";
-/// The chips: a row that scrolls sideways when it does not fit; a chip keeps its width.
-const CHIPS: &str = "display: flex; flex-direction: row; gap: 8px; overflow-x: auto; flex-shrink: 0; padding: 2px 0px;";
+/// The chips on a phone: a row that scrolls sideways when it does not fit (no scrollbar over them); a chip keeps its width.
+const CHIPS: &str = "display: flex; flex-direction: row; gap: 8px; overflow-x: auto; scrollbar-width: none; flex-shrink: 0; padding: 2px 0px;";
+/// The chips in the panel: they wrap onto a second line, a mouse has no sideways scroll to find the rest by.
+const CHIPS_WRAPPED: &str = "display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; flex-shrink: 0; padding: 2px 0px;";
 const CHIP: &str = "flex-shrink: 0; display: flex; flex-direction: row;";
 /// What a view holds: it scrolls when it is longer than the panel or the sheet.
 const BODY: &str = "display: flex; flex-direction: column; gap: 10px; flex-grow: 1; min-height: 0px; overflow-y: auto;";
@@ -94,7 +96,6 @@ const HEAD_ROW: &str = "display: flex; flex-direction: row; align-items: center;
 const TITLE: &str = "font-size: 20px; font-weight: bold; white-space: normal;";
 const SUBTITLE: &str = "font-size: 13px; color: system:secondary-text; white-space: normal;";
 const ACTIONS: &str = "display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px;";
-const FACT: &str = "font-size: 13px; color: system:secondary-text; white-space: normal;";
 const HINT: &str = "font-size: 13px; color: system:secondary-text; white-space: normal; padding: 4px 2px;";
 /// The floating keys at the right of the map: the zoom pair, the locate key, the styles' key.
 const CONTROLS: &str = "position: absolute; right: 12px; display: flex; flex-direction: column; gap: 10px;";
@@ -221,10 +222,10 @@ fn search_field(s: &MapState, app: &RefAny) -> Dom {
     row
 }
 
-/// The chips: one search each.
-fn chips(app: &RefAny) -> Dom {
+/// The chips: one search each; `wrapped` in the panel, a scrolling row under the phone's search bar.
+fn chips(app: &RefAny, wrapped: bool) -> Dom {
     let mut row = Dom::create_div()
-        .with_css(CHIPS)
+        .with_css(if wrapped { CHIPS_WRAPPED } else { CHIPS })
         .with_id(ids::CHIPS)
         .with_accessibility_name(label("azmaps-chips"));
     for (index, chip) in flow::CHIPS.iter().enumerate() {
@@ -304,7 +305,7 @@ fn top_bar(s: &MapState, app: &RefAny, frame: &Frame) -> Dom {
             .with_child(crate::tool(app, "settings", "azmaps-settings", ids::SETTINGS, crate::on_settings_open)),
     );
     if s.flow.panel == Panel::Browse {
-        top.add_child(chips(app));
+        top.add_child(chips(app, false));
     }
     top
 }
@@ -362,7 +363,7 @@ fn panel(s: &MapState, app: &RefAny, frame: &Frame) -> Dom {
         .with_accessibility_name(label("azmaps-panel"))
         .with_child(head);
     if s.flow.panel == Panel::Browse {
-        panel.add_child(chips(app));
+        panel.add_child(chips(app, true));
     }
     panel.add_child(Dom::create_div().with_css(BODY).with_child(view(s, app)));
     panel
@@ -500,11 +501,6 @@ fn place_view(s: &MapState, app: &RefAny, card: &PlaceCard) -> Dom {
         .with_child(head)
         .with_child(Dom::create_div().with_css(SUBTITLE).with_child(Dom::create_span_with_text(subtitle)))
         .with_child(keys)
-        .with_child(
-            Dom::create_div()
-                .with_css(FACT)
-                .with_child(Dom::create_span_with_text(t_args("azmaps-place-at", &[("lat", Arg::from(format!("{lat:.5}"))), ("lon", Arg::from(format!("{lon:.5}")))]))),
-        )
 }
 
 /// The way: the back key and the title, then the travel panel (ends, modes, summary, start, steps).

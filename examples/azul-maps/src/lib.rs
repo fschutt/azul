@@ -1530,8 +1530,14 @@ fn screen(s: &MapState, app: &RefAny, dark: bool, frame: &ui::Frame) -> Dom {
     for part in ui::floating(s, app, frame) {
         root.add_child(part);
     }
-    // The routing server's credit beside the map's, while routes are asked of it.
-    let mut credits = s.layer.attribution.as_str().to_string();
+    // The credit of the map as it is shown: the data's, the style on show (the layer's own line names both halves of a style that
+    // follows the window's mode), and the routing server's while routes are asked of it.
+    let mut credits = MapTileLayer::default().attribution.as_str().to_string();
+    let style_credit = s.layer.theme.credit(if dark { DarkLightMode::Dark } else { DarkLightMode::Light });
+    if !style_credit.as_str().is_empty() {
+        credits.push_str(" \u{b7} ");
+        credits.push_str(style_credit.as_str());
+    }
     if s.routing.is_none() && s.online.is_some() {
         credits.push_str(" \u{b7} ");
         credits.push_str(label("azmaps-routing-credit").as_str());
@@ -1587,14 +1593,17 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode makes a light / dark switch rebuild the window (the
     // tiles' style follows it).
     let dark = matches!(info.get_mode(), DarkLightMode::Dark);
-    let size = (info.get_window_width(), info.get_window_height());
+    let window = (info.get_window_width(), info.get_window_height());
     let app = data.clone();
     let Some(s) = data.downcast_ref::<MapState>() else {
         return Dom::create_body();
     };
+    // The engine insets the window's root by the bars and the cutout: the root is what the layout has to lay out in, and what is left
+    // of the system's room is the keyboard.
+    let raw = Insets::of(&info);
+    let size = raw.root_size(window);
     s.size.set(size);
-    // The engine insets the window's root by the bars and the cutout; what is left of the system's room is the keyboard.
-    let frame = ui::Frame { size, insets: Insets::of(&info).inside_root(), title: kit::title_insets(&info) };
+    let frame = ui::Frame { size, insets: raw.inside_root(), title: kit::title_insets(&info) };
     s.frame.set(Some(frame));
     let content = if kit::settings_open(&s.kit) {
         // azul-appkit's settings page: Appearance, Data, Shortcuts, About.
