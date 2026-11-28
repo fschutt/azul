@@ -411,7 +411,7 @@ pub(crate) const PIN_SLACK: usize = 2;
 /// holds it (`pinned_top`: the top row at the tap) and the top edge has not moved past the slack.
 #[must_use]
 pub(crate) fn follows_top_edge(pinned_top: Option<usize>, top: usize) -> bool {
-    pinned_top.map_or(true, |pinned| top.abs_diff(pinned) >= PIN_SLACK)
+    pinned_top.is_none_or(|pinned| top.abs_diff(pinned) >= PIN_SLACK)
 }
 
 #[cfg(test)]
