@@ -694,6 +694,12 @@ class QaOnlyAppTest(unittest.TestCase):
                     self.assertEqual(demo_apps.main([command, "AzPaint"]), 0, command)
                 self.assertEqual(buf.getvalue().strip(), "mobile-e2e", command)
 
+    def test_the_check_summary_counts_the_qa_only_apps_apart(self):
+        buf = io.StringIO()
+        with mock.patch.object(demo_apps, "load", lambda path=demo_apps.MANIFEST: self.m), contextlib.redirect_stdout(buf):
+            self.assertEqual(demo_apps.main(["check"]), 0)
+        self.assertIn(f"ok - {len(self.m['app'])} apps (+ 1 QA-only), ", buf.getvalue())
+
     def test_the_qa_only_command_and_the_ios_qa_script_know_it_has_no_shipped_build(self):
         with mock.patch.object(demo_apps, "load", lambda path=demo_apps.MANIFEST: self.m), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(demo_apps.main(["qa-only", "AzPaint"]), 0)

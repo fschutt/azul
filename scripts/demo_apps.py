@@ -883,7 +883,8 @@ def main(argv):
             print("demo_apps: " + e, file=sys.stderr)
         if not errors:
             m = load()
-            print(f"demo_apps: ok - {len(m['app'])} apps, "
+            qa = f" (+ {len(m['qa_app'])} QA-only)" if m["qa_app"] else ""
+            print(f"demo_apps: ok - {len(m['app'])} apps{qa}, "
                   f"{sum(len(columns_of(a)) for a in m['app'])} built files")
         return 1 if errors else 0
     if cmd == "plan":
