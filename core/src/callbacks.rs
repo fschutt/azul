@@ -980,6 +980,10 @@ pub struct LayoutCallbackInfoRefData<'a> {
     /// place it matters. A mobile app that must not draw under the status bar
     /// had no way to ask how tall it is.
     pub safe_area: azul_css::system::SafeAreaInsets,
+    /// The SHAPES the safe area is made of: cutouts, rounded corners, system bars, the
+    /// fingerprint sensor, in window coordinates (`LayoutCallbackInfo::get_display_features`).
+    /// A snapshot, like `monitors`: the live values live on `LayoutWindow`.
+    pub display_features: crate::display_features::DisplayFeatures,
     /// SNAPSHOT of the app's global hotkeys (status, trigger, owner relative
     /// to THIS window), taken right before the layout call - a snapshot for
     /// the same `no_std` reason as `monitors`. What
@@ -1705,6 +1709,17 @@ impl LayoutCallbackInfo {
         // SAFETY: same contract as `get_monitors` above — `ref_data` is set
         // for the duration of the layout call.
         unsafe { (*self.ref_data).safe_area }
+    }
+
+    /// The cutouts of the display (a punch-hole camera, a notch, the Dynamic Island), its
+    /// rounded corners, the system bars and the fingerprint sensor, in logical px of the window
+    /// (origin top left). Where `get_safe_area_insets` merges them into one number per side,
+    /// this has the shapes, so that a row in the status bar's band can go around the camera.
+    /// Empty on a desktop window; the shell writes it after each rotation or change of the window.
+    #[must_use]
+    pub fn get_display_features(&self) -> crate::display_features::DisplayFeatures {
+        // SAFETY: same contract as `get_safe_area_insets` above.
+        unsafe { (*self.ref_data).display_features.clone() }
     }
 
     /// Set the callable pointer for FFI language bindings

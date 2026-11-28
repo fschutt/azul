@@ -91,8 +91,8 @@ fn a_codec_the_build_cannot_create_is_not_available_whatever_the_os_ships() {
 fn the_android_arms_of_the_hardware_probes_ask_the_build_s_engine() {
     let source = include_str!("provision.rs");
     for (probe, engine) in [
-        ("pub fn probe_hw_decode()", "super::decode_engine()"),
-        ("fn probe_hw_encode()", "super::encode_engine()"),
+        ("pub fn probe_hw_decode()", "super::decode_engine_proven()"),
+        ("fn probe_hw_encode()", "super::encode_engine_proven()"),
     ] {
         let from = source.find(probe).unwrap_or_else(|| panic!("{probe} moved"));
         let body = &source[from..];

@@ -14,6 +14,9 @@ use azul::{
 use super::{describe_capability, plain, Ctx, ProbeDef, Step};
 use crate::report::Verdict;
 
+/// The video codec row: an H.264 round trip with a moving box, the picture checked (its own file).
+mod video_codec_probe;
+
 /// How long the notification permission dialog may stay unanswered.
 const DIALOG_WAIT_MS: u64 = 60_000;
 
@@ -29,7 +32,12 @@ pub static PROBES: &[ProbeDef] = &[
     },
     plain("system.notifications", "system", "Local notification", notifications),
     plain("system.audio_out", "system", "Audio output (open a sink)", audio_out),
-    plain("system.video_codec", "system", "Video codecs (decode / encode self-check)", video_codec),
+    plain(
+        "system.video_codec",
+        "system",
+        "Video codecs (encode a moving box, decode it back, check the picture)",
+        video_codec_probe::video_codec,
+    ),
 ];
 
 fn haptics(ctx: &mut Ctx<'_>) -> Step {
@@ -83,21 +91,4 @@ fn audio_out(_ctx: &mut Ctx<'_>) -> Step {
         (false, false) => Verdict::Unavailable(format!("no audio output: {backend}")),
         (false, true) => Verdict::Fail(format!("the audio capability says available via {backend} and the sink did not open")),
     })
-}
-
-fn video_codec(_ctx: &mut Ctx<'_>) -> Step {
-    let (available, backend) = describe_capability(&PlatformCapability::video_codec());
-    if !available {
-        return Step::Done(Verdict::Unavailable(format!("the video codec capability is not available: {backend}")));
-    }
-    let decode = azul::video::VideoStartupCheck::run();
-    let encode = azul::image::VideoEncodeCheck::run();
-    Step::Done(Verdict::Pass(format!(
-        "decode hw_ready={} ({}); encode hw_ready={} software_fallback={} backend {} via {backend}",
-        decode.hw_decode_ready,
-        decode.summary.as_str(),
-        encode.hw_encode_ready,
-        encode.software_fallback,
-        encode.backend.as_str()
-    )))
 }
