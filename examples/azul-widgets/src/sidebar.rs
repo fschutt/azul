@@ -16,7 +16,7 @@
 use azul::{
     callbacks::{
         ActionSheetOnEventCallbackType, InspectorOnEventCallbackType, LocationOnEventCallbackType,
-        SidebarOnEventCallbackType,
+        RibbonOnTabClickCallbackType, SidebarOnEventCallbackType,
     },
     prelude::*,
     str::String as AzString,
@@ -75,6 +75,8 @@ pub(crate) struct SidebarDemo {
     pub(crate) sheet_open: bool,
     /// Whether the two open documents collaborate.
     pub(crate) collab: [bool; 2],
+    /// The ribbon's selected tab: 0 File (the location), 1 Home, 2 Share.
+    pub(crate) tab: usize,
     /// What the last report was (the line under the frame).
     pub(crate) last: String,
 }
@@ -96,6 +98,7 @@ impl Default for SidebarDemo {
             text: String::new(),
             sheet_open: false,
             collab: [false, true],
+            tab: 0,
             last: String::from("nothing yet"),
         }
     }
@@ -295,27 +298,49 @@ fn the_footer(demo: &SidebarDemo) -> Dom {
         .with_child(Dom::create_p_with_text(format!("{} items", shown(demo).len())).with_css("margin: 0px;"))
 }
 
-/// The tab ribbon's place: the first tab's band (the location) and, beside the tab row, the pills of
-/// a phone. The frame's header runs over the Inspector.
+/// A ribbon command that does nothing but look like one.
+fn command(icon: &str, label: &str) -> RibbonItem {
+    RibbonItem::LargeButton(RibbonButton::create(icon, label))
+}
+
+/// The tab ribbon over the frame's full width: File (tab 0) shows the location in a band exactly as
+/// tall as Home's, every tab names its icon (a phone shows the icons as squares), a vertical swipe on
+/// the band flips between the tabs.
 fn the_header(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Dom {
-    Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-shrink: 0;")
-        .with_child(
-            Dom::create_div()
-                .with_css(
-                    "display: flex; flex-direction: row; align-items: center; gap: 8px; height: 40px; \
-                     padding: 0px 12px; flex-shrink: 0; border-bottom: 1px solid system:separator; font-size: 12px; \
-                     font-weight: 700;",
-                )
-                .with_child(Dom::create_p_with_text("File").with_css("margin: 0px;"))
-                .with_child(Dom::create_p_with_text("Home").with_css("margin: 0px; opacity: 0.6;"))
-                .with_child(Dom::create_p_with_text("Share").with_css("margin: 0px; opacity: 0.6;")),
+    let file = RibbonTab::create("File")
+        .with_icon("folder")
+        .with_location(the_location(data, demo, theme));
+    let home = RibbonTab::create("Home")
+        .with_icon("home")
+        .with_group(
+            RibbonGroup::create("Navigate")
+                .with_item(command("arrow_back", "Back"))
+                .with_item(command("arrow_forward", "Forward"))
+                .with_item(command("arrow_upward", "Up")),
         )
-        .with_child(
-            Dom::create_div()
-                .with_css("height: 106px; flex-shrink: 0; overflow: hidden; border-bottom: 1px solid system:separator;")
-                .with_child(the_location(data, demo, theme)),
+        .with_group(
+            RibbonGroup::create("Organize")
+                .with_item(command("create_new_folder", "New folder"))
+                .with_item(command("drive_file_rename_outline", "Rename"))
+                .with_item(command("delete", "Delete")),
         )
+        .with_group(
+            RibbonGroup::create("Select")
+                .with_item(command("select_all", "All"))
+                .with_item(command("deselect", "None")),
+        );
+    let share = RibbonTab::create("Share").with_icon("share").with_group(
+        RibbonGroup::create("Send")
+            .with_item(command("link", "Copy link"))
+            .with_item(command("mail", "Mail")),
+    );
+    Ribbon::create(vec![file, home, share])
+        .with_active_tab(demo.tab)
+        .with_theme(theme)
+        .with_tab_style(if demo.form == 1 { TabStyle::TouchPills } else { TabStyle::Auto })
+        .with_available_width(if demo.form == 1 { 411.0 } else { 800.0 })
+        .with_on_tab_click(data.clone(), on_ribbon_tab as RibbonOnTabClickCallbackType)
+        .dom_desktop()
 }
 
 /// The frame itself, in a box of the size of a desktop window or of a phone.
@@ -451,6 +476,13 @@ pub(crate) fn sidebar_section(data: &RefAny, demo: &SidebarDemo, theme: UiTheme)
 /// Which button of a switch was pressed.
 fn picked(data: &mut RefAny) -> Option<(RefAny, usize)> {
     data.downcast_ref::<Pick>().map(|p| (p.data.clone(), p.index))
+}
+
+extern "C" fn on_ribbon_tab(mut data: RefAny, _: CallbackInfo, tab: usize) -> Update {
+    keep(&mut data, |s| {
+        s.sidebar.tab = tab;
+        s.sidebar.last = format!("tab {tab}");
+    })
 }
 
 extern "C" fn on_form(mut data: RefAny, _: CallbackInfo) -> Update {
