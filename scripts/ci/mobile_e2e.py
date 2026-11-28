@@ -773,6 +773,10 @@ def e2e_session(args):
         s.check("the server names an alarm's switch with a box", bool(sw), str(sw))
         if not sw:
             return
+        # the picture of the effective boxes (the switch drawn 36 x 20 dp, published and heard from at 48 x 48): the screen and the two dumps it is drawn from
+        device_shot(s, "clock-hit-slop-before")
+        dev.save_log("clock-hit-slop-a11y-tree.json", json.dumps(srv.op("get_accessibility_tree", timeout=90)))
+        dev.save_log("clock-hit-slop-nodes-layout.json", json.dumps(srv.op("get_all_nodes_layout", timeout=60)))
         scale = state.get("scale") or 1.0
         cx = int((sw["x"] + sw["width"] / 2) * scale)
         top, bottom = sw["y"], sw["y"] + sw["height"]
