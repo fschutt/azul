@@ -63,13 +63,15 @@ fn a_shell_sets_the_numbers_it_read_and_the_recognisers_see_them() {
 #[test]
 fn numbers_that_are_not_usable_are_replaced_or_cut_and_named() {
     let mut lw = window();
-    let mut bad = GestureConfig::default();
-    bad.touch_slop = f32::NAN;
-    bad.double_tap_slop = 1.0e9;
-    bad.long_press_timeout_ms = u64::MAX;
-    bad.min_samples_for_gesture = 0;
-    bad.wheel_scroll_factor_y = f32::INFINITY;
-    bad.ambiguous_gesture_multiplier = 0.2;
+    let bad = GestureConfig {
+        touch_slop: f32::NAN,
+        double_tap_slop: 1.0e9,
+        long_press_timeout_ms: u64::MAX,
+        min_samples_for_gesture: 0,
+        wheel_scroll_factor_y: f32::INFINITY,
+        ambiguous_gesture_multiplier: 0.2,
+        ..GestureConfig::default()
+    };
 
     let replaced = lw.set_gesture_config(bad);
 
