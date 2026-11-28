@@ -5,6 +5,7 @@ the expectations of a Simulator run); the Simulator itself is the job's (standar
     python3 scripts/ci/test_ios_sim_selftest.py
 """
 import json
+import os
 import pathlib
 import plistlib
 import subprocess
@@ -288,6 +289,14 @@ class Robust(unittest.TestCase):
 
     def completed(self, code, text):
         return subprocess.CompletedProcess([], code, stdout=text, stderr="")
+
+    def test_the_files_of_a_launch_are_absolute_paths_because_the_simulators_launchd_opens_them_itself(self):
+        with mock.patch.object(sim.subprocess, "run", return_value=self.completed(0, "com.azul.AzSelfTest: 7\n")) as run:
+            sim.launch_app("UDID", "com.azul.AzSelfTest", "demo-out/x/o.txt", "demo-out/x/e.txt", {})
+        argv = run.call_args.args[0]
+        stdout = next(a for a in argv if a.startswith("--stdout="))[len("--stdout="):]
+        stderr = next(a for a in argv if a.startswith("--stderr="))[len("--stderr="):]
+        self.assertTrue(os.path.isabs(stdout) and os.path.isabs(stderr), (stdout, stderr))
 
     def test_a_launch_that_hangs_is_tried_again_and_a_pid_is_read(self):
         runs = [subprocess.TimeoutExpired("simctl", 180), self.completed(0, "com.azul.AzSelfTest: 4242\n")]
