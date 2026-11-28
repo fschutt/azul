@@ -98,6 +98,18 @@ fn every_layer_is_a_target_of_the_pointer() {
     }
 }
 
+/// The sheet of a dialog stands on the soft keyboard: the scrim reads the keyboard's height as its bottom
+/// padding (`env(keyboard-inset-height)`), so a field of the dialog is never hidden by the keyboard it asked for.
+#[test]
+fn the_scrim_leaves_room_for_the_keyboard() {
+    let mut page = page_with(popup(TransientAnchor::Dialog, Some("Sign in"), vec![named("panel")]));
+    present_transient_windows(&mut page, WindowPresentation::OneSurface);
+    assert!(
+        has_inline(popup_of(&page), |p| matches!(p, CssProperty::PaddingBottom(_))),
+        "the scrim has a bottom padding"
+    );
+}
+
 /// A popover is what its panel says: no chrome of the engine's.
 #[test]
 fn an_anchored_popup_gets_no_sheet() {

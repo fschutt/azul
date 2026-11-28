@@ -79,9 +79,12 @@ const MAX_DEPTH: usize = 512;
 const LAYER_STYLE: &str = "position: fixed; box-sizing: border-box; cursor: default;";
 
 /// The scrim of a modal: the dimmed top layer the card sits on, the whole window. A column, the
-/// card at the bottom (a phone's sheet) and, from 600 px of width, centred (a card).
+/// card at the bottom (a phone's sheet) and, from 600 px of width, centred (a card). The scrim
+/// reaches under the soft keyboard, the card does not: it stands on the keyboard, so a field of
+/// the dialog is never hidden by the keyboard it asked for.
 const COVER_STYLE: &str = "overflow: hidden; display: flex; flex-direction: column; \
      justify-content: flex-end; align-items: stretch; \
+     padding-bottom: env(keyboard-inset-height, 0px); \
      @media (min-width: 600px) { justify-content: center; align-items: center; }";
 
 /// The card of a modal: full width and rounded on top as a sheet, a centred card from 600 px.
