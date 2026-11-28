@@ -395,6 +395,7 @@ extern "C" fn on_list(mut data: RefAny, _: CallbackInfo, event: SummaryListEvent
             SummaryListEventKind::Scroll => {
                 format!("Zeilen {}..{} sichtbar", event.index, event.end)
             }
+            SummaryListEventKind::LongPress => format!("Nachricht {} lange gedrueckt", event.id),
         }
         .as_str()
         .into();

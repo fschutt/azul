@@ -1,0 +1,629 @@
+[
+  {
+    "name": "azul_widgets_sidebar_pictures",
+    "description": "The pictures of the Sidebar section (a CPU render of the window at rest, in this order): Flora light: 1 the icon rail, 2 expanded, 3 the 16 px handle, 4 leather, 5 vellum, 6 blue jeans, 7 aluminium (all expanded), 8 dark expanded, 9 dark rail, 10 Flat rail, 11 Flat expanded, 12 the status popover; the phone layout (411 px wide window): 13 the rail with the bottom pane, 14 the drawer open and pushing the main view, 15 the quick-action sheet, 16 the phone on leather.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-reset"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-state-expanded"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-state-handle"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-state-expanded"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-surface-leather"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-surface-vellum"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-surface-jeans"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-surface-aluminium"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-surface-theme"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-state-rail"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flat"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-state-expanded"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-state-rail"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-status"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-banner-toggle"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-preview-banner .__azul-native-preview-help"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-banner-toggle"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-preview-help"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 900
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-form-phone"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "Fonts"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-sheet-open"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-action-sheet-scrim"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-surface-leather"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      }
+    ]
+  }
+]
