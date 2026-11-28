@@ -113,6 +113,9 @@ pub struct CpuHitTester {
     /// what the frame is hit with then ([`painted_or_baked`]). Not in
     /// [`HitChainLink`]: a link is a key of the chain table.
     baked_frames: std::collections::HashMap<(DomId, NodeId), azul_core::transform::ComputedTransform3D>,
+    /// The nodes that take a press (a click, mouse or touch callback, a tab stop): what the touch
+    /// hit-slop may widen ([`Self::touch_slop_hit`], [`crate::hit_slop`]).
+    interactive: std::collections::BTreeSet<(DomId, NodeId)>,
     /// Print every query's hits, front to back: which node a click lands on, without a
     /// debugger (`WindowSettings::trace_hit`, `AZ_TRACE_HIT`; [`Self::set_trace`]).
     trace: bool,
@@ -685,6 +688,8 @@ struct EntryHit {
     /// The entry's chain (index into [`CpuHitTester::chains`]).
     chain: u32,
     paints_own: bool,
+    /// The entry's paint rank in its dom (`usize::MAX`: it paints nothing).
+    rank: usize,
     scrollbar: Option<ScrollbarOrientation>,
 }
 
@@ -2201,6 +2206,7 @@ impl CpuHitTester {
             view_items: BTreeMap::new(),
             index: BTreeMap::new(),
             baked_frames: std::collections::HashMap::new(),
+            interactive: std::collections::BTreeSet::new(),
             trace: false,
         }
     }
@@ -2437,6 +2443,7 @@ impl CpuHitTester {
         // relayout, animation frames included).
         let _p = crate::probe::Probe::span("cpu_hit_tester_rebuild");
         self.node_rects.clear();
+        self.interactive.clear();
         self.chains.clear();
         // chain 0 = empty
         self.chains.push(ChainNode {
@@ -2685,6 +2692,14 @@ impl CpuHitTester {
                     &|anc| scroll_chain.contains(LayoutNodeId::new(anc)),
                 );
 
+                if styled_dom
+                    .node_data
+                    .as_container()
+                    .get(node_id)
+                    .is_some_and(crate::hit_slop::node_is_interactive)
+                {
+                    self.interactive.insert((*dom_id, node_id));
+                }
                 entries.push(HitTestEntry {
                     node_id,
                     rect,
@@ -2816,6 +2831,111 @@ impl CpuHitTester {
         ) -> Option<azul_core::transform::ComputedTransform3D>,
     ) -> Vec<(DomId, NodeId, LogicalPosition)> {
         self.boxes_at(position, resolve_scroll, resolve_transform, None)
+    }
+
+    /// The hit of a TOUCH that lands beside a small interactive box: the box the finger meant
+    /// (the touch hit-slop, [`crate::hit_slop`]), or `None` when the normal hit test answers.
+    ///
+    /// `floor` is the platform's touch target in logical px (48 on Android, 44 on iOS); a touch
+    /// inside any of `occluders` (the boxes of open overlays: they cover what lies under them)
+    /// has no slop. A touch inside the own pixels of ANY interactive box is the normal answer (the
+    /// visual beats every slop), and so is a touch a box painted in front of the candidate covers
+    /// (a cover, a popup, a toast); only a touch outside every visual rect uses the slop, the
+    /// interactive box with the nearest centre among those whose floor-grown rect holds it. The
+    /// answer is the box and the touch clamped into its visual rect, in the box's own space:
+    /// what a tap on the control itself would have given, so a click, a press and a drag (a
+    /// slider's, a tab strip's scroll) behave as one on the control.
+    #[must_use]
+    pub fn touch_slop_hit(
+        &self,
+        position: LogicalPosition,
+        floor: f32,
+        occluders: &[LogicalRect],
+        resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+        resolve_transform: &dyn Fn(
+            DomId,
+            NodeId,
+        ) -> Option<azul_core::transform::ComputedTransform3D>,
+        stamps_of: Option<&dyn Fn(DomId) -> TransformStamps>,
+    ) -> Option<(DomId, NodeId, LogicalPosition)> {
+        use crate::hit_slop::{effective_rect, pick, SlopCandidate};
+
+        if self.interactive.is_empty() || occluders.iter().any(|r| point_in_rect(position, r)) {
+            return None;
+        }
+        // The boxes the touch is in, front to back: one of them being interactive is the normal
+        // answer.
+        let (hits, _) = self.entries_at_counted(position, resolve_scroll, resolve_transform, stamps_of);
+        if hits
+            .iter()
+            .any(|h| h.scrollbar.is_none() && self.interactive.contains(&(h.dom_id, h.node_id)))
+        {
+            return None;
+        }
+        let view_shift = |dom_id: DomId| self.view_shift_of(dom_id);
+        let painted = painted_or_baked(resolve_transform, &self.baked_frames);
+        let mut points = ChainPoints::new(
+            &self.chains,
+            LiveValues {
+                scroll: resolve_scroll,
+                transform: &painted,
+                view_shift: &view_shift,
+            },
+            position,
+        );
+        points.stamps_of = stamps_of;
+        let mut candidates: Vec<SlopCandidate<(DomId, NodeId)>> = Vec::new();
+        for (dom_id, entries) in &self.node_rects {
+            for entry in entries {
+                if entry.scrollbar.is_some()
+                    || entry.pointer_events_none
+                    || !self.interactive.contains(&(*dom_id, entry.node_id))
+                {
+                    continue;
+                }
+                let Some(point) = points.local(entry.chain).map(plane_point) else {
+                    continue;
+                };
+                // Too far from the box to matter: before the clips are asked.
+                if !point_in_rect(point, &effective_rect(entry.rect, floor)) {
+                    continue;
+                }
+                // A box painted in front of this one at the touch (a cover, a popup, a toast)
+                // is what the finger is on, not the box under it.
+                let covered = hits.iter().any(|h| {
+                    h.scrollbar.is_none()
+                        && h.paints_own
+                        && h.dom_id == *dom_id
+                        && h.node_id != entry.node_id
+                        && h.rank != usize::MAX
+                        && entry.rank != usize::MAX
+                        && h.rank > entry.rank
+                });
+                if covered {
+                    continue;
+                }
+                let inside_clips = entry.clips.iter().all(|(clip, chain)| {
+                    points
+                        .local(*chain)
+                        .is_some_and(|q| point_in_rect(plane_point(q), clip))
+                });
+                candidates.push(SlopCandidate {
+                    id: (*dom_id, entry.node_id),
+                    visual: entry.rect,
+                    point,
+                    inside_clips,
+                    order: if entry.rank == usize::MAX { 0 } else { entry.rank },
+                });
+            }
+        }
+        let (dom_id, node_id) = pick(&candidates, floor)?;
+        // The touch clamped into the box's own pixels: what a tap on it would have been.
+        let winner = candidates.iter().find(|c| c.id == (dom_id, node_id))?;
+        let local = LogicalPosition::new(
+            winner.point.x.clamp(winner.visual.min_x(), winner.visual.max_x()),
+            winner.point.y.clamp(winner.visual.min_y(), winner.visual.max_y()),
+        );
+        Some((dom_id, node_id, local))
     }
 
     /// [`Self::hit_test_scrolled`] for a caller that knows the transform
@@ -3253,6 +3373,7 @@ impl CpuHitTester {
                     local,
                     chain: entry.chain,
                     paints_own: entry.paints_own,
+                    rank: entry.rank,
                     scrollbar: entry.scrollbar,
                 });
             }

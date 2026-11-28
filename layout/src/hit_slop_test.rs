@@ -1,6 +1,8 @@
 //! The touch hit-slop rule: the effective rect, the visual beating the slop, the nearest centre,
 //! the tie by paint order, the clips. No tree, no window.
 
+use azul_css::system::Platform;
+
 use super::*;
 
 fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
@@ -27,11 +29,46 @@ fn all_at(x: f32, y: f32, boxes: &[SlopCandidate<u32>]) -> Vec<SlopCandidate<u32
 
 #[test]
 fn the_floor_of_a_platform_is_the_one_of_the_other_touch_floors() {
-    assert_eq!(touch_floor("android"), Some(48.0));
-    assert_eq!(touch_floor("ios"), Some(44.0));
-    for desktop in ["linux", "macos", "windows", "freebsd", ""] {
-        assert_eq!(touch_floor(desktop), None, "{desktop}: a pointer needs no slop");
+    assert_eq!(touch_floor(&Platform::Android), Some(48.0));
+    assert_eq!(touch_floor(&Platform::Ios), Some(44.0));
+    for desktop in [Platform::Windows, Platform::MacOs, Platform::Unknown] {
+        assert_eq!(touch_floor(&desktop), None, "{desktop:?}: a pointer needs no slop");
     }
+}
+
+#[test]
+fn a_node_with_a_click_a_press_or_a_tab_stop_is_interactive_and_a_plain_one_is_not() {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        dom::{Dom, TabIndex},
+        refany::{OptionRefAny, RefAny},
+    };
+    let with = |event: EventFilter| {
+        Dom::create_div().with_callbacks(
+            vec![CoreCallbackData {
+                event,
+                callback: CoreCallback { cb: 0, ctx: OptionRefAny::None },
+                refany: RefAny::new(0_u8),
+            }]
+            .into(),
+        )
+    };
+    let node = |dom: Dom| dom.root;
+    assert!(!node_is_interactive(&node(Dom::create_div())));
+    for filter in [
+        HoverEventFilter::Click,
+        HoverEventFilter::MouseDown,
+        HoverEventFilter::MouseUp,
+        HoverEventFilter::TouchStart,
+        HoverEventFilter::TouchEnd,
+    ] {
+        assert!(node_is_interactive(&node(with(EventFilter::Hover(filter)))), "{filter:?}");
+    }
+    // A hover or a scroll listener is not a control.
+    for filter in [HoverEventFilter::MouseEnter, HoverEventFilter::MouseLeave, HoverEventFilter::Scroll] {
+        assert!(!node_is_interactive(&node(with(EventFilter::Hover(filter)))), "{filter:?}");
+    }
+    assert!(node_is_interactive(&node(Dom::create_div().with_tab_index(TabIndex::Auto))));
 }
 
 #[test]
