@@ -117,3 +117,20 @@ fn a_phones_title_gets_what_the_five_tools_leave_and_never_pushes_them_out() {
     assert!((phone_title_width(100.0) - 48.0).abs() < f32::EPSILON);
     assert!((phone_title_width(2000.0) - TITLE_DESKTOP_PX).abs() < f32::EPSILON);
 }
+
+#[test]
+fn a_phones_search_field_gets_what_the_library_tools_leave() {
+    // 360 dp, no book open: Add a book, the sort and Settings (48 dp and a gap each) and the padding.
+    let narrow = phone_search_width(360.0, 3);
+    assert!((narrow - 194.0).abs() < 0.5, "{narrow}");
+    // A book open adds the way back to it: the field is one tool narrower.
+    assert!(phone_search_width(360.0, 4) < narrow);
+    for tools in [3, 4] {
+        for width in [320.0, 360.0, 412.0] {
+            let field = phone_search_width(width, tools);
+            assert!(field >= 96.0, "{width} with {tools} tools: {field}");
+            assert!(field <= 300.0);
+        }
+    }
+    assert!((phone_search_width(2000.0, 3) - 300.0).abs() < f32::EPSILON);
+}

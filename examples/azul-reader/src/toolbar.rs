@@ -55,6 +55,19 @@ pub fn phone_title_width(window_width: f32) -> f32 {
     (window_width - PHONE_TOOLS * PHONE_TOOL_PX - PHONE_BAR_PAD_PX).clamp(48.0, TITLE_DESKTOP_PX)
 }
 
+/// The search field's width on a phone's library bar: what the window leaves after the tools
+/// around it (`tools`: Add a book, the sort, Settings, and a way back to the open book), at least
+/// a few letters and at most the desktop's.
+#[must_use]
+pub fn phone_search_width(window_width: f32, tools: usize) -> f32 {
+    #[allow(clippy::cast_precision_loss)]
+    let tools = tools as f32;
+    (window_width - tools * PHONE_TOOL_PX - PHONE_BAR_PAD_PX).clamp(96.0, SEARCH_DESKTOP_PX)
+}
+
+/// The search field's width on a desktop's bar, px.
+const SEARCH_DESKTOP_PX: f32 = 300.0;
+
 /// The tools of a phone's bar around the title: back, smaller, larger, bookmark, Settings.
 const PHONE_TOOLS: f32 = 5.0;
 /// One tool of a phone's bar with its margin: 48 dp and the gap after it, px.
@@ -215,9 +228,15 @@ pub fn library(app: &RefAny, st: &AppState) -> Dom {
         .with_on_virtual_key_down(app.clone(), crate::ui_library::on_search_key as TextInputOnVirtualKeyDownCallbackType)
         .dom()
         .with_id(ids::LIBRARY_SEARCH);
+    // The tools besides the search: Add a book, the sort, Settings, and the way back to the open book.
+    let search_width = if st.phone {
+        phone_search_width(st.window.0, if st.open.is_some() { 4 } else { 3 })
+    } else {
+        SEARCH_DESKTOP_PX
+    };
     let mut items = vec![
         ToolbarItem::create_button(ids::TB_ADD, t("azreader-add-book"), "library_add").with_never_overflow(true),
-        ToolbarItem::create_custom(ids::TB_SEARCH, t("azreader-search-library"), search, if st.phone { 180.0 } else { 300.0 })
+        ToolbarItem::create_custom(ids::TB_SEARCH, t("azreader-search-library"), search, search_width)
             .with_never_overflow(true),
         ToolbarItem::create_spacer(),
         ToolbarItem::create_button(
