@@ -198,3 +198,25 @@ fn the_first_accessibility_tree_is_built_after_the_first_picture() {
         .expect("the loop builds the owed tree once the first picture is out");
     assert!(present < owed, "after the frame of this iteration is posted");
 }
+
+/// The Java side hands the engine the insets it has kept again when its bridges attach (`NativeTextBridge.installInsetsListener`), and a dispatch
+/// the system repeats (the keyboard's animation, a focus change) says the same numbers: insets the layout already has are no pass. Without the early
+/// return the first insets of the surface, applied before the first layout, were applied once more a moment after the first picture and the engine
+/// laid everything out a second time for the same numbers (0.3 s on the widget gallery).
+///
+/// Mutation: `apply_insets` asking for a regeneration whatever the numbers (the state of 98d415cb4e).
+#[test]
+fn insets_the_layout_already_has_are_no_layout_pass() {
+    let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
+    let apply = body(&shell, "fnapply_insets(window:&mutAndroidWindow,px:[i32;5]){");
+    let same = apply
+        .find("ifwindow.inset_px==px&&window.common.layout_window.as_ref().is_some_and(|lw|lw.safe_area_insets==insets){return;}")
+        .expect("insets that equal the ones the layout has return before anything is asked for");
+    let asks = apply.find("request_regeneration(RelayoutReason::RefreshDom)").expect("a change of the insets is a pass");
+    assert!(same < asks, "the equality is decided before the regeneration is requested");
+    let early = body(&shell, "fnapply_early_insets(window:&mutAndroidWindow){");
+    assert!(
+        early.contains("request_regeneration(RelayoutReason::Initial)"),
+        "the first layout keeps the reason `Initial` the app's layout callback reads: a change of the insets or of the display features raises its own reason over it"
+    );
+}
