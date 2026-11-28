@@ -20256,6 +20256,43 @@
                                 },
                                 "fn_body": "object.get_tray_event().into()"
                             },
+                            "get_lifecycle_event": {
+                                "doc": [
+                                    "Inside the app's lifecycle handler (`set_lifecycle_handler`): which event it runs for -",
+                                    "the app was sent to the background (`Paused`: write what a person would lose, the process may",
+                                    "be ended without another word), brought back (`Resumed`), is asked to give memory back",
+                                    "(`LowMemory`) or is about to end (`WillTerminate`). `None` in any other callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionLifecycleEvent"
+                                },
+                                "fn_body": "object.get_lifecycle_event().into()"
+                            },
+                            "set_lifecycle_handler": {
+                                "doc": [
+                                    "Install the app's lifecycle handler, replacing any earlier one: `callback` runs with `data`",
+                                    "whenever the app is sent to the background, brought back, short of memory or about to end, and",
+                                    "reads which with `get_lifecycle_event`. One handler for the app, not one per window: the usual",
+                                    "place is the window's create callback. An app that sets none hears nothing."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "CallbackType"
+                                    }
+                                ],
+                                "fn_body": "object.set_lifecycle_handler(data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            },
                             "request_notification_permission": {
                                 "doc": [
                                     "Ask the user for permission to show notifications - in context, from",
@@ -26168,6 +26205,28 @@
                             ],
                             "returns": null
                         },
+                        "repr": "C"
+                    },
+                    "LifecycleEvent": {
+                        "external": "azul_core::lifecycle::LifecycleEvent",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Paused": {},
+                                "Resumed": {},
+                                "LowMemory": {},
+                                "WillTerminate": {}
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
@@ -191977,6 +192036,28 @@
                                 "None": {},
                                 "Some": {
                                     "type": "FluentLocalizerHandle"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionLifecycleEvent": {
+                        "external": "azul_core::lifecycle::OptionLifecycleEvent",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "LifecycleEvent"
                                 }
                             }
                         ],
