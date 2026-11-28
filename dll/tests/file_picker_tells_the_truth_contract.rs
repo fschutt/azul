@@ -151,3 +151,22 @@ fn a_failed_dialog_is_not_a_cancelled_one() {
         );
     }
 }
+
+/// Neither phone's picker keeps its requests in a process-wide map: the pending picker is the App's own (`AppServices::pickers`),
+/// so a second App in the process (a test, a companion) cannot finish the first one's request with an id of its own.
+///
+/// Mutation: `static PENDING_PICKERS: Mutex<BTreeMap<u64, FilePickerHandle>>` and `static REQUEST_ID_COUNTER: AtomicU64` back (the
+/// state of 96d83ae2e0).
+#[test]
+fn the_pending_pickers_are_the_apps_own_on_both_phones() {
+    for file in ["dll/src/desktop/extra/file_picker/android.rs", "dll/src/desktop/extra/file_picker/ios.rs"] {
+        let src = code(file);
+        for forbidden in ["PENDING_PICKERS", "REQUEST_ID_COUNTER", "Mutex<BTreeMap", "AtomicU64"] {
+            assert!(!src.contains(forbidden), "{file} keeps `{forbidden}` in a static");
+        }
+        assert!(
+            src.contains("pickers\n") || src.contains(".pickers"),
+            "{file} parks its requests in the registry of the App's services"
+        );
+    }
+}

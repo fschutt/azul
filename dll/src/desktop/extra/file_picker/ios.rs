@@ -1,8 +1,8 @@
 //! iOS file picker via `UIDocumentPickerViewController`.
 //!
 //! Flow:
-//! 1. `dispatch_open_file` stores the caller's `FilePickerHandle` clone in `PENDING_PICKERS` keyed
-//!    by a fresh request ID.
+//! 1. `dispatch_open_file` parks the caller's `FilePickerHandle` clone in the App's own registry
+//!    (`AppServices::pickers`) under a fresh request ID.
 //! 2. We build a `[UTType]` filter array, alloc the picker `[[UIDocumentPickerViewController alloc]
 //!    initForOpeningContentTypes:asCopy:YES]` (iOS 14+; `asCopy:YES` copies the file into the app's
 //!    tmp sandbox so the caller gets a regular `file://` URL with no security-scoped bracketing
@@ -12,7 +12,7 @@
 //!    and attach it to the picker via `objc_setAssociatedObject` (so the picker retains the
 //!    delegate for its lifetime — UIKit doesn't retain delegates itself).
 //! 4. Present from the key window's root view controller.
-//! 5. Two delegate selectors read `requestID` back out, look up the handle in `PENDING_PICKERS`,
+//! 5. Two delegate selectors read `requestID` back out, take the handle out of the registry,
 //!    write the status, and remove the entry.
 //!
 //! `Info.plist` keys are *not* needed for the picker itself — it runs
@@ -27,15 +27,9 @@
 #![allow(non_snake_case)]
 
 #[cfg(target_os = "ios")]
-use std::collections::BTreeMap;
-#[cfg(target_os = "ios")]
 use std::os::raw::c_void;
 #[cfg(target_os = "ios")]
 use std::ptr;
-#[cfg(target_os = "ios")]
-use std::sync::atomic::{AtomicU64, Ordering};
-#[cfg(target_os = "ios")]
-use std::sync::Mutex;
 #[cfg(target_os = "ios")]
 use std::sync::Once;
 
@@ -49,33 +43,34 @@ use objc::{class, msg_send, sel, sel_impl};
 
 use super::{FilePickerHandle, FilePickerStatus};
 
+/// What a picker on the screen waits for: the handle the app polls. Parked in the App's own registry (`AppServices::pickers`) under
+/// the id the delegate carries (its `requestID` ivar): no process-wide map and counter.
 #[cfg(target_os = "ios")]
-static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
-
-#[cfg(target_os = "ios")]
-static PENDING_PICKERS: Mutex<BTreeMap<u64, FilePickerHandle>> = Mutex::new(BTreeMap::new());
-
-#[cfg(target_os = "ios")]
-fn allocate_request_id() -> u64 {
-    REQUEST_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+struct PendingPick {
+    handle: FilePickerHandle,
 }
 
+/// Park the request; its id, or `None` when the app has no services yet or too many pickers wait.
 #[cfg(target_os = "ios")]
-fn register_handle(handle: FilePickerHandle) -> u64 {
-    let id = allocate_request_id();
-    if let Ok(mut g) = PENDING_PICKERS.lock() {
-        g.insert(id, handle);
-    }
-    id
+fn register_handle(handle: FilePickerHandle) -> Option<u64> {
+    crate::desktop::process_app::services()?
+        .pickers
+        .register(PendingPick { handle })
+        .ok()
 }
 
+/// Take the request `request_id` back out (an answer that comes twice finds nothing).
 #[cfg(target_os = "ios")]
 fn pop_handle(request_id: u64) -> Option<FilePickerHandle> {
-    PENDING_PICKERS
-        .lock()
-        .ok()
-        .and_then(|mut g| g.remove(&request_id))
+    crate::desktop::process_app::services()?
+        .pickers
+        .take::<PendingPick>(request_id)
+        .map(|pending| pending.handle)
 }
+
+/// Why a request that cannot be parked is answered with an error and shows no picker.
+#[cfg(target_os = "ios")]
+const NOT_TRACKABLE: &str = "too many pickers are waiting for an answer (or the app has not started its services): finish or cancel one first";
 
 /// `+[UTType typeWithIdentifier:]` for a uniform type identifier; null when the framework has no
 /// such type (or is not loaded).
@@ -342,7 +337,10 @@ pub fn dispatch_open_file(
     filter_descriptors: OptionStringVec,
     allow_multiple: bool,
 ) {
-    let request_id = register_handle(handle.clone());
+    let Some(request_id) = register_handle(handle.clone()) else {
+        handle.set_status(FilePickerStatus::Error(AzString::from(NOT_TRACKABLE)));
+        return;
+    };
 
     unsafe {
         let root = key_root_view_controller();
@@ -422,7 +420,10 @@ pub fn dispatch_open_directory(
     _title: AzString,
     _default_path: OptionString,
 ) {
-    let request_id = register_handle(handle.clone());
+    let Some(request_id) = register_handle(handle.clone()) else {
+        handle.set_status(FilePickerStatus::Error(AzString::from(NOT_TRACKABLE)));
+        return;
+    };
 
     unsafe {
         let root = key_root_view_controller();
