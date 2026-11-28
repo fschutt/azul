@@ -7,6 +7,7 @@
 #
 # Steps (SIDEBAR_ONLY names them; none named = all of them):
 #   tests      the tests of the family by name, in azul-layout, with the CI's feature list
+#   workspace  the CI's workspace test command of css, core, layout and webrender in full (the gate before a push)
 #   clippy     the CI's clippy line of azul-layout, the test targets included
 #   autofix    api.json through azul-doc: `autofix add` for the new functions, patches until there are none, normalize; the result is
 #              api.json (upload it) and api.diff; then a SECOND round that must change nothing
@@ -44,6 +45,17 @@ tests() {
   return "${PIPESTATUS[0]}"
 }
 run tests tests
+
+workspace() {
+  sudo apt-get update -qq || true
+  sudo apt-get install -y fonts-liberation fonts-dejavu-core || true
+  AZ_REQUIRE_TEST_FONTS=1 cargo test -p azul-css -p azul-core -p azul-layout -p webrender --lib --tests \
+    --features "$features" --no-fail-fast 2>&1 | tee workspace-tests.txt
+  local code=${PIPESTATUS[0]}
+  ./scripts/zero_test_guard.sh workspace-tests.txt || code=1
+  return "$code"
+}
+run workspace workspace
 
 clippy() {
   cargo clippy -p azul-layout --all-targets --features "$features" -- -D warnings 2>&1 | tee clippy.txt
