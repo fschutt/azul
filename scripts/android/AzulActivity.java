@@ -114,6 +114,8 @@ public class AzulActivity extends NativeActivity {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
             Splash31.cut(this);
         }
+        // The insets of the window's FIRST dispatch (before its surface exists) are kept for the engine's first layout.
+        NativeTextBridge.installEarlyInsetsListener(this);
         // A tap on a notification of an app that was not running started
         // this activity: its intent carries the notification. Forwarded now
         // (Rust queues it until android_main's loop routes it to the
@@ -480,6 +482,9 @@ public class AzulActivity extends NativeActivity {
             public void run() {
                 try {
                     android.view.Window window = activity.getWindow();
+                    // On the record, with the time: when the app's request of the system bars reaches the window, against the window's insets dispatches.
+                    android.util.Log.i("azul", "AzulActivity: system bars asked for status=" + status + " navigation=" + navigation + " icons=" + icons
+                            + " cutout=" + drawIntoCutout + ", the window's decor is " + (window.getDecorView().isAttachedToWindow() ? "attached" : "not attached yet"));
                     if (drawIntoCutout && android.os.Build.VERSION.SDK_INT >= 28) {
                         android.view.WindowManager.LayoutParams lp = window.getAttributes();
                         lp.layoutInDisplayCutoutMode = android.os.Build.VERSION.SDK_INT >= 30
@@ -493,6 +498,7 @@ public class AzulActivity extends NativeActivity {
                     if (android.os.Build.VERSION.SDK_INT >= 30) {
                         android.view.WindowInsetsController controller = window.getInsetsController();
                         if (controller == null) {
+                            android.util.Log.w("AzulBars", "no insets controller yet: the request of the system bars is not applied");
                             return;
                         }
                         applyBar(controller, android.view.WindowInsets.Type.statusBars(), status);
