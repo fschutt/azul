@@ -21,7 +21,7 @@ use crate::report::Verdict;
 /// How long a sensor gets to deliver its first reading.
 const SENSOR_WAIT_MS: u64 = 3_000;
 /// How long the location probe waits for a fix.
-const FIX_WAIT_MS: u64 = 15_000;
+const FIX_WAIT_MS: u64 = 30_000;
 
 pub static PROBES: &[ProbeDef] = &[
     plain("sensors.accelerometer", "sensors", "Accelerometer", accelerometer),
