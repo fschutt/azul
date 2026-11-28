@@ -9,6 +9,15 @@
 //! the keyboard comes): [`Insets::lift`] is how far what sits at the bottom of the window has to
 //! rise to stay in sight, [`Insets::bottom_clear`] the room the bottom bar keeps when it does
 //! not have to rise.
+//!
+//! WHO KEEPS CLEAR OF WHAT. The engine insets the ROOT of a window by the bars and the cutout
+//! (the root's viewport is the window less the safe area, unless the app sets
+//! `WindowFlags::extend_into_safe_area`, a window that draws under them): an app that does not
+//! opt out has nothing of those four sides left to handle - using them again would leave the
+//! gap twice - and only the keyboard, which overlays the window and is no part of the root's
+//! inset, is left, less the part of it that lies over the bar the root already excludes.
+//! [`Insets::inside_root`] is that. An app that DOES draw under the bars reads the raw insets
+//! ([`Insets::of`]) and keeps clear itself.
 
 #[cfg(feature = "look")]
 use azul::{callbacks::LayoutCallbackInfo, option::OptionPixelValue};
@@ -50,6 +59,18 @@ impl Insets {
         let safe = info.get_safe_area_insets();
         let px = |v: OptionPixelValue| v.into_option().map_or(0.0, |p| p.to_pixels(0.0, 16.0, 16.0));
         Self::new(px(safe.top), px(safe.right), px(safe.bottom), px(safe.left), px(safe.keyboard))
+    }
+
+    /// What is left for an app whose root the engine has already inset by the bars (every window that does not draw under them):
+    /// the four sides are outside its root, so none of them; the keyboard, which overlays the window from its bottom edge and is
+    /// no part of the root's inset, less the bottom bar (the navigation bar, the home indicator) the root already excludes - the
+    /// root's lower edge is that far above the window's.
+    #[must_use]
+    pub fn inside_root(&self) -> Self {
+        Self {
+            keyboard: (self.keyboard - self.bottom).max(0.0),
+            ..Self::default()
+        }
     }
 
     /// Whether the window has no inset at all.

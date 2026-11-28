@@ -171,7 +171,8 @@ run apps apps
 
 apps_clippy() {
   cargo run -r -p azul-doc -- codegen all || return 1
-  cargo clippy -p AzMaps -p AzCode --all-targets -- -D warnings 2>&1 | tee apps-clippy.txt
+  # --no-deps: the path dependencies of the apps (azul-routing, azul-search, the dll's build scripts) are not these apps' to lint
+  cargo clippy -p AzMaps -p AzCode --all-targets --no-deps -- -D warnings 2>&1 | tee apps-clippy.txt
   return "${PIPESTATUS[0]}"
 }
 run apps_clippy apps_clippy

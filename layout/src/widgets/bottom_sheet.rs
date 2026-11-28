@@ -38,7 +38,9 @@
 //!
 //! Heights. `Peek` (130 px) and `Collapsed` (30 px) are px ([`BottomSheet::with_peek_height`],
 //! [`BottomSheet::with_collapsed_height`]), `Half` is half the container, `Full` 85 % of it or the
-//! container less the top margin the app names; the four are kept in order whatever the numbers, and
+//! container less the top margin the app names (the room above the keyboard, when the app names
+//! one: [`BottomSheet::with_bottom_inset`] lifts the sheet's lower edge and takes its room from the
+//! detents); the four are kept in order whatever the numbers, and
 //! a detent the app rules out ([`BottomSheet::with_lowest`] / [`BottomSheet::with_highest`]) is never
 //! settled on. A number that is not finite is replaced by its default, never an error. The pure
 //! part - the detents, where a drag settles, what the keys do - is `widgets::detents`, shared with
@@ -64,7 +66,7 @@ use azul_css::{
     AzString,
 };
 
-use super::detents::{detent_after_key, length, step_round, Heights, CONTAINER_HEIGHT_DEFAULT};
+use super::detents::{detent_after_key, length, step_round, Heights, CONTAINER_HEIGHT_DEFAULT, FLING_STALE_MS};
 pub use super::detents::SheetDetent;
 use crate::callbacks::CallbackInfo;
 
@@ -89,6 +91,8 @@ pub const BOTTOM_SHEET_FULL_CLASS: &str = "__azul-native-bottom-sheet-full";
 pub const GRIP_HEIGHT: f32 = 32.0;
 /// How far the pointer travels before a press is a drag and not a tap, px.
 pub const TAP_SLOP: f32 = 8.0;
+/// A move of less than this many px is no move: the same report twice.
+const MOVED_LESS_THAN: f32 = 0.01;
 /// What happened to the sheet.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -163,7 +167,9 @@ pub struct BottomSheet {
     /// The room the full detent leaves above the sheet, px (the status bar, the search bar a map
     /// keeps in view); 0 is 15 % of the container (the full detent is 85 % of it).
     pub top_margin: f32,
-    /// How far the sheet's lower edge lies above the container's: the on-screen keyboard.
+    /// How far the sheet's lower edge lies above the container's: the on-screen keyboard. The detents are heights of the room above
+    /// it (half of it, the room less the top margin): a sheet drawn up to its full height ends under the app's bar, not under the
+    /// keyboard.
     pub bottom_inset: f32,
     /// The room the content keeps at its end: the home indicator, the navigation bar.
     pub safe_bottom: f32,
@@ -381,7 +387,7 @@ impl BottomSheet {
 
     fn heights(&self) -> Heights {
         Heights::new(
-            self.container_height,
+            room(self.container_height, self.bottom_inset),
             self.collapsed_height,
             self.peek_height,
             self.top_margin,
@@ -426,6 +432,8 @@ struct DragState {
     peek: f32,
     top_margin: f32,
     container: f32,
+    /// How far the sheet's lower edge lies above the container's (the keyboard): the detents are heights of the room above it.
+    inset: f32,
     grab: f32,
     /// The sheet's height now, px.
     height: f32,
@@ -438,9 +446,13 @@ struct DragState {
     /// The pointer's window y at the press, and the sheet's height then.
     start_y: f32,
     start_height: f32,
-    /// The last two window ys, for the fling.
+    /// The last window y, and the step it made from the one before (up is positive), for the fling.
     last_y: f32,
     step: f32,
+    /// When the last of them came, ms on the press's clock: a pointer that rested before it was lifted does not fling.
+    last_ms: u64,
+    /// The clock's zero (the first press); the pure rules below only see milliseconds.
+    origin: Option<azul_core::task::Instant>,
 }
 
 /// One step of a drag: whether it began the drag, and the height the pointer makes of the sheet.
@@ -452,13 +464,13 @@ struct DragStep {
 
 impl DragState {
     fn heights(&self) -> Heights {
-        Heights::new(self.container, self.collapsed, self.peek, self.top_margin)
+        Heights::new(room(self.container, self.inset), self.collapsed, self.peek, self.top_margin)
     }
 
     /// A press at window `y` on the sheet whose top edge is at `top` and which is `height` tall, in a box `container` tall (as the
     /// layout has it now): the sheet's when it lies in the band that drags (the grip, and the band the app named under it), else
     /// it belongs to what is there and nothing is armed.
-    fn press(&mut self, y: f32, top: f32, height: f32, container: f32) -> bool {
+    fn press(&mut self, y: f32, top: f32, height: f32, container: f32, now_ms: u64) -> bool {
         let in_sheet = y - top;
         if !in_sheet.is_finite() || in_sheet > self.grab.max(GRIP_HEIGHT) || in_sheet < 0.0 {
             return false;
@@ -470,6 +482,7 @@ impl DragState {
         self.start_y = y;
         self.last_y = y;
         self.step = 0.0;
+        self.last_ms = now_ms;
         if height.is_finite() && height > 0.0 {
             self.height = height;
         }
@@ -477,9 +490,10 @@ impl DragState {
         true
     }
 
-    /// The pointer at window `y` with a press down: `None` before it has moved past the tap slop (and with no press); else the step
-    /// - the sheet follows the pointer from here until it is let go.
-    fn drag_to(&mut self, y: f32) -> Option<DragStep> {
+    /// The pointer at window `y` (at `now_ms`) with a press down: `None` before it has moved past the tap slop (and with no press),
+    /// and when it has not moved since the last step (a phone reports one finger twice, as a touch and as a mouse: the second report
+    /// must not count as a stop); else the step - the sheet follows the pointer from here until it is let go.
+    fn drag_to(&mut self, y: f32, now_ms: u64) -> Option<DragStep> {
         if !self.armed {
             return None;
         }
@@ -487,9 +501,13 @@ impl DragState {
         if started && (self.start_y - y).abs() <= TAP_SLOP {
             return None;
         }
+        if !started && (self.last_y - y).abs() < MOVED_LESS_THAN {
+            return None;
+        }
         self.dragging = true;
         self.step = self.last_y - y;
         self.last_y = y;
+        self.last_ms = now_ms;
         let heights = self.heights();
         let height = heights.dragged(self.start_height, self.start_y, y, self.lowest, self.highest);
         self.height = height;
@@ -501,14 +519,16 @@ impl DragState {
     /// comes to rest - a drag settles on the nearest detent after a fling, a tap on the grip steps to the next one up. `None`:
     /// nothing of the sheet's (no press, a press in the band under the grip - it belongs to what is there - or a press on the
     /// grip that merely left).
-    fn lift(&mut self, leaving: bool) -> Option<SheetDetent> {
+    fn lift(&mut self, leaving: bool, now_ms: u64) -> Option<SheetDetent> {
         if !self.armed {
             return None;
         }
         self.armed = false;
         if self.dragging {
             self.dragging = false;
-            Some(self.heights().settle(self.height, self.step, self.lowest, self.highest))
+            // A pointer that rested before it was lifted has no speed: the settling is the nearest detent to where it is.
+            let step = if now_ms.saturating_sub(self.last_ms) > FLING_STALE_MS { 0.0 } else { self.step };
+            Some(self.heights().settle(self.height, step, self.lowest, self.highest))
         } else if self.on_grip && !leaving {
             Some(step_round(self.detent, self.lowest, self.highest))
         } else {
@@ -522,6 +542,14 @@ impl DragState {
         self.height = self.heights().of(detent);
         self.height
     }
+}
+
+/// The room the detents are heights of: the container less what lies under the sheet (the keyboard). A container that is no number is
+/// the default one; an inset that is no number, or negative, is none; the room is never less than a pixel.
+fn room(container: f32, inset: f32) -> f32 {
+    let container = length(container, CONTAINER_HEIGHT_DEFAULT);
+    let inset = if inset.is_finite() { inset.max(0.0) } else { 0.0 };
+    (container - inset).max(1.0)
 }
 
 fn height_property(px: f32) -> CssProperty {
@@ -569,6 +597,13 @@ fn window_y(info: &CallbackInfo) -> Option<f32> {
         .filter(|y| y.is_finite())
 }
 
+/// Milliseconds on the sheet's clock (zero at its first press): the engine's clock, which a scenario's `tick_ms` advances.
+fn millis(info: &CallbackInfo, st: &mut DragState) -> u64 {
+    let now = info.get_current_time();
+    let origin = st.origin.get_or_insert_with(|| now.clone()).clone();
+    now.duration_since(&origin).as_millis_u64()
+}
+
 /// The height of the box the sheet floats in, as the layout has it now (the build's number when
 /// the layout has none: the sheet's parent is the positioned box).
 fn measured_container(info: &CallbackInfo, built: f32) -> f32 {
@@ -591,7 +626,8 @@ extern "C" fn on_press(mut data: RefAny, info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let container = measured_container(&info, st.container);
-    st.press(y, rect.origin.y, rect.size.height, container);
+    let now = millis(&info, &mut st);
+    st.press(y, rect.origin.y, rect.size.height, container, now);
     Update::DoNothing
 }
 
@@ -605,7 +641,8 @@ extern "C" fn on_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(y) = window_y(&info) else {
         return Update::DoNothing;
     };
-    let Some(step) = st.drag_to(y) else {
+    let now = millis(&info, &mut st);
+    let Some(step) = st.drag_to(y, now) else {
         return Update::DoNothing;
     };
     let root = info.get_hit_node();
@@ -620,7 +657,8 @@ extern "C" fn on_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// The pointer is up: a drag settles on a detent, a tap on the grip steps to the next one, a press in the band under the grip
 /// belongs to what is there.
 fn finish(st: &mut DragState, mut info: CallbackInfo, leaving: bool) -> Update {
-    let Some(detent) = st.lift(leaving) else {
+    let now = millis(&info, st);
+    let Some(detent) = st.lift(leaving, now) else {
         return Update::DoNothing;
     };
     let px = st.rest(detent);
@@ -691,6 +729,8 @@ pub extern "C" fn merge_sheet_state(mut new_data: RefAny, mut old_data: RefAny) 
                 new_g.start_height = old_g.start_height;
                 new_g.last_y = old_g.last_y;
                 new_g.step = old_g.step;
+                new_g.last_ms = old_g.last_ms;
+                new_g.origin = old_g.origin.clone();
                 if old_g.dragging {
                     new_g.height = old_g.height;
                     new_g.detent = old_g.detent;
@@ -790,6 +830,7 @@ fn build(sheet: BottomSheet) -> Dom {
         peek: peek_height,
         top_margin,
         container: container_height,
+        inset: bottom_inset,
         grab,
         height,
         armed: false,
@@ -799,6 +840,8 @@ fn build(sheet: BottomSheet) -> Dom {
         start_height: height,
         last_y: 0.0,
         step: 0.0,
+        last_ms: 0,
+        origin: None,
     });
 
     let pill = styled(
