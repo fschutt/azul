@@ -146,7 +146,7 @@ fn tile(app: &RefAny, st: &AppState, index: usize, entry: &LibraryEntry) -> Dom 
                 .with_css("display: flex; flex-direction: row; align-items: center; justify-content: space-between;")
                 .with_child(
                     Dom::create_div()
-                        .with_css("font-size: 11px; color: system:tertiary-text;")
+                        .with_css("font-size: 12px; color: system:tertiary-text;")
                         .with_child(Dom::create_span_with_text(progress)),
                 )
                 .with_child(remove),

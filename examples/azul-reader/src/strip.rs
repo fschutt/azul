@@ -287,7 +287,7 @@ fn bookmarks(app: &RefAny, st: &AppState) -> Dom {
             .with_css("display: flex; flex-direction: column; flex-grow: 1; cursor: pointer; min-width: 0px;")
             .with_child(text(
                 &format!("{} - {percent}", mark.chapter_title),
-                "font-size: 11px; color: system:secondary-text;",
+                "font-size: 12px; color: system:secondary-text;",
             ))
             .with_child(text(&mark.label, "font-size: 13px; color: system:text;"));
         body.add_callback(
