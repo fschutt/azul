@@ -13,6 +13,7 @@
 #                 engine's frames of every file (AZ_E2E_SHOT_DIR, pulled), the device's own pictures of a plain start (light, dark) and a
 #                 recording of each run; AZ_ANDROID_DEVICE=pixel_8 and AZ_ANDROID_OVERLAYS=com.android.internal.display.cutout.emulation.hole
 #                 give it the Pixel 8 with its punch hole (first mode only);
+#                 AZ_QA_AZMAIL_APK (and AZ_QA_AZMAIL_DATA) adds AzMail on the same phone per orientation (scripts/ci/android_azmail.py);
 #            audit: the phone-fit audit of QA-variant APKs (scripts/ci/mobile_e2e.py --audit-only) on the first mode only: the
 #                 APK, then every APK of AZ_QA_AUDIT_APKS (space separated), each in its own folder <out>/<mode>/audit/<apk name>/
 #                 (layout-audit.md and .json, the dumps, both pictures per orientation, the dark-mode verdict, and the app's own
@@ -190,6 +191,12 @@ for mode in "${mode_list[@]}"; do
         sleep 4
         adb pull "$vid" "$td/videos/" >/dev/null 2>&1 || echo "no recording $vid"
       done
+      # AZ_QA_AZMAIL_APK: AzMail on this phone in this orientation (scripts/ci/android_azmail.py: its first start, the sample mailbox when
+      # AZ_QA_AZMAIL_DATA names the folder scripts/ci/azmail_sample_data.py wrote, a message, the compose command; the pictures are the answer)
+      if [ -n "${AZ_QA_AZMAIL_APK:-}" ]; then
+        python3 "$here/android_azmail.py" --out "$td/azmail" --apk "$AZ_QA_AZMAIL_APK" --tag "$orient" \
+          ${AZ_QA_AZMAIL_DATA:+--data "$AZ_QA_AZMAIL_DATA"} 2>&1 | tee "$td/azmail.log"
+      fi
     done
     adb shell settings put system accelerometer_rotation 1
   fi

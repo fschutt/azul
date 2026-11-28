@@ -220522,6 +220522,58 @@
                                 },
                                 "fn_body": "object.with_texts(restart_label, restart_notice, empty_label)"
                             },
+                            "with_field_texts": {
+                                "doc": [
+                                    "[`Self::set_field_texts`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "search_placeholder": "String"
+                                    },
+                                    {
+                                        "browse_label": "String"
+                                    },
+                                    {
+                                        "browse_title": "String"
+                                    },
+                                    {
+                                        "color_title": "String"
+                                    },
+                                    {
+                                        "no_shortcut_label": "String"
+                                    },
+                                    {
+                                        "shortcut_prompt": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShellSettingsDialog"
+                                },
+                                "fn_body": "object.with_field_texts(search_placeholder, browse_label, browse_title, color_title, no_shortcut_label, shortcut_prompt)"
+                            },
+                            "with_hint_texts": {
+                                "doc": [
+                                    "[`Self::set_hint_texts`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "modified_label": "String"
+                                    },
+                                    {
+                                        "apply_held_reason": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShellSettingsDialog"
+                                },
+                                "fn_body": "object.with_hint_texts(modified_label, apply_held_reason)"
+                            },
                             "set_on_event": {
                                 "doc": [
                                     "The callback that hears every request."

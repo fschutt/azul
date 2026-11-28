@@ -9,8 +9,8 @@ description = """
     a keyring round trip, a notification posted ...) and answers PASS(numbers), UNAVAILABLE(reason),
     DENIED, FAIL(detail) or NEEDS-HUMAN(what to do). A device that is unavailable is not a failure;
     a capability that says it is available and then fails is. A list with 'Run all' and a run per row;
-    the report is one line `AZ_SELFTEST_REPORT {json}` on stdout (logcat / os_log) and a file in the
-    app's data directory. Unattended (AZ_SELFTEST=1, `debug.az.selftest` on Android, `--selftest`)
+    the report is one line `AZ_SELFTEST_REPORT {json}` on stdout (logcat / os_log; on Android numbered `AZ_SELFTEST_REPORT_PART i/n` parts
+    when it is longer than a logcat line) and a file in the app's data directory. Unattended (AZ_SELFTEST=1, `debug.az.selftest` on Android, `--selftest`)
     it runs every probe that needs no person, writes the report and exits non-zero when an available
     capability failed. A QA artifact: never a published demo.
 """

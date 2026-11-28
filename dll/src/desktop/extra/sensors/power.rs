@@ -579,7 +579,25 @@ mod platform {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+/// Android: a phone is "on mains" when its battery is on a charger (the reading the battery monitor keeps from
+/// `BatteryManager`, `BatteryState::charging`: charging, or full and kept full there). Android tells an app nothing about
+/// the user's input outside of its own windows: no idle time. This answered `(None, None)`: on mains false and idle 0
+/// for ever, on the charger too (ledger AN-12).
+#[cfg(target_os = "android")]
+mod platform {
+    pub(super) fn read() -> (Option<bool>, Option<u64>) {
+        let battery = crate::desktop::extra::sensors::battery::BatteryState::query();
+        // No battery known (the monitor has not read yet, or the device has none): the platform does not say.
+        (battery.present.then_some(battery.charging), None)
+    }
+}
+
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "linux",
+    target_os = "android"
+)))]
 mod platform {
     pub(super) fn read() -> (Option<bool>, Option<u64>) {
         (None, None)

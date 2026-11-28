@@ -11,6 +11,8 @@
 #            tabs: the tab strip (examples/azul-widgets/e2e/tab_touch*.json) on the Simulator's phone, portrait then landscape (Device > Rotate Left
 #                 through osascript): the engine's frames of every file (AZ_E2E_SHOT_DIR), the device's pictures of a plain start (light, dark)
 #                 and a recording of each run, in <out>/tabs/<orientation>/; AZ_QA_IOS_DEVICE="iPhone 16 Pro" names the device type.
+#            startup: cold starts of the app with the engine's startup timeline on (AZ_STARTUP=1; scripts/ci/ios_startup.py, AZ_QA_STARTS=2): the
+#                 first_present row, the layout passes, the font cache rows (startup.md, the console of each start);
 #            flicker: scripts/ci/flicker_audit.py ios: the idle pictures and the flash frames (a recording of the cold start, the dark
 #                 appearance, rotation when the Simulator's menu can be pressed, leaving the app and back; AZ_QA_BACKEND=gpu for the GPU path).
 #
@@ -126,6 +128,9 @@ if [ "$session" = tabs ]; then
       kill -INT "$rec" 2>/dev/null; wait "$rec" 2>/dev/null
     done
   done
+fi
+if [ "$session" = startup ]; then
+  python3 "$here/ios_startup.py" --out "$out" --udid "$udid" --bundle "$bid" --exe "$exe" --app "$appdir" --starts "${AZ_QA_STARTS:-2}" 2>&1 | tee "$out/startup.log"
 fi
 if [ "$session" = flicker ]; then
   # the recording is cut into frames with ffmpeg, which a macOS runner may not have

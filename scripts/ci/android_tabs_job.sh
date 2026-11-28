@@ -39,6 +39,24 @@ ls -la demo-out/apps
 apk="demo-out/apps/AzWidgets-e2e-$col.apk"
 [ -e "$apk" ] || { echo "no $apk"; exit 3; }
 
+# AzMail (the user's ask: how does it look on a phone): AZ_TABS_AZMAIL_RUN=<run id of `android_build_smoke.sh AzMail`> takes its APK from that run's
+# artifact (demo-out/apps/AzMail-android-x86_64.apk) and puts the app on the same phone, portrait and landscape; the sample mailbox (the files the
+# kit's `--sample` writes, which a phone cannot be given) is generated from examples/azul-mail/scripts/sample_mail by azmail_sample_data.py
+if [ -n "${AZ_TABS_AZMAIL_RUN:-}" ]; then
+  mkdir -p azmail-apk
+  if gh run download "$AZ_TABS_AZMAIL_RUN" -R "$GITHUB_REPOSITORY" -n remote-Linux -D azmail-apk; then
+    azmail_apk="$(ls azmail-apk/demo-out/apps/AzMail-android-x86_64.apk 2>/dev/null | head -n 1)"
+    if [ -n "$azmail_apk" ]; then
+      export AZ_QA_AZMAIL_APK="$azmail_apk"
+      python3 scripts/ci/azmail_sample_data.py demo-out/azmail-sample --repo . && export AZ_QA_AZMAIL_DATA="demo-out/azmail-sample/azmail-data"
+    else
+      echo "no AzMail APK in run $AZ_TABS_AZMAIL_RUN"
+    fi
+  else
+    echo "the artifact of run $AZ_TABS_AZMAIL_RUN could not be downloaded"
+  fi
+fi
+
 # the emulator: Pixel 8 (its profile), the hole overlay; portrait and landscape inside the session
 AZ_ANDROID_DEVICE=pixel_8 AZ_ANDROID_OVERLAYS=com.android.internal.display.cutout.emulation.hole \
   timeout 4500 bash scripts/ci/android_qa.sh demo-out/qa-tabs "$apk" swiftshader_indirect "AzWidgets tabs" tabs

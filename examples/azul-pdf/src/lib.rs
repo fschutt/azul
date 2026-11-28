@@ -52,7 +52,8 @@ use azul::{
     time::SystemTimeDiff,
     vec::StringVec,
     error::KeyringResult,
-    pdf::{PdfRect, PdfStamp},
+    pdf::PdfStamp,
+    svg::PdfRect,
     widgets::{CloseGuardEvent, CloseGuardEventKind, DialogState},
 };
 use azul_appkit::{

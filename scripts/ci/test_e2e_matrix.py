@@ -160,8 +160,8 @@ class ShotFolderTests(unittest.TestCase):
                 value = "AZ_E2E_SHOT_DIR=" + m.android_shot_dir(package, stem)
                 self.assertLessEqual(len(value), 91, value)
 
-    def test_the_frames_of_a_file_are_in_a_folder_of_the_apps_own(self):
-        self.assertEqual(m.android_shot_dir("com.azul.AzWidgets", "tab_touch_phone"), "/sdcard/Android/data/com.azul.AzWidgets/files/tab_touch_phone")
+    def test_the_frames_of_a_file_are_in_the_apps_own_cache_folder(self):
+        self.assertEqual(m.android_shot_dir("com.azul.AzWidgets", "tab_touch_phone"), "/data/user/0/com.azul.AzWidgets/cache/tab_touch_phone")
 
 
 if __name__ == "__main__":

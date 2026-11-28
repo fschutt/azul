@@ -7,7 +7,7 @@
 //! ran is a FAIL with the engine's reason; no line at all says how to switch the logging on. The same row answers the user's
 //! question on a phone with a real GPU: `adb shell setprop debug.az.env 'AZ_LOG=info;AZ_BACKEND=gpu'`, a cold start, this row.
 
-use azul::dom::Dom;
+use azul::{dom::Dom, prelude::RefAny};
 
 use super::{Ctx, ProbeDef, Step};
 use crate::{
@@ -29,7 +29,7 @@ pub static PROBES: &[ProbeDef] = &[ProbeDef {
 }];
 
 /// A bar that moves every frame: the engine has something new to draw on every tick.
-fn animation(elapsed_ms: u64) -> Dom {
+fn animation(_data: &RefAny, elapsed_ms: u64) -> Dom {
     let width = 40 + (elapsed_ms / 6) % 280;
     Dom::create_div().with_css(
         format!("height: 14px; width: {width}px; margin: 6px 12px; background-color: #2563eb; border-radius: 7px;").as_str(),
