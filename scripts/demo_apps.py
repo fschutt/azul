@@ -7,6 +7,7 @@
                                        artifact-only QA variant of the phone libazul and the apps that ask for it)
     demo_apps.py features <leg> <variant>   the cargo features of one phone library of the plan (android-x86_64 mobile-e2e, ...)
     demo_apps.py mobile-lib <package>       the library variant a phone app links (mobile, mobile-iroh)
+    demo_apps.py e2e-lib <package>          the QA library variant of its QA build (mobile-e2e, mobile-e2e-iroh)
     demo_apps.py assets [<package>]    the file names every app is built as, one per line
     demo_apps.py weights <status.json> the weight the measured build seconds of a run suggest for each app
     demo_apps.py status <dir> ...      merge the result files of a run into demo-status.json / .md
@@ -14,6 +15,7 @@
 Python 3.11+ (tomllib); the build scripts that run on every runner (demo_build.py, demo_gate.py) need
 only the standard library of older ones.
 """
+import functools
 import json
 import os
 import pathlib
@@ -52,6 +54,9 @@ LEG_RUNNER = {
 }
 LEG_CODEGEN_OS = {"linux": "Linux", "macos-arm64": "macOS", "macos-intel": "macOS", "windows": "Windows"}
 MAX_DESCRIPTION = 110
+DEFAULT_E2E_LIB = "mobile-e2e"
+# What an app's sources say when it uses the engine's iroh API (azul.iroh: the endpoint of a meeting, the link to AzReview).
+IROH_USE = re.compile(r"\bIroh(?:Endpoint|Config|Connection|Event|RelayMode)\b|\bazul::iroh\b")
 # The Info.plist text iOS wants for what an Android permission stands for (the engine refuses the feature without it, naming the key).
 IOS_KEY_OF_PERMISSION = {
     "android.permission.CAMERA": "NSCameraUsageDescription",
@@ -77,6 +82,8 @@ def load(path=MANIFEST):
         app.setdefault("known_failing", {})
         app.setdefault("engine_ok", {})
         app.setdefault("e2e", False)
+        app.setdefault("e2e_lib", DEFAULT_E2E_LIB)
+        app.setdefault("iroh", False)
     return m
 
 
@@ -100,6 +107,35 @@ def staged_name(app, column, e2e=False):
         "ios-device": f"{p}-ios-device.app.zip",
         "ios-sim": f"{p}-ios-sim.app.zip",
     }[column]
+
+
+@functools.lru_cache(maxsize=None)
+def iroh_use_in(app_dir):
+    """The first file (relative to the repository) in the non-test sources of the app's own crate that uses the engine's iroh API (a line
+    comment does not count); None when none does. Only the app's own crate is read: whether a crate it depends on compiles a module that
+    uses iroh depends on cargo features (azul-storage has an S3-over-iroh transport behind `azul` that AzMaps never turns on), which a
+    scan of the sources cannot tell: an app that reaches iroh only through a library crate says so in the manifest (`iroh = true`)."""
+    hits = []
+    for f in sorted((ROOT / app_dir / "src").rglob("*.rs")):
+        if f.name.endswith("_test.rs") or "tests" in f.relative_to(ROOT / app_dir).parts:
+            continue
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if ("Iroh" in text or "azul::iroh" in text) and any(IROH_USE.search(line.split("//", 1)[0]) for line in text.splitlines()):
+            hits.append(f.relative_to(ROOT).as_posix())
+    return hits[0] if hits else None
+
+
+def iroh_use(app):
+    """Where an app says it uses the engine's iroh API: a file of its own sources, or "scripts/demo_apps.toml (iroh = true)", or None."""
+    return iroh_use_in(app["dir"]) or ("scripts/demo_apps.toml (iroh = true)" if app.get("iroh") else None)
+
+
+def has_iroh(lib):
+    """Whether a [lib.*] table has the cargo feature `iroh`."""
+    return "iroh" in str((lib or {}).get("features", "")).split(",")
 
 
 def artifact_only_libs(m):
@@ -237,10 +273,29 @@ def check(m=None):
                 if key and key not in usage:
                     err(f"{where} asks for {perm} on Android but has no {key} in [app.ios.usage]: iOS refuses it without the text")
         if a.get("e2e"):
-            qa_columns = {c for lib_ in artifact_only_libs(m).values() for c in lib_.get("targets", [])}
-            if not set(columns_of(a)) & qa_columns:
-                err(f"{where} says e2e = true but no artifact_only lib builds a column of it "
-                    f"({sorted(columns_of(a))} against {sorted(qa_columns)})")
+            qa = libs.get(a["e2e_lib"])
+            if qa is None or not qa.get("artifact_only"):
+                err(f"{where} e2e_lib {a['e2e_lib']!r} must name an artifact_only lib ({sorted(artifact_only_libs(m))})")
+            elif not set(columns_of(a)) & set(qa.get("targets", [])):
+                err(f"{where} says e2e = true but its QA lib {a['e2e_lib']} builds no column of it "
+                    f"({sorted(columns_of(a))} against {sorted(qa.get('targets', []))})")
+        # An app that uses the engine's iroh API needs a library that has it: with the lean `mobile` one its endpoint cannot bind on a phone
+        # (bind_failure), and its QA build needs the iroh twin of the QA library as well. iOS drops the local-network traffic of an app that
+        # says nothing about it, and the call goes through the relay only.
+        if any(x in MOBILE for x in a["platforms"]):
+            used = iroh_use(a)
+            if used:
+                iroh_libs = sorted(k for k, v in libs.items() if has_iroh(v) and not v.get("artifact_only"))
+                if a.get("mobile_lib") in libs and not has_iroh(libs[a["mobile_lib"]]):
+                    err(f"{where} uses the engine's iroh API ({used}) but links mobile_lib = {a['mobile_lib']!r}, a library without the "
+                        f"`iroh` feature: on a phone its endpoint cannot bind (bind_failure); name one of {iroh_libs}")
+                if a.get("e2e") and a["e2e_lib"] in libs and not has_iroh(libs[a["e2e_lib"]]):
+                    qa_iroh = sorted(k for k, v in artifact_only_libs(m).items() if has_iroh(v))
+                    err(f"{where} uses the engine's iroh API ({used}) and has e2e = true, but its QA lib {a['e2e_lib']!r} has no `iroh` "
+                        f"feature: name e2e_lib = one of {qa_iroh}")
+                if "ios" in a["platforms"] and not str((a.get("ios") or {}).get("local_network") or "").strip():
+                    err(f"{where} uses the engine's iroh API ({used}) but [app.ios] has no local_network: iOS drops the local-network "
+                        f"traffic of an app without NSLocalNetworkUsageDescription and NSBonjourServices _irohv1._udp")
         for k in a["known_failing"]:
             if k not in ARTIFACT_COLUMNS and k not in PLATFORMS:
                 err(f"{where} known_failing names {k!r}, which is no platform")
@@ -346,8 +401,8 @@ def plan(m=None, e2e=False):
                 os="ubuntu-22.04" if kind == "android" else "macos-15", codegen_os="Linux" if kind == "android" else "macOS",
                 artifact=f"demolib-{col}-{variant}"))
     if e2e:
-        wanting = [a for a in m["app"] if a.get("e2e")]
         for variant, lib in sorted(artifact_only_libs(m).items()):
+            wanting = [a for a in m["app"] if a.get("e2e") and a["e2e_lib"] == variant]
             for col in lib["targets"]:
                 if not any(col in columns_of(a) for a in wanting):
                     continue
@@ -393,13 +448,13 @@ def plan(m=None, e2e=False):
         if e2e:   # the QA builds: the same app build against the artifact-only lib, in artifacts the shipped-files patterns never match
             for variant, lib in sorted(artifact_only_libs(m).items()):
                 for col, target in MOBILE_TARGETS.items():
-                    apps = [a for a in m["app"] if a.get("e2e") and col in columns_of(a)]
+                    apps = [a for a in m["app"] if a.get("e2e") and a["e2e_lib"] == variant and col in columns_of(a)]
                     if col.startswith(kind) and col in lib["targets"] and apps:
                         entries.append(dict(
                             leg=col, kind=kind, target=target, apps=" ".join(a["package"] for a in apps),
                             os="ubuntu-22.04" if kind == "android" else "macos-15", codegen_os="Linux" if kind == "android" else "macOS",
-                            lib_artifacts=f"demolib-{col}-{variant}", artifact=f"demoe2e-{col}",
-                            results_artifact=f"demoresults-{col}-e2e", variant=variant))
+                            lib_artifacts=f"demolib-{col}-{variant}", artifact=f"demoe2e-{col}-{variant}",
+                            results_artifact=f"demoresults-{col}-e2e-{variant}", variant=variant))
         out["apps_" + kind] = entries
     # the buttons the boot tests press after the first screenshot: {package: label}
     out["smoke_taps"] = json.dumps({a["package"]: a["smoke"]["tap"] for a in m["app"]
@@ -524,6 +579,27 @@ def read_symbols(dirs):
     return found
 
 
+def lib_deltas(libs):
+    """What each library adds to the closest smaller one built for the same target (the one whose cargo features it contains, with the most
+    of them): [{target, kind, added, size, seconds, base_size, base_seconds}]. `seconds` is the wall clock of the library job's build."""
+    deltas = []
+    for lib in libs:
+        features = set(str(lib.get("features", "")).split(","))
+        base = None
+        for other in libs:
+            if other is lib or (other.get("kind"), other.get("target")) != (lib.get("kind"), lib.get("target")):
+                continue
+            theirs = set(str(other.get("features", "")).split(","))
+            if theirs < features and (base is None or len(theirs) > len(base[0])):
+                base = (theirs, other)
+        if base:
+            deltas.append({"target": lib.get("target"), "kind": lib.get("kind"), "added": sorted(features - base[0]),
+                           "size": int(lib.get("size") or 0) - int(base[1].get("size") or 0),
+                           "seconds": int(lib.get("seconds") or 0) - int(base[1].get("seconds") or 0),
+                           "base_size": int(base[1].get("size") or 0), "base_seconds": int(base[1].get("seconds") or 0)})
+    return sorted(deltas, key=lambda d: (d["kind"] or "", d["target"] or "", d["added"]))
+
+
 def read_libs(dirs):
     """The libazul.info.json files the library jobs leave: [{kind, target, features, seconds, size, ...}]."""
     libs = []
@@ -592,6 +668,8 @@ def status(dirs, m=None, extra=None):
                                                "engine_crates", "first_error")}
                 if r.get("initializers") is not None:     # an Apple binary: the entries dyld_info lists (one: the ABI guard's)
                     cell["initializers"] = r["initializers"]
+                if r.get("page_aligned_libs") is not None:    # an APK: its libraries that passed the 16 KiB page check
+                    cell["page_aligned_libs"] = r["page_aligned_libs"]
             cell["staged"] = staged_name(a, col)      # the file the build stages and the asset the release serves: a failed or
             cell["release"] = release_name(a, col)    # missing cell has no `artifact`, and the page's link pruning needs the names
             if known:
@@ -620,7 +698,7 @@ def status(dirs, m=None, extra=None):
     # an Apple binary with NO initializer: the generated ABI guard's load-time entry is missing (one is the expected count)
     abi_guard_missing = sorted(f"{r['app']}/{c}" for r in rows for c, cell in r["cells"].items() if cell.get("initializers") == 0)
     summary = {
-        "libs": libs, "symbol_violations": symbol_violations, "abi_guard_missing": abi_guard_missing,
+        "libs": libs, "lib_deltas": lib_deltas(libs), "symbol_violations": symbol_violations, "abi_guard_missing": abi_guard_missing,
         "assets": total_files, "bytes": total_bytes, "shipped_bytes": total_shipped,
         "artifacts_of_the_run": extra.get("artifacts"), "runner_minutes": extra.get("runner_minutes"),
         "unexplained_failures": unexplained, "boot_failures": boot_failed, "smoke": extra.get("smoke", {}),
@@ -661,9 +739,10 @@ def render_markdown(data):
         lines.append(f"| {r['app']} | " + " | ".join(cells) + f" | {engine} | {secs} | {'; '.join(sizes[:2])}{' ...' if len(sizes) > 2 else ''} |")
     files = [(r["app"], c, cell) for r in data["apps"] for c, cell in r["cells"].items() if cell.get("artifact")]
     if files:
-        with_apple = any(cell.get("symbols") or cell.get("initializers") is not None for _, _, cell in files)
+        with_apple = any(cell.get("symbols") or cell.get("initializers") is not None or cell.get("page_aligned_libs") is not None
+                         for _, _, cell in files)
         lines += ["", "### Files (what the release page links)", "",
-                  "| asset | platform | stripped | shipped | seconds | engine crates | sha256 |" + (" Apple checks |" if with_apple else ""),
+                  "| asset | platform | stripped | shipped | seconds | engine crates | sha256 |" + (" platform checks |" if with_apple else ""),
                   "|---|---|---|---|---|---|---|" + ("---|" if with_apple else "")]
         for app, col, cell in files:
             parts = []
@@ -673,6 +752,9 @@ def render_markdown(data):
             n = cell.get("initializers")
             if n is not None:    # dyld_info -inits: one is the generated ABI guard's load-time entry
                 parts.append(f"{n} initializer" + ("" if n == 1 else "s") + ("" if n else " (the ABI guard's entry is missing)"))
+            pages = cell.get("page_aligned_libs")
+            if pages is not None:    # scripts/android_elf_check.py: every PT_LOAD of every library of the APK aligned for 16 KiB pages
+                parts.append(f"16 KiB pages: {pages} librar{'y' if pages == 1 else 'ies'} aligned")
             apple_text = f" {'; '.join(parts) or '-'} |"
             lines.append(f"| {cell['artifact']} | {col} | {human(cell.get('size'))} | {human(cell.get('shipped_size'))} | "
                          f"{cell.get('seconds') or 0} | {len(cell.get('engine_crates') or [])} | `{str(cell.get('sha256') or '')[:12]}` |"
@@ -688,9 +770,19 @@ def render_markdown(data):
             lines.append(f"| {q.get('artifact') or q['app']} | {q['column']} | {what} | {human(q.get('size'))} | {q.get('seconds') or 0} |")
     if s["libs"]:
         lines += ["", "### The libazul every app of a target links (built once)", "",
-                  "| target | features | seconds | size |", "|---|---|---|---|"]
+                  "| target | features | seconds | size | checks |", "|---|---|---|---|---|"]
         for l in sorted(s["libs"], key=lambda l: (l.get("kind", ""), l.get("target", ""), l.get("features", ""))):
-            lines.append(f"| {l.get('target') or 'host'} ({l.get('kind')}) | {l.get('features')} | {l.get('seconds')} | {human(l.get('size'))} |")
+            checks = "16 KiB pages aligned" if l.get("page_aligned") else "-"
+            lines.append(f"| {l.get('target') or 'host'} ({l.get('kind')}) | {l.get('features')} | {l.get('seconds')} | {human(l.get('size'))} | {checks} |")
+    if s.get("lib_deltas"):
+        lines += ["", "### What a library adds to the one without it (same target; seconds are the library job's wall clock)", "",
+                  "| target | adds | size | build time |", "|---|---|---|---|"]
+        for d in s["lib_deltas"]:
+            def signed(n):
+                return ("+" if n >= 0 else "-") + human(abs(n))
+            pct = lambda n, base: f" ({'+' if n >= 0 else '-'}{abs(n) * 100 / base:.0f} %)" if base else ""
+            seconds = f"{'+' if d['seconds'] >= 0 else '-'}{abs(d['seconds'])} s{pct(d['seconds'], d['base_seconds'])}"
+            lines.append(f"| {d['target'] or 'host'} ({d['kind']}) | {', '.join(d['added'])} | {signed(d['size'])}{pct(d['size'], d['base_size'])} | {seconds} |")
     if s["smoke"]:
         lines += ["", "### Boot tests", ""] + [f"- {k}: {v}" for k, v in sorted(s["smoke"].items())]
     if s["boot_failures"]:
@@ -748,6 +840,17 @@ def main(argv):
                 print(a["mobile_lib"])
                 return 0
         print(f"demo_apps: {rest[0]} is no phone app of scripts/demo_apps.toml", file=sys.stderr)
+        return 1
+    if cmd == "e2e-lib":
+        # demo_apps.py e2e-lib <package>: the QA library variant of an app that says e2e = true ([[app]] e2e_lib)
+        if len(rest) != 1:
+            print("usage: demo_apps.py e2e-lib <package>", file=sys.stderr)
+            return 2
+        for a in load()["app"]:
+            if a["package"] == rest[0] and a.get("e2e"):
+                print(a["e2e_lib"])
+                return 0
+        print(f"demo_apps: {rest[0]} has no QA build (e2e = true) in scripts/demo_apps.toml", file=sys.stderr)
         return 1
     if cmd == "assets":
         m = load()

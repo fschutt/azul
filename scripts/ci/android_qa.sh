@@ -7,6 +7,8 @@
 #            e2e: scripts/ci/mobile_e2e.py, the debug server of a `mobile-e2e` APK driven from the runner (the scenario
 #                 files named in AZ_QA_SCENARIOS, space separated);
 #            both: qa, then e2e on the same boot;
+#            flicker: idle redraws, flash frames and pan jitter (scripts/ci/flicker_audit.py; AZ_QA_FLICKER_E2E, AZ_QA_FLICKER_MAPS);
+#            matrix: every e2e scenario file against its host app (scripts/ci/e2e_matrix.py; AZ_QA_MATRIX_APKS: the e2e APKs);
 #            audit: the phone-fit audit of QA-variant APKs (scripts/ci/mobile_e2e.py --audit-only) on the first mode only: the
 #                 APK, then every APK of AZ_QA_AUDIT_APKS (space separated), each in its own folder <out>/<mode>/audit/<apk name>/
 #                 (layout-audit.md and .json, the dumps, both pictures per orientation, the dark-mode verdict, and the app's own
@@ -128,9 +130,23 @@ for mode in "${mode_list[@]}"; do
       mkdir -p "$d/apps"
       # AZ_QA_TAPS: lines `<apk name>=<button label>`: step 03e presses that button of that app
       xtap="$(printf '%s\n' "${AZ_QA_TAPS:-}" | sed -n "s/^$xn=//p" | head -n 1)"
+      # AZ_QA_ONLY_FOR: lines `<apk name>=<steps>`: the steps of THAT app instead of AZ_QA_ONLY_EXTRA (AzCompanion's UI is dark by design: no dark-mode step)
+      xonly="$(printf '%s\n' "${AZ_QA_ONLY_FOR:-}" | sed -n "s/^$xn=//p" | head -n 1)"
       python3 "$here/mobile_qa.py" android --out "$d/apps/$xn" --apk "$xapk" --package "$xpkg" --activity "${xact:-}" \
-        --label "$xn" --gpu "$mode" --only "${AZ_QA_ONLY_EXTRA:-03,08,09,12,13}" ${xtap:+--tap-label "$xtap"} 2>&1 | tee "$d/apps/$xn.log"
+        --label "$xn" --gpu "$mode" --only "${xonly:-${AZ_QA_ONLY_EXTRA:-03,08,09,12,13}}" ${xtap:+--tap-label "$xtap"} 2>&1 | tee "$d/apps/$xn.log"
     done
+  fi
+  if [ "$session" = flicker ] && [ "$mode" = "${mode_list[0]}" ]; then
+    # idle redraws, flash frames of a recording, pan jitter (scripts/ci/flicker_audit.py): $apk = the plain AzWidgets APK, AZ_QA_FLICKER_E2E = its e2e
+    # APK, AZ_QA_FLICKER_MAPS = the AzMaps APK
+    python3 "$here/flicker_audit.py" android --out "$d/flicker" --apk-plain "$apk" ${AZ_QA_FLICKER_E2E:+--apk-e2e "$AZ_QA_FLICKER_E2E"} \
+      ${AZ_QA_FLICKER_MAPS:+--maps "$AZ_QA_FLICKER_MAPS"} 2>&1 | tee "$d/flicker.log"
+  fi
+  if [ "$session" = matrix ] && [ "$mode" = "${mode_list[0]}" ]; then
+    # every e2e scenario file against its host app (scripts/ci/e2e_matrix.py): the e2e APK of each host (AZ_QA_MATRIX_APKS, space separated)
+    mapks=()
+    for mapk in "$apk" ${AZ_QA_MATRIX_APKS:-}; do mapks+=(--apk "$mapk"); done
+    python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
   fi
   if [ "$session" = audit ] && [ "$mode" = "${mode_list[0]}" ]; then
     aport=8795

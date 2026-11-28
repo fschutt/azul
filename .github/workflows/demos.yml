@@ -168,6 +168,10 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  # The macOS runners are the scarce kind (5 at once on this account, shared with every other run): this workflow never has more than
+  # THREE macOS jobs at the same time (a test of scripts/test_demo_apps.py computes the worst case from the `needs` and the
+  # `max-parallel` of the macOS jobs): lib_macos 2 + lib_ios 1, then apps_macos 2 + lib_ios 1, then apps_macos 2 + apps_ios 1, then
+  # apps_macos 2 + smoke_ios 1.
   lib_macos:
     name: libazul (${{ matrix.id }})
     needs: [plan, codegen_macos]
@@ -265,6 +269,12 @@ jobs:
           done
           echo "::error::MinGW unavailable: no gcc on PATH, none in the image, and choco failed 3x"
           exit 1
+      # scripts/demo_lib.sh runs python3 (the checks of the library and its info file): Git Bash on a Windows runner finds the one
+      # setup-python puts on the PATH (the apps job below has it as well)
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          python-version: '3.12'
       - name: Download generated bindings
         if: steps.cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/codegen-tree
@@ -352,7 +362,7 @@ jobs:
     needs: [plan, codegen_macos]
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 1   # beside the two macOS desktop libraries: three macOS jobs at most
       matrix: ${{ fromJSON(needs.plan.outputs.libs_ios) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -470,7 +480,7 @@ jobs:
     needs: [plan, codegen_macos, lib_macos]
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 2   # beside one iOS job (the iOS libraries, the iOS apps or their boot test): three macOS jobs at most
       matrix: ${{ fromJSON(needs.plan.outputs.apps_macos) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -663,7 +673,7 @@ jobs:
     needs: [plan, codegen_macos, lib_ios]
     strategy:
       fail-fast: false
-      # macOS runners are 5 at once on this account: the Apple apps take 3, the phone apps 1, the rest is for others
+      # one iOS job at a time beside the two macOS desktop jobs: three macOS jobs at most (the rest of the account's five is for others)
       max-parallel: 1
       matrix: ${{ fromJSON(needs.plan.outputs.apps_ios) }}
     runs-on: ${{ matrix.os }}
