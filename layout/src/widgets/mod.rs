@@ -175,6 +175,15 @@ pub mod backstage;
 ///
 /// A small rounded count/status pill (stateless); see `badge.rs`.
 pub mod badge;
+/// Bottom sheet widget.
+///
+/// A panel that floats over the lower part of its container (an overlay, not a split) and is
+/// dragged between detents - collapsed, peek, half, full - by its grip, a tap on it or the keys
+/// on it: a map's place card and results, a code editor's terminal panel; see `bottom_sheet.rs`.
+pub mod bottom_sheet;
+/// Detents: the pure part of a pane that rests at a few heights (collapsed, peek, half, full) - the heights, where a drag
+/// settles, what the keys on a grip do - shared by the bottom sheet and the Preview's bottom pane; see `detents.rs`.
+pub mod detents;
 /// Breadcrumb widget.
 ///
 /// A horizontal trail of clickable crumb links separated by "/", ending in the current

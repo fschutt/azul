@@ -17,8 +17,9 @@ mounts its normal window, runs the file, prints the cargo-style report and EXITS
 is pushed and its path set as the property `debug.az.e2e`; iOS: SIMCTL_CHILD_AZ_E2E; desktop: the environment variable, the headless
 backend. The report is parsed from the app's own output (logcat / the console files / stdout), the same text on all three.
 
-THE HOST APP of a file: the app whose DOM it asserts. examples/azul-widgets/e2e/*.json: AzWidgets. A file that MOUNTS its own DOM
-(an op `mount`) runs in AzWidgets everywhere. tests/e2e/azwriter_boot.json: AzWriter. The rest asserts the DOM of a desktop C example
+THE HOST APP of a file: the app whose DOM it asserts. examples/azul-widgets/e2e/*.json: AzWidgets. examples/<app folder>/e2e/*.json:
+the package of that folder's Cargo.toml (AzClock, ...), which needs `e2e = true` in the manifest to have a QA build. A file that MOUNTS
+its own DOM (an op `mount`) runs in AzWidgets everywhere. tests/e2e/azwriter_boot.json: AzWriter. The rest asserts the DOM of a desktop C example
 (hello-world, the resume_* family, ...): it has no host on a phone, and the desktop language board runs it, not this matrix.
 """
 import argparse
@@ -40,6 +41,8 @@ SUMMARY = re.compile(r"test result: .*?(?P<passed>\d+) passed; (?P<failed>\d+) f
 PLATFORMS = ("desktop", "runner", "android", "ios")
 PLATFORM_LABELS = {"desktop": "desktop (the app, headless backend)", "runner": "desktop (in-process runner)", "android": "android", "ios": "ios"}
 
+# the name of the package in an app's Cargo.toml: the host of the scenario files in the app's own examples/<folder>/e2e/
+PACKAGE_NAME = re.compile(r'\[package\][^\[]*?^name\s*=\s*"([^"]+)"', re.M | re.S)
 # files that assert an app's own DOM and are not in examples/azul-widgets: stem -> the phone app that hosts them (the rest has none)
 PHONE_HOST_BY_STEM = {"azwriter_boot": "AzWriter"}
 NO_PHONE_HOST_REASON = "asserts the DOM of a desktop C example (tests/e2e/*.sh, the language board), which is not a phone app"
@@ -68,19 +71,28 @@ def discover(repo):
             continue
         rel = str(f.relative_to(repo))
         mounted = any(step.get("op") == "mount" for t in tests for step in t.get("steps", []))
-        found.append({"file": str(f), "rel": rel, "self_mounted": mounted, "host": host_for(rel, mounted),
+        found.append({"file": str(f), "rel": rel, "self_mounted": mounted, "host": host_for(rel, mounted, repo),
                       "tests": [{"name": t.get("name", "?"), "only_on": t.get("only_on"), "pending": t.get("pending"),
                                  "not_applicable": t.get("not_applicable"), "expect": t.get("expect"), "steps": len(t.get("steps", []))} for t in tests]})
     return found
 
 
-def host_for(rel, self_mounted):
-    """The phone app that hosts a file, or None when it has none."""
+def host_for(rel, self_mounted, repo=None):
+    """The phone app that hosts a file, or None when it has none. `repo`: the checkout, to read the package of an app's own folder."""
     if rel.startswith("examples/azul-widgets/"):
         return "AzWidgets"
     stem = Path(rel).stem
     if stem in PHONE_HOST_BY_STEM:
         return PHONE_HOST_BY_STEM[stem]
+    parts = Path(rel).parts
+    if repo is not None and len(parts) > 3 and parts[0] == "examples" and parts[2] == "e2e":
+        # examples/<app folder>/e2e/*.json asserts the DOM of the app of that folder: the package its Cargo.toml names (AzClock, ...)
+        try:
+            named = PACKAGE_NAME.search((Path(repo) / "examples" / parts[1] / "Cargo.toml").read_text(encoding="utf-8"))
+        except OSError:
+            named = None
+        if named:
+            return named.group(1)
     return "AzWidgets" if self_mounted else None
 
 

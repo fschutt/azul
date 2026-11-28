@@ -111,8 +111,8 @@ pub const fn route_source(tiles: bool, online: bool, mode: TravelMode) -> RouteS
 
 /// The routing tiles of a `--routing` value ([`routing_source`]).
 pub enum RoutingTiles {
-    /// Downloaded, cached in memory and in the data folder.
-    Http(CachedTiles<HttpTiles>),
+    /// Downloaded, cached in memory and in the data folder (boxed: its cache is several times the folder's).
+    Http(Box<CachedTiles<HttpTiles>>),
     /// Read from a folder, kept in memory.
     Folder(CachedTiles<FolderTiles>),
 }
@@ -218,9 +218,9 @@ pub fn routing_source_keeping(template: &str, cache_root: &Path, keep_days: Opti
         // from the start, without asking the network.
         let manifest = Manifest::read_file(&cache.join("manifest.json")).ok();
         let policy = keep_policy(manifest.as_ref(), keep_days);
-        Arc::new(RoutingTiles::Http(
+        Arc::new(RoutingTiles::Http(Box::new(
             CachedTiles::new(http, Some(cache), CACHE_BYTES).with_policy(policy),
-        ))
+        )))
     } else {
         // A folder is on disk already: the cache only keeps its tiles in memory.
         let root = PathBuf::from(template.strip_prefix("file://").unwrap_or(template));
@@ -507,7 +507,7 @@ pub extern "C" fn route_worker(
     let mut last_sent: Option<(Instant, Progress)> = None;
     let mut progress = |p: Progress| {
         // Every tile is a step; the panel needs a few a second, and every change of stage.
-        let due = last_sent.map_or(true, |(at, last)| {
+        let due = last_sent.is_none_or(|(at, last)| {
             at.elapsed() >= PROGRESS_EVERY || last.stage != p.stage || last.attempt != p.attempt
         });
         if due {
@@ -796,7 +796,7 @@ mod tests {
             name: None,
         };
         for z in LEVELS {
-            for (tile, data) in cut_level(&[street.clone()], &coords, z) {
+            for (tile, data) in cut_level(std::slice::from_ref(&street), &coords, z) {
                 let bytes = gzip(&encode(&data));
                 write_to_folder(&dir, tile, &bytes).expect("a tile written");
             }
