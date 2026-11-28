@@ -97,13 +97,13 @@ pub(super) fn not_asked_for(test: &str) -> bool {
 }
 
 /// An OpenGL ES 3 context on a pbuffer-less surfaceless display, current on this thread.
-struct OffscreenGles {
+pub(super) struct OffscreenGles {
     session: EglSession,
     functions: GlesFunctions,
 }
 
 impl OffscreenGles {
-    fn open() -> Result<Self, String> {
+    pub(super) fn open() -> Result<Self, String> {
         let api = EglApi::load(&["libEGL.so.1", "libEGL.so"]).map_err(|e| e.to_string())?;
         let mut session = EglSession::open(api, DisplayKind::SurfacelessMesa, &[EGL_PBUFFER_BIT])
             .map_err(|e| e.to_string())?;
@@ -112,7 +112,7 @@ impl OffscreenGles {
         Ok(Self { session, functions })
     }
 
-    fn gl(&self) -> Rc<GenericGlContext> {
+    pub(super) fn gl(&self) -> Rc<GenericGlContext> {
         self.functions.context.clone()
     }
 }
@@ -126,7 +126,7 @@ impl Drop for OffscreenGles {
 
 /// The context of a test, or `None` with the reason on stderr: a machine with no OpenGL ES 3 does not run the test,
 /// and does not pretend that it did. With `AZ_REQUIRE_GLES` set the missing context is a failure.
-fn gles_or_skip(test: &str) -> Option<OffscreenGles> {
+pub(super) fn gles_or_skip(test: &str) -> Option<OffscreenGles> {
     if not_asked_for(test) {
         return None;
     }
@@ -146,7 +146,7 @@ fn gles_or_skip(test: &str) -> Option<OffscreenGles> {
 }
 
 /// A colour and a depth buffer WebRender draws into: it takes the framebuffer bound when a frame begins as its own.
-struct Framebuffer {
+pub(super) struct Framebuffer {
     gl: Rc<GenericGlContext>,
     fbo: u32,
     color: u32,
@@ -154,7 +154,7 @@ struct Framebuffer {
 }
 
 impl Framebuffer {
-    fn new(gl: Rc<GenericGlContext>, width: i32, height: i32) -> Result<Self, String> {
+    pub(super) fn new(gl: Rc<GenericGlContext>, width: i32, height: i32) -> Result<Self, String> {
         let fbo = *gl.gen_framebuffers(1).first().ok_or("no framebuffer")?;
         let buffers = gl.gen_renderbuffers(2);
         let (color, depth) = (
@@ -185,6 +185,11 @@ impl Framebuffer {
         } else {
             Err(format!("the framebuffer is incomplete (0x{status:x})"))
         }
+    }
+
+    /// The framebuffer object.
+    pub(super) fn id(&self) -> u32 {
+        self.fbo
     }
 
     fn bind(&self) {

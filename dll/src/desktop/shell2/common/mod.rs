@@ -27,6 +27,9 @@ pub mod gles_probe;
 /// What the GL context and the pixels of a frame say where a black window must be told from one that draws: reads only.
 #[cfg(any(target_os = "android", target_os = "linux"))]
 pub mod gles_trace;
+/// EXPERIMENT (the Android GPU root-cause hunt, never for master): GL without WebRender, a ladder of small programs that read back what they drew.
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub mod gles_control;
 /// The GPU path of a window that draws with OpenGL ES over EGL: the executor of the lifecycle reducer (Android; and Linux for
 /// its host test).
 #[cfg(any(target_os = "android", target_os = "linux"))]
