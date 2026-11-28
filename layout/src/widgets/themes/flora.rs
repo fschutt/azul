@@ -2081,6 +2081,11 @@ pub fn button(mut btn: Button) -> Dom {
         // The keyboard ring, last: it wins the Left and Bottom slots over a
         // hovered rim and a pressed well. A disabled command keeps its stop.
         container_style.extend(double_ring(2));
+        // A finger needs room: 48 dp on Android, 44 pt on iOS, nothing on a desktop (a link is
+        // text on its line: it keeps the line's height).
+        if btn_type != crate::widgets::button::ButtonType::Link {
+            container_style.extend(super::decl::touch_target_floor());
+        }
     } else if disabled {
         // A caller's style (a ribbon button's): no hover / pressed paint,
         // dimmed - the shared rule.
@@ -2510,6 +2515,8 @@ pub fn text_input(mut ti: TextInput) -> Dom {
         // The design system's field (see `field_skin`), the states last.
         container_style.extend(field_skin());
         container_style.extend(field_states());
+        // A finger needs room: 48 dp on Android, 44 pt on iOS, nothing on a desktop.
+        container_style.extend(super::decl::touch_target_floor());
     } else {
         // A caller's field (a PDF form's, on paper): only the night twins it
         // left open, and the shared ring.
@@ -3451,10 +3458,12 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
         DROPDOWN_ARROW_BASE, DROPDOWN_LABEL_BASE, DROPDOWN_WRAPPER_BASE,
     };
 
+    // A finger needs room: a drop-down is 48 dp tall on Android and 44 pt on iOS, nothing on a desktop.
+    let mut wrapper_style = [DROPDOWN_WRAPPER_BASE, flora_dropdown_wrapper_style().as_slice()].concat();
+    wrapper_style.extend(super::decl::touch_target_floor());
+
     Dom::create_div()
-        .with_css_props(CssPropertyWithConditionsVec::from_vec(
-            [DROPDOWN_WRAPPER_BASE, flora_dropdown_wrapper_style().as_slice()].concat(),
-        ))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(wrapper_style))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DROPDOWN_CLASS))
         .with_tab_index(TabIndex::Auto)
         .with_accessibility_info(AccessibilityInfo {
