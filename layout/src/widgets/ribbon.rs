@@ -2782,6 +2782,13 @@ pub struct Ribbon {
     pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
     /// Index of the currently active tab.
     pub active_tab: usize,
+    /// What a tab pill shows on a phone ([`Self::with_labels`]): one icon (`RibbonTab::with_icon`),
+    /// the rule where every tab names one, or its text. Only the touch pills take it; a desktop's
+    /// pills show their text. APPENDED for ABI stability.
+    pub labels: crate::widgets::tabs::TabLabels,
+    /// What a command shows of itself ([`Self::with_button_face`]): its icon and its label (the
+    /// default), the label alone or the icon alone. APPENDED for ABI stability.
+    pub button_face: RibbonButtonFace,
     /// The tab strip as the window's title bar ([`TabsInTitlebar`]), or
     /// `None` for a ribbon under a title row of its own.
     pub tabs_in_titlebar: OptionTabsInTitlebar,
@@ -2805,13 +2812,6 @@ pub struct Ribbon {
     /// ([`Self::with_flip`]): `AtEdges` (the default) flips with a finger that swipes on the band
     /// (it scrolls nothing vertically); `Off` never. APPENDED for ABI stability.
     pub flip: crate::widgets::tab_flip::TabFlip,
-    /// What a tab pill shows on a phone ([`Self::with_labels`]): one icon (`RibbonTab::with_icon`),
-    /// the rule where every tab names one, or its text. Only the touch pills take it; a desktop's
-    /// pills show their text. APPENDED for ABI stability.
-    pub labels: crate::widgets::tabs::TabLabels,
-    /// What a command shows of itself ([`Self::with_button_face`]): its icon and its label (the
-    /// default), the label alone or the icon alone. APPENDED for ABI stability.
-    pub button_face: RibbonButtonFace,
     /// The room the content band leaves at its left, px ([`Self::with_content_inset`]): the tab row stays
     /// the whole width. APPENDED for ABI stability.
     pub content_inset: f32,
