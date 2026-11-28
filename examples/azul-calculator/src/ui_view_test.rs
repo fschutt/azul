@@ -43,3 +43,13 @@ fn every_tab_has_a_view_and_a_word() {
         assert!(pin.label().starts_with("azcalculator-mode-"), "{}", pin.label());
     }
 }
+
+#[test]
+fn the_tabs_have_a_row_of_their_own_in_the_default_window_and_on_a_phone() {
+    assert!(DEFAULT_SIZE.0 < STACK_MODES_BELOW, "the default window is narrow");
+    assert!(412.0 < STACK_MODES_BELOW && 360.0 < STACK_MODES_BELOW, "so are the phones");
+    assert!(
+        PROGRAMMER_MIN_WIDTH >= STACK_MODES_BELOW,
+        "the wider views keep the tabs and the buttons in one row"
+    );
+}

@@ -171,6 +171,8 @@ const DEFAULT_SIZE: (f32, f32) = (340.0, 560.0);
 /// The smallest window the small calculator still fits.
 const MIN_SIZE: (f32, f32) = (300.0, 460.0);
 
+/// Under this width the mode tabs have a row of their own under History and Settings.
+pub const STACK_MODES_BELOW: f32 = 520.0;
 /// From this width on the window is the programmer calculator - and from [`PROGRAMMER_MIN_HEIGHT`]:
 /// a phone on its side is wide but short, and the programmer's panel over its keys needs the height.
 pub const PROGRAMMER_MIN_WIDTH: f32 = 640.0;
@@ -1342,8 +1344,17 @@ fn icon_button(app: &RefAny, icon: &str, name: &str, id: AzString, cb: ButtonOnC
 
 /// The mode tabs, then History (in the views that have it) and Settings. On a desktop the row is
 /// the window's top edge (no title bar): the controls' room is kept free at its ends and the
-/// empty part of it moves the window.
-fn modes_row(s: &CalcApp, app: &RefAny, view: View, controls: Option<kit::TitleInsets>) -> Dom {
+/// empty part of it moves the window. In a window narrower than [`STACK_MODES_BELOW`] the tabs
+/// get a row of their own under History and Settings (four tabs and two buttons do not fit one
+/// row of a phone or of the default window), and a phone scrolls the tabs sideways if they still
+/// do not fit.
+fn modes_row(
+    s: &CalcApp,
+    app: &RefAny,
+    view: View,
+    controls: Option<kit::TitleInsets>,
+    stacked: bool,
+) -> Dom {
     let labels: Vec<&str> = s.tab_pins.iter().map(|p| p.label()).collect();
     let active = s
         .tab_pins
@@ -1352,7 +1363,36 @@ fn modes_row(s: &CalcApp, app: &RefAny, view: View, controls: Option<kit::TitleI
         .unwrap_or(usize::MAX);
     let (left, right) = controls.map_or((8.0, 8.0), |c| (c.left + 8.0, c.right + 8.0));
     let drag = if controls.is_some() { " -azul-app-region: drag;" } else { "" };
-    let mut row = Dom::create_div()
+    let tabs = TabHeader::create(strs(&labels))
+        .with_active_tab(active)
+        .with_on_click(app.clone(), on_mode_tab as TabOnClickCallbackType)
+        .dom()
+        .with_id(ids::VIEW);
+    let mut buttons = Dom::create_div().with_css("display: flex; flex-direction: row; align-items: center; flex-shrink: 0; -azul-app-region: no-drag;");
+    if matches!(view, View::Micro | View::Programmer) {
+        buttons.add_child(icon_button(app, "history", "azcalculator-history", ids::TOGGLE_PANEL, on_toggle_panel));
+    }
+    buttons.add_child(icon_button(app, "settings", "azcalculator-settings", ids::SETTINGS, on_open_settings));
+    if stacked {
+        // Row 1: the window's controls' room, the empty part that moves the window, the buttons.
+        // Row 2: the tabs across the whole width.
+        return Dom::create_div()
+            .with_css("display: flex; flex-direction: column; min-width: 0px; flex-shrink: 0;")
+            .with_child(
+                Dom::create_div()
+                    .with_css(format!(
+                        "display: flex; flex-direction: row; align-items: center; justify-content: flex-end; \
+                         padding: 4px {right}px 0px {left}px; min-width: 0px;{drag}"
+                    ))
+                    .with_child(buttons),
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: row; min-width: 0px; overflow: hidden; padding: 0px 8px 4px 8px; -azul-app-region: no-drag;")
+                    .with_child(tabs),
+            );
+    }
+    Dom::create_div()
         .with_css(format!(
             "display: flex; flex-direction: row; align-items: center; padding: 4px {right}px 4px {left}px; \
              min-width: 0px;{drag}"
@@ -1360,18 +1400,9 @@ fn modes_row(s: &CalcApp, app: &RefAny, view: View, controls: Option<kit::TitleI
         .with_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; flex-grow: 1; min-width: 0px; overflow: hidden; -azul-app-region: no-drag;")
-                .with_child(
-                    TabHeader::create(strs(&labels))
-                        .with_active_tab(active)
-                        .with_on_click(app.clone(), on_mode_tab as TabOnClickCallbackType)
-                        .dom()
-                        .with_id(ids::VIEW),
-                ),
-        );
-    if matches!(view, View::Micro | View::Programmer) {
-        row.add_child(icon_button(app, "history", "azcalculator-history", ids::TOGGLE_PANEL, on_toggle_panel));
-    }
-    row.with_child(icon_button(app, "settings", "azcalculator-settings", ids::SETTINGS, on_open_settings))
+                .with_child(tabs),
+        )
+        .with_child(buttons)
 }
 
 /// The calculator's own settings sections.
@@ -1447,6 +1478,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // The window's size reaches this callback only through its recorded queries (a resize that
     // flips one builds the window again).
     let by_size = view_of_window(&info);
+    let stacked = info.window_width_less_than(STACK_MODES_BELOW);
     let phone = azul_appkit::insets::phone_window(&info);
     let touch = cfg!(any(target_os = "android", target_os = "ios"));
     let safe = azul_appkit::insets::SafeInsets::of(&info);
@@ -1487,7 +1519,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         shell = shell.with_min_size(MIN_SIZE.0, MIN_SIZE.1);
     }
     if !settings {
-        shell = shell.with_modes(modes_row(s, &app, view, controls));
+        shell = shell.with_modes(modes_row(s, &app, view, controls, stacked));
     }
     let column = Dom::create_div()
         .with_css(format!(
