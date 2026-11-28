@@ -41,16 +41,19 @@
   },
   {
     "name": "an inline list item shows its marker before its text on the same line",
-    "description": "LAYOUT23 proof 7. `display: inline list-item` items in a line: each shows its marker (a number in an ordered list, a bullet otherwise) before its text, and the whole stays one line.",
+    "description": "LAYOUT23 proof 7. `display: inline list-item` items in a line: each shows its marker (a number in an ordered list, a bullet otherwise) before its text, and the whole stays one line. The lists sit in a box of their own width (`#page`), so the line breaks where that box says on every host and not where the window's width does.",
     "setup": { "window_width": 400, "window_height": 160, "dpi": 96 },
     "steps": [
       { "op": "mount",
         "html": [
+          "<div id=\"page\">",
           "<ol id=\"numbered\"><li class=\"inline\">apples</li> <li class=\"inline\">pears</li></ol>",
-          "<ul id=\"bulleted\"><li class=\"inline\">plums</li> <li class=\"inline\">figs</li></ul>"
+          "<ul id=\"bulleted\"><li class=\"inline\">plums</li> <li class=\"inline\">figs</li></ul>",
+          "</div>"
         ],
         "css": [
           "body { margin: 0; }",
+          "#page { width: 380px; }",
           "ol, ul { margin: 10px; padding: 0; font-size: 16px; line-height: 20px; }",
           ".inline { display: inline list-item; list-style-position: inside; margin-right: 12px; }"
         ] },
