@@ -97,7 +97,7 @@ for apk in "$@"; do
   badging="$("$aapt2" dump badging "$apk" 2>/dev/null)"
   pkg="$(echo "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
   act="$(echo "$badging" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" | head -n 1)"
-  alive=0; alive_after=0; fatal=""; rust_lines=0; resumed=""; expect_text=""; expect_found=""
+  alive=0; alive_after=0; fatal=""; rust_lines=0; resumed=""; expect_text=""; expect_found=""; logs_json="{}"
   verdict_args=()
   if [ -z "$pkg" ] || [ -z "$act" ]; then
     fatal="no package or launchable activity in the APK's badging"
@@ -110,14 +110,19 @@ for apk in "$@"; do
       # (scripts/ci/smoke_verdict.py: an app that never came to the front leaves it behind).
       adb shell input keyevent KEYCODE_HOME >/dev/null 2>&1; sleep 2
       adb exec-out screencap -p >"$dir/baseline.png" 2>/dev/null || true
-      # An app the manifest presses a button of gets the engine's info log (AZ_LOG=info, through the system property debug.az.log): what
-      # a press did (an app that logs its taps: "tap <Action>") is then in the logcat of the run, tag azul
-      if [ -n "$(python3 -c 'import json,os,sys; print(json.loads(os.environ.get("AZ_SMOKE_TAPS") or "{}").get(sys.argv[1], ""))' "${app%-android-x86_64}")" ]; then
+      # The texts the manifest says the app's log must hold and must not hold ([app.smoke] log_present, log_absent, AZ_SMOKE_LOGS): {} for none
+      logs_json="$(python3 "$(dirname "$0")/ui_find.py" --logs "${app%-android-x86_64}")"
+      # An app the manifest presses a button of, or names log texts of, gets the engine's info log (AZ_LOG=info, through the system property
+      # debug.az.log): what a press did (an app that logs its taps: "tap <Action>") and what the app says at launch ("no Mac is paired") are
+      # then in the logcat of the run, tag azul
+      if [ -n "$(python3 -c 'import json,os,sys; print(json.loads(os.environ.get("AZ_SMOKE_TAPS") or "{}").get(sys.argv[1], ""))' "${app%-android-x86_64}")" ] || [ "$logs_json" != "{}" ]; then
         adb shell setprop debug.az.log "${AZ_SMOKE_LOG:-info}" >/dev/null 2>&1 || true   # AZ_SMOKE_LOG=debug: the shell's per-touch lines too
       fi
       adb shell am start -W -n "$pkg/$act" >"$dir/start.log" 2>&1 || true
       sleep "$wait_s"
       adb exec-out screencap -p >"$dir/screenshot.png" 2>/dev/null || true
+      # the log of the launch, taken now: the emulator's ring buffer may have dropped it by the end of the run
+      [ "$logs_json" != "{}" ] && { adb logcat -d -v threadtime >"$dir/logcat-launch.txt" 2>&1 || true; }
       [ -n "$(adb shell pidof "$pkg" 2>/dev/null | tr -d '\r')" ] && alive=1
       # which app the system itself says is in front
       adb shell dumpsys activity activities >"$dir/activities.txt" 2>&1 || true
@@ -201,6 +206,11 @@ PY
   # the platform's own launch numbers (informational: `am start -W` and the activity manager's "Displayed" line)
   [ -f "$dir/start.log" ] && verdict_args+=(--start-log "$dir/start.log")
   [ -f "$dir/logcat.txt" ] && verdict_args+=(--logcat "$dir/logcat.txt" --startup-log "$dir/logcat.txt")
+  # the texts the log must hold and must not hold, against the log of the launch, of the press and of the end of the run
+  if [ "$logs_json" != "{}" ]; then
+    verdict_args+=(--log-check "$logs_json")
+    for f in logcat-launch.txt logcat-after-tap.txt logcat.txt; do [ -f "$dir/$f" ] && verdict_args+=(--run-log "$dir/$f"); done
+  fi
   # THE pass line: scripts/ci/smoke_verdict.py (alive twice, on the screen, drawn, no fatal line); nothing else decides
   python3 "$(dirname "$0")/smoke_verdict.py" --out "$dir/result.json" --app "$app" --id "${pkg:-}" --alive "$alive" --alive-after "$alive_after" \
     --fatal "$fatal" --rust-lines "${rust_lines:-0}" --resumed "$resumed" --band 0.045,0.94 ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1

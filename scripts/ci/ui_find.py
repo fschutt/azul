@@ -12,6 +12,9 @@ shows it.
                                                 probe_tap, a toast of 2.5 s), or nothing
     ui_find.py --probe <dump> <package>         prints {"probe_label": ..., "probe_found": {...}}: whether the texts that must be on
                                                 the screen one second after that press are there ({} when the app has none)
+    ui_find.py --logs <package>                 prints {"present": [...], "absent": [...]}: the texts the manifest says the app's log must
+                                                hold and must not hold ([app.smoke] log_present, log_absent, through AZ_SMOKE_LOGS), {}
+                                                when it names none
 
 The dump is uiautomator's XML (Android: `adb shell uiautomator dump`: a node's `text` and `content-desc`) or idb's JSON (iOS:
 `idb ui describe-all --json`: the `AXLabel`, `label`, `AXValue`, `value` and `title` of every element). A text matches when it is
@@ -77,7 +80,19 @@ def probe(path, package, env=None):
     return {"probe_label": wanted["probe_tap"], "probe_found": find(path, wanted.get("probe_found") or [])}
 
 
+def logs_wanted(package, env=None):
+    """The texts the app's log must hold and must not hold ([app.smoke] log_present / log_absent): {"present": [...], "absent": [...]},
+    {} for an app whose manifest names none."""
+    wanted = json.loads((env if env is not None else os.environ).get("AZ_SMOKE_LOGS") or "{}").get(package) or {}
+    if not wanted.get("present") and not wanted.get("absent"):
+        return {}
+    return {"present": list(wanted.get("present") or []), "absent": list(wanted.get("absent") or [])}
+
+
 def main(argv):
+    if len(argv) >= 2 and argv[0] == "--logs":
+        print(json.dumps(logs_wanted(argv[1])))
+        return 0
     if len(argv) >= 3 and argv[0] == "--after":
         print(json.dumps(after(argv[1], argv[2])))
         return 0
