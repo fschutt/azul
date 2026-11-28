@@ -262,9 +262,21 @@ impl ShellThemeScope {
     /// and the scope grows in it, so the shells' panes take the window.
     #[must_use]
     pub fn body(self) -> Dom {
+        let look = look_for(self.theme);
+        // The window's CANVAS - the whole window, the bands under the status bar and the home indicator of a window the
+        // engine insets by the safe area too - takes the background of the root, which the body propagates (CSS 2.1
+        // s14.2). The ground lives on the scope's root one element below, so without it the bands stayed the white of
+        // no background around a dark app (the first look of AzCode on a phone: a white strip over a dark window).
+        let mut props = WINDOW_BODY_BASE.to_vec();
+        props.extend(
+            look.scope_root
+                .iter()
+                .filter(|p| matches!(p.property, CssProperty::BackgroundContent(_)))
+                .cloned(),
+        );
         Dom::create_body()
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(WINDOW_BODY_BASE))
-            .with_child(self.dom())
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(props))
+            .with_child(build(self, &look))
     }
 }
 
@@ -417,6 +429,24 @@ mod theme_scope_tests {
         let kids = body.children.as_ref();
         assert_eq!(kids.len(), 1, "the scope, alone");
         assert!(tc::has_class(&kids[0], THEME_SCOPE_CLASS));
+    }
+
+    #[test]
+    fn the_windows_body_carries_the_scopes_ground_so_the_canvas_under_the_bars_is_not_white() {
+        use azul_css::props::property::CssPropertyType;
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let body = ShellThemeScope::create(slot()).with_theme(theme).body();
+            let scope = &body.children.as_ref()[0];
+            for dark in [false, true] {
+                let ground = tc::resolve(scope, CssPropertyType::BackgroundContent, dark, None)
+                    .unwrap_or_else(|| panic!("{theme:?} dark {dark}: the scope has a ground"));
+                assert_eq!(
+                    tc::resolve(&body, CssPropertyType::BackgroundContent, dark, None).as_ref(),
+                    Some(&ground),
+                    "{theme:?} dark {dark}: the body carries it (the canvas propagates the body's background)"
+                );
+            }
+        }
     }
 
     #[test]

@@ -274,8 +274,9 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     azul_appkit::l10n::begin_layout(&info);
     let size = (info.get_window_width(), info.get_window_height());
     // The room the system keeps (status bar, cutout, home indicator, keyboard): read here, so a change
-    // of it rebuilds the window.
-    let insets = azul_appkit::insets::Insets::of(&info);
+    // of it rebuilds the window. The engine insets the ROOT of this window by the bars and the cutout (it does not
+    // draw under them), so what is left to the layout is the keyboard, less the bar under the root.
+    let insets = azul_appkit::insets::Insets::of(&info).inside_root();
     if let Some(mut st) = data.downcast_mut::<AppState>() {
         st.window = size;
         st.insets = insets;
