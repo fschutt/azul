@@ -229,11 +229,9 @@ fn the_pane_grows_as_the_finger_goes_up_and_the_right_dock_as_the_pointer_goes_l
     assert!(near(dragged_inspector_width(320.0, 1.0, f32::NAN, 1400.0), 320.0));
 }
 
-#[test]
-fn the_grip_is_a_finger_sized_strip() {
-    assert!(GRIP_HEIGHT >= 24.0);
-    assert!(PANE_PEEK > GRIP_HEIGHT, "the peek shows the grip and a line");
-}
+// the grip is a finger-sized strip and the peek shows it and a line: checked when this compiles
+const _: () = assert!(GRIP_HEIGHT >= 24.0);
+const _: () = assert!(PANE_PEEK > GRIP_HEIGHT);
 
 #[test]
 fn form_factor_auto_is_a_desktop_where_no_window_is_being_built() {

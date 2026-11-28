@@ -192,7 +192,5 @@ fn the_sheet_has_a_row_limit() {
     assert_eq!(all(&dom, SHEET_ITEM_CLASS).len(), MAX_ITEMS);
 }
 
-#[test]
-fn a_row_is_a_finger_tall() {
-    assert!(ITEM_HEIGHT >= 44.0);
-}
+// a row is a finger tall: checked when this compiles
+const _: () = assert!(ITEM_HEIGHT >= 44.0);

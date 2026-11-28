@@ -61,9 +61,8 @@ pub(crate) struct SidebarDemo {
     pub(crate) inspector_size: f32,
     /// The chosen row of the sidebar (its tag).
     pub(crate) selected: usize,
-    /// Whether the tree's folder "assets" and its child "fonts" show their children.
+    /// Whether the tree's folder "assets" shows its children.
     pub(crate) assets_open: bool,
-    pub(crate) fonts_open: bool,
     /// Whether the collapsible "Favourites" section shows its rows.
     pub(crate) favourites_open: bool,
     /// The index of the file the Inspector shows.
@@ -91,7 +90,6 @@ impl Default for SidebarDemo {
             inspector_size: 0.0,
             selected: TAG_FONTS,
             assets_open: true,
-            fonts_open: false,
             favourites_open: true,
             file: 0,
             editing: false,
@@ -165,17 +163,8 @@ fn the_sidebar(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Sidebar {
     );
     if demo.assets_open {
         tree = tree
-            .with_row(
-                SidebarRow::create("fonts")
-                    .with_depth(1)
-                    .with_tag(TAG_FONTS)
-                    .with_disclosure(demo.fonts_open)
-                    .with_selected(demo.selected == TAG_FONTS),
-            )
+            .with_row(SidebarRow::create("fonts").with_depth(1).with_tag(TAG_FONTS).with_selected(demo.selected == TAG_FONTS))
             .with_row(SidebarRow::create("icons").with_depth(1).with_tag(TAG_ICONS).with_selected(demo.selected == TAG_ICONS));
-        if demo.fonts_open {
-            tree = tree.with_row(SidebarRow::create("inter").with_depth(2).with_tag(8));
-        }
     }
     let collab = |on: bool| if on { SidebarCollab::On } else { SidebarCollab::Off };
     let documents = SidebarSection::create("Open documents")
@@ -543,10 +532,8 @@ extern "C" fn on_sidebar(mut data: RefAny, _: CallbackInfo, event: SidebarEvent)
                 }
             }
             SidebarEventKind::RowToggled => {
-                match event.tag {
-                    TAG_ASSETS => d.assets_open = event.expand,
-                    TAG_FONTS => d.fonts_open = event.expand,
-                    _ => {}
+                if event.tag == TAG_ASSETS {
+                    d.assets_open = event.expand;
                 }
                 d.last = format!("triangle of row {} opens: {}", event.index, event.expand);
             }
@@ -584,7 +571,7 @@ extern "C" fn on_location(mut data: RefAny, _: CallbackInfo, event: LocationEven
         match event.kind {
             LocationEventKind::EditStarted => {
                 d.editing = true;
-                d.text = String::from("Fonts");
+                d.text = String::new();
                 d.last = String::from("the pen");
             }
             LocationEventKind::EditChanged => {

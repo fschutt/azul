@@ -75,7 +75,7 @@ fn the_default_marker_is_still_15_by_25_around_an_11_px_disc() {
 fn the_wedge_scales_with_the_disc() {
     let small = wedge_shape(11.0, 0.25).expect("a quarter");
     let big = wedge_shape(22.0, 0.25).expect("a quarter");
-    let end = |shape: &SvgMultiPolygon| shape.rings.as_ref()[0].items.as_ref().iter().map(|e| e.get_start()).last().expect("a point");
+    let end = |shape: &SvgMultiPolygon| shape.rings.as_ref()[0].items.as_ref().iter().map(|e| e.get_start()).next_back().expect("a point");
     let (a, b) = (end(&small), end(&big));
     assert!((b.x - 2.0 * a.x).abs() < 1e-2 && (b.y - 2.0 * a.y).abs() < 1e-2, "{a:?} {b:?}");
 }

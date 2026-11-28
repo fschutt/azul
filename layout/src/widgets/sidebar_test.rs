@@ -244,7 +244,7 @@ fn the_selected_row_is_marked_for_the_eye_and_for_a_screen_reader() {
     assert_eq!(selected.len(), 1);
     assert!(text_of(selected[0]).contains("Inbox"));
     let states = &selected[0].root.get_accessibility_info().expect("an a11y info").states;
-    assert!(states.as_ref().iter().any(|s| *s == AccessibilityState::Selected));
+    assert!(states.as_ref().contains(&AccessibilityState::Selected));
 }
 
 #[test]
