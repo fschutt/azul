@@ -88,7 +88,7 @@ if [ "$session" = matrix ]; then
   # (space separated; the app of this session when unset)
   apps=()
   for z in ${AZ_QA_MATRIX_APPS:-$app}; do apps+=(--app "$z"); done
-  python3 "$here/e2e_matrix.py" ios --repo . --out "$out" --udid "$udid" ${apps[@]+"${apps[@]}"} 2>&1 | tee "$out/e2e-matrix.log"
+  python3 "$here/e2e_matrix.py" ios --repo . --out "$out" --udid "$udid" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${apps[@]+"${apps[@]}"} 2>&1 | tee "$out/e2e-matrix.log"
 fi
 if [ "$session" = flicker ]; then
   # the recording is cut into frames with ffmpeg, which a macOS runner may not have
