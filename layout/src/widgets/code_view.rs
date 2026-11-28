@@ -67,6 +67,16 @@
 //! press on a line number selects the line, the wheel scrolls whole lines
 //! (Shift: columns), the scroll bar's thumb drags through all lines.
 //!
+//! TOUCH (the shells map the first finger to the mouse's left button, and
+//! the touch points are in the window state): a tap places the caret on its
+//! LIFT and brings the soft keyboard up (the engine raises it by itself only
+//! for an editable node, and this view's text is the app's), a double tap
+//! selects the word, a pan - a finger past the 8 px touch slop - scrolls
+//! whole rows and columns with the text following the finger and is no tap
+//! (the engine's own pan drives the scroll boxes under a finger, and this
+//! view scrolls by lines, not by a pixel offset). Nothing drags a selection
+//! under a finger.
+//!
 //! ACCESSIBILITY: the view is a `Text`-role node named by
 //! [`CodeView::with_accessibility_name`]; its value says where the caret is
 //! ("Line 12 of 400, byte 5").
