@@ -26,6 +26,8 @@ import android.content.Context;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
+import android.os.Handler;
+import android.os.Looper;
 
 public final class AzulMediaSession {
 
@@ -155,9 +157,20 @@ public final class AzulMediaSession {
                     }
                     return super.onMediaButtonEvent(intent);
                 }
-            });
+            // `start` runs on the engine's loop thread, which has NO Looper: `setCallback(cb)` without a handler
+            // builds `new Handler()` for the calling thread and throws there, the catch below swallowed it and the
+            // session stayed null (a music app never appeared on the lock screen). The callbacks run on the main thread.
+            }, new Handler(Looper.getMainLooper()));
             session.setActive(true);
         } catch (Throwable t) {
+            // A session that was made and not finished must not stay claimed (it would be inert and hold the media
+            // button for nothing).
+            try {
+                if (session != null) {
+                    session.release();
+                }
+            } catch (Throwable ignored) {
+            }
             session = null;
         }
     }

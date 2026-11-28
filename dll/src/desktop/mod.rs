@@ -46,10 +46,13 @@ pub mod compositor2;
 pub mod webrender_settings;
 /// What the environment asks of the app start and the shells (the group D1 of the env pass)
 pub mod shell_settings;
-/// Where the first milliseconds of an app go: the marks of the start from the process creation to
-/// the first frame (`AZ_STARTUP=1`)
+/// The font manifest of the app, checked before it is believed: a key file written with it names the build, the OS
+/// build, the scanned directories, the manifest's own hash and the size and time of every font it lists
+pub mod font_cache_guard;
 /// The static instances of variable fonts, kept in a directory of the app's cache between runs.
 pub mod font_instance_store;
+/// Where the first milliseconds of an app go: the marks of the start from the process creation to
+/// the first frame (`AZ_STARTUP=1`)
 pub mod startup_timeline;
 /// Client-Side Decorations (CSD) - Custom window titlebar
 pub(crate) mod csd;
