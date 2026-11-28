@@ -23,7 +23,7 @@ fn every_windows_route_names_a_kind_the_player_knows() {
             );
         }
     }
-    assert_eq!(named, 5, "Info, Question, Warning, Error and Bell");
+    assert_eq!(named, 6, "Info, Question, Warning, Error, DropReject and Bell");
     assert_eq!(message_beep_kind("MB_OK"), Some(0x00));
     assert_eq!(message_beep_kind("MB_ICONHAND"), Some(0x10));
     assert_eq!(message_beep_kind("MB_ICONQUESTION"), Some(0x20));

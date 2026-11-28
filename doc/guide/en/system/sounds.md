@@ -26,7 +26,6 @@ default-search-keys:
   - get_sound_route
   - get_sound_log
   - set_sounds_muted
-  - assert_sound
 ---
 
 # Sounds
@@ -56,17 +55,17 @@ A meaning that has no route on a platform walks a ladder of the nearest meaning 
 
 ## What plays where
 
-| sound | Android | iOS | desktop |
-|---|---|---|---|
-| `Click`, `ToggleOn`, `ToggleOff`, `TabChange`, `DropAccept` | `AudioManager.FX_KEY_CLICK`, the click of "Touch sounds" | selection tap for the toggles and the tab change, nothing for the click | none |
-| `Tick` | `AudioManager.FX_FOCUS_NAVIGATION_DOWN` (the same file as the click) | selection tap | none |
-| `Back` | `AudioManager.FX_BACK` (Android 12), the click before | none | none |
-| `Notification`, `Success`, `Info`, `Question` | the user's notification tone, played as a notification is (`RingtoneManager`, usage `USAGE_NOTIFICATION`) | success tap for `Success` only | none |
-| `Warning`, `Error`, `Bell`, `DropReject` | `AudioManager.FX_KEYPRESS_INVALID` | warning or error tap | none |
-| `CameraShutter`, `ScreenCapture` | `MediaActionSound.SHUTTER_CLICK` | none | none |
-| `MenuOpen`, `MenuClose`, `Expand`, `Collapse`, `DragStart`, `Delete`, `TrashEmpty`, `Send` | none | none | none |
+| sound | Android | iOS | macOS | Windows | Linux |
+|---|---|---|---|---|---|
+| `Click`, `ToggleOn`, `ToggleOff`, `TabChange`, `DropAccept` | `AudioManager.FX_KEY_CLICK`, the click of "Touch sounds" | selection tap for the toggles and the tab change, nothing for the click | none | none | none |
+| `Tick` | `AudioManager.FX_FOCUS_NAVIGATION_DOWN` (the same file as the click) | selection tap | none | none | none |
+| `Back` | `AudioManager.FX_BACK` (Android 12), the click before | none | none | none | none |
+| `Notification`, `Success`, `Info`, `Question` | the user's notification tone, played as a notification is (`RingtoneManager`, usage `USAGE_NOTIFICATION`) | success tap for `Success` only | none | `Info` and `Question`: the sound scheme's Asterisk and Question (`MessageBeep`) | none |
+| `Warning`, `Error`, `Bell`, `DropReject` | `AudioManager.FX_KEYPRESS_INVALID` | warning or error tap | the alert sound of System Settings (`Bell`: the system beep) | the scheme's Exclamation (`Warning`), Critical Stop (`Error`, `DropReject`), the default beep (`Bell`) | none |
+| `CameraShutter`, `ScreenCapture` | `MediaActionSound.SHUTTER_CLICK` | none | none | none | none |
+| `MenuOpen`, `MenuClose`, `Expand`, `Collapse`, `DragStart`, `Delete`, `TrashEmpty`, `Send` | none | none | none | none | none |
 
-"None" is an answer, not a stub: the platform has no sound of its own for that meaning, no sound is bundled, and the request is recorded as `none:no-system-route`. The desktop routes (the macOS alert sound, the Windows sound scheme, the freedesktop sound theme through libcanberra) follow.
+"None" is an answer, not a stub: the platform has no sound of its own for that meaning, no sound is bundled, and the request is recorded as `none:no-system-route`. The macOS alert sound honours the alert volume and the device chosen for alerts, and flashes the screen when the user asked for that; the Windows sounds are the user's sound scheme, so "No Sounds" silences them and nothing is written to the registry. The Linux route (libcanberra and the freedesktop sound theme) needs a connection to the sound server, which belongs to the window, and is not built yet.
 
 What is silent by design, and why:
 
