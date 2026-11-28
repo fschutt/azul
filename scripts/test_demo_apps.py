@@ -694,6 +694,12 @@ class QaOnlyAppTest(unittest.TestCase):
                     self.assertEqual(demo_apps.main([command, "AzPaint"]), 0, command)
                 self.assertEqual(buf.getvalue().strip(), "mobile-e2e", command)
 
+    def test_the_check_summary_counts_the_qa_only_apps_apart(self):
+        buf = io.StringIO()
+        with mock.patch.object(demo_apps, "load", lambda path=demo_apps.MANIFEST: self.m), contextlib.redirect_stdout(buf):
+            self.assertEqual(demo_apps.main(["check"]), 0)
+        self.assertIn(f"ok - {len(self.m['app'])} apps (+ 1 QA-only), ", buf.getvalue())
+
     def test_the_qa_only_command_and_the_ios_qa_script_know_it_has_no_shipped_build(self):
         with mock.patch.object(demo_apps, "load", lambda path=demo_apps.MANIFEST: self.m), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(demo_apps.main(["qa-only", "AzPaint"]), 0)
@@ -740,6 +746,111 @@ class QaOnlyAppTest(unittest.TestCase):
                 phone.assert_not_called()
                 self.assertEqual(demo_build.main(argv + ["--variant", "mobile-e2e"]), 0)    # the QA build is the build of it
                 phone.assert_called_once()
+
+
+class SmokeLogCheckTest(unittest.TestCase):
+    """[app.smoke] log_present / log_absent: what the app's own log must hold and must not hold after the boot test. The companion's
+    first screen must say that no Mac is paired and that the local network is left alone, and no iroh endpoint may be bound at all
+    before a pairing starts (the line `[iroh::endpoint] endpoint; id=...` is what a bound endpoint logs): a bind that comes back fails the
+    boot test of the emulator and of the simulator."""
+
+    NO_MAC = "AzCompanion: no Mac is paired: the local network is left alone until a pairing starts"
+    BIND_TEXT = "[iroh::endpoint] endpoint; id="
+    BIND = "2026-11-28T01:02:03Z  INFO [iroh::endpoint] endpoint; id=7f3a9c, relay=none"
+
+    def wanted(self, m):
+        return ui_find.logs_wanted("AzCompanion", {"AZ_SMOKE_LOGS": demo_apps.plan(m)["smoke_logs"]})
+
+    def facts(self, wanted, *logs):
+        return {"alive": True, "alive_after": True, "screen_nonblank": True, "home_similarity": 0.5, "differs_from_home": True,
+                "log": smoke_verdict.log_facts(wanted, logs)}
+
+    def test_the_manifest_names_the_two_texts_and_the_plan_hands_them_on(self):
+        m = demo_apps.load()
+        smoke = next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]
+        self.assertEqual(smoke["log_present"], [self.NO_MAC])
+        self.assertEqual(smoke["log_absent"], [self.BIND_TEXT])
+        self.assertEqual(smoke["after_tap"], ["Demo Mac"])      # the demo still comes up (it binds nothing now)
+        self.assertEqual(json.loads(demo_apps.plan(m)["smoke_logs"]), {"AzCompanion": {"present": [self.NO_MAC], "absent": [self.BIND_TEXT]}})
+        self.assertEqual(self.wanted(m), {"present": [self.NO_MAC], "absent": [self.BIND_TEXT]})
+        self.assertEqual(ui_find.logs_wanted("AzWidgets", {"AZ_SMOKE_LOGS": demo_apps.plan(m)["smoke_logs"]}), {})
+
+    def test_a_log_with_the_line_and_without_the_bind_passes(self):
+        wanted = self.wanted(demo_apps.load())
+        passed, reason = smoke_verdict.judge(self.facts(wanted, "I azul: " + self.NO_MAC + "\nI azul: tap Try it without a Mac\n"))
+        self.assertTrue(passed, reason)
+
+    def test_the_bind_that_comes_back_fails_the_boot_test(self):
+        wanted = self.wanted(demo_apps.load())
+        # the bind is back and so is its line: the log of the launch holds both
+        passed, reason = smoke_verdict.judge(self.facts(wanted, self.NO_MAC + "\n" + self.BIND + "\n"))
+        self.assertFalse(passed)
+        self.assertIn(self.BIND_TEXT, reason)
+        self.assertIn("must not", reason)
+        # the line that says the network is left alone is gone as well (the window setup connects): the other text is missing
+        passed, reason = smoke_verdict.judge(self.facts(wanted, self.BIND + "\n"))
+        self.assertFalse(passed)
+        self.assertIn("no Mac is paired", reason)
+
+    def test_the_check_is_there_because_the_manifest_says_so(self):
+        # the negative control: with the two lines taken out of the manifest, the same log (the bind is back) passes, so the boot test
+        # fails for it only through what the manifest names
+        m = demo_apps.load()
+        smoke = next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]
+        log = self.BIND + "\n"
+        self.assertFalse(smoke_verdict.judge(self.facts(self.wanted(m), log))[0])
+        del smoke["log_present"], smoke["log_absent"]
+        self.assertEqual(self.wanted(m), {})
+        self.assertTrue(smoke_verdict.judge(self.facts(self.wanted(m), log))[0])
+        smoke["log_absent"] = [self.BIND_TEXT]      # only the absent text: the bind is still caught
+        self.assertFalse(smoke_verdict.judge(self.facts(self.wanted(m), log))[0])
+
+    def test_the_verdict_command_writes_what_it_looked_for(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "launch.txt").write_text("I azul: " + self.NO_MAC + "\n", encoding="utf-8")
+            (root / "end.txt").write_text(self.BIND + "\n", encoding="utf-8")
+            argv = ["--out", str(root / "r.json"), "--app", "AzCompanion-android-x86_64", "--alive", "1", "--alive-after", "1",
+                    "--log-check", json.dumps({"present": [self.NO_MAC], "absent": [self.BIND_TEXT]}),
+                    "--run-log", str(root / "launch.txt"), "--run-log", str(root / "end.txt"), "--run-log", str(root / "missing.txt")]
+            smoke_verdict.main(argv)
+            facts = json.loads((root / "r.json").read_text())
+        self.assertEqual(facts["log"], {"present": {self.NO_MAC: True}, "absent": {self.BIND_TEXT: True}})
+
+    def test_the_manifest_check_wants_lists_of_texts(self):
+        for key in ("log_present", "log_absent"):
+            m = demo_apps.load()
+            next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"][key] = "a text"
+            self.assertTrue(any("AzCompanion" in e and key in e and "list" in e for e in demo_apps.check(m)), key)
+            m = demo_apps.load()
+            next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"][key] = [" "]
+            self.assertTrue(any("AzCompanion" in e and key in e for e in demo_apps.check(m)), key)
+        m = demo_apps.load()
+        smoke = next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]
+        smoke["log_absent"] = [self.NO_MAC]      # a text that must be there and must not be: no log can pass
+        self.assertTrue(any("AzCompanion" in e and "log_present" in e and "log_absent" in e for e in demo_apps.check(m)))
+
+    def test_both_boot_tests_turn_the_info_log_on_and_hand_the_logs_to_the_verdict(self):
+        for name in ("android_smoke.sh", "ios_smoke.sh"):
+            text = (HERE / "ci" / name).read_text(encoding="utf-8")
+            self.assertIn("ui_find.py", text, name)
+            self.assertIn("--logs", text, name)              # the texts of the manifest for this app
+            self.assertIn("--log-check", text, name)         # handed to the verdict ...
+            self.assertIn("--run-log", text, name)           # ... with the logs of the run
+        android = (HERE / "ci" / "android_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("logcat-launch.txt", android)          # the log of the launch, before the ring buffer of the emulator can drop it
+        self.assertIn("debug.az.log", android)
+        ios = (HERE / "ci" / "ios_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("SIMCTL_CHILD_AZ_LOG=info", ios)
+        self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "ci" / "ios_smoke.sh")]).returncode, 0)
+        self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "ci" / "android_smoke.sh")]).returncode, 0)
+
+    def test_the_workflow_and_the_build_script_hand_the_texts_on(self):
+        yml = (demo_apps.ROOT / ".github" / "workflows" / "demos.yml").read_text(encoding="utf-8")
+        self.assertIn("smoke_logs: ${{ steps.plan.outputs.smoke_logs }}", yml)
+        self.assertEqual(yml.count("AZ_SMOKE_LOGS: ${{ needs.plan.outputs.smoke_logs }}"), 2)      # the Android and the iOS boot test
+        build = (HERE / "ci" / "android_build_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("AZ_SMOKE_LOGS", build)
 
 
 class WorkflowContractTest(unittest.TestCase):

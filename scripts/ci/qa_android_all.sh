@@ -24,4 +24,4 @@ export AZ_QA_TAPS="AzCompanion-android-x86_64=Try it without a Mac"
 export AZ_QA_ONLY_EXTRA=03,08,09,12,13
 export AZ_QA_ONLY_FOR="AzCompanion-android-x86_64=03,08,09,13"   # AzCompanion's UI is dark in both modes by design
 export AZ_QA_EXTRA_APKS="$dir/AzMaps-android-x86_64.apk $dir/AzMeet-android-x86_64.apk $dir/AzPaint-android-x86_64.apk $dir/AzWriter-android-x86_64.apk $dir/AzCompanion-android-x86_64.apk"
-bash "$(dirname "$0")/android_qa.sh" demo-out/qa "$apk" swiftshader_indirect,guest AzWidgets-e2e both
+bash "$(dirname "$0")/android_qa.sh" "${AZ_QA_OUT:-demo-out/qa}" "$apk" "${AZ_QA_GLMODES:-swiftshader_indirect,guest}" AzWidgets-e2e both
