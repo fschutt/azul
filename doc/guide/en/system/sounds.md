@@ -101,7 +101,7 @@ The AzWidgets demo has a "Sounds" section, the sound board: one button per sound
 
 ## Which sound is which on Android
 
-`AudioManager.playSoundEffect(int)` plays one of the UI effects of the OS. The mapping of an id to a file is AOSP's `core/res/res/xml/audio_assets.xml` (read from `main`, from the tags `android-14.0.0_r1` and `android-15.0.0_r1`, and from the GrapheneOS branch of Android 17: it is the same in all of them), and `SoundEffectsHelper` looks the file up in `/product/media/audio/ui/` first and in `/system/media/audio/ui/` after.
+`AudioManager.playSoundEffect(int)` plays one of the UI effects of the OS. The mapping of an id to a file is AOSP's audio_assets.xml of frameworks/base (read from `main`, from the tags `android-14.0.0_r1` and `android-15.0.0_r1`, and from the GrapheneOS branch of Android 17: it is the same in all of them), and `SoundEffectsHelper` looks the file up in `/product/media/audio/ui/` first and in `/system/media/audio/ui/` after.
 
 | id | constant | since | file |
 |---|---|---|---|
