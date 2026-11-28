@@ -9,6 +9,10 @@
 #            both: qa, then e2e on the same boot;
 #            flicker: idle redraws, flash frames and pan jitter (scripts/ci/flicker_audit.py; AZ_QA_FLICKER_E2E, AZ_QA_FLICKER_MAPS);
 #            matrix: every e2e scenario file against its host app (scripts/ci/e2e_matrix.py; AZ_QA_MATRIX_APKS: the e2e APKs);
+#            tabs: the tab strip (examples/azul-widgets/e2e/tab_touch*.json) on the emulator's phone, portrait then landscape: the
+#                 engine's frames of every file (AZ_E2E_SHOT_DIR, pulled), the device's own pictures of a plain start (light, dark) and a
+#                 recording of each run; AZ_ANDROID_DEVICE=pixel_8 and AZ_ANDROID_OVERLAYS=com.android.internal.display.cutout.emulation.hole
+#                 give it the Pixel 8 with its punch hole (first mode only);
 #            audit: the phone-fit audit of QA-variant APKs (scripts/ci/mobile_e2e.py --audit-only) on the first mode only: the
 #                 APK, then every APK of AZ_QA_AUDIT_APKS (space separated), each in its own folder <out>/<mode>/audit/<apk name>/
 #                 (layout-audit.md and .json, the dumps, both pictures per orientation, the dark-mode verdict, and the app's own
@@ -36,6 +40,9 @@ sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
 [ -x "$sdk/sdkmanager" ] || sdk="$(dirname "$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | tail -n 1)")"
 export PATH="$sdk:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 image="${AZ_ANDROID_IMAGE:-system-images;android-34;default;x86_64}"
+# the device profile of the AVD (avdmanager list device): AZ_ANDROID_DEVICE=pixel_8; AZ_ANDROID_OVERLAYS: system overlays to enable after the boot
+# (`com.android.internal.display.cutout.emulation.hole` = a punch-hole camera: the system draws the cutout and the app gets its display cutout)
+device="${AZ_ANDROID_DEVICE:-pixel_6}"
 # The package the APK declares (aapt2 of build-tools 34)
 aapt2="$ANDROID_HOME/build-tools/34.0.0/aapt2"
 
@@ -77,7 +84,8 @@ for mode in "${mode_list[@]}"; do
   d="$out/$mode${AZ_QA_BACKEND:+-$AZ_QA_BACKEND}"; mkdir -p "$d"   # AZ_QA_BACKEND=cpu|gpu|auto: a run of that renderer, its own folder
   echo "================ emulator GPU mode: $mode ================"
   adb kill-server >/dev/null 2>&1 || true
-  echo no | avdmanager create avd --force -n "qa_$mode" -k "$image" -d pixel_6 >"$d/avd.log" 2>&1 \
+  avdmanager list device -c 2>/dev/null | grep -qx "$device" || { echo "no device profile $device: pixel_6"; device=pixel_6; }
+  echo no | avdmanager create avd --force -n "qa_$mode" -k "$image" -d "$device" >"$d/avd.log" 2>&1 \
     || { cat "$d/avd.log"; echo '{"booted": false, "reason": "avdmanager failed"}' >"$d/boot.json"; continue; }
   # a soft keyboard on the screen (an emulator with a hardware keyboard shows none)
   cfg="$HOME/.android/avd/qa_$mode.avd/config.ini"
@@ -104,6 +112,11 @@ for mode in "${mode_list[@]}"; do
   printf '{"booted": true, "mode": "%s", "boot_seconds": %d}\n' "$mode" "$boot_s" >"$d/boot.json"
   echo "emulator booted in ${boot_s}s: $(adb shell getprop ro.product.cpu.abi | tr -d '\r'), API $(adb shell getprop ro.build.version.sdk | tr -d '\r')"
   sleep 20   # the launcher and system UI settle (a first screenshot of a booting system shows an ANR dialog)
+  if [ -n "${AZ_ANDROID_OVERLAYS:-}" ] && [ "$mode" = "${mode_list[0]}" ]; then
+    for ov in $AZ_ANDROID_OVERLAYS; do adb shell cmd overlay enable "$ov" 2>&1 | tee -a "$d/overlays.log"; done
+    sleep 8
+    adb shell cmd overlay list 2>/dev/null | grep -i -E "cutout|emulation" >>"$d/overlays.log" || true
+  fi
   if [ "$session" = qa ] || [ "$session" = both ]; then
     python3 "$here/mobile_qa.py" android --out "$d" --apk "$apk" --package "$pkg" --activity "${act:-}" \
       --label "$label" --gpu "$mode" ${AZ_QA_POINTS:+--points "$AZ_QA_POINTS"} \
@@ -149,6 +162,36 @@ for mode in "${mode_list[@]}"; do
     for mapk in "$apk" ${AZ_QA_MATRIX_APKS:-}; do mapks+=(--apk "$mapk"); done
     # AZ_QA_MATRIX_ONLY=<text>: only the files whose path holds it (e.g. `sounds`: one scenario file of a new feature)
     python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
+  fi
+  if [ "$session" = tabs ] && [ "$mode" = "${mode_list[0]}" ]; then
+    # THE TAB STRIP on the phone: the files of AZ_QA_TABS_FILES (parts of the file names, default tab_touch_phone tab_touch.json tab_touch_pictures)
+    # against the e2e APK, per orientation: (1) the device's own pictures of a plain start, light and dark (the system draws the cutout), (2) per file a
+    # recording of its run and the engine's frames of it (AZ_E2E_SHOT_DIR, pulled by scripts/ci/e2e_matrix.py --shots), its verdicts in the table
+    adb shell dumpsys window displays 2>/dev/null | grep -i -E "cutout|init=|DisplayInfo" | head -n 24 >"$d/display.txt" || true
+    adb shell settings put system accelerometer_rotation 0
+    for orient in portrait landscape; do
+      adb shell settings put system user_rotation "$([ "$orient" = portrait ] && echo 0 || echo 1)"
+      sleep 6
+      td="$d/tabs-$orient"; mkdir -p "$td/shots" "$td/videos"
+      adb shell dumpsys window displays 2>/dev/null | grep -i -E "cutout|init=|mRotation|rotation=" | head -n 12 >"$td/display.txt" || true
+      adb shell am force-stop "$pkg" >/dev/null 2>&1
+      if [ -n "${act:-}" ]; then adb shell am start -n "$pkg/$act" >/dev/null 2>&1; else adb shell monkey -p "$pkg" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1; fi
+      sleep 30
+      adb exec-out screencap -p >"$td/device-light-start.png" 2>/dev/null || true
+      adb shell cmd uimode night yes >/dev/null 2>&1; sleep 8
+      adb exec-out screencap -p >"$td/device-dark-start.png" 2>/dev/null || true
+      adb shell cmd uimode night no >/dev/null 2>&1; sleep 4
+      adb shell am force-stop "$pkg" >/dev/null 2>&1
+      for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures}; do
+        vid="/sdcard/tabs-$orient-${part%.json}.mp4"
+        ( adb shell screenrecord --time-limit 170 "$vid" >/dev/null 2>&1 & )
+        python3 "$here/e2e_matrix.py" android --repo . --out "$td/matrix-${part%.json}" --only "$part" --shots "$td/shots" --apk "$apk" 2>&1 | tee -a "$td/e2e-matrix.log"
+        adb shell 'kill -2 $(pidof screenrecord)' >/dev/null 2>&1 || true
+        sleep 4
+        adb pull "$vid" "$td/videos/" >/dev/null 2>&1 || echo "no recording $vid"
+      done
+    done
+    adb shell settings put system accelerometer_rotation 1
   fi
   if [ "$session" = audit ] && [ "$mode" = "${mode_list[0]}" ]; then
     aport=8795

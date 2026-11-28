@@ -190,9 +190,20 @@ def apk_identity(apk):
     return (pkg.group(1) if pkg else ""), (act.group(1) if act else "")
 
 
-def run_android(scns, apks, out, serial="", timeout=240):
+def android_shot_dir(package, stem):
+    """Where the engine writes the frames of one scenario file on an Android phone when they are to be pulled: the app's own folder on the
+    external storage (adb reads it without root). The path travels in the system property `debug.az.env` (`AZ_E2E_SHOT_DIR=<path>`), whose
+    value holds 91 characters at most: the name of a file with a long name is cut to what fits (the frames are pulled to a folder of the real
+    name right after the file's run)."""
+    base = f"/sdcard/Android/data/{package}/files/"
+    room = 91 - len("AZ_E2E_SHOT_DIR=") - len(base)
+    return base + stem[:max(room, 1)]
+
+
+def run_android(scns, apks, out, serial="", timeout=240, shots=""):
     """The Android run: per host app its APK is installed once; per file the scenario is pushed, its path becomes `debug.az.e2e`, the app
-    is started cold and the file's report is read from logcat when the process has exited."""
+    is started cold and the file's report is read from logcat when the process has exited. `shots`: a folder on this machine; the engine's
+    frames of each file (AZ_E2E_SHOT_DIR, the app's own folder on the external storage, which adb can read) are pulled to <shots>/<file stem>/."""
     import mobile_qa as q
     run = q.Run(out, "android", {"label": "e2e matrix"})
     records = []
@@ -227,7 +238,9 @@ def run_android(scns, apks, out, serial="", timeout=240):
         dev.sh(f"setprop debug.az.e2e {remote}")
         # a relative output path of a scenario (`target/e2e/x.png`) cannot be written in an app's working directory: the window's e2e output folder
         # (AZ_E2E_SHOT_DIR) is where the engine falls back to, the app's own cache folder here
-        dev.sh(f"setprop debug.az.env 'AZ_E2E_SHOT_DIR=/data/user/0/{dev.package}/cache'")
+        stem = Path(scn["rel"]).stem
+        shot_dev = android_shot_dir(dev.package, stem) if shots else ""
+        dev.sh(f"setprop debug.az.env 'AZ_E2E_SHOT_DIR={shot_dev or '/data/user/0/' + dev.package + '/cache'}'")
         dev.sh(f"am force-stop {dev.package}")
         dev.adb("logcat", "-c")
         started = time.time()
@@ -246,6 +259,11 @@ def run_android(scns, apks, out, serial="", timeout=240):
         crash = dev.adb("logcat", "-d", "-b", "crash", "-v", "threadtime", timeout=60)
         (raw_dir / (Path(scn["rel"]).stem + ".txt")).write_text(text + ("\n== crash buffer\n" + crash if crash.strip() else ""), encoding="utf-8")
         dev.sh("am force-stop " + dev.package)
+        if shot_dev:
+            dest = Path(shots) / stem
+            dest.mkdir(parents=True, exist_ok=True)
+            pulled = dev.adb("pull", shot_dev + "/.", str(dest), timeout=180)
+            print(f"{stem}: {len(list(dest.glob('*.png')))} engine frames pulled ({pulled.strip().splitlines()[-1][:120] if pulled.strip() else 'no output'})")
         why = ("the app was still running after the timeout" if not ended and seen else
                "the app never started" if not seen else "the app exited without a verdict" + (" (crash buffer: " + crash.strip().splitlines()[0][:120] + ")" if crash.strip() else ""))
         records += records_for(scn, "android", text, started, why)
@@ -255,7 +273,7 @@ def run_android(scns, apks, out, serial="", timeout=240):
     return records
 
 
-def run_ios(scns, app_zips, udid, out, timeout=240):
+def run_ios(scns, app_zips, udid, out, timeout=240, shots=""):
     """The iOS run: per host app the Simulator app is installed once; per file SIMCTL_CHILD_AZ_E2E names it (the Simulator shares the host's
     files), the app is launched cold and the report is read from its console when the process has exited."""
     import plistlib
@@ -293,7 +311,9 @@ def run_ios(scns, app_zips, udid, out, timeout=240):
             records += not_applicable(scn, "ios", f"the e2e Simulator app of {host} did not install")
             continue
         started = time.time()
-        dev.launch(extra_env={"AZ_E2E": str(Path(scn["file"]).resolve()), "AZ_E2E_SHOT_DIR": "/tmp"}, cold=True)   # /tmp: the Simulator's host folder
+        # /tmp: the Simulator's host folder; with `shots` one folder per file in it, the engine's frames of that file
+        shot_dir = str(Path(shots).resolve() / Path(scn["rel"]).stem) if shots else "/tmp"
+        dev.launch(extra_env={"AZ_E2E": str(Path(scn["file"]).resolve()), "AZ_E2E_SHOT_DIR": shot_dir}, cold=True)
         seen, ended = False, False
         while time.time() - started < timeout:
             alive = dev.alive()
@@ -408,9 +428,11 @@ def main(argv):
     a = sub.add_parser("android", parents=[common])
     a.add_argument("--apk", action="append", default=[])
     a.add_argument("--serial", default="")
+    a.add_argument("--shots", default="", help="a folder: the engine's frames of each file are kept in <shots>/<file stem>/")
     i = sub.add_parser("ios", parents=[common])
     i.add_argument("--app", action="append", default=[])
     i.add_argument("--udid", default="")
+    i.add_argument("--shots", default="", help="a folder: the engine's frames of each file are kept in <shots>/<file stem>/")
     m = sub.add_parser("merge", parents=[common])
     m.add_argument("dirs", nargs="+")
     args = ap.parse_args(argv)
@@ -439,9 +461,9 @@ def main(argv):
         bins = dict(b.split("=", 1) for b in args.bin)
         records = run_desktop(scns, bins, out, azul_doc=args.azul_doc)
     elif args.cmd == "android":
-        records = run_android(scns, args.apk, out, args.serial)
+        records = run_android(scns, args.apk, out, args.serial, shots=args.shots)
     else:
-        records = run_ios(scns, args.app, args.udid, out)
+        records = run_ios(scns, args.app, args.udid, out, shots=args.shots)
     (out / f"e2e-{args.cmd}.json").write_text(json.dumps(records, indent=1), encoding="utf-8")
     verdicts = {}
     for r in records:
