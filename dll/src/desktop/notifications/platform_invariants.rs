@@ -97,7 +97,15 @@ fn the_android_permission_dialog_is_requested_on_the_ui_thread() {
         java.contains("runOnUiThread"),
         "the helper runs the request on the UI thread:\n{java}"
     );
-    assert!(java.contains("requestPermissions("), "{java}");
+    // The dialog itself is shown by `startNext`, which the request runs on that thread: the requests wait for each
+    // other (the system cancels one that is made while another dialog is up).
+    assert!(java.contains("startNext("), "{java}");
+    let next = AZUL_PERMISSIONS_JAVA
+        .find("private static void startNext(")
+        .expect("AzulPermissions.startNext shows the dialog of the next request");
+    let next = &AZUL_PERMISSIONS_JAVA[next..];
+    let next = &next[..next.find("\n    }\n").unwrap_or(next.len())];
+    assert!(next.contains("requestPermissions("), "{next}");
 }
 
 /// `AppConfig::app_id` names the app on every run path - the windowed run,

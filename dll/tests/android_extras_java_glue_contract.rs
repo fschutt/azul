@@ -136,3 +136,43 @@ fn a_switched_off_location_provider_falls_back_to_the_other_one() {
         "the other provider is asked whether it is on before it is used"
     );
 }
+
+/// Rust source without its comments and without whitespace (rustfmt breaks the calls over lines).
+fn rust_code(rel: &str) -> String {
+    read(rel)
+        .lines()
+        .map(|l| l.split("//").next().unwrap_or(""))
+        .collect::<String>()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect()
+}
+
+/// A permission dialog comes from a person, once: a denial is REMEMBERED by the app (Android reads "never asked" and
+/// "denied, don't ask again" the same, so a denial forgotten at the next start was asked about again at every launch)
+/// and the diff-driven path (a probe node in the DOM) never asks again; only a person's explicit request does, once,
+/// while the system still offers a rationale (the rule is `android_table::may_show_dialog`, tested there).
+///
+/// Mutation: `handle_event` calling `request(capability)` (the state of 1dc25e2a8a: a rebuild that added the probe node
+/// asked again after every denial).
+#[test]
+fn a_denied_permission_is_remembered_and_only_a_person_asks_again() {
+    let java = java_code("scripts/android/AzulPermissions.java");
+    let proxy = method_body(&java, "public static boolean onRequestPermissionsResultProxy(");
+    assert!(proxy.contains("remember(activity, permissions, grantResults)"), "the answer of every request is remembered");
+    let remember = method_body(&java, "private static void remember(");
+    assert!(
+        remember.contains("\"denied.\" + permissions[i]") && remember.contains("grantResults[i] != 0"),
+        "a refusal is kept per permission, a later grant clears it"
+    );
+    assert!(java.contains("public static boolean wasDenied(Activity activity, String permission)"));
+
+    let rust = rust_code("dll/src/desktop/extra/permission/android.rs");
+    let handle = method_body(&rust, "pubfnhandle_event(event:&PermissionDiffEvent){");
+    assert!(handle.contains("request_with(capability,false)"), "the diff never asks again after a denial");
+    let request = method_body(&rust, "pubfnrequest(capability:Capability)->bool{");
+    assert!(request.contains("request_with(capability,true)"), "a person's request may ask once more");
+    let with = method_body(&rust, "fnrequest_with(capability:Capability,reask:bool)->bool{");
+    assert!(with.contains("may_show_dialog(probe.state,probe.rationale,reask)"), "the one rule decides");
+    assert!(rust.contains("\"wasDenied\""), "the quiet probe reads what the app remembered");
+}
