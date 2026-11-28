@@ -80,6 +80,7 @@ azmaps-chip-parking-query = Parkplatz
 azmaps-chip-hotels = Hotels
 azmaps-chip-hotels-query = Hotel
 azmaps-panel = Suche und Orte
+azmaps-window = Karte
 azmaps-show-search = Suche zeigen
 azmaps-expand-panel = Seitenleiste einblenden
 azmaps-collapse-panel = Seitenleiste einklappen

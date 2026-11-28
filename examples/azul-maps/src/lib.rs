@@ -1614,6 +1614,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let body = ShellThemeScope::create(column)
         .with_accent(ShellThemeAccent::Leaf)
         .body()
+        .with_accessibility_name(label("azmaps-window"))
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key);
     if s.stats {
         let n = s.layouts.get() + 1;
@@ -1839,7 +1840,7 @@ extern "C" fn on_travel_text(
     _info: CallbackInfo,
     state: TextInputState,
 ) -> OnTextInputReturn {
-    let keep = OnTextInputReturn {
+    let mut keep = OnTextInputReturn {
         update: Update::DoNothing,
         valid: TextInputValid::Yes,
     };
@@ -1849,6 +1850,13 @@ extern "C" fn on_travel_text(
     if let Some(mut s) = app.downcast_mut::<MapState>() {
         *s.travel.text_mut(end) = state.get_text().as_str().to_string();
         s.typed = Some((end, std::time::Instant::now()));
+        // Typing in the search leaves the place that is open: what it finds comes in the search view (one rebuild for the
+        // first key, none for the rest).
+        if end == End::To && s.flow.panel == Panel::Place {
+            s.flow.clear();
+            s.selected = None;
+            keep.update = Update::RefreshDom;
+        }
     }
     keep
 }
@@ -1981,6 +1989,10 @@ extern "C" fn on_search_done(mut app: RefAny, mut msg: RefAny, mut info: Callbac
         };
         println!("AZMAPS_SUGGEST_SOURCE {} {} {stage}", end.key(), list.len());
         let pick_now = s.pick_first == Some(end) && !list.is_empty();
+        // The results are what the sheet of a phone shows now: at its peek it would show two rows of them.
+        if !list.is_empty() && matches!(s.sheet, SheetDetent::Collapsed | SheetDetent::Peek) {
+            s.sheet = SheetDetent::Half;
+        }
         s.suggestions = Some(Suggestions {
             end,
             query,
