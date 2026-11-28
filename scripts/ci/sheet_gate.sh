@@ -12,6 +12,8 @@
 #   autofix    api.json through azul-doc: `autofix add` for the new functions, patches until there are none, normalize; the result is
 #              api.json (upload it) and api.diff; then a SECOND round that must change nothing
 #   doc_check  azul-doc check (the double-drop invariant, the guide links) and azul-doc check layout
+#   manifest_tests  the widget manifest and its lints (every widget module registered or exempted, contrast groups, warning-free DOMs)
+#   workspace  the CI's workspace line (azul-css, azul-core, azul-layout, webrender: --lib --tests), the zero-test guard
 #   srcgate    the repository's source rules alone (cargo test -p azul-srcgate): no libazul, no codegen
 #   dll_check  codegen of the bindings from the api.json as it stands, cargo check of azul-dll, the srcgate tests
 #   apps       the two apps over the bindings: cargo check --lib --tests and the apps' own unit tests (no engine crate builds in them)
@@ -166,6 +168,26 @@ dll_check() {
   return "$code"
 }
 run dll_check dll_check
+
+# the widget manifest and its lints: a widget module must be in `every_widget_dom()` (or exempted with a reason), a contrast group, and warning-free
+manifest_tests() {
+  local code=0
+  AZ_REQUIRE_TEST_FONTS=1 cargo test -p azul-layout --lib --features "$features" --no-fail-fast -- widgets:: dom_lint 2>&1 | tee manifest-lib.txt
+  [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
+  AZ_REQUIRE_TEST_FONTS=1 cargo test -p azul-layout --features "$features" --no-fail-fast --test all -- widget_lint_manifest 2>&1 | tee manifest-all.txt
+  [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
+  return "$code"
+}
+run manifest_tests manifest_tests
+
+# the CI's workspace line (what master's gate runs), with the zero-test guard
+workspace() {
+  cargo test -p azul-css -p azul-core -p azul-layout -p webrender --lib --tests --features "$features" --no-fail-fast 2>&1 | tee workspace.txt
+  local code="${PIPESTATUS[0]}"
+  ./scripts/zero_test_guard.sh --strict workspace.txt || code=1
+  return "$code"
+}
+run workspace workspace
 
 # the source rules of the repository (no global state, aggregates as statics, tests in adjacent files, ...) over the tree as it is
 srcgate() {
