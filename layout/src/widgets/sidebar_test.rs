@@ -466,8 +466,10 @@ fn a_status_has_a_popover_with_a_title_and_a_line_of_detail() {
         .with_detail(AzString::from("64 GB of 100 GB used"));
     let dom = Sidebar::create().with_status(status).with_form(FormFactor::Desktop).dom();
     let popover = first(&dom, SIDEBAR_POPOVER_CLASS).expect("the default popover is in the tree");
-    let said = text_of(popover);
-    assert!(said.contains("Drive, 64 %") && said.contains("64 GB of 100 GB used"), "{said}");
+    assert!(text_of(popover).contains("64 GB of 100 GB used"), "the line of detail is the content");
+    // the title is the dialog's own: it is the heading and the name of the popover for assistive technology
+    let title = first(&dom, "__azul-native-dialog-title").expect("the dialog's title");
+    assert!(text_of(title).contains("Drive, 64 %"), "{}", text_of(title));
 }
 
 #[test]

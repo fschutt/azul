@@ -2090,10 +2090,9 @@ fn popover_content(status: &SidebarStatus) -> Dom {
     if let Some(dom) = status.popover.as_ref() {
         return dom.clone();
     }
-    let mut lines: Vec<Dom> = alloc::vec![styled(
-        widget_p_with_text(AzString::from(status.spoken())),
-        "margin: 0px; font-weight: 700;"
-    )];
+    // the heading is the dialog's own title (`status_dom`: it names the popover for assistive technology too), the
+    // content is the line of detail
+    let mut lines: Vec<Dom> = Vec::new();
     if !status.detail.as_str().is_empty() {
         lines.push(styled(
             widget_p_with_text(status.detail.clone()),
@@ -2207,6 +2206,7 @@ fn status_dom(ctx: &Ctx, status: &SidebarStatus, expanded: bool, theme: OptionUi
         on_all(invoker, tip_callbacks(&AzString::from(spoken.as_str()), false))
     };
     let mut dialog = Dialog::create(popover_content(status))
+        .with_title(AzString::from(spoken.as_str()))
         .with_invoker(invoker)
         .with_modal(false)
         .with_anchor(TransientAnchor::Right)
