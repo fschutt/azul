@@ -9987,7 +9987,7 @@ impl LayoutWindow {
                 let widest = changes
                     .iter()
                     .map(|change| change.current_prop.get_type().relayout_scope(true))
-                    .fold(RelayoutScope::None, |widest, scope| widest.max(scope));
+                    .fold(RelayoutScope::None, RelayoutScope::max);
                 (*node_id, widest)
             })
             .collect();
