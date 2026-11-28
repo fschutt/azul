@@ -823,6 +823,15 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                 }
                 let found = tasks::detect(&files);
                 println!("AZCODE_TASKS {}", found.len());
+                // A cap is told: a source with this many may have had more (a package.json of thousands of scripts).
+                for source in [tasks::Source::Cargo, tasks::Source::Npm, tasks::Source::Make] {
+                    if found.iter().filter(|t| t.source == source).count() >= tasks::MAX_TASKS {
+                        st.diag.say(&t_args(
+                            "azcode-tasks-capped",
+                            &[("count", Arg::from(tasks::MAX_TASKS)), ("file", Arg::from(source.file()))],
+                        ));
+                    }
+                }
                 st.tasks = TaskState {
                     tasks: found,
                     loaded: true,

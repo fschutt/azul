@@ -42,6 +42,13 @@ fn the_lists_keep_the_newest_and_never_grow_past_their_caps() {
     }
     assert_eq!(d.output_len(), MAX_OUTPUT);
     assert_eq!(d.output().last(), Some(&*format!("line {}", MAX_OUTPUT + 9)));
+    // a cap is told: the lists count what they let go of, until they are cleared
+    assert_eq!(d.dropped_problems(), 50);
+    let said = MAX_PROBLEMS + 50 + MAX_OUTPUT + 10;
+    assert_eq!(d.dropped_output(), said - MAX_OUTPUT);
+    d.clear_problems();
+    d.clear_output();
+    assert_eq!((d.dropped_problems(), d.dropped_output()), (0, 0));
 }
 
 #[test]

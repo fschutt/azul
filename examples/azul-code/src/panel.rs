@@ -236,7 +236,18 @@ fn problems_view(app: &RefAny, st: &AppState, phone: bool) -> Dom {
         }
         list.add_child(row);
     }
+    if st.diag.dropped_problems() > 0 {
+        list.add_child(dropped_note(st.diag.dropped_problems()));
+    }
     list
+}
+
+/// What a list says under its last (oldest) entry when its cap let older ones go.
+fn dropped_note(count: usize) -> Dom {
+    ui::label(
+        &l10n::t_args("azcode-panel-dropped", &[("count", l10n::Arg::from(count))]),
+        "flex-shrink: 0; font-size: 12px; opacity: 0.6; padding: 6px 16px;",
+    )
 }
 
 /// The Output, the newest line first.
@@ -255,6 +266,9 @@ fn output_view(st: &AppState, _phone: bool) -> Dom {
                 .with_css("padding: 1px 16px; font-size: 12px; font-family: monospace; white-space: pre-wrap; flex-shrink: 0;")
                 .with_child(Dom::create_span_with_text(*line)),
         );
+    }
+    if st.diag.dropped_output() > 0 {
+        list.add_child(dropped_note(st.diag.dropped_output()));
     }
     list
 }

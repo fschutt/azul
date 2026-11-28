@@ -55,11 +55,13 @@ pub struct Problem {
     pub line: Option<usize>,
 }
 
-/// The two lists.
+/// The two lists, and how many entries each has let go of at its cap (the panel says so under the list).
 #[derive(Debug, Clone, Default)]
 pub struct Diagnostics {
     problems: Vec<Problem>,
     output: VecDeque<String>,
+    dropped_problems: usize,
+    dropped_output: usize,
 }
 
 /// `text` cut to [`MAX_CHARS`] characters with an ellipsis, a line break turned into a space.
@@ -90,6 +92,7 @@ impl Diagnostics {
         if self.problems.len() > MAX_PROBLEMS {
             let extra = self.problems.len() - MAX_PROBLEMS;
             self.problems.drain(..extra);
+            self.dropped_problems = self.dropped_problems.saturating_add(extra);
         }
     }
 
@@ -103,6 +106,7 @@ impl Diagnostics {
         self.output.push_back(tidy(line));
         while self.output.len() > MAX_OUTPUT {
             self.output.pop_front();
+            self.dropped_output = self.dropped_output.saturating_add(1);
         }
     }
 
@@ -115,6 +119,18 @@ impl Diagnostics {
     /// The lines of output, the oldest first.
     pub fn output(&self) -> impl Iterator<Item = &str> {
         self.output.iter().map(String::as_str)
+    }
+
+    /// How many problems the cap has let go of since the list was last cleared.
+    #[must_use]
+    pub const fn dropped_problems(&self) -> usize {
+        self.dropped_problems
+    }
+
+    /// How many lines of output the cap has let go of since the list was last cleared.
+    #[must_use]
+    pub const fn dropped_output(&self) -> usize {
+        self.dropped_output
     }
 
     /// How many lines of output there are.
@@ -132,11 +148,13 @@ impl Diagnostics {
     /// Every problem forgotten (the Problems list's Clear).
     pub fn clear_problems(&mut self) {
         self.problems.clear();
+        self.dropped_problems = 0;
     }
 
     /// The output forgotten (the Output list's Clear).
     pub fn clear_output(&mut self) {
         self.output.clear();
+        self.dropped_output = 0;
     }
 }
 

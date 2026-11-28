@@ -236,4 +236,6 @@ azcode-task-group = { $source } ({ $file })
 azcode-task-make = Make-Ziele
 azcode-task-npm = npm-Skripte
 azcode-terminal-started = Terminal { $number } in { $folder } gestartet
+azcode-panel-dropped = { $count } ältere Einträge werden nicht mehr aufbewahrt.
+azcode-tasks-capped = Von { $file } werden höchstens { $count } Aufgaben aufgelistet.
 azcode-terminal-unavailable = Dieses Gerät kann kein Terminal starten: Sein System erlaubt Apps nicht, andere Programme zu starten.
