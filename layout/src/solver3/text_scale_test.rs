@@ -191,3 +191,48 @@ fn the_style_cache_does_not_serve_a_style_of_another_text_size() {
     styled.set_dynamic_selector_context(context_with_text_scale(1.0));
     assert_eq!(at(&styled, &mut cache), 30.0);
 }
+
+// ---- "Bold text" ------------------------------------------------------------------------------------------------
+
+use azul_css::accessibility::{SettingState, BOLD_TEXT_WEIGHT_STEP};
+
+fn request_weight(styled: &StyledDom, id: usize) -> f32 {
+    let id = NodeId::new(id);
+    font_request_of_node(styled, id, &styled.get_styled_node_state(&id)).weight.to_f32()
+}
+
+fn with_bold_text(css: &str, bold: SettingState, adjustment: Option<i16>) -> StyledDom {
+    let mut styled = document(css, None);
+    let mut preferences = AccessibilityPreferences::default();
+    preferences.bold_text = bold;
+    if let Some(step) = adjustment {
+        preferences.bold_weight_adjustment = azul_css::OptionI16::Some(step);
+    }
+    styled.set_dynamic_selector_context(DynamicSelectorContext {
+        preferences,
+        ..DynamicSelectorContext::default()
+    });
+    styled
+}
+
+/// "Bold text" makes every weight heavier by the platform's step, and nothing else.
+#[test]
+fn bold_text_adds_its_step_to_every_weight() {
+    let css = "body { font-weight: 400; } div { font-weight: 700; }";
+    let plain = with_bold_text(css, SettingState::Off, None);
+    assert_eq!(request_weight(&plain, 0), 400.0);
+    assert_eq!(request_weight(&plain, 1), 700.0);
+
+    let bold = with_bold_text(css, SettingState::On, None);
+    assert_eq!(request_weight(&bold, 0), 400.0 + f32::from(BOLD_TEXT_WEIGHT_STEP));
+    assert_eq!(request_weight(&bold, 1), 1000.0, "capped");
+
+    // the platform's own adjustment (Android: 300, but a vendor may say another)
+    let custom = with_bold_text(css, SettingState::On, Some(200));
+    assert_eq!(request_weight(&custom, 0), 600.0);
+
+    // a window that says nothing, and a document no window adopted
+    let unknown = with_bold_text(css, SettingState::Unknown, None);
+    assert_eq!(request_weight(&unknown, 0), 400.0);
+    assert_eq!(request_weight(&document(css, None), 0), 400.0);
+}

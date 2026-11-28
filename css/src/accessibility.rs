@@ -401,7 +401,7 @@ pub fn clamp_text_scale(factor: f32) -> Option<(f32, bool)> {
 ///
 /// Fields are APPENDED, never reordered. A field a platform cannot read stays `Unknown`.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct AccessibilityPreferences {
     // ---- text ----
     /// How much bigger (or smaller) than its default the user wants text: 1.0 is the default.
@@ -653,65 +653,22 @@ impl AccessibilityPreferences {
     /// Sets the text scale of a category (its factor, and the category itself).
     pub fn set_text_size_category(&mut self, category: TextSizeCategory) {
         self.text_size_category = category;
-        self.text_scale = match category.scale_factor() {
-            Some(factor) => OptionF32::Some(factor),
-            None => OptionF32::None,
-        };
+        self.text_scale = OptionF32::from(category.scale_factor());
     }
 
     /// Sets one field from its text: the field names of [`PREFERENCE_FIELDS`], the values of
     /// [`SettingState::parse`] (and the number, category or word each other field takes). `Ok`
-    /// carries a diagnostic when the value had to be capped; `Err` says what was wrong, and
-    /// leaves the field as it was.
+    /// carries a diagnostic when the value had to be capped.
+    ///
+    /// # Errors
+    ///
+    /// A name that is no option (the message lists the options), or a value that is none of the
+    /// words the option takes. The field is left as it was.
     pub fn set_from_text(&mut self, name: &str, value: &str) -> Result<Option<String>, String> {
         let name = name.trim().to_ascii_lowercase();
         let value = value.trim();
-        let state = |text: &str| {
-            SettingState::parse(text).ok_or_else(|| {
-                alloc::format!(
-                    "{name}: \"{text}\" is not on, off or unknown (use 1/0, on/off, true/false)"
-                )
-            })
-        };
-        let number = |text: &str, greatest: f32| -> Result<OptionF32, String> {
-            if matches!(text.to_ascii_lowercase().as_str(), "" | "unknown" | "auto" | "unset") {
-                return Ok(OptionF32::None);
-            }
-            match text.parse::<f32>() {
-                Ok(n) if n.is_finite() && n >= 0.0 => Ok(OptionF32::Some(n.min(greatest))),
-                _ => Err(alloc::format!("{name}: \"{text}\" is not a number from 0 to {greatest}")),
-            }
-        };
-        let millis = |text: &str| -> Result<OptionU32, String> {
-            if matches!(text.to_ascii_lowercase().as_str(), "" | "unknown" | "auto" | "unset") {
-                return Ok(OptionU32::None);
-            }
-            text.parse::<u32>()
-                .map(|ms| OptionU32::Some(ms.min(MAX_TIMEOUT_MS)))
-                .map_err(|_| alloc::format!("{name}: \"{text}\" is not a number of milliseconds"))
-        };
         match name.as_str() {
-            "text_scale" => {
-                if let Some(category) = TextSizeCategory::parse(value) {
-                    self.set_text_size_category(category);
-                    return Ok(None);
-                }
-                if matches!(value.to_ascii_lowercase().as_str(), "" | "auto" | "unset") {
-                    self.text_scale = OptionF32::None;
-                    self.text_size_category = TextSizeCategory::Unknown;
-                    return Ok(None);
-                }
-                let factor: f32 = value.parse().map_err(|_| {
-                    alloc::format!(
-                        "text_scale: \"{value}\" is neither a factor (1.3) nor a size category \
-                         (large, accessibility-extra-large, ax3)"
-                    )
-                })?;
-                if factor.is_nan() {
-                    return Err(String::from("text_scale: NaN is not a factor"));
-                }
-                Ok(self.set_text_scale(factor))
-            }
+            "text_scale" => self.set_text_scale_from_text(value),
             "text_size_category" => {
                 let category = TextSizeCategory::parse(value)
                     .ok_or_else(|| alloc::format!("text_size_category: \"{value}\" is no category"))?;
@@ -719,14 +676,14 @@ impl AccessibilityPreferences {
                 Ok(None)
             }
             "bold_weight_adjustment" => {
-                if matches!(value.to_ascii_lowercase().as_str(), "" | "unknown" | "auto" | "unset") {
-                    self.bold_weight_adjustment = OptionI16::None;
+                self.bold_weight_adjustment = if is_unset_word(value) {
+                    OptionI16::None
                 } else {
                     let step: i16 = value.parse().map_err(|_| {
                         alloc::format!("bold_weight_adjustment: \"{value}\" is not a weight step")
                     })?;
-                    self.bold_weight_adjustment = OptionI16::Some(step.clamp(0, 1000));
-                }
+                    OptionI16::Some(step.clamp(0, 1000))
+                };
                 Ok(None)
             }
             "contrast" => {
@@ -736,57 +693,90 @@ impl AccessibilityPreferences {
                 Ok(None)
             }
             "animation_scale" => {
-                self.animation_scale = number(value, MAX_ANIMATION_SCALE)?;
+                self.animation_scale = parse_scale(&name, value, MAX_ANIMATION_SCALE)?;
                 Ok(None)
             }
             "pointer_scale" => {
-                self.pointer_scale = number(value, MAX_POINTER_SCALE)?;
+                self.pointer_scale = parse_scale(&name, value, MAX_POINTER_SCALE)?;
                 Ok(None)
             }
             "long_press_ms" => {
-                self.long_press_ms = millis(value)?;
+                self.long_press_ms = parse_millis(&name, value)?;
                 Ok(None)
             }
             "action_timeout_ms" => {
-                self.action_timeout_ms = millis(value)?;
+                self.action_timeout_ms = parse_millis(&name, value)?;
                 Ok(None)
             }
             other => {
-                let parsed = state(value);
-                let slot = match other {
-                    "bold_text" => &mut self.bold_text,
-                    "forced_colors" => &mut self.forced_colors,
-                    "invert_colors" => &mut self.invert_colors,
-                    "grayscale" => &mut self.grayscale,
-                    "color_filter" => &mut self.color_filter,
-                    "differentiate_without_color" => &mut self.differentiate_without_color,
-                    "reduced_transparency" => &mut self.reduced_transparency,
-                    "button_shapes" => &mut self.button_shapes,
-                    "on_off_labels" => &mut self.on_off_labels,
-                    "reduced_motion" => &mut self.reduced_motion,
-                    "cross_fade_transitions" => &mut self.cross_fade_transitions,
-                    "autoplay_animated_images" => &mut self.autoplay_animated_images,
-                    "autoplay_video" => &mut self.autoplay_video,
-                    "dim_flashing_lights" => &mut self.dim_flashing_lights,
-                    "screen_reader" => &mut self.screen_reader,
-                    "switch_access" => &mut self.switch_access,
-                    "voice_control" => &mut self.voice_control,
-                    "keyboard_navigation" => &mut self.keyboard_navigation,
-                    "magnifier" => &mut self.magnifier,
-                    "captions" => &mut self.captions,
-                    "mono_audio" => &mut self.mono_audio,
-                    "haptics" => &mut self.haptics,
-                    _ => {
-                        return Err(alloc::format!(
-                            "\"{other}\" is no accessibility option (known: {})",
-                            PREFERENCE_FIELDS.join(", ")
-                        ))
-                    }
-                };
+                let parsed = SettingState::parse(value).ok_or_else(|| {
+                    alloc::format!(
+                        "{other}: \"{value}\" is not on, off or unknown (use 1/0, on/off, true/false)"
+                    )
+                });
+                let slot = self.state_slot(other).ok_or_else(|| {
+                    alloc::format!(
+                        "\"{other}\" is no accessibility option (known: {})",
+                        PREFERENCE_FIELDS.join(", ")
+                    )
+                })?;
                 *slot = parsed?;
                 Ok(None)
             }
         }
+    }
+
+    /// The `text_scale` field from its text: a size category (`ax5`, `large`, the simctl and
+    /// UIKit spellings), a factor (`1.3`), or the words that put it back to unknown.
+    fn set_text_scale_from_text(&mut self, value: &str) -> Result<Option<String>, String> {
+        if let Some(category) = TextSizeCategory::parse(value) {
+            self.set_text_size_category(category);
+            return Ok(None);
+        }
+        if is_unset_word(value) {
+            self.text_scale = OptionF32::None;
+            self.text_size_category = TextSizeCategory::Unknown;
+            return Ok(None);
+        }
+        let factor: f32 = value.parse().map_err(|_| {
+            alloc::format!(
+                "text_scale: \"{value}\" is neither a factor (1.3) nor a size category \
+                 (large, accessibility-extra-large, ax3)"
+            )
+        })?;
+        if factor.is_nan() {
+            return Err(String::from("text_scale: NaN is not a factor"));
+        }
+        Ok(self.set_text_scale(factor))
+    }
+
+    /// The three-state field called `name`, `None` for a name that is not one.
+    fn state_slot(&mut self, name: &str) -> Option<&mut SettingState> {
+        Some(match name {
+            "bold_text" => &mut self.bold_text,
+            "forced_colors" => &mut self.forced_colors,
+            "invert_colors" => &mut self.invert_colors,
+            "grayscale" => &mut self.grayscale,
+            "color_filter" => &mut self.color_filter,
+            "differentiate_without_color" => &mut self.differentiate_without_color,
+            "reduced_transparency" => &mut self.reduced_transparency,
+            "button_shapes" => &mut self.button_shapes,
+            "on_off_labels" => &mut self.on_off_labels,
+            "reduced_motion" => &mut self.reduced_motion,
+            "cross_fade_transitions" => &mut self.cross_fade_transitions,
+            "autoplay_animated_images" => &mut self.autoplay_animated_images,
+            "autoplay_video" => &mut self.autoplay_video,
+            "dim_flashing_lights" => &mut self.dim_flashing_lights,
+            "screen_reader" => &mut self.screen_reader,
+            "switch_access" => &mut self.switch_access,
+            "voice_control" => &mut self.voice_control,
+            "keyboard_navigation" => &mut self.keyboard_navigation,
+            "magnifier" => &mut self.magnifier,
+            "captions" => &mut self.captions,
+            "mono_audio" => &mut self.mono_audio,
+            "haptics" => &mut self.haptics,
+            _ => return None,
+        })
     }
 
     /// The preferences the environment pins: `AZ_A11Y_<FIELD>` for every field of
@@ -888,8 +878,35 @@ impl AccessibilityPreferences {
     }
 }
 
-/// A condition of a stylesheet on one of the accessibility preferences: the `@media` features
-/// that map to them (`prefers-contrast: less`, `forced-colors: active`,
+/// The words that put an option back to "not known".
+fn is_unset_word(text: &str) -> bool {
+    matches!(text.to_ascii_lowercase().as_str(), "" | "unknown" | "auto" | "unset")
+}
+
+/// A scale from its text (`1.5`), capped at `greatest`; the unset words are `None`.
+fn parse_scale(name: &str, text: &str, greatest: f32) -> Result<OptionF32, String> {
+    if is_unset_word(text) {
+        return Ok(OptionF32::None);
+    }
+    match text.parse::<f32>() {
+        Ok(n) if n.is_finite() && n >= 0.0 => Ok(OptionF32::Some(n.min(greatest))),
+        _ => Err(alloc::format!("{name}: \"{text}\" is not a number from 0 to {greatest}")),
+    }
+}
+
+/// A number of milliseconds from its text, capped at [`MAX_TIMEOUT_MS`]; the unset words are `None`.
+fn parse_millis(name: &str, text: &str) -> Result<OptionU32, String> {
+    if is_unset_word(text) {
+        return Ok(OptionU32::None);
+    }
+    text.parse::<u32>()
+        .map(|ms| OptionU32::Some(ms.min(MAX_TIMEOUT_MS)))
+        .map_err(|_| alloc::format!("{name}: \"{text}\" is not a number of milliseconds"))
+}
+
+/// A condition of a stylesheet on one of the accessibility preferences.
+///
+/// The `@media` features that map to them (`prefers-contrast: less`, `forced-colors: active`,
 /// `prefers-reduced-transparency: reduce`, `inverted-colors: inverted`) and the azul-specific
 /// ones where no standard exists (`min-text-scale: 1.3`, `prefers-bold-text: bold`,
 /// `differentiate-without-color: active`, `button-shapes: active`, `on-off-labels: active`,
@@ -942,10 +959,12 @@ impl AccessibilityCondition {
         };
         match self {
             Self::TextScaleAtLeast(thousandths) => {
-                preferences.effective_text_scale() * 1000.0 + 0.5 >= f32_of_thousandths(*thousandths)
+                preferences.effective_text_scale().mul_add(1000.0, 0.5)
+                    >= f32_of_thousandths(*thousandths)
             }
             Self::TextScaleAtMost(thousandths) => {
-                preferences.effective_text_scale() * 1000.0 - 0.5 <= f32_of_thousandths(*thousandths)
+                preferences.effective_text_scale().mul_add(1000.0, -0.5)
+                    <= f32_of_thousandths(*thousandths)
             }
             Self::BoldText(condition) => wanted(*condition, preferences.bold_text),
             Self::Contrast(ContrastPreference::More) => preferences.high_contrast(),
@@ -1058,7 +1077,7 @@ fn thousandths_of_f32(factor: f32) -> u32 {
 }
 
 /// The thousandths of a condition as a float, for the comparison.
-fn f32_of_thousandths(thousandths: u32) -> f32 {
+const fn f32_of_thousandths(thousandths: u32) -> f32 {
     // A condition holds at most 1_000_000 (see `thousandths_of_f32`): exact in an f32.
     #[allow(clippy::cast_precision_loss)]
     let value = thousandths as f32;

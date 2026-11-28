@@ -4007,10 +4007,28 @@ impl CssPropertyCache {
             self.prop_walks.count(*css_property_type);
         }
 
+        // "Reduce motion": a node declares no animation, so every transition, slide, enter
+        // and exit it would run jumps to its end state (see `Self::motion_is_reduced`).
+        if css_property_type.is_animation_declaration() && self.motion_is_reduced() {
+            return None;
+        }
+
         // Always use full cascade resolution.
         // Tier 1/2/2b handle layout-hot properties via direct typed getters.
         // This path is only used for paint-time reads (background, shadow, etc.)
         self.get_property_slow(node_data, node_id, node_state, css_property_type)
+    }
+
+    /// Whether the user asked the system for reduced motion (or turned the animations off): the
+    /// window's context says so. Every `animation` declaration reads as absent then
+    /// ([`Self::get_property`], [`Self::get_property_if_declared`]), which is the one place the
+    /// engine's declared transitions, moves and enter / exit effects are switched off: a widget
+    /// or an app declares its motion once and the setting decides whether it runs.
+    #[must_use]
+    pub fn motion_is_reduced(&self) -> bool {
+        self.dynamic_context
+            .as_deref()
+            .is_some_and(DynamicSelectorContext::motion_is_reduced)
     }
 
     /// Whether node `index` declares `ty` anywhere the cascade looks for a
@@ -4044,6 +4062,9 @@ impl CssPropertyCache {
         css_property_type: &CssPropertyType,
     ) -> Option<&'a CssProperty> {
         let index = node_id.index();
+        if css_property_type.is_animation_declaration() && self.motion_is_reduced() {
+            return None;
+        }
         if self.declares(node_data, index, *css_property_type) {
             return self.get_property(node_data, node_id, node_state, css_property_type);
         }

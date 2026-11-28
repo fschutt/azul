@@ -574,6 +574,37 @@ impl SystemStyle {
     pub fn text_scale(&self) -> f32 {
         self.preferences.effective_text_scale()
     }
+
+    /// `style` with every preference `pin` knows laid over its own (the environment's
+    /// `AZ_A11Y_*`, a window's override): the SAME `Arc` when that changes nothing, a copy with
+    /// [`Self::set_preferences`] applied otherwise.
+    #[must_use]
+    pub fn with_preferences_overlaid(
+        style: alloc::sync::Arc<Self>,
+        pin: &crate::accessibility::AccessibilityPreferences,
+    ) -> alloc::sync::Arc<Self> {
+        if pin.is_empty() || style.preferences.overlaid(pin) == style.preferences {
+            return style;
+        }
+        let mut owned = (*style).clone();
+        owned.overlay_preferences(pin);
+        alloc::sync::Arc::new(owned)
+    }
+
+    /// Lays `pin` over this style's preferences ([`Self::set_preferences`] when that changes
+    /// one): every preference `pin` knows replaces the reported one. Returns whether the
+    /// preferences changed.
+    pub fn overlay_preferences(&mut self, pin: &crate::accessibility::AccessibilityPreferences) -> bool {
+        if pin.is_empty() {
+            return false;
+        }
+        let effective = self.preferences.overlaid(pin);
+        if effective == self.preferences {
+            return false;
+        }
+        self.set_preferences(effective);
+        true
+    }
 }
 
 /// Icon-specific styling options for accessibility and theming.

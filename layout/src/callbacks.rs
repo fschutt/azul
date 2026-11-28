@@ -330,6 +330,15 @@ pub enum CallbackChange {
     SetTheme {
         theme: AzString,
     },
+    /// Say what the system's accessibility settings are, whatever the system reports
+    /// (`CallbackInfo::set_accessibility_override`): the fields `preferences` knows replace
+    /// what the platform reported for this window (`reset` drops the earlier override first).
+    /// The test hook of the e2e op `set_system_accessibility` and of an app that wants to show
+    /// its own large-text mode.
+    SetAccessibilityOverride {
+        preferences: azul_css::accessibility::AccessibilityPreferences,
+        reset: bool,
+    },
 
     // Focus Management
     /// Change keyboard focus to a specific node or clear focus
@@ -2145,6 +2154,39 @@ impl CallbackInfo {
     #[must_use]
     pub fn get_theme(&self) -> AzString {
         self.get_layout_window().app_theme.clone()
+    }
+
+    /// What the user set in the system's accessibility and display settings, as this window
+    /// lays out and styles itself under it: text size, bold text, contrast, reduced motion,
+    /// ... Every option may be `Unknown` (the platform has no such option, or did not answer);
+    /// the engine treats it as the default look. The system changing one of them is a restyle
+    /// of every window (no `layout()` run unless it declared it reads them, or the whole system
+    /// style): `On::SystemStyleChanged`. In `layout()`:
+    /// `LayoutCallbackInfo::get_accessibility_preferences`.
+    #[must_use]
+    pub fn get_accessibility_preferences(&self) -> azul_css::accessibility::AccessibilityPreferences {
+        self.get_layout_window()
+            .system_style
+            .as_deref()
+            .map_or_else(Default::default, |style| style.preferences)
+    }
+
+    /// Say what the system's accessibility settings are, for THIS window, whatever the platform
+    /// reports: every field `preferences` knows (is not `Unknown` / `None` in) replaces what the
+    /// system said, the others keep the system's; `reset` drops an earlier override first. The
+    /// window restyles at once (a text scale changes every size of text); a later change of the
+    /// SYSTEM's setting that the override names does not show until the override is dropped
+    /// (`reset` with an empty `preferences`).
+    ///
+    /// The hook of the `set_system_accessibility` e2e op and of an app that offers its own
+    /// large-text or high-contrast mode. A scale outside of [`MIN_TEXT_SCALE`, `MAX_TEXT_SCALE`]
+    /// (`azul_css::accessibility`) is read as the nearest end of the range.
+    pub fn set_accessibility_override(
+        &mut self,
+        preferences: azul_css::accessibility::AccessibilityPreferences,
+        reset: bool,
+    ) {
+        self.push_change(CallbackChange::SetAccessibilityOverride { preferences, reset });
     }
 
     /// The node seat `seat_id` focuses (9b-ii-a-i-d); the primary's for

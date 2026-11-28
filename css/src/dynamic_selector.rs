@@ -1707,6 +1707,14 @@ impl Default for DynamicSelectorContext {
 }
 
 impl DynamicSelectorContext {
+    /// Whether the user asked for reduced motion: the system's "Reduce motion" / "Remove
+    /// animations" / animations-off setting, the animation speed of the system at zero, or the
+    /// older `prefers_reduced_motion` condition (what a test mock sets).
+    #[must_use]
+    pub fn motion_is_reduced(&self) -> bool {
+        bool::from(self.prefers_reduced_motion) || self.preferences.reduces_motion()
+    }
+
     /// Create a context from `SystemStyle`
     #[must_use]
     pub fn from_system_style(system_style: &crate::system::SystemStyle) -> Self {

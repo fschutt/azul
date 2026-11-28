@@ -8,25 +8,37 @@
 
 use alloc::{string::String, vec::Vec};
 
-use crate::{env::EnvSource, system::RicingMode, theme_chain::ThemeEnv};
+use crate::{
+    accessibility::AccessibilityPreferences, env::EnvSource, system::RicingMode,
+    theme_chain::ThemeEnv,
+};
 
-/// `AZ_RICING`, `AZ_THEME` and `AZ_MODE`: what the environment asks of the user's rice and of the
-/// theme chain.
+/// `AZ_RICING`, `AZ_THEME`, `AZ_MODE` and `AZ_A11Y_*`: what the environment asks of the user's rice,
+/// of the theme chain and of the accessibility preferences.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CssSettings {
     /// `AZ_RICING`: off, default, force or watch ([`RicingMode`]).
     pub ricing: RicingMode,
     /// `AZ_THEME` and `AZ_MODE`: the pins of the theme and of the light / dark mode.
     pub theme: ThemeEnv,
+    /// `AZ_A11Y_<FIELD>`: the accessibility preferences the environment pins, whatever the
+    /// system reports ([`AccessibilityPreferences::from_lookup`]); empty pins nothing.
+    pub accessibility: AccessibilityPreferences,
+    /// What was wrong with an `AZ_A11Y_*` variable (a word that means nothing, a number out of
+    /// range): the app start logs each.
+    pub accessibility_notes: Vec<String>,
 }
 
 impl CssSettings {
     /// What the environment `env` asks for; an empty one asks for nothing.
     #[must_use]
     pub fn from_lookup(env: &dyn EnvSource) -> Self {
+        let (accessibility, accessibility_notes) = AccessibilityPreferences::from_lookup(env);
         Self {
             ricing: RicingMode::from_lookup(env),
             theme: ThemeEnv::from_lookup(env),
+            accessibility,
+            accessibility_notes,
         }
     }
 

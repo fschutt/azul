@@ -2235,8 +2235,26 @@ pub fn get_font_variation_settings_list(
         .unwrap_or_default()
 }
 
+/// The weight `weight` becomes under the user's "Bold text" setting (`SystemStyle::preferences`):
+/// the platform's own adjustment added (Android's `fontWeightAdjustment`, 300), capped at 1000;
+/// unchanged without the setting, and in a document no window adopted.
+#[must_use]
+pub fn weight_under_bold_text(styled_dom: &StyledDom, weight: f32) -> f32 {
+    let step = styled_dom
+        .css_property_cache
+        .ptr
+        .dynamic_context
+        .as_deref()
+        .map_or(0, |context| context.preferences.bold_weight_step());
+    if step <= 0 {
+        weight
+    } else {
+        (weight + f32::from(step)).min(1000.0)
+    }
+}
+
 /// What the node asks of its faces - the exact weight (`bolder` and
-/// `lighter` resolved against the parent's), the stretch, the style with the
+/// `lighter` resolved against the parent's, the "Bold text" step added), the stretch, the style with the
 /// angle of an `oblique`, and the explicit `font-variation-settings` - and
 /// nothing of its font size: the optical size is added where the size is
 /// known ([`font_optical_sizing_is_auto`], [`FontRequest::at_font_size`]).
@@ -2253,7 +2271,7 @@ pub fn font_request_of_node(
 ) -> FontRequest {
     let weight = get_computed_font_weight(styled_dom, node_id, node_state);
     let request = FontRequest::default()
-        .with_weight(weight.number())
+        .with_weight(weight_under_bold_text(styled_dom, weight.number()))
         .with_stretch(get_font_stretch_percent(styled_dom, node_id, node_state));
     let request = match get_font_style_property(styled_dom, node_id, node_state) {
         MultiValue::Exact(StyleFontStyle::Italic) => request.with_style(FontStyle::Italic),

@@ -117,7 +117,11 @@ fn a_category_is_read_from_every_spelling_it_has() {
     assert_eq!(C::parse("AX5"), Some(C::AccessibilityExtraExtraExtraLarge));
     assert_eq!(C::parse("xxxl"), Some(C::ExtraExtraExtraLarge));
     assert_eq!(C::parse("extra_extra_large"), Some(C::ExtraExtraLarge));
-    assert_eq!(C::parse("UICTContentSizeCategoryUnspecified"), None, "not a size: left to the caller");
+    assert_eq!(
+        C::parse("UICTContentSizeCategoryUnspecified"),
+        Some(C::Unknown),
+        "the system's own word for no preference is no size"
+    );
     assert_eq!(C::parse("unspecified"), Some(C::Unknown));
     assert_eq!(C::parse("huge"), None);
     assert_eq!(C::parse("1.5"), None, "a factor is not a category");
@@ -365,4 +369,226 @@ fn the_json_names_every_option_once() {
     assert!(json.contains("\"screen_reader\": \"unknown\""), "{json}");
     assert!(json.contains("\"pointer_scale\": null"), "{json}");
     assert_eq!(json.to_string(), prefs.to_json(), "deterministic");
+}
+
+// ---- the stylesheet's conditions ------------------------------------------------------------------------------------
+
+use crate::dynamic_selector::{DynamicSelector, DynamicSelectorContext};
+
+fn condition(key: &str, value: &str) -> Option<AccessibilityCondition> {
+    AccessibilityCondition::from_media_feature(key, value)
+}
+
+fn context_with(preferences: AccessibilityPreferences) -> DynamicSelectorContext {
+    DynamicSelectorContext {
+        preferences,
+        ..DynamicSelectorContext::default()
+    }
+}
+
+#[test]
+fn the_media_features_of_the_preferences_are_read() {
+    use AccessibilityCondition as C;
+    assert_eq!(condition("min-text-scale", "1.3"), Some(C::TextScaleAtLeast(1300)));
+    assert_eq!(condition("max-text-scale", "1"), Some(C::TextScaleAtMost(1000)));
+    assert_eq!(condition("min-text-scale", "x"), None);
+    assert_eq!(condition("min-text-scale", "-1"), None);
+    assert_eq!(condition("min-text-scale", "NaN"), None);
+    assert_eq!(condition("forced-colors", "active"), Some(C::ForcedColors(BoolCondition::True)));
+    assert_eq!(condition("forced-colors", "none"), Some(C::ForcedColors(BoolCondition::False)));
+    assert_eq!(condition("forced-colors", "sometimes"), None);
+    assert_eq!(
+        condition("prefers-reduced-transparency", "reduce"),
+        Some(C::ReducedTransparency(BoolCondition::True))
+    );
+    assert_eq!(
+        condition("prefers-reduced-transparency", "no-preference"),
+        Some(C::ReducedTransparency(BoolCondition::False))
+    );
+    assert_eq!(condition("inverted-colors", "inverted"), Some(C::InvertedColors(BoolCondition::True)));
+    assert_eq!(condition("inverted-colors", "none"), Some(C::InvertedColors(BoolCondition::False)));
+    assert_eq!(condition("prefers-bold-text", "bold"), Some(C::BoldText(BoolCondition::True)));
+    assert_eq!(condition("PREFERS-BOLD-TEXT", "no-preference"), Some(C::BoldText(BoolCondition::False)));
+    assert_eq!(
+        condition("differentiate-without-color", "active"),
+        Some(C::DifferentiateWithoutColor(BoolCondition::True))
+    );
+    assert_eq!(condition("button-shapes", "active"), Some(C::ButtonShapes(BoolCondition::True)));
+    assert_eq!(condition("on-off-labels", "active"), Some(C::OnOffLabels(BoolCondition::True)));
+    assert_eq!(condition("screen-reader", "active"), Some(C::ScreenReader(BoolCondition::True)));
+    assert_eq!(condition("prefers-cross-fade", "reduce"), Some(C::CrossFade(BoolCondition::True)));
+    assert_eq!(condition("keyboard-navigation", "active"), Some(C::KeyboardNavigation(BoolCondition::True)));
+    // the contrast feature: `less` and `custom` are here, `more` has its own selector
+    assert_eq!(condition("prefers-contrast", "less"), Some(C::Contrast(ContrastPreference::Less)));
+    assert_eq!(
+        condition("prefers-contrast", "no-preference"),
+        Some(C::Contrast(ContrastPreference::NoPreference))
+    );
+    assert_eq!(condition("prefers-contrast", "custom"), Some(C::ForcedColors(BoolCondition::True)));
+    assert_eq!(condition("prefers-contrast", "more"), None);
+    assert_eq!(condition("prefers-reduced-motion", "reduce"), None, "its own selector");
+    assert_eq!(condition("orientation", "portrait"), None);
+}
+
+#[test]
+fn a_condition_holds_for_the_preferences_it_names() {
+    use AccessibilityCondition as C;
+    let mut preferences = AccessibilityPreferences::default();
+    preferences.set_text_scale(1.3);
+    preferences.bold_text = SettingState::On;
+    preferences.contrast = ContrastPreference::Less;
+    preferences.reduced_transparency = SettingState::Off;
+    let ctx = context_with(preferences);
+
+    assert!(DynamicSelector::Accessibility(C::TextScaleAtLeast(1300)).matches(&ctx), "1.3 is at least 1.3");
+    assert!(DynamicSelector::Accessibility(C::TextScaleAtLeast(1000)).matches(&ctx));
+    assert!(!DynamicSelector::Accessibility(C::TextScaleAtLeast(1500)).matches(&ctx));
+    assert!(DynamicSelector::Accessibility(C::TextScaleAtMost(1300)).matches(&ctx));
+    assert!(!DynamicSelector::Accessibility(C::TextScaleAtMost(1000)).matches(&ctx));
+    assert!(DynamicSelector::Accessibility(C::BoldText(BoolCondition::True)).matches(&ctx));
+    assert!(!DynamicSelector::Accessibility(C::BoldText(BoolCondition::False)).matches(&ctx));
+    assert!(DynamicSelector::Accessibility(C::Contrast(ContrastPreference::Less)).matches(&ctx));
+    assert!(!DynamicSelector::Accessibility(C::Contrast(ContrastPreference::More)).matches(&ctx));
+    assert!(!DynamicSelector::Accessibility(C::Contrast(ContrastPreference::NoPreference)).matches(&ctx));
+    assert!(DynamicSelector::Accessibility(C::ReducedTransparency(BoolCondition::False)).matches(&ctx));
+    assert!(!DynamicSelector::Accessibility(C::ReducedTransparency(BoolCondition::True)).matches(&ctx));
+
+    // an unknown option is the default look: not "on", and "no preference"
+    let unknown = context_with(AccessibilityPreferences::default());
+    assert!(!DynamicSelector::Accessibility(C::BoldText(BoolCondition::True)).matches(&unknown));
+    assert!(DynamicSelector::Accessibility(C::BoldText(BoolCondition::False)).matches(&unknown));
+    assert!(DynamicSelector::Accessibility(C::Contrast(ContrastPreference::NoPreference)).matches(&unknown));
+    assert!(DynamicSelector::Accessibility(C::TextScaleAtMost(1000)).matches(&unknown));
+    assert!(DynamicSelector::Accessibility(C::TextScaleAtLeast(1000)).matches(&unknown));
+
+    // a contrast theme is more contrast for `prefers-contrast: more`
+    let mut forced = AccessibilityPreferences::default();
+    forced.forced_colors = SettingState::On;
+    assert!(DynamicSelector::Accessibility(C::Contrast(ContrastPreference::More)).matches(&context_with(forced)));
+    assert!(DynamicSelector::Accessibility(C::ForcedColors(BoolCondition::True)).matches(&context_with(forced)));
+}
+
+#[test]
+fn a_changed_preference_is_a_new_context() {
+    let a = context_with(AccessibilityPreferences::default());
+    let mut preferences = AccessibilityPreferences::default();
+    preferences.bold_text = SettingState::On;
+    let b = context_with(preferences);
+    assert_ne!(a, b, "the cascade epoch must move when a preference does");
+    assert_eq!(a, context_with(AccessibilityPreferences::default()));
+}
+
+#[test]
+fn motion_is_reduced_by_any_of_the_three_answers() {
+    let mut ctx = DynamicSelectorContext::default();
+    assert!(!ctx.motion_is_reduced());
+    ctx.preferences.reduced_motion = SettingState::On;
+    assert!(ctx.motion_is_reduced());
+    let mut ctx = DynamicSelectorContext::default();
+    ctx.preferences.animation_scale = OptionF32::Some(0.0);
+    assert!(ctx.motion_is_reduced(), "the system's animation speed of zero");
+    let mut ctx = DynamicSelectorContext::default();
+    ctx.prefers_reduced_motion = BoolCondition::True;
+    assert!(ctx.motion_is_reduced(), "the older condition (a test mock sets it)");
+}
+
+#[cfg(feature = "parser")]
+#[test]
+fn a_stylesheet_names_the_preferences_in_its_media_blocks() {
+    let css = crate::css::Css::parse_inline(
+        "@media (min-text-scale: 1.3) { color: blue; } @media (forced-colors: active) { color: red; } \
+         @media (prefers-contrast: less) { color: green; }",
+    );
+    let conditions: alloc::vec::Vec<_> = css
+        .rules
+        .as_slice()
+        .iter()
+        .flat_map(|rule| rule.conditions.as_slice().to_vec())
+        .collect();
+    use AccessibilityCondition as C;
+    for expected in [
+        DynamicSelector::Accessibility(C::TextScaleAtLeast(1300)),
+        DynamicSelector::Accessibility(C::ForcedColors(BoolCondition::True)),
+        DynamicSelector::Accessibility(C::Contrast(ContrastPreference::Less)),
+    ] {
+        assert!(conditions.contains(&expected), "{expected:?} in {conditions:?}");
+    }
+}
+
+// ---- the style ---------------------------------------------------------------------------------------------------
+
+use crate::system::{AccessibilitySettings, SystemStyle};
+
+#[test]
+fn the_older_fields_mirror_the_typed_preferences() {
+    let mut style = SystemStyle::default();
+    assert_eq!(style.accessibility.text_scale_factor, 1.0, "the default is no scaling, not 0.0");
+    let mut preferences = AccessibilityPreferences::default();
+    preferences.set_text_scale(1.5);
+    preferences.bold_text = SettingState::On;
+    preferences.contrast = ContrastPreference::More;
+    preferences.reduced_motion = SettingState::On;
+    preferences.reduced_transparency = SettingState::On;
+    preferences.screen_reader = SettingState::On;
+    preferences.differentiate_without_color = SettingState::On;
+    style.set_preferences(preferences);
+
+    assert_eq!(style.text_scale(), 1.5);
+    assert_eq!(style.accessibility.text_scale_factor, 1.5);
+    assert!(style.accessibility.prefers_larger_text);
+    assert!(style.accessibility.prefers_bold_text);
+    assert!(style.accessibility.prefers_high_contrast);
+    assert!(style.accessibility.prefers_reduced_motion);
+    assert!(style.accessibility.prefers_reduced_transparency);
+    assert!(style.accessibility.screen_reader_active);
+    assert!(style.accessibility.differentiate_without_color);
+    assert_eq!(style.prefers_reduced_motion, BoolCondition::True);
+    assert_eq!(style.prefers_high_contrast, BoolCondition::True);
+    assert!(!style.animation.animations_enabled);
+    assert!(style.text_rendering.increased_contrast);
+
+    // and back
+    style.set_preferences(AccessibilityPreferences::default());
+    assert_eq!(style.accessibility, AccessibilitySettings::default());
+    assert_eq!(style.prefers_reduced_motion, BoolCondition::False);
+    assert_eq!(style.prefers_high_contrast, BoolCondition::False);
+}
+
+#[test]
+fn the_context_of_a_style_carries_its_preferences() {
+    let mut style = SystemStyle::default();
+    let mut preferences = AccessibilityPreferences::default();
+    preferences.set_text_scale(2.0);
+    style.set_preferences(preferences);
+    let ctx = DynamicSelectorContext::from_system_style(&style);
+    assert_eq!(ctx.preferences, preferences);
+    assert_eq!(ctx.preferences.effective_text_scale(), 2.0);
+}
+
+#[test]
+fn a_pin_is_laid_over_the_reported_preferences_and_changes_nothing_when_it_says_the_same() {
+    use alloc::sync::Arc;
+    let mut reported = AccessibilityPreferences::default();
+    reported.set_text_scale(1.15);
+    reported.bold_text = SettingState::Off;
+    let mut style = SystemStyle::default();
+    style.set_preferences(reported);
+    let style = Arc::new(style);
+
+    let none = SystemStyle::with_preferences_overlaid(Arc::clone(&style), &AccessibilityPreferences::default());
+    assert!(Arc::ptr_eq(&none, &style), "an empty pin is the same style");
+    let mut same = AccessibilityPreferences::default();
+    same.bold_text = SettingState::Off;
+    let same = SystemStyle::with_preferences_overlaid(Arc::clone(&style), &same);
+    assert!(Arc::ptr_eq(&same, &style), "a pin that says what the system said changes nothing");
+
+    let mut pin = AccessibilityPreferences::default();
+    pin.set_text_scale(3.0);
+    pin.bold_text = SettingState::On;
+    let pinned = SystemStyle::with_preferences_overlaid(Arc::clone(&style), &pin);
+    assert!(!Arc::ptr_eq(&pinned, &style));
+    assert_eq!(pinned.text_scale(), 3.0);
+    assert_eq!(pinned.preferences.bold_text, SettingState::On);
+    assert!(pinned.accessibility.prefers_bold_text, "the mirrors follow the pin");
+    assert_eq!(style.text_scale(), 1.15, "the reported style is untouched");
 }

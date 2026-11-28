@@ -3345,6 +3345,14 @@ pub struct CommonWindowState {
     pub gl_context_ptr: OptionGlContextPtr,
     /// System style (shared across windows)
     pub system_style: Arc<azul_css::system::SystemStyle>,
+    /// The accessibility preferences the platform reported of the user's settings the last time
+    /// the style was adopted, BEFORE the environment's pins (`AZ_A11Y_*`) and this window's
+    /// override were laid over them: the base a changed override is applied to again.
+    pub detected_preferences: azul_css::accessibility::AccessibilityPreferences,
+    /// What this window was told to take for the user's accessibility settings, whatever the
+    /// platform reports (`CallbackInfo::set_accessibility_override`, the `set_system_accessibility`
+    /// e2e op): every field it knows replaces the detected one. Empty: the platform's word.
+    pub accessibility_override: azul_css::accessibility::AccessibilityPreferences,
     /// Shared application data (used by callbacks, shared across windows)
     pub app_data: Arc<RefCell<RefAny>>,
     /// App-global undo/redo manager, shared across all windows (owned by the App).
@@ -3759,6 +3767,9 @@ impl CommonWindowState {
         current_window_state.mode =
             initial_window_theme(app.mode(), requested_theme, system_style.mode);
         let desktop_theme = system_style.mode;
+        // What the app's start discovered (and pinned from the environment): the base the
+        // window's own override is laid over.
+        let detected_preferences = system_style.preferences;
         // Newer than every window the App has made, never focused.
         let app_order = azul_layout::managers::app_target::WindowActivationOrder::for_new_window(
             &undo_manager.services().activation_clock,
@@ -3774,6 +3785,8 @@ impl CommonWindowState {
             fc_cache,
             gl_context_ptr: OptionGlContextPtr::None,
             system_style,
+            detected_preferences,
+            accessibility_override: azul_css::accessibility::AccessibilityPreferences::default(),
             app_data,
             undo_manager,
             app,
@@ -3854,6 +3867,52 @@ impl CommonWindowState {
         self.desktop_theme = desktop;
         let target = self.resolved_window_mode();
         (target != self.current_window_state.mode).then_some(target)
+    }
+
+    /// `style` as this window takes it: what the platform reported of the user's accessibility
+    /// settings is remembered as the base ([`Self::detected_preferences`]), and the
+    /// environment's pins (`AZ_A11Y_*`, read once at the app's start) and then this window's
+    /// override ([`Self::accessibility_override`]) are laid over it. The same `Arc` when nothing
+    /// is laid over.
+    pub fn style_with_accessibility_pins(
+        &mut self,
+        style: Arc<azul_css::system::SystemStyle>,
+    ) -> Arc<azul_css::system::SystemStyle> {
+        self.detected_preferences = style.preferences;
+        self.pinned_style(style)
+    }
+
+    /// `style` with the pins laid over its preferences (the base is NOT updated).
+    fn pinned_style(
+        &self,
+        style: Arc<azul_css::system::SystemStyle>,
+    ) -> Arc<azul_css::system::SystemStyle> {
+        let pin = self
+            .app
+            .settings()
+            .css
+            .accessibility
+            .overlaid(&self.accessibility_override);
+        azul_css::system::SystemStyle::with_preferences_overlaid(style, &pin)
+    }
+
+    /// Replaces (or, with `reset`, first drops) this window's accessibility override and answers
+    /// the style the window shows under it: the held style with the platform's last report as
+    /// its preferences, the environment's pins and the new override laid over it. The caller
+    /// adopts it ([`PlatformWindow::adopt_effective_style`]).
+    pub fn restyled_for_accessibility_override(
+        &mut self,
+        preferences: &azul_css::accessibility::AccessibilityPreferences,
+        reset: bool,
+    ) -> Arc<azul_css::system::SystemStyle> {
+        self.accessibility_override = if reset {
+            *preferences
+        } else {
+            self.accessibility_override.overlaid(preferences)
+        };
+        let mut base = (*self.system_style).clone();
+        base.set_preferences(self.detected_preferences);
+        self.pinned_style(Arc::new(base))
     }
 
     /// Write the light / dark this window SHOWS, and move a background the
@@ -9045,6 +9104,23 @@ pub trait PlatformWindow {
 
                 self.mode_change_tier().max(nested)
             }
+            CallbackChange::SetAccessibilityOverride { preferences, reset } => {
+                // This window's own: the platform's report stays the base
+                // (`CommonWindowState::detected_preferences`), the override is laid over it, and
+                // the window adopts the result like any other change of the system's style - a
+                // restyle (a text scale re-solves every size), a rebuild only where `layout()`
+                // read the preferences.
+                let style = self
+                    .get_common_mut()
+                    .restyled_for_accessibility_override(preferences, *reset);
+                if !self.adopt_effective_style(style) {
+                    ProcessEventResult::DoNothing
+                } else if self.get_common_mut().regeneration_pending() {
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    ProcessEventResult::ShouldIncrementalRelayout
+                }
+            }
             CallbackChange::SetTheme { theme } => {
                 // The APP theme, not the light / dark mode: a theme may change a
                 // widget's STRUCTURE (flora wraps nodes flat does not), so a
@@ -11572,7 +11648,19 @@ pub trait PlatformWindow {
         Ok(())
     }
 
-    /// Adopt a freshly discovered [`SystemStyle`], choosing between a full DOM
+    /// Adopt a freshly discovered [`SystemStyle`]: the preferences it reports are the new base
+    /// the environment's pins and this window's override are laid over
+    /// ([`CommonWindowState::style_with_accessibility_pins`]), and the result is adopted
+    /// ([`Self::adopt_effective_style`]). Returns whether anything changed at all.
+    ///
+    /// THE funnel of every change of the system's style - the platform's observers, the
+    /// re-discoveries, the mobile shells' readers all end here.
+    fn adopt_system_style(&mut self, new_style: Arc<azul_css::system::SystemStyle>) -> bool {
+        let new_style = self.get_common_mut().style_with_accessibility_pins(new_style);
+        self.adopt_effective_style(new_style)
+    }
+
+    /// Adopt a style that already carries the pins, choosing between a full DOM
     /// rebuild and a restyle of the existing one.
     ///
     /// THE theme-switch policy, and the twin of
@@ -11595,7 +11683,7 @@ pub trait PlatformWindow {
     ///
     /// Returns whether anything changed at all — `false` means the two styles
     /// are equal and the caller owes neither pass nor repaint.
-    fn adopt_system_style(&mut self, new_style: Arc<azul_css::system::SystemStyle>) -> bool {
+    fn adopt_effective_style(&mut self, new_style: Arc<azul_css::system::SystemStyle>) -> bool {
         let old_style = Arc::clone(&self.get_common_mut().system_style);
         // The WINDOW theme is what the cascade follows, so the window-theme
         // delta is the trigger — not `SystemStyle` equality. The two

@@ -751,6 +751,31 @@ pub struct ThemeResponse {
     pub theme: String,
 }
 
+/// The accessibility override the keys of a `set_system_accessibility` step name: each key an
+/// option of `azul_css::accessibility::PREFERENCE_FIELDS`, its value a JSON bool, number or
+/// string. The second value lists what was capped. An unknown key, or a value that is none of the
+/// accepted words, is `Err` with the reason (nothing of the step applies then).
+#[cfg(feature = "std")]
+fn accessibility_override_of(
+    options: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> Result<(azul_css::accessibility::AccessibilityPreferences, Vec<String>), String> {
+    let mut preferences = azul_css::accessibility::AccessibilityPreferences::default();
+    let mut notes = Vec::new();
+    for (key, value) in options {
+        let text = match value {
+            serde_json::Value::Bool(on) => String::from(if *on { "on" } else { "off" }),
+            serde_json::Value::Number(number) => number.to_string(),
+            serde_json::Value::String(word) => word.clone(),
+            serde_json::Value::Null => String::from("unknown"),
+            other => return Err(format!("\"{key}\": {other} is not a bool, a number or a word")),
+        };
+        if let Some(note) = preferences.set_from_text(key, &text)? {
+            notes.push(note);
+        }
+    }
+    Ok((preferences, notes))
+}
+
 /// The [`ModeResponse`] for the app's `choice` and the mode a window shows.
 #[cfg(feature = "std")]
 fn mode_response(
@@ -3190,6 +3215,31 @@ pub enum DebugEvent {
     /// `curl -s -X POST localhost:8765/ -d '{"op":"set_display_preset","preset":"pixel8"}'`
     SetDisplayPreset {
         preset: String,
+    },
+    /// What the user set in the system's accessibility and display settings, as this window runs
+    /// under it (`CallbackInfo::get_accessibility_preferences`): the text scale and its
+    /// category, bold text, contrast, reduced motion and transparency, differentiate without
+    /// colour, ..., each `on`, `off` or `unknown` (the platform does not say).
+    ///
+    /// `curl -s -X POST localhost:8765/ -d '{"op":"get_system_accessibility"}'`
+    GetSystemAccessibility,
+    /// Say what the system's accessibility settings are, for this window, whatever the platform
+    /// reports (`CallbackInfo::set_accessibility_override`): `{"op":"set_system_accessibility",
+    /// "text_scale":1.5,"bold_text":true,"contrast":"more","reduced_motion":"on"}`. Every key
+    /// but `reset` names one option (`text_scale` takes a factor or a size category such as
+    /// `"accessibility-extra-extra-extra-large"` or `"ax5"`; the states take `true` / `false`,
+    /// `"on"` / `"off"` or `"unknown"`); the options not named keep what they were. `"reset":
+    /// true` drops the earlier override first, so `{"op":"set_system_accessibility","reset":
+    /// true}` alone puts back what the platform reports. A key that is no option, or a value that
+    /// is none of the words, is refused with the list of the options. The window restyles; the
+    /// same file of a scenario runs on a desktop, an emulator and a phone.
+    ///
+    /// `curl -s -X POST localhost:8765/ -d '{"op":"set_system_accessibility","text_scale":2.0}'`
+    SetSystemAccessibility {
+        #[serde(default)]
+        reset: bool,
+        #[serde(flatten)]
+        options: std::collections::BTreeMap<String, serde_json::Value>,
     },
     /// Fold the window's tab content away or show it (`WindowFlags::tab_content_hidden`, what the tab
     /// strip's chevron flips): `{"op":"toggle_tab_content"}` flips it, `{"op":"toggle_tab_content",
@@ -18201,6 +18251,37 @@ fn serve_debug_event(
                     let mut new_state = callback_info.get_current_window_state().clone();
                     new_state.flags.display_preset = wanted;
                     callback_info.modify_window_state(new_state);
+                    send_ok(request, None, None);
+                }
+            }
+        }
+
+        DebugEvent::GetSystemAccessibility => {
+            let json = callback_info.get_accessibility_preferences().to_json();
+            match serde_json::from_str::<serde_json::Value>(&json) {
+                Ok(value) => send_ok(request, None, Some(ResponseData::Json(value))),
+                Err(why) => send_err(request, format!("get_system_accessibility: {why}")),
+            }
+        }
+
+        DebugEvent::SetSystemAccessibility { reset, options } => {
+            match accessibility_override_of(options) {
+                Err(why) => send_err(request, format!("set_system_accessibility: {why}")),
+                Ok((preferences, notes)) => {
+                    for note in notes {
+                        log(LogLevel::Warn, Window, note, None);
+                    }
+                    log(
+                        LogLevel::Info,
+                        Window,
+                        format!(
+                            "System accessibility override{} -> {}",
+                            if *reset { " (reset first)" } else { "" },
+                            preferences.to_json()
+                        ),
+                        None,
+                    );
+                    callback_info.set_accessibility_override(preferences, *reset);
                     send_ok(request, None, None);
                 }
             }

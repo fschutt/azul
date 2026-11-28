@@ -105,6 +105,10 @@ struct Runner {
     /// regeneration: a scale change invalidates every cached rasterisation
     /// and every shaped run measured at the old scale.
     dpi_pending: bool,
+    /// What a scenario told this window to take for the system's accessibility settings
+    /// (`set_system_accessibility`): laid over what the window's style reports, which on this
+    /// host is nothing (the runner has no platform to ask).
+    accessibility_override: azul_css::accessibility::AccessibilityPreferences,
     /// `CallbackChange`s this host could not apply faithfully (see
     /// [`Runner::unsupported`]). Non-empty ⇒ the scenario FAILS: it asked the
     /// engine to do something the headless runner cannot do, so whatever it
@@ -230,6 +234,7 @@ impl Runner {
             font_registry,
             resize_pending: false,
             dpi_pending: false,
+            accessibility_override: azul_css::accessibility::AccessibilityPreferences::default(),
             unsupported_changes: Vec::new(),
             pending_redraw: false,
             close_unconfirmed: false,
@@ -3811,6 +3816,30 @@ impl Runner {
                     ProcessEventResult::DoNothing
                 } else {
                     self.window_state.mode = target;
+                    ProcessEventResult::ShouldIncrementalRelayout
+                }
+            }
+            CallbackChange::SetAccessibilityOverride { preferences, reset } => {
+                // One window and no platform to ask: its style is the scenario's, and the
+                // preferences it reports are the override alone. A restyle of the mounted DOM
+                // re-reads them (a text scale re-solves every size), as a shell's adoption of
+                // the changed style does.
+                self.accessibility_override = if *reset {
+                    *preferences
+                } else {
+                    self.accessibility_override.overlaid(preferences)
+                };
+                let mut style = self
+                    .layout_window
+                    .system_style
+                    .as_deref()
+                    .cloned()
+                    .unwrap_or_default();
+                if style.preferences == self.accessibility_override {
+                    ProcessEventResult::DoNothing
+                } else {
+                    style.set_preferences(self.accessibility_override);
+                    self.layout_window.set_system_style(Arc::new(style));
                     ProcessEventResult::ShouldIncrementalRelayout
                 }
             }

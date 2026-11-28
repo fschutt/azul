@@ -1837,6 +1837,14 @@ impl CssPropertyType {
         }
     }
 
+    /// The property is one of the three that declare an animation: `animation` (a transition of
+    /// the node's own values), `-azul-animation-in` (on mount) and `-azul-animation-out` (on
+    /// unmount). What "Reduce motion" switches off.
+    #[must_use]
+    pub const fn is_animation_declaration(&self) -> bool {
+        matches!(self, Self::Animation | Self::AnimationIn | Self::AnimationOut)
+    }
+
     /// Returns whether this property will be inherited during cascading
     /// Returns whether this CSS property is inherited by default according to CSS specifications.
     ///

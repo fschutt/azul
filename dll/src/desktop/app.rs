@@ -430,6 +430,15 @@ impl App {
             &settings.platform,
             &startup,
         );
+        // What the environment pins of the user's accessibility settings (`AZ_A11Y_*`) is laid
+        // over what the platform reported, so a run that asks for a text size or a contrast gets
+        // it on every host; every later re-discovery meets the same pins in `adopt_system_style`.
+        for note in &settings.css.accessibility_notes {
+            told.push(note.clone());
+        }
+        app_config
+            .system_style
+            .overlay_preferences(&settings.css.accessibility);
         lap("system_style", &mut told);
         startup.mark("app_create:system_style");
 

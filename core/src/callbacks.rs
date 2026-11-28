@@ -1561,6 +1561,7 @@ impl SystemStyleDependencies {
         }
         if self.contains(SystemStyleDependency::Accessibility)
             && (old.accessibility != new.accessibility
+                || old.preferences != new.preferences
                 || old.animation != new.animation
                 || old.prefers_reduced_motion != new.prefers_reduced_motion
                 || old.prefers_high_contrast != new.prefers_high_contrast)
@@ -1977,6 +1978,19 @@ impl LayoutCallbackInfo {
     #[must_use]
     pub fn get_system_style_untracked(&self) -> Arc<SystemStyle> {
         unsafe { (*self.ref_data).system_style.clone() }
+    }
+
+    /// What the user set in the system's accessibility and display settings: text size, bold
+    /// text, contrast, reduced motion, ... (every option may be `Unknown`: the platform has no
+    /// such option, or did not answer).
+    ///
+    /// Declares [`SystemStyleDependency::Accessibility`]: when one of them changes, this
+    /// window's `layout()` runs again. An app that only styles itself with
+    /// `@media (prefers-contrast: more)` and its siblings needs no call: the cascade reads them.
+    #[must_use]
+    pub fn get_accessibility_preferences(&self) -> azul_css::accessibility::AccessibilityPreferences {
+        self.depends_on_system_style(SystemStyleDependency::Accessibility);
+        self.get_system_style_untracked().preferences
     }
 
     /// #28 (d): snapshot of the system's monitors, taken by the caller right
