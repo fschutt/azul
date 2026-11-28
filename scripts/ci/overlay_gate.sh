@@ -152,11 +152,11 @@ run dll_check dll_check
 dll_tests() {
   local code=0
   cargo run -r -p azul-doc -- codegen all || return 1
-  cargo test -p azul-dll --features build-dll --lib --no-fail-fast -- transient 2>&1 | tee dll-lib-tests.txt
+  cargo test -p azul-dll --features build-dll --lib --no-fail-fast -- transient the_layout_dirt_of_one_dom 2>&1 | tee dll-lib-tests.txt
   [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
   cargo test -p azul-dll --features build-dll --no-fail-fast \
     --test a_one_surface_window_shows_its_popups_inside_itself --test a_menu_on_a_phone_opens_inside_the_window \
-    --test a_second_window_of_a_phone_is_a_view_that_fills_it \
+    --test a_second_window_of_a_phone_is_a_view_that_fills_it --test blur_releases_mouse_buttons \
     --test transient_window_layout 2>&1 | tee dll-tests.txt
   [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
   return "$code"
