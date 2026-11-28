@@ -6174,7 +6174,12 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
     // root)
     let stacking_context_tree = {
         let _p = crate::probe::Probe::span("dl_collect_stacking");
-        generator.collect_stacking_contexts(tree.root)?
+        let mut root = generator.collect_stacking_contexts(tree.root)?;
+        // The popups the page shows over itself are painted over everything it has, whatever the
+        // stacking contexts they stand in (a rail with a `z-index`, a card with an `opacity`): the
+        // OS window they stand in for was above its parent's whole window.
+        root.child_contexts.append(&mut generator.top_layer);
+        root
     };
 
     // 2. Traverse the stacking context tree to generate display items in the correct order.
@@ -6247,6 +6252,11 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     /// ([`DisplayListGenerator::box_chain_key`]). Every positioned box asks
     /// for its chain; the labels of a map layer share a handful.
     box_chains: BTreeMap<(usize, u8), Vec<usize>>,
+    /// The popups the page shows over itself (a `<transient-window>` of a window with one
+    /// surface), collected out of the stacking contexts they were found in, in tree order -
+    /// what an overlay holds follows the overlay. The root context paints them after everything
+    /// else of the window.
+    top_layer: Vec<StackingContext>,
 }
 
 /// What the region being painted holds of a box (see
@@ -6970,6 +6980,7 @@ where
             loaded_fonts: core::cell::OnceCell::new(),
             glyph_boxes: core::cell::RefCell::new(HashMap::new()),
             box_chains: BTreeMap::new(),
+            top_layer: Vec::new(),
         }
     }
 
@@ -8162,6 +8173,23 @@ where
         index: usize,
         child_contexts: &mut Vec<StackingContext>,
     ) -> Result<()> {
+        // A popup the page shows over itself leaves the context it stands in for the top layer of
+        // the window. Its place in the list is taken BEFORE its subtree is collected, so a popup
+        // opened from inside it (a drop-down in a dialog) is listed after it and painted over it.
+        if self.is_top_layer(index) && self.establishes_stacking_context(index) {
+            let slot = self.top_layer.len();
+            self.top_layer.push(StackingContext {
+                node_index: index,
+                z_index: 0,
+                child_contexts: Vec::new(),
+                in_flow_children: Vec::new(),
+                positioned_box: false,
+                region: self.painting_region,
+            });
+            let context = self.collect_stacking_contexts(index)?;
+            self.top_layer[slot] = context;
+            return Ok(());
+        }
         if self.establishes_stacking_context(index) {
             child_contexts.push(self.collect_stacking_contexts(index)?);
             return Ok(());
@@ -13768,6 +13796,14 @@ where
         )
     }
 
+    /// Is the box at `node_index` a popup the page shows over itself: a `<transient-window>` of
+    /// the default dock that is laid out in this window at all? A window that opens windows lays
+    /// its popups out nowhere (they are `display: none` here), an inline panel is content of the
+    /// page; what is left is the overlay of a window with one surface, which is over everything.
+    fn is_top_layer(&self, node_index: usize) -> bool {
+        node_is_top_layer(self.ctx.styled_dom, self.positioned_tree.tree, node_index)
+    }
+
     /// Is the box at `node_index` a positioned box painted at step 8 of its
     /// stacking context without being one (see
     /// [`node_paints_as_positioned_box`])?
@@ -13846,6 +13882,25 @@ pub(crate) fn node_paints_as_positioned_box(
         LayoutPosition::Relative | LayoutPosition::Absolute
     ) && crate::solver3::getters::is_z_index_auto(styled_dom, Some(dom_id))
         && !node_establishes_stacking_context(styled_dom, tree, node_index)
+}
+
+/// Is the box at `node_index` a popup the page shows over itself: a `<transient-window>` of the
+/// default dock that is laid out in this window at all? A window that opens windows lays its popups
+/// out nowhere (they are `display: none` here), an inline panel is content of the page; what is
+/// left is the overlay of a window with one surface. It is painted in the TOP LAYER of the window -
+/// over everything the page has, in none of the page's frames - as the OS window it stands in for
+/// was above its parent's whole window (`DisplayListGenerator::file_box_into_context`,
+/// `scroll_chain::box_anchor`).
+pub(crate) fn node_is_top_layer(styled_dom: &StyledDom, tree: &LayoutTree, node_index: usize) -> bool {
+    tree.get(LayoutNodeId::new(node_index))
+        .and_then(|node| node.dom_node_id)
+        .is_some_and(|dom_id| {
+            matches!(
+                styled_dom.node_data.as_container()[dom_id].get_node_type(),
+                azul_core::dom::NodeType::TransientWindow(config)
+                    if config.dock == azul_core::transient::TransientDock::Popup
+            )
+        })
 }
 
 /// Does the box at `node_index` paint as a stacking context of its own?

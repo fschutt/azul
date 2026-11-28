@@ -329,6 +329,13 @@ pub(crate) fn box_anchor(
         LayoutPosition::Fixed => OutOfFlow::Fixed,
         _ => return Some((parent, true)),
     };
+    // A popup the page shows over itself is painted in the top layer of the window: in none of the
+    // page's frames, the viewport's own place (beside the root), whatever it stands in.
+    if kind == OutOfFlow::Fixed
+        && crate::solver3::display_list::node_is_top_layer(styled_dom, tree, index.index())
+    {
+        return Some((LayoutNodeId::new(tree.root), false));
+    }
     let mut cur = parent;
     // No acyclic walk up the tree is longer than the tree.
     for _ in 0..tree.nodes.len() {

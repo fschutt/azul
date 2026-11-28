@@ -575,3 +575,67 @@ fn only_the_newest_overlay_is_the_top_one() {
     assert_eq!(listed.len(), 1);
     assert!(listed[0].top, "the one left is the top");
 }
+
+/// The stacking contexts of the display list in paint order, as `(z-index, depth)` - the depth being
+/// how many contexts are open around it.
+fn stacking_contexts(lw: &LayoutWindow) -> Vec<(i32, usize)> {
+    use azul_layout::solver3::display_list::DisplayListItem;
+
+    let mut depth = 0_usize;
+    let mut found = Vec::new();
+    for item in &lw.layout_results[&DomId::ROOT_ID].display_list.items {
+        match item {
+            DisplayListItem::PushStackingContext { z_index, .. } => {
+                depth += 1;
+                found.push((*z_index, depth));
+            }
+            DisplayListItem::PopStackingContext => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    found
+}
+
+/// The rail of an app is a stacking context (`z-index: 6`) and a card beside it is another with a
+/// higher one: the popup of a control in the rail is painted over BOTH, in the top layer of the
+/// window, as the OS window it stands in for was over everything - not inside the rail's context,
+/// where the card would have covered it.
+#[test]
+fn a_popup_in_a_stacking_context_is_painted_in_the_top_layer_of_the_window() {
+    let (mut lw, ws) = window(PHONE, true);
+    let dom = Dom::create_body()
+        .with_css("margin: 0;")
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("rail"))
+                .with_css("position: relative; z-index: 6; width: 100px; height: 100px;")
+                .with_child(
+                    Dom::create_div()
+                        .with_css("height: 40px; width: 100px;")
+                        .with_child(popup(TransientAnchor::Bottom, true, None, vec![panel(100.0, 50.0)])),
+                ),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("card"))
+                .with_css(
+                    "position: relative; z-index: 50; width: 300px; height: 300px; margin-top: -60px; \
+                     background: #cc0000;",
+                ),
+        );
+    show(&mut lw, &ws, &dom);
+
+    let contexts = stacking_contexts(&lw);
+    let at = |z: i32| contexts.iter().position(|(zi, _)| *zi == z);
+    let (rail, card, overlay) = (at(6), at(50), at(azul_layout::transient_overlay::OVERLAY_Z_INDEX));
+    let (rail, card, overlay) = (
+        rail.expect("the rail's context"),
+        card.expect("the card's context"),
+        overlay.expect("the popup's context"),
+    );
+    assert!(overlay > card && card > rail, "paint order rail, card, popup: {contexts:?}");
+    assert_eq!(
+        contexts[overlay].1, contexts[card].1,
+        "the popup is a context of the same level as the page's own, not inside the rail's: {contexts:?}"
+    );
+}
