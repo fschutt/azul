@@ -54,6 +54,8 @@ DEFAULT_ROWS = [
     {"name": "tree-100", "apk": "tree", "props": {"p1": 100, "p2": 330}},
     {"name": "before-1000", "apk": "before", "props": {"p1": 1000, "p2": 330}},
     {"name": "tree-1000", "apk": "tree", "props": {"p1": 1000, "p2": 330}},
+    # an engine that is slower than the hold's limit (4 s): the window must go ahead at the limit, never stay away (the log says how it went ahead)
+    {"name": "tree-5000", "apk": "tree", "props": {"p1": 5000, "p2": 0}, "settle": 9.0, "starts": 2},
     {"name": "before-450-flat", "apk": "before", "props": {"p1": 450, "p2": 330, "flat": "0xFFFFFF"}},
     {"name": "tree-450-flat", "apk": "tree", "props": {"p1": 450, "p2": 330, "flat": "0xFFFFFF"}},
     {"name": "before-450-nogeom", "apk": "before", "props": {"p1": 450, "p2": 330, "geom": 0}},
