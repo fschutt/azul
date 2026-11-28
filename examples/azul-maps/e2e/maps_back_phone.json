@@ -294,27 +294,6 @@
         "selector": "#__azmaps_search-clear"
       },
       {
-        "op": "focus_node",
-        "selector": ".__azul-native-bottom-sheet-grip"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "Up"
-      },
-      {
-        "op": "key_up",
-        "key": "Up"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
         "op": "assert_layout",
         "selector": "#__azmaps_sheet",
         "property": "y",

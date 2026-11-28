@@ -194,7 +194,8 @@ def back_steps(root_top=None, root_height=None):
                             op("assert_exists", selector="#__azmaps_search-clear")]
     s += press("Escape") + [op("assert_not_exists", selector="#__azmaps_search-clear")]
     if root_top is not None:
-        s += grip_keys("Up") + sheet_at(root_height / 2.0, root_top, root_height)
+        # Route drew the sheet up to half; with nothing else left Back brings it down to its peek
+        s += sheet_at(root_height / 2.0, root_top, root_height)
         s += press("Escape") + sheet_at(168.0, root_top, root_height)
     return s
 
