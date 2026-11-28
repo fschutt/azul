@@ -1211,6 +1211,24 @@ class MapsScriptTests(unittest.TestCase):
         for needle in ("#__azmaps_layers", "#__azmaps_style-1", "#__azmaps_chip-0", "#__azmaps_search", '"AZMAPS_STYLE"', '"AZMAPS_CHIP"', '"AZMAPS_PLACE"', "dev.ime_shown()"):
             self.assertIn(needle, self.TEXT)
 
+    def test_the_map_is_tapped_above_the_sheet_and_a_single_tap_asks_for_the_pin(self):
+        self.assertIn("0.25 if layers else 0.62", self.TEXT)
+        self.assertIn("a single tap on the visible map drops a pin and opens its place", self.TEXT)
+        self.assertIn('"a double tap on the map zooms in"', self.TEXT)          # the double tap zooms again, in both apps
+
+    def test_the_popover_checks_wait_for_wp_p_and_do_not_fail_the_step(self):
+        text = self.TEXT
+        for check in ("the layers key opens something (the picture changes)", "a style pick in the popover changes the map (AZMAPS_STYLE, and the picture)"):
+            at = text.index(check)
+            self.assertIn("required=False", text[at:at + 400], check)
+        self.assertIn("the popover of a phone is WP-P's", text)
+
+    def test_the_keyboard_step_takes_the_apps_own_field_when_there_is_no_field_named_textinput(self):
+        self.assertIn("def first_field_name", self.TEXT)
+        self.assertIn('field_name = first_field_name() or "TextInput"', self.TEXT)
+        self.assertIn("dev.tap_label(field_name)", self.TEXT)
+        self.assertNotIn('dev.tap_label("TextInput")', self.TEXT)
+
     def test_the_sidebar_app_before_the_refactor_is_still_driven(self):
         self.assertIn("#__azmaps_sidebar-toggle", self.TEXT)
         self.assertIn('"AZMAPS_SIDEBAR"', self.TEXT)
