@@ -1327,6 +1327,11 @@ extern "C" fn on_message(mut app: RefAny, mut msg: RefAny, mut info: CallbackInf
                 if status == Status::Unavailable {
                     s.voice.unavailable = Some(message);
                 }
+                // A system that refuses the microphone, or has none, cannot record: the session is held (the key says Paused, the
+                // problem says why) and the person resumes it when it is put right.
+                if matches!(status, Status::Denied | Status::Unavailable) {
+                    s.voice.review_event(ReviewEvent::DeviceLost);
+                }
                 Update::RefreshDom
             }
             Out::Ended(end) => {

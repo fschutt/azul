@@ -40,7 +40,10 @@
        microphone is asked to open once), a click on it pauses it (closed at once, a hover starts
        nothing) and resumes it, Stop ends a note that listens and closes the microphone at once;
    10. the restart: a second AzReview on the same folder and data folder gets the saved session back
-       when it opens the file (`AZREVIEW_LOADED 1 0`) and adds its next stroke to it.
+       when it opens the file (`AZREVIEW_LOADED 1 0`) and adds its next stroke to it;
+   11. the review session (`AZREVIEW_E2E_ONLY=review`, no speech needed, nothing is dictated): a window
+       starts idle and hovering starts nothing; the key at the top right and Mod+Shift+M / Mod+Shift+H
+       start, pause, resume and stop it, and the microphone is asked to open and to close with each.
 
 Run ONE app at a time, through the capped runner:
 
@@ -1935,6 +1938,120 @@ def conversations_return(args, logs, out, binary):
     app.log("PASS: a jump to a conversation remembers where the reviewer was (the first one only), the key and Mod+Shift+C come back, and a restart still has it")
 
 
+def review_session(args, logs, out, binary):
+    """The review session's key and its shortcuts in a window, where no microphone is opened and nothing is dictated (the standby only
+    counts under the e2e server; the pointer is never over a page while a session records; where the speech is not the fake one the mouse
+    may not even start a note: `--dwell-input pen`, a test must never open the microphone).
+    1. a window starts IDLE: the key at the top right says Start review, nothing was asked of a microphone, and a pointer that moves over a
+       page and rests there for three times the rest time starts nothing, prints nothing and starts no session;
+    2. a click on the key starts a session (Recording, a Stop key beside it, the microphone asked to open once);
+    3. a click on the key pauses it (the microphone closed at once, Paused), a click again resumes it (asked a second time);
+    4. Stop ends it: the microphone is closed at once, the key says Start review again;
+    5. the shortcuts: Mod+Shift+M starts, Mod+Shift+H pauses and resumes, Mod+Shift+M stops (also what is held), Mod+Shift+H with no
+       session is nothing;
+    6. the debug op plays the same events and tells the state; an action it does not know is an error."""
+    data_dir = os.path.join(logs, "data-review")
+    folder = os.path.join(logs, "folder-review")
+    os.makedirs(data_dir, exist_ok=True)
+    fixture(folder)
+    dwell_input = "any" if fake_speech() else "pen"
+    app = e2e.App("review-session", binary,
+                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en", "--dwell-ms", "400",
+                   "--dwell-input", dwell_input, "--standby", "near", "--standby-idle-ms", "600000", "--agent", "mock", "--agent-auto", "off"],
+                  args.debug_port + 14, logs, args.timeout)
+
+    def standby():
+        return state(app)["standby"]
+
+    def review():
+        return state(app)["review"]["state"]
+
+    def expect(what, state_now, arms, disarms):
+        got = (review(), standby()["arms"], standby()["disarms"])
+        if got != (state_now, arms, disarms):
+            raise Failure("%s: the session and the microphone's asks are %s, expected %s" % (what, got, (state_now, arms, disarms)))
+
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        app.frame(2)
+        show_files(app)
+        pick(app, "src", "lib.rs")
+        app.frame(3)
+        strip = app.rect(STRIP)
+        base = (strip["x"] + 160.0, strip["y"] + 140.0)
+        # 1. IDLE
+        if not standby()["enabled"] or standby()["mode"] != "near":
+            raise Failure("the standby is not the policy under the e2e server: %s" % standby())
+        expect("a window at its start", "idle", 0, 0)
+        if not app.has_id(REVIEW_STATE) or not app.shows("Start review") or app.has_id(REVIEW_STOP):
+            raise Failure("the key at the top right is not the one that starts a review")
+        app.screenshot(os.path.join(out, "36-review-idle.png"))
+        hover_about(app, base[0] + 120.0, base[1] + 60.0)
+        if app.count("AZREVIEW_DICTATION") or app.count("AZREVIEW_STANDBY") or app.count("AZREVIEW_SESSION") or state(app)["dictating"]:
+            raise Failure("hovering over a page started something in a window that was not started: %s" % standby())
+        expect("after a hover over a page", "idle", 0, 0)
+        # 2. start
+        app.click(selector="#" + REVIEW_STATE)
+        app.until("the session recording", lambda: app.count("AZREVIEW_SESSION", r"recording") == 1)
+        app.until("the key says Recording and has a Stop", lambda: app.shows("Recording") and app.has_id(REVIEW_STOP))
+        expect("a start", "recording", 1, 0)
+        if not state(app)["review"]["may_listen"] or not standby()["armed"]:
+            raise Failure("a start did not open the microphone: %s" % standby())
+        app.screenshot(os.path.join(out, "36-review-recording.png"))
+        # 3. pause and resume
+        app.click(selector="#" + REVIEW_STATE)
+        app.until("the session paused", lambda: app.count("AZREVIEW_SESSION", r"paused") == 1)
+        app.until("the key says Paused", lambda: app.shows("Paused"))
+        expect("a pause", "paused", 1, 1)
+        if standby()["armed"] or state(app)["review"]["may_listen"]:
+            raise Failure("a pause left the microphone open: %s" % standby())
+        app.screenshot(os.path.join(out, "36-review-paused.png"))
+        app.click(selector="#" + REVIEW_STATE)
+        app.until("the session recording again", lambda: app.count("AZREVIEW_SESSION", r"recording") == 2)
+        expect("a resume", "recording", 2, 1)
+        # 4. stop
+        app.click(selector="#" + REVIEW_STOP)
+        app.until("the session stopped", lambda: app.count("AZREVIEW_SESSION", r"stopped") == 1)
+        app.until("the key says Start review again", lambda: app.shows("Start review") and not app.has_id(REVIEW_STOP))
+        expect("a stop", "stopped", 2, 2)
+        if standby()["armed"]:
+            raise Failure("a stop left the microphone open: %s" % standby())
+        # 5. the shortcuts
+        app.key("h", primary=True, shift=True)
+        app.frame(2)
+        expect("the pause key with no session", "stopped", 2, 2)
+        app.key("m", primary=True, shift=True)
+        app.until("Mod+Shift+M starts", lambda: review() == "recording")
+        expect("Mod+Shift+M", "recording", 3, 2)
+        app.key("h", primary=True, shift=True)
+        app.until("Mod+Shift+H pauses", lambda: review() == "paused")
+        expect("Mod+Shift+H", "paused", 3, 3)
+        app.key("h", primary=True, shift=True)
+        app.until("Mod+Shift+H resumes", lambda: review() == "recording")
+        expect("Mod+Shift+H again", "recording", 4, 3)
+        app.key("h", primary=True, shift=True)
+        app.until("Mod+Shift+H pauses again", lambda: review() == "paused")
+        app.key("m", primary=True, shift=True)
+        app.until("Mod+Shift+M stops a held session too", lambda: review() == "stopped")
+        expect("Mod+Shift+M on a held session", "stopped", 4, 4)
+        # 6. the debug op
+        for action, want in (("start", "recording"), ("pause", "paused"), ("resume", "recording"), ("stop", "stopped")):
+            if review_op(app, action) != want:
+                raise Failure("the op %s did not lead to %s" % (action, want))
+        expect("the op", "stopped", 6, 6)
+        answer = app.must("azreview_review", action="hover")["data"]["value"]["result"]
+        if answer.get("success") or "start" not in str(answer.get("error")):
+            raise Failure("an action the op does not know was not refused in words: %s" % answer)
+        no_lint(app, "the review session run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: the review session starts idle, hovering starts nothing, the key and Mod+Shift+M / H start, pause, resume and stop it, "
+            "and the microphone is asked to open and to close with each")
+
+
 def notes_in(path):
     with zipfile.ZipFile(path) as z:
         return json.loads(z.read("session.json").decode("utf-8")).get("notes", [])
@@ -1942,7 +2059,7 @@ def notes_in(path):
 
 def run_all(args, logs, out):
     binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
-    # AZREVIEW_E2E_ONLY=slash, progress, growth, ink, whiteboard, companion, dictation, stream, mic (by hand: it opens the microphone) or conversations runs that step alone (the others each take minutes).
+    # AZREVIEW_E2E_ONLY=slash, progress, growth, ink, whiteboard, companion, review, dictation, stream, mic (by hand: it opens the microphone) or conversations runs that step alone (the others each take minutes).
     only = os.environ.get("AZREVIEW_E2E_ONLY", "")
     if only == "slash":
         slash(args, logs, out, binary)
@@ -1952,6 +2069,9 @@ def run_all(args, logs, out):
         return True
     if only == "mic":
         mic_smoke(args, logs, out, binary)
+        return True
+    if only == "review":
+        review_session(args, logs, out, binary)
         return True
     if only == "ink":
         ink_to_agent(args, logs, out, binary)
@@ -1986,6 +2106,7 @@ def run_all(args, logs, out):
         conversations_return(args, logs, out, binary)
         return True
     body(args, logs, out)
+    review_session(args, logs, out, binary)
     # The dictation steps need the fake speech backend (a libazul with the test hooks). Without it the real recogniser
     # would be asked, and where the terminal holds the microphone and speech permissions it LISTENS: a test must never
     # open the microphone, so the steps are skipped.
