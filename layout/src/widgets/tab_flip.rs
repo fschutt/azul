@@ -9,9 +9,13 @@
 //!    same, and it is why a long page never teleports the reader while they scroll it).
 //! 2. Content that does not scroll flips on a vertical swipe, either way.
 //! 3. A pull moves the content with RESISTANCE ([`rubber`]), shows what is next (the hint:
-//!    "Next: Share", from [`HINT_MIN_PROGRESS`] of the threshold on) and flips when it is let go
-//!    past [`FLIP_THRESHOLD`] of pull, or flung faster than [`FLING_VELOCITY`] past
-//!    [`FLING_MIN_PULL`]. Short of that it springs back.
+//!    "Next: Share", from [`HINT_MIN_PROGRESS`] of the threshold on) and flips the moment it
+//!    crosses [`FLIP_THRESHOLD`] of pull. The finger that carries on pulls on: content that does not
+//!    scroll flips again a threshold further, one tab per crossing (a page that scrolls flips once
+//!    per gesture). Let go short of the threshold it springs back; let go FAST ([`FLING_VELOCITY`])
+//!    past [`FLING_MIN_PULL`] it flips, and a faster fling carries on over more tabs, one flip
+//!    after the other in a slowing rhythm ([`fling_plan`]): the tick of every crossing gives the
+//!    fling its momentum.
 //! 4. The first tab has no previous and the last no next: the pull is a stretch only, with more
 //!    resistance, no hint, no flip (rubber band, no wrap).
 //! 5. Never while the finger went down on something that claims the gesture (a nested
@@ -92,6 +96,14 @@ pub const FLING_VELOCITY: f32 = 800.0;
 pub const FLING_MIN_PULL: f32 = 24.0;
 /// A finger that rests this long (milliseconds) before it lifts is not flinging.
 pub const FLING_STALE_MS: u64 = 100;
+/// Each this much speed beyond [`FLING_VELOCITY`] (px per second) carries a fling one tab further.
+pub const FLING_STEP_VELOCITY: f32 = 800.0;
+/// The most tabs a fling carries on over after the lift.
+pub const FLING_MAX_EXTRA: usize = 4;
+/// The time before the first flip a fling carries on to, in milliseconds.
+pub const MOMENTUM_FIRST_DELAY_MS: u64 = 110;
+/// Each flip of a fling comes this much later than the one before: the rhythm slows down.
+pub const MOMENTUM_GROWTH: f32 = 1.55;
 /// How much a wheel or trackpad pushes against the edge before it flips, in logical px.
 pub const WHEEL_THRESHOLD: f32 = 120.0;
 /// A push that stops for this long (milliseconds) is over: the next one starts from nothing.
@@ -116,6 +128,40 @@ pub fn rubber(distance: f32, resistance: f32) -> f32 {
             1.0
         };
     max * distance / (distance + max)
+}
+
+/// The flips a fling carries on to after the lift: the delay in milliseconds before each, from the
+/// lift (or from the one before), slowing down. `velocity` is the finger's speed along the pull, px
+/// per second; `available` the tabs left in that direction. Nothing below
+/// [`FLING_VELOCITY`] + [`FLING_STEP_VELOCITY`]: a plain fling flips the one tab it is let go on.
+#[must_use]
+pub fn fling_plan(velocity: f32, available: usize) -> Vec<u64> {
+    if !velocity.is_finite() || velocity < FLING_VELOCITY + FLING_STEP_VELOCITY {
+        return Vec::new();
+    }
+    let extra = (((velocity - FLING_VELOCITY) / FLING_STEP_VELOCITY) as usize)
+        .min(FLING_MAX_EXTRA)
+        .min(available);
+    let mut delay = MOMENTUM_FIRST_DELAY_MS as f32;
+    (0..extra)
+        .map(|_| {
+            let now = delay;
+            delay *= MOMENTUM_GROWTH;
+            now.round() as u64
+        })
+        .collect()
+}
+
+/// What a fling carries on to after the lift ([`FlipGesture::momentum`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Momentum {
+    /// Which way.
+    pub direction: FlipDirection,
+    /// The tab the fling stands on at the lift; the first flip of the momentum goes one tab
+    /// further in `direction`.
+    pub from: usize,
+    /// The delay in milliseconds before each flip, slowing down.
+    pub delays: Vec<u64>,
 }
 
 /// What the panel is, when a gesture on it begins.
@@ -193,6 +239,8 @@ pub enum FlipOutcome {
 }
 
 /// What a finger is doing to the panel: down, moves, up (or taken away).
+// Not `Copy`: a gesture is state, and a copy of it would be a second finger.
+#[allow(missing_copy_implementations)]
 #[derive(Debug, Clone)]
 pub struct FlipGesture {
     panel: FlipPanel,
@@ -200,6 +248,10 @@ pub struct FlipGesture {
     last: (f32, f32, u64),
     previous: (f32, f32, u64),
     state: GestureState,
+    /// How many times the finger has flipped this gesture.
+    flips: u32,
+    /// What a fling carries on to after the lift, set by [`Self::lifted`].
+    momentum: Option<Momentum>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -231,6 +283,8 @@ impl FlipGesture {
             last: (x, y, t_ms),
             previous: (x, y, t_ms),
             state,
+            flips: 0,
+            momentum: None,
         }
     }
 
@@ -251,33 +305,91 @@ impl FlipGesture {
             self.decide();
         }
         match self.state {
-            GestureState::Pulling(direction) => self.pulling(direction, names),
+            GestureState::Pulling(direction) => {
+                if self.pull_distance(direction) >= FLIP_THRESHOLD {
+                    if let Some(to) = direction.neighbour(self.panel.tab, self.panel.tab_count) {
+                        return self.crossed(direction, to);
+                    }
+                }
+                self.pulling(direction, names)
+            }
             _ => FlipOutcome::Idle,
         }
     }
 
-    /// The finger went up at time `t_ms`: where it is is where the last move left it.
+    /// The pull crossed the threshold: flip now. Content that does not scroll lets the finger carry
+    /// on (the new tab is the panel, and the next flip is a threshold further from where the finger
+    /// is); a page that scrolls flips once per gesture.
+    const fn crossed(&mut self, direction: FlipDirection, to: usize) -> FlipOutcome {
+        self.flips += 1;
+        if self.panel.overflows {
+            self.state = GestureState::Done;
+        } else {
+            self.panel.tab = to;
+            self.start = (self.last.0, self.last.1);
+        }
+        FlipOutcome::Flip { direction, to }
+    }
+
+    /// The finger went up at time `t_ms`: where it is is where the last move left it. A pull that
+    /// is let go fast flips the tab it is on (past [`FLING_MIN_PULL`]); a faster one is a fling
+    /// that carries on ([`Self::momentum`]).
     pub fn lifted(&mut self, t_ms: u64) -> FlipOutcome {
         if let GestureState::Pulling(direction) = self.state {
             self.state = GestureState::Done;
             let pull = self.pull_distance(direction);
-            let target = direction.neighbour(self.panel.tab, self.panel.tab_count);
             // A finger that paused before it lifted has no speed to fling with.
             let stale = t_ms.saturating_sub(self.last.2) > FLING_STALE_MS;
-            let fast =
-                !stale && self.velocity(direction) >= FLING_VELOCITY && pull >= FLING_MIN_PULL;
-            return match target {
-                Some(to) if pull >= FLIP_THRESHOLD || fast => FlipOutcome::Flip { direction, to },
-                _ => FlipOutcome::Release,
+            let speed = if stale { 0.0 } else { self.velocity(direction) };
+            let fast = speed >= FLING_VELOCITY && (pull >= FLING_MIN_PULL || self.flips > 0);
+            let target = direction.neighbour(self.panel.tab, self.panel.tab_count);
+            let immediate = match target {
+                Some(to) if pull >= FLIP_THRESHOLD || (fast && pull >= FLING_MIN_PULL) => Some(to),
+                _ => None,
+            };
+            let from = immediate.unwrap_or(self.panel.tab);
+            if fast && !self.panel.overflows {
+                let available = match direction {
+                    FlipDirection::Next => self.panel.tab_count.saturating_sub(from + 1),
+                    FlipDirection::Previous => from,
+                };
+                let delays = fling_plan(speed, available);
+                if !delays.is_empty() {
+                    self.momentum = Some(Momentum {
+                        direction,
+                        from,
+                        delays,
+                    });
+                }
+            }
+            return match immediate {
+                Some(to) => {
+                    self.flips += 1;
+                    FlipOutcome::Flip { direction, to }
+                }
+                None => FlipOutcome::Release,
             };
         }
         self.state = GestureState::Done;
         FlipOutcome::Idle
     }
 
+    /// What a fling carries on to after [`Self::lifted`]: `None` for a lift that was not a fast one,
+    /// or whose content scrolls.
+    #[must_use]
+    pub fn momentum(&self) -> Option<Momentum> {
+        self.momentum.clone()
+    }
+
+    /// How many times the finger flipped in this gesture.
+    #[must_use]
+    pub const fn flips(&self) -> u32 {
+        self.flips
+    }
+
     /// The finger was taken away: the system took the gesture (a swipe from an edge, the back or
     /// the home gesture), a call came in, the window lost the touch. Never a flip.
-    pub fn cancel(&mut self) -> FlipOutcome {
+    pub const fn cancel(&mut self) -> FlipOutcome {
         let pulling = matches!(self.state, GestureState::Pulling(_));
         self.state = GestureState::Done;
         if pulling {
@@ -289,7 +401,7 @@ impl FlipGesture {
 
     /// Whether the gesture is a pull of the panel's.
     #[must_use]
-    pub fn is_pulling(&self) -> bool {
+    pub const fn is_pulling(&self) -> bool {
         matches!(self.state, GestureState::Pulling(_))
     }
 
@@ -379,6 +491,8 @@ pub fn hint_text(direction: FlipDirection, name: &str) -> String {
 }
 
 /// A wheel or trackpad pushing against the edge of the panel ([`TabFlip::Always`] only).
+// Not `Copy`: the push is state, and a copy of it would count the same wheel twice.
+#[allow(missing_copy_implementations)]
 #[derive(Debug, Clone, Default)]
 pub struct WheelPush {
     /// The push so far, px, signed (positive: the content scrolls down).

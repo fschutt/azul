@@ -1134,6 +1134,13 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // (drag region, double-click, the traffic lights' room), as in every
     // azul app - the showcase shows the widget, not a hand-made copy of it.
     let titlebar = Titlebar::create("Azul Widget Showcase").dom();
+    // On a simulated phone (the "A phone to try it on" buttons) the top of the page is the touch strip
+    // IN the status bar's band, sliding around the camera, and the camera is a black dot over everything.
+    let top = match tab_looks::phone_band(&info, &s.tab_looks) {
+        Some(band) => tab_looks::phone_strip(&data, &s.tab_looks, theme, band),
+        None => titlebar,
+    };
+    let camera = tab_looks::camera_dots(&info, &s.tab_looks);
 
     Dom::create_body()
         .with_menu_bar(menu_bar(&data))
@@ -1144,7 +1151,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
              system:background; display: flex; flex-direction: column; height: 100%; \
              @theme(flora) { background-color: system:under-page-background; }",
         )
-        .with_child(titlebar)
+        .with_child(top)
         .with_child(bar)
         .with_child(
             Dom::create_div()
@@ -1176,6 +1183,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_child(every_input)
                 .with_child(raw_inputs),
         )
+        .with_child(camera)
 }
 
 /// THE way a section keeps what a widget reported: `put` writes it into the

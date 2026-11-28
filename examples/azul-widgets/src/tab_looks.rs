@@ -7,6 +7,14 @@
 //! the selected tab's text and slides in from the side of the switch
 //! (`TabContent::with_switch`). Last, a small ribbon on the leather, its tabs
 //! as buttons, like AzDrive's title bar.
+//!
+//! Then the tabs for a finger (`TabStyle::TouchPills`): twelve pills in a row that scrolls sideways
+//! without a scrollbar, a panel under them that a vertical swipe flips to the next / previous tab
+//! (`TabContent::with_flip_of`), and a phone to try it on: three buttons make the window behave as if
+//! it sat on a Pixel 8 or an iPhone (`WindowFlags::display_preset`), hide the system bars and draw into
+//! the cutout area, and the page's top becomes the tab strip IN the status bar's band, sliding around
+//! the camera (`TabHeader::with_status_bar`) - drawn here as a black dot, since a desktop window has
+//! none.
 
 use azul::{
     callbacks::{RibbonOnTabClickCallbackType, TabOnClickCallbackType},
@@ -36,7 +44,29 @@ pub(crate) struct TabLooksDemo {
     previous: usize,
     /// The ribbon's selected tab.
     ribbon_tab: usize,
+    /// The selected tab of the touch strip and the one before it.
+    touch_active: usize,
+    touch_previous: usize,
+    /// The phone the window pretends to sit on: 0 none, 1 Pixel 8, 2 iPhone with the Dynamic Island,
+    /// 3 the phone it really runs on (its own cutout, nothing simulated).
+    phone: usize,
 }
+
+/// The tabs of the touch strip: more than a phone has room for.
+const TOUCH_TABS: [&str; 12] = [
+    "Home",
+    "Share",
+    "View",
+    "Insert",
+    "Draw",
+    "Design",
+    "Layout",
+    "References",
+    "Mailings",
+    "Review",
+    "Help",
+    "Account",
+];
 
 /// One header of the three tabs in `style`, on the shared selection.
 fn header(data: &RefAny, demo: &TabLooksDemo, style: TabStyle, theme: UiTheme) -> Dom {
@@ -102,8 +132,185 @@ pub(crate) fn tab_looks_section(data: &RefAny, demo: &TabLooksDemo, theme: UiThe
             ),
             captioned("The panel slides in from the side of the switch", panel),
             captioned("A ribbon on the leather", leather_ribbon(data, demo, theme)),
+            captioned(
+                "Touch pills - 32 px in a 48 px row: drag the row, the selected pill comes into view",
+                Dom::create_div()
+                    .with_css("max-width: 360px; overflow: hidden;")
+                    .with_child(touch_header(data, demo, theme, None)),
+            ),
+            captioned(
+                "A vertical swipe on the panel flips to the next / previous tab",
+                touch_panel(data, demo, theme),
+            ),
+            captioned("A phone to try it on", phone_row(data, demo, theme)),
         ],
     )
+}
+
+/// The touch strip of twelve tabs on its own selection; `band` puts it in the status bar's band.
+fn touch_header(
+    data: &RefAny,
+    demo: &TabLooksDemo,
+    theme: UiTheme,
+    band: Option<StatusBarBand>,
+) -> Dom {
+    let header = TabHeader::create(strs(&TOUCH_TABS))
+        .with_active_tab(demo.touch_active)
+        .with_style(TabStyle::TouchPills)
+        .with_theme(theme)
+        .with_on_click(data.clone(), on_touch_tab as TabOnClickCallbackType);
+    match band {
+        Some(band) => header.with_status_bar(band).dom(),
+        None => header.dom(),
+    }
+}
+
+/// The panel under the touch strip: its text slides in, and a vertical swipe flips the tab.
+fn touch_panel(data: &RefAny, demo: &TabLooksDemo, theme: UiTheme) -> Dom {
+    let header = TabHeader::create(strs(&TOUCH_TABS))
+        .with_active_tab(demo.touch_active)
+        .with_style(TabStyle::TouchPills)
+        .with_theme(theme)
+        .with_on_click(data.clone(), on_touch_tab as TabOnClickCallbackType);
+    let label = TOUCH_TABS[demo.touch_active.min(TOUCH_TABS.len() - 1)];
+    TabContent::create(
+        Dom::create_p_with_text(format!("{label} panel"))
+            .with_css("margin: 0px; color: system:text; min-height: 120px;"),
+    )
+    .with_switch(demo.touch_previous, demo.touch_active)
+    .with_theme(theme)
+    .with_flip_of(&header)
+    .dom()
+}
+
+/// Three buttons that put the window on a phone: none, a Pixel 8, an iPhone with the island.
+fn phone_row(data: &RefAny, demo: &TabLooksDemo, theme: UiTheme) -> Dom {
+    let button = |label: &str, on_click: extern "C" fn(RefAny, CallbackInfo) -> Update| {
+        Button::with_type(
+            label,
+            if label_is_on(label, demo.phone) {
+                ButtonType::Primary
+            } else {
+                ButtonType::Default
+            },
+        )
+        .with_on_click(data.clone(), on_click)
+        .with_theme(theme)
+        .dom()
+    };
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: row; gap: 8px; flex-wrap: wrap;")
+        .with_child(button("No phone", on_phone_off))
+        .with_child(button("Pixel 8", on_phone_pixel))
+        .with_child(button("iPhone 16 Pro", on_phone_island))
+        .with_child(button("This phone", on_phone_real))
+}
+
+/// Whether the button named `label` is the phone that is on.
+fn label_is_on(label: &str, phone: usize) -> bool {
+    matches!(
+        (label, phone),
+        ("No phone", 0) | ("Pixel 8", 1) | ("iPhone 16 Pro", 2) | ("This phone", 3)
+    )
+}
+
+/// The status bar's band for the phone the window pretends to sit on, `None` when it sits on none.
+pub(crate) fn phone_band(info: &LayoutCallbackInfo, demo: &TabLooksDemo) -> Option<StatusBarBand> {
+    if demo.phone == 0 {
+        return None;
+    }
+    Some(StatusBarBand::from_display(
+        &info.get_display_features(),
+        &info.get_safe_area_insets(),
+        LogicalSize {
+            width: info.get_window_width(),
+            height: info.get_window_height(),
+        },
+    ))
+}
+
+/// The top of the window when it sits on a phone: the touch strip IN the status bar's band, around the
+/// camera.
+pub(crate) fn phone_strip(
+    data: &RefAny,
+    demo: &TabLooksDemo,
+    theme: UiTheme,
+    band: StatusBarBand,
+) -> Dom {
+    touch_header(data, demo, theme, Some(band))
+}
+
+/// The camera the simulated phone has, drawn as a black dot (a desktop window has none; on a phone
+/// the hardware is there). The last child of the page, over everything.
+pub(crate) fn camera_dots(info: &LayoutCallbackInfo, demo: &TabLooksDemo) -> Dom {
+    let mut layer = Dom::create_div().with_css("position: absolute; left: 0px; top: 0px;");
+    // A phone that is really there has its own camera.
+    if demo.phone == 0 || demo.phone == 3 {
+        return layer;
+    }
+    let features = info.get_display_features();
+    for cutout in features.cutouts.as_slice() {
+        let r = &cutout.rect;
+        layer = layer.with_child(Dom::create_div().with_css(
+            format!(
+                "position: absolute; left: {}px; top: {}px; width: {}px; height: {}px; \
+                 background: #000000; border-radius: 50%;",
+                r.origin.x, r.origin.y, r.size.width, r.size.height
+            )
+            .as_str(),
+        ));
+    }
+    layer
+}
+
+/// Put the window on `preset`'s phone (or take it off): the insets, the cutouts and the bars come from
+/// the preset, the status bar is hidden and the window draws under it and into the cutout area, so
+/// the top of the page is the strip.
+fn put_on_phone(info: &mut CallbackInfo, preset: DisplayPreset, on: bool) {
+    let mut window = info.get_current_window_state();
+    window.flags.display_preset = preset;
+    window.flags.extend_into_safe_area = on;
+    window.flags.system_bars.status = if on {
+        SystemBarMode::HiddenTransient
+    } else {
+        SystemBarMode::Visible
+    };
+    window.flags.system_bars.draw_into_cutout = on;
+    info.modify_window_state(window);
+}
+
+extern "C" fn on_phone_off(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    put_on_phone(&mut info, DisplayPreset::Off, false);
+    keep(&mut data, |s| s.tab_looks.phone = 0)
+}
+
+extern "C" fn on_phone_pixel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    put_on_phone(&mut info, DisplayPreset::Pixel8, true);
+    keep(&mut data, |s| s.tab_looks.phone = 1)
+}
+
+extern "C" fn on_phone_island(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    put_on_phone(&mut info, DisplayPreset::IPhoneDynamicIsland, true);
+    keep(&mut data, |s| s.tab_looks.phone = 2)
+}
+
+/// The phone the app really runs on: the bars are hidden and the window draws under them and into the
+/// cutout area, with whatever cutout the phone has (nothing is simulated).
+extern "C" fn on_phone_real(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    put_on_phone(&mut info, DisplayPreset::Off, true);
+    keep(&mut data, |s| s.tab_looks.phone = 3)
+}
+
+/// A tab of the touch strip, or a flip of its panel: the selection moves, and the panel remembers
+/// where it came from.
+extern "C" fn on_touch_tab(mut data: RefAny, _info: CallbackInfo, state: TabHeaderState) -> Update {
+    keep(&mut data, |s| {
+        let demo = &mut s.tab_looks;
+        if demo.touch_active != state.active_tab {
+            demo.touch_previous = demo.touch_active;
+            demo.touch_active = state.active_tab;
+        }
+    })
 }
 
 /// A tab of any of the three headers: the selection moves, and the panel

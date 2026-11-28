@@ -66,7 +66,8 @@ fn the_pixel_8_band_is_two_lanes_around_the_camera() {
 #[test]
 fn on_its_side_the_pixel_8_has_one_lane_left_of_which_the_inset_is_a_gap() {
     let band = band_of(DisplayPreset::Pixel8, 780.0, 360.0);
-    assert!(near(band.height, 24.0));
+    // The status bar is 24 dp on its side; a strip in it is a touch row at least.
+    assert!(near(band.height, TOUCH_ROW));
     // The camera is at the left edge half way down: not in the band; the left inset (36) is.
     assert!(band.is_one_lane());
     assert!(spans_near(&band.lane_spans(), &[(36.0, 780.0)]));
@@ -177,18 +178,18 @@ fn the_selected_pill_stands_whole_in_a_lane_whatever_the_scroll_it_starts_from()
     let lanes = band.lane_spans();
     let pills = ten_pills();
     let max = max_scroll(content_width(&pills), band.width);
-    for selected in 0..pills.len() {
+    for (selected, pill) in pills.iter().copied().enumerate() {
         for step in 0..=((max / 10.0) as i32 + 1) {
             let now = (step as f32 * 10.0).min(max);
-            let target = scroll_for_pill(pills[selected], now, max, &lanes);
+            let target = scroll_for_pill(pill, now, max, &lanes);
             assert!(
                 target >= 0.0 && target <= max + 0.001,
                 "{target} outside 0..={max}"
             );
             assert!(
-                is_whole_in_a_lane(pill_span(pills[selected], target), &lanes),
+                is_whole_in_a_lane(pill_span(pill, target), &lanes),
                 "pill {selected} from scroll {now}: at {target} it is {:?} in {lanes:?}",
-                pill_span(pills[selected], target)
+                pill_span(pill, target)
             );
         }
     }

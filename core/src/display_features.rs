@@ -56,7 +56,7 @@ pub enum CutoutShape {
 }
 
 /// One cutout of the display, in window coordinates.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct DisplayCutout {
     /// The bounding rect of the cutout. Android: `DisplayCutout.getBoundingRects()`; iOS: the
@@ -73,7 +73,7 @@ pub struct DisplayCutout {
 impl_option!(
     DisplayCutout,
     OptionDisplayCutout,
-    [Debug, Copy, Clone, PartialEq]
+    [Debug, Copy, Clone, PartialEq, Eq]
 );
 
 impl_vec!(
@@ -104,7 +104,7 @@ pub struct CornerRadii {
 
 /// One system bar (the status bar with the clock and the battery, the navigation bar or the home
 /// indicator), in window coordinates.
-#[derive(Debug, Copy, Clone, PartialEq, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 #[repr(C)]
 pub struct SystemBar {
     /// Where the bar is WHEN SHOWN. A bar the app or the system has hidden keeps its rect, so an
@@ -114,10 +114,14 @@ pub struct SystemBar {
     pub visible: bool,
 }
 
-impl_option!(SystemBar, OptionSystemBar, [Debug, Copy, Clone, PartialEq]);
+impl_option!(
+    SystemBar,
+    OptionSystemBar,
+    [Debug, Copy, Clone, PartialEq, Eq]
+);
 
 /// The system bars of the window. `None` where the platform has no such bar (a desktop window).
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct SystemBars {
     /// The status bar: the clock, the battery, the notifications.
@@ -264,17 +268,18 @@ impl DisplayFeatures {
             .as_ref()
             .iter()
             .take(MAX_CUTOUTS)
-            .filter(|c| {
-                let r = &c.rect;
-                let (x, y, w, h) = (r.origin.x, r.origin.y, r.size.width, r.size.height);
-                x.is_finite()
-                    && y.is_finite()
-                    && w.is_finite()
-                    && h.is_finite()
-                    && w > 0.0
-                    && h > 0.0
-                    && y < bottom
-                    && y + h > top
+            .filter(|cutout| {
+                let rect = &cutout.rect;
+                let (left, edge) = (rect.origin.x, rect.origin.y);
+                let (width, height) = (rect.size.width, rect.size.height);
+                left.is_finite()
+                    && edge.is_finite()
+                    && width.is_finite()
+                    && height.is_finite()
+                    && width > 0.0
+                    && height > 0.0
+                    && edge < bottom
+                    && edge + height > top
             })
             .copied()
             .collect()
@@ -331,7 +336,7 @@ impl DisplayFeatures {
     }
 }
 
-fn lane(x: f32, y: f32, width: f32, height: f32) -> LogicalRect {
+const fn lane(x: f32, y: f32, width: f32, height: f32) -> LogicalRect {
     LogicalRect::new(LogicalPosition { x, y }, LogicalSize { width, height })
 }
 
@@ -384,7 +389,7 @@ fn insets(top: f32, bottom: f32, left: f32, right: f32) -> SafeAreaInsets {
     }
 }
 
-fn cutout(x: f32, y: f32, w: f32, h: f32, shape: CutoutShape) -> DisplayCutout {
+const fn cutout(x: f32, y: f32, w: f32, h: f32, shape: CutoutShape) -> DisplayCutout {
     DisplayCutout {
         rect: lane(x, y, w, h),
         shape,
@@ -392,14 +397,14 @@ fn cutout(x: f32, y: f32, w: f32, h: f32, shape: CutoutShape) -> DisplayCutout {
     }
 }
 
-fn bar(x: f32, y: f32, w: f32, h: f32) -> OptionSystemBar {
+const fn bar(x: f32, y: f32, w: f32, h: f32) -> OptionSystemBar {
     OptionSystemBar::Some(SystemBar {
         rect: lane(x, y, w, h),
         visible: true,
     })
 }
 
-fn all_corners(radius: f32) -> CornerRadii {
+const fn all_corners(radius: f32) -> CornerRadii {
     CornerRadii {
         top_left: radius,
         top_right: radius,
@@ -408,7 +413,7 @@ fn all_corners(radius: f32) -> CornerRadii {
     }
 }
 
-fn sensor(kind: FingerprintKind, spot: Option<(f32, f32, f32)>) -> OptionFingerprintSensor {
+const fn sensor(kind: FingerprintKind, spot: Option<(f32, f32, f32)>) -> OptionFingerprintSensor {
     OptionFingerprintSensor::Some(FingerprintSensor {
         kind,
         spot: match spot {
@@ -475,10 +480,10 @@ impl DisplayPreset {
             (Self::IPhoneNotch, false) => insets(47.0, 34.0, 0.0, 0.0),
             (Self::IPhoneNotch, true) => insets(0.0, 21.0, 47.0, 47.0),
             (Self::IPhoneHomeButton, false) => insets(20.0, 0.0, 0.0, 0.0),
-            (Self::CornerHole, false) | (Self::DoubleHole, false) => {
+            (Self::CornerHole | Self::DoubleHole, false) => {
                 insets(40.0, ANDROID_NAVIGATION, 0.0, 0.0)
             }
-            (Self::CornerHole, true) | (Self::DoubleHole, true) => {
+            (Self::CornerHole | Self::DoubleHole, true) => {
                 insets(24.0, ANDROID_NAVIGATION, 40.0, 0.0)
             }
         }

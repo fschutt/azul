@@ -12,6 +12,7 @@
 #   autofix    api.json through azul-doc: `autofix add` for the new functions, patches until there are none, normalize; the
 #              result is api.json (upload it) and api.diff (what it changed); then a SECOND round that must change nothing
 #   doc_check  azul-doc check (the double-drop invariant, the guide links) and azul-doc check layout
+#   widgets_check  the AzWidgets example type-checks over the C ABI (after the autofix step's api.json)
 #   dll_check  codegen of the bindings from the api.json as it stands, cargo check of azul-dll, the srcgate tests (no --codegen needed)
 # A step that fails does not stop the ones after it; the last lines are one `STEP <name> <exit>` each, and the exit code of the
 # script is 0 only when every step that ran passed.
@@ -70,6 +71,17 @@ run clippy clippy
 api_functions=(
   CallbackInfo.get_display_features
   LayoutCallbackInfo.get_display_features
+  StatusBarBand.from_display
+  TabHeader.set_status_bar
+  TabHeader.with_status_bar
+  TabHeader.set_flip
+  TabHeader.with_flip
+  TabContent.set_flip_of
+  TabContent.with_flip_of
+  Ribbon.set_status_bar
+  Ribbon.with_status_bar
+  Ribbon.set_flip
+  Ribbon.with_flip
 )
 autofix_round() {
   local out
@@ -125,6 +137,13 @@ dll_check() {
   return "$code"
 }
 run dll_check dll_check
+
+# AzWidgets over the C ABI: the page of this work type-checks against the bindings of the api.json as it stands
+widgets_check() {
+  cargo run -r -p azul-doc -- codegen all || return 1
+  cargo check -p AzWidgets --lib --tests
+}
+run widgets_check widgets_check
 
 echo
 bad=0

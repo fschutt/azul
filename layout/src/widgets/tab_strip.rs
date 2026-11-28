@@ -22,6 +22,11 @@ use azul_core::{
 };
 use azul_css::system::SafeAreaInsets;
 
+/// The height of a row of touch pills, in logical px: the pill (32) and the room above and below it
+/// that makes its target (8 each): at least 44 pt / 48 dp. A strip in the status bar's band is
+/// never shorter.
+pub const TOUCH_ROW: f32 = 48.0;
+
 /// The room kept clear on each side of a cutout, in logical px: the camera's own glass is wider
 /// than the hole, and a thumb that misses a pill by a hair should not land on the camera.
 pub const CUTOUT_MARGIN: f32 = 8.0;
@@ -38,9 +43,9 @@ pub const LANE_INSET: f32 = 12.0;
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct StatusBarBand {
-    /// The band's height, from the top edge of the window: the status bar's. `0` where the window
-    /// has no status bar and no cutout at its top (a desktop window, an iPhone on its side): the
-    /// strip is an ordinary one then.
+    /// The strip's height, from the top edge of the window: the status bar's, and never less than
+    /// [`TOUCH_ROW`]. `0` where the window has no status bar and no inset at its top (a desktop
+    /// window, an iPhone on its side): the strip is an ordinary one then.
     pub height: f32,
     /// The window's width the lanes were made for.
     pub width: f32,
@@ -80,11 +85,14 @@ impl StatusBarBand {
         let status = features.bars.status.into_option().map_or(0.0, |bar| {
             bar.rect.origin.y.max(0.0) + bar.rect.size.height.max(0.0)
         });
-        let height = if status.is_finite() && status > 0.0 {
+        let band = if status.is_finite() && status > 0.0 {
             status
         } else {
             inset_top
         };
+        // A strip in the band is a touch row at least: a landscape phone's 24 dp status bar is not
+        // room for a pill. The cutouts that count are those in the strip's whole height.
+        let height = if band > 0.0 { band.max(TOUCH_ROW) } else { 0.0 };
         let left = inset_left.min(width);
         let right = (width - inset_right).max(left);
         let lanes = features.free_lanes(0.0, height, left, right, CUTOUT_MARGIN);
@@ -244,7 +252,7 @@ pub fn scroll_for_pill(
         if lowest > highest {
             continue;
         }
-        let centred = x + width / 2.0 - (left + right) / 2.0;
+        let centred = x + width / 2.0 - f32::midpoint(left, right);
         let target = centred.clamp(lowest, highest);
         let cost = (target - now).abs();
         if best.is_none_or(|(_, c)| cost < c) {
