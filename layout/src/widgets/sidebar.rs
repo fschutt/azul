@@ -61,6 +61,13 @@
 //! overhang the 18 px rail: `with_window_controls` keeps their band free, `header_left_pad` is
 //! what the tab row keeps clear (`sidebar_layout.rs`).
 //!
+//! # The user's text size
+//!
+//! The expanded sidebar FOLLOWS the system's text size: a row, a section title and a foot row have a
+//! height that is a FLOOR (28 px, 48 px for a finger), so they grow with their text, and an icon's
+//! box is in `em`. The collapsed rail is CHROME: an 18 px column of 16 px faces, its glyphs and digits
+//! are capped at 1.3 times (`--azul-text-scale-max`, `CHROME_TEXT_SCALE_MAX` in `sidebar_layout.rs`).
+//!
 //! # The surface
 //!
 //! It takes the app's surface: by default the theme's sidebar ground (`system:sidebar-background`:
@@ -95,8 +102,8 @@ use super::{
     pie_marker::{disc_dom, PieTone},
     roving,
     sidebar_layout::{
-        column_width, controls_height, sidebar_edge, swipe_opens_at, Edge, SidebarColumnWidth, BUILT_FOR,
-        TOUCH_PLATFORM,
+        chrome_text_cap, column_width, controls_height, sidebar_edge, swipe_opens_at, Edge, SidebarColumnWidth,
+        BUILT_FOR, TOUCH_PLATFORM,
         INDENT_PER_DEPTH, MAX_DEPTH, MAX_QUICK_ACTIONS, MAX_ROWS, MAX_STATUSES,
         RAIL_BUTTON_DESKTOP, RAIL_BUTTON_PHONE, RAIL_ICON_PX, RAIL_SLOP, RAIL_STATUS_PX,
         RAIL_WIDTH, ROW_HEIGHT_DESKTOP, ROW_HEIGHT_PHONE, STATUS_PIE_PX,
@@ -1593,8 +1600,22 @@ impl Ctx {
     }
 }
 
-/// The icon `name` at `px`, in `color` (a CSS colour, or empty for the ink it stands in).
+/// The icon `name` at `px` in a row, in `color` (a CSS colour, or empty for the ink it stands in). Its box is
+/// `px + 2` wide in EM, so the box follows the glyph when the user's text size scales it (a px box would
+/// leave the glyph overlapping its neighbours).
 fn icon(name: &str, px: f32, color: &str) -> Dom {
+    let em = (px + 2.0) / px;
+    let css = if color.is_empty() {
+        format!("font-size: {px}px; width: {em:.4}em; flex-shrink: 0; text-align: center;")
+    } else {
+        format!("font-size: {px}px; width: {em:.4}em; flex-shrink: 0; text-align: center; color: {color};")
+    };
+    styled(Dom::create_icon(AzString::from(name)), &css)
+}
+
+/// The icon `name` at `px` of the COLLAPSED RAIL, in `color`: chrome, a box of `px + 2` in px (the rail is 18 px
+/// wide whatever the user's text size is).
+fn rail_icon(name: &str, px: f32, color: &str) -> Dom {
     let css = if color.is_empty() {
         format!("font-size: {px}px; width: {}px; flex-shrink: 0; text-align: center;", px + 2.0)
     } else {
@@ -1615,7 +1636,7 @@ fn row_dom(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
     let pad = 8.0 + depth as f32 * INDENT_PER_DEPTH;
     let mut css = format!(
         "display: flex; flex-direction: row; align-items: center; gap: 8px; box-sizing: border-box; \
-         flex-shrink: 0; height: {h}px; margin: 1px 6px; padding: 0px 8px 0px {pad}px; border-radius: 6px; \
+         flex-shrink: 0; min-height: {h}px; margin: 1px 6px; padding: 0px 8px 0px {pad}px; border-radius: 6px; \
          cursor: pointer; "
     );
     if row.selected {
@@ -1645,7 +1666,7 @@ fn row_dom(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
     // (so the icons of a level line up)
     if row.has_children {
         let tri = icon(if row.expanded { "expand_more" } else { "chevron_right" }, 16.0, "");
-        let tri = styled(tri, &format!("opacity: 0.7; width: 18px; height: {h}px; display: flex; \
+        let tri = styled(tri, &format!("opacity: 0.7; width: 18px; min-height: {h}px; display: flex; \
              align-items: center; justify-content: center; margin-left: -4px;"))
         .with_ids_and_classes(classes(SIDEBAR_DISCLOSURE_CLASS, &[]))
         .with_accessibility_info(AccessibilityInfo::named(
@@ -1829,7 +1850,7 @@ fn section_dom(ctx: &Ctx, section: &SidebarSection, index: usize) -> Option<Dom>
     }
     let mut css = format!(
         "display: flex; flex-direction: row; align-items: center; box-sizing: border-box; flex-shrink: 0; \
-         height: 24px; margin: 14px 6px 2px 6px; padding: 0px 8px; font-size: 11px; font-weight: 700; \
+         min-height: 24px; margin: 14px 6px 2px 6px; padding: 0px 8px; font-size: 11px; font-weight: 700; \
          color: {}; @theme(flora) {{ text-transform: uppercase; letter-spacing: 0.08em; }}",
         ctx.look.quiet
     );
@@ -1936,7 +1957,7 @@ fn rail_button(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
     let tint = row.tint.as_ref().map(|c| rgb_css(*c)).unwrap_or_default();
     let color = if tint.is_empty() { String::from(ctx.look.quiet) } else { tint };
     let name = AzString::from(row.rail_name());
-    let mut face: Vec<Dom> = alloc::vec![icon(row.icon.as_str(), RAIL_ICON_PX, &color)];
+    let mut face: Vec<Dom> = alloc::vec![rail_icon(row.icon.as_str(), RAIL_ICON_PX, &color)];
     // a document keeps its pie in the rail: a small one at the corner of its button
     if row.has_pie() {
         face.push(styled(
@@ -2002,7 +2023,7 @@ fn quick_button(ctx: &Ctx, action: &SidebarQuickAction, index: usize) -> Dom {
         face_states(ctx, &mut css, on);
     }
     let ink = if on { "system:text" } else { ctx.look.quiet };
-    let mut face: Vec<Dom> = alloc::vec![icon(action.icon.as_str(), RAIL_ICON_PX, ink)];
+    let mut face: Vec<Dom> = alloc::vec![rail_icon(action.icon.as_str(), RAIL_ICON_PX, ink)];
     if let Some(c) = action.swatch.as_ref() {
         face.push(styled(
             Dom::create_div(),
@@ -2144,7 +2165,7 @@ fn status_dom(ctx: &Ctx, status: &SidebarStatus, expanded: bool, theme: OptionUi
         let h = ctx.row_h();
         format!(
             "display: flex; flex-direction: row; align-items: center; gap: 8px; box-sizing: border-box; \
-             flex-shrink: 0; height: {h}px; margin: 1px 6px; padding: 0px 8px; border-radius: 6px; cursor: pointer; \
+             flex-shrink: 0; min-height: {h}px; margin: 1px 6px; padding: 0px 8px; border-radius: 6px; cursor: pointer; \
              width: calc(100% - 12px); "
         )
     } else {
@@ -2200,7 +2221,7 @@ fn status_dom(ctx: &Ctx, status: &SidebarStatus, expanded: bool, theme: OptionUi
 fn rail_foot_button(ctx: &Ctx, icon_name: &str, label: &str, class: &'static str, ev: SidebarEvent) -> Dom {
     let mut css = face_css(ctx);
     face_states(ctx, &mut css, false);
-    let face: Vec<Dom> = alloc::vec![icon(icon_name, RAIL_ICON_PX, ctx.look.quiet), slop(ctx)];
+    let face: Vec<Dom> = alloc::vec![rail_icon(icon_name, RAIL_ICON_PX, ctx.look.quiet), slop(ctx)];
     let node = styled(Dom::create_div().with_children(DomVec::from_vec(face)), &css)
         .with_ids_and_classes(classes(class, &[]))
         .with_accessibility_info(AccessibilityInfo::named(label, AccessibilityRole::PushButton))
@@ -2215,7 +2236,7 @@ fn foot_row(ctx: &Ctx, icon_name: &str, label: &str, class: &'static str, ev: Si
     let h = ctx.row_h();
     let mut css = format!(
         "display: flex; flex-direction: row; align-items: center; gap: 8px; box-sizing: border-box; \
-         flex-shrink: 0; height: {h}px; margin: 1px 6px; padding: 0px 8px; border-radius: 6px; cursor: pointer; \
+         flex-shrink: 0; min-height: {h}px; margin: 1px 6px; padding: 0px 8px; border-radius: 6px; cursor: pointer; \
          width: calc(100% - 12px); "
     );
     let _ = write!(
@@ -2384,7 +2405,8 @@ fn build(sb: Sidebar) -> Dom {
     );
     match state {
         SidebarState::Rail => {
-            let _ = write!(root_css, " align-items: {};", edge.align_start());
+            // the rail is chrome: its glyphs and digits keep to its 18 px column whatever the text size is
+            let _ = write!(root_css, " align-items: {}; {}", edge.align_start(), chrome_text_cap());
         }
         SidebarState::Handle => root_css.push_str(" align-items: center;"),
         SidebarState::Expanded => {}
@@ -2393,7 +2415,7 @@ fn build(sb: Sidebar) -> Dom {
         SIDEBAR_CLASS,
         &[(true, state_class), (phone, SIDEBAR_PHONE_CLASS)],
     );
-    let landmark = AccessibilityInfo::named(label, AccessibilityRole::Pane);
+    let landmark = AccessibilityInfo::named(label.clone(), AccessibilityRole::Pane);
 
     // ---- the 16 px handle ----
     if state == SidebarState::Handle {
@@ -2478,10 +2500,7 @@ fn build(sb: Sidebar) -> Dom {
                 ),
             )
             .with_ids_and_classes(classes(SIDEBAR_LIST_CLASS, &[]))
-            .with_accessibility_info(AccessibilityInfo {
-                role: AccessibilityRole::Outline,
-                ..Default::default()
-            }),
+            .with_accessibility_info(AccessibilityInfo::named(label.clone(), AccessibilityRole::Outline)),
         );
         if !quick.is_empty() {
             kids.push(rule("width: 12px;"));
@@ -2586,10 +2605,7 @@ fn build(sb: Sidebar) -> Dom {
              scrollbar-width: none; padding: 4px 0px 8px 0px;",
         )
         .with_ids_and_classes(classes(SIDEBAR_LIST_CLASS, &[]))
-        .with_accessibility_info(AccessibilityInfo {
-            role: AccessibilityRole::Outline,
-            ..Default::default()
-        }),
+        .with_accessibility_info(AccessibilityInfo::named(label.clone(), AccessibilityRole::Outline)),
     );
 
     // ---- the foot: help, the status indicators, the toggle ----

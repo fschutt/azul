@@ -194,3 +194,19 @@ fn the_sheet_has_a_row_limit() {
 
 // a row is a finger tall: checked when this compiles
 const _: () = assert!(ITEM_HEIGHT >= 44.0);
+
+// ---- the text size of the user ----
+
+use crate::widgets::sidebar_layout::declares;
+use azul_css::props::property::CssPropertyType;
+
+#[test]
+fn a_row_of_the_sheet_is_as_tall_as_its_text_needs_above_the_finger_floor() {
+    let dom = files().dom();
+    let rows = all(&dom, SHEET_ITEM_CLASS);
+    assert_eq!(rows.len(), 4);
+    for row in rows {
+        assert!(declares(&row.root.style, CssPropertyType::MinHeight));
+        assert!(!declares(&row.root.style, CssPropertyType::Height));
+    }
+}
