@@ -1,7 +1,7 @@
-//! The address row's branch chip and its quick switcher.
+//! The folder's branch chip and its quick switcher.
 //!
 //! When the window shows a folder on this computer, a worker thread asks `git_repo` which
-//! repository holds it; the chip at the end of the address row then names the branch (or the
+//! repository holds it; the chip at the start of the command line at the window's foot then names the branch (or the
 //! commit of a detached HEAD), a dot when something is not committed, and how far the branch
 //! is from its upstream. A cloud folder never gets a chip. The chip is looked at again when the
 //! folder changes, after F5, after a command of the command bar, and when the repository's
@@ -11,7 +11,7 @@
 //! would need a watch per folder, an ignored `node_modules` included).
 //!
 //! A click on the chip (or Cmd/Ctrl+B, or `/switch`) opens the quick switcher: azul's Dialog
-//! as a popover under the chip, its filter field taking the keyboard, the local branches
+//! as a popover over the chip, its filter field taking the keyboard, the local branches
 //! below it (the current one first, then the newest), arrows to choose, Return to switch,
 //! Escape to close. A switch is checked first on a worker thread (`git_repo::plan_switch`): a
 //! clean tree switches at once; changes git would carry are said, with "Switch anyway (carry
@@ -427,42 +427,6 @@ fn heard_an_edit(wake: &azcloud_kit::sync::watcher::Wake) -> bool {
 
 // ==== The chip ====
 
-/// The space the chip takes from the address bar's crumbs (px): its words at the bar's size,
-/// its icon and padding; 0 without a chip.
-pub(crate) fn chip_room(s: &DriveState) -> f32 {
-    match &s.git.repo {
-        None => 0.0,
-        Some(_) => {
-            let chars = chip_label(s).chars().count() as f32;
-            (chars * 7.5 + 52.0).clamp(64.0, 300.0)
-        }
-    }
-}
-
-/// The address row: the address bar, and the chip with its switcher at its end when the folder
-/// is in a repository. The bar keeps the same place in the tree with and without the chip, so
-/// a chip that appears while the search box is typed in leaves the box its keyboard.
-pub(crate) fn address_row(s: &DriveState, app: &RefAny, bar: Dom) -> Dom {
-    let mut row = Dom::create_div()
-        .with_css("display: flex; flex-direction: row; align-items: center; min-width: 0px;")
-        .with_child(
-            Dom::create_div()
-                .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0px;")
-                .with_child(bar),
-        );
-    if let Some(chip) = chip(s, app) {
-        row.add_child(
-            Dom::create_div()
-                .with_css(
-                    "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; \
-                     margin: 0px 8px 0px 2px;",
-                )
-                .with_child(chip),
-        );
-    }
-    row
-}
-
 /// The chip's words: the branch (cut when long), the commit of a detached HEAD, the dot for
 /// uncommitted changes, the counts against the upstream.
 fn chip_label(s: &DriveState) -> String {
@@ -551,9 +515,10 @@ fn chip_tooltip(s: &DriveState) -> String {
     parts.join(" ")
 }
 
-/// The chip and its switcher (azul's Dialog, a popover under the chip), or `None` without a
-/// repository. A bare repository's chip only names its branch: it has nothing to switch.
-fn chip(s: &DriveState, app: &RefAny) -> Option<Dom> {
+/// The chip and its switcher (azul's Dialog, a popover on `anchor`'s side of the chip: above it
+/// where the chip stands at the window's foot), or `None` without a repository. A bare
+/// repository's chip only names its branch: it has nothing to switch.
+pub(crate) fn chip(s: &DriveState, app: &RefAny, anchor: TransientAnchor) -> Option<Dom> {
     s.git.repo.as_ref()?;
     let switchable = s.git.info().is_some_and(|info| !info.bare());
     let mut button = Button::create(AzString::from(chip_label(s)))
@@ -577,7 +542,7 @@ fn chip(s: &DriveState, app: &RefAny) -> Option<Dom> {
             .with_title(label("azdrive-git-switcher-title"))
             .with_open(s.git.switcher.open)
             .with_modal(false)
-            .with_anchor(TransientAnchor::Bottom)
+            .with_anchor(anchor)
             .with_closed_by(DialogClosedBy::Any)
             .with_close_button(false)
             .with_on_close(app.clone(), on_switcher_closed as DialogOnCloseCallbackType)

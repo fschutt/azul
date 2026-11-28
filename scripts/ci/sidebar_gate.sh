@@ -260,6 +260,10 @@ api_functions=(
   SidebarRow.set_collab
   SidebarRow.with_collab
   SidebarRow.has_pie
+  SidebarRow.set_status
+  SidebarRow.with_status
+  SidebarRow.set_accepts_drops
+  SidebarRow.with_accepts_drops
   TabHeader.set_labels
   TabHeader.with_labels
   TabHeader.set_icons

@@ -57,47 +57,7 @@ pub(crate) use themed;
 pub(crate) const CLIP: &str =
     "flex-grow: 1; min-width: 0px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;";
 
-// ==== The source list ====
-
-/// The source list's column: a soft vertical gradient - Outlook's navigation pane in flat, the
-/// strip tone falling to the desk in flora.
-pub(crate) const SIDEBAR: &str = themed!(
-    "display: flex; flex-direction: column; flex-grow: 1; width: 100%; height: 100%; \
-     min-width: 0px; min-height: 0px; overflow: hidden; font-size: 13px;",
-    "background: linear-gradient(to bottom, #EAEFF5, #D6DEE8); color: #1E1E1E;",
-    "background: linear-gradient(to bottom, #303338, #25272B); color: #F2F2F2;",
-    "background: linear-gradient(to bottom, #EEECE7, #DCD9D2); color: #262521; \
-     font-size: 15px;",
-    "background: linear-gradient(to bottom, #282828, #1B1B1B); color: #E7E7E7;",
-);
-
-/// The rows' scrolling box.
-pub(crate) const SIDEBAR_LIST: &str =
-    "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; \
-     padding: 0px 0px 10px 0px;";
-
-/// A section's title: small capitals behind a disclosure triangle (flora's caps: Calmet UI,
-/// 10.5 px, bold, tracked out).
-pub(crate) const SECTION_HEAD: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; height: 20px; \
-     margin: 10px 6px 3px 6px; padding: 0px 6px 0px 2px; border-radius: 4px; font-size: 11px; \
-     font-weight: 700; text-transform: uppercase; cursor: pointer;",
-    "color: #6A7788; :hover { color: #27364A; }",
-    "color: #9AA6B5; :hover { color: #E3E8EE; }",
-    "color: #66645C; font-family: \"Calmet UI\", \"EB Garamond\", \"Hoefler Text\", \
-     Georgia, serif; font-size: 10.5px; letter-spacing: 0.08em; :hover { color: #262521; }",
-    "color: #A8A8A8; :hover { color: #E7E7E7; }",
-);
-
-/// A section's title text: the capitals stated on the text too (whether the engine inherits
-/// `text-transform` or not).
-pub(crate) const SECTION_TITLE: &str = "flex-grow: 1; min-width: 0px; overflow: hidden; \
-                                        white-space: nowrap; text-overflow: ellipsis; \
-                                        text-transform: uppercase;";
-
-/// A section's chevron (and a drive's or a folder's, which opens its folders).
-pub(crate) const TRIANGLE: &str =
-    "font-size: 14px; width: 16px; flex-shrink: 0; margin-right: 1px; opacity: 0.7;";
+// ==== The source list's rows that are not the widget's ====
 
 /// A row: a place, a drive, a folder, "Add S3 drive".
 pub(crate) const ROW: &str = themed!(
@@ -122,84 +82,6 @@ pub(crate) const ROW_SELECTED: &str = themed!(
      box-shadow: inset 0px 1px 0px rgba(255, 255, 255, 0.16), 0px 1px 2px rgba(48, 45, 38, 0.30); \
      :hover { background: var(--az-accent, #2F4A85); }",
     "box-shadow: inset 0px 1px 0px rgba(255, 255, 255, 0.10), 0px 1px 3px rgba(0, 0, 0, 0.60);",
-);
-
-/// The ring of the row the keyboard is on (after the selection, so it shows on it too).
-pub(crate) const ROW_FOCUS: &str = themed!(
-    "",
-    ":focus-visible { box-shadow: inset 0px 0px 0px 2px #4286F4; }",
-    ":focus-visible { box-shadow: inset 0px 0px 0px 2px #4683D6; }",
-    ":focus-visible { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
-    "",
-);
-
-/// A row that takes dropped items, while they are dragged over it.
-pub(crate) const ROW_DROP: &str = themed!(
-    "",
-    ":drag-over { background: #C1DCFC; box-shadow: inset 0px 0px 0px 2px #2A63B8; }",
-    ":drag-over { background: #2E4A6E; box-shadow: inset 0px 0px 0px 2px #4683D6; }",
-    ":drag-over { background: #E0E4EE; box-shadow: inset 0px 0px 0px 2px #2F4A85; }",
-    ":drag-over { background: #1E3260; box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
-);
-
-/// A row's icon (a selected row's takes the row's ink).
-pub(crate) const ROW_ICON: &str =
-    "font-size: 16px; width: 18px; flex-shrink: 0; margin-right: 6px;";
-
-/// The tint of a monochrome icon at rest: Office's icon blue, flora's small-icon ink
-/// (`system:icon`: `--fl-icon`, #56544C by day, #BEBEBE at night). A multicolour Haiku icon
-/// keeps its own colours under any tint.
-pub(crate) const ICON_TINT: &str = themed!(
-    "",
-    "color: #3D6AA8;",
-    "color: #7AA7E0;",
-    "color: system:icon;",
-    "color: system:icon;",
-);
-
-/// The room a row without a triangle keeps, so every icon of a level lines up.
-pub(crate) const TRIANGLE_ROOM: &str = "width: 16px; flex-shrink: 0; margin-right: 1px;";
-
-/// A count (transfers on a cloud drive): a pill.
-pub(crate) const PILL: &str = themed!(
-    "flex-shrink: 0; margin-left: 4px; padding: 0px 6px; border-radius: 8px; font-size: 10px; \
-     font-weight: 700; line-height: 15px;",
-    "color: #FFFFFF; background: #8A9BB3; :hover { background: #8A9BB3; }",
-    "background: #56657A; :hover { background: #56657A; }",
-    "color: #FBFAF6; background: #9C9890; :hover { background: #9C9890; }",
-    "color: #E7E7E7; background: #4A4A4A; :hover { background: #4A4A4A; }",
-);
-
-/// The pill on a selected row: inverted.
-pub(crate) const PILL_SELECTED: &str = themed!(
-    "",
-    "color: #2A63B8; background: #FFFFFF; :hover { background: #FFFFFF; }",
-    "color: #2E4A6E; background: #DDEBFD; :hover { background: #DDEBFD; }",
-    "color: var(--az-accent, #2F4A85); background: #F4F2EA; :hover { background: #F4F2EA; }",
-    "",
-);
-
-/// A cloud drive's state glyph (syncing, locked, connected).
-pub(crate) const STATE: &str = "font-size: 13px; flex-shrink: 0; margin-left: 4px; opacity: 0.8;";
-
-/// A drive's eject button (Finder's): forgets a drive the user added.
-pub(crate) const EJECT: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; justify-content: center; \
-     width: 20px; height: 18px; flex-shrink: 0; margin-left: 2px; border-radius: 4px; \
-     font-size: 14px; cursor: pointer;",
-    "color: #626A76; :hover { color: #1E1E1E; background: #D5DCE4; }",
-    "color: #9E9E9E; :hover { color: #F2F2F2; background: #4A4D53; }",
-    "color: #66645C; :hover { color: #262521; background: #DDD9D1; }",
-    "color: #A8A8A8; :hover { color: #E7E7E7; background: #3D3D3D; }",
-);
-
-/// The eject button on a selected row: in the row's ink.
-pub(crate) const EJECT_SELECTED: &str = themed!(
-    "",
-    "",
-    "color: #FFFFFF;",
-    "color: var(--az-on-accent, #F4F2EA); :hover { color: #FFFFFF; background: #4A64A0; }",
-    "",
 );
 
 /// The activity area over the buttons: the transfer that runs, those that wait or failed.
@@ -229,33 +111,6 @@ pub(crate) const ACTIVITY_LINE: &str =
 /// A failed transfer's line.
 pub(crate) const ACTIVITY_ERROR: &str = "padding: 1px 10px; overflow: hidden; white-space: nowrap; \
                                          text-overflow: ellipsis; color: system:danger;";
-
-/// The bar under the list: + and the actions.
-pub(crate) const SIDEBAR_FOOT: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: 26px;",
-    "border-top: 1px solid #C2C9D2; background: linear-gradient(to bottom, #F7F9FB, #E4E9EF);",
-    "border-top: 1px solid #575757; background: linear-gradient(to bottom, #3C3C3C, #313131);",
-    "border-top: 1px solid #C6C3BB; background: linear-gradient(to bottom, #FAF9F5, #ECEAE4);",
-    "border-top: 1px solid #3F3F3F; background: linear-gradient(to bottom, #333333, #292929);",
-);
-
-/// One of the small buttons in that bar.
-pub(crate) const SMALL_BUTTON: &str = themed!(
-    "display: flex; flex-direction: row; align-items: center; justify-content: center; \
-     width: 32px; height: 26px; font-size: 15px; cursor: pointer;",
-    "border-right: 1px solid #D3D9E0; color: #3D5574; :hover { background: #DDE4EC; } \
-     :focus-visible { box-shadow: inset 0px 0px 0px 2px #4286F4; }",
-    "border-right: 1px solid #4D4D4D; color: #DADADA; :hover { background: #474747; } \
-     :focus-visible { box-shadow: inset 0px 0px 0px 2px #4683D6; }",
-    "border-right: 1px solid #D8D5CE; color: #56544C; :hover { background: #E3E0D9; } \
-     :focus-visible { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
-    "border-right: 1px solid #383838; color: #BEBEBE; :hover { background: #3A3A3A; }",
-);
-
-/// The two pies at the right of the foot.
-pub(crate) const PIES: &str =
-    "display: flex; flex-direction: row; align-items: center; margin-left: auto; \
-     padding-right: 4px; height: 26px;";
 
 /// The sync popover's content: 330 px of field paper.
 pub(crate) const SYNC_POPOVER: &str = themed!(
@@ -844,9 +699,8 @@ mod tests {
     #[test]
     fn every_look_holds_four_variants_in_balanced_blocks() {
         let themed_looks = [
-            SIDEBAR, SECTION_HEAD, ROW, ROW_SELECTED, ROW_FOCUS, ROW_DROP, ICON_TINT, PILL,
-            PILL_SELECTED, EJECT, EJECT_SELECTED, ACTIVITY, ACTIVITY_HEAD,
-            SIDEBAR_FOOT, SMALL_BUTTON, PAGE, LEAF, DETAILS_HEADER, COLUMN, COLUMN_SORTED,
+            ROW, ROW_SELECTED, ACTIVITY, ACTIVITY_HEAD,
+            PAGE, LEAF, DETAILS_HEADER, COLUMN, COLUMN_SORTED,
             COLUMN_EDGE, STRIPE, ITEM, ITEM_SELECTED, ITEM_FOCUS, CELL_SELECTED, TILE_SELECTED,
         ];
         for look in themed_looks {

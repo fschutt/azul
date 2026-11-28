@@ -2,7 +2,7 @@
 //! opens it over the window with the row's name and the actions of its context menu - Preview,
 //! Open (Download on a cloud drive), Rename, Move to, Copy, Properties and, in red, Delete; a long
 //! press on a row of the source list opens it with that row's menu (Open, Properties, the drive's
-//! keys and sync, Remove drive). The window keeps what the sheet is for (`DriveState::sheet`);
+//! keys and sync, Remove drive), and the location's more button opens it with what File held (`ui_more`). The window keeps what the sheet is for (`DriveState::sheet`);
 //! a choice closes the sheet and runs the action as the menu would have.
 
 use azul::{
@@ -17,7 +17,7 @@ use crate::{
     actions::{self, why_not, Action},
     browse::Entry,
     fileops::TransferKind,
-    ui_overlays, ui_sidebar, with_state, DriveState,
+    ui_more, ui_overlays, ui_sidebar, with_state, DriveState,
 };
 
 /// What a long press opened the sheet on.
@@ -27,6 +27,8 @@ pub(crate) enum Sheet {
     Item(String),
     /// A row of the source list: its tag (its place in the rows).
     Place(usize),
+    /// What File held, behind the location's more button (`ui_more`).
+    File,
 }
 
 /// What a row of an item's sheet does.
@@ -118,6 +120,17 @@ pub(crate) fn sheet(s: &DriveState, app: &RefAny) -> Option<Dom> {
                 sheet = sheet.with_item(item);
             }
         }
+        Sheet::File => {
+            sheet = sheet.with_title(label("azdrive-tab-file"), AzString::from(""));
+            for (tag, row) in ui_more::sheet_rows().iter().enumerate() {
+                let mut item =
+                    ActionSheetItem::create(label(row.label), AzString::from(row.icon), tag);
+                if let Some(why) = why_not(s, &row.action) {
+                    item = item.with_disabled_reason(label(&why));
+                }
+                sheet = sheet.with_item(item);
+            }
+        }
         Sheet::Place(tag) => {
             let (name, entries) = ui_sidebar::place_sheet(s, *tag)?;
             sheet = sheet.with_title(label(&name), AzString::from(""));
@@ -146,6 +159,12 @@ extern "C" fn on_sheet(mut data: RefAny, mut info: CallbackInfo, event: ActionSh
         match which {
             Sheet::Item(key) => run_item(info, app, s, &key, event.tag),
             Sheet::Place(tag) => ui_sidebar::run_place_sheet(info, app, s, tag, event.tag),
+            Sheet::File => {
+                if let Some(row) = ui_more::sheet_rows().into_iter().nth(event.tag) {
+                    println!("AZDRIVE_SHEET {}", row.label);
+                    actions::run_action(info, app, s, row.action);
+                }
+            }
         }
     })
 }

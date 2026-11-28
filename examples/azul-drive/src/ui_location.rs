@@ -13,7 +13,7 @@
 //!   otherwise slide the row from under the pointer ([`cancel_is_blur`]).
 //!
 //! While a search of the folder is open the name says so ("Search: report"): the text is in the
-//! command line at the window's foot.
+//! command line at the window's foot. The dots beside the pen are File's old menu (`ui_more`).
 
 use azul::{
     callbacks::LocationOnEventCallbackType,
@@ -59,6 +59,8 @@ pub(crate) fn location(s: &DriveState, app: &RefAny) -> Dom {
     let mut bar = LocationBar::create(AzString::from(name))
         .with_editing(s.editing_path, AzString::from(s.location_text.as_str()))
         .with_placeholder(label("azdrive-location-placeholder"))
+        // What File held (New tab, New window, Options, About, Close ...) is behind the dots.
+        .with_more(true)
         .with_form(s.form)
         .with_on_event(app.clone(), on_location as LocationOnEventCallbackType);
     for (tag, (text, _)) in parents.iter().enumerate() {
@@ -145,6 +147,7 @@ extern "C" fn on_location(mut data: RefAny, mut info: CallbackInfo, event: Locat
         LocationEventKind::EditChanged => narrow(info, s, text),
         LocationEventKind::EditCommitted => commit(info, app, s, &text),
         LocationEventKind::EditCancelled => end_edit(info, s),
+        LocationEventKind::MoreClicked => crate::ui_more::open(info, app, s),
     })
 }
 

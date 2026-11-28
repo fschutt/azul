@@ -129,6 +129,11 @@ pub(crate) enum Action {
     /// The selected items of the local trash (`.azdrive-trash/`) back where they were deleted from.
     RestoreFromTrash,
     Go(Place),
+    /// The window's history one step back, one forward, and the folder above (the Home tab's
+    /// Navigate group).
+    Back,
+    Forward,
+    Up,
     RecentMenu,
     CloseBackstage,
     CloseWindow,
@@ -409,6 +414,13 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
         },
         Action::DriveProperties => (s.selected_drive.or(s.current_drive()).is_none())
             .then(|| String::from("azdrive-why-select-drive")),
+        Action::Back => (!s.history.can_go_back()).then(|| String::from("azdrive-why-no-back")),
+        Action::Forward => {
+            (!s.history.can_go_forward()).then(|| String::from("azdrive-why-no-forward"))
+        }
+        Action::Up => place_up(&s.place)
+            .is_none()
+            .then(|| String::from("azdrive-why-no-up")),
         Action::Undo => s
             .undo
             .is_empty()
@@ -625,6 +637,9 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             }
         }
         Action::Refresh => refresh(info, app, s),
+        Action::Back => run_command(info, app, s, Command::Back),
+        Action::Forward => run_command(info, app, s, Command::Forward),
+        Action::Up => run_command(info, app, s, Command::Up),
         Action::Undo => undo(info, app, s),
         Action::RestoreFromTrash => restore_from_trash(info, app, s),
         Action::Go(place) => go(info, app, s, place, true),

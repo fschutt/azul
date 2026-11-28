@@ -867,7 +867,7 @@ fn widget_row(spec: &RowSpec) -> SidebarRow {
 /// The left sidebar: the source list in its sections, the status pies above its toggle
 /// (`ui_pies::statuses`), the help row, the cash orders still waiting for their letters in the
 /// slot over the rows. It is the rail until the user opens it.
-pub(crate) fn sidebar(s: &DriveState, app: &RefAny) -> Sidebar {
+pub(crate) fn sidebar(s: &DriveState, app: &RefAny, frame_width: f32) -> Sidebar {
     let rows = rows(&sources(s));
     let facts = Facts {
         place: &s.place,
@@ -885,6 +885,8 @@ pub(crate) fn sidebar(s: &DriveState, app: &RefAny) -> Sidebar {
         .with_label(l10n::label("azdrive-side-sources"))
         .with_help(l10n::label("azdrive-side-help"))
         .with_window_controls(s.controls.0, s.controls.1)
+        // With the frame's width the column slides between its states instead of jumping.
+        .with_frame_width(frame_width)
         .with_on_event(app.clone(), on_sidebar as SidebarOnEventCallbackType);
     for section in sections_of(&rows, &facts) {
         sidebar = sidebar.with_section(widget_section(&section));
@@ -958,7 +960,7 @@ fn side_event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, event: 
         }
         SidebarEventKind::HelpClicked => crate::ui_command_bar::show_help(info, app, s),
         SidebarEventKind::RowLongPressed => {
-            s.sheet = Some(crate::ui_frame::Sheet::Place(event.tag));
+            s.sheet = Some(crate::ui_sheet::Sheet::Place(event.tag));
         }
         SidebarEventKind::RowDropped => {
             let copy = info.get_key_modifiers().primary_down();
@@ -971,9 +973,11 @@ fn side_event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, event: 
                 _ => s.dragging = None,
             }
         }
-        // The rows carry no pie or collaboration icon; a right click is answered apart.
+        // The rows carry no pie or collaboration icon and the rail no quick-access button; a
+        // right click is answered apart.
         SidebarEventKind::RowStatusClicked
         | SidebarEventKind::RowCollabToggled
+        | SidebarEventKind::QuickAction
         | SidebarEventKind::RowMenuRequested => {}
     }
 }

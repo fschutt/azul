@@ -1,36 +1,35 @@
-//! The preview: azul's `Inspector` (the Preview) docked at the window's right on a desktop and
-//! at its foot on a phone, showing THE ITEM ITSELF - the picture, the text, the PDF page, the
-//! sound, the video - and nothing else. What there is to say about it (its name, kind, size and
-//! date, where it is and how it syncs, Open and Copy link) is behind the (?) in the pane's
-//! header; a one-line banner stands at the pane's top only when something needs saying (a sync
-//! conflict, a failed transfer), its words in short and its own (?) for the rest.
+//! The preview: azul's `Preview` docked at the window's right on a desktop and at its foot on a
+//! phone, showing THE ITEM ITSELF - the picture, the text, the PDF page, the sound, the video - and
+//! nothing else. What there is to say about it (its name, kind, size and date, where it is and how
+//! it syncs, Open and Copy link) is behind the (?) of the pane's header (the widget's
+//! `PreviewDetail`, a popover); a one-line banner stands at the pane's top only when something
+//! needs saying (a sync conflict, a failed transfer: the widget's `PreviewBanner`), its words in
+//! short and its own (?) for the rest.
 //!
 //! On a desktop the pane shows the selected item (the first one while none is). On a phone it
 //! shows the item at the TOP EDGE of the folder view and follows it while the list scrolls
-//! ([`follow_top`], from the view's scroll callback): the pane is a virtual view of its own, so
-//! a change of the item draws that pane again ([`redraw_pane`]) and nothing else - not the list,
-//! not the window. The selection never follows the scroll; only the preview does.
+//! ([`follow_top`], from the view's scroll callback): the pane is a virtual view of its own, so a
+//! change of the item draws that pane again ([`redraw_pane`]) and nothing else - not the list, not
+//! the window. The selection never follows the scroll; only the preview does.
 //!
 //! The pane's size - its width at the right, its height at the foot - is the user's drag, kept in
 //! the settings.
 
+use azcloud_kit::sync::session::FileState;
 use azul::{
-    callbacks::InspectorOnEventCallbackType,
-    dom::{DomId, NodeId, TabIndex},
-    misc::TransientAnchor,
+    callbacks::PreviewOnEventCallbackType,
+    dom::{DomId, NodeId},
     prelude::*,
     str::String as AzString,
     widgets::{
-        Dialog, DialogClosedBy, Inspector, InspectorDock, InspectorEvent, InspectorEventKind,
-        SidebarSurface,
+        Preview, PreviewBanner, PreviewBannerTone, PreviewDetail, PreviewDock, PreviewEvent,
+        PreviewEventKind, SidebarSurface,
     },
 };
 use azul_appkit::l10n::label;
-use azcloud_kit::sync::session::FileState;
 
 use crate::{
-    actions,
-    ids,
+    actions, ids,
     model::{clamped_preview_size, Settings},
     save_settings, sync_view, ui_panes, ui_view, with_state, DriveState,
 };
@@ -38,14 +37,14 @@ use crate::{
 // ==== The widget ====
 
 /// The preview for the window now (open or closed: the user's View tab says).
-pub(crate) fn preview(s: &DriveState, app: &RefAny, dark: bool) -> Inspector {
+pub(crate) fn preview(s: &DriveState, app: &RefAny, dark: bool) -> Preview {
     let details = s.settings.details_pane && !s.settings.preview_pane;
     let pane = if details {
         ui_view::on_page(ui_panes::details_pane(s))
     } else {
         pane_dom(s, app, dark)
     };
-    let mut preview = Inspector::create(Dom::create_div(), pane)
+    let mut preview = Preview::create(Dom::create_div(), pane)
         .with_title(label(if details {
             "azdrive-pane-details"
         } else {
@@ -59,17 +58,21 @@ pub(crate) fn preview(s: &DriveState, app: &RefAny, dark: bool) -> Inspector {
         })
         .with_form(s.form)
         .with_surface(SidebarSurface::Theme)
-        .with_on_event(app.clone(), on_preview as InspectorOnEventCallbackType);
+        .with_on_event(app.clone(), on_preview as PreviewOnEventCallbackType);
     if !details {
-        if let Some(mark) = details_mark(s, app) {
-            preview = preview.with_header_end(mark);
+        // What there is to say about the item: behind the (?), never in the pane.
+        if let Some(info) = ui_panes::preview_info(s, app) {
+            preview = preview.with_detail(PreviewDetail::create(label("azdrive-preview-details"), info));
+        }
+        if let Some(banner) = banner(s) {
+            preview = preview.with_banner(banner_widget(&banner));
         }
     }
     preview
 }
 
-/// The pane's content: a plain DOM on a desktop, a virtual view of its own on a phone (so the
-/// item at the list's top edge can change without a new window).
+/// The pane's content: a plain DOM on a desktop, a virtual view of its own on a phone (so the item
+/// at the list's top edge can change without a new window).
 fn pane_dom(s: &DriveState, app: &RefAny, dark: bool) -> Dom {
     if !s.phone {
         return content(s, app, dark);
@@ -79,7 +82,7 @@ fn pane_dom(s: &DriveState, app: &RefAny, dark: bool) -> Dom {
         .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
 }
 
-/// The preview as the window shows it: the item on its stage, the banner over it.
+/// The preview as the window shows it: the item on its stage.
 fn content(s: &DriveState, app: &RefAny, dark: bool) -> Dom {
     ui_view::on_page(ui_panes::preview_pane(s, app, dark))
 }
@@ -108,8 +111,8 @@ extern "C" fn pane_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Virt
     VirtualViewReturn::with_dom(content(&s, &app, dark), rect(w, h), rect(w, h))
 }
 
-/// Draws the phone's pane again in place (its virtual view reads the state when it draws),
-/// without a new window DOM. `false` when there is no such pane (a desktop, the pane closed).
+/// Draws the phone's pane again in place (its virtual view reads the state when it draws), without
+/// a new window DOM. `false` when there is no such pane (a desktop, the pane closed).
 pub(crate) fn redraw_pane(info: &mut CallbackInfo) -> bool {
     let dom = DomId { inner: 0 };
     let node = info.get_node_id_by_id_attribute(dom, ids::PREVIEW_VIEW);
@@ -130,9 +133,9 @@ pub(crate) fn top_key(s: &DriveState) -> Option<String> {
     ui_view::shown_order(s).get(first).map(|e| e.key.clone())
 }
 
-/// The folder view scrolled: on a phone the preview follows the item now at its top edge - the
-/// pane draws it at once; with `settled` (the scroll ended) the item's own picture or text is
-/// asked for too, so a long scroll reads no file it passed.
+/// The folder view scrolled: on a phone the preview follows the item now at its top edge - the pane
+/// draws it at once; with `settled` (the scroll ended) the item's own picture or text is asked for
+/// too, so a long scroll reads no file it passed.
 pub(crate) fn follow_top(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, settled: bool) {
     if !s.phone || !s.settings.preview_pane {
         return;
@@ -152,8 +155,8 @@ pub(crate) fn follow_top(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
 
 // ==== What the pane's size does ====
 
-/// The size the user dragged the pane to, kept for its dock: the width at the right, the height
-/// at the foot.
+/// The size the user dragged the pane to, kept for its dock: the width at the right, the height at
+/// the foot.
 pub(crate) fn keep_size(settings: &mut Settings, bottom: bool, size: f32) {
     let size = clamped_preview_size(size);
     if bottom {
@@ -164,16 +167,16 @@ pub(crate) fn keep_size(settings: &mut Settings, bottom: bool, size: f32) {
 }
 
 /// The pane is dragged (its size now), or let go (where it stays).
-extern "C" fn on_preview(mut data: RefAny, mut info: CallbackInfo, event: InspectorEvent) -> Update {
-    let bottom = event.dock == InspectorDock::Bottom;
+extern "C" fn on_preview(mut data: RefAny, mut info: CallbackInfo, event: PreviewEvent) -> Update {
+    let bottom = event.dock == PreviewDock::Bottom;
     match event.kind {
-        InspectorEventKind::Resized => {
+        PreviewEventKind::Resized => {
             if let Some(mut s) = data.downcast_mut::<DriveState>() {
                 keep_size(&mut s.settings, bottom, event.size);
             }
             Update::DoNothing
         }
-        InspectorEventKind::Settled => with_state(&mut data, &mut info, |info, app, s| {
+        PreviewEventKind::Settled => with_state(&mut data, &mut info, |info, app, s| {
             keep_size(&mut s.settings, bottom, event.size);
             save_settings(info, app, s);
         }),
@@ -222,60 +225,22 @@ pub(crate) fn banner(s: &DriveState) -> Option<Banner> {
     banner_of(&sync_view::entry_state(s, entry)?)
 }
 
-/// The banner as one line over the stage.
-pub(crate) fn banner_dom(banner: &Banner) -> Dom {
+/// The widget's banner of `banner`: its words, amber or red, the rest behind its own (?).
+fn banner_widget(banner: &Banner) -> PreviewBanner {
     let tone = if banner.failed {
-        "color: system:danger;"
+        PreviewBannerTone::Danger
     } else {
-        "color: system:warning;"
+        PreviewBannerTone::Warning
     };
-    let mut line = Dom::create_div()
-        .with_id(ids::PREVIEW_BANNER)
-        .with_css(format!(
-            "display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 4px 10px; \
-             font-size: 12px; flex-shrink: 0; border-bottom: 1px solid system:separator; {tone}"
-        ))
-        .with_child(Dom::create_icon(AzString::from(banner.icon)).with_css("font-size: 16px; flex-shrink: 0;"))
-        .with_child(
-            Dom::create_div()
-                .with_css("flex-grow: 1; min-width: 0px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;")
-                .with_child(Dom::create_span_with_text(label(banner.text))),
-        );
+    let mut widget = PreviewBanner::create(label(banner.text), tone).with_icon(AzString::from(banner.icon));
     if let Some(detail) = &banner.detail {
-        line.add_child(crate::ui_git::info_mark_text(detail));
+        widget = widget.with_details(
+            Dom::create_div()
+                .with_css("padding: 10px 12px; font-size: 12px; max-width: 320px;")
+                .with_child(Dom::create_span_with_text(AzString::from(detail.as_str()))),
+        );
     }
-    line
-}
-
-// ==== The (?) ====
-
-/// The (?) in the pane's header: a popover with what there is to say about the item (its name,
-/// kind, size, date, place and sync state, Open and Copy link). `None` with no item.
-fn details_mark(s: &DriveState, app: &RefAny) -> Option<Dom> {
-    let content = ui_panes::preview_info(s, app)?;
-    let invoker = Dom::create_div()
-        .with_id(ids::PREVIEW_DETAILS)
-        .with_css(
-            "display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; \
-             border-radius: 12px; cursor: pointer; flex-shrink: 0; \
-             :hover { background: rgba(127, 127, 127, 0.22); }",
-        )
-        .with_tab_index(TabIndex::Auto)
-        .with_accessibility_name(label("azdrive-preview-details"))
-        .with_child(Dom::create_icon("help_outline").with_css("font-size: 16px; opacity: 0.8;"));
-    Some(
-        Dialog::create(content)
-            .with_invoker(invoker)
-            .with_modal(false)
-            .with_anchor(if s.phone {
-                TransientAnchor::Top
-            } else {
-                TransientAnchor::Left
-            })
-            .with_closed_by(DialogClosedBy::Any)
-            .with_close_button(false)
-            .dom(),
-    )
+    widget
 }
 
 #[cfg(test)]

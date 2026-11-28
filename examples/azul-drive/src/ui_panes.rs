@@ -20,7 +20,7 @@ use crate::{
     browse::{self, Place},
     ids,
     jobs::PreviewContent,
-    look, ui_preview, ui_view, with_state, DriveState,
+    look, ui_view, with_state, DriveState,
 };
 
 // ==== The preview pane ====
@@ -72,8 +72,8 @@ extern "C" fn on_play_audio(mut data: RefAny, mut info: CallbackInfo) -> Update 
 }
 
 /// The preview pane: the item's picture, text, PDF page, sound or video, and nothing else - what
-/// there is to say about it is behind the (?) of the pane's header (`ui_preview`), and a banner
-/// stands over the stage only when something needs saying. The item is the preview's subject (the
+/// there is to say about it is behind the (?) of the pane's header, and a banner stands over it
+/// only when something needs saying (`ui_preview`). The item is the preview's subject (the
 /// selected one on a desktop, the one at the list's top edge on a phone); until its own content
 /// is in, the pane says so.
 pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
@@ -199,17 +199,14 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
             }
         }
     };
-    let mut pane = Dom::create_div()
+    Dom::create_div()
         .with_id(ids::PREVIEW_PANE)
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
-    if let Some(banner) = ui_preview::banner(s) {
-        pane.add_child(ui_preview::banner_dom(&banner));
-    }
-    pane.with_child(
-        Dom::create_div()
-            .with_css(look::PREVIEW_STAGE)
-            .with_child(body),
-    )
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        .with_child(
+            Dom::create_div()
+                .with_css(look::PREVIEW_STAGE)
+                .with_child(body),
+        )
 }
 
 /// Behind the preview's (?): the item's name and kind, what it is (Type, Size, Modified,

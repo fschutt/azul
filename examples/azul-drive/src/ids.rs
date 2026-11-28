@@ -67,34 +67,11 @@ pub const PALETTE: AzString = AzString::from_const_str("__azdrive_palette");
 pub const PALETTE_INPUT: AzString = AzString::from_const_str("__azdrive_palette_input");
 pub const PALETTE_ROW_CLASS: AzString = AzString::from_const_str("__azdrive_palette_row");
 
-/// Explorer's address row under the ribbon (Back, Forward, Recent, Up, the breadcrumb box with
-/// Refresh, the search box).
-pub const CHROME: AzString = AzString::from_const_str("__azdrive_chrome");
-/// Windows 8's ribbon (its tab strip is the window's title bar; File drops the File menu).
+/// Windows 8's ribbon (its tab strip is the window's title bar; its first tab is the location).
 pub const RIBBON: AzString = AzString::from_const_str("__azdrive_ribbon");
-/// The navigation pane: Finder's source list (its rows' box: Favorites, Locations, Cloud).
-pub const NAV_PANE: AzString = AzString::from_const_str("__azdrive_nav_pane");
 
-// ==== The source list (ui_sidebar.rs) ====
+// ==== The status slot of the sidebar (ui_pies.rs) ====
 
-/// The source list's column (the rows, the foot with its buttons and pies).
-pub const SIDEBAR: AzString = AzString::from_const_str("__azdrive_sidebar");
-/// The section titles: FAVORITES, LOCATIONS, CLOUD (a click opens or closes the section).
-pub const SIDE_FAVORITES: AzString = AzString::from_const_str("__azdrive_side_favorites");
-pub const SIDE_LOCATIONS: AzString = AzString::from_const_str("__azdrive_side_locations");
-pub const SIDE_CLOUD: AzString = AzString::from_const_str("__azdrive_side_cloud");
-/// The rows of the places that are always there.
-pub const SIDE_QUICK_ACCESS: AzString = AzString::from_const_str("__azdrive_side_quick_access");
-pub const SIDE_THIS_PC: AzString = AzString::from_const_str("__azdrive_side_this_pc");
-/// Cloud's "Add drive" row.
-pub const SIDE_ADD_DRIVE: AzString = AzString::from_const_str("__azdrive_side_add_drive");
-/// The buttons under the list: + (add a drive) and the gear (the options).
-pub const SIDE_ADD: AzString = AzString::from_const_str("__azdrive_side_add");
-pub const SIDE_ACTIONS: AzString = AzString::from_const_str("__azdrive_side_actions");
-/// The two pies at the right of the list's foot: the sync, the drive's space (a click opens
-/// the sync popover).
-pub const SYNC_PIE: AzString = AzString::from_const_str("__azdrive_sync_pie");
-pub const SPACE_PIE: AzString = AzString::from_const_str("__azdrive_space_pie");
 /// The sync popover: the sync's state and numbers, the drive's usage, the health line, actions.
 pub const SYNC_POPOVER: AzString = AzString::from_const_str("__azdrive_sync_popover");
 
@@ -110,37 +87,6 @@ fn id_part(text: &str) -> String {
             }
         })
         .collect()
-}
-
-/// A favourite's row by its folder's name: `__azdrive_side_fav_documents`.
-#[must_use]
-pub fn side_favorite(name: &str) -> AzString {
-    AzString::from(format!("__azdrive_side_fav_{}", id_part(name)))
-}
-
-/// A pinned folder's row by its place in the pins: `__azdrive_side_pin_0`.
-#[must_use]
-pub fn side_pin(index: usize) -> AzString {
-    AzString::from(format!("__azdrive_side_pin_{index}"))
-}
-
-/// A drive's row by its id: `__azdrive_side_drive_home`.
-#[must_use]
-pub fn side_drive(drive_id: &str) -> AzString {
-    AzString::from(format!("__azdrive_side_drive_{}", id_part(drive_id)))
-}
-
-/// A drive's eject button by its id: `__azdrive_side_eject_<id>`.
-#[must_use]
-pub fn side_eject(drive_id: &str) -> AzString {
-    AzString::from(format!("__azdrive_side_eject_{}", id_part(drive_id)))
-}
-
-/// A cloud drive's state glyph by its id (a synced drive's says its status line):
-/// `__azdrive_side_sync_<id>`.
-#[must_use]
-pub fn side_sync_state(drive_id: &str) -> AzString {
-    AzString::from(format!("__azdrive_side_sync_{}", id_part(drive_id)))
 }
 
 // ==== The content's leaf ====
@@ -480,14 +426,6 @@ pub const THUMBNAIL_CLASS: AzString = AzString::from_const_str("__azdrive_thumbn
 pub const ROW_ALT_CLASS: AzString = AzString::from_const_str("__azdrive_row_alt");
 /// A group's header line in a grouped folder view (a click opens or closes the group).
 pub const GROUP_HEADER_CLASS: AzString = AzString::from_const_str("__azdrive_group_header");
-/// The source list's column (what the keyboard finds it by).
-pub const SIDEBAR_CLASS: AzString = AzString::from_const_str("__azdrive_source_list");
-/// A row of the source list - a section title too: the arrow keys walk them in order.
-pub const SIDE_ROW_CLASS: AzString = AzString::from_const_str("__azdrive_side_row");
-/// A section title of the source list.
-pub const SIDE_SECTION_CLASS: AzString = AzString::from_const_str("__azdrive_side_section");
-/// The row of the place the window shows.
-pub const SIDE_SELECTED_CLASS: AzString = AzString::from_const_str("__azdrive_side_selected");
 /// The header of a folder's search results ("Home › Documents · 2 items").
 pub const FIND_GROUP_CLASS: AzString = AzString::from_const_str("__azdrive_find_group");
 /// A search result's Match cell (two lines of the text its contents matched on).

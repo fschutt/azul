@@ -4,7 +4,12 @@
 //!
 //! ```text
 //! File | Home | Share | View                  (at This PC: File | Computer | View)
-//! Home:  Clipboard [Copy][Paste] Cut / Copy path / Paste shortcut
+//! File:  the location - the parents of the open place as links over the folder's name, big
+//!        and bold, with the pen (`ui_location`) - and the more button for what File held
+//!        (New tab, New window, Open terminal here, Delete history, Keyboard shortcuts,
+//!        Options, About, Close: `ui_more`)
+//! Home:  Navigate  [Back][Forward][Up][Refresh]
+//!        Clipboard [Copy][Paste] Cut / Copy path / Paste shortcut
 //!        Organize  [Move to v][Copy to v][Delete|v][Rename] Undo
 //!        New       [New folder] New item v / Easy access v / Add drive
 //!        Open      [Properties|v] Open|v / Edit / History
@@ -17,41 +22,36 @@
 //!        Current view [Sort by v] Group by v / Add columns v / Size all columns to fit
 //!        Show/hide Item check boxes / File name extensions / Hidden items [Hide selected items]
 //!        Options   [Options]
-//! Computer: Location [Properties][Open]  Network [Add drive][Add folder as drive]
-//!        [Remove drive]  System [Refresh][Options]
-//! Search (Search Tools, while a search is open): Location [Current folder][All subfolders]
-//!        Refine [Date modified v] Kind v / Size v  Options [File contents] Hidden items /
-//!        Skip ignored files / Open file location / Index this drive / Index files in the
-//!        cloud  Saved [Save search]
-//!        Saved searches v  Close [Close search]
+//! Computer: Navigate [Back][Forward][Up]  Location [Properties][Open]  Network [Add drive]
+//!        [Add folder as drive][Remove drive]  System [Refresh][Options]
+//! Search (Search Tools, while a search of a folder is open): Location [Current folder]
+//!        [All subfolders]  Refine [Date modified v] Kind v / Size v  Options [File contents]
+//!        Hidden items / Skip ignored files / Open file location / Index this drive / Index
+//!        files in the cloud  Saved [Save search]  Saved searches v  Close [Close search]
 //! ```
 //!
 //! Every control runs its [`Action`] or is greyed with the reason it cannot run now
 //! ([`why_not`]): what AzDrive cannot do at all (a Windows shortcut, a disc burner) says so. The
 //! tab strip IS the window's title bar (`with_tabs_in_titlebar`: the window drags around the
-//! tabs, which sit clear of macOS's traffic lights); the window's title is the open place's
-//! path. File drops the File menu - a mini backstage in a popup under its tab (azul's
-//! `RibbonFileMenu`): New tab, New window, Open terminal here, Delete history, Keyboard
-//! shortcuts, Options, About, Close, and the frequent places with their pins.
+//! tabs; the sidebar at the window's left edge carries the traffic lights, so the tabs start
+//! clear of what it leaves of them); the window's title is the open place's path. Every tab names
+//! its icon: a phone's strip shows the icons as squares.
 //!
-//! The tabs are buttons on the leather (`TabStyle::Pills`): at rest the tab content is closed,
-//! hovering a tab opens it, a double click locks it open (`TabClickBehaviour`). The strip's tab
-//! button at its right end counts the location tabs and opens their overview.
+//! The tabs are buttons on the leather (`TabStyle::Pills`, a finger's `TouchPills` on a phone);
+//! the tab content is always open. The strip's tab button at its right end counts the location
+//! tabs and opens their overview.
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType,
-        RibbonFileMenuOnEventCallbackType, RibbonGalleryOnSelectCallbackType,
+        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, RibbonGalleryOnSelectCallbackType,
         RibbonOnTabClickCallbackType,
     },
     prelude::*,
     str::String as AzString,
-    vec::{RibbonFileMenuCommandVec, RibbonFileMenuPlaceVec, RibbonGalleryCellVec},
+    vec::RibbonGalleryCellVec,
     widgets::{
-        CheckBoxState, Ribbon, RibbonAppButton, RibbonArrow, RibbonButton, RibbonFileMenu,
-        RibbonFileMenuCommand, RibbonFileMenuEvent, RibbonFileMenuEventKind,
-        RibbonFileMenuPlace, RibbonGallery, RibbonGalleryCell, RibbonItem, RibbonRow, RibbonTab,
-        TabOverviewButton, TabStyle,
+        CheckBoxState, Ribbon, RibbonArrow, RibbonButton, RibbonGallery, RibbonGalleryCell,
+        RibbonItem, RibbonRow, RibbonTab, TabLabels, TabOverviewButton, TabStyle, TabsInTitlebar,
     },
 };
 use azul_appkit::{
@@ -61,19 +61,21 @@ use azul_appkit::{
 
 use crate::{
     actions::{self, action_ref, on_action, why_not, Action, ActionRef, Toggle},
-    browse::{self, Place},
+    browse::Place,
     ids,
     model::ViewLayout,
     sync_view::SyncAction,
-    with_state, DriveState,
+    ui_location, with_state, DriveState,
 };
 
 // ==== The tabs ====
 
-/// A tab of AzDrive's ribbon (File is the application button, not a tab).
+/// A tab of AzDrive's ribbon.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(crate) enum RibbonTabKind {
+    /// The location of the open place (the first tab of every place).
     #[default]
+    File,
     Home,
     Share,
     View,
@@ -87,6 +89,7 @@ impl RibbonTabKind {
     /// Its name on the tab strip, a key of AzDrive's resources.
     pub(crate) fn key(self) -> &'static str {
         match self {
+            RibbonTabKind::File => "azdrive-tab-file",
             RibbonTabKind::Home => "azdrive-tab-home",
             RibbonTabKind::Share => "azdrive-tab-share",
             RibbonTabKind::View => "azdrive-tab-view",
@@ -98,6 +101,7 @@ impl RibbonTabKind {
     /// Its name on stdout (`AZDRIVE_RIBBON_TAB`), English whatever the window's language.
     pub(crate) fn label(self) -> &'static str {
         match self {
+            RibbonTabKind::File => "File",
             RibbonTabKind::Home => "Home",
             RibbonTabKind::Share => "Share",
             RibbonTabKind::View => "View",
@@ -105,26 +109,45 @@ impl RibbonTabKind {
             RibbonTabKind::Search => "Search",
         }
     }
+
+    /// The icon the tab names (a phone's strip shows it in place of the words).
+    pub(crate) fn icon(self) -> &'static str {
+        match self {
+            RibbonTabKind::File => "folder",
+            RibbonTabKind::Home => "home",
+            RibbonTabKind::Share => "share",
+            RibbonTabKind::View => "visibility",
+            RibbonTabKind::Computer => "computer",
+            RibbonTabKind::Search => "search",
+        }
+    }
 }
 
-/// The tabs a place shows, as Explorer 8 shows them: a folder (and Quick access) Home, Share and
-/// View - and Search while a search of the folder is open (`searching`); This PC Computer and
-/// View.
+/// The tabs a place shows, as Explorer 8 shows them behind the location every place starts with
+/// (File): a folder (and Quick access) Home, Share and View - and Search while a search of the
+/// folder is open (`searching`); This PC Computer and View.
 pub(crate) fn tabs_of(place: &Place, searching: bool) -> &'static [RibbonTabKind] {
     match place {
         Place::ThisPc if searching => &[
+            RibbonTabKind::File,
             RibbonTabKind::Computer,
             RibbonTabKind::View,
             RibbonTabKind::Search,
         ],
-        Place::ThisPc => &[RibbonTabKind::Computer, RibbonTabKind::View],
+        Place::ThisPc => &[RibbonTabKind::File, RibbonTabKind::Computer, RibbonTabKind::View],
         Place::Folder { .. } if searching => &[
+            RibbonTabKind::File,
             RibbonTabKind::Home,
             RibbonTabKind::Share,
             RibbonTabKind::View,
             RibbonTabKind::Search,
         ],
-        _ => &[RibbonTabKind::Home, RibbonTabKind::Share, RibbonTabKind::View],
+        _ => &[
+            RibbonTabKind::File,
+            RibbonTabKind::Home,
+            RibbonTabKind::Share,
+            RibbonTabKind::View,
+        ],
     }
 }
 
@@ -241,6 +264,15 @@ fn home_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
         .last()
         .map_or_else(|| String::from("azdrive-undo"), |op| t_text(&op.label()));
     RibbonTab::create(label(RibbonTabKind::Home.key()))
+        .with_group(group(
+            "azdrive-group-navigate",
+            vec![
+                large(button(s, app, "arrow_back", "azdrive-ribbon-back", Action::Back)),
+                large(button(s, app, "arrow_forward", "azdrive-ribbon-forward", Action::Forward)),
+                large(button(s, app, "arrow_upward", "azdrive-ribbon-up", Action::Up)),
+                large(button(s, app, "refresh", "azdrive-ribbon-refresh", Action::Refresh)),
+            ],
+        ))
         .with_group(group(
             "azdrive-group-clipboard",
             vec![
@@ -590,6 +622,14 @@ extern "C" fn on_layout_select(mut data: RefAny, mut info: CallbackInfo, index: 
 fn computer_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
     RibbonTab::create(label(RibbonTabKind::Computer.key()))
         .with_group(group(
+            "azdrive-group-navigate",
+            vec![
+                large(button(s, app, "arrow_back", "azdrive-ribbon-back", Action::Back)),
+                large(button(s, app, "arrow_forward", "azdrive-ribbon-forward", Action::Forward)),
+                large(button(s, app, "arrow_upward", "azdrive-ribbon-up", Action::Up)),
+            ],
+        ))
+        .with_group(group(
             "azdrive-group-location",
             vec![
                 large(button(s, app, "info", "azdrive-ribbon-properties", Action::DriveProperties)),
@@ -777,211 +817,60 @@ fn search_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
         ))
 }
 
-// ==== File: Windows 8's File menu ====
-
-/// The File menu's commands, in the design's order (their positions are the menu's events).
-const NEW_TAB: usize = 0;
-const NEW_WINDOW: usize = 1;
-const TERMINAL: usize = 2;
-const DELETE_HISTORY: usize = 3;
-const SHORTCUTS: usize = 4;
-const OPTIONS: usize = 5;
-const ABOUT: usize = 6;
-const CLOSE: usize = 7;
-
-/// The places File > Frequent places lists: the pinned folders first, then the folders visited
-/// last that are not pinned - ten at most, each with whether it is pinned.
-pub(crate) fn frequent_places(s: &DriveState) -> Vec<(Place, String, bool)> {
-    /// Places the list holds.
-    const MAX: usize = 10;
-    let mut places: Vec<(Place, String, bool)> = s
-        .settings
-        .pinned
-        .iter()
-        .map(|p| (Place::folder(&p.drive, &p.prefix), p.name.clone(), true))
-        .collect();
-    for place in &s.recent {
-        if !matches!(place, Place::Folder { .. }) || places.iter().any(|(p, _, _)| p == place) {
-            continue;
-        }
-        places.push((place.clone(), s.place_title(place), false));
-    }
-    places.truncate(MAX);
-    places
-}
-
-/// File's menu: the commands on the left (a ▸ opens its sub-commands in the right column),
-/// Frequent places on the right with their pins.
-fn file_menu(s: &DriveState, app: &RefAny) -> Dom {
-    let terminal_reason = why_not(s, &Action::OpenTerminal { azterm: false });
-    let azterm_reason = why_not(s, &Action::OpenTerminal { azterm: true });
-    let with_reason = |command: RibbonFileMenuCommand, reason: Option<String>| match reason {
-        Some(reason) => command.with_disabled(label(&reason)),
-        None => command,
-    };
-    let mut terminal = RibbonFileMenuCommand::create(
-        AzString::from("terminal"),
-        label("azdrive-file-terminal-here"),
-    )
-    .with_child(with_reason(
-        RibbonFileMenuCommand::create(AzString::from("terminal"), label("azdrive-file-terminal"))
-            .with_description(label("azdrive-file-terminal-system")),
-        terminal_reason.clone(),
-    ))
-    .with_child(with_reason(
-        RibbonFileMenuCommand::create(AzString::from("keyboard"), label("azdrive-file-azterm"))
-            .with_description(label("azdrive-file-azterm-about")),
-        azterm_reason,
-    ));
-    if let Some(reason) = terminal_reason {
-        terminal = terminal.with_disabled(label(&reason));
-    }
-    let commands = vec![
-        RibbonFileMenuCommand::create(AzString::from("tab"), label("azdrive-loctab-new"))
-            .with_description(label("azdrive-file-new-tab-about")),
-        RibbonFileMenuCommand::create(
-            AzString::from("open_in_new"),
-            label("azdrive-file-new-window"),
-        )
-        .with_description(label("azdrive-file-new-window-about")),
-        terminal,
-        RibbonFileMenuCommand::create(
-            AzString::from("history"),
-            label("azdrive-file-delete-history"),
-        )
-            .with_separator_before(true)
-            .with_child(
-                RibbonFileMenuCommand::create(
-                    AzString::from("schedule"),
-                    label("azdrive-file-recent-places"),
-                )
-                .with_description(label("azdrive-file-recent-places-about")),
-            )
-            .with_child(
-                RibbonFileMenuCommand::create(
-                    AzString::from("swap_horiz"),
-                    label("azdrive-file-back-forward"),
-                )
-                .with_description(label("azdrive-file-back-forward-about")),
-            )
-            .with_child(
-                RibbonFileMenuCommand::create(
-                    AzString::from("delete_sweep"),
-                    label("azdrive-file-everything"),
-                )
-                .with_description(label("azdrive-file-everything-about")),
-            ),
-        RibbonFileMenuCommand::create(AzString::from("keyboard"), label("azdrive-file-shortcuts"))
-            .with_separator_before(true)
-            .with_description(label("azdrive-file-shortcuts-about")),
-        RibbonFileMenuCommand::create(AzString::from("tune"), label("azdrive-backstage-options"))
-            .with_description(label("azdrive-file-options-about")),
-        RibbonFileMenuCommand::create(AzString::from("info"), label("azdrive-file-about"))
-            .with_description(label("azdrive-file-about-about")),
-        RibbonFileMenuCommand::create(AzString::from("close"), label("azdrive-ribbon-close"))
-            .with_separator_before(true),
-    ];
-    let places: Vec<RibbonFileMenuPlace> = frequent_places(s)
-        .into_iter()
-        .map(|(place, name, pinned)| {
-            RibbonFileMenuPlace::create(AzString::from(name))
-                .with_detail(AzString::from(browse::path_text(
-                    &place,
-                    Some(&s.drive_name(&place)),
-                )))
-                .with_pinned(pinned)
-        })
-        .collect();
-    RibbonFileMenu::create(RibbonFileMenuCommandVec::from(commands))
-        .with_places(
-            label("azdrive-file-frequent-places"),
-            RibbonFileMenuPlaceVec::from(places),
-        )
-        .with_on_event(app.clone(), on_file_menu as RibbonFileMenuOnEventCallbackType)
-        .dom()
-}
-
-/// What a pick in the File menu runs (the menu calls this in the app's window once it closed;
-/// a pin toggles while it stays open).
-pub(crate) fn file_menu_action(s: &DriveState, event: &RibbonFileMenuEvent) -> Option<Action> {
-    match event.kind {
-        RibbonFileMenuEventKind::Command => match event.index {
-            NEW_TAB => Some(Action::NewTab),
-            NEW_WINDOW => Some(Action::NewWindow),
-            SHORTCUTS => Some(Action::Shortcuts),
-            OPTIONS => Some(Action::Options),
-            ABOUT => Some(Action::About),
-            CLOSE => Some(Action::CloseWindow),
-            _ => None,
-        },
-        RibbonFileMenuEventKind::SubCommand => match (event.index, event.sub_index) {
-            (TERMINAL, 0) => Some(Action::OpenTerminal { azterm: false }),
-            (TERMINAL, 1) => Some(Action::OpenTerminal { azterm: true }),
-            (DELETE_HISTORY, 0) => Some(Action::ClearHistory {
-                recent: true,
-                back_forward: false,
-            }),
-            (DELETE_HISTORY, 1) => Some(Action::ClearHistory {
-                recent: false,
-                back_forward: true,
-            }),
-            (DELETE_HISTORY, 2) => Some(Action::ClearHistory {
-                recent: true,
-                back_forward: true,
-            }),
-            _ => None,
-        },
-        RibbonFileMenuEventKind::OpenPlace => frequent_places(s)
-            .into_iter()
-            .nth(event.index)
-            .map(|(place, _, _)| Action::Go(place)),
-        RibbonFileMenuEventKind::TogglePin => frequent_places(s)
-            .into_iter()
-            .nth(event.index)
-            .map(|(place, _, _)| Action::TogglePin(place)),
-    }
-}
-
-extern "C" fn on_file_menu(
-    mut data: RefAny,
-    mut info: CallbackInfo,
-    event: RibbonFileMenuEvent,
-) -> Update {
-    with_state(&mut data, &mut info, |info, app, s| {
-        if let Some(action) = file_menu_action(s, &event) {
-            println!("AZDRIVE_FILE_MENU {action:?}");
-            actions::run_action(info, app, s, action);
-        }
-    })
-}
-
 // ==== The ribbon ====
 
+/// Where the tab strip stands in the window: how far it keeps from the window's edges for the OS's
+/// window controls the sidebar does not cover, and how wide it is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Strip {
+    /// Room before the first tab (macOS's traffic lights, as far as the sidebar leaves them).
+    pub left: f32,
+    /// Room after the last tab (Linux's controls over the strip).
+    pub right: f32,
+    /// The width the ribbon is laid out in, px: the window's less the sidebar's column.
+    pub width: f32,
+}
+
+/// The tab strip's offsets for `strip`: the platform's row of tab buttons that IS the title bar,
+/// with the room before the first tab the sidebar leaves of the window's controls.
+#[must_use]
+pub(crate) fn strip_offsets(strip: &Strip) -> TabsInTitlebar {
+    let platform = azul_appkit::ui::tabs_in_titlebar();
+    TabsInTitlebar::create(platform.top, strip.left.max(0.0), strip.right.max(platform.right))
+}
+
 /// The ribbon for the open place; the tab strip is the window's title bar.
-pub(crate) fn ribbon(s: &DriveState, app: &RefAny) -> Dom {
+pub(crate) fn ribbon(s: &DriveState, app: &RefAny, strip: &Strip) -> Dom {
     let searching = s.search_open || s.find.is_some();
     let tabs: Vec<RibbonTab> = tabs_of(&s.place, searching)
         .iter()
-        .map(|tab| match tab {
-            RibbonTabKind::Home => home_tab(s, app),
-            RibbonTabKind::Share => share_tab(s, app),
-            RibbonTabKind::View => view_tab(s, app),
-            RibbonTabKind::Computer => computer_tab(s, app),
-            RibbonTabKind::Search => search_tab(s, app),
+        .map(|tab| {
+            let built = match tab {
+                RibbonTabKind::File => RibbonTab::create(label(tab.key()))
+                    .with_location(ui_location::location(s, app)),
+                RibbonTabKind::Home => home_tab(s, app),
+                RibbonTabKind::Share => share_tab(s, app),
+                RibbonTabKind::View => view_tab(s, app),
+                RibbonTabKind::Computer => computer_tab(s, app),
+                RibbonTabKind::Search => search_tab(s, app),
+            };
+            built.with_icon(AzString::from(tab.icon()))
         })
         .collect();
     Ribbon::create(tabs)
-        .with_app_button(
-            RibbonAppButton::create(label("azdrive-tab-file")).with_menu(file_menu(s, app)),
-        )
         .with_active_tab(active_index(&s.place, searching, s.ribbon_tab))
         .with_on_tab_click(app.clone(), on_ribbon_tab as RibbonOnTabClickCallbackType)
         // No title row over the ribbon: its tabs are the title bar.
-        .with_tabs_in_titlebar(azul_appkit::ui::tabs_in_titlebar())
-        // The design's tab area: the tabs are buttons (flora's submit and plain buttons) on
-        // the leather, the content opens while a tab is hovered and a double click locks it.
-        .with_tab_style(TabStyle::Pills)
-        .with_reveal(s.ribbon_reveal.clone())
+        .with_tabs_in_titlebar(strip_offsets(strip))
+        // The design's tab area: the tabs are buttons (flora's submit and plain buttons) on the
+        // leather - a finger's size on a phone, where the strip is icons.
+        .with_tab_style(if s.phone {
+            TabStyle::TouchPills
+        } else {
+            TabStyle::Pills
+        })
+        .with_labels(TabLabels::Auto)
+        .with_available_width(strip.width)
         // The strip's tab button: the location tabs' count, the overview on a click.
         .with_strip_end(
             TabOverviewButton::create(s.tabs.len())
@@ -1013,30 +902,37 @@ extern "C" fn on_ribbon_tab(mut data: RefAny, _info: CallbackInfo, index: usize)
 mod tests {
     use super::*;
 
-    /// A folder shows Home, Share and View; This PC Computer and View - as Windows 8's Explorer.
+    const FOLDER_TABS: [RibbonTabKind; 4] = [
+        RibbonTabKind::File,
+        RibbonTabKind::Home,
+        RibbonTabKind::Share,
+        RibbonTabKind::View,
+    ];
+
+    /// Every place starts with the location (File); a folder (and Quick access) then shows Home,
+    /// Share and View, This PC Computer and View - as Windows 8's Explorer.
     #[test]
-    fn a_folder_shows_home_share_view_and_this_pc_shows_computer_and_view() {
+    fn every_place_starts_with_the_location_and_then_has_its_tabs() {
         let folder = Place::folder("home", "Documents/");
-        assert_eq!(
-            tabs_of(&folder, false),
-            &[RibbonTabKind::Home, RibbonTabKind::Share, RibbonTabKind::View]
-        );
+        assert_eq!(tabs_of(&folder, false), &FOLDER_TABS);
         assert_eq!(
             tabs_of(&Place::ThisPc, false),
-            &[RibbonTabKind::Computer, RibbonTabKind::View]
+            &[RibbonTabKind::File, RibbonTabKind::Computer, RibbonTabKind::View]
         );
-        assert_eq!(tabs_of(&Place::QuickAccess, false)[0], RibbonTabKind::Home);
+        assert_eq!(tabs_of(&Place::QuickAccess, false), &FOLDER_TABS);
     }
 
     /// The tab chosen last stays where the place has it (View from a folder to This PC) and
-    /// falls back to the place's first tab where it has not (Share at This PC).
+    /// falls back to the place's first tab - the location - where it has not (Share at This PC).
     #[test]
     fn the_chosen_tab_stays_where_the_place_has_it() {
         let folder = Place::folder("home", "");
-        assert_eq!(active_index(&folder, false, RibbonTabKind::View), 2);
-        assert_eq!(active_index(&Place::ThisPc, false, RibbonTabKind::View), 1);
+        assert_eq!(active_index(&folder, false, RibbonTabKind::View), 3);
+        assert_eq!(active_index(&Place::ThisPc, false, RibbonTabKind::View), 2);
         assert_eq!(active_index(&Place::ThisPc, false, RibbonTabKind::Share), 0);
         assert_eq!(active_index(&folder, false, RibbonTabKind::Computer), 0);
+        assert_eq!(active_index(&folder, false, RibbonTabKind::File), 0);
+        assert_eq!(RibbonTabKind::default(), RibbonTabKind::File, "a window starts on the location");
     }
 
     /// While a search of a folder is open, Windows 8's Search tab (Search Tools) follows View;
@@ -1047,20 +943,66 @@ mod tests {
         assert_eq!(
             tabs_of(&folder, true),
             &[
+                RibbonTabKind::File,
                 RibbonTabKind::Home,
                 RibbonTabKind::Share,
                 RibbonTabKind::View,
                 RibbonTabKind::Search
             ]
         );
-        assert_eq!(active_index(&folder, true, RibbonTabKind::Search), 3);
+        assert_eq!(active_index(&folder, true, RibbonTabKind::Search), 4);
         assert_eq!(active_index(&folder, false, RibbonTabKind::Search), 0);
         assert_eq!(RibbonTabKind::Search.label(), "Search");
         assert_eq!(
             tabs_of(&Place::ThisPc, true),
-            &[RibbonTabKind::Computer, RibbonTabKind::View, RibbonTabKind::Search],
+            &[
+                RibbonTabKind::File,
+                RibbonTabKind::Computer,
+                RibbonTabKind::View,
+                RibbonTabKind::Search
+            ],
             "This PC searches every drive on this computer"
         );
-        assert_eq!(active_index(&Place::ThisPc, true, RibbonTabKind::Search), 2);
+        assert_eq!(active_index(&Place::ThisPc, true, RibbonTabKind::Search), 3);
+    }
+
+    /// Every tab names an icon (a phone's strip is icon squares only where every tab has one), and
+    /// no two tabs name the same.
+    #[test]
+    fn every_tab_names_its_own_icon() {
+        let tabs = [
+            RibbonTabKind::File,
+            RibbonTabKind::Home,
+            RibbonTabKind::Share,
+            RibbonTabKind::View,
+            RibbonTabKind::Computer,
+            RibbonTabKind::Search,
+        ];
+        let mut seen = std::collections::HashSet::new();
+        for tab in tabs {
+            assert!(!tab.icon().is_empty(), "{}", tab.label());
+            assert!(seen.insert(tab.icon()), "{} repeats an icon", tab.label());
+        }
+    }
+
+    /// The tab strip clears what the sidebar leaves of the window's controls and never less than
+    /// the platform asks on the right; a number that is no room is none.
+    #[test]
+    fn the_strip_keeps_the_room_for_the_controls_the_sidebar_leaves() {
+        let platform = azul_appkit::ui::tabs_in_titlebar();
+        let offsets = strip_offsets(&Strip {
+            left: 60.0,
+            right: 0.0,
+            width: 900.0,
+        });
+        assert_eq!(offsets.left, 60.0);
+        assert_eq!(offsets.right, platform.right);
+        assert_eq!(offsets.top, platform.top);
+        let none = strip_offsets(&Strip {
+            left: -5.0,
+            right: 0.0,
+            width: 900.0,
+        });
+        assert_eq!(none.left, 0.0);
     }
 }

@@ -1,26 +1,30 @@
 //! AzDrive: a file manager on the public azul API that looks and works like
 //! Windows 8's File Explorer, with a Finder window for its body.
 //!
-//! The window is the S5 `BrowserShell` without a title row: the ribbon (`ui_ribbon`: File - a
-//! mini backstage in a popup under its tab -, Home, Share, View; Computer at This PC) whose tab
-//! strip is the window's title bar - its tabs are buttons on the leather whose content opens
-//! while a tab is hovered and locks on a double click, and its right end holds the location
-//! tabs' button -, over the address row (round Back / Forward, Up, the
-//! breadcrumb box - a chevron per crumb dropping its folders, the first crumbs folded into «
-//! when the path is long, a click on its empty part for the typed path -, Refresh, "Search
-//! <folder>"). The strip shows no title; the window's title (the open place's path) is what the
-//! system's window list names it by. Under it the body is a Finder window in the app theme
-//! (`look`: flora's linen, leaves and Calmet UI's capitals; Office 2010's silver in flat): the
-//! navigation pane is Finder's source list (`ui_sidebar`: FAVORITES - Quick access, the
-//! standard folders, the pins -, LOCATIONS - This PC and the drives on this computer, their
-//! folders listed when a row opens -, CLOUD - the S3 drives with their state -, and its foot:
-//! + and the gear, and two pies for the sync and the drive's space, `ui_pies`); the content is
-//! a leaf on the page (This PC's drive tiles, Quick access's pinned folders, or a folder in one
-//! of Explorer's eight layouts - Details by default, the icon layouts on azul's IconGrid -
-//! grouped or not, with check boxes or not); the preview pane OR the details pane at the
-//! right, a leaf too. There is no status bar: no path bar, no status line, no item count or
-//! free space anywhere; the pies' popover has the numbers. The Options and About are the
-//! backstage (File > Options, File > About).
+//! The window is azul's `AppFrame` (`ui_frame`), the frame every heavy app shares, with no title
+//! bar: the left sidebar full height (`ui_sidebar`, azul's Sidebar: FAVORITES - Quick access,
+//! the standard folders, the pins -, LOCATIONS - This PC and the drives on this computer, their
+//! folders listed when a row opens -, CLOUD - the S3 drives with their state -; it starts as the
+//! icon rail, the toggle at its foot opens it, the OS's window controls sit over its top; the two
+//! pies of the sync and the drive's space are its status slot, `ui_pies`), the ribbon over
+//! the rest of the width (`ui_ribbon`: File - the location, `ui_location`: the parents of the
+//! open place as links over the folder's name, big and bold, the pen turning it into a field that
+//! narrows the folder and takes a path -, Home, Share, View; Computer at This PC) whose tab strip
+//! is the window's title bar - its tabs are buttons on the leather, and its right end holds the
+//! location tabs' button -, the body under it, and the command line at the foot
+//! (`ui_command_bar`: how the folder stands at rest, a `?` search, a path, a `:` command or a
+//! shell command when typed in). The body is a Finder window in the app theme (`look`: flora's
+//! linen, leaves and Calmet UI's capitals; Office 2010's silver in flat): the content is a leaf
+//! on the page (This PC's drive tiles, Quick access's pinned folders, or a folder in one of
+//! Explorer's eight layouts - Details by default, the icon layouts on azul's IconGrid - grouped
+//! or not, with check boxes or not); the preview (`ui_preview`, azul's Preview) is docked at its
+//! right - the item itself, what there is to say about it behind a (?) - and, on a phone, at its
+//! foot, following the item at the list's top edge; a long press on a row there is the
+//! quick-action sheet (`ui_sheet`). The window's title (the open place's path) is what the
+//! system's window list names it by. There is no status bar and no path bar: the command line
+//! says how the folder stands, the location says where it is, the pies' popover has the
+//! numbers. The Options and About are the backstage (the dots beside the location's pen, `ui_more`,
+//! hold what File did: New tab, New window, Options, About, Close).
 //!
 //! The window has location tabs (`location_tabs`, `ui_tabs`): Ctrl+T opens one on the folder
 //! in view, Ctrl+W closes one, Ctrl+Tab and Ctrl+1..9 switch, the strip's tab button (or
@@ -84,7 +88,9 @@
 //! - `--data-dir <dir>` (`$AZLIN_DATA`): the data root (azul-appkit).
 //! - `--dialogs inline` (`$AZDRIVE_DIALOGS=inline`): show the dialogs as a sheet inside the
 //!   window instead of a modal dialog window (scripts: the debug server drives the main window).
-//! - `--open <path>`: open at a place as the address bar names it (File > Open new window).
+//! - `--open <path>`: open at a place as the location names it (the dots > New window).
+//! - `--form <auto|desktop|phone>` (`$AZDRIVE_FORM`): the layout the window is built for (the
+//!   phone's has the sidebar as a drawer and the preview at the foot); a desktop shows it so.
 //! - `--pick`: answer another app's file request (one JSON line on stdin) as its file picker:
 //!   one `AZPICK <json>` line on stdout, then the run ends (`picker`).
 //!
@@ -103,7 +109,8 @@
 //! `AZDRIVE_VOUCHER [new] <drive id> [<days>]`, `AZDRIVE_RECOVERY_KEY <drive id>`,
 //! `AZDRIVE_RECOVERY_LOCKDOWN <drive id>`, `AZDRIVE_SPACE <drive id> <used> <quota>` (the
 //! node's HeadBucket count of stored bytes, `-` what it did not say),
-//! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
+//! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_SIDEBAR <state>`,
+//! `AZDRIVE_SHEET <what>`, `AZDRIVE_CLI_COMMAND|SEARCH <what>`,
 //! `AZDRIVE_NEW_WINDOW <path>`, `AZDRIVE_SEARCHING <text>`,
 //! `AZDRIVE_SEARCHED <results> names|contents <text>`, `AZDRIVE_SEARCH_CLEARED` (Escape emptied
 //! the box; the search view stays), `AZDRIVE_SEARCH_CLOSED`, `AZDRIVE_SEARCH_SCOPE
@@ -340,6 +347,7 @@ mod ui_panes;
 mod ui_frame;
 mod ui_location;
 mod ui_preview;
+mod ui_more;
 mod ui_sheet;
 mod ui_status;
 /// The navigation pane's two pies (the sync, the drive's space) and their popover.
@@ -3920,7 +3928,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         let Some(mut guard) = data.downcast_mut::<DriveState>() else {
             return Dom::create_body();
         };
-        let phone = guard.form.is_phone();
+        let phone = ui_frame::is_phone(guard.form, window.0, ui_frame::touch_platform());
         guard.phone = phone;
         guard.controls = (insets.left, insets.height);
     }
