@@ -170,3 +170,25 @@ fn an_app_that_asks_for_the_bars_to_change_gets_the_snapshot_that_shows_the_requ
     assert!(shell.contains("constEARLY_INSETS_POLLS:u32=16;") && shell.contains("EARLY_INSETS_POLL:std::time::Duration=std::time::Duration::from_millis(5);"), "80 ms in all");
     assert!(!shell.contains("fnearly_insets_fit_the_request"), "the gate that skipped the snapshot for every such app is gone");
 }
+
+/// The system reports "resized" at every relayout of the window that touches its surface, most of them with the size the window already has (the
+/// first draw going ahead after the held first draw, a system bar's appearance, the keyboard): the engine laid everything out again for each, 0.3 to
+/// 1.2 s of its time right after the first picture, for nothing (the startup timeline's `reason=Resize` passes after `first_present`, with the same
+/// 1080x2400 on the record). Only another size is a layout.
+///
+/// Mutation: the layout requested whatever the size (the state of 98d415cb4e).
+#[test]
+fn a_resize_that_names_the_size_the_window_has_asks_for_no_layout() {
+    let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
+    let arm = shell.find("MainEvent::WindowResized{..}=>{").expect("the resized arm") + "MainEvent::WindowResized{..}".len();
+    let resized = body(&shell[arm..], "=>");
+    let differs = resized.find("letdiffers=surface_size_differs(window,logical);").expect("the size is compared with the window's own");
+    let owed = resized.find("ifowed{").expect("the pass is owed only for another size");
+    let layout = resized.find("window.common.request_regeneration(reason);").expect("the layout is requested");
+    assert!(differs < owed && owed < layout, "the comparison, then the gate, then the layout");
+    assert!(resized.contains("None=>true,"), "no surface to compare with: as before");
+    let same = body(&shell, "fnsurface_size_differs(window:&AndroidWindow,(logical_w,logical_h):(f32,f32))->bool{");
+    assert!(same.contains("now.width.to_bits()!=logical_w.to_bits()||now.height.to_bits()!=logical_h.to_bits()"), "bit for bit");
+    let apply = body(&shell, "fnapply_surface_size(window:&mutAndroidWindow,logical:(f32,f32)){");
+    assert!(apply.contains("ifsurface_size_differs(window,logical){window.cpu_backend.force_full_repaint=true;}"), "one comparison for both");
+}
