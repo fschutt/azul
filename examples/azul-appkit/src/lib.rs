@@ -35,6 +35,11 @@
 //!   network); only the number may ever travel, never its parts.
 //! - [`files`]: file jobs (put / get / get-all / delete) on an azul-storage drive.
 //! - [`history`]: undo / redo of whole-state snapshots ([`UndoHistory`]).
+//! - [`follow`]: the top-edge rule of a list with a Preview (the selection and the Preview follow the row at
+//!   the list's top edge while it scrolls; a tap holds them until it scrolls on), plain data.
+//! - `form` (feature `azul`): whether a window is a phone's or a desktop's, how the sidebar starts, what a
+//!   choice does to a phone's drawer, the tab strip's offsets.
+//! - `list` (feature `azul`): the rows of an app's own scroll box that are in view.
 //! - [`insets`]: the room a phone's system keeps for itself (status bar, cutout, home indicator,
 //!   keyboard), as cleaned px for a layout.
 //! - [`migrate`]: the one-time move of an app's folder from the data folders
@@ -87,6 +92,7 @@ pub mod csv;
 pub mod data;
 pub mod files;
 pub mod find;
+pub mod follow;
 pub mod history;
 pub mod insets;
 pub mod l10n_check;
@@ -114,7 +120,11 @@ mod clickable_tests;
 #[cfg(feature = "azul")]
 pub mod backstage;
 #[cfg(feature = "azul")]
+pub mod form;
+#[cfg(feature = "azul")]
 pub mod frame;
+#[cfg(feature = "azul")]
+pub mod list;
 #[cfg(feature = "look")]
 pub mod l10n;
 #[cfg(feature = "look")]
