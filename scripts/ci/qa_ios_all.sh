@@ -45,8 +45,11 @@ echo "=== 1. libraries and the apps"
 # a re-run of one app after a fix, in a third of the time
 want="${AZ_QA_IOS_APPS:-AzWidgets AzMaps AzPaint AzWriter AzMeet AzCompanion}"
 need_iroh=""
-for a in $want; do case "$a" in AzMeet|AzCompanion) need_iroh=1 ;; esac; done
-build_lib mobile || { echo "LIB mobile FAILED"; exit 3; }
+need_plain=""
+for a in $want; do case "$a" in AzMeet|AzCompanion) need_iroh=1 ;; *) need_plain=1 ;; esac; done
+if [ -n "$need_plain" ]; then
+  build_lib mobile || { echo "LIB mobile FAILED"; exit 3; }
+fi
 iroh=0
 if [ -n "$need_iroh" ]; then
   iroh=1
