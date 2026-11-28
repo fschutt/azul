@@ -144,9 +144,9 @@ pub(crate) fn notice_of(answer: &Handed) -> String {
     let with = |key: &str, reason: &str| t_args(key, &[("reason", Arg::from(reason))]);
     match answer {
         Handed::Shown => String::new(),
-        Handed::Unsupported(reason) => with("staged-shares-unsupported", reason),
-        Handed::Failed(reason) => with("staged-shares-failed", reason),
-        Handed::Refused(reason) => with("staged-shares-refused", reason),
+        Handed::Unsupported(reason) => with("azmail-share-unsupported", reason),
+        Handed::Failed(reason) => with("azmail-share-failed", reason),
+        Handed::Refused(reason) => with("azmail-share-refused", reason),
     }
 }
 
@@ -154,9 +154,9 @@ pub(crate) fn notice_of(answer: &Handed) -> String {
 #[must_use]
 pub(crate) fn refusal_notice(refusal: &Refusal) -> String {
     match refusal {
-        Refusal::Nothing => t("staged-shares-nothing"),
+        Refusal::Nothing => t("azmail-share-nothing"),
         Refusal::TooBig(len) => t_args(
-            "staged-shares-too-big",
+            "azmail-share-too-big",
             &[(
                 "size",
                 Arg::from(azul::file::DiskSpace::format_bytes(*len as u64).as_str().to_string()),
