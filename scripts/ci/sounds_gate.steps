@@ -1,4 +1,6 @@
-# The steps of this run of scripts/ci/sounds_gate.sh: the api.json entries against autofix, and the apps that name the new API.
+# The steps of this run of scripts/ci/sounds_gate.sh: every test target of the dll compiles, the apps that name the new API
+# compile, and api.json and the guide agree with the source.
+dll_tests_check
 apps_check
 autofix
 doc_check
