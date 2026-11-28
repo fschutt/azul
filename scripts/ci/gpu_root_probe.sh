@@ -128,7 +128,15 @@ for entry in "${mode_list[@]}"; do
     name="${item%%=*}"; env="${item#*=}"; env="${env//@PKG@/$pkg}"
     echo "---- $mode / $name: debug.az.env=AZ_LOG=info;$env"
     adb shell am force-stop "$pkg"; sleep 2
+    # a system property holds at most 91 characters: the trace's value (a path) has a property of its own, debug.az.gl_trace
+    trace_value=""
+    case ";$env;" in
+      *";AZ_GL_TRACE="*)
+        trace_value="$(printf '%s' ";$env;" | sed -n 's/.*;AZ_GL_TRACE=\([^;]*\);.*/\1/p')"
+        env="$(printf '%s' ";$env;" | sed 's/;AZ_GL_TRACE=[^;]*;/;/; s/^;//; s/;$//')" ;;
+    esac
     adb shell "setprop debug.az.env 'AZ_LOG=info;$env'"
+    adb shell "setprop debug.az.gl_trace '$trace_value'"
     adb logcat -c
     adb shell input keyevent KEYCODE_WAKEUP
     adb shell am start -n "$pkg/${act:-.MainActivity}" >"$d/logs/start-$name.txt" 2>&1
@@ -157,6 +165,7 @@ for entry in "${mode_list[@]}"; do
     echo "variant $name: $i screenshots"
   done
   adb shell "setprop debug.az.env ''"
+  adb shell "setprop debug.az.gl_trace ''"
   adb emu kill >/dev/null 2>&1 || true
   kill "$emu" 2>/dev/null || true
   wait "$emu" 2>/dev/null || true
