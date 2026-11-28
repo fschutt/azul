@@ -1738,7 +1738,7 @@ const EARLY_INSETS_POLLS: u32 = 16;
 /// when the surface does. Nothing when the activity has no dispatch yet: the insets then come the way they always did, from the Java UI thread,
 /// after the first picture.
 ///
-/// An app that asks the system to hide a bar (AzWriter on a phone) is applied when the snapshot SHOWS the request done: the system applies it in the
+/// An app that asks the system to hide a bar (`AzWriter` on a phone) is applied when the snapshot SHOWS the request done: the system applies it in the
 /// window's first dispatches, the very first still shows the bar and the next, a few milliseconds later, does not
 /// (`android_core::display::bars_request_moves_insets`). Java is asked again for up to 80 ms; a request that is still not in the insets by then
 /// leaves the first layout as it always was (no snapshot: the insets come after the request).
@@ -1831,9 +1831,9 @@ fn early_insets() -> Option<Vec<i32>> {
             .ok_or_else(|| "NativeTextBridge not in this APK".to_string())?;
         let value = env
             .call_static_method(&class, "insetsSnapshot", "()[I", &[])
-            .and_then(|v| v.l())
+            .and_then(jni::objects::JValueGen::l)
             .map_err(|e| {
-                let _ = env.exception_clear();
+                drop(env.exception_clear());
                 format!("call insetsSnapshot: {e:?}")
             })?;
         if value.is_null() {
