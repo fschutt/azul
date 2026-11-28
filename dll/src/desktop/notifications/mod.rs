@@ -579,7 +579,7 @@ pub fn dispatch_queued_requests(services: &AppServices) {
 /// answer reaches the permission manager (`Capability::Notifications`) through
 /// its async channel - at once where there is nothing to ask, from the
 /// prompt's completion where there is.
-fn request_permission() {
+pub(crate) fn request_permission() {
     if HEADLESS.load(Ordering::Relaxed) {
         // Every post is recorded: as granted as it gets.
         push_async_result(
