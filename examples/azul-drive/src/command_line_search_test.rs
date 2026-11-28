@@ -53,9 +53,9 @@ fn the_window_commands_are_found_by_their_names() {
 #[test]
 fn the_names_are_unique_and_in_their_normal_form() {
     let mut seen = std::collections::HashSet::new();
-    for (name, _) in COLON {
-        assert_eq!(command_name(name), name, "{name} is not in its normal form");
-        assert!(seen.insert(name), "{name} is there twice");
+    for (name, _) in COLON.iter() {
+        assert_eq!(command_name(name), *name, "{name} is not in its normal form");
+        assert!(seen.insert(*name), "{name} is there twice");
     }
 }
 

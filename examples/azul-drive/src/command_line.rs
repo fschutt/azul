@@ -67,7 +67,7 @@ pub enum Colon {
 }
 
 /// The `:` commands: each name (normalized) and what it asks. Several names may ask the same.
-pub const COLON: [(&str, Colon); 12] = [
+pub static COLON: [(&str, Colon); 12] = [
     ("options", Colon::Options),
     ("settings", Colon::Options),
     ("new window", Colon::NewWindow),
