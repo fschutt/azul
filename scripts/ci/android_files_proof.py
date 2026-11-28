@@ -215,8 +215,9 @@ class Proof:
         block = re.search(r"Provider\{[^}]*AzulShareProvider[^}]*\}[\s\S]{0,400}", info or "")
         text = block.group(0) if block else ""
         self.expect(bool(text), "the package has the share provider")
-        self.expect("exported=false" in text.replace(" ", "") or "exported=false" in (info or ""),
-                    "and it is not exported", text[:200])
+        # `dumpsys package` prints `exported=true` for a provider that is; its absence (or `exported=false`) is "not exported". The
+        # manifest says it too (dll/tests/android_share_open_contract.rs pins android:exported="false").
+        self.expect("exported=true" not in text.replace(" ", ""), "and it is not exported", text[:200])
         # ShareLab asks for URIs the chooser never granted: the area itself, `..`, the types file
         probes = [
             f"content://{self.package}.azul.share/",
