@@ -1440,5 +1440,52 @@ class IosPermissionPromptsTests(unittest.TestCase):
         self.assertIn("ios_permission_prompts_of(dev.simctl(", source)
         self.assertNotIn("rc, tcc = dev.simctl", source)
 
+class ExtraEnvTests(unittest.TestCase):
+    """AZ_QA_EXTRA_ENV: the knobs a job hands to the app under test (TABS: AZ_RECONCILE_DEBUG=1 for the [reconcile] lines), and the pictures of an answer"""
+
+    def test_the_knobs_are_read_in_order_and_junk_is_dropped(self):
+        import mobile_e2e as e
+        self.assertEqual(e.qa_extra_env("AZ_RECONCILE_DEBUG=1;AZ_X= 2 ;;nothing;=7"), {"AZ_RECONCILE_DEBUG": "1", "AZ_X": "2"})
+        self.assertEqual(e.qa_extra_env(""), {})
+
+    def test_the_environment_variable_is_the_default_source(self):
+        import os
+        import mobile_e2e as e
+        old = os.environ.get("AZ_QA_EXTRA_ENV")
+        try:
+            os.environ["AZ_QA_EXTRA_ENV"] = "A=1;B=2"
+            self.assertEqual(e.qa_extra_env(), {"A": "1", "B": "2"})
+            del os.environ["AZ_QA_EXTRA_ENV"]
+            self.assertEqual(e.qa_extra_env(), {})
+        finally:
+            if old is not None:
+                os.environ["AZ_QA_EXTRA_ENV"] = old
+
+    def test_the_android_property_keeps_the_old_value_without_extras(self):
+        import mobile_e2e as e
+        self.assertEqual(e.android_env_property(8795), "AZ_DEBUG=8795;AZ_LOG=info;AZ_DUMP_PRESENT=1")
+        self.assertEqual(e.android_env_property(8795, {"AZ_RECONCILE_DEBUG": "1"}), "AZ_DEBUG=8795;AZ_LOG=info;AZ_DUMP_PRESENT=1;AZ_RECONCILE_DEBUG=1")
+
+    def test_a_property_over_91_characters_is_refused_not_cut(self):
+        import mobile_e2e as e
+        self.assertLessEqual(len(e.android_env_property(8795, {"AZ_RECONCILE_DEBUG": "1"})), 91)
+        with self.assertRaises(ValueError):
+            e.android_env_property(8795, {"AZ_SOME_VERY_LONG_KNOB_NAME": "x" * 40})
+
+    def test_the_pictures_of_an_answer_are_found_in_order_wherever_they_are(self):
+        import mobile_e2e as e
+        a, b = "iVBORw0KGgo" + "AAAA", "iVBORw0KGgo" + "BBBB"
+        answer = {"status": "ok", "data": {"results": [{"steps": [{"response": {"data": {"value": a}}}, {"response": {"data": [{"png": b}, "plain text"]}}]}]}}
+        self.assertEqual(e.png_strings(answer), [a, b])
+        self.assertEqual(e.png_strings({"x": "iVBOR"}), [])
+        self.assertEqual(e.png_strings(None), [])
+
+    def test_the_session_uses_the_helpers_on_both_platforms(self):
+        source = (Path(__file__).resolve().parent / "mobile_e2e.py").read_text(encoding="utf-8")
+        self.assertIn("android_env_property(args.port, qa_extra_env())", source)
+        self.assertIn('extra_env=dict({"AZ_DEBUG": str(args.port), "AZ_DUMP_PRESENT": "1"}, **qa_extra_env())', source)
+        self.assertIn("scenario-{name}-shot-{k:03d}.png", source)
+
+
 if __name__ == "__main__":
     unittest.main()
