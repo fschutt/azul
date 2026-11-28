@@ -349,7 +349,7 @@
       },
       {
         "op": "click",
-        "text": "File"
+        "text": "Fonts"
       },
       {
         "op": "wait_frame"
