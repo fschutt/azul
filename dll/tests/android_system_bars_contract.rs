@@ -14,6 +14,17 @@ fn java_code(rel: &str) -> String {
     read(rel).lines().map(|l| l.split("//").next().unwrap_or("")).collect::<Vec<_>>().join("\n")
 }
 
+/// Rust source without its comments and without whitespace.
+fn rust_code(rel: &str) -> String {
+    read(rel)
+        .lines()
+        .map(|l| l.split("//").next().unwrap_or(""))
+        .collect::<String>()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect()
+}
+
 fn body<'a>(src: &'a str, signature: &str) -> &'a str {
     let start = src.find(signature).unwrap_or_else(|| panic!("no `{signature}`"));
     let open = start + src[start..].find('{').unwrap();
@@ -49,4 +60,24 @@ fn the_activity_applies_the_bars_and_the_cutout_the_window_asks_for() {
     assert!(apply.contains("controller.hide(type)") || java.contains("controller.hide(type);"), "a hidden bar is hidden by the controller");
     assert!(apply.contains("if (icons != 0)"), "Auto leaves the colour of the icons to the shell");
     assert!(apply.contains("runOnUiThread"));
+}
+
+/// The shell applies the window's options when they are new or changed (the Android `sync_window_state` did nothing), not on every pass,
+/// and a fixed icon colour stops the shell's own pick.
+#[test]
+fn the_shell_applies_the_options_on_change_and_lets_fixed_icons_stand() {
+    let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
+    let sync = body(&shell, "fnsync_window_state(&mutself){");
+    assert!(sync.contains("apply_system_bars_if_changed(self);"));
+    let arm = shell.find("MainEvent::InitWindow{..}=>{").expect("the surface-created arm") + "MainEvent::InitWindow{..}".len();
+    assert!(
+        body(&shell[arm..], "=>").contains("apply_system_bars_if_changed(window);"),
+        "and the window's options are applied when it is created, before the app's create callback"
+    );
+    let change = body(&shell, "fnapply_system_bars_if_changed(window:&mutAndroidWindow){");
+    assert!(change.contains("ifwindow.applied_system_bars==Some(wanted){return;}"), "only a change is applied");
+    assert!(change.contains("window.bars_icons_fixed=wanted.icons!=azul_core::display_features::SystemBarIcons::Auto;"));
+    assert!(shell.contains("bars_to_tell.filter(|_|!window.bars_icons_fixed)"), "fixed icons stand the shell's pick down");
+    let call = body(&shell, "fnapply_system_bars(status:i32,navigation:i32,icons:i32,draw_into_cutout:bool){");
+    assert!(call.contains("\"applySystemBars\"") && call.contains("\"(Landroid/app/Activity;IIIZ)V\""));
 }
