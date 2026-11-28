@@ -328,3 +328,26 @@ fn az_startup_turns_the_startup_timeline_on() {
     assert!(!ShellSettings::from_lookup(&MapEnv::new()).startup_timeline);
     assert!(startup_from_value(Some("1")) && !startup_from_value(None));
 }
+
+/// `AZ_SOUNDS` picks what the shell does with the system sounds: unset and anything unknown play
+/// them, `off` and the negative words record and play none, `log` prints a line per request.
+///
+/// Mutation: the variable read under another name; `off` that plays; an empty value that mutes.
+#[test]
+fn az_sounds_picks_what_the_shell_does_with_the_system_sounds() {
+    assert_eq!(ShellSettings::from_lookup(&NoEnv).sounds, SoundsMode::On);
+    for value in ["off", "OFF", " 0 ", "false", "No", "none"] {
+        let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_SOUNDS", value));
+        assert_eq!(settings.sounds, SoundsMode::Off, "AZ_SOUNDS={value:?}");
+    }
+    for value in ["log", "Log", " LOG "] {
+        let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_SOUNDS", value));
+        assert_eq!(settings.sounds, SoundsMode::Log, "AZ_SOUNDS={value:?}");
+    }
+    for value in ["", "1", "on", "true", "loud", "play"] {
+        let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_SOUNDS", value));
+        assert_eq!(settings.sounds, SoundsMode::On, "AZ_SOUNDS={value:?}");
+    }
+    assert_eq!(sounds_from_value(None), SoundsMode::On);
+    assert_eq!(SoundsMode::default(), SoundsMode::On);
+}

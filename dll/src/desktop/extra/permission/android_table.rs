@@ -116,6 +116,47 @@ pub fn state_of_check(capability: Capability, granted: &[bool], rationale: bool)
     }
 }
 
+/// Whether a permission DIALOG may be started for a capability in `state`, and by whom.
+///
+/// A permission dialog comes from a user action, once: the diff-driven path (a probe node entered the DOM:
+/// `reask == false`) asks only while the state is `NotDetermined`; a denial is remembered (the state stays `Denied`)
+/// and the app is told, it does not get asked again behind the user's back. An explicit request a person made
+/// (`reask == true`: a button the app showed after explaining) asks again after ONE denial, while Android still offers
+/// a rationale (`rationale`: `shouldShowRequestPermissionRationale`); a permission denied for good ("don't ask
+/// again", or denied twice) shows no dialog at all and the system answers a request with a denial at once: the app
+/// sends the user to the settings instead.
+#[must_use]
+pub fn may_show_dialog(state: PermissionState, rationale: bool, reask: bool) -> bool {
+    match state {
+        PermissionState::NotDetermined => true,
+        PermissionState::Denied => reask && rationale,
+        _ => false,
+    }
+}
+
+/// What a WORKER thread that needs a capability to do its job (a camera tile opening the camera, the microphone
+/// tile, the speech recogniser) does first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gate {
+    /// Granted: go on.
+    Go,
+    /// Not decided yet (or a dialog for it is up): ask ONCE and wait for the answer.
+    Ask,
+    /// Refused, by the user or by a policy: stop, and never ask again from here. The app tells the user and offers
+    /// the settings; the worker does not open the device and does not stand in for it with a test pattern.
+    Stop,
+}
+
+/// The [`Gate`] for the state the quiet probe reports.
+#[must_use]
+pub const fn gate(state: PermissionState) -> Gate {
+    match state {
+        PermissionState::Granted(_) | PermissionState::EphemeralGranted(_) => Gate::Go,
+        PermissionState::Denied | PermissionState::Restricted => Gate::Stop,
+        PermissionState::NotDetermined | PermissionState::Requested => Gate::Ask,
+    }
+}
+
 /// The state from the answer to a request: whether every permission of it was granted, and whether any
 /// was. A user who grants the approximate location only has granted a REDUCED location, not denied it.
 #[must_use]

@@ -18,7 +18,11 @@ if command -v apt-get >/dev/null 2>&1; then
     && echo "fonts of the CI's layout tests installed" || echo "the fonts of the CI's layout tests could not be installed"
 fi
 doc=target/release/azul-doc
-[ -x "$doc" ] || cargo build -r -p azul-doc || { echo "azul-doc did not build"; exit 3; }
+if [ -n "${AZ_MATRIX_NO_RUNNER:-}" ]; then
+  doc=""      # AZ_MATRIX_NO_RUNNER=1: only the app's own run (the `desktop` column), no azul-doc build: a few minutes instead of twenty
+else
+  [ -x "$doc" ] || cargo build -r -p azul-doc || { echo "azul-doc did not build"; exit 3; }
+fi
 bins=()
 if [ -n "$apps_dir" ] && [ -d "$apps_dir" ]; then
   for app in "$apps_dir"/*-e2e-linux; do
@@ -30,7 +34,7 @@ if [ -n "$apps_dir" ] && [ -d "$apps_dir" ]; then
 else
   echo "no desktop QA build given: the files that assert an app's DOM stay 'no desktop host'"
 fi
-python3 scripts/ci/e2e_matrix.py desktop --repo . --out demo-out/e2e-matrix-desktop --azul-doc "$doc" ${bins[@]+"${bins[@]}"}
+python3 scripts/ci/e2e_matrix.py desktop --repo . --out demo-out/e2e-matrix-desktop ${doc:+--azul-doc "$doc"} ${bins[@]+"${bins[@]}"}
 
 # AZ_MATRIX_DIAG=1: the numbers behind a red scenario of the matrix (the rects of a list of inline list items, the computed padding after a Tab):
 # every assertion of this file is meant to FAIL and its message carries the value it found. Not part of the verdicts.
@@ -84,3 +88,4 @@ DIAGEND
     "$doc" e2e demo-out/e2e-matrix-desktop/diag.json --keep-going --jobs "$jobs" 2>&1 | tail -90
   done
 fi
+exit 0      # the diagnostic scenarios fail on purpose: the job is not red for them
