@@ -198,6 +198,10 @@ pub extern "C" fn tile_fetch_worker(
 
     let (z, x, y) = (tile.z, tile.x, tile.y);
     let fail = |sender: &mut azul_layout::thread::ThreadSender, why: String, since| {
+        // Said whatever the debug trace: a map that stays empty on a phone is a failed fetch (a TLS root, a cache
+        // folder, a timeout, a refused connection) and nothing on the screen or in the log said which, or where.
+        let host = url.split("//").nth(1).and_then(|rest| rest.split('/').next()).unwrap_or("?");
+        crate::plog_warn!("[map] tile {z}/{x}/{y} from {host}: {why}");
         if dbg {
             eprintln!("[map] worker FAILED tile=({z},{x},{y}): {why}");
         }
