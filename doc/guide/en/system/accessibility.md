@@ -7,11 +7,15 @@ audience: external
 maturity: wip
 guide_order: 125
 topic_only: false
-short_desc: Screen reader integration and ARIA roles
+short_desc: Screen reader integration, ARIA roles and the user's display settings
 prerequisites: [dom]
 tracked_files:
   - core/src/a11y.rs
   - layout/src/managers/a11y.rs
+  - css/src/accessibility.rs
+  - css/src/accessibility_raw.rs
+  - css/src/presentation.rs
+  - layout/src/solver3/presentation.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T12:00:00Z
 default-search-keys:
