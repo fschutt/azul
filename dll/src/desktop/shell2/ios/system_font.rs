@@ -14,7 +14,7 @@
 
 use core::ffi::c_void;
 
-use rust_fontconfig::{FcFontPath, FcFontRegistry, FcPattern};
+use rust_fontconfig::{registry::FcFontRegistry, FcFontPath, FcPattern};
 
 use crate::{
     desktop::shell2::common::{
