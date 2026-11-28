@@ -73,9 +73,9 @@ use super::{
     dialog::{Dialog, DialogClosedBy},
     sidebar::SidebarSurface,
     sidebar_layout::{
-        clamp_pane_height, clamp_preview_width, dragged_pane_height, dragged_preview_width_at, pane_max,
+        clamp_pane_height, clamp_preview_width, dragged_pane_height, dragged_preview_width_at, grip_reach_above, pane_max,
         preview_edge, settle_pane_height, step_size, toggle_pane_height, Edge, FormFactor, GripKey,
-        BORDER_GRAB, BUILT_FOR, GRIP_HEIGHT, GRIP_SLOP, PANE_COLLAPSED, PREVIEW_WIDTH_DEFAULT,
+        BORDER_GRAB, BUILT_FOR, GRIP_HEIGHT, GRIP_SLOP, PANE_COLLAPSED, PREVIEW_WIDTH_DEFAULT, TOUCH_PLATFORM,
     },
     themes::{OptionUiTheme, UiTheme},
     widget_p_with_text,
@@ -572,6 +572,8 @@ struct DragState {
     on_event: OptionPreviewOnEvent,
     /// The edge a right dock stands at (`preview_edge`: the one place that decides it).
     edge: Edge,
+    /// How far above the grip bar a press still grabs it, px (a finger gets more room).
+    reach: f32,
     dock: PreviewDock,
     size: f32,
     dragging: bool,
@@ -589,7 +591,7 @@ impl DragState {
     fn grabs(&self, x: f32, y: f32, w: f32, h: f32) -> bool {
         if self.dock == PreviewDock::Bottom {
             let top = h - self.size;
-            y >= top - 2.0 && y <= top + GRIP_HEIGHT
+            y >= top - self.reach && y <= top + GRIP_HEIGHT
         } else {
             let border = if self.edge == Edge::Right { w - self.size } else { self.size };
             (x - border).abs() <= BORDER_GRAB / 2.0 + 3.0
@@ -1014,6 +1016,8 @@ fn limited_details(mut details: Vec<PreviewDetail>) -> Vec<PreviewDetail> {
 fn build(i: Preview) -> Dom {
     let dock = i.resolved_dock();
     let size = i.built_size();
+    // a finger gets more reach above the grip bar than a pointer
+    let touch = i.form.is_phone() || TOUCH_PLATFORM;
     let Preview {
         body,
         pane,
@@ -1061,6 +1065,7 @@ fn build(i: Preview) -> Dom {
     let state = RefAny::new(DragState {
         on_event,
         edge,
+        reach: grip_reach_above(touch),
         dock,
         size,
         dragging: false,

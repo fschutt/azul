@@ -187,3 +187,80 @@ fn the_touch_ribbons_tab_row_listens_to_its_own_resize() {
         .count();
     assert_eq!(heard, 1, "a turn of the phone moves the lanes: the row hears it");
 }
+
+// ---- the window's chevron and the fold of the content band ----
+
+/// The first node of `dom` (itself included) with the class `name`.
+fn find_class<'a>(dom: &'a Dom, name: &str) -> Option<&'a Dom> {
+    if has_class(dom, name) {
+        return Some(dom);
+    }
+    dom.children.as_ref().iter().find_map(|child| find_class(child, name))
+}
+
+fn count_class(dom: &Dom, name: &str) -> usize {
+    usize::from(has_class(dom, name)) + dom.children.as_ref().iter().map(|c| count_class(c, name)).sum::<usize>()
+}
+
+fn shows_nothing(node: &Dom) -> bool {
+    use azul_css::props::{
+        layout::LayoutDisplay,
+        property::{CssProperty, LayoutDisplayValue},
+    };
+    node.root
+        .style
+        .iter_inline_properties()
+        .any(|(prop, _)| matches!(prop, CssProperty::Display(LayoutDisplayValue::Exact(LayoutDisplay::None))))
+}
+
+#[test]
+fn a_ribbon_that_asks_for_the_chevron_draws_it_and_folds_its_content_band_with_the_window() {
+    use azul_core::callbacks::WindowSizeScope;
+    const CHEVRON: &str = "__azul-tab-content-toggle";
+    let size = LogicalSize { width: 411.0, height: 914.0 };
+    for (style, band) in [(TabStyle::Pills, false), (TabStyle::TouchPills, false), (TabStyle::TouchPills, true)] {
+        let build = |toggle: bool| {
+            let mut ribbon = Ribbon::new(tabs(3)).with_tab_style(style).with_content_toggle(toggle);
+            if band {
+                ribbon = ribbon.with_status_bar(pixel_8_band());
+            }
+            ribbon.dom_desktop()
+        };
+        let label = format!("{style:?}, band {band}");
+        // Asked for: one chevron, and the band shows while the window's content shows ...
+        {
+            let _scope = WindowSizeScope::enter_with(size, false);
+            let dom = build(true);
+            assert_eq!(count_class(&dom, CHEVRON), 1, "{label}");
+            assert!(!shows_nothing(find_class(&dom, CONTENT).expect("the band")), "{label}: shown");
+        }
+        // ... and folds away while it is folded; the row stays.
+        {
+            let _scope = WindowSizeScope::enter_with(size, true);
+            let dom = build(true);
+            assert_eq!(count_class(&dom, CHEVRON), 1, "{label}");
+            assert!(shows_nothing(find_class(&dom, CONTENT).expect("the band")), "{label}: folded");
+            assert!(find_class(&dom, TAB).is_some(), "{label}: the tabs stay");
+            // Not asked for: no chevron, and the band is not the chevron's.
+            let plain = build(false);
+            assert_eq!(count_class(&plain, CHEVRON), 0, "{label}: not asked for");
+            assert!(!shows_nothing(find_class(&plain, CONTENT).expect("the band")), "{label}: not asked for");
+        }
+    }
+}
+
+#[test]
+fn a_ribbon_leaves_room_at_the_left_of_its_content_band_for_a_rail() {
+    use azul_css::props::{layout::LayoutMarginLeft, property::CssProperty as P};
+    let margin_left = |inset: f32| {
+        let dom = Ribbon::new(tabs(3)).with_tab_style(TabStyle::Pills).with_content_inset(inset).dom_desktop();
+        find_class(&dom, CONTENT).and_then(|band| {
+            band.root.style.iter_inline_properties().find_map(|(prop, _)| match prop {
+                P::MarginLeft(value) => value.get_property().map(|m: &LayoutMarginLeft| m.inner.to_pixels_internal(0.0, 16.0, 16.0)),
+                _ => None,
+            })
+        })
+    };
+    assert_eq!(margin_left(0.0), None, "no inset, no margin");
+    assert_eq!(margin_left(18.0), Some(18.0), "the rail's width");
+}
