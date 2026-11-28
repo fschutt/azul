@@ -738,6 +738,13 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
         }
     }
     let plan = mouse_plan(touch_phase, primary_in_set, slop_move, slop_lift);
+    // `touchesCancelled:`: the system took the touch (an alert, Control Center, a call): the engine's recognisers (a drag, a
+    // selection, a long press waiting, the press targets, scroll input still queued) let go of it, so that nothing fires from it
+    if touch_phase == TouchPhase::Cancelled {
+        if let Some(lw) = window.common.layout_window.as_mut() {
+            lw.cancel_touch_gestures();
+        }
+    }
 
     // Snapshot previous state for the diff pipeline; mirrors Android.
     window.snapshot_window_state_baseline("ios.handle_touch");
@@ -1101,7 +1108,7 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
         // change of layout like one of the insets (a tab strip that goes around the island).
         let features_changed = {
             let options = window.common.current_window_state().flags.system_bars;
-            let features = unsafe {
+            let (features, display) = unsafe {
                 system_ui::display_features(
                     this as *const Object as *mut Object,
                     w,
@@ -1111,11 +1118,31 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
                     &options,
                 )
             };
-            window
-                .common
-                .layout_window
-                .as_mut()
-                .is_some_and(|lw| lw.report_display_features(features))
+            // Where the system takes the swipes of its own gestures (Notification / Control Center from the top, the home
+            // swipe from the bottom): derived from the same display, approximate like the cutouts, told to the engine
+            // beside them (`CallbackInfo::get_system_gesture_insets`). Nothing relays out for it.
+            let zones = crate::desktop::shell2::common::ios_display::gesture_zones(&display);
+            let gesture_insets = azul_layout::managers::gesture::SystemGestureInsets {
+                normal: azul_layout::managers::gesture::EdgeInsetsPx {
+                    left: 0.0,
+                    top: zones.top_normal,
+                    right: 0.0,
+                    bottom: zones.bottom_normal,
+                },
+                mandatory: azul_layout::managers::gesture::EdgeInsetsPx {
+                    left: 0.0,
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: zones.bottom_mandatory,
+                },
+                tappable: azul_layout::managers::gesture::EdgeInsetsPx::default(),
+            };
+            window.common.layout_window.as_mut().is_some_and(|lw| {
+                if *lw.system_gesture_insets() != gesture_insets {
+                    lw.set_system_gesture_insets(gesture_insets);
+                }
+                lw.report_display_features(features)
+            })
         };
         // A change of the insets alone IS a change of layout: landscape-left and landscape-right
         // have the same bounds and the notch on opposite sides, so the size check above never
@@ -2343,13 +2370,19 @@ impl IOSWindow {
         app_shared.seed_window(&mut layout_window, &config);
         // The engine's gesture detection reads the numbers UIKit's own recognizers use (one table: `UIKIT_GESTURES`),
         // not its desktop defaults.
-        layout_window.gesture_drag_manager.config = azul_layout::managers::gesture::GestureDetectionConfig {
+        let replaced = layout_window.set_gesture_config(azul_layout::managers::gesture::GestureConfig {
             drag_distance_threshold: UIKIT_GESTURES.pan_threshold_points,
+            touch_slop: UIKIT_GESTURES.pan_threshold_points,
             double_click_time_threshold_ms: UIKIT_GESTURES.double_tap_ms,
+            double_tap_timeout_ms: UIKIT_GESTURES.double_tap_ms,
             long_press_time_threshold_ms: UIKIT_GESTURES.long_press_ms,
+            long_press_timeout_ms: UIKIT_GESTURES.long_press_ms,
             long_press_distance_threshold: UIKIT_GESTURES.long_press_movement_points,
-            ..azul_layout::managers::gesture::GestureDetectionConfig::default()
-        };
+            ..azul_layout::managers::gesture::GestureConfig::default()
+        });
+        if !replaced.is_empty() {
+            log_error!(LogCategory::Platform, "[iOS] gesture configuration: {:?} were not usable and were replaced", replaced);
+        }
         // The faces the app ships (`AppConfig::add_font`): this shell has no app-level font
         // manager to take them from, so the window registers them itself.
         layout_window

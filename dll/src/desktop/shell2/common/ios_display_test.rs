@@ -146,3 +146,45 @@ fn an_ipad_with_touch_id_has_a_sensor_of_an_unknown_kind_and_place() {
     // an iPhone that has Touch ID and is in no home button class is as unknown as the iPad
     assert_eq!(ios_display(400.0, 800.0, (20.0, 0.0, 0.0, 0.0), false, true, Turn::Portrait).fingerprint, IosFingerprint::Unknown);
 }
+
+#[test]
+fn a_face_id_phone_upright_has_the_status_band_on_top_and_the_home_indicator_as_the_mandatory_bottom() {
+    let display = ios_display(402.0, 874.0, PRO_16_INSETS, false, false, Turn::Portrait);
+    let zones = gesture_zones(&display);
+    assert_eq!(zones.top_normal, display.status_bar.expect("an upright iPhone has a status bar").height);
+    assert_eq!(zones.bottom_mandatory, display.home_indicator.expect("a Face ID phone has a home indicator").height);
+    assert_eq!(zones.bottom_normal, 0.0, "the indicator's band is the bottom zone: no second strip");
+}
+
+#[test]
+fn a_phone_on_its_side_has_no_status_bar_and_the_pull_down_strip_is_the_edge_strip() {
+    let display = ios_display(874.0, 402.0, PRO_16_ON_ITS_SIDE_INSETS, false, false, Turn::CutoutLeft);
+    assert!(display.status_bar.is_none());
+    let zones = gesture_zones(&display);
+    assert_eq!(zones.top_normal, SYSTEM_EDGE_STRIP_POINTS);
+    assert!(zones.bottom_mandatory > 0.0, "the indicator is still there on its side (21 points)");
+}
+
+#[test]
+fn a_home_button_phone_has_the_bottom_strip_and_no_mandatory_band() {
+    // an iPhone SE (3rd generation): 375 x 667, no home indicator, Touch ID
+    let display = ios_display(375.0, 667.0, (20.0, 0.0, 0.0, 0.0), false, true, Turn::Portrait);
+    assert!(display.home_indicator.is_none());
+    let zones = gesture_zones(&display);
+    assert_eq!(zones.bottom_mandatory, 0.0);
+    assert_eq!(zones.bottom_normal, SYSTEM_EDGE_STRIP_POINTS);
+}
+
+#[test]
+fn no_zone_is_negative_or_wider_than_a_quarter_of_the_screen_and_the_sides_are_free() {
+    for class in &IOS_DISPLAY_CLASSES {
+        for turn in [Turn::Portrait, Turn::CutoutLeft, Turn::CutoutRight] {
+            let (w, h) = if turn == Turn::Portrait { (class.short, class.long) } else { (class.long, class.short) };
+            let insets = if turn == Turn::Portrait { (class.cutout_top.max(47.0), 0.0, 34.0, 0.0) } else { (0.0, 47.0, 21.0, 47.0) };
+            let zones = gesture_zones(&ios_display(w, h, insets, false, class.home_button, turn));
+            for z in [zones.top_normal, zones.bottom_normal, zones.bottom_mandatory] {
+                assert!(z >= 0.0 && z <= h / 4.0, "{}x{} {:?}: {z}", class.short, class.long, turn);
+            }
+        }
+    }
+}
