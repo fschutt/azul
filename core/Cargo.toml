@@ -24,7 +24,8 @@ autoexamples = false
 # with `std`.
 azul-css                = { version = "0.0.21", path = "../css", default-features = false }
 libm                   = { version = "0.2.2",   default-features = false                   }
-gl-context-loader       = { version = "0.1.9", default-features = false }
+# EXPERIMENT (the Android GPU root-cause hunt, never for master): "error" prints every GL call and every GL error left by the one before it.
+gl-context-loader       = { version = "0.1.9", default-features = false, features = ["error"] }
 # The system font cache the callbacks hand out (feature `system_fonts`).
 rust-fontconfig = { version = "5.2", default-features = false, features = ["std"], optional = true }
 serde                   = { version = "1.0", features = ["derive"], optional = true }

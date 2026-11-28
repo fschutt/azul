@@ -43,6 +43,7 @@ use super::{
     egl_pure::{egl_error_name, EglInt, SwapError, EGL_PBUFFER_BIT, EGL_WINDOW_BIT},
     event::CommonWindowState,
     frame_stats::FrameStats,
+    gles_control,
     gles_trace,
     gpu_lifecycle::{Action, Event, GpuLifecycle, Phase, Surface, TrimLevel},
     gpu_renderer::{self, GpuDevice, InitParams, GpuTextRendering},
@@ -83,6 +84,16 @@ fn set_window_format(window: *mut c_void, format: EglInt) -> i32 {
 
 /// The first presents of a renderer that are described in the log.
 const DESCRIBED_PRESENTS: u32 = 3;
+
+/// EXPERIMENT (the Android GPU root-cause hunt, never for master): `AZ_GPU_CONTROL=1` runs the control ladder (`gles_control`: GL
+/// without WebRender, every phase swapped to the window and held) before WebRender is made.
+fn control_requested() -> bool {
+    azul_css::env::EnvSource::var(&crate::env::ProcessEnv::new(), "AZ_GPU_CONTROL")
+        .is_some_and(|value| !value.is_empty() && value != "0")
+}
+
+/// How long the control ladder holds each picture on the window after a swap.
+const CONTROL_HOLD: std::time::Duration = std::time::Duration::from_millis(700);
 
 /// Where the path finds its libraries and what it makes its surfaces of.
 #[derive(Debug, Clone)]
@@ -701,8 +712,14 @@ impl GlesGpu {
         };
         let reports_damage = session.info().caps.buffer_age;
         log_info!(LogCategory::Rendering, "[render] {}", gles_trace::extensions_line(&gl));
+        if let Some(functions) = self.functions.as_ref() {
+            self.log_function_table(functions);
+        }
         // The first surface is shown before WebRender is made (its programs compile in the first frame, seconds on a cold start).
         self.prime_surface(ctx);
+        if control_requested() {
+            self.run_control(&gl);
+        }
         // A renderer made before had keys of its own: the window's registries are cleared for the new one.
         if self.renderers_made > 0 {
             gpu_renderer::forget_renderer_state(ctx.common);
@@ -779,6 +796,71 @@ impl GlesGpu {
         Ok(())
     }
 
+    /// EXPERIMENT: where the function table's pointers came from, and which names it has no pointer for.
+    fn log_function_table(&self, functions: &GlesFunctions) {
+        log_info!(
+            LogCategory::Rendering,
+            "[render] function table: {} names have no pointer",
+            functions.unresolved.len()
+        );
+        // A log line is cut at about 4 KB: the lists go out in pieces.
+        for (what, items) in [("unresolved", &functions.unresolved), ("sources of the device layer's calls", &functions.used_sources)] {
+            let mut line = String::new();
+            for item in items {
+                if line.len() + item.len() + 1 > 2500 {
+                    log_info!(LogCategory::Rendering, "[render] {}: {}", what, line);
+                    line.clear();
+                }
+                line.push_str(item);
+                line.push(' ');
+            }
+            if !line.is_empty() {
+                log_info!(LogCategory::Rendering, "[render] {}: {}", what, line);
+            }
+        }
+    }
+
+    /// EXPERIMENT: the control ladder on the window's surface: GL with no WebRender, each phase swapped and held (`gles_control`).
+    fn run_control(&self, gl: &gl_context_loader::GenericGlContext) {
+        let Some(session) = self.session.as_ref() else {
+            return;
+        };
+        if !session.has_window_surface() {
+            log_warn!(LogCategory::Rendering, "[render] control: the window has no surface to show the ladder on");
+            return;
+        }
+        let size = session.surface_size().unwrap_or(self.size_px);
+        let target = gles_control::Target { size, window: 0 };
+        log_info!(
+            LogCategory::Rendering,
+            "[render] control: the ladder starts on {}x{} px, {} phases twice, {} ms each",
+            size.0,
+            size.1,
+            gles_control::PHASES.len(),
+            CONTROL_HOLD.as_millis()
+        );
+        let ladder = gles_control::run_ladder(gl, target, &mut |name| {
+            match session.swap(None, size.1) {
+                Ok(()) => log_info!(LogCategory::Rendering, "[render] control: presented {}", name),
+                Err(error) => log_warn!(LogCategory::Rendering, "[render] control: the swap of {} failed: {:?}", name, error),
+            }
+            std::thread::sleep(CONTROL_HOLD);
+        });
+        for problem in &ladder.program_problems {
+            log_warn!(LogCategory::Rendering, "[render] control: {}", problem);
+        }
+        for row in &ladder.rows {
+            log_info!(
+                LogCategory::Rendering,
+                "[render] control {}: {} ({})",
+                row.name,
+                if row.ok { "ok" } else { "WRONG" },
+                row.detail
+            );
+        }
+        log_info!(LogCategory::Rendering, "[render] control: the ladder is done");
+    }
+
     /// Renders the frame WebRender built and swaps it to the window.
     fn render_and_swap(&mut self, ctx: &mut GpuCtx<'_>) -> Result<(), GpuFallback> {
         if self.plan.fails(GpuStage::Frame) {
@@ -821,6 +903,16 @@ impl GlesGpu {
             }
         }
         let outcome = gpu_renderer::render_frame(ctx.common, size, age)?;
+        if self.presents < DESCRIBED_PRESENTS {
+            if let Some(renderer) = ctx.common.renderer.as_mut() {
+                log_info!(
+                    LogCategory::Rendering,
+                    "[render] after present {}: {}",
+                    self.presents + 1,
+                    renderer.debug_probe_textures()
+                );
+            }
+        }
         // What the draw cost the loop's thread: WebRender's commands for the frame, before the swap that may wait for the display.
         let draw_us = u64::try_from(started.elapsed().as_micros()).ok();
         self.presents += 1;

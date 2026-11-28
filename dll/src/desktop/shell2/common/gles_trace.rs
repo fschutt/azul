@@ -98,3 +98,30 @@ pub fn extensions_line(gl: &GenericGlContext) -> String {
         .collect();
     format!("{} extensions; {}", names.len(), marks.join(" "))
 }
+
+/// EXPERIMENT (the Android GPU root-cause hunt): the GL functions the vendored device layer and the engine call through the function table,
+/// by their names in the table. The engine logs where each came from (`GlesFunctions::used_sources`): a name no source had is an empty slot,
+/// and the wrapper skips the call without a word.
+pub const DEVICE_USED_NAMES: &[&str] = &[
+    "glActiveTexture", "glAttachShader", "glBeginQuery", "glBindAttribLocation", "glBindBuffer", "glBindFramebuffer",
+    "glBindRenderbuffer", "glBindTexture", "glBindVertexArray", "glBlendBarrierKHR", "glBlendEquation",
+    "glBlendEquationSeparate", "glBlendFunc", "glBlendFuncSeparate", "glBlitFramebuffer", "glBufferData",
+    "glBufferStorage", "glBufferSubData", "glCheckFramebufferStatus", "glClear", "glClearBufferfv", "glClearColor",
+    "glClearDepth", "glClientWaitSync", "glColorMask", "glCompileShader", "glCopyImageSubData", "glCreateProgram",
+    "glCreateShader", "glDebugMessageInsertKHR", "glDeleteBuffers", "glDeleteFramebuffers", "glDeleteProgram",
+    "glDeleteQueries", "glDeleteRenderbuffers", "glDeleteShader", "glDeleteSync", "glDeleteTextures",
+    "glDeleteVertexArrays", "glDepthFunc", "glDepthMask", "glDetachShader", "glDisable",
+    "glDisableVertexAttribArray", "glDrawArrays", "glDrawElements", "glDrawElementsInstanced", "glEnable",
+    "glEnableVertexAttribArray", "glEndQuery", "glEndTilingQCOM", "glFenceSync", "glFlush",
+    "glFlushMappedBufferRange", "glFramebufferRenderbuffer", "glFramebufferTexture2D", "glGenBuffers",
+    "glGenFramebuffers", "glGenQueries", "glGenRenderbuffers", "glGenTextures", "glGenVertexArrays",
+    "glGenerateMipmap", "glGetBooleanv", "glGetDebugMessageLog", "glGetError", "glGetIntegerv", "glGetProgramBinary",
+    "glGetProgramInfoLog", "glGetProgramiv", "glGetQueryObjectui64v", "glGetShaderInfoLog", "glGetShaderiv",
+    "glGetString", "glGetStringi", "glGetTexImage", "glGetUniformLocation", "glInsertEventMarkerEXT",
+    "glInvalidateFramebuffer", "glLinkProgram", "glMapBuffer", "glMapBufferRange", "glPixelStorei",
+    "glPopDebugGroupKHR", "glPopGroupMarkerEXT", "glProgramBinary", "glProgramParameteri",
+    "glPushDebugGroupKHR", "glPushGroupMarkerEXT", "glReadPixels", "glRenderbufferStorage", "glScissor",
+    "glShaderSource", "glStartTilingQCOM", "glTexImage2D", "glTexParameteri", "glTexStorage2D", "glTexSubImage2D",
+    "glUniform1f", "glUniform1i", "glUniform2f", "glUniform4f", "glUniformMatrix4fv", "glUnmapBuffer",
+    "glUseProgram", "glVertexAttribDivisor", "glVertexAttribIPointer", "glVertexAttribPointer", "glViewport",
+];

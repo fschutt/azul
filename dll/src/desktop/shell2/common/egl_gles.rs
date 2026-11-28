@@ -710,6 +710,11 @@ pub struct GlesFunctions {
     _library: Option<std::mem::ManuallyDrop<libloading::Library>>,
     /// The table WebRender and the engine's GL code call through.
     pub context: Rc<GenericGlContext>,
+    /// EXPERIMENT (the Android GPU root-cause hunt): every name of the table that no source had.
+    pub unresolved: Vec<String>,
+    /// EXPERIMENT: for the functions the device layer calls, where the table's pointer came from: `name:E` (`eglGetProcAddress`),
+    /// `name:L` (a symbol of the GL library) or `name:-` (neither: the table's slot is empty and the call is skipped).
+    pub used_sources: Vec<String>,
 }
 
 impl fmt::Debug for GlesFunctions {
@@ -762,10 +767,14 @@ impl GlesFunctions {
         };
 
         let missing = RefCell::new(Vec::<String>::new());
+        let unresolved = RefCell::new(Vec::<String>::new());
         let mut table = load_gl_context(|name| {
             let address = resolve(name);
-            if address.is_null() && REQUIRED_FUNCTIONS.contains(&name) {
-                missing.borrow_mut().push(name.to_owned());
+            if address.is_null() {
+                unresolved.borrow_mut().push(name.to_owned());
+                if REQUIRED_FUNCTIONS.contains(&name) {
+                    missing.borrow_mut().push(name.to_owned());
+                }
             }
             address
         });
@@ -794,9 +803,32 @@ impl GlesFunctions {
                 missing.join(", ")
             ));
         }
+        let used_sources = super::gles_trace::DEVICE_USED_NAMES
+            .iter()
+            .map(|name| {
+                let from_egl = CString::new(*name)
+                    .ok()
+                    .is_some_and(|c_name| !session.api().proc_address(&c_name).is_null());
+                let from_library = library.as_ref().is_some_and(|lib| {
+                    CString::new(*name).ok().is_some_and(|c_name| {
+                        // SAFETY: the symbol's address is read as a pointer and never called here.
+                        unsafe { lib.get::<*mut c_void>(c_name.as_bytes_with_nul()) }.is_ok()
+                    })
+                });
+                let source = match (from_egl, from_library) {
+                    (true, true) => "EL",
+                    (true, false) => "E",
+                    (false, true) => "L",
+                    (false, false) => "-",
+                };
+                format!("{name}:{source}")
+            })
+            .collect();
         Ok(Self {
             _library: library.map(std::mem::ManuallyDrop::new),
             context: Rc::new(table),
+            unresolved: unresolved.into_inner(),
+            used_sources,
         })
     }
 }

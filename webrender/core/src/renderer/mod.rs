@@ -927,6 +927,60 @@ impl Renderer {
         self.device.max_texture_size()
     }
 
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): three pixels of each of the first picture cache tile textures
+    /// (centre, a quarter and three quarters of the way across and down), and how many textures the cache holds of each category: whether
+    /// the passes of a frame wrote anything into the tiles the composite reads.
+    pub fn debug_probe_textures(&mut self) -> String {
+        let _ = self.device.begin_frame();
+        let mut counts = [0_usize; 4];
+        let mut tiles: Vec<String> = Vec::new();
+        for item in self.texture_resolver.texture_cache_map.values() {
+            let index = match item.category {
+                TextureCacheCategory::Atlas => 0,
+                TextureCacheCategory::Standalone => 1,
+                TextureCacheCategory::PictureTile => 2,
+                TextureCacheCategory::RenderTarget => 3,
+            };
+            counts[index] += 1;
+            if item.category == TextureCacheCategory::PictureTile && tiles.len() < 6 {
+                let size = item.texture.get_dimensions();
+                let format = item.texture.get_format();
+                let mut found: Vec<String> = Vec::new();
+                for (fx, fy) in [(2, 2), (1, 1), (3, 3)] {
+                    let rect = FramebufferIntRect::from_origin_and_size(
+                        FramebufferIntPoint::new(size.width * fx / 4, size.height * fy / 4),
+                        FramebufferIntSize::new(1, 1),
+                    );
+                    let mut pixel = [0_u8; 4];
+                    self.device
+                        .bind_read_target(crate::device::ReadTarget::from_texture(&item.texture));
+                    self.device
+                        .read_pixels_into(rect, ImageFormat::RGBA8, &mut pixel);
+                    found.push(format!(
+                        "#{:02x}{:02x}{:02x}{:02x}",
+                        pixel[0], pixel[1], pixel[2], pixel[3]
+                    ));
+                }
+                tiles.push(format!(
+                    "{}x{} {:?} [{}]",
+                    size.width,
+                    size.height,
+                    format,
+                    found.join(" ")
+                ));
+            }
+        }
+        self.device.end_frame();
+        format!(
+            "texture cache: {} atlases, {} standalone, {} picture tiles, {} render targets; tiles: {}",
+            counts[0],
+            counts[1],
+            counts[2],
+            counts[3],
+            tiles.join("; ")
+        )
+    }
+
     pub fn get_graphics_api_info(&self) -> GraphicsApiInfo {
         GraphicsApiInfo {
             kind: GraphicsApi::OpenGL,
