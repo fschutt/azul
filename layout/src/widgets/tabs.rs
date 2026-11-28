@@ -3376,12 +3376,14 @@ pub(crate) fn pill_sized(
             v.extend(flora::leather_faces());
         }
         v.extend(flora::gold_edge());
-        // One fade for the whole face: the label's colour, the face, the edge and the shadows move
-        // together and quickly. The button's own face fades its colour in a state change (420 ms) and
-        // its stone in `--fl-dur-slow` (1200 ms); on a pill that changes class with the selection the
-        // label turned white at once-ish over a face that was still cream for half a second (a blank
-        // pill: the iOS Simulator's recording, QA 2026-11-28).
-        v.extend(flora::flora_fade(flora::FLORA_FACE, PILL_FADE_MS));
+        // One fade for the whole face: the face, the edge and the shadows move together and quickly
+        // (the button's own face takes 420 ms, its stone 1200 ms - half a second of a white label on a
+        // cream face on a pill that changes with the selection: the iOS Simulator's recording, QA
+        // 2026-11-28), and the label steps where the old ink and the new one read equally well on it.
+        v.extend(flora::flora_face_fade(
+            flora::FloraButtonKind::of(button_type),
+            PILL_FADE_MS,
+        ));
     }
     CssPropertyWithConditionsVec::from_vec(v)
 }

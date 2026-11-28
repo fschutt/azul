@@ -998,6 +998,7 @@ mod a_button_fades_into_its_hover_face;
 mod a_button_is_a_touch_target_on_a_phone;
 #[path = "a_hovered_button_passes_through_the_faces_in_between.rs"]
 mod a_hovered_button_passes_through_the_faces_in_between;
+mod a_buttons_label_never_loses_its_contrast_while_its_face_changes;
 #[path = "a_rebuild_under_the_pointer_starts_no_transition.rs"]
 mod a_rebuild_under_the_pointer_starts_no_transition;
 #[path = "a_rebuild_slides_only_what_declares_a_move.rs"]

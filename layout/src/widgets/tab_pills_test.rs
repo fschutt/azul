@@ -367,10 +367,11 @@ fn the_strip_listens_to_its_own_resize() {
 }
 
 #[test]
-fn a_flora_pill_fades_its_label_and_its_face_together_whatever_it_changes_to() {
-    use crate::widgets::button::ButtonType;
+fn a_flora_pill_fades_its_face_together_and_its_label_steps_where_both_inks_read_whatever_it_changes_to() {
+    use crate::widgets::{button::ButtonType, themes::flora::FloraButtonKind};
     use azul_css::props::property::CssProperty;
     for button_type in [ButtonType::Default, ButtonType::Primary] {
+        let ink = FloraButtonKind::of(button_type).label_ink().expect("a pill's label has an ink");
         for metrics in [&super::PILL_DESKTOP, &super::PILL_TOUCH] {
             let css = super::pill_sized(UiTheme::Flora, button_type, metrics);
             // The animation that governs the pill at rest: the last one declared with no condition.
@@ -388,12 +389,23 @@ fn a_flora_pill_fades_its_label_and_its_face_together_whatever_it_changes_to() {
             let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
             assert!(names.contains(&"color") && names.contains(&"background"), "{button_type:?}: {names:?}");
             for entry in entries {
-                assert_eq!(
-                    entry.duration.inner,
-                    super::PILL_FADE_MS,
-                    "{button_type:?}: {} fades over the same time as the rest",
-                    entry.name.as_str()
-                );
+                if entry.name.as_str() == "color" {
+                    // The label does not fade with the face (dark to light ink under a face that goes light to
+                    // dark crosses it at one frame): it holds, then takes its new colour at once.
+                    assert!(entry.duration.inner <= 5, "{button_type:?}: the label's colour steps: {} ms", entry.duration.inner);
+                    assert_eq!(
+                        entry.delay.inner,
+                        super::PILL_FADE_MS * ink.held_permille() / 1000,
+                        "{button_type:?}: a {ink:?} label is held for its share of the face's time"
+                    );
+                } else {
+                    assert_eq!(
+                        entry.duration.inner,
+                        super::PILL_FADE_MS,
+                        "{button_type:?}: {} fades over the same time as the rest",
+                        entry.name.as_str()
+                    );
+                }
             }
         }
     }
