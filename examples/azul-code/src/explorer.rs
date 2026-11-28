@@ -53,6 +53,10 @@ pub const fn title_height(compact: bool) -> f32 {
 }
 /// The indent of one level, px.
 const INDENT: f32 = 8.0;
+/// A tree of at most this many rows is built whole, in a plain scroll container: a screen reader and a test see every
+/// row (the rows of a `VirtualView` are a document of their own, and only the rows in view exist). A longer tree
+/// builds the rows in view and a screen either side.
+pub const INLINE_ROWS: usize = 400;
 
 /// What the explorer's view hands its callback: the app.
 struct ExplorerRef {
@@ -94,9 +98,22 @@ pub fn explorer(app: &RefAny, st: &AppState) -> Dom {
                 .with_css(format!("font-size: 16px; padding-right: 2px; {}", ui::FLORA_GLYPH)),
         )
         .with_child(Dom::create_span_with_text(w.root.name.to_uppercase()));
-    let tree = Dom::create_virtual_view(RefAny::new(ExplorerRef { app: app.clone() }), render_rows)
+    let rows = w.rows();
+    let base = if rows.len() <= INLINE_ROWS {
+        let row_h = row_height(compact);
+        let mut list = Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; width: 100%; overflow-y: auto;");
+        for row in rows {
+            let selected = w.selected.as_deref() == Some(row.key.as_str());
+            list.add_child(row_dom(app, row, selected, row_h));
+        }
+        list
+    } else {
+        Dom::create_virtual_view(RefAny::new(ExplorerRef { app: app.clone() }), render_rows)
+            .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
+    };
+    let tree = base
         .with_id(ids::EXPLORER)
-        .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
         .with_tab_index(TabIndex::Auto)
         .with_accessibility_info(AccessibilityInfo::named(
             t_args("azcode-files-of", &[("folder", Arg::from(w.root.name.as_str()))]),
