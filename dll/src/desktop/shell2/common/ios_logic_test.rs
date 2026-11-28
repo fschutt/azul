@@ -533,3 +533,58 @@ fn the_first_finger_presses_and_a_second_finger_is_nothing_to_the_mouse() {
         );
     }
 }
+
+
+// ---- the system UI font (San Francisco): where its file is, and what the registry calls it ----
+
+/// The family the iOS `system-ui` chain starts with. The font scan of an iOS app (CoreText's AvailableFonts) does not
+/// list the system UI font (its faces are the hidden `.SFUI-*` names), so the family was in no scan and every launch
+/// warned `the system UI font "System Font" was NOT found`; the shell registers the font under this name.
+#[test]
+fn the_family_the_system_ui_chain_asks_for_is_system_font() {
+    assert_eq!(SYSTEM_FONT_FAMILY, "System Font");
+}
+
+#[test]
+fn the_first_candidate_that_can_be_read_is_the_font_file() {
+    let candidates = ["/a/one.ttf", "/b/two.ttf", "/c/three.ttf"];
+    assert_eq!(first_readable(&candidates, |p| p == "/b/two.ttf" || p == "/c/three.ttf"), Some("/b/two.ttf"));
+    assert_eq!(first_readable(&candidates, |_| false), None, "no file: no font, and no panic");
+    assert_eq!(first_readable(&[], |_| true), None);
+}
+
+#[test]
+fn the_known_system_font_files_are_absolute_and_ttf() {
+    assert!(!SYSTEM_UI_FONT_FILES.is_empty());
+    for path in SYSTEM_UI_FONT_FILES {
+        assert!(path.starts_with("/System/Library/Fonts/"), "{path}");
+        assert!(path.ends_with(".ttf"), "{path}");
+    }
+}
+
+/// `CFURLGetFileSystemRepresentation` fills a buffer with the path and a NUL: the path is what comes before it.
+#[test]
+fn a_path_is_what_comes_before_the_nul_of_the_buffer() {
+    let mut buffer = [0_u8; 32];
+    buffer[..14].copy_from_slice(b"/System/Fonts/");
+    assert_eq!(path_from_c_buffer(&buffer).as_deref(), Some("/System/Fonts/"));
+    assert_eq!(path_from_c_buffer(&[0_u8; 8]), None, "an empty answer is no path");
+    assert_eq!(path_from_c_buffer(b"no nul at all"), Some(String::from("no nul at all")));
+    assert_eq!(path_from_c_buffer(&[0xff, 0xfe, 0]), None, "not UTF-8: no path (the file cannot be named to the registry)");
+}
+
+// ---- the numbers of UIKit's gesture recognizers, in one place ----------------------------------------------------------
+
+/// The touch slop of the shell, the engine's drag threshold and its long-press numbers come from ONE table: there was a
+/// lone `TOUCH_SLOP_POINTS = 10.0` in this file and the engine's own defaults (5 px drag, 10 px long press) beside it.
+#[test]
+fn the_gesture_numbers_are_those_uikit_uses_and_live_in_one_table() {
+    assert_eq!(UIKIT_GESTURES.pan_threshold_points, 10.0);
+    assert_eq!(UIKIT_GESTURES.long_press_ms, 500, "UILongPressGestureRecognizer.minimumPressDuration defaults to 0.5 s");
+    assert_eq!(UIKIT_GESTURES.long_press_movement_points, 10.0, "allowableMovement defaults to 10 points");
+    assert!(
+        (UIKIT_GESTURES.deceleration_normal - 0.998).abs() < f32::EPSILON && (UIKIT_GESTURES.deceleration_fast - 0.99).abs() < f32::EPSILON,
+        "UIScrollViewDecelerationRateNormal / Fast"
+    );
+    assert!(UIKIT_GESTURES.deceleration_fast < UIKIT_GESTURES.deceleration_normal, "fast decelerates sooner");
+}

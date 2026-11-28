@@ -103,6 +103,13 @@ class TableTests(unittest.TestCase):
         self.assertIn("| a.json | t2 | PASS | FAIL: step 2: click -> FAILED: no node | not run |", text)
         self.assertIn("| b.json | t3 | not run | N/A: asserts the DOM of a desktop C example", text)
 
+    def test_a_test_whose_platforms_disagree_is_listed_with_each_verdict(self):
+        text = m.render_markdown(m.merge(self.records(), self.SCN), self.SCN)
+        self.assertIn("| a.json | t1 | PASS | PASS | not run | same |", text)
+        self.assertIn("| a.json | t2 | PASS | FAIL: step 2: click -> FAILED: no node | not run | DIFFERENT |", text)
+        self.assertIn("## Where the verdicts differ", text)
+        self.assertIn("- a.json :: t2: desktop PASS, android FAIL", text)
+
     def test_the_totals_count_every_verdict_per_platform(self):
         text = m.render_markdown(m.merge(self.records(), self.SCN), self.SCN)
         self.assertIn("## Totals", text)

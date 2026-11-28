@@ -139,6 +139,54 @@ fn reading_bitwise_eq(a: &SensorReading, b: &SensorReading) -> bool {
         && a.timestamp_ms == b.timestamp_ms
 }
 
+// ────────── Demand: reading a sensor is subscribing to it ─────────
+
+/// How long a read keeps a sensor running: an app that reads a kind at least this often has it, one that stops
+/// reading has it stopped (a phone should not run the gyroscope nobody reads).
+pub const SENSOR_LEASE_MS: u64 = 3000;
+
+/// When each kind was last read by the app, in milliseconds on one clock. Pure: the clock is the caller's, so the
+/// rule (a read wants a kind for the lease; nothing is wanted until something is read) is tested without one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SensorDemand {
+    last_read_ms: [Option<u64>; SensorKind::COUNT],
+}
+
+impl SensorDemand {
+    /// Nothing wanted.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            last_read_ms: [None; SensorKind::COUNT],
+        }
+    }
+
+    /// `kind` was read at `now_ms`.
+    pub const fn ask(&mut self, kind: SensorKind, now_ms: u64) {
+        self.last_read_ms[kind.slot()] = Some(now_ms);
+    }
+
+    /// Whether `kind` was read within [`SENSOR_LEASE_MS`] of `now_ms`.
+    #[must_use]
+    pub fn is_wanted(&self, kind: SensorKind, now_ms: u64) -> bool {
+        self.last_read_ms[kind.slot()].is_some_and(|at| now_ms.saturating_sub(at) < SENSOR_LEASE_MS)
+    }
+}
+
+/// The clock of the demand: milliseconds on the system clock (a wasm target has none and no sensors: a read never
+/// expires there).
+#[cfg(not(target_family = "wasm"))]
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+#[cfg(target_family = "wasm")]
+const fn now_ms() -> u64 {
+    0
+}
+
 // ────────── Async reading channel (platform backend → manager) ─────────
 //
 // CoreMotion / Android `SensorManager` deliver on an arbitrary thread with
@@ -155,6 +203,12 @@ fn reading_bitwise_eq(a: &SensorReading, b: &SensorReading) -> bool {
 #[derive(Debug, Default)]
 pub struct SensorChannel {
     pending_readings: std::sync::Mutex<Vec<SensorReading>>,
+    /// Which kinds the app is reading (see [`SensorDemand`]): reading a sensor IS subscribing to it, for a lease.
+    demand: std::sync::Mutex<SensorDemand>,
+    /// The backend's own record of what it started (a bit per backend group it chooses), so a backend that
+    /// starts a group on demand and stops it when the lease ends keeps that state with the app that owns the
+    /// channel, not in a global.
+    started: core::sync::atomic::AtomicU32,
     /// The typed proximity answer, LATEST-WINS rather than queued: proximity
     /// is a state, and a widget wants the current one, not every flicker
     /// between two polls.
@@ -166,8 +220,41 @@ impl SensorChannel {
     #[must_use]
     pub const fn new() -> Self {
         Self {
+            demand: std::sync::Mutex::new(SensorDemand::new()),
+            started: core::sync::atomic::AtomicU32::new(0),
             pending_readings: std::sync::Mutex::new(Vec::new()),
             pending_proximity: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// An app read `kind` (`CallbackInfo::get_sensor_reading`, `get_proximity`): the sensor is wanted for the next
+    /// [`SENSOR_LEASE_MS`]. Nothing starts at launch; a sensor nobody reads is never started, and one nobody reads
+    /// any more is stopped when the lease ends.
+    pub fn want(&self, kind: SensorKind) {
+        let mut demand = self.demand.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        demand.ask(kind, now_ms());
+    }
+
+    /// Whether any of `kinds` was read within the lease.
+    #[must_use]
+    pub fn wanted_any(&self, kinds: &[SensorKind]) -> bool {
+        let demand = self.demand.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let now = now_ms();
+        kinds.iter().any(|kind| demand.is_wanted(*kind, now))
+    }
+
+    /// The groups the backend has started (its own bits).
+    #[must_use]
+    pub fn started_groups(&self) -> u32 {
+        self.started.load(core::sync::atomic::Ordering::Acquire)
+    }
+
+    /// The backend started (`on`) or stopped a group.
+    pub fn set_group_started(&self, bit: u32, on: bool) {
+        if on {
+            self.started.fetch_or(bit, core::sync::atomic::Ordering::AcqRel);
+        } else {
+            self.started.fetch_and(!bit, core::sync::atomic::Ordering::AcqRel);
         }
     }
 
@@ -907,3 +994,7 @@ mod autotest_generated {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "sensors_test.rs"]
+mod sensors_test;
