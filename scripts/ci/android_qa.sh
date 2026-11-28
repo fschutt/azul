@@ -174,7 +174,16 @@ for mode in "${mode_list[@]}"; do
     for mapk in "$apk" ${AZ_QA_MATRIX_APKS:-}; do mapks+=(--apk "$mapk"); done
     # AZ_QA_MATRIX_ONLY=<text>: only the files whose path holds it (e.g. `sounds`: one scenario file of a new feature). The engine's frames of every
     # file (its take_screenshot steps) are kept in <matrix>/shots/<file stem>/shot-NNN.png (WP-E2's request: the pictures of a scenario run were lost)
-    python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" --shots "$d/matrix/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
+    if [ -n "${AZ_QA_TEXT_SIZES:-}" ]; then
+      # AZ_QA_TEXT_SIZES="1.0 1.3 2.0": the same files once per system font scale (settings put system font_scale), each in its own folder; 1.0 is put back at the end
+      for ts in $AZ_QA_TEXT_SIZES; do
+        adb shell settings put system font_scale "$ts"; sleep 3
+        python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix-text-$ts" --shots "$d/matrix-text-$ts/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee -a "$d/e2e-matrix.log"
+      done
+      adb shell settings put system font_scale 1.0
+    else
+      python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" --shots "$d/matrix/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
+    fi
   fi
   if [ "$session" = fontwait ] && [ "$mode" = "${mode_list[0]}" ]; then
     python3 "$here/font_wait_series.py" android --out "$d/fontwait" --package "$pkg" --activity "$act" --starts "${AZ_QA_FONTWAIT_STARTS:-10}" \

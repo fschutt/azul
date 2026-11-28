@@ -81,7 +81,7 @@ class TextSizeTests(unittest.TestCase):
     def test_ios_takes_the_largest_accessibility_size_and_puts_the_default_back(self):
         text = (HERE / "ios_qa.sh").read_text(encoding="utf-8")
         self.assertEqual(text.count("content_size accessibility-extra-extra-extra-large"), 2)
-        self.assertEqual(text.count("content_size large"), 2)
+        self.assertGreaterEqual(text.count("content_size large"), 2)        # after the plain start, after each extra app (and after the matrix's sizes)
         self.assertIn("device-text-xxxl.png", text)
         self.assertIn("$xn-text-xxxl.png", text)
 
@@ -89,6 +89,29 @@ class TextSizeTests(unittest.TestCase):
         import subprocess
         for name in ("android_qa.sh", "ios_qa.sh"):
             self.assertEqual(subprocess.run(["bash", "-n", str(HERE / name)]).returncode, 0, name)
+
+
+class MatrixTextSizeTests(unittest.TestCase):
+    """The matrix sessions of both phones can run the same scenario files once per system text size (AzMail's text_size.json): AZ_QA_TEXT_SIZES."""
+
+    def test_android_sets_the_font_scale_before_each_run_and_puts_1_0_back(self):
+        text = (HERE / "android_qa.sh").read_text(encoding="utf-8")
+        self.assertIn('for ts in $AZ_QA_TEXT_SIZES; do', text)
+        self.assertIn('settings put system font_scale "$ts"', text)
+        self.assertIn('--out "$d/matrix-text-$ts"', text)
+        self.assertLess(text.index('settings put system font_scale "$ts"'), text.index('--out "$d/matrix-text-$ts"'))
+
+    def test_ios_sets_the_content_size_before_each_run_and_puts_large_back(self):
+        text = (HERE / "ios_qa.sh").read_text(encoding="utf-8")
+        self.assertIn('for ts in $AZ_QA_TEXT_SIZES; do', text)
+        self.assertIn('content_size "$ts"', text)
+        self.assertIn('--out "$out/text-$ts"', text)
+        self.assertIn("content_size large", text)
+
+    def test_the_plain_matrix_is_what_runs_without_the_variable(self):
+        for name in ("android_qa.sh", "ios_qa.sh"):
+            text = (HERE / name).read_text(encoding="utf-8")
+            self.assertIn("else", text[text.index("AZ_QA_TEXT_SIZES"):])
 
 
 if __name__ == "__main__":
