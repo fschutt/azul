@@ -1547,11 +1547,15 @@ fn screen(s: &MapState, app: &RefAny, dark: bool, frame: &ui::Frame) -> Dom {
     } else {
         format!("position: absolute; left: 6px; bottom: {:.0}px; max-width: 72%;", above + 4.0)
     };
-    root.add_child(
-        Dom::create_div()
-            .with_css(format!("{spot} {ATTRIBUTION_LOOK}").as_str())
-            .with_child(Dom::create_span_with_text(credits)),
-    );
+    // A sheet drawn up to its full height hides the map but a strip under the search bar: the credit would stand over the bar
+    // there, so it waits (with the keys) until the sheet comes down.
+    if wide || s.drive.nav.is_some() || s.sheet != SheetDetent::Full {
+        root.add_child(
+            Dom::create_div()
+                .with_css(format!("{spot} {ATTRIBUTION_LOOK}").as_str())
+                .with_child(Dom::create_span_with_text(credits)),
+        );
+    }
     if s.location_denied {
         // The refusal of the location: the text, and the way back (a refused permission is not asked again).
         root.add_child(
