@@ -51,6 +51,9 @@ pub unsafe extern "system" fn Java_com_azul_media_AzulMediaSession_nativeOnMedia
         // channel MPRIS, `MPRemoteCommandCenter` and SMTC use.
         if let Some(queues) = queues() {
             queues.push_media_key(key);
+            // A loop parked with no surface (the app is in the background, a headset button is the point of a media session)
+            // would not see it until something else woke it.
+            crate::desktop::shell2::android::wake_event_loop();
         }
     }
 }
@@ -73,6 +76,7 @@ pub unsafe extern "system" fn Java_com_azul_media_AzulMediaSession_nativeOnMedia
             track_id: AzString::from_const_str(""),
             volume: 0.0,
         });
+        crate::desktop::shell2::android::wake_event_loop();
     }
 }
 

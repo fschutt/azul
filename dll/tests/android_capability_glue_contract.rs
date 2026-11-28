@@ -249,3 +249,25 @@ fn connected_means_the_system_validated_the_network() {
         "connected = INTERNET and VALIDATED"
     );
 }
+
+/// A media button or a seek of the system UI is parked on a queue from Android's media thread; a loop parked with no surface (the
+/// app is in the background: that is what a headset button is for) saw it only when something else woke it (AN-22). Both entry
+/// points wake the loop after they queue.
+///
+/// Mutation: the `wake_event_loop()` calls removed (the state of 6ce827b284).
+#[test]
+fn a_media_button_wakes_a_parked_loop() {
+    let rust = rust_code("dll/src/desktop/extra/media_keys/android.rs");
+    let button = body(
+        &rust,
+        "pubunsafeextern\"system\"fnJava_com_azul_media_AzulMediaSession_nativeOnMediaButton(",
+    );
+    let queued = button.find("queues.push_media_key(key);").expect("the button is parked");
+    assert!(button[queued..].contains("crate::desktop::shell2::android::wake_event_loop();"), "and the loop is woken");
+    let seek = body(
+        &rust,
+        "pubunsafeextern\"system\"fnJava_com_azul_media_AzulMediaSession_nativeOnMediaSeek(",
+    );
+    let queued = seek.find("queues.push_media_control(").expect("the seek is parked");
+    assert!(seek[queued..].contains("crate::desktop::shell2::android::wake_event_loop();"));
+}
