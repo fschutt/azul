@@ -24,6 +24,15 @@ class ReportRowsTest(unittest.TestCase):
         rows = proof.report_rows("noise\n" + first + "\nmore noise\n" + second + "\n")
         self.assertEqual(rows["sensors.geolocation"], ("PASS", "lat=48.52 lon=8.67"))
 
+    def test_a_report_in_numbered_parts_is_read_like_the_one_line(self):
+        """The unattended run prints a long report as AZ_SELFTEST_REPORT_PART i/n lines: logcat keeps ~4000 bytes of a line."""
+        text = json.dumps({"app": "AzSelfTest", "rows": [{"id": "sensors.geolocation", "verdict": "PASS", "detail": "lat=48.52 lon=8.67"}]})
+        slices = [text[at:at + 40] for at in range(0, len(text), 40)]
+        lines = [f"11-28 02:10:11.000  123  456 I RustStdoutStderr: AZ_SELFTEST_REPORT_PART {i + 1}/{len(slices)} {s}" for i, s in enumerate(slices)]
+        self.assertGreater(len(lines), 2)
+        rows = proof.report_rows("noise\n" + "\n".join(lines) + "\nmore noise\n")
+        self.assertEqual(rows["sensors.geolocation"], ("PASS", "lat=48.52 lon=8.67"))
+
     def test_no_report_or_a_cut_line_is_no_rows(self):
         self.assertEqual(proof.report_rows("nothing here"), {})
         self.assertEqual(proof.report_rows("AZ_SELFTEST_REPORT {\"rows\": ["), {})

@@ -7,7 +7,9 @@
 //! * a 100 ms timer runs one probe at a time, calling its step until it answers;
 //! * the report is ONE line `AZ_SELFTEST_REPORT {json}` on stdout (logcat on Android, `os_log` / the console on
 //!   iOS) and a file `az-selftest-report.json` in the app's data directory (`AZ_SELFTEST_REPORT_FILE` overrides),
-//!   printed whenever the queue runs empty after a run;
+//!   printed whenever the queue runs empty after a run. On Android a report longer than 3000 bytes leaves as numbered
+//!   parts, `AZ_SELFTEST_REPORT_PART i/n <slice>` (the slices joined in order are the JSON): logcat drops what is past
+//!   ~4000 bytes of a line without a word, and a full report of 30 rows is longer than that;
 //! * unattended (`AZ_SELFTEST=1`, `--selftest`, on Android `adb shell setprop debug.az.selftest 1`): runs every row
 //!   that needs no person (the others are listed with their instruction), writes the report, closes the window; the
 //!   process exits with 1 when a capability that says it is available failed.
@@ -296,7 +298,12 @@ impl SelfTest {
             unattended: self.unattended,
             total_ms: u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX),
         };
-        println!("{}", report::report_line(&ctx, &rows));
+        // On Android one line when it fits, else numbered parts (logcat drops what is past ~4000 bytes of a line without a word);
+        // elsewhere always the one line (the readers of iOS and the desktop grep that, and their consoles keep long lines).
+        let limit = if cfg!(target_os = "android") { report::MAX_LINE_BYTES } else { usize::MAX };
+        for line in report::report_lines(&ctx, &rows, limit) {
+            println!("{line}");
+        }
         let path = report_path();
         if let Err(e) = std::fs::write(&path, report::report_json(&ctx, &rows)) {
             eprintln!("AzSelfTest: cannot write the report file {}: {e}", path.display());

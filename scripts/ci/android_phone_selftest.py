@@ -30,6 +30,7 @@ own data (and its stored report) stays until you uninstall it.
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -37,6 +38,8 @@ import time
 from pathlib import Path
 
 REPORT_PREFIX = "AZ_SELFTEST_REPORT"
+PART_PREFIX = REPORT_PREFIX + "_PART"
+PART_LINE = re.compile(re.escape(PART_PREFIX) + r" (\d+)/(\d+) (.*)$", re.S)
 PACKAGE = "com.azul.AzSelfTest"
 ACTIVITY = "com.azul.app.AzulActivity"
 PERMISSIONS = (
@@ -51,12 +54,35 @@ ATTENDED_WAIT_S = 600
 
 
 def reports_in(text):
-    """Every `AZ_SELFTEST_REPORT {json}` line of a log, as dicts, in order. A line that is not valid JSON is skipped (a log line cut in two)."""
-    found = []
-    for line in text.splitlines():
+    """Every report of a log, as dicts, in order: the one line `AZ_SELFTEST_REPORT {json}` and a report that was longer than a logcat
+    line holds (logcat drops what is past ~4000 bytes of a line without a word), sent as `AZ_SELFTEST_REPORT_PART i/n <slice>` lines whose
+    slices, joined in order, are the JSON. A line that is not valid JSON is skipped (a log line cut in two); a set of parts that is not
+    complete (a part lost, another report in between) is dropped."""
+    found, parts, want = [], [], 0
+    for raw in text.split("\n"):
+        line = raw[:-1] if raw.endswith("\r") else raw
+        at = line.find(PART_PREFIX + " ")
+        if at >= 0:
+            match = PART_LINE.match(line[at:])
+            if match:
+                index, count, slice_ = int(match.group(1)), int(match.group(2)), match.group(3)
+                if index == 1:
+                    parts, want = [slice_], count
+                elif parts and index == len(parts) + 1 and count == want:
+                    parts.append(slice_)
+                else:
+                    parts, want = [], 0
+                if parts and len(parts) == want:
+                    try:
+                        found.append(json.loads("".join(parts)))
+                    except ValueError:
+                        pass
+                    parts, want = [], 0
+            continue
         at = line.find(REPORT_PREFIX + " {")
         if at < 0:
             continue
+        parts, want = [], 0
         try:
             found.append(json.loads(line[at + len(REPORT_PREFIX) + 1:]))
         except ValueError:
