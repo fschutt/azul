@@ -156,6 +156,23 @@ def _inside(inner, outer, slack=SLACK_DP):
     return (inner[0] >= outer[0] - slack and inner[1] >= outer[1] - slack and inner[2] <= outer[2] + slack and inner[3] <= outer[3] + slack)
 
 
+# past this much (dp) the accessibility box is LONGER than the border box on an axis: layout rounding is below it
+GROWN_BY_DP = 0.05
+
+
+def _with_grown_axes(border, content):
+    """`border` with each axis on which the accessibility box passes beyond it taken from the accessibility box: the engine's touch hit-slop
+    publishes an interactive node smaller than the platform's floor at the floor's size round its centre (`layout::hit_slop`), and a finger
+    is heard from that far. The content box of an ordinary node lies inside the border box on both axes: nothing changes."""
+    l, t, r, b = border
+    cl, ct, cr, cb = content
+    if cl < l - GROWN_BY_DP or cr > r + GROWN_BY_DP:
+        l, r = min(l, cl), max(r, cr)
+    if ct < t - GROWN_BY_DP or cb > b + GROWN_BY_DP:
+        t, b = min(t, ct), max(b, cb)
+    return (l, t, r, b)
+
+
 def _entry(layout, a11y, rect, why):
     l, t, r, b = rect
     out = {"node": _name(layout) if layout else (a11y or {}).get("html_tag") or (a11y or {}).get("role") or "?",
@@ -232,6 +249,16 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
                 return border
         return content
 
+    def target_of(a):
+        """The box a finger is heard from: `box_of`, grown on the axes where the engine's touch hit-slop published a longer accessibility box
+        (a key 47.2 dp tall is 48 dp tall to a finger). Only the touch-target judgement uses it: the bars and the edges are about where a node is
+        DRAWN."""
+        box = box_of(a)
+        b = a.get("bounds")
+        if box and b:
+            return _with_grown_axes(box, tuple(v / scale for v in b))
+        return box
+
     # -- the window's edges (every DOM node of the layout)
     right, left = [], []
     for n in nodes:
@@ -291,7 +318,7 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
             continue
         if not (a.get("clickable") or role in INTERACTIVE_ROLES):
             continue
-        box = box_of(a)
+        box = target_of(a)
         if not box:
             unknown += 1
             continue
@@ -302,7 +329,7 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
         # a larger tappable ancestor takes the finger anyway
         parent, big_parent = by_id.get(a.get("parent")), False
         while parent is not None:
-            pbox = box_of(parent)
+            pbox = target_of(parent)
             if pbox and (parent.get("clickable") or parent.get("role") in INTERACTIVE_ROLES):
                 if min(pbox[2] - pbox[0], pbox[3] - pbox[1]) >= MIN_TARGET_DP:
                     big_parent = True

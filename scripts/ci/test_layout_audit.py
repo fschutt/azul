@@ -204,6 +204,24 @@ class AuditTests(unittest.TestCase):
         r = self.run_audit(layout, tree)
         self.assertEqual([(e["w"], e["h"]) for e in r["small_targets"]["top"]], [(30.0, 30.0)])
 
+    def test_a_key_the_engines_hit_slop_grew_to_48_dp_is_not_small(self):
+        # a landscape calculator key: 108.4 x 47.24 dp drawn; the engine publishes it at the floor's height round its centre (48.0), the
+        # accessibility content box is narrower than the border box (padding, border) and does not count
+        layout = [node(1, "button", 361.0, 95.0, 108.4, 47.24)]
+        tree = [a11y(1, 1, "Button", "Percent", 362.0, 94.62, 106.4, 48.0, clickable=True)]
+        r = self.run_audit(layout, tree)
+        self.assertEqual(r["small_targets"]["small"], 0)
+        self.assertEqual(r["small_targets"]["tappable"], 1)
+
+    def test_a_small_control_the_engine_grew_is_not_small_and_one_it_did_not_is(self):
+        # a 36 x 20 dp switch track published at 48 x 48 (the hit-slop), and a 30 x 30 key whose box was NOT grown (an engine without it)
+        layout = [node(1, "switch", 300.0, 500.0, 36.0, 20.0), node(2, "button", 100.0, 800.0, 30.0, 30.0)]
+        tree = [a11y(1, 1, "Switch", "Alarm at 7:00", 294.0, 486.0, 48.0, 48.0, clickable=True),
+                a11y(2, 2, "Button", "Tiny", 106.0, 803.0, 16.0, 24.0, clickable=True)]
+        r = self.run_audit(layout, tree)
+        self.assertEqual(r["small_targets"]["small"], 1)
+        self.assertEqual([(e["w"], e["h"]) for e in r["small_targets"]["top"]], [(30.0, 30.0)])
+
     def test_the_border_box_is_used_for_the_bars_too(self):
         # the border box starts under the status strip, its content box starts below it
         layout = [node(1, "button", 10, 40, 48, 48)]
