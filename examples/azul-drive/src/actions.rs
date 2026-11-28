@@ -968,6 +968,8 @@ pub(crate) fn close_search(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
     if was_open || s.search_open || !s.search.is_empty() {
         println!("AZDRIVE_SEARCH_CLOSED");
         crate::ui_command_bar::clear_search(info, s);
+        // The line that held the search goes back to its status, whichever key or button closed it.
+        crate::ui_command_bar::fold_if_idle(&mut s.command_bar);
     }
     s.search.clear();
     s.search_open = false;

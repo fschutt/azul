@@ -1118,6 +1118,15 @@ pub(crate) fn show_search(info: &mut CallbackInfo, s: &mut DriveState, query: &s
     s.command_bar.expanded = true;
 }
 
+/// The line goes back to its status when nothing keeps it open: it holds no text, and no program's
+/// output and no notice is shown in it (a search that closed, whichever key or button closed it;
+/// a line that went on with a command of its own stays open).
+pub(crate) fn fold_if_idle(bar: &mut CommandBar) {
+    if bar.input.trim().is_empty() && bar.run.is_none() && bar.notice.is_none() {
+        bar.expanded = false;
+    }
+}
+
 /// The search ended: the line that held it empties (a command typed there is left alone).
 pub(crate) fn clear_search(info: &mut CallbackInfo, s: &mut DriveState) {
     if s.command_bar.searching || s.command_bar.input.trim_start().starts_with('?') {
@@ -1337,9 +1346,7 @@ extern "C" fn on_input_key(
                     s.command_bar.input.clear();
                     set_input_text(info, "");
                     end_search(info, app, s);
-                    if s.command_bar.run.is_none() && s.command_bar.notice.is_none() {
-                        s.command_bar.expanded = false;
-                    }
+                    fold_if_idle(&mut s.command_bar);
                 }
             })
         }
