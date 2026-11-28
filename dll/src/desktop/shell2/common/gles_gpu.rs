@@ -35,7 +35,7 @@ use std::{
 };
 
 use azul_core::gl::OptionGlContextPtr;
-use azul_layout::window_state::WindowCreateOptions;
+use azul_layout::{window::FrameDamage, window_state::WindowCreateOptions};
 
 use super::{
     debug_server::LogCategory,
@@ -857,6 +857,18 @@ impl GlesGpu {
             Ok(()) => {
                 self.full_swap_owed = false;
                 gpu_renderer::finish_frame(ctx.common);
+                // The frame report (the e2e assertions read it) and the timings an app reads (`get_frame_timings`), as the macOS GPU
+                // path records a frame: WebRender composited the whole framebuffer (this path gives it no partial-present budget) and the
+                // swap presents the whole surface.
+                if let Some(layout_window) = ctx.common.layout_window.as_mut() {
+                    crate::desktop::wr_translate2::publish_gpu_frame(
+                        layout_window,
+                        0,
+                        draw_us.unwrap_or(0),
+                        u64::try_from(outcome.draw_calls).unwrap_or(u64::MAX),
+                    );
+                    layout_window.record_frame(FrameDamage::Full, FrameDamage::Full);
+                }
                 if self.first_frame_pending {
                     self.first_frame_pending = false;
                     let ms = started.elapsed().as_secs_f64() * 1000.0;
