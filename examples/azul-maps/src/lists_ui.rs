@@ -1025,7 +1025,8 @@ fn stamp() -> i64 {
 }
 
 /// Exports `bytes` as `name`: offered to the system's save dialog, and kept in the data
-/// folder (`maps/exports/`) either way.
+/// folder (`maps/exports/`) either way; the note says which of the two happened (a phone's save dialog answers false).
+// TODO(WP-F): on a phone share the kept file once it is written: `info.share(ShareRequest::file(path))` (on_files, TAG_EXPORT).
 fn export(app: &RefAny, info: &mut CallbackInfo, name: &str, mime: &str, bytes: Vec<u8>) {
     let offered = FileDialog::save_bytes(name, mime, bytes.clone());
     let mut state = app.clone();

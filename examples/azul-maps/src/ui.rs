@@ -560,7 +560,8 @@ extern "C" fn on_place_save(mut data: RefAny, _info: CallbackInfo) -> Update {
     })
 }
 
-/// Share: a link to the place on the clipboard (the engine has no system share sheet); a notice says so.
+/// Share: a link to the place on the clipboard and a notice that says so (what a desktop does; a phone's system sheet is WP-F's).
+// TODO(WP-F): on a phone `info.share(ShareRequest::url(link).with_title(name))`, `can_share()` choosing, the button's rect as its anchor, once ShareRequest is in api.json.
 extern "C" fn on_place_share(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(link) = data
         .downcast_ref::<MapState>()
