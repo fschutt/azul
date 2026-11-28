@@ -822,17 +822,15 @@ pub(crate) fn enter_room(
     s.room.as_mut()?.first_job(signer)
 }
 
-/// A meeting was found: the microphone and the camera start as the settings' Meetings say (on,
-/// unless "Join with the microphone off" / "... the camera off"). Not where they are a test tone
-/// or a test pattern (a headless run, `--test-tone`, `--test-pattern`): those keep the state
+/// The start screen opens NO device: a fresh install shows no permission dialog until the user
+/// turns the camera or the microphone on (the switches of the start screen) or starts or joins a
+/// meeting (here). Opening them at launch asked for the camera and the microphone before the user
+/// had done anything that needed them.
+///
+/// A meeting was found or made: the microphone and the camera start as the settings' Meetings say
+/// (on, unless "Join with the microphone off" / "... the camera off"). Not where they are a test
+/// tone or a test pattern (a headless run, `--test-tone`, `--test-pattern`): those keep the state
 /// their switches gave them, so a script knows what it gets.
-/// The start screen shows this side's camera and microphone live, as Meet does before a
-/// meeting: they open with the join defaults (muted or the camera off when the settings say
-/// so), whether or not a meetings service answers.
-pub(crate) fn open_devices_at_start(s: &mut MeetState) {
-    apply_join_defaults(s);
-}
-
 pub(crate) fn apply_join_defaults(s: &mut MeetState) {
     if !devices_allowed() {
         return;
