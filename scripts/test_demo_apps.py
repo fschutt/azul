@@ -539,6 +539,35 @@ class BuildTest(unittest.TestCase):
             e.write_text("   Compiling x\nerror: failed to run custom build command for `ring`\nmore\n")
             self.assertEqual(demo_build.first_error(j, e), "error: failed to run custom build command for `ring`")
 
+    def first_error_of(self, text):
+        with tempfile.TemporaryDirectory() as d:
+            j = pathlib.Path(d) / "b.json"
+            j.write_text("")
+            e = pathlib.Path(d) / "b.err"
+            e.write_text(text)
+            return demo_build.first_error(j, e)
+
+    def test_a_link_with_duplicate_c_abi_symbols_says_that_an_engine_crate_was_compiled_into_the_app(self):
+        # AzMail on Linux, 2026-11-28: azul-mail-core, azul-appkit and azul-icons-haiku depend on azul-core, whose #[no_mangle] C ABI
+        # functions (AzApp_*) are also in the prebuilt libazul.a: rust-lld stops at the first duplicate
+        text = ("   Compiling AzMail v0.1.0\nerror: linking with `cc` failed: exit status: 1\n  = note: \"cc\" \"-m64\" ...\n"
+                "  = note: rust-lld: error: duplicate symbol: AzApp_getInvocationCtx\n"
+                "          >>> defined at host_invoker.rs:547 (core/src/host_invoker.rs:547)\n"
+                "          rust-lld: error: duplicate symbol: AzApp_setGenericInvoker\n"
+                "          rust-lld: error: duplicate symbol: AzApp_getInvocationCtx\n")
+        got = self.first_error_of(text)
+        self.assertTrue(got.startswith("engine crate compiled into the app: the link has 2 duplicate C ABI symbols (AzApp_getInvocationCtx, ...)"), got)
+        self.assertIn("azul-core", got)
+        self.assertLessEqual(len(got), 300)
+
+    def test_a_link_with_undefined_symbols_names_the_first_and_counts_the_rest(self):
+        text = ("error: linking with `link.exe` failed: exit code: 1181\n  = note: azul.lib(x.o) : error LNK2019: unresolved\n"
+                "  = note: /usr/bin/ld: x.o: undefined reference to `XOpenDisplay'\n  = note: /usr/bin/ld: y.o: undefined reference to `glXSwapBuffers'\n")
+        self.assertEqual(self.first_error_of(text), "link failed: undefined symbol XOpenDisplay and 1 more")
+        self.assertEqual(self.first_error_of("error: linking with `cc` failed: exit status: 1\n  = note: something else\n"),
+                         "error: linking with `cc` failed: exit status: 1")     # a link error the reader knows nothing about stays as it is
+        self.assertEqual(self.first_error_of("error[E0063]: missing fields `concealed`\n"), "error[E0063]: missing fields `concealed`")
+
     def test_the_executable_is_the_one_cargo_reports_for_the_package(self):
         with tempfile.TemporaryDirectory() as d:
             j = pathlib.Path(d) / "b.json"
