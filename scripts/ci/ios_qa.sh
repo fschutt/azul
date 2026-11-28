@@ -102,7 +102,17 @@ if [ "$session" = matrix ]; then
   # (space separated; the app of this session when unset)
   apps=()
   for z in ${AZ_QA_MATRIX_APPS:-$app}; do apps+=(--app "$z"); done
-  python3 "$here/e2e_matrix.py" ios --repo . --out "$out" --udid "$udid" --shots "$out/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${apps[@]+"${apps[@]}"} 2>&1 | tee "$out/e2e-matrix.log"
+  if [ -n "${AZ_QA_TEXT_SIZES:-}" ]; then
+    # AZ_QA_TEXT_SIZES="large accessibility-extra-extra-extra-large": the same files once per system text size (simctl ui content_size), each in its own folder
+    # (the matrix of the first size is the plain matrix of a normal run; the default size `large` is put back at the end). AzMail's text_size.json asks for it.
+    for ts in $AZ_QA_TEXT_SIZES; do
+      xcrun simctl ui "$udid" content_size "$ts" >/dev/null 2>&1; sleep 3
+      python3 "$here/e2e_matrix.py" ios --repo . --out "$out/text-$ts" --udid "$udid" --shots "$out/text-$ts/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${apps[@]+"${apps[@]}"} 2>&1 | tee -a "$out/e2e-matrix.log"
+    done
+    xcrun simctl ui "$udid" content_size large >/dev/null 2>&1
+  else
+    python3 "$here/e2e_matrix.py" ios --repo . --out "$out" --udid "$udid" --shots "$out/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${apps[@]+"${apps[@]}"} 2>&1 | tee "$out/e2e-matrix.log"
+  fi
 fi
 if [ "$session" = tabs ]; then
   # THE TAB STRIP on the phone: per orientation (1) the device's own pictures of a plain start, light and dark, (2) per file of AZ_QA_TABS_FILES a
@@ -161,6 +171,11 @@ if [ "$session" = tabs ]; then
       xcrun simctl terminate "$udid" "$xbid" >/dev/null 2>&1 || true
     done
   done
+fi
+if [ "$session" = fontwait ]; then
+  # the font-wait A/B (scripts/ci/font_wait_series.py): AZ_QA_FONTWAIT_PLAN="control:A=a.app;control:B=b.app;..." (.app folders, one bundle id), AZ_QA_FONTWAIT_STARTS per block
+  python3 "$here/font_wait_series.py" ios --out "$out/fontwait" --udid "$udid" --bundle "$bid" --starts "${AZ_QA_FONTWAIT_STARTS:-10}" \
+    --plan "${AZ_QA_FONTWAIT_PLAN:?AZ_QA_FONTWAIT_PLAN}" --label "$label" 2>&1 | tee "$out/fontwait.log"
 fi
 if [ "$session" = startup ]; then
   python3 "$here/ios_startup.py" --out "$out" --udid "$udid" --bundle "$bid" --exe "$exe" --app "$appdir" --starts "${AZ_QA_STARTS:-2}" 2>&1 | tee "$out/startup.log"

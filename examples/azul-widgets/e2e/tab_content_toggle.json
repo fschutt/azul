@@ -31,12 +31,12 @@
         "contains": "\"hidden\":false"
       },
       {
-        "op": "find_node_by_text",
-        "text": "Home panel"
+        "op": "get_node_layout",
+        "selector": "#touch-panel-text"
       },
       {
         "op": "assert_response",
-        "not_contains": "\"width\":null"
+        "not_contains": "\"size\":null"
       },
       {
         "op": "take_screenshot"
@@ -66,12 +66,12 @@
         "contains": "\"hidden\":true"
       },
       {
-        "op": "find_node_by_text",
-        "text": "Home panel"
+        "op": "get_node_layout",
+        "selector": "#touch-panel-text"
       },
       {
         "op": "assert_response",
-        "contains": "\"width\":null"
+        "contains": "\"size\":null"
       },
       {
         "op": "take_screenshot"
@@ -101,12 +101,12 @@
         "contains": "\"hidden\":false"
       },
       {
-        "op": "find_node_by_text",
-        "text": "Home panel"
+        "op": "get_node_layout",
+        "selector": "#touch-panel-text"
       },
       {
         "op": "assert_response",
-        "not_contains": "\"width\":null"
+        "not_contains": "\"size\":null"
       },
       {
         "op": "toggle_tab_content"
