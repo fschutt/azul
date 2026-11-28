@@ -78,3 +78,15 @@ fn the_default_desktop_window_stacks_its_tabs_and_the_wider_views_keep_one_row()
         "the wider views keep the tabs and the buttons in one row"
     );
 }
+
+#[test]
+fn a_phone_is_on_its_side_when_it_is_wide_and_short() {
+    // iPhone SE, Pixel 8 and iPhone 16 Pro turned: wide enough for a column of keys, shorter than 520.
+    assert!(is_landscape_phone(true, false, true));
+    // Portrait (narrow, tall), a tablet (wide, tall), a desktop window of the same size.
+    assert!(!is_landscape_phone(true, true, false));
+    assert!(!is_landscape_phone(true, false, false));
+    assert!(!is_landscape_phone(false, false, true), "a desktop window is no phone");
+    assert!(!is_landscape_phone(true, true, true), "too narrow to put the keys beside the display");
+    assert!(LANDSCAPE_MIN_WIDTH < PROGRAMMER_MIN_WIDTH, "the wide-and-short window is the standard one");
+}

@@ -174,6 +174,9 @@ const MIN_SIZE: (f32, f32) = (300.0, 460.0);
 /// Under this width the mode tabs of a desktop window have a row of their own under History and
 /// Settings.
 pub const STACK_MODES_BELOW: f32 = 520.0;
+/// A phone is on its side from this width on (and while it is shorter than
+/// [`PROGRAMMER_MIN_HEIGHT`]): the display and the memory row go beside the keys.
+pub const LANDSCAPE_MIN_WIDTH: f32 = 560.0;
 /// From this width on the window is the programmer calculator - and from [`PROGRAMMER_MIN_HEIGHT`]:
 /// a phone on its side is wide but short, and the programmer's panel over its keys needs the height.
 pub const PROGRAMMER_MIN_WIDTH: f32 = 640.0;
@@ -243,6 +246,13 @@ pub fn view_for_size(width: f32, height: f32) -> View {
     } else {
         View::Micro
     }
+}
+
+/// Whether a phone is on its side, from the answers of the recorded size queries: `narrow` (width
+/// under [`LANDSCAPE_MIN_WIDTH`]) and `short` (height under [`PROGRAMMER_MIN_HEIGHT`]).
+#[must_use]
+pub const fn is_landscape_phone(phone: bool, narrow: bool, short: bool) -> bool {
+    phone && !narrow && short
 }
 
 /// The views the mode tabs offer in a window of `width` x `height`, in their order: the
@@ -427,6 +437,9 @@ pub struct CalcApp {
     pub pin: Pin,
     /// The window is a phone's (from the last layout): touch sizes, no title strip.
     pub phone: bool,
+    /// The phone is on its side (wide and short): the display and the memory row at the left, the
+    /// keys at the right over the window's whole height.
+    pub landscape: bool,
     /// The tabs the last layout offered, by their position.
     pub tab_pins: Vec<Pin>,
     /// The view the last layout built (`None` before the first).
@@ -525,6 +538,7 @@ impl CalcApp {
             calc,
             pin,
             phone: false,
+            landscape: false,
             tab_pins: tab_pins(DEFAULT_SIZE.0, DEFAULT_SIZE.1),
             view: None,
             panel: Panel::History,
@@ -1013,27 +1027,32 @@ fn surface(app: &RefAny) -> Dom {
         .with_callback(EventFilter::Focus(FocusEventFilter::Copy), app.clone(), on_copy)
 }
 
+/// The memory row: a finger's row on a phone (48 px: Android's touch target; iOS asks 44), the
+/// pointer's on a desktop.
+fn memory_row(s: &CalcApp, app: &RefAny) -> Dom {
+    keypad::grid(
+        app,
+        &keypad::memory_keys(),
+        5,
+        None,
+        &[],
+        ids::MEMORY_ROW,
+        if s.phone {
+            "height: 48px; flex-shrink: 0; margin-bottom: 5px;"
+        } else {
+            "height: 28px; flex-shrink: 0; margin-bottom: 5px;"
+        },
+        &hooks(),
+    )
+}
+
 /// The memory row over the standard keys (`programmer`: its variant, the
 /// digits the base does not take dimmed).
 fn standard_pad(s: &CalcApp, app: &RefAny, programmer: bool) -> Dom {
     let base = programmer.then_some(s.calc.base);
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; flex-basis: 0px; min-height: 0px; min-width: 0px;")
-        .with_child(keypad::grid(
-            app,
-            &keypad::memory_keys(),
-            5,
-            None,
-            &[],
-            ids::MEMORY_ROW,
-            // A finger's row on a phone (48 px: Android's touch target; iOS asks 44), the pointer's on a desktop.
-            if s.phone {
-                "height: 48px; flex-shrink: 0; margin-bottom: 5px;"
-            } else {
-                "height: 28px; flex-shrink: 0; margin-bottom: 5px;"
-            },
-            &hooks(),
-        ))
+        .with_child(memory_row(s, app))
         .with_child(keypad::grid(
             app,
             &keypad::standard_keys(programmer),
@@ -1047,8 +1066,30 @@ fn standard_pad(s: &CalcApp, app: &RefAny, programmer: bool) -> Dom {
 }
 
 /// The small window: the display over the standard keys (or the history,
-/// Ctrl+H).
+/// Ctrl+H). A phone on its side puts the display and the memory row beside the keys.
 fn micro_view(s: &CalcApp, app: &RefAny) -> Dom {
+    if s.landscape && !s.panel_shown {
+        // Six rows of keys in the window's height: finger-sized where a column of display, memory
+        // row and keys leaves each key 37 px.
+        return surface(app)
+            .with_css("flex-direction: row;")
+            .with_child(
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: column; justify-content: flex-end; flex-grow: 1; flex-basis: 0px; min-width: 0px; min-height: 0px; margin-right: 8px;")
+                    .with_child(display(s, View::Micro))
+                    .with_child(memory_row(s, app)),
+            )
+            .with_child(keypad::grid(
+                app,
+                &keypad::standard_keys(false),
+                4,
+                None,
+                &[],
+                ids::KEYPAD,
+                "flex-grow: 1.3; flex-basis: 0px;",
+                &hooks(),
+            ));
+    }
     let below = if s.panel_shown {
         side_panel(s, app, &format!("flex-grow: 1; {}", look::ENTER_FADE))
     } else {
@@ -1506,6 +1547,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // A phone's three tabs and two buttons fit one row; the default desktop window's controls
     // (the traffic lights) leave no room for them, so the tabs get a row of their own there.
     let stacked = narrow && !phone;
+    // A phone on its side: short, and wide enough for a column of keys beside the display.
+    let landscape = is_landscape_phone(
+        phone,
+        info.window_width_less_than(LANDSCAPE_MIN_WIDTH),
+        info.window_height_less_than(PROGRAMMER_MIN_HEIGHT),
+    );
     let touch = cfg!(any(target_os = "android", target_os = "ios"));
     // The room the window's controls take at the top (a desktop's: the traffic lights, the
     // caption buttons); nothing on a phone.
@@ -1516,6 +1563,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     let s = &mut *guard;
     s.phone = phone;
+    s.landscape = landscape;
     s.tab_pins = tab_pins_for(by_size != View::Micro, by_size == View::Graph);
     // The programmer and the graphing views in a window too small for them show what the size
     // alone would.
