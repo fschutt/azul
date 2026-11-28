@@ -3856,6 +3856,8 @@ impl Device {
             swizzle: bool,
             storage: bool,
             render_fill: bool,
+            side: i32,
+            r8: bool,
         }
         let base = Way {
             name: "",
@@ -3868,6 +3870,8 @@ impl Device {
             swizzle: false,
             storage: true,
             render_fill: false,
+            side: 64,
+            r8: false,
         };
         let ways = [
             Way { name: "ladder order (min, mag, wrap), storage, upload", ..base },
@@ -3879,9 +3883,15 @@ impl Device {
             Way { name: "+ external texture unbind (the emulator's)", mag_first: true, unbind_pbo: true, alignment: true, usage: true, fbo: true, ext_unbind: true, ..base },
             Way { name: "+ swizzle set to bgra and back", mag_first: true, unbind_pbo: true, alignment: true, usage: true, fbo: true, ext_unbind: true, swizzle: true, ..base },
             Way { name: "the first way with glTexImage2D instead of storage", storage: false, ..base },
-            Way { name: "everything, with glTexImage2D instead of storage", mag_first: true, unbind_pbo: true, alignment: true, usage: true, fbo: true, ext_unbind: true, swizzle: true, storage: false, render_fill: false },
+            Way { name: "everything, with glTexImage2D instead of storage", mag_first: true, unbind_pbo: true, alignment: true, usage: true, fbo: true, ext_unbind: true, swizzle: true, storage: false, render_fill: false, side: 64, r8: false },
             Way { name: "the first way, filled by a clear in a framebuffer (no upload)", render_fill: true, ..base },
             Way { name: "everything, filled by a clear in a framebuffer (no upload)", mag_first: true, unbind_pbo: true, alignment: true, usage: true, fbo: true, ext_unbind: true, swizzle: true, render_fill: true, ..base },
+            Way { name: "the first way, 1 x 1 upload", side: 1, ..base },
+            Way { name: "the first way, 2 x 2 upload", side: 2, ..base },
+            Way { name: "the first way, 4 x 4 upload", side: 4, ..base },
+            Way { name: "the first way, 16 x 16 upload", side: 16, ..base },
+            Way { name: "the first way, R8 64 x 64 (a glyph atlas)", r8: true, ..base },
+            Way { name: "the first way, R8 1 x 1", r8: true, side: 1, ..base },
         ];
         const VS: &str = "#version 300 es\nout vec2 vUv;\nvoid main() {\n    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n    vUv = p;\n    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n}\n";
         const FS: &str = "#version 300 es\nprecision mediump float;\nuniform sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
@@ -3938,7 +3948,6 @@ impl Device {
         ctx.framebuffer_texture_2d(gl::DRAW_FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, target_texture, 0);
         let target_status = ctx.check_frame_buffer_status(gl::DRAW_FRAMEBUFFER);
 
-        let red: Vec<u8> = (0..64 * 64).flat_map(|_| [255_u8, 0, 0, 255]).collect();
         let mut lines = vec![format!("target framebuffer status 0x{target_status:x}")];
         let mut extra_fbos: Vec<gl::GLuint> = Vec::new();
         let mut sources: Vec<gl::GLuint> = Vec::new();
@@ -3965,17 +3974,18 @@ impl Device {
             if way.unbind_pbo {
                 ctx.bind_buffer(gl::PIXEL_UNPACK_BUFFER, 0);
             }
+            let (internal, external) = if way.r8 { (gl::R8, gl::RED) } else { (gl::RGBA8, gl::RGBA) };
             if way.storage {
-                ctx.tex_storage_2d(gl::TEXTURE_2D, 1, gl::RGBA8, 64, 64);
+                ctx.tex_storage_2d(gl::TEXTURE_2D, 1, internal, way.side, way.side);
             } else {
                 ctx.tex_image_2d(
                     gl::TEXTURE_2D,
                     0,
-                    gl::RGBA8 as gl::GLint,
-                    64,
-                    64,
+                    internal as gl::GLint,
+                    way.side,
+                    way.side,
                     0,
-                    gl::RGBA,
+                    external,
                     gl::UNSIGNED_BYTE,
                     None,
                 );
@@ -3997,12 +4007,16 @@ impl Device {
                 extra_fbos.push(fbo);
                 ctx.bind_framebuffer(gl::DRAW_FRAMEBUFFER, fbo);
                 ctx.framebuffer_texture_2d(gl::DRAW_FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, texture, 0);
-                ctx.viewport(0, 0, 64, 64);
+                ctx.viewport(0, 0, way.side, way.side);
                 ctx.disable(gl::SCISSOR_TEST);
                 ctx.clear_color(1.0, 0.0, 0.0, 1.0);
                 ctx.clear(gl::COLOR_BUFFER_BIT);
+            } else if way.r8 {
+                let bytes = vec![255_u8; (way.side * way.side) as usize];
+                ctx.tex_sub_image_2d(gl::TEXTURE_2D, 0, 0, 0, way.side, way.side, gl::RED, gl::UNSIGNED_BYTE, &bytes);
             } else {
-                ctx.tex_sub_image_2d(gl::TEXTURE_2D, 0, 0, 0, 64, 64, gl::RGBA, gl::UNSIGNED_BYTE, &red);
+                let bytes: Vec<u8> = (0..way.side * way.side).flat_map(|_| [255_u8, 0, 0, 255]).collect();
+                ctx.tex_sub_image_2d(gl::TEXTURE_2D, 0, 0, 0, way.side, way.side, gl::RGBA, gl::UNSIGNED_BYTE, &bytes);
             }
             if way.swizzle {
                 ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_SWIZZLE_R, gl::BLUE as gl::GLint);
