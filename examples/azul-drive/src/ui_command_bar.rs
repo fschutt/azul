@@ -1212,8 +1212,14 @@ extern "C" fn on_input_text(
                 None => false,
             };
             if !s.command_bar.expanded {
-                open(&mut info, &app, s);
-                Update::RefreshDom
+                if empty {
+                    // An emptied line (a search that closed, a program's line that was cleared) is
+                    // no reason to open the bar: it stays at its status.
+                    Update::DoNothing
+                } else {
+                    open(&mut info, &app, s);
+                    Update::RefreshDom
+                }
             } else if was_empty != empty || searched {
                 Update::RefreshDom
             } else {
