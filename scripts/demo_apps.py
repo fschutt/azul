@@ -8,6 +8,7 @@
     demo_apps.py features <leg> <variant>   the cargo features of one library of the plan (android-x86_64 mobile-e2e, linux desktop-e2e)
     demo_apps.py mobile-lib <package>       the library variant a phone app links (mobile, mobile-iroh)
     demo_apps.py e2e-lib <package>          the QA library variant of its QA build (mobile-e2e, mobile-e2e-iroh)
+    demo_apps.py qa-only <package>          exit 0 for an app that exists only as a QA build (qa_only = true), 1 for any other
     demo_apps.py assets [<package>]    the file names every app is built as, one per line
     demo_apps.py weights <status.json> the weight the measured build seconds of a run suggest for each app
     demo_apps.py status <dir> ...      merge the result files of a run into demo-status.json / .md
@@ -928,6 +929,12 @@ def main(argv):
                 return 0
         print(f"demo_apps: {rest[0]} has no QA build (e2e = true) in scripts/demo_apps.toml", file=sys.stderr)
         return 1
+    if cmd == "qa-only":
+        # demo_apps.py qa-only <package>: exit 0 when the app is a QA-only app (it has no shipped build), for the scripts that build both
+        if len(rest) != 1:
+            print("usage: demo_apps.py qa-only <package>", file=sys.stderr)
+            return 2
+        return 0 if any(a["package"] == rest[0] for a in load()["qa_app"]) else 1
     if cmd == "assets":
         m = load()
         for a in m["app"]:

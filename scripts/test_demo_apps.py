@@ -694,6 +694,18 @@ class QaOnlyAppTest(unittest.TestCase):
                     self.assertEqual(demo_apps.main([command, "AzPaint"]), 0, command)
                 self.assertEqual(buf.getvalue().strip(), "mobile-e2e", command)
 
+    def test_the_qa_only_command_and_the_ios_qa_script_know_it_has_no_shipped_build(self):
+        with mock.patch.object(demo_apps, "load", lambda path=demo_apps.MANIFEST: self.m), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(demo_apps.main(["qa-only", "AzPaint"]), 0)
+            self.assertEqual(demo_apps.main(["qa-only", "AzWidgets"]), 1)
+            self.assertEqual(demo_apps.main(["qa-only"]), 2)
+        path = HERE / "ci" / "ios_build_qa.sh"
+        text = path.read_text(encoding="utf-8")
+        self.assertEqual(subprocess.run(["bash", "-n", str(path)]).returncode, 0)
+        self.assertIn('demo_apps.py qa-only "$app"', text)
+        self.assertIn('variants="mobile-e2e"', text)
+        self.assertIn("it has no shipped (mobile) build", text)
+
     def test_the_check_names_every_way_such_an_app_could_ship(self):
         def errors(**changes):
             m = qa_only_manifest(self._tmp.name)
