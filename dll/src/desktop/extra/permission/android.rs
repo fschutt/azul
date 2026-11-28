@@ -94,7 +94,7 @@ fn park(capability: Capability, state: PermissionState) {
 fn request_pending(capability: Capability) -> bool {
     PENDING_REQUESTS
         .lock()
-        .map_or(false, |pending| pending.values().any(|c| *c == capability))
+        .is_ok_and(|pending| pending.values().any(|c| *c == capability))
 }
 
 /// How long a worker waits for a person to answer a permission dialog.
