@@ -792,6 +792,8 @@ OUTLIVES_SUBJECT = 'Sent after the main window closed'
 # AzMail's DOM ids carry the app's prefix (ui ids module, `__azmail_`).
 PREFIX = '__azmail_'
 MAIN_SIZE = (1280, 860)
+# The phone preset of the frame (`--form phone`).
+PHONE_SIZE = (411, 760)
 COMPOSE_SIZE = (880, 700)
 NEWSLETTER = 'Garden Weekly: bulbs, frost and a sale'
 TASK = 'Order more tulip bulbs'
@@ -822,8 +824,14 @@ class SampleRun(Run):
             # The look every Azlin app shares (~/.azlin/config.json) stays out of the run.
             'AZLIN_CONFIG': 'off',
         }
+        # The phone's layout on a desktop window (`--form phone`): the frame's phone preset.
+        size = MAIN_SIZE
+        if getattr(self.args, 'form', None):
+            env['AZMAIL_FORM'] = self.args.form
+            if self.args.form == 'phone':
+                size = PHONE_SIZE
         # The checks read English words (the system may be German).
-        command = [binary, '--sample', '--size', f'{MAIN_SIZE[0]}x{MAIN_SIZE[1]}', '--mode',
+        command = [binary, '--sample', '--size', f'{size[0]}x{size[1]}', '--mode',
                    'light', '--language', 'en']
         if self.args.runner:
             command = [self.args.runner, '--cap-mb', '1500', '--seconds',
@@ -1098,6 +1106,69 @@ class SampleRun(Run):
 
 # ---- the empty phase (MAIL10): no account - the real window, File's pages, the way back ----
 
+
+class FrameRun(SampleRun):
+    """The azul app frame's pictures (sample account): the sidebar expanded and as the 18 px rail,
+    the message in the Preview with its (?) open, the File tab's location, File's pages under the
+    tab strip; with `--form phone` the phone's: the rail under the tab row, the drawer pushing the
+    view, the bottom pane, the message sheet. PNGs in <run folder>/screenshots/frame-<form>-*.png."""
+
+    def shot(self, name):
+        self.settle()
+        self.frame(None, 2)
+        out = os.path.join(self.tmp, 'screenshots')
+        os.makedirs(out, exist_ok=True)
+        self.screenshot(os.path.join(out, f'frame-{self.form}-{name}.png'))
+        log(f'picture {name}')
+
+    def click_sel(self, selector):
+        self.settle()
+        self.must('click', selector=selector)
+        self.frame(None, 2)
+
+    def run(self):
+        self.form = self.args.form or 'desktop'
+        log(f'logs and data: {self.tmp}')
+        os.makedirs(self.data)
+        self.start_sample_app()
+        self.until('the sidebar', lambda: self.has_class('__azul-native-sidebar'), limit=40)
+        self.check('the sidebar is the folder pane', self.has_class('__azul-native-sidebar'))
+        self.must('set_theme', theme='flora')
+        for mode in ('light', 'dark'):
+            self.must('set_mode', mode=mode)
+            self.frame(None, 3)
+            self.shot(f'{mode}-start')
+        self.must('set_mode', mode='light')
+        self.frame(None, 3)
+        subject = 'Garden Weekly'
+        self.click(subject)
+        self.shot('message-open')
+        if self.form == 'phone':
+            self.click_sel('.__azul-native-sidebar-toggle')
+            self.check('the drawer pushes the view', self.has_class('__azul-native-app-frame-catcher'))
+            self.shot('drawer')
+            self.click_sel('.__azul-native-app-frame-catcher')
+            self.shot('rail-after-drawer')
+            self.must('double_click', text=subject)
+            self.frame(None, 3)
+            self.check('the sheet is open', self.has_class('__azul-native-action-sheet-panel'))
+            self.shot('sheet')
+            self.click_sel('.__azul-native-action-sheet-scrim')
+            return
+        self.click_sel('.__azul-native-preview-help')
+        self.shot('preview-details')
+        self.key('escape')
+        self.click_sel('.__azul-native-sidebar-toggle')
+        self.check('the rail is 18 px wide', self.widths('__azul-native-sidebar-rail') == [18],
+                   f"{self.widths('__azul-native-sidebar-rail')}")
+        self.shot('rail')
+        self.click_sel('.__azul-native-sidebar-toggle')
+        self.click_exact('File')
+        self.shot('file-location')
+        self.click_sel('.__azul-native-location-more')
+        self.check('File opens the backstage', self.has_id(PREFIX + 'backstage'))
+        self.shot('file-pages')
+        self.click_exact('Home')
 
 class EmptyRun(Run):
     """No servers, an empty data folder: the real window, File in the Outlook 2010 look (the
@@ -2070,8 +2141,11 @@ def main():
     parser.add_argument('--timeout', type=float, default=150)
     parser.add_argument('--runner', help='run_capped.sh (caps the app\'s memory and time)')
     parser.add_argument('--keep-logs', action='store_true')
+    parser.add_argument('--form', choices=('desktop', 'phone'),
+                        help="the frame's form: `phone` asks the app for the phone's layout "
+                             '(AZMAIL_FORM) in a phone-sized window')
     parser.add_argument('--phase', choices=('all', 'empty', 'local', 'sample', 'account',
-                                            'cancel', 'submission', 'azlin'),
+                                            'cancel', 'submission', 'azlin', 'frame'),
                         default='all',
                         help='empty: no account - the real window, File, the ways back (no '
                              'servers); cancel: Cancel All on a Send / Receive the IMAP '
@@ -2118,6 +2192,10 @@ def main():
         passed &= run_phase(SampleRun, args, 'sample: the window fills, ids, To-Do bar store, '
                                              'compose window, close guard, HTML mail, File > '
                                              'Print to PDF, zoom, restart')
+    if args.phase == 'frame':
+        passed &= run_phase(FrameRun, args, 'frame: the app frame\'s pictures (the sidebar, the '
+                                            'Preview, the File tab\'s location; --form phone: '
+                                            'the rail, the drawer, the sheet)')
     if args.phase in ('all', 'account'):
         passed &= run_phase(Run, args, 'account, Send/Receive, reply window, send through SMTP, '
                                        'Sent, draft')
