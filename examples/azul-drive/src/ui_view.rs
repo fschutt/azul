@@ -27,7 +27,10 @@ use azul::{
         TextInputOnFocusLostCallbackType, TextInputOnTextInputCallbackType,
         TextInputOnVirtualKeyDownCallbackType, TileOnClickCallbackType, ToastOnDismissCallbackType,
     },
-    dom::{AttributeType, DomId, DomNodeId, FocusTarget, NodeId, VirtualKeyCode},
+    dom::{
+        AccessibilityInfo, AccessibilityRole, AttributeType, DomId, DomNodeId, FocusTarget, NodeId,
+        VirtualKeyCode,
+    },
     prelude::*,
     shells::ShellEmptyState,
     str::String as AzString,
@@ -1881,7 +1884,10 @@ fn rows_view(s: &DriveState, app: &RefAny) -> Dom {
     let rows = RefAny::new(FolderRowsRef { app: app.clone() });
     Dom::create_virtual_view(rows.clone(), folder_lines)
         .with_id(ids::FOLDER_ROWS)
-        .with_accessibility_name(s.place_name().as_str())
+        .with_accessibility_info(AccessibilityInfo::named(
+            AzString::from(s.place_name()),
+            AccessibilityRole::List,
+        ))
         .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Scroll),
