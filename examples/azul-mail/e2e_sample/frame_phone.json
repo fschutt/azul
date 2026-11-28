@@ -28,6 +28,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-app-frame-phone"
       },
@@ -72,6 +75,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-sidebar-expanded"
       },
@@ -91,6 +97,9 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "assert_exists",
@@ -139,6 +148,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "click",
         "text": "Seed invoice 2026-114"
       },
@@ -147,6 +159,9 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "assert_exists",
@@ -183,6 +198,9 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "assert_exists",
@@ -251,6 +269,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-preview-bottom"
       },
@@ -282,6 +303,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-sidebar-expanded"
       },
@@ -304,6 +328,9 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "assert_not_exists",

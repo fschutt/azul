@@ -28,6 +28,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "assert_exists",
         "selector": "#__azmail_ribbon"
       },
@@ -90,6 +93,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-sidebar-rail"
       },
@@ -116,6 +122,9 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "assert_exists",
@@ -152,6 +161,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "click",
         "text": "Sent Items"
       },
@@ -160,6 +172,9 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "find_node_by_text",
@@ -188,6 +203,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "find_node_by_text",
         "text": "Items: 4"
       },
@@ -204,6 +222,9 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "assert_exists",
@@ -225,6 +246,9 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "find_node_by_text",
@@ -265,6 +289,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "click",
         "text": "File"
       },
@@ -273,6 +300,9 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "assert_exists",
@@ -300,6 +330,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "assert_exists",
         "selector": "#__azmail_backstage"
       },
@@ -316,6 +349,9 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "assert_not_exists",
@@ -352,6 +388,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "click",
         "selector": ".__azul-native-sidebar-toggle"
       },
@@ -374,6 +413,9 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "assert_exists",

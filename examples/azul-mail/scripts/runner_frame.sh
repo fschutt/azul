@@ -2,7 +2,7 @@
 # The frame's end-to-end runs and its pictures on a GitHub runner (the bindings must be generated first):
 #
 #   scripts/remote.sh run <sha> ubuntu-22.04 'bash examples/azul-mail/scripts/runner_frame.sh' --codegen \
-#       --artifacts $'target/pictures/azmail/*\ntarget/pictures/azmail/e2e/*'
+#       --artifacts $'target/pictures/azmail/*\ntarget/pictures/azmail/e2e/*/*'
 #
 # A libazul with the debug server, the E2E scripting and the test hooks (`build-dll,test-hooks`:
 # `build-dll` already holds the first two), AzMail with its test hooks, then
@@ -34,7 +34,8 @@ for scenario in e2e_sample/frame:desktop:1280x860 e2e_sample/frame_phone:phone:4
   IFS=: read -r path form size <<< "$scenario"
   file=$(basename "$path")
   data=$(mktemp -d)
-  AZ_E2E="$PWD/examples/azul-mail/$path.json" AZ_E2E_SHOT_DIR="$PWD/$out/e2e" AZ_BACKEND=headless AZ_LOG=off \
+  mkdir -p "$out/e2e/$file"
+  AZ_E2E="$PWD/examples/azul-mail/$path.json" AZ_E2E_SHOT_DIR="$PWD/$out/e2e/$file" AZ_BACKEND=headless AZ_LOG=off \
     AZMAIL_DATA="$data/AzMail" AZLIN_DATA="$data" AZLIN_CONFIG=off AZMAIL_FORM="$form" \
     timeout 300 "$bin" --sample --size "$size" --mode light --language en > "$out/e2e-$file.txt" 2>&1
   code=$?

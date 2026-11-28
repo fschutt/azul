@@ -18,6 +18,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-app-frame-phone"
       },
@@ -63,6 +66,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-sidebar-expanded"
       },
@@ -82,6 +88,9 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "assert_not_exists",

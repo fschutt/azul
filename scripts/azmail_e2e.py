@@ -1123,6 +1123,12 @@ class FrameRun(SampleRun):
         self.screenshot(os.path.join(out, f'frame-{self.form}-{name}.png'))
         log(f'picture {name}')
 
+    def has_class(self, cls, window=None):
+        """Whether some node of the window carries the CSS class `cls`."""
+        answer = self.op('get_node_hierarchy', window)
+        nodes = (((answer or {}).get('data') or {}).get('value') or {}).get('nodes') or []
+        return any(cls in (n.get('classes') or []) for n in nodes)
+
     def rect_of_text(self, text):
         """The box of the first node whose text contains `text` (its nearest ancestor with a box)."""
         answer = self.op('get_node_hierarchy')
