@@ -1656,3 +1656,47 @@ fn a_mac_that_announces_itself_while_a_dial_is_out_or_the_link_is_up_changes_not
     assert_eq!(rig.link.connects().len(), 1, "the link is up: no second dial");
     assert_eq!(rig.phone.addresses(), [MAC_TICKET], "and the address of an announcement is not taken into the saved ones while it is not needed");
 }
+
+#[test]
+fn a_mac_that_is_not_ours_announcing_itself_does_not_make_the_phone_dial_before_its_time() {
+    let mut rig = Rig::saved();
+    rig.poll();
+    rig.link.say(LinkEvent::Failed { text: "no answer".into() });
+    rig.poll();
+    assert_eq!(rig.link.connects(), [MAC_TICKET]);
+    // another Mac on the network announces itself: not the phone's, so the wait for the next dial is not cut short
+    rig.discovery.appear(Nearby::from_announcement("some-other-mac", "", vec![]));
+    rig.poll();
+    assert_eq!(rig.link.connects(), [MAC_TICKET], "not ours: nothing is dialed because of it");
+    // and the phone dials when its wait is over, as it would have without the announcement
+    rig.advance(RECONNECT_MAX_MS + 100);
+    assert_eq!(rig.link.connects().len(), 2);
+}
+
+#[test]
+fn an_announcement_that_comes_while_the_link_is_up_does_not_choose_the_dial_after_the_link_is_cut() {
+    let mut rig = Rig::active();
+    // the Mac announces itself all the time while it is on the network: the link is up, so there is nothing to do about it
+    rig.discovery.appear(Nearby::from_announcement(MAC_ID, "", vec![]));
+    rig.advance(1_000);
+    assert!(rig.phone.is_active());
+    rig.link.say(LinkEvent::Disconnected { peer: 1, reason: "the connection was cut".into() });
+    rig.poll();
+    rig.advance(RECONNECT_FIRST_MS + 100);
+    assert_eq!(rig.link.connects(), [MAC_TICKET, MAC_TICKET], "the saved address again, as if nothing had been announced: not the key");
+}
+
+#[test]
+fn an_announcement_that_comes_while_a_young_dial_is_out_does_not_choose_the_next_dial() {
+    let mut store = saved_mac();
+    store.mac.as_mut().expect("a Mac").tickets = vec!["first-ticket".into(), "second-ticket".into()];
+    let mut rig = Rig::with_store(MemoryStore::with(store));
+    rig.poll();
+    rig.advance(300);
+    rig.discovery.appear(Nearby::from_announcement(MAC_ID, "", vec![]));
+    rig.poll();
+    assert_eq!(rig.link.connects(), ["first-ticket"], "the dial may be about to answer");
+    rig.link.say(LinkEvent::Failed { text: "no answer".into() });
+    rig.advance(RECONNECT_MAX_MS + 100);
+    assert_eq!(rig.link.connects(), ["first-ticket", "second-ticket"], "the next address in the saved order, as if nothing had been announced: not the key");
+}

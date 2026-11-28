@@ -140,3 +140,22 @@ fn keeping_a_stroke_tells_the_page_it_only_grew() {
     assert!(s.undo());
     assert_eq!(s.ink.append_of(0), None, "taking it back is a change of another kind");
 }
+
+// ---- the pages drawn at a zoom
+
+#[test]
+fn the_zoom_the_pages_are_drawn_at_is_what_the_layer_was_laid_out_at_over_the_page() {
+    let page = crate::ui::PAGE_W;
+    assert_eq!(page_zoom_of(page), 1.0, "the pages as they have always been drawn");
+    assert!((page_zoom_of(page * 1.5) - 1.5).abs() < 1e-6);
+    assert!((page_zoom_of(page * crate::page_view::Z_MAX) - crate::page_view::Z_MAX).abs() < 1e-6);
+    assert!((page_zoom_of(page * crate::page_view::Z_MIN) - crate::page_view::Z_MIN).abs() < 1e-6);
+}
+
+#[test]
+fn a_width_that_is_no_sensible_zoom_is_the_pages_as_they_have_always_been_drawn() {
+    let page = crate::ui::PAGE_W;
+    for width in [0.0, -page, f32::NAN, f32::INFINITY, page * 40.0, page * 0.01] {
+        assert_eq!(page_zoom_of(width), 1.0, "{width}");
+    }
+}

@@ -84,6 +84,8 @@ pub fn state_json(s: &AppState) -> String {
         },
         "progress": progress_json(s),
         "visible_page": s.visible_page,
+        "zoom": s.page_zoom(),
+        "strip_scroll": [s.strip_scroll.0, s.strip_scroll.1],
         "strokes": s.strokes.len(),
         "slashes": s.slashes.len(),
         "deleted_words": s.slashes.iter().map(|d| d.words.len()).sum::<usize>(),
@@ -95,6 +97,8 @@ pub fn state_json(s: &AppState) -> String {
             "disarms": s.voice.disarms,
         },
         "whiteboard": whiteboard_json(s),
+        // whether the phone companion is on and what it is doing (never its key)
+        "companion": s.companion.try_borrow().map_or(serde_json::Value::Null, |g| g.json()),
         "conversations": {
             "open": s.open_conv,
             "bar_all": s.bar_all,

@@ -148,6 +148,8 @@ mod a_variable_font_has_at_most_so_many_instances;
 mod a_variable_font_never_reaches_shaping_as_a_variable_file;
 #[path = "a_variable_font_registered_in_memory_is_drawn_at_the_exact_weight.rs"]
 mod a_variable_font_registered_in_memory_is_drawn_at_the_exact_weight;
+#[path = "the_instances_of_all_stacks_of_a_variable_face_are_made_together.rs"]
+mod the_instances_of_all_stacks_of_a_variable_face_are_made_together;
 #[path = "a_vertical_block_gives_its_runs_the_writing_mode_and_combines_its_digits.rs"]
 mod a_vertical_block_gives_its_runs_the_writing_mode_and_combines_its_digits;
 #[path = "white_space_and_the_line_breaking_properties_decide_where_a_line_ends.rs"]
@@ -168,6 +170,18 @@ mod app_target;
 mod azul_widgets_demo_follows_the_theme;
 #[path = "azul_widgets_toolbar_wraps_on_a_narrow_screen.rs"]
 mod azul_widgets_toolbar_wraps_on_a_narrow_screen;
+#[path = "azul_maps_drive_banner_fits_a_phone.rs"]
+mod azul_maps_drive_banner_fits_a_phone;
+#[path = "azul_maps_sidebar_is_a_sheet_on_a_phone.rs"]
+mod azul_maps_sidebar_is_a_sheet_on_a_phone;
+#[path = "azul_paint_toolbar_fits_a_phone.rs"]
+mod azul_paint_toolbar_fits_a_phone;
+#[path = "azul_widgets_mail_window_fits_a_phone.rs"]
+mod azul_widgets_mail_window_fits_a_phone;
+#[path = "azul_widgets_video_card_fits_a_phone.rs"]
+mod azul_widgets_video_card_fits_a_phone;
+#[path = "azul_writer_phone_bar_fits_a_phone.rs"]
+mod azul_writer_phone_bar_fits_a_phone;
 #[path = "block_edge_keys.rs"]
 mod block_edge_keys;
 #[path = "block_merge_filter.rs"]
@@ -496,6 +510,8 @@ mod test_text_layout;
 mod text_align_last_text_justify_and_text_indent_place_the_words_of_a_line;
 #[path = "a_decorating_box_draws_its_line_on_its_own_baseline_and_in_its_own_size.rs"]
 mod a_decorating_box_draws_its_line_on_its_own_baseline_and_in_its_own_size;
+#[path = "from_font_takes_the_thickness_and_the_place_the_face_names.rs"]
+mod from_font_takes_the_thickness_and_the_place_the_face_names;
 #[path = "dotted_dashed_and_wavy_lines_are_drawn_as_rows_and_waves.rs"]
 mod dotted_dashed_and_wavy_lines_are_drawn_as_rows_and_waves;
 #[path = "text_decoration_color_and_thickness_paint_the_lines_they_are_set_on.rs"]
@@ -974,6 +990,8 @@ mod a_short_list_in_a_shell_pane_fills_its_pane_from_the_top;
 mod focusing_a_search_field_by_its_id_focuses_its_text;
 #[path = "a_button_fades_into_its_hover_face.rs"]
 mod a_button_fades_into_its_hover_face;
+#[path = "a_button_is_a_touch_target_on_a_phone.rs"]
+mod a_button_is_a_touch_target_on_a_phone;
 #[path = "a_hovered_button_passes_through_the_faces_in_between.rs"]
 mod a_hovered_button_passes_through_the_faces_in_between;
 #[path = "a_rebuild_under_the_pointer_starts_no_transition.rs"]

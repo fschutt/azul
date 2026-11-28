@@ -5,8 +5,9 @@
 #   bash scripts/ci/ios_build_qa.sh [mobile | mobile-e2e | both] [<App>]        (default: both AzWidgets)
 #
 # For each variant, in this order (the two libraries share one cargo target directory, so the second one only builds what differs):
-#   1. the library for aarch64-apple-ios-sim with the features the plan names for it (python3 scripts/demo_apps.py features ios-sim
-#      <variant>: `mobile` is what ships; `mobile-e2e` adds debug-server, e2e-scripting and test-hooks, an ARTIFACT, never shipped),
+#   1. the library of THIS app for aarch64-apple-ios-sim with the features the plan names for it (python3 scripts/demo_apps.py features
+#      ios-sim <lib>: `mobile` is what ships (`mobile-iroh` for an app that uses iroh: mobile-lib of the manifest); the QA kind takes the
+#      app's e2e_lib (`mobile-e2e`, `mobile-e2e-iroh`): debug-server, e2e-scripting and test-hooks, an ARTIFACT, never shipped),
 #   2. the .app of <App> linked against it (scripts/demo_build.py; the QA build is named <App>-e2e-ios-sim.app.zip),
 #   3. the boot test (scripts/ci/ios_smoke.sh: the one pass line, information here) and the QA of scripts/ci/ios_qa.sh (session qa for
 #      `mobile`, session both = qa then e2e for `mobile-e2e`; AZ_QA_SCENARIOS names the scenario files of the e2e session).
@@ -31,23 +32,30 @@ case "$which" in
   *) echo "usage: ios_build_qa.sh [mobile | mobile-e2e | both] [<App>]" >&2; exit 2 ;;
 esac
 
+# an app that exists only as a QA build (qa_only in the manifest: AzSelfTest) has no shipped `mobile` build to compare with
+if python3 scripts/demo_apps.py qa-only "$app"; then
+  [ "$which" = mobile ] && { echo "$app is qa_only: it has no shipped (mobile) build, only mobile-e2e" >&2; exit 2; }
+  variants="mobile-e2e"
+fi
+
 mkdir -p demo-out/libs demo-out/apps demo-out/results
 rustup target add "$target"
 python3 scripts/demo_apps.py plan --e2e > demo-out/plan.txt
 
 for variant in $variants; do
-  features="$(python3 scripts/demo_apps.py features "$col" "$variant")"
-  echo "== $variant: $features"
-  start=$(date +%s)
-  bash scripts/demo_lib.sh ios "$target" "$features" "demo-out/libs/demolib-$col-$variant"
-  echo "LIB $variant SECONDS: $(( $(date +%s) - start ))"
-
+  # the library variant of THIS app: an app that uses iroh (AzMeet, AzCompanion) links the iroh libraries, the others the lean ones
   flag=""
   zip="demo-out/apps/$app-$col.app.zip"
   session=qa
+  lib="$(python3 scripts/demo_apps.py mobile-lib "$app")"
   case "$variant" in
-    mobile-e2e) flag=mobile-e2e; zip="demo-out/apps/$app-e2e-$col.app.zip"; session=both ;;
+    mobile-e2e) lib="$(python3 scripts/demo_apps.py e2e-lib "$app")"; flag="$lib"; zip="demo-out/apps/$app-e2e-$col.app.zip"; session=both ;;
   esac
+  features="$(python3 scripts/demo_apps.py features "$col" "$lib")"
+  echo "== $variant ($lib): $features"
+  start=$(date +%s)
+  bash scripts/demo_lib.sh ios "$target" "$features" "demo-out/libs/demolib-$col-$lib"
+  echo "LIB $lib SECONDS: $(( $(date +%s) - start ))"
   start=$(date +%s)
   python3 scripts/demo_build.py ios --target "$target" --apps "$app" --libs demo-out/libs --out demo-out/apps \
     --results demo-out/results --variant "$flag"

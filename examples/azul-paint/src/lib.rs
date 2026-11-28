@@ -1,6 +1,7 @@
 use azul::{
     callbacks::{
-        CallbackType, DialogOnCloseCallbackType, RenderImageCallbackInfo, StandardDialogOnEventCallbackType,
+        ButtonOnClickCallbackType, CallbackType, DialogOnCloseCallbackType, RenderImageCallbackInfo,
+        StandardDialogOnEventCallbackType,
     },
     css::PhysicalSizeU32,
     dialog::{FileDialog, FileOpenResult},
@@ -15,8 +16,8 @@ use azul::{
     vec::{F32VecRef, StringVec, U8VecRef},
     shells::ShellThemeScope,
     widgets::{
-        AboutDialog, CloseGuardEvent, CloseGuardEventKind, Dialog, DialogState, StandardDialogEvent,
-        Titlebar,
+        AboutDialog, Button, CloseGuardEvent, CloseGuardEventKind, Dialog, DialogState,
+        StandardDialogEvent, Titlebar,
     },
 };
 use azul_appkit::{
@@ -64,6 +65,9 @@ const SHORTCUTS: [Shortcut; 5] = [
 mod l10n;
 #[cfg(test)]
 mod l10n_tests;
+mod pointer;
+#[cfg(test)]
+mod pointer_test;
 
 /// Every DOM id and marker AzPaint sets, defined ONCE with the app's prefix
 /// (`__azpaint_`, like the widgets' `__azul_`).
@@ -178,6 +182,9 @@ struct PaintState {
     close_after_export: bool,
     /// A picture named on the command line, read once the window is up.
     picture_to_open: Option<std::path::PathBuf>,
+    /// Which of the two pipes a phone's finger arrives in (touch, and the mouse the shell mirrors it into)
+    /// owns the gesture in progress: the other one is its echo ([`pointer`]).
+    gesture: pointer::Gesture,
 }
 
 impl PaintState {
@@ -206,6 +213,7 @@ impl PaintState {
             asking_close: false,
             close_after_export: false,
             picture_to_open: None,
+            gesture: pointer::Gesture::default(),
         }
     }
 
@@ -1065,6 +1073,42 @@ const ROOT: &str = "display: flex; flex-direction: column; height: 100%; margin:
 /// The column in the theme scope: the title row, the header, the canvas.
 const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
 
+/// The window width under which the screen is a phone's (portrait): the header says what the
+/// strokes are and nothing about a pen (a stylus's live values are a tablet's), and the commands
+/// the menu bar holds on a desktop - a phone has no menu bar - are keys under the canvas.
+const COMPACT_WIDTH: f32 = 600.0;
+/// The keys under the canvas of a phone, in the header's dark.
+const TOOLBAR: &str = "display: flex; flex-direction: row; justify-content: space-around; \
+                       align-items: center; flex-shrink: 0; padding: 6px 8px; background: #2b2b2b; \
+                       @theme(flora) { background: system:window-background; border-top: 1px \
+                       solid system:separator; }";
+
+/// A key of the phone's toolbar: an icon, named for a screen reader.
+fn tool(data: &RefAny, icon: &str, name: &str, on_click: ButtonOnClickCallbackType) -> Dom {
+    Button::create("")
+        .with_icon(icon)
+        .with_on_click(data.clone(), on_click)
+        .dom()
+        .with_accessibility_name(label(name))
+}
+
+/// The keys of the phone's toolbar: undo, redo, clear, the effect, the export, the settings.
+fn toolbar(data: &RefAny) -> Dom {
+    Dom::create_div()
+        .with_css(TOOLBAR)
+        .with_child(tool(data, "undo", "azpaint-undo", on_undo as ButtonOnClickCallbackType))
+        .with_child(tool(data, "redo", "azpaint-redo", on_redo as ButtonOnClickCallbackType))
+        .with_child(tool(data, "delete", "azpaint-clear", on_clear as ButtonOnClickCallbackType))
+        .with_child(tool(
+            data,
+            "auto_fix_high",
+            "azpaint-toggle-effect",
+            on_toggle_mode as ButtonOnClickCallbackType,
+        ))
+        .with_child(tool(data, "save_alt", "azpaint-export-png", on_export as ButtonOnClickCallbackType))
+        .with_child(tool(data, "settings", "azpaint-settings", on_settings_open as ButtonOnClickCallbackType))
+}
+
 /// The app theme is flora or a spin of it ("flora:green").
 fn is_flora(theme: &str) -> bool {
     theme == "flora" || theme.starts_with("flora:")
@@ -1072,6 +1116,9 @@ fn is_flora(theme: &str) -> bool {
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     azul_appkit::l10n::begin_layout(&info);
+    // A phone's portrait screen (the answer is recorded: a rotation that flips it builds the
+    // window again).
+    let compact = info.window_width_less_than(COMPACT_WIDTH);
     // Reading the theme makes a switch rebuild the window (the title row is
     // flora's own chrome under flora).
     let flora = is_flora(info.get_theme().as_str());
@@ -1102,6 +1149,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_child(Dom::create_p_with_text(title.as_str()));
     header.add_child(Dom::create_div().with_css("flex-grow: 1;"));
     match hud {
+        // A phone says nothing of a pen that is not there (the sentence is longer than the screen).
+        None if compact => {}
         Some(h) => {
             header.add_child(Dom::create_p_with_text(
                 format!(
@@ -1126,16 +1175,18 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             header.add_child(Dom::create_p_with_text(label("azpaint-no-pen")));
         }
     }
-    header.add_child(
-        Dom::create_div()
-            .with_css("width: 140px; margin-left: 12px;")
-            .with_child(
-                azul::widgets::ProgressBar::create(last_pressure)
-                    .with_height(azul::css::PixelValue::px(12.0))
-                    .dom()
-                    .with_marker(azul::option::OptionString::Some(ids::PRESSURE)),
-            ),
-    );
+    if !compact || hud.is_some() {
+        header.add_child(
+            Dom::create_div()
+                .with_css("width: 140px; margin-left: 12px;")
+                .with_child(
+                    azul::widgets::ProgressBar::create(last_pressure)
+                        .with_height(azul::css::PixelValue::px(12.0))
+                        .dom()
+                        .with_marker(azul::option::OptionString::Some(ids::PRESSURE)),
+                ),
+        );
+    }
 
     let cache = RefAny::new(CanvasCache {
         paint: data.clone(),
@@ -1158,34 +1209,34 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     .with_callback(
         EventFilter::Hover(HoverEventFilter::MouseDown),
         data.clone(),
-        on_pointer_down,
+        on_mouse_down,
     )
     // Movement: `MouseMove` (W3C `mouseover` fires once, on entry - with it
     // the strokes got no points between press and release).
     .with_callback(
         EventFilter::Hover(HoverEventFilter::MouseMove),
         data.clone(),
-        on_pointer_move,
+        on_mouse_move,
     )
     .with_callback(
         EventFilter::Hover(HoverEventFilter::MouseUp),
         data.clone(),
-        on_pointer_up,
+        on_mouse_up,
     )
     .with_callback(
         EventFilter::Hover(HoverEventFilter::TouchStart),
         data.clone(),
-        on_pointer_down,
+        on_touch_down,
     )
     .with_callback(
         EventFilter::Hover(HoverEventFilter::TouchMove),
         data.clone(),
-        on_pointer_move,
+        on_touch_move,
     )
     .with_callback(
         EventFilter::Hover(HoverEventFilter::TouchEnd),
         data.clone(),
-        on_pointer_up,
+        on_touch_up,
     )
     .with_callback(
         EventFilter::Hover(HoverEventFilter::MouseLeave),
@@ -1254,6 +1305,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     } else {
         column.add_child(header);
         column.add_child(canvas);
+        // A phone has no menu bar in any orientation (the commands it holds are these keys), and a
+        // narrow window of any machine has too little room for the header and a menu.
+        if compact || cfg!(any(target_os = "android", target_os = "ios")) {
+            column.add_child(toolbar(&data));
+        }
         if about_open {
             column.add_child(about_dialog(&data));
         }
@@ -1527,9 +1583,41 @@ fn poke_canvas(info: &mut CallbackInfo) {
     }
 }
 
-extern "C" fn on_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn on_mouse_down(data: RefAny, info: CallbackInfo) -> Update {
+    pointer_down(data, info, pointer::Source::Mouse)
+}
+
+extern "C" fn on_touch_down(data: RefAny, info: CallbackInfo) -> Update {
+    pointer_down(data, info, pointer::Source::Touch)
+}
+
+extern "C" fn on_mouse_move(data: RefAny, info: CallbackInfo) -> Update {
+    pointer_move(data, info, pointer::Source::Mouse)
+}
+
+extern "C" fn on_touch_move(data: RefAny, info: CallbackInfo) -> Update {
+    pointer_move(data, info, pointer::Source::Touch)
+}
+
+extern "C" fn on_mouse_up(data: RefAny, info: CallbackInfo) -> Update {
+    pointer_up(data, info, pointer::Source::Mouse)
+}
+
+extern "C" fn on_touch_up(data: RefAny, info: CallbackInfo) -> Update {
+    pointer_up(data, info, pointer::Source::Touch)
+}
+
+/// A press of the pointer from `from`: the start of a stroke, unless it is the echo of a gesture the other
+/// source owns (a phone's finger raises both).
+fn pointer_down(mut data: RefAny, mut info: CallbackInfo, from: pointer::Source) -> Update {
+    let mine = data
+        .downcast_mut::<PaintState>()
+        .is_some_and(|mut s| s.gesture.press(from, pointer::now_ms()));
+    if !mine {
+        return Update::DoNothing;
+    }
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
-        eprintln!("[paint] t={}ms on_pointer_down FIRED", dbg_ms());
+        eprintln!("[paint] t={}ms pointer_down {from:?} FIRED", dbg_ms());
     }
     {
         let ms = info.get_current_mouse_state();
@@ -1558,7 +1646,14 @@ extern "C" fn on_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
     Update::DoNothing
 }
 
-extern "C" fn on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// A move of the pointer from `from`: a point of the stroke, unless it is the echo of the other source's.
+fn pointer_move(mut data: RefAny, mut info: CallbackInfo, from: pointer::Source) -> Update {
+    let mine = data
+        .downcast_mut::<PaintState>()
+        .is_some_and(|mut s| s.gesture.moves(from, pointer::now_ms()));
+    if !mine {
+        return Update::DoNothing;
+    }
     let hud = hud_from(&info);
     let point = extract_point(&info);
     let pushed = push_pressure_to_meter(&mut info);
@@ -1599,11 +1694,18 @@ extern "C" fn on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
     }
 }
 
-extern "C" fn on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// A release of the pointer from `from`: the end of the stroke, unless it is the echo of the other source's.
+fn pointer_up(mut data: RefAny, mut info: CallbackInfo, from: pointer::Source) -> Update {
+    let mine = data
+        .downcast_mut::<PaintState>()
+        .is_some_and(|mut s| s.gesture.release(from, pointer::now_ms()));
+    if !mine {
+        return Update::DoNothing;
+    }
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
         let ms = info.get_current_mouse_state();
         eprintln!(
-            "[paint] t={}ms on_pointer_up FIRED (left_down={})",
+            "[paint] t={}ms pointer_up {from:?} FIRED (left_down={})",
             dbg_ms(),
             ms.left_down
         );
@@ -1635,6 +1737,7 @@ extern "C" fn on_pointer_gone(mut data: RefAny, _info: CallbackInfo) -> Update {
     };
     let had_hud = state.hud.take().is_some();
     let had_stroke = state.current.is_some();
+    state.gesture.gone();
     if had_stroke {
         state.end_stroke();
         say_strokes(&state);

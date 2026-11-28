@@ -1542,6 +1542,10 @@ extern "C" fn output_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Time
                 plain_text: AzString::from(text.as_str()),
                 styled_runs: StyledTextRunVec::create(),
                 html: OptionString::None,
+                files: azul::vec::StringVec::create(),
+                image: azul::option::OptionU8Vec::None,
+                link: azul::option::OptionString::None,
+                concealed: false,
             });
         }
         if !tab.exited && signals.exited.load(Ordering::Acquire) {

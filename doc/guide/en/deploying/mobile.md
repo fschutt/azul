@@ -231,6 +231,44 @@ the GPU if it fell back (`gpu unavailable at <stage>`), the first GPU frame and 
 you scrolled. The two lines that say which renderer drew (and why not the GPU) are also in the unified
 log (Console.app) of an app started from the home screen with the `AZBackend` key set.
 
+### Android: EGL and OpenGL ES
+
+On Android the GPU path is an EGL window surface and an OpenGL ES 3 context made on the loop thread, with WebRender on
+it. `libEGL.so` and `libGLESv3.so` (`libGLESv2.so` on a device that has no v3 library) are opened by name the first time a
+window asks for the GPU: nothing links them, an app that draws on the CPU never loads them, and the APK needs no
+permission, no Java and no build flag. An app on a phone has no environment: `AZ_BACKEND` is read from the system
+property `debug.az.env` (`adb shell setprop debug.az.env 'AZ_BACKEND=gpu'`, then start the app again, see
+[Debugging](../debugging.md)).
+
+Requirements: OpenGL ES 3.0 or newer and a `GL_MAX_TEXTURE_SIZE` of at least 2048 (the `probe` stage says which one a
+driver misses). The emulator's GL is software (SwiftShader), so `auto` keeps the CPU renderer there, by design, and `gpu` is the
+value to test with.
+
+The window's life is the activity's:
+
+- The EGL surface is made when the system hands over the window (`InitWindow`), before any CPU frame is drawn on it (an
+  `ANativeWindow` has one producer: once the CPU path has posted a frame, EGL can no longer connect), and it is destroyed
+  when the system takes the window away (`TerminateWindow`), before the window is released. The context and the renderer
+  stay, so a rotation or coming back from the home screen does not compile the shaders again.
+- A new size or density resizes the frame; the swap interval is 1. A new surface is cleared to the window's colour and
+  shown at once, so the window is not black while WebRender compiles its programs in the first frame.
+- Text is grayscale on a phone in both renderers (`AppConfig::text_antialiasing`: the platform default there, as the CPU
+  renderer has always had it), so the two pictures of one window differ in the antialiasing of glyph edges and curves and
+  nowhere else; `AZ_TEXT_AA=lcd` asks for LCD text on the GPU path too.
+- `onTrimMemory` empties WebRender's caches from `RUNNING_LOW` on (`UI_HIDDEN`, the home button, included: the context and
+  the compiled programs stay, so coming back does not compile them again), and from `BACKGROUND` on, with no window on screen,
+  gives the renderer and the context back as well; they are made again when a window returns.
+- A lost context (the driver reset, the GPU was taken away) is rebuilt once and the frame drawn again; a second loss without
+  a good frame in between ends the GPU path, as any other failure does.
+- The compiled programs are kept between runs in the app's `cache` directory (`azul/shaders`, else `files/azul-shaders`), at
+  most 512 programs and 64 MB: a second start compiles nothing where the driver can save program binaries. The system may
+  empty a cache directory when storage runs low; the next start compiles again.
+
+The check that needs no phone is `scripts/ci/gles_host.sh` (WebRender on Mesa's OpenGL ES 3 compared with the CPU renderer's
+picture of the same page, and the whole lifecycle with real EGL); the one that needs one is
+`scripts/ci/android_phone_gpu.sh <apk>`, which starts the app with each renderer over USB and keeps the engine's `[render]`
+lines, a screenshot, the first-frame time, the frame times of a scroll and the memory of each.
+
 ## Building the native library
 
 Mobile builds use `link-static` with **no default features** (the desktop
@@ -466,6 +504,39 @@ policy to `Never` or `Automatic`, and `model_state` and `allow_model_download` a
 progress and the user's yes), over https, with the size and the SHA-256 of the file checked against
 the pin before it is used. Nothing that was downloaded is executed or loaded as code, and an app
 that is offline (`set_offline`) fetches nothing.
+
+## Designing for a phone
+
+A phone is a small screen with bars on it, a finger instead of a pointer, a language the user has already
+chosen, and a window that rotates. What the engine does for you, and what it leaves to the app:
+
+**Safe areas.** The root of your DOM is laid out in the window minus the system's bars
+(`SafeAreaInsets`: the status bar and the camera cut-out on top, the navigation bar or the home indicator at the
+bottom, the cut-out at the side in landscape), so nothing of a plain app lies under a bar. The insets arrive
+after the first frame and move on a rotation; the engine lays the root out again when they do, also for a UI
+that never changes by itself (a map, a canvas). An app that wants to draw under the bars (a full-bleed map, a
+video) sets `WindowFlags::extend_into_safe_area` (the browser's `viewport-fit=cover`) and puts its own controls
+inside `info.get_safe_area_insets()`. The soft keyboard is a separate inset (`SafeAreaInsets::keyboard`): it
+does not shrink the root, the engine scrolls the focused text field into view above it.
+
+**Touch targets.** Material asks for 48 dp, Apple for 44 pt. On a phone the engine's `Button`, `TextInput` and
+`DropDown` and the rows of a `Backstage`'s navigation and of a popup menu (a drop-down's choices, a context menu) are at least that big in each direction (a link keeps the
+height of its line, a desktop window keeps the desktop's sizes); the application button of a `Ribbon` is a row of
+its tab picker. Check boxes, switches and radio buttons
+have no such floor yet, and a node of your own with a click callback is as big as you made it: give it 48 dp.
+
+**Language.** The phone's language is the system style's language: on Android the activity's configuration (language
+and country, read before the window is made and again when it changes while the app runs), on iOS
+`NSLocale.preferredLanguages`. With your Fluent resources registered (`AppConfig::fluent_locales`) the texts made
+with `AzString::tr` translate on their own and again when the language changes. Words that your `layout()` says as
+plain text (a placeholder, an accessible name, a label a widget measures) are said with the window's own
+localizer, `info.get_fluent_localizer()`: do not keep a localizer in a thread-local of your own, the app starts on
+one thread and its loop may run on another one (it does on Android).
+
+**Narrow windows.** Decide a phone layout from the window's width with `info.window_width_less_than(px)`: the
+layout is built again only when the width crosses `px`, not on every pixel of a resize or a rotation. The demos use
+560 to 600 dp as the phone's edge (AzMaps' sidebar becomes a sheet over the map, AzPaint's menu commands become keys
+under the canvas, AzWriter's ribbon becomes a format bar) and keep the desktop layout for a landscape phone.
 
 ## Installing & debugging the built app
 

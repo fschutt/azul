@@ -262,6 +262,34 @@ impl ParsedFontTrait for FontRef {
             .us_weight_class;
         (weight > 0).then_some(weight)
     }
+
+    fn underline_metrics(&self) -> Option<(f32, f32)> {
+        let metrics = &crate::font_ref_to_parsed_font(self).pdf_font_metrics;
+        let em = f32::from(metrics.units_per_em);
+        // `post` says 0 and 0 where the face names no underline
+        if em > 0.0 && metrics.underline_thickness > 0 {
+            Some((
+                -f32::from(metrics.underline_position) / em,
+                f32::from(metrics.underline_thickness) / em,
+            ))
+        } else {
+            None
+        }
+    }
+
+    fn strikeout_metrics(&self) -> Option<(f32, f32)> {
+        let metrics = &crate::font_ref_to_parsed_font(self).pdf_font_metrics;
+        let em = f32::from(metrics.units_per_em);
+        // OS/2 says 0 and 0 where the face names no strike-through (or has no OS/2 table)
+        if em > 0.0 && metrics.y_strikeout_size > 0 {
+            Some((
+                f32::from(metrics.y_strikeout_position) / em,
+                f32::from(metrics.y_strikeout_size) / em,
+            ))
+        } else {
+            None
+        }
+    }
 }
 
 /// Extension trait for `FontRef` to provide access to font bytes and metrics

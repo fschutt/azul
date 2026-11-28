@@ -36,7 +36,9 @@ dbus-run-session -- python3 scripts/ci/startup_measure.py --exe "$PWD/out/AzWidg
 echo "=== 5 starts with the GL renderer (llvmpipe: not a GPU)"
 python3 scripts/ci/startup_measure.py --exe "$PWD/out/AzWidgets" --runs 5 --label "AzWidgets linux release, Xvfb, AZ_BACKEND=gpu (llvmpipe)" --env AZ_BACKEND=gpu --json out/startup-linux-gl.json
 echo "=== the phases of each layout pass: one start with AZ_PROFILE=cpu (the profiler adds a little)"
-AZ_STARTUP=1 AZ_PROFILE=cpu AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1 ./out/AzWidgets 2>&1 | grep -E "^\[CPU\]|^\[startup\]" | head -220
+AZ_STARTUP=1 AZ_PROFILE=cpu AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1 timeout 90 ./out/AzWidgets 2>&1 | grep -E "^\[CPU\]|^\[startup\]" | head -220
+echo "=== the layouts AFTER the first present (the app runs 4 s on, nobody touches it): the lines the timeline prints for them (reason, phases: precascade_skip or precascade_full says whether a rebuild keeps the retained layout)"
+AZ_STARTUP=1 AZ_PROFILE=cpu timeout 4 ./out/AzWidgets 2>&1 | grep -E "^\[startup\] late|layout_begin|layout_phases|layout_end|layout_extra_pass" | head -60
 echo "=== strace -f of one start (GNOME-like session): the processes it spawned and how long each lived"
 export XDG_CURRENT_DESKTOP=GNOME DESKTOP_SESSION=gnome AZ_STARTUP=1 AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1
 dbus-run-session -- strace -f -tt -T -e trace=execve,exit_group,openat,connect -o out/strace-gnome.log ./out/AzWidgets 2> out/strace-gnome-stderr.txt
@@ -54,4 +56,7 @@ perf report -i out/perf.data --no-children --sort comm,tid --stdio -g none 2>/de
 echo "--- inclusive (children), top 60 symbols"
 perf report -i out/perf.data --children --sort symbol --stdio -g none 2>/dev/null | grep -v '^#' | grep -v '^$' | head -60
 echo "=== the tests of the timeline, the settings and the app's shared state"
-cargo test --release -p azul-dll --lib --features build-dll -- startup_timeline shell_settings app_shared first_frame 2>&1 | grep -E "^test |^test result|FAILED|panicked|^error|could not compile" | head -80
+cargo test --release -p azul-dll --lib --features build-dll -- startup_timeline shell_settings app_shared first_frame gtk_im style_discovery system_style env:: font_instance_store x11_libs 2>&1 | grep -E "^test |^test result|FAILED|panicked|^error|could not compile" | head -120
+echo "=== the test of the noise's floor, the transient windows' docking tests and the variable-font tests of azul-layout (the instances of a document's stacks are made together)"
+cargo test --release -p azul-layout --lib -- the_noise_floor transient 2>&1 | grep -E "^test |^test result|FAILED|panicked|^error|could not compile" | head -60
+cargo test --release -p azul-layout --test all -- variable_font the_instances_of_all_stacks 2>&1 | grep -E "^test |^test result|FAILED|panicked|^error|could not compile" | head -40

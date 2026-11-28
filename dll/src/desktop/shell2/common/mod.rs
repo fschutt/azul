@@ -15,8 +15,30 @@
 pub mod compositor;
 pub mod cpu_compositor;
 pub mod dlopen;
+/// EGL for OpenGL ES, loaded at run time: the GPU path of the phone shells (Android), and the host test of it (Linux).
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub mod egl_gles;
+/// The pure tables of the EGL binding: constants, extension caps, config requests, damage rectangles, swap errors.
+pub mod egl_pure;
 pub mod error;
 pub mod gl_loader;
+/// What an OpenGL ES context says about itself, read as a decision: version, software or emulated, WebRender's minimum.
+pub mod gles_probe;
+/// What the GL context and the pixels of a frame say where a black window must be told from one that draws: reads only.
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub mod gles_trace;
+/// The GPU path of a window that draws with OpenGL ES over EGL: the executor of the lifecycle reducer (Android; and Linux for
+/// its host test).
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub mod gles_gpu;
+/// The lifecycle executor against real EGL and WebRender on a host with Mesa (test only).
+#[cfg(all(test, target_os = "linux"))]
+mod gles_gpu_host_test;
+/// The GPU renderer on OpenGL ES against the CPU renderer, on a host with Mesa (test only).
+#[cfg(all(test, target_os = "linux"))]
+mod gles_host_test;
+/// The shared WebRender bring-up of the phone shells' GPU paths and the steps of a GPU frame.
+pub mod gpu_renderer;
 /// How often a window presents while it is drawn continuously and how long the draw takes, measured inside the
 /// engine: the lines the phone QA reads for the frame times of a scroll.
 pub mod frame_stats;

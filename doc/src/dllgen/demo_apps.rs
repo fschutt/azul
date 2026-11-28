@@ -234,6 +234,11 @@ pub struct App {
     /// Which libazul of `[lib.*]` a phone build links.
     #[serde(default)]
     pub mobile_lib: Option<String>,
+    /// The app exists only as a QA build (AzSelfTest: every device capability, one probe each): an artifact of a
+    /// run that asks for QA builds, linked against an artifact-only libazul. It is no row or link of the page, no
+    /// release asset and no count, so `Manifest` never holds it (`apps_of_the_release`).
+    #[serde(default)]
+    pub qa_only: bool,
 }
 
 fn default_weight() -> u32 {
@@ -252,8 +257,20 @@ impl App {
 pub struct Manifest {
     #[serde(default)]
     pub schema: u32,
-    #[serde(default, rename = "app")]
+    /// The apps of the release, in the order of the file: every `[[app]]` except the QA-only ones.
+    #[serde(default, rename = "app", deserialize_with = "apps_of_the_release")]
     pub apps: Vec<App>,
+}
+
+/// The `[[app]]` tables that are apps of the release page. An app that says `qa_only = true` is built only as
+/// a QA build (`scripts/demo_apps.py` keeps it apart as well), so it is dropped HERE, where the file is read:
+/// nothing that renders, counts or links the apps can show it by forgetting to skip it.
+fn apps_of_the_release<'de, D>(deserializer: D) -> Result<Vec<App>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let all = Vec::<App>::deserialize(deserializer)?;
+    Ok(all.into_iter().filter(|app| !app.qa_only).collect())
 }
 
 impl Manifest {

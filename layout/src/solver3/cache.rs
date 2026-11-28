@@ -2282,9 +2282,14 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
     //     size; reconciliation merely decides what that pass may REUSE (shaped runs, intrinsic
     //     widths), not whether it runs.
     let viewport_resized = cache.viewport.is_none_or(|v| v.size != viewport.size);
+    // A viewport that kept its SIZE and moved its ORIGIN (the window's safe area moved without
+    // changing what is left of the window: a phone turned over from one landscape to the other,
+    // the bar at its left now at its right): every box of the tree stands somewhere else, and no
+    // node is dirty. The size keys hit - the pass is the cheap one of a clean tree placed anew.
+    let viewport_moved = cache.viewport.is_some_and(|v| v.origin != viewport.origin);
     let old_tree = cache.tree.as_deref();
 
-    if viewport_resized {
+    if viewport_resized || viewport_moved {
         recon_result.layout_roots.insert(0); // Root is always index 0
     }
 
