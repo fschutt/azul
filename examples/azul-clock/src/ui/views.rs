@@ -14,8 +14,8 @@
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, MobileShellOnTabCallbackType, NumberInputOnValueChangeCallbackType,
-        SwitchOnToggleCallbackType, TextInputOnTextInputCallbackType, TimePickerOnChangeCallbackType,
+        ButtonOnClickCallbackType, MobileShellOnTabCallbackType, SwitchOnToggleCallbackType,
+        TextInputOnTextInputCallbackType, TimePickerOnChangeCallbackType,
     },
     dom::{AccessibilityInfo, AccessibilityRole},
     menu::{Menu, MenuItem, StringMenuItem},
@@ -24,7 +24,7 @@ use azul::{
     shells::{MobileShell, ShellBottomTab},
     str::String as AzString,
     widgets::{
-        ButtonType, Gauge, GaugeKind, NumberInput, Switch, TextInput, TimePicker,
+        ButtonType, Gauge, GaugeKind, Switch, TextInput, TimePicker,
     },
 };
 use azul_appkit::{
@@ -36,7 +36,7 @@ use chrono::{DateTime, Local, Timelike, Utc};
 
 use super::{
     actions::{self, act, Action},
-    now_ms, repeat, ClockApp, Ringing, Screen,
+    now_ms, repeat, snooze_length, ClockApp, Ringing, Screen,
 };
 use crate::{fmt, ids, stopwatch::LapMark, tone::Sound, world};
 
@@ -669,7 +669,7 @@ fn day_chips(d: &super::AlarmDraft, app: &RefAny) -> Dom {
     row
 }
 
-/// The page of the alarm editor: time, repeat, label, sound, snooze (and Delete, for an alarm
+/// The page of the alarm editor: time, label, repeat, sound, snooze (and Delete, for an alarm
 /// that exists); Back cancels, Save in the top bar saves.
 fn editor_page(s: &ClockApp, d: &super::AlarmDraft, app: &RefAny) -> Dom {
     let twelve = s.twelve_hour();
@@ -711,10 +711,8 @@ fn editor_page(s: &ClockApp, d: &super::AlarmDraft, app: &RefAny) -> Dom {
                 .dom()
                 .with_id(ids::EDITOR_TIME),
         ))
-        .with_child(field(
-            "azclock-repeat",
-            Dom::create_div().with_css(format!("{COLUMN} row-gap: 8px;")).with_child(presets).with_child(day_chips(d, app)),
-        ))
+        // The label is the one field of the page that takes the keyboard: it sits right under the time,
+        // in the upper half a phone's keyboard leaves in sight (a field lower down is covered by it).
         .with_child(field(
             "azclock-label",
             TextInput::create()
@@ -725,19 +723,20 @@ fn editor_page(s: &ClockApp, d: &super::AlarmDraft, app: &RefAny) -> Dom {
                 .dom()
                 .with_id(ids::EDITOR_LABEL),
         ))
+        .with_child(field(
+            "azclock-repeat",
+            Dom::create_div().with_css(format!("{COLUMN} row-gap: 8px;")).with_child(presets).with_child(day_chips(d, app)),
+        ))
         .with_child(field("azclock-sound", sounds.with_id(ids::EDITOR_SOUND)))
         .with_child(field(
             "azclock-snooze",
-            Dom::create_div()
-                .with_css(row_css(6))
-                .with_child(
-                    NumberInput::create(d.snooze_minutes as f32)
-                        .with_accessibility_name(label("azclock-snooze-length"))
-                        .with_on_value_change(app.clone(), actions::on_editor_snooze as NumberInputOnValueChangeCallbackType)
-                        .dom()
-                        .with_id(ids::EDITOR_SNOOZE),
-                )
-                .with_child(text("azclock-min")),
+            minutes_stepper(
+                d.snooze_minutes,
+                ("azclock-snooze-shorter", Action::EditorSnooze(-1), snooze_length::can_step(d.snooze_minutes, -1)),
+                ("azclock-snooze-longer", Action::EditorSnooze(1), snooze_length::can_step(d.snooze_minutes, 1)),
+                app,
+            )
+            .with_id(ids::EDITOR_SNOOZE),
         ));
     if d.id.is_some() {
         content.add_child(
@@ -865,29 +864,40 @@ fn setting_switch(app: &RefAny, key: &str, on: bool, name: &str) -> Dom {
         .with_id(ids::named(&format!("set-{key}")))
 }
 
-/// `- 10 min +`: how long a ring lasts by itself, a step of [`RING_MINUTES`] either way. A
-/// drop-down would open a popup window, which a phone has none of.
-fn ring_stepper(app: &RefAny, index: usize) -> Dom {
-    // At either end of the list the button stays (it does nothing) but is dimmed.
-    let step = |icon: &str, name: &str, delta: i32, enabled: bool| {
-        let button = icon_button(icon, name, app, Action::RingFor(delta));
+/// `- 10 min +`: a length in minutes with a button either side that steps it, an icon each, named
+/// by its a11y name (`(name, action, enabled)`: at either end of its list the button stays, dimmed).
+/// A drop-down would open a popup window, which a phone has none of, and a text field a keyboard
+/// that covers the lower part of the page.
+fn minutes_stepper(minutes: u32, shorter: (&str, Action, bool), longer: (&str, Action, bool), app: &RefAny) -> Dom {
+    let step = |(name, action, enabled): (&str, Action, bool), icon: &str| {
+        let button = icon_button(icon, name, app, action);
         if enabled {
             button
         } else {
             button.with_css("opacity: 0.4;")
         }
     };
-    let minutes = RING_MINUTES.get(index).copied().unwrap_or(10);
     Dom::create_div()
-        .with_id(ids::SET_RING_MINUTES)
         .with_css("display: flex; flex-direction: row; align-items: center; column-gap: 4px;")
-        .with_child(step("remove", "azclock-ring-shorter", -1, index > 0))
+        .with_child(step(shorter, "remove"))
         .with_child(
             Dom::create_div()
                 .with_css("min-width: 72px; text-align: center; font-size: 13px;")
                 .with_child(Dom::create_span_with_text(fmt::minutes(minutes))),
         )
-        .with_child(step("add", "azclock-ring-longer", 1, index + 1 < RING_MINUTES.len()))
+        .with_child(step(longer, "add"))
+}
+
+/// "Ring for": how long a ring lasts by itself, a step of [`RING_MINUTES`] either way.
+fn ring_stepper(app: &RefAny, index: usize) -> Dom {
+    let minutes = RING_MINUTES.get(index).copied().unwrap_or(10);
+    minutes_stepper(
+        minutes,
+        ("azclock-ring-shorter", Action::RingFor(-1), index > 0),
+        ("azclock-ring-longer", Action::RingFor(1), index + 1 < RING_MINUTES.len()),
+        app,
+    )
+    .with_id(ids::SET_RING_MINUTES)
 }
 
 /// The clock's own settings sections (before the kit's Appearance, Data,

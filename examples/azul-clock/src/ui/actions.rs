@@ -8,15 +8,14 @@ use azul::{
     dom::VirtualKeyCode,
     prelude::*,
     widgets::{
-        NumberInputState, OnTextInputReturn, SwitchState,
-        TextInputState, TextInputValid, TimePickerState,
+        OnTextInputReturn, SwitchState, TextInputState, TextInputValid, TimePickerState,
     },
 };
 use azul_appkit::ui as kit;
 use chrono::{Local, Utc};
 
 use super::{
-    copy_laps, first_of, now_ms, repeat, rule_of, save_alarm, save_stopwatch, save_timer, save_world,
+    copy_laps, first_of, now_ms, repeat, rule_of, save_alarm, save_stopwatch, save_timer, save_world, snooze_length,
     with_app, AlarmDraft, ClockApp, Screen,
 };
 use crate::{
@@ -40,6 +39,8 @@ pub enum Action {
     EditorDelete,
     /// The editor's sound: a position in [`Sound::ALL`].
     EditorSound(usize),
+    /// The editor's snooze length: one step of [`snooze_length::SNOOZE_MINUTES`], -1 shorter or 1 longer.
+    EditorSnooze(i32),
     /// The Back button of a pushed page: the editor or the city search closes.
     Back,
     /// The weekday chips' shortcuts: no repeat, every day, weekdays, weekends.
@@ -214,6 +215,11 @@ pub(crate) fn run(s: &mut ClockApp, info: &mut CallbackInfo, action: Action) {
         Action::EditorSound(i) => {
             if let Some(d) = s.editor.as_mut() {
                 d.sound = Sound::ALL.get(i).copied().unwrap_or_default();
+            }
+        }
+        Action::EditorSnooze(delta) => {
+            if let Some(d) = s.editor.as_mut() {
+                d.snooze_minutes = snooze_length::stepped(d.snooze_minutes, delta);
             }
         }
         Action::EditorDelete => {
@@ -393,12 +399,6 @@ pub extern "C" fn on_editor_time(mut data: RefAny, mut info: CallbackInfo, state
         d.hour = hour;
         d.minute = minute;
     })
-}
-
-/// The editor's snooze length.
-pub extern "C" fn on_editor_snooze(mut data: RefAny, mut info: CallbackInfo, state: NumberInputState) -> Update {
-    let minutes = state.number.round().clamp(1.0, MAX_SNOOZE_MINUTES as f32) as u32;
-    edit_draft(&mut data, &mut info, |d| d.snooze_minutes = minutes)
 }
 
 /// The editor's label: kept as typed, the field is not rebuilt.

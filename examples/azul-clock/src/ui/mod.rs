@@ -33,6 +33,7 @@
 
 pub mod actions;
 pub mod repeat;
+pub mod snooze_length;
 pub mod views;
 
 use std::path::PathBuf;

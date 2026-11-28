@@ -28,6 +28,7 @@
       {"op": "wait_settled"},
       {"op": "assert_exists", "selector": "#__azclock_editor"},
       {"op": "assert_exists", "selector": "#__azclock_editor-save"},
+      {"op": "assert_exists", "selector": "#__azclock_editor-snooze"},
       {"op": "assert_exists", "selector": "#__azclock_editor-time"},
       {"op": "assert_node_count", "selector": ".__azclock_editor-day", "expected": 7},
       {"op": "wait", "ms": 800},
