@@ -13390,6 +13390,10 @@ mod tests {
     // starts no autoscroll (`tests/a_press_on_text_at_the_edge_of_a_scrolling_box_is_a_click.rs`, E41).
     mod a_press_on_text_at_the_edge_of_a_scrolling_box_is_a_click;
 
+    // An idle page asks for no frame in ten seconds, a page with a caret only for its blinks
+    // (`tests/an_idle_page_asks_for_no_frame_and_a_caret_only_for_its_blinks.rs`).
+    mod an_idle_page_asks_for_no_frame_and_a_caret_only_for_its_blinks;
+
     // A file drop is one event, a drag move one hover, however many passes they cost
     // (`tests/file_drop.rs`).
     mod file_drop;

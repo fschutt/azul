@@ -94,7 +94,7 @@ where
         })?;
     f(&mut env, &activity, &class).map_err(|e| {
         // A pending exception left unhandled aborts the process at the next JNI boundary.
-        let _ = env.exception_clear();
+        drop(env.exception_clear());
         format!("AzulSounds: {e:?}")
     })
 }

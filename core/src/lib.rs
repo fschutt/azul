@@ -400,8 +400,10 @@ pub mod glconst;
 pub mod gpu;
 /// Haptic feedback: vibration and force-feedback actuators.
 pub mod haptics;
-/// System sounds: the short sounds a platform plays for its own user interface, asked for by
-/// meaning (`TabChange`, `Error`, `Notification`), decided and recorded here, played by the shells.
+/// System sounds: the short sounds a platform plays for its own user interface.
+///
+/// Asked for by meaning (`TabChange`, `Error`, `Notification`), decided and recorded here, played
+/// by the shells.
 pub mod sound;
 /// Raw HID device access (game controllers, tablets, custom peripherals).
 pub mod hid;

@@ -1507,3 +1507,5 @@ mod ignored_tests_are_on_the_ledger;
 mod a_typed_field_keeps_laying_out_when_the_page_shrinks_before_it;
 #[path = "a_rotated_window_paints_its_canvas_across_its_new_width.rs"]
 mod a_rotated_window_paints_its_canvas_across_its_new_width;
+#[path = "a_gpu_frame_is_put_on_the_frame_report_with_what_it_drew.rs"]
+mod a_gpu_frame_is_put_on_the_frame_report_with_what_it_drew;
