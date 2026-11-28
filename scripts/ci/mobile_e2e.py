@@ -783,7 +783,7 @@ def e2e_session(args):
             answer = srv.op("run_e2e_tests", timeout=240, timeout_secs=240, tests=tests)
             (run.logs_dir / f"scenario-{name}.json").write_text(json.dumps(answer, indent=2), encoding="utf-8")
             # the pictures the take_screenshot steps answered with (base64 PNGs in the answer), as files in order
-            for k, png in enumerate(png_strings(answer)):
+            for k, png in enumerate(scenario_pictures(answer)):
                 (run.logs_dir / f"scenario-{name}-shot-{k:03d}.png").write_bytes(base64.b64decode(png))
             if qa_extra_env():
                 # the knobs asked for (AZ_QA_EXTRA_ENV) print lines: the log of the run, filtered to the [reconcile] lines on Android (iOS: console-N.err.txt holds them all)
@@ -935,11 +935,13 @@ def android_env_property(port, extra=None):
 
 
 def png_strings(obj, found=None):
-    """The base64 PNGs inside a JSON answer (a string that starts with iVBORw0KGgo), in the order they occur: what a take_screenshot step answers with when no path was given."""
+    """The base64 PNGs inside a JSON answer, in the order they occur: a string that starts with iVBORw0KGgo, or a data URI `data:image/png;base64,iVBORw0KGgo...` (what the engine answers a
+    take_screenshot with). -> the base64 text without the data URI's prefix."""
     found = [] if found is None else found
     if isinstance(obj, str):
-        if obj.startswith("iVBORw0KGgo"):
-            found.append(obj)
+        text = obj.split(",", 1)[1] if obj.startswith("data:image/png;base64,") and "," in obj else obj
+        if text.startswith("iVBORw0KGgo"):
+            found.append(text)
     elif isinstance(obj, dict):
         for v in obj.values():
             png_strings(v, found)
@@ -947,6 +949,26 @@ def png_strings(obj, found=None):
         for v in obj:
             png_strings(v, found)
     return found
+
+
+def scenario_pictures(answer):
+    """The pictures of a `run_e2e_tests` answer, one per step that has one, in step order: the step's own `screenshot`, else the first PNG inside its `response` (a step that carries
+    the same picture twice counts once). Without the answer's usual shape: every PNG inside it, in order."""
+    data = answer.get("data") if isinstance(answer, dict) else None
+    results = (data or {}).get("results") if isinstance(data, dict) else None
+    if results is None and isinstance(data, dict) and isinstance(data.get("value"), dict):
+        results = data["value"].get("results")
+    if not isinstance(results, list):
+        return png_strings(answer)
+    out = []
+    for r in results:
+        for st in (r.get("steps") or []) if isinstance(r, dict) else []:
+            if not isinstance(st, dict):
+                continue
+            found = png_strings(st.get("screenshot")) or png_strings(st.get("response"))
+            if found:
+                out.append(found[0])
+    return out
 
 
 def main(argv):
