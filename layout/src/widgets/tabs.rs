@@ -2154,14 +2154,23 @@ const SELECTED_MARKER_CLASS: &str = "__azul-tabs-selected-marker";
 
 static SELECTED_MARKER_CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str(SELECTED_MARKER_CLASS))];
 
-/// The marker hung in the SELECTED pill, keyed by its tab: a new selection mounts a new marker,
-/// and its `AfterMount` scrolls the strip so that the selected pill stands whole in a lane -
+/// The marker hung in the SELECTED pill, keyed by its tab and by the band's lanes: a new selection, or a
+/// band of other lanes (another phone, a turn), mounts a new marker, and its `AfterMount` gives the pills
+/// their room around the cutouts and scrolls the strip so that the selected pill stands whole in a lane -
 /// whoever changed the selection (a tap, an arrow key, a flip of the panel, the app).
 pub(crate) fn selected_marker(data: StripScrollData, tab: usize) -> Dom {
+    // What the room of the pills was planned for (FNV-1a over the numbers): a strip with other lanes
+    // plans again.
+    let lanes = data
+        .lanes
+        .iter()
+        .flat_map(|(left, right)| [left.to_bits(), right.to_bits()])
+        .chain([data.lead.to_bits(), u32::from(data.camera_room)])
+        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, word| (hash ^ u64::from(word)).wrapping_mul(0x0100_0000_01b3));
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SELECTED_MARKER_CLASSES))
         .with_css("position: absolute; left: 0px; top: 0px; width: 0px; height: 0px;")
-        .with_key(("azul-tab-selected", tab))
+        .with_key(("azul-tab-selected", tab, lanes))
         .with_callbacks(
             vec![CoreCallbackData {
                 event: EventFilter::Component(azul_core::dom::ComponentEventFilter::AfterMount),

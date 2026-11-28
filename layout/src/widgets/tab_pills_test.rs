@@ -638,3 +638,18 @@ fn a_strip_that_places_its_pills_itself_writes_no_room() {
     strip.data.camera_room = false;
     assert!(margins_written(&strip).is_empty(), "no margin is written for a strip that opted out");
 }
+
+#[test]
+fn a_strip_with_other_lanes_mounts_a_new_marker_so_that_the_room_is_planned_again() {
+    // the same tab on a Pixel 8's band and on an iPhone's island: another phone, another room around the
+    // camera, and nothing else changed (the selection, the strip's width) that would tell the strip
+    let marker_in = |preset: DisplayPreset| {
+        let band = band_of(preset, 411.0, 800.0);
+        let dom = touch_header(6, 2).with_status_bar(band).dom();
+        let pills = pills_of(strip_of(&dom));
+        let key = pills[2].children.as_ref().last().expect("the marker").root.get_key();
+        key
+    };
+    assert_ne!(marker_in(DisplayPreset::Pixel8), marker_in(DisplayPreset::IPhoneDynamicIsland));
+    assert_eq!(marker_in(DisplayPreset::Pixel8), marker_in(DisplayPreset::Pixel8));
+}
