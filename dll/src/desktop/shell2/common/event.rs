@@ -3229,8 +3229,14 @@ pub enum RefreshAsker {
     },
     /// The timer with this id.
     Timer(usize),
-    /// A thread's write-back.
-    ThreadWriteback,
+    /// A thread's write-back (or a message of its worker): the thread, and the node whose lifecycle callback started it
+    /// (`managers::thread_owner`) when it has one.
+    ThreadWriteback {
+        /// The thread that answered.
+        thread: azul_core::task::ThreadId,
+        /// The node that owns it.
+        owner: Option<azul_core::dom::DomNodeId>,
+    },
     /// The callback of a resumed request (a picker, a permission, a keyring answer).
     ResumedRequest,
 }
@@ -3255,21 +3261,24 @@ pub fn layout_pass_reason(
 /// the timer's id, the thread's write-back.
 #[must_use]
 pub fn describe_refresh_asker(layout_window: Option<&LayoutWindow>, asker: RefreshAsker) -> String {
-    match asker {
-        RefreshAsker::Event { event, node } => {
-            let described = node.node.into_crate_internal().and_then(|node_id| {
+    let node_of = |node: azul_core::dom::DomNodeId| {
+        node.node
+            .into_crate_internal()
+            .and_then(|node_id| {
                 layout_window?
                     .layout_results
                     .get(&node.dom)
                     .map(|result| azul_layout::dom_lint::describe_node(&result.styled_dom, node_id))
-            });
-            match described {
-                Some(described) => format!("{event:?} on {described}"),
-                None => format!("{event:?} on {node:?}"),
-            }
-        }
+            })
+            .unwrap_or_else(|| format!("{node:?}"))
+    };
+    match asker {
+        RefreshAsker::Event { event, node } => format!("{event:?} on {}", node_of(node)),
         RefreshAsker::Timer(id) => format!("timer {id}"),
-        RefreshAsker::ThreadWriteback => String::from("a thread's write-back"),
+        RefreshAsker::ThreadWriteback { thread, owner } => match owner {
+            Some(owner) => format!("a thread's write-back ({thread:?}, started by {})", node_of(owner)),
+            None => format!("a thread's write-back ({thread:?})"),
+        },
         RefreshAsker::ResumedRequest => String::from("a resumed request"),
     }
 }
@@ -15050,8 +15059,6 @@ pub trait PlatformWindow {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
                     needs_redraw = true;
                     needs_layout_regeneration = true;
-                    self.get_common_mut()
-                        .note_refresh_asker(RefreshAsker::ThreadWriteback);
                 }
                 _ => {}
             }
@@ -15735,7 +15742,7 @@ pub trait PlatformWindow {
 
         // Call run_all_threads on the layout_window
         let mut app_data = app_data_arc.borrow_mut();
-        let (changes, update) = borrows.layout_window.run_all_threads(
+        let (changes, update, asker) = borrows.layout_window.run_all_threads_naming_the_asker(
             &mut app_data,
             &borrows.window_handle,
             borrows.gl_context_ptr,
@@ -15748,6 +15755,15 @@ pub trait PlatformWindow {
 
         drop(app_data);
         drop(borrows);
+
+        // The thread whose answer asks for a layout pass, and the node that started it: named in the startup timeline.
+        if let Some(thread) = asker {
+            let owner = self
+                .get_layout_window()
+                .and_then(|lw| lw.thread_owners.owner(&thread));
+            self.get_common_mut()
+                .note_refresh_asker(RefreshAsker::ThreadWriteback { thread, owner });
+        }
 
         let mut changes_result = ProcessEventResult::DoNothing;
         for change in &changes {

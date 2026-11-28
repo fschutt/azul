@@ -26461,6 +26461,33 @@ impl LayoutWindow {
         current_window_state: &FullWindowState,
         renderer_resources: &RendererResources,
     ) -> (Vec<crate::callbacks::CallbackChange>, Update) {
+        let (changes, update, _) = self.run_all_threads_naming_the_asker(
+            data,
+            current_window_handle,
+            gl_context,
+            system_style,
+            system_callbacks,
+            previous_window_state,
+            current_window_state,
+            renderer_resources,
+        );
+        (changes, update)
+    }
+
+    /// [`Self::run_all_threads`], and which thread was the first to answer something other than `DoNothing` (a write-back
+    /// that returned `RefreshDom`, a worker that sent an update): the startup timeline names the thread's owner as the
+    /// producer of the layout pass that answer asks for.
+    pub fn run_all_threads_naming_the_asker(
+        &mut self,
+        data: &mut RefAny,
+        current_window_handle: &RawWindowHandle,
+        gl_context: &OptionGlContextPtr,
+        system_style: Arc<azul_css::system::SystemStyle>,
+        system_callbacks: &ExternalSystemCallbacks,
+        previous_window_state: &Option<FullWindowState>,
+        current_window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+    ) -> (Vec<crate::callbacks::CallbackChange>, Update, Option<ThreadId>) {
         use std::collections::BTreeSet;
 
         use crate::{
@@ -26474,6 +26501,7 @@ impl LayoutWindow {
 
         let mut update = Update::DoNothing;
         let mut all_changes = Vec::new();
+        let mut asker: Option<ThreadId> = None;
 
         let current_scroll_states = self.get_nested_scroll_states(DomId::ROOT_ID);
 
@@ -26577,6 +26605,9 @@ impl LayoutWindow {
                     callback,
                 } = match msg {
                     ThreadReceiveMsg::Update(update_screen) => {
+                        if update_screen != Update::DoNothing {
+                            asker.get_or_insert(thread_id);
+                        }
                         update.max_self(update_screen);
                         continue;
                     }
@@ -26618,6 +26649,9 @@ impl LayoutWindow {
                     callback_info,
                 );
                 drop(cb_span);
+                if callback_update != Update::DoNothing {
+                    asker.get_or_insert(thread_id);
+                }
                 update.max_self(callback_update);
 
                 let collected_changes = callback_changes
@@ -26629,7 +26663,7 @@ impl LayoutWindow {
             }
         }
 
-        (all_changes, update)
+        (all_changes, update, asker)
     }
 
     /// Deliver a batch of completed resumable-API requests (see
