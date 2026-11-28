@@ -921,10 +921,7 @@ pub fn button(mut btn: Button) -> Dom {
                 super::decl::BUTTON_FADE_MS,
             ));
         } else {
-            container_style.extend(super::decl::state_fade(
-                super::decl::BUTTON_FACE,
-                super::decl::BUTTON_FADE_MS,
-            ));
+            container_style.extend(flat_face_fade(btn_type));
         }
     }
 
@@ -3427,6 +3424,54 @@ fn segmented_segment(selected: bool, is_first: bool, is_last: bool) -> CssProper
     };
     v.extend(decl::focus_halo_inset_stacked(ring, ring_dark));
     CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Flat's numbers for the label's step ([`super::decl::LabelHold`]): the neutral face and the bootstrap
+/// colours on `decl::BUTTON_FADE_MS` of ease-out, measured on the frames the CPU renderer paints.
+///
+/// * 60 % of the face's time for a DARK label that becomes light (the grey paper to the primary blue: the
+///   dark ink reads on every blue it passes through, the white from a little over half of the way), and
+/// * 12 % for a LIGHT label that becomes dark (a coloured face, or the night's grey, to a light one: the
+///   white ink loses its 3:1 on the yellow and the cyan after a fifth of the way and black ink gains its
+///   own on the night's near-black grey after a tenth: the step has to fall between).
+pub(crate) const FLAT_LABEL_HOLD: super::decl::LabelHold = super::decl::LabelHold { dark: 600, light: 120 };
+
+/// The ink of a flat button's label by its type: dark by day and light by night on the neutral surface
+/// (the grey default, the metal-edged command: the night's face is the desktop's dark grey), dark on the
+/// yellow and the cyan, light on the other colours in both modes; `None` for a link, which has no face.
+#[must_use]
+pub(crate) const fn flat_label_ink(button_type: crate::widgets::button::ButtonType) -> Option<super::decl::LabelInks> {
+    use super::decl::{LabelInk, LabelInks};
+    use crate::widgets::button::ButtonType;
+    match button_type {
+        ButtonType::Default | ButtonType::Illuminated => Some(LabelInks::themed(LabelInk::Dark, LabelInk::Light)),
+        ButtonType::Warning | ButtonType::Info => Some(LabelInks::same(LabelInk::Dark)),
+        ButtonType::Primary | ButtonType::Secondary | ButtonType::Success | ButtonType::Danger => {
+            Some(LabelInks::same(LabelInk::Light))
+        }
+        ButtonType::Link => None,
+    }
+}
+
+/// The face of a flat button follows the pointer, and changes with its kind, in a short fade; its label
+/// does not fade with it but steps ([`super::decl::fade_switching_the_label`]).
+#[must_use]
+pub(crate) fn flat_face_fade(button_type: crate::widgets::button::ButtonType) -> Vec<CssPropertyWithConditions> {
+    use azul_css::props::basic::animation::AnimationTiming;
+    let tweens: Vec<(&'static str, AnimationTiming)> = super::decl::BUTTON_FACE
+        .iter()
+        .map(|name| (*name, AnimationTiming::EaseOut))
+        .collect();
+    match flat_label_ink(button_type) {
+        Some(inks) => super::decl::fade_switching_the_label(
+            &tweens,
+            super::decl::BUTTON_FADE_MS,
+            0,
+            inks,
+            FLAT_LABEL_HOLD,
+        ),
+        None => super::decl::state_fade(super::decl::BUTTON_FACE, super::decl::BUTTON_FADE_MS).to_vec(),
+    }
 }
 
 /// Renders a [`crate::widgets::segmented::Segmented`] in the flat theme.

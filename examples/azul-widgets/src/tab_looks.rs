@@ -240,6 +240,8 @@ fn phone_row(data: &RefAny, demo: &TabLooksDemo, theme: UiTheme) -> Dom {
         .with_on_click(data.clone(), on_click)
         .with_theme(theme)
         .dom()
+        // The handle a scenario finds the button by (`#phone-pixel-8`).
+        .with_id(format!("phone-{}", label.to_lowercase().replace(' ', "-")).as_str())
     };
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; gap: 8px; flex-wrap: wrap;")
