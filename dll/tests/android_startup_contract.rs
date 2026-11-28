@@ -97,7 +97,7 @@ fn the_windows_first_draw_is_held_until_the_first_picture_and_never_trapped() {
     assert!(first.contains("activity instanceof AzulActivity"), "the activity the engine names is the one whose flag is set");
     assert!(first.contains("azul.runOnUiThread(() -> azul.firstFrameShown = true)"), "the engine's word reaches that activity's flag on the UI thread");
 
-    for gone in ["setOnExitAnimationListener", "getSplashScreen", "Splash31", "SPLASH_HOLD_MS"] {
+    for gone in ["SPLASH_HOLD_MS", "removeSplash", "holdStartingWindow"] {
         assert!(!java.contains(gone), "AzulActivity still has `{gone}`: the hold that held a copy of the starting window nobody draws");
     }
 
@@ -157,4 +157,32 @@ fn a_window_made_again_starts_with_no_insets_of_the_one_before() {
         let at = early.find(reset).unwrap_or_else(|| panic!("a new window forgets {what}: `{reset}` is missing"));
         assert!(at < listener, "{what} are forgotten before the new window's listener can keep its own");
     }
+}
+
+/// When the window has drawn, the system takes the starting window away with an exit animation of its own: the icon dims and the window fades out
+/// over the page. In the night mode the starting window is black and the page nearly so, and the fade passes through a window with no icon and no
+/// page: 3 and 2.5 frames median, 4 and 6 worst, of the lab's control at 10 starts per row on Android 14 and 15 (none in the light mode). With an exit
+/// listener that removes the copy of the window the system hands over AT ONCE, the page replaces the starting window in one frame: 0 of 20 night
+/// starts and 0 of 20 light ones show black, a launcher, a light picture or a page that moved. The listener must hold NOTHING: the first draw is
+/// what is held (`holdFirstDraw`); a listener that keeps the copy for later is the E60 hold again, which held a view in a window nobody draws.
+///
+/// Mutation: the listener keeping the view (the state of 98d415cb4e); no listener (the system's fade through black in the night mode).
+#[test]
+fn the_starting_window_goes_in_one_frame_when_the_window_draws() {
+    let java = java_code("scripts/android/AzulActivity.java");
+    let create = body(&java, "protected void onCreate(Bundle savedInstanceState)");
+    let hold = create.find("holdFirstDraw();").expect("the first draw is held");
+    let cut = create
+        .find("if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {Splash31.cut(this);}")
+        .or_else(|| create.find("Splash31.cut(this);"))
+        .expect("onCreate sets the exit listener, on Android 12 and later");
+    assert!(hold < cut, "after the hold is in place");
+    assert!(create[..cut].contains("VERSION_CODES.S"), "only where the API exists");
+    let listener = body(&java, "private static final class Splash31");
+    assert!(
+        listener.contains("activity.getSplashScreen().setOnExitAnimationListener(view -> view.remove());"),
+        "the copy of the starting window is removed the moment the system hands it over: {listener}"
+    );
+    assert!(!listener.contains("postDelayed") && !listener.contains("Handler") && !listener.contains("static Runnable"), "no timer, nothing kept for later");
+    assert!(listener.contains("catch (RuntimeException"), "a system that refuses leaves its own exit, not a crash");
 }

@@ -110,6 +110,10 @@ public class AzulActivity extends NativeActivity {
         super.onCreate(savedInstanceState);
         // The window's first draw waits for the engine's first picture: the system's starting window stays until then.
         holdFirstDraw();
+        // And then it goes in one frame, not by the system's exit animation (Android 12 and later).
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            Splash31.cut(this);
+        }
         // The insets of the window's FIRST dispatch (before its surface exists) are kept for the engine's first layout.
         NativeTextBridge.installEarlyInsetsListener(this);
         // A tap on a notification of an app that was not running started
@@ -278,6 +282,27 @@ public class AzulActivity extends NativeActivity {
                 return true;
             }
         });
+    }
+
+    /**
+     * THE STARTING WINDOW GOES IN ONE FRAME.
+     *
+     * When the window has drawn, the system takes the starting window away with an exit animation of its own: the icon dims and the window fades
+     * out over the page. In the night mode the starting window is black and the page nearly so, and the fade passes through a window with no icon
+     * and no page (the lab's control, 10 starts per row on Android 14 and 15: 3 and 2.5 frames median, 4 and 6 worst; none in the light mode).
+     * With an exit listener the system hands the app a copy of the window to remove when it wants: removed at once, the page replaces the starting
+     * window in one frame (0 frames of it in 20 of 20 night starts and 20 of 20 light ones, and no launcher showing through, no light picture, no
+     * page that moved). The listener holds nothing: the first draw is held by {@link #holdFirstDraw}, which is what the E60 hold got wrong (a copy
+     * of the window in a view tree nobody draws does not hold the one on the screen).
+     */
+    private static final class Splash31 {
+        static void cut(android.app.Activity activity) {
+            try {
+                activity.getSplashScreen().setOnExitAnimationListener(view -> view.remove());
+            } catch (RuntimeException e) {
+                // The system's own exit then.
+            }
+        }
     }
 
     /**
