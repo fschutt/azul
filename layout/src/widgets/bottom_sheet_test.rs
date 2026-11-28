@@ -162,12 +162,13 @@ fn every_pointer_event_is_wired_on_the_root_and_the_keys_on_the_grip_only() {
         dom.root.callbacks.as_ref().iter().map(|c| (c.event, c.callback.cb)).collect();
     let expected: Vec<(EventFilter, usize)> = vec![
         (EventFilter::Hover(HoverEventFilter::MouseDown), on_press as usize),
-        (EventFilter::Hover(HoverEventFilter::MouseOver), on_move as usize),
-        (EventFilter::Hover(HoverEventFilter::MouseUp), on_release as usize),
-        (EventFilter::Hover(HoverEventFilter::MouseLeave), on_leave as usize),
         (EventFilter::Hover(HoverEventFilter::TouchStart), on_press as usize),
-        (EventFilter::Hover(HoverEventFilter::TouchMove), on_move as usize),
-        (EventFilter::Hover(HoverEventFilter::TouchEnd), on_release as usize),
+        (EventFilter::Window(WindowEventFilter::MouseOver), on_move as usize),
+        (EventFilter::Window(WindowEventFilter::TouchMove), on_move as usize),
+        (EventFilter::Window(WindowEventFilter::MouseUp), on_release as usize),
+        (EventFilter::Window(WindowEventFilter::TouchEnd), on_release as usize),
+        (EventFilter::Window(WindowEventFilter::TouchCancel), on_cancel as usize),
+        (EventFilter::Hover(HoverEventFilter::MouseLeave), on_leave as usize),
     ];
     assert_eq!(wired, expected);
     let grip = first(&dom, BOTTOM_SHEET_GRIP_CLASS).expect("a grip");
@@ -182,7 +183,7 @@ fn every_pointer_event_is_wired_on_the_root_and_the_keys_on_the_grip_only() {
 fn one_state_is_shared_by_every_callback_of_the_sheet() {
     let dom = sheet().dom();
     let mut first_cb = dom.root.callbacks.as_ref()[0].refany.clone();
-    let mut last_cb = dom.root.callbacks.as_ref()[6].refany.clone();
+    let mut last_cb = dom.root.callbacks.as_ref()[7].refany.clone();
     {
         let mut st = first_cb.downcast_mut::<DragState>().expect("the sheet's state");
         st.armed = true;

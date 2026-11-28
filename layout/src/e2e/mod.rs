@@ -89,6 +89,11 @@ mod mode_ops_tests;
 #[cfg(test)]
 mod display_ops_tests;
 
+// Pointer capture in the runner: a node that captures the pointer in its press handler gets the moves and the release wherever
+// the mouse goes, as in the shells.
+#[cfg(test)]
+mod pointer_capture_ops_tests;
+
 // The BottomSheet under a finger and under the keys: the touch ops, the sheet following the finger and settling on a detent, the
 // app told what a phone's app would be told, the layout at rest, through the real dispatcher on a headless window.
 #[cfg(test)]

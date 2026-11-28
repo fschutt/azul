@@ -1238,6 +1238,18 @@ impl Runner {
                 .apply_press_target_capture(&mut synthetic_events, &in_release_path);
         }
 
+        // POINTER CAPTURE: while a node holds the pointer (`CallbackInfo::capture_pointer`), the captured seat's moves and its release go
+        // to IT, not to whatever the hit test found, and the release ends the capture. The DLL does this right after the press-target
+        // capture (shell2/common/event.rs); this runner stored the capture (`CallbackChange::CapturePointer`) and never applied it, so
+        // a scenario's drag that left the node's box (a slider's thumb, a colour plane, any widget that captures) stopped following
+        // the mouse in the harness while it followed it on the device.
+        if let Some(captured) = self.layout_window.pointer_capture {
+            let released = crate::managers::hover::apply_pointer_capture(&mut synthetic_events, captured);
+            if released {
+                self.layout_window.pointer_capture = None;
+            }
+        }
+
         // Clear the one-shot pending-event flags now that this pass has
         // collected them — one event per change, not one per frame (the DLL
         // does this at the same point, right after determination).

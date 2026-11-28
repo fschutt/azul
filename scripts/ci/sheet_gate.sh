@@ -6,6 +6,7 @@
 #
 # Steps (SHEET_ONLY names them; none named = all of them):
 #   tests      the widget's tests by name, in azul-layout, with the CI's feature list
+#   e2e_all    every test of azul-layout's e2e module (the runner's pointer capture)
 #   phone_tests  the integration tests of the phone layouts of AzMaps (layout/tests/azul_maps_*): the floating layout and the banner
 #   clippy     the CI's clippy line of azul-layout, the test targets included
 #   autofix    api.json through azul-doc: `autofix add` for the new functions, patches until there are none, normalize; the result is
@@ -44,6 +45,13 @@ tests() {
   return "${PIPESTATUS[0]}"
 }
 run tests tests
+
+# every scenario of the e2e module of azul-layout: the runner applies pointer capture now (as the shells do), which must not move another one
+e2e_all() {
+  AZ_REQUIRE_TEST_FONTS=1 cargo test -p azul-layout --lib --features "$features" --no-fail-fast -- e2e:: 2>&1 | tee e2e-all.txt
+  return "${PIPESTATUS[0]}"
+}
+run e2e_all e2e_all
 
 # the integration tests of the phone layouts of AzMaps (they read the app's source: ui.rs, lib.rs, flow.rs, drive_ui.rs)
 phone_tests() {

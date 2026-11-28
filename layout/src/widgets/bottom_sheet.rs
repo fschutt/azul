@@ -26,6 +26,10 @@
 //! detent up (from the highest back to the lowest), and the focused grip answers the keys: Up /
 //! Down step a detent, Home / End go to the highest / lowest, Enter and Space step as a tap does.
 //!
+//! A press that began on the sheet is followed wherever the pointer goes: the moves and the release are window-level events
+//! (a finger or a mouse that outruns the sheet's top edge before the layout catches up keeps the drag; a touch is delivered to the
+//! node under it only, and pointer capture is of the mouse's events only).
+//!
 //! The sheet owns nothing: the app keeps the detent, hears every drag step and every settling
 //! through ONE callback ([`BottomSheetOnEvent`]) and rebuilds with the detent it heard (a sheet whose
 //! app does not store it goes back to the detent it was built at, when the app next builds). A drag
@@ -55,7 +59,7 @@ use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole},
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClassVec, TabIndex},
-    events::FocusEventFilter,
+    events::{FocusEventFilter, WindowEventFilter},
     refany::{OptionRefAny, RefAny},
     window::VirtualKeyCode,
 };
@@ -605,9 +609,8 @@ fn millis(info: &CallbackInfo, st: &mut DragState) -> u64 {
 }
 
 /// The height of the box the sheet floats in, as the layout has it now (the build's number when
-/// the layout has none: the sheet's parent is the positioned box).
-fn measured_container(info: &CallbackInfo, built: f32) -> f32 {
-    let root = info.get_hit_node();
+/// the layout has none): the height of the parent of the sheet's `root`, the positioned box.
+fn measured_container(info: &CallbackInfo, root: DomNodeId, built: f32) -> f32 {
     info.get_parent(root)
         .and_then(|parent| info.get_node_size(parent))
         .map(|size| size.height)
@@ -625,7 +628,7 @@ extern "C" fn on_press(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some(mut st) = data.downcast_mut::<DragState>() else {
         return Update::DoNothing;
     };
-    let container = measured_container(&info, st.container);
+    let container = measured_container(&info, info.get_hit_node(), st.container);
     let now = millis(&info, &mut st);
     st.press(y, rect.origin.y, rect.size.height, container, now);
     Update::DoNothing
@@ -645,11 +648,9 @@ extern "C" fn on_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(step) = st.drag_to(y, now) else {
         return Update::DoNothing;
     };
+    // A press that began on the sheet is followed wherever the pointer goes (the moves and the release are window-level events, see
+    // `build`): a finger or a mouse that outruns the sheet's top edge does not lose the drag.
     let root = info.get_hit_node();
-    if step.started {
-        // Past the slop the press is a drag: the pointer is the sheet's until it is let go.
-        info.capture_pointer(root);
-    }
     follow_pointer(&mut info, root, step.height);
     report(&mut st, info, BottomSheetEventKind::Dragged)
 }
@@ -687,6 +688,15 @@ extern "C" fn on_leave(mut data: RefAny, info: CallbackInfo) -> Update {
     finish(&mut st, info, true)
 }
 
+/// The system took the touch (a swipe from the edge, an incoming call): a drag in flight ends where it was and settles as a release
+/// would, a press that never moved is let go.
+extern "C" fn on_cancel(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(mut st) = data.downcast_mut::<DragState>() else {
+        return Update::DoNothing;
+    };
+    finish(&mut st, info, true)
+}
+
 /// The keys on the focused grip.
 extern "C" fn on_grip_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(code) = info.get_current_keyboard_state().current_virtual_keycode.into_option() else {
@@ -704,7 +714,7 @@ extern "C" fn on_grip_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(root) = info.get_parent(grip) else {
         return Update::DoNothing;
     };
-    st.container = measured_container(&info, st.container);
+    st.container = measured_container(&info, root, st.container);
     let px = st.rest(wanted);
     rest_at(&mut info, root, px);
     report(&mut st, info, BottomSheetEventKind::Settled)
@@ -897,13 +907,15 @@ fn build(sheet: BottomSheet) -> Dom {
     .with_accessibility_info(AccessibilityInfo::named(label, AccessibilityRole::Pane))
     .with_callbacks(
         alloc::vec![
+            // the press must land on the sheet; everything after it is followed wherever the pointer goes
             cb(EventFilter::Hover(HoverEventFilter::MouseDown), state.clone(), on_press),
-            cb(EventFilter::Hover(HoverEventFilter::MouseOver), state.clone(), on_move),
-            cb(EventFilter::Hover(HoverEventFilter::MouseUp), state.clone(), on_release),
-            cb(EventFilter::Hover(HoverEventFilter::MouseLeave), state.clone(), on_leave),
             cb(EventFilter::Hover(HoverEventFilter::TouchStart), state.clone(), on_press),
-            cb(EventFilter::Hover(HoverEventFilter::TouchMove), state.clone(), on_move),
-            cb(EventFilter::Hover(HoverEventFilter::TouchEnd), state.clone(), on_release),
+            cb(EventFilter::Window(WindowEventFilter::MouseOver), state.clone(), on_move),
+            cb(EventFilter::Window(WindowEventFilter::TouchMove), state.clone(), on_move),
+            cb(EventFilter::Window(WindowEventFilter::MouseUp), state.clone(), on_release),
+            cb(EventFilter::Window(WindowEventFilter::TouchEnd), state.clone(), on_release),
+            cb(EventFilter::Window(WindowEventFilter::TouchCancel), state.clone(), on_cancel),
+            cb(EventFilter::Hover(HoverEventFilter::MouseLeave), state.clone(), on_leave),
         ]
         .into(),
     )
