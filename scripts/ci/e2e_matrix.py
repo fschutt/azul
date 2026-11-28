@@ -332,11 +332,20 @@ def merge(record_sets, scns):
     return table
 
 
+def verdict_class(record):
+    """The verdict as the table compares it: a failure of any kind is FAIL, a platform that did not run the test says nothing."""
+    if not record or record["verdict"] in ("N/A", "not run"):
+        return None
+    return "FAIL" if record["verdict"] in ("FAIL", "NO VERDICT", "XPASS") else record["verdict"]
+
+
 def render_markdown(table, scns):
-    """The matrix as Markdown: one row per test, then a totals table per platform."""
+    """The matrix as Markdown: one row per test with a `same` / `DIFFERENT` mark over the platforms that ran it, the list of the tests whose
+    verdicts differ, then a totals table per platform."""
     order = [(s["rel"], t["name"]) for s in scns for t in s["tests"]]
-    lines = ["# The same e2e files on desktop, Android and iOS", "", "| file | test | desktop | android | ios |", "|---|---|---|---|---|"]
+    lines = ["# The same e2e files on desktop, Android and iOS", "", "| file | test | desktop | android | ios | verdicts |", "|---|---|---|---|---|---|"]
     counts = {p: {} for p in PLATFORMS}
+    different = []
     for key in order:
         row = table.get(key, {})
         cells = []
@@ -345,7 +354,19 @@ def render_markdown(table, scns):
             cells.append(cell(r))
             verdict = r["verdict"] if r else "not run"
             counts[p][verdict] = counts[p].get(verdict, 0) + 1
-        lines.append(f"| {key[0]} | {key[1][:60]} | " + " | ".join(cells) + " |")
+        classes = {p: verdict_class(row.get(p)) for p in PLATFORMS}
+        ran = {c for c in classes.values() if c}
+        agree = len(ran) <= 1
+        if not agree:
+            different.append((key, row, classes))
+        lines.append(f"| {key[0]} | {key[1][:60]} | " + " | ".join(cells) + f" | {'same' if agree else 'DIFFERENT'} |")
+    lines += ["", "## Where the verdicts differ", ""]
+    if not different:
+        lines.append("- nowhere: every test that ran on more than one platform has the same verdict on all of them")
+    for key, row, classes in different:
+        parts = [f"{p} {row[p]['verdict']}" + (f" ({row[p].get('detail', '')[:110]})" if row[p]["verdict"] != "PASS" and row[p].get("detail") else "")
+                 for p in PLATFORMS if classes[p]]
+        lines.append(f"- {key[0]} :: {key[1][:70]}: " + ", ".join(parts))
     verdicts = sorted({v for c in counts.values() for v in c})
     lines += ["", "## Totals", "", "| platform | " + " | ".join(verdicts) + " |", "|---|" + "---|" * len(verdicts)]
     for p in PLATFORMS:
