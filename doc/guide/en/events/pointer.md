@@ -216,13 +216,10 @@ dials on the tablet body rather than the stylus.
 pipeline, which is how automated tests drive one.
 
 **Menus and feedback** - `open_menu`, `open_menu_at`,
-`invoke_system_dialog`, `play_haptic`, `play_haptic_request`,
-`play_system_sound`.
+`invoke_system_dialog`, `play_haptic`, `play_haptic_request`.
 `open_menu()` places a context menu at the pointer and `open_menu_at()`
 at a position you choose; `play_haptic()` takes a pattern and a target,
-`play_haptic_request()` a prepared request. `play_system_sound()` asks for
-the sound the platform itself plays for a meaning (a tab change, an error);
-see [Sounds](../system/sounds.md).
+`play_haptic_request()` a prepared request.
 
 See also [Scrolling](scrolling.md) for wheel and momentum, and
 [Node Tree & Hit Testing](node-tree.md) for resolving which node a
