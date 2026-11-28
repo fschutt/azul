@@ -1891,6 +1891,35 @@ class AndroidBuildAllScriptTest(unittest.TestCase):
         for name in ("mobile-e2e", "mobile-iroh"):
             self.assertNotIn(name, "\n".join(l for l in self.text.splitlines() if not l.lstrip().startswith("#")))
 
+    def legs_of(self, only):
+        """The lines the script's plan reader writes (kind, variant, apps...) for android-x86_64, with AZ_ONLY_APPS=`only`: the
+        reader itself, cut out of the script and run for real on the real plan."""
+        start = self.text.index("python3 - \"$col\" > demo-out/plan-legs.txt <<'PY'\n")
+        body_start = self.text.index("\n", start) + 1
+        body = self.text[body_start:self.text.index("\nPY\n", body_start)]
+        plan = subprocess.run([sys.executable, str(HERE / "demo_apps.py"), "plan", "--e2e"], capture_output=True, text=True, check=True)
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "demo-out").mkdir()
+            (pathlib.Path(d) / "demo-out" / "plan.txt").write_text(plan.stdout, encoding="utf-8")
+            (pathlib.Path(d) / "scripts").symlink_to(HERE)
+            out = subprocess.run([sys.executable, "-c", body, "android-x86_64"], cwd=d, env=dict(os.environ, AZ_ONLY_APPS=only),
+                                 capture_output=True, text=True, check=True)
+        return [line.split("\t") for line in out.stdout.splitlines()]
+
+    def test_a_run_for_a_few_apps_builds_only_their_libraries_and_their_builds(self):
+        # no AZ_ONLY_APPS: every library and every build of the plan, as it was
+        everything = self.legs_of("")
+        self.assertEqual([l[1] for l in everything if l[0] == "lib"], ["mobile", "mobile-iroh", "mobile-e2e", "mobile-e2e-iroh"])
+        # three apps without iroh: the plain library and the QA one, the shipped build and the QA build of those apps, nothing else
+        mine = self.legs_of("AzClock AzCalculator AzReader")
+        self.assertEqual(mine, [["lib", "mobile"], ["lib", "mobile-e2e"],
+                                ["apps", "-", "AzCalculator AzClock AzReader"],
+                                ["apps", "mobile-e2e", "AzCalculator AzClock AzReader"]])
+        # an app that uses iroh brings the iroh libraries of its builds
+        meet = self.legs_of("AzMeet")
+        self.assertEqual(meet, [["lib", "mobile-iroh"], ["lib", "mobile-e2e-iroh"],
+                                ["apps", "-", "AzMeet"], ["apps", "mobile-e2e-iroh", "AzMeet"]])
+
     def test_it_deletes_only_on_a_runner(self):
         lines = self.text.splitlines()
         for i, line in enumerate(lines):

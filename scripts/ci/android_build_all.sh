@@ -5,6 +5,7 @@
 # ARTIFACTS, never shipped).
 #
 #   bash scripts/ci/android_build_all.sh [<rust-target>]            default x86_64-linux-android
+#   AZ_ONLY_APPS="AzClock AzReader" bash scripts/ci/android_build_all.sh   only those apps, and only the libraries they link
 #
 # Everything lands in demo-out/: apps/<App>-android-x86_64.apk (and apps/AzWidgets-e2e-android-x86_64.apk), results/*.json (one per app,
 # the QA builds' with "variant"), libs/*/libazul.info.json (seconds and bytes of each library), elf-check-*.txt (every PT_LOAD of every
@@ -47,19 +48,36 @@ python3 scripts/demo_apps.py plan --e2e | tee demo-out/plan.txt
 # What the plan builds for this column: every library (what ships: the plain one and the iroh one of the apps that use iroh; the QA
 # variants: mobile-e2e, and its iroh twin mobile-e2e-iroh for the QA builds of those apps) and every build (the shipped apps, then the QA
 # builds of each QA variant). The plain variant of a build is written "-".
+#
+# AZ_ONLY_APPS="AzClock AzReader" (blank separated) is a run for those apps only: their builds (the shipped one and the QA one), and only
+# the libraries those builds link: an agent that works on three apps does not wait for the iroh libraries and the other apps' APKs.
 python3 - "$col" > demo-out/plan-legs.txt <<'PY'
-import json, sys
+import json, os, subprocess, sys
 col = sys.argv[1]
+only = os.environ.get("AZ_ONLY_APPS", "").split()
 plan = {}
 for line in open("demo-out/plan.txt"):
     key, _, value = line.rstrip("\n").partition("=")
     plan[key] = value
-for e in json.loads(plan["libs_android"])["include"]:
-    if e["leg"] == col:
-        print("lib", e["variant"], sep="\t")
-for e in json.loads(plan["apps_android"])["include"]:
-    if e["leg"] == col:
-        print("apps", e["variant"] or "-", e["apps"], sep="\t")
+libs = [e["variant"] for e in json.loads(plan["libs_android"])["include"] if e["leg"] == col]
+legs = [(e["variant"] or "-", e["apps"]) for e in json.loads(plan["apps_android"])["include"] if e["leg"] == col]
+if only:
+    legs = [(v, " ".join(a for a in s.split() if a in only)) for v, s in legs]
+    legs = [(v, s) for v, s in legs if s]
+    # a QA build links the library of its variant; a shipped app the one its manifest names (plain, or the iroh one)
+    wanted = set()
+    for variant, apps in legs:
+        if variant != "-":
+            wanted.add(variant)
+            continue
+        for app in apps.split():
+            lib = subprocess.run([sys.executable, "scripts/demo_apps.py", "mobile-lib", app], capture_output=True, text=True, check=True)
+            wanted.add(lib.stdout.strip())
+    libs = [v for v in libs if v in wanted]
+for variant in libs:
+    print("lib", variant, sep="\t")
+for variant, apps in legs:
+    print("apps", variant, apps, sep="\t")
 PY
 cat demo-out/plan-legs.txt
 
