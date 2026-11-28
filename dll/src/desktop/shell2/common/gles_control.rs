@@ -8,6 +8,7 @@
 //!    framebuffer drawn with a shader that samples the texture: the picture cache tile and the composite;
 //! 4. `instanced`: a VAO with a vertex buffer, an index buffer and a per-instance buffer holding a `vec4` and an `ivec4` (integer
 //!    attribute, divisor 1), drawn with `glDrawElementsInstanced`, sampling the same texture: `composite` of WebRender;
+//! 4b. `flat_lowp`: the quad pipeline's varyings, `flat lowp ivec4` carrying values that need more than eight bits and a `flat mediump vec4`;
 //! 5. `data_textures`: an RGBA32F and an RGBA32I texture fetched with `texelFetch`: WebRender's GPU cache and prim headers;
 //! 5d. `pbo_upload`: the same two textures filled through a pixel unpack buffer (`glMapBufferRange`, `glUnmapBuffer`, `glTexSubImage2D` from an
 //!     offset with `GL_UNPACK_ROW_LENGTH`, the buffer mapped a second time unsynchronized): WebRender's `TextureUploader`;
@@ -213,6 +214,8 @@ const VERTEX_FETCH_FS: &str = "#version 300 es\nprecision highp float;\nin vec4 
 /// WebRender's `gpu_cache_update`: one point per texel, written into a float texture (the GPU cache of every phone's frame).
 const SCATTER_VS: &str = "#version 300 es\nin vec4 aValue;\nin vec2 aPosition;\nout highp vec4 vData;\nvoid main() {\n    vData = aValue;\n    gl_Position = vec4(aPosition * 2.0 - 1.0, 0.0, 1.0);\n    gl_PointSize = 1.0;\n}\n";
 const SCATTER_FS: &str = "#version 300 es\nprecision highp float;\nin highp vec4 vData;\nout vec4 oValue;\nvoid main() {\n    oValue = vData;\n}\n";
+const FLAGS_VS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nlayout(location = 0) in vec2 aPosition;\nlayout(location = 1) in vec4 aRect;\nlayout(location = 2) in ivec4 aData;\nuniform mat4 uTransform;\nflat out mediump vec4 v_color;\nflat out lowp ivec4 v_flags;\nvoid main() {\n    vec2 pos = aRect.xy + aPosition * aRect.zw;\n    gl_Position = uTransform * vec4(pos, 0.0, 1.0);\n    v_color = vec4(0.25, 0.5, 0.75, 1.0);\n    v_flags = aData;\n}\n";
+const FLAGS_FS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nflat in mediump vec4 v_color;\nflat in lowp ivec4 v_flags;\nout vec4 oColour;\nvoid main() {\n    bool first = v_flags.x == 1500 && v_flags.y == 300 && v_flags.z == 2 && v_flags.w == 1;\n    bool second = v_flags.x == 7 && v_flags.y == 3 && v_flags.z == 0 && v_flags.w == 0;\n    bool colour_ok = abs(v_color.r - 0.25) < 0.01 && abs(v_color.g - 0.5) < 0.01 && abs(v_color.b - 0.75) < 0.01;\n    oColour = (first || second) ? (colour_ok ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 1.0, 0.0, 1.0)) : vec4(1.0, 0.0, 0.0, 1.0);\n}\n";
 
 /// The programs of the ladder, the ones that built; a phase whose program did not says why.
 struct Programs {
@@ -223,6 +226,7 @@ struct Programs {
     instanced: Result<u32, String>,
     scatter: Result<u32, String>,
     vertex_fetch: Result<u32, String>,
+    flags: Result<u32, String>,
 }
 
 impl Programs {
@@ -240,11 +244,12 @@ impl Programs {
             ),
             scatter: program_of(gl, SCATTER_VS, SCATTER_FS, &[(0, "aPosition"), (1, "aValue")]),
             vertex_fetch: program_of(gl, VERTEX_FETCH_VS, VERTEX_FETCH_FS, &[(0, "aPosition"), (1, "aData")]),
+            flags: program_of(gl, FLAGS_VS, FLAGS_FS, &[(0, "aPosition"), (1, "aRect"), (2, "aData")]),
         }
     }
 
     fn delete(&self, gl: &GenericGlContext) {
-        for program in [&self.flat, &self.texture, &self.fetch_float, &self.fetch_int, &self.instanced, &self.scatter, &self.vertex_fetch]
+        for program in [&self.flat, &self.texture, &self.fetch_float, &self.fetch_int, &self.instanced, &self.scatter, &self.vertex_fetch, &self.flags]
             .into_iter()
             .flatten()
         {
@@ -262,6 +267,7 @@ impl Programs {
             ("instanced", &self.instanced),
             ("scatter", &self.scatter),
             ("vertex_fetch", &self.vertex_fetch),
+            ("flags", &self.flags),
         ]
         .into_iter()
         .filter_map(|(name, result)| result.as_ref().err().map(|why| format!("program {name}: {why}")))
@@ -576,6 +582,95 @@ fn phase_instanced(gl: &GenericGlContext, target: Target, programs: &Programs) -
     gl.delete_vertex_arrays(&[vao]);
     gl.delete_buffers(&[corners, indices, instances]);
     free_tile(gl, target, &tile);
+    result
+}
+
+/// 4b. The quad pipeline's varyings: `flat lowp ivec4 v_flags` (WebRender's `ps_quad` passes flags and the gpu buffer addresses of a pattern
+/// in it) and `flat mediump vec4 v_color`, two instances with integer records that need more than eight bits (1500 and 300). Both halves
+/// of the window must come out green.
+fn phase_flat_lowp(gl: &GenericGlContext, target: Target, programs: &Programs) -> Row {
+    let program = match &programs.flags {
+        Ok(program) => *program,
+        Err(why) => return failed("flat_lowp", format!("the program did not build: {why}")),
+    };
+    let size = target.size;
+    window_target(gl, target);
+    gl.clear_color(0.2, 0.2, 0.2, 1.0);
+    gl.clear(glconst::COLOR_BUFFER_BIT);
+
+    let vao = gl.gen_vertex_arrays(1).first().copied().unwrap_or(0);
+    let buffers = gl.gen_buffers(3);
+    let (corners, indices, instances) = (
+        buffers.first().copied().unwrap_or(0),
+        buffers.get(1).copied().unwrap_or(0),
+        buffers.get(2).copied().unwrap_or(0),
+    );
+    gl.bind_vertex_array(vao);
+    let quad: [f32; 8] = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+    let quad_bytes: Vec<u8> = quad.iter().flat_map(|v| v.to_ne_bytes()).collect();
+    gl.bind_buffer(glconst::ARRAY_BUFFER, corners);
+    gl.buffer_data_untyped(
+        glconst::ARRAY_BUFFER,
+        isize::try_from(quad_bytes.len()).unwrap_or(0),
+        quad_bytes.as_ptr().cast(),
+        glconst::STATIC_DRAW,
+    );
+    gl.vertex_attrib_pointer(0, 2, glconst::FLOAT, false, 8, 0);
+    gl.enable_vertex_attrib_array(0);
+    let records: [([f32; 4], [i32; 4]); 2] = [
+        ([0.0, 0.0, 0.5, 1.0], [1500, 300, 2, 1]),
+        ([0.5, 0.0, 0.5, 1.0], [7, 3, 0, 0]),
+    ];
+    let mut instance_bytes: Vec<u8> = Vec::new();
+    for (rect, data) in &records {
+        instance_bytes.extend(rect.iter().flat_map(|v| v.to_ne_bytes()));
+        instance_bytes.extend(data.iter().flat_map(|v| v.to_ne_bytes()));
+    }
+    gl.bind_buffer(glconst::ARRAY_BUFFER, instances);
+    gl.buffer_data_untyped(
+        glconst::ARRAY_BUFFER,
+        isize::try_from(instance_bytes.len()).unwrap_or(0),
+        instance_bytes.as_ptr().cast(),
+        glconst::STATIC_DRAW,
+    );
+    gl.vertex_attrib_pointer(1, 4, glconst::FLOAT, false, 32, 0);
+    gl.enable_vertex_attrib_array(1);
+    gl.vertex_attrib_divisor(1, 1);
+    gl.vertex_attrib_i_pointer(2, 4, glconst::INT, 32, 16);
+    gl.enable_vertex_attrib_array(2);
+    gl.vertex_attrib_divisor(2, 1);
+    let index_values: [u16; 6] = [0, 1, 2, 2, 1, 3];
+    let index_bytes: Vec<u8> = index_values.iter().flat_map(|v| v.to_ne_bytes()).collect();
+    gl.bind_buffer(glconst::ELEMENT_ARRAY_BUFFER, indices);
+    gl.buffer_data_untyped(
+        glconst::ELEMENT_ARRAY_BUFFER,
+        isize::try_from(index_bytes.len()).unwrap_or(0),
+        index_bytes.as_ptr().cast(),
+        glconst::STATIC_DRAW,
+    );
+    gl.use_program(program);
+    let transform: [f32; 16] = [
+        2.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -1.0, -1.0, 0.0, 1.0,
+    ];
+    let transform_location = gl.get_uniform_location(program, "uTransform");
+    gl.uniform_matrix_4fv(transform_location, false, &transform);
+    gl.draw_elements_instanced(glconst::TRIANGLES, 6, glconst::UNSIGNED_SHORT, 0, 2);
+    gl.finish();
+
+    let (w, h) = (size.0.max(8), size.1.max(8));
+    let checks = [
+        ("left instance (1500, 300, 2, 1)", GREEN, px(gl, w / 4, h / 2)),
+        ("right instance (7, 3, 0, 0)", GREEN, px(gl, 3 * w / 4, h / 2)),
+    ];
+    let error = gl.get_error();
+    let result = row("flat_lowp", &checks, error, "red: a flat lowp ivec4 varying lost its value; yellow: the mediump colour did");
+
+    gl.use_program(0);
+    gl.bind_vertex_array(0);
+    gl.bind_buffer(glconst::ARRAY_BUFFER, 0);
+    gl.bind_buffer(glconst::ELEMENT_ARRAY_BUFFER, 0);
+    gl.delete_vertex_arrays(&[vao]);
+    gl.delete_buffers(&[corners, indices, instances]);
     result
 }
 
@@ -1287,12 +1382,13 @@ fn phase_shared_depth(gl: &GenericGlContext, target: Target, programs: &Programs
 }
 
 /// The phases, by name, in the order the ladder runs them.
-pub const PHASES: [&str; 12] = [
+pub const PHASES: [&str; 13] = [
     "clear",
     "shader",
     "dummy_texture",
     "fbo_sample",
     "instanced",
+    "flat_lowp",
     "data_textures",
     "pbo_upload",
     "vertex_fetch",
@@ -1324,6 +1420,7 @@ pub fn run_ladder(gl: &GenericGlContext, target: Target, show: &mut dyn FnMut(&'
             "dummy_texture" => phase_dummy_texture(gl, target, &programs),
             "fbo_sample" => phase_fbo_sample(gl, target, &programs),
             "instanced" => phase_instanced(gl, target, &programs),
+            "flat_lowp" => phase_flat_lowp(gl, target, &programs),
             "data_textures" => phase_data_textures(gl, target, &programs),
             "pbo_upload" => phase_pbo_upload(gl, target, &programs),
             "vertex_fetch" => phase_vertex_fetch(gl, target, &programs),

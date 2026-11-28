@@ -26,6 +26,7 @@ fn the_phases_have_the_names_the_log_and_the_report_use() {
             "dummy_texture",
             "fbo_sample",
             "instanced",
+            "flat_lowp",
             "data_textures",
             "pbo_upload",
             "vertex_fetch",
