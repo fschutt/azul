@@ -4671,7 +4671,9 @@ fn pill_row_style(mut s: RibbonStyle, theme: UiTheme) -> RibbonStyle {
         v.push(Cond::simple(decl::fill(ColorU::TRANSPARENT)));
         v.push(Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(0))));
         v.push(Cond::simple(P::const_height(LayoutHeight::const_px(LEATHER_CONTENT_PX))));
-        v.extend(decl::padding(4, 6, 0, 6));
+        // no padding at the sides: the groups bring their own, and the width the ribbon scales its groups
+        // to (`Ribbon::scales_for`) is the whole width less a slack of a few px
+        v.extend(decl::padding(4, 0, 0, 0));
         s.content_style = some(v);
     }
     s

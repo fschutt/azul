@@ -1443,7 +1443,9 @@ pub(crate) fn ribbon_leather_style(
     let mut group = alloc::vec![P::simple(CssProperty::const_border_right_width(
         LayoutBorderRightWidth::const_px(0),
     ))];
-    group.extend(decl::padding(0, 6, 0, 6));
+    // the frame of a group is what the ribbon's width estimate counts (`GROUP_FRAME_PX`, 5 px): a wider one
+    // pushed the last group of a tab 2 px out of a 600 px window
+    group.extend(decl::padding(0, 3, 0, 2));
     group.extend(decl::themed_layers(
         alloc::vec![seam(ColorU::new(40, 30, 15, 20), ColorU::new(255, 255, 255, 77))],
         alloc::vec![seam(ColorU::new(0, 0, 0, 102), ColorU::new(255, 255, 255, 10))],

@@ -170,6 +170,8 @@ fn a_flora_ribbon_spaces_its_curved_tab_row_for_its_curves() {
     .with_app_button(RibbonAppButton::new("FILE".into()))
     .with_active_tab(1)
     .with_theme(UiTheme::Flora)
+    // the curved row is the ribbon's square-tab row; `Auto` is the buttons on the leather
+    .with_tab_style(TabStyle::Rectangular)
     .with_available_width(640.0);
     let lw = laid_out(ribbon.dom_desktop());
     let mut row = rects_of(&lw, RIBBON_APP_BUTTON);
