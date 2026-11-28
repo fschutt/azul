@@ -119,9 +119,11 @@ def desktop_steps(primary):
     s += click("#__azcode_activity-git") + rest(1200) + exists("#__azcode_git-panel") + shot()          # 5 source control (the sample is no repository)
     s += click("#__azcode_activity-run") + rest(600) + exists("#__azcode_run-panel", "#__azcode_task-0") + shot()   # 6 run: cargo's tasks
     s += click("#__azcode_activity-search") + exists("#__azcode_search-panel") + click("#__azcode_activity-explorer")
-    s += click("#__azcode_status-problems") + exists("#__azcode_panel", "#__azcode_panel-tab-problems") + shot()   # 7 the panel: problems
-    s += click("#__azcode_status-output") + exists("#__azcode_output") + shot()                          # 8 the panel: output
-    s += click("#__azcode_status-terminal") + rest(1500) + exists("#__azcode_panel") + shot()           # 9 the panel: terminal
+    # The panel's three views by the keys of the card's commands (azul's status bar has no ids for its segments to click; a keyboard
+    # user has these chords, so they are the better test anyway): Mod+Shift+M problems, Mod+Shift+U output, Mod+J the terminal
+    s += chord("m", primary, shift=True) + exists("#__azcode_panel", "#__azcode_panel-tab-problems") + shot()   # 7 the panel: problems
+    s += chord("u", primary, shift=True) + exists("#__azcode_output") + shot()                           # 8 the panel: output
+    s += chord("j", primary) + rest(1500) + exists("#__azcode_panel") + shot()                           # 9 the panel: terminal
     s += click("#__azcode_panel-close") + missing("#__azcode_panel")
     s += chord("p", primary, shift=True) + exists("#__azcode_command-palette") + shot()                # 10 the command palette
     s += press("escape")

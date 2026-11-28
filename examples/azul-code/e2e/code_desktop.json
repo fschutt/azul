@@ -390,8 +390,17 @@
         "op": "wait_frame"
       },
       {
-        "op": "click",
-        "selector": "#__azcode_status-problems"
+        "op": "key_down",
+        "key": "m",
+        "modifiers": {
+          "ctrl": true,
+          "shift": true
+        }
+      },
+      {
+        "op": "key_up",
+        "key": "m",
+        "modifiers": {}
       },
       {
         "op": "wait_frame"
@@ -420,8 +429,17 @@
         "op": "take_screenshot"
       },
       {
-        "op": "click",
-        "selector": "#__azcode_status-output"
+        "op": "key_down",
+        "key": "u",
+        "modifiers": {
+          "ctrl": true,
+          "shift": true
+        }
+      },
+      {
+        "op": "key_up",
+        "key": "u",
+        "modifiers": {}
       },
       {
         "op": "wait_frame"
@@ -446,8 +464,16 @@
         "op": "take_screenshot"
       },
       {
-        "op": "click",
-        "selector": "#__azcode_status-terminal"
+        "op": "key_down",
+        "key": "j",
+        "modifiers": {
+          "ctrl": true
+        }
+      },
+      {
+        "op": "key_up",
+        "key": "j",
+        "modifiers": {}
       },
       {
         "op": "wait_frame"
@@ -960,8 +986,17 @@
         "op": "wait_frame"
       },
       {
-        "op": "click",
-        "selector": "#__azcode_status-problems"
+        "op": "key_down",
+        "key": "m",
+        "modifiers": {
+          "meta": true,
+          "shift": true
+        }
+      },
+      {
+        "op": "key_up",
+        "key": "m",
+        "modifiers": {}
       },
       {
         "op": "wait_frame"
@@ -990,8 +1025,17 @@
         "op": "take_screenshot"
       },
       {
-        "op": "click",
-        "selector": "#__azcode_status-output"
+        "op": "key_down",
+        "key": "u",
+        "modifiers": {
+          "meta": true,
+          "shift": true
+        }
+      },
+      {
+        "op": "key_up",
+        "key": "u",
+        "modifiers": {}
       },
       {
         "op": "wait_frame"
@@ -1016,8 +1060,16 @@
         "op": "take_screenshot"
       },
       {
-        "op": "click",
-        "selector": "#__azcode_status-terminal"
+        "op": "key_down",
+        "key": "j",
+        "modifiers": {
+          "meta": true
+        }
+      },
+      {
+        "op": "key_up",
+        "key": "j",
+        "modifiers": {}
       },
       {
         "op": "wait_frame"
