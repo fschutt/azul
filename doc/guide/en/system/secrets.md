@@ -96,6 +96,14 @@ match Keyring::support(KeyringProtection::Biometric) {
     KeyringSupport::Unavailable => { /* offer the password only */ }
 }
 
+// Before the sheet: say what is about to happen (no sheet shows for this question).
+match Keyring::needs_prompt("vault-key".into()) {
+    KeyringNeed::Biometric => { /* "Touch ID or Face ID will ask" */ }
+    KeyringNeed::UserPresence => { /* "your fingerprint or passcode will ask" */ }
+    KeyringNeed::Invalidated => { /* the fingers changed: ask for the password, store the key again */ }
+    _ => { /* nothing to explain */ }
+}
+
 // Unlocking (the unlock button's callback). The sheet comes now, with this text:
 info.keyring_unlock(
     "vault-key".into(),
