@@ -189,6 +189,12 @@ fn editor_area(app: &RefAny, st: &AppState) -> Dom {
     if !st.panel.open {
         return editor;
     }
+    // The split pane is a block (the panel takes its height itself, see `panel::panel`): the editor does too, or
+    // its column is as tall as its content and the code view stops where its first lines end, with the rest of
+    // the pane empty.
+    let editor = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; height: 100%; min-height: 0px; min-width: 0px;")
+        .with_child(editor);
     SplitPane::create(SplitDirection::Vertical, editor, panel::panel(app, st, false))
         .with_ratio(st.panel.editor_ratio)
         .with_on_resize(app.clone(), on_panel_resize as SplitPaneOnResizeCallbackType)
