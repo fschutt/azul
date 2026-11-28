@@ -1575,21 +1575,23 @@ fn apply_display_features(window: &mut AndroidWindow, flat: &[i32]) {
             df::OptionFingerprintSensor::None
         },
     };
-    log_debug!(
-        LogCategory::Window,
-        "[Android] display features: {} cutout(s), corners {:?}, status bar {:?}, navigation bar {:?}, fingerprint sensor {}",
-        px.cutouts.len(),
-        px.corners,
-        px.status,
-        px.navigation,
-        px.fingerprint,
-    );
     let changed = window
         .common
         .layout_window
         .as_mut()
         .is_some_and(|lw| lw.report_display_features(features));
+    // A change is on the record (a window's first dispatch and what the system bars' request makes of it: an app that draws into the status bar's
+    // band reads `status.visible` from here); a dispatch that says the same again is not (the keyboard's animation sends one per frame).
     if changed {
+        log_info!(
+            LogCategory::Window,
+            "[Android] display features changed: {} cutout(s), corners {:?}, status bar {:?}, navigation bar {:?}, fingerprint sensor {}",
+            px.cutouts.len(),
+            px.corners,
+            px.status,
+            px.navigation,
+            px.fingerprint,
+        );
         window.common.request_regeneration(RelayoutReason::Resize);
     }
 }

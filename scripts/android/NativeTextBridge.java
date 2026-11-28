@@ -109,6 +109,8 @@ public final class NativeTextBridge {
     private static volatile int[] lastFeatures;
     /** The engine's bridge the insets are forwarded to as they change, 0 until the engine has published it (`installInsetsListener`). */
     private static volatile long insetsTarget;
+    /** Dispatches of this window's insets seen so far (UI thread): the first few are on the record. */
+    private static int insetsDispatches;
 
     /**
      * THE FIRST INSETS, BEFORE THE ENGINE HAS A WINDOW.
@@ -130,6 +132,7 @@ public final class NativeTextBridge {
         lastInsets = null;
         lastFeatures = null;
         insetsTarget = 0L;
+        insetsDispatches = 0;
         final View root = activity.getWindow().getDecorView();
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             rememberInsets(activity, v, insets);
@@ -185,6 +188,15 @@ public final class NativeTextBridge {
         int[] features = featuresArray(activity, root, insets);
         lastInsets = values;
         lastFeatures = features;
+        // On the record, with the time: the first dispatches of a window and what the app's request of the system bars makes of them (a start whose
+        // first layout was made for one state of the bars and the picture moved for the next is told by these lines and the engine's).
+        if (insetsDispatches < 4) {
+            insetsDispatches++;
+            boolean statusShown = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || insets.isVisible(WindowInsets.Type.statusBars());
+            Log.i("azul", "NativeTextBridge: insets dispatch " + insetsDispatches + " top=" + values[0] + " bottom=" + values[1] + " left=" + values[2]
+                    + " right=" + values[3] + " ime=" + values[4] + " status bar shown=" + statusShown + ", engine bridge "
+                    + (insetsTarget != 0L ? "attached" : "not yet"));
+        }
         long target = insetsTarget;
         if (target != 0L) {
             nativeOnWindowInsets(target, values[0], values[1], values[2], values[3], values[4]);

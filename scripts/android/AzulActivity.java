@@ -457,6 +457,9 @@ public class AzulActivity extends NativeActivity {
             public void run() {
                 try {
                     android.view.Window window = activity.getWindow();
+                    // On the record, with the time: when the app's request of the system bars reaches the window, against the window's insets dispatches.
+                    android.util.Log.i("azul", "AzulActivity: system bars asked for status=" + status + " navigation=" + navigation + " icons=" + icons
+                            + " cutout=" + drawIntoCutout + ", the window's decor is " + (window.getDecorView().isAttachedToWindow() ? "attached" : "not attached yet"));
                     if (drawIntoCutout && android.os.Build.VERSION.SDK_INT >= 28) {
                         android.view.WindowManager.LayoutParams lp = window.getAttributes();
                         lp.layoutInDisplayCutoutMode = android.os.Build.VERSION.SDK_INT >= 30
