@@ -10,6 +10,7 @@
 //!    attribute, divisor 1), drawn with `glDrawElementsInstanced`, sampling the same texture: `composite` of WebRender;
 //! 4b. `flat_lowp`: the quad pipeline's varyings, `flat lowp ivec4` carrying values that need more than eight bits and a `flat mediump vec4`;
 //! 4c. `quad_u8norm`: the same draw with WebRender's own unit quad, normalized unsigned bytes with a stride of two;
+//! 4f. `external_text`: the samplers set once after the link, as WebRender does, in shaders that mention `samplerExternalOES` in code that is not compiled;
 //! 4e. `big_texture`: render targets of 4 to 16 MB (WebRender's shared render targets are 2048 x 2048 RGBA8) sampled over the whole window;
 //! 4d. `texture_size`: `textureSize()` in the vertex stage, for render targets and uploaded textures of several sizes and formats;
 //! 5. `data_textures`: an RGBA32F and an RGBA32I texture fetched with `texelFetch`: WebRender's GPU cache and prim headers;
@@ -217,6 +218,9 @@ const VERTEX_FETCH_FS: &str = "#version 300 es\nprecision highp float;\nin vec4 
 /// WebRender's `gpu_cache_update`: one point per texel, written into a float texture (the GPU cache of every phone's frame).
 const SCATTER_VS: &str = "#version 300 es\nin vec4 aValue;\nin vec2 aPosition;\nout highp vec4 vData;\nvoid main() {\n    vData = aValue;\n    gl_Position = vec4(aPosition * 2.0 - 1.0, 0.0, 1.0);\n    gl_PointSize = 1.0;\n}\n";
 const SCATTER_FS: &str = "#version 300 es\nprecision highp float;\nin highp vec4 vData;\nout vec4 oValue;\nvoid main() {\n    oValue = vData;\n}\n";
+const EXTERNAL_PLAIN_FS: &str = "#version 300 es\nprecision mediump float;\nuniform sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
+const EXTERNAL_DEAD_FS: &str = "#version 300 es\nprecision mediump float;\n#ifdef WR_FEATURE_TEXTURE_EXTERNAL\n#extension GL_OES_EGL_image_external_essl3 : require\nuniform samplerExternalOES sTex;\n#else\nuniform sampler2D sTex;\n#endif\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
+const EXTERNAL_COMMENT_FS: &str = "#version 300 es\nprecision mediump float;\n// uniform samplerExternalOES sTex;\nuniform sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
 const SIZE_VS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\nuniform sampler2D sTex;\nuniform float uZ;\nflat out mediump vec4 v_size;\nout vec2 vUv;\nvoid main() {\n    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n    vUv = p;\n    vec2 size = vec2(textureSize(sTex, 0));\n    v_size = vec4(size / 2048.0, 0.0, 1.0);\n    gl_Position = vec4(p * 2.0 - 1.0, uZ, 1.0);\n}\n";
 const SIZE_FS: &str = "#version 300 es\nprecision highp float;\nflat in mediump vec4 v_size;\nout vec4 oColour;\nvoid main() {\n    oColour = v_size;\n}\n";
 const FLAGS_VS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nlayout(location = 0) in vec2 aPosition;\nlayout(location = 1) in vec4 aRect;\nlayout(location = 2) in ivec4 aData;\nuniform mat4 uTransform;\nflat out mediump vec4 v_color;\nflat out lowp ivec4 v_flags;\nvoid main() {\n    vec2 pos = aRect.xy + aPosition * aRect.zw;\n    gl_Position = uTransform * vec4(pos, 0.0, 1.0);\n    v_color = vec4(0.25, 0.5, 0.75, 1.0);\n    v_flags = aData;\n}\n";
@@ -779,6 +783,79 @@ fn phase_big_texture(gl: &GenericGlContext, target: Target, programs: &Programs)
     let checks: Vec<(&str, [u8; 4], [u8; 4])> = owned.iter().map(|(name, expected, found)| (name.as_str(), *expected, *found)).collect();
     let error = gl.get_error();
     row("big_texture", &checks, error, &format!("MAX_TEXTURE_SIZE {max}"))
+}
+
+/// 4f. The way WebRender sets its samplers: `glUniform1i(sampler, unit)` ONCE, right after the program is linked, and the texture of the unit bound
+/// later (and not again while the device's own record says it is bound). WebRender's unoptimized shader text mentions `samplerExternalOES` in a branch
+/// that is not compiled (`shared.glsl`: `uniform samplerExternalOES sColor0;` under `#elif defined(WR_FEATURE_TEXTURE_EXTERNAL)`); an emulator whose
+/// guest scans the source text for that word and treats the sampler as external changes the host's texture binding when the uniform is set, and later
+/// 2D binds never reach the host. Each case draws a red 1 x 1 texture over the window and must read red.
+fn phase_external_text(gl: &GenericGlContext, target: Target) -> Row {
+    let size = target.size;
+    // (name, fragment shader, uniform set once after the link, uniform set again before the draw, external unbind before the 2D bind)
+    let cases: [(&str, &str, bool, bool, bool); 6] = [
+        ("plain sampler2D, uniform set once", EXTERNAL_PLAIN_FS, true, false, false),
+        ("dead samplerExternalOES text, uniform set once", EXTERNAL_DEAD_FS, true, false, false),
+        ("dead text, uniform set once, external unbind before the bind", EXTERNAL_DEAD_FS, true, false, true),
+        ("dead text, uniform set before the draw", EXTERNAL_DEAD_FS, true, true, false),
+        ("the word in a comment, uniform set once", EXTERNAL_COMMENT_FS, true, false, false),
+        ("plain, uniform set once, external unbind before the bind", EXTERNAL_PLAIN_FS, true, false, true),
+    ];
+    let mut checks: Vec<(&str, [u8; 4], [u8; 4])> = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
+    for (name, fragment, set_once, set_again, unbind) in cases {
+        let program = match program_of(gl, FULL_VS, fragment, &[]) {
+            Ok(program) => program,
+            Err(why) => {
+                notes.push(format!("{name}: the program did not build: {why}"));
+                continue;
+            }
+        };
+        gl.use_program(program);
+        let sampler = gl.get_uniform_location(program, "sTex");
+        if set_once {
+            gl.uniform_1i(sampler, 0);
+        }
+        gl.use_program(0);
+        // The texture is made after the program's samplers were set, the way WebRender's frame goes.
+        let texture = gl.gen_textures(1).first().copied().unwrap_or(0);
+        gl.active_texture(glconst::TEXTURE0);
+        if unbind {
+            gl.bind_texture(glconst::TEXTURE_EXTERNAL_OES, 0);
+        }
+        gl.bind_texture(glconst::TEXTURE_2D, texture);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::LINEAR as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::LINEAR as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_S, glconst::CLAMP_TO_EDGE as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_T, glconst::CLAMP_TO_EDGE as i32);
+        gl.bind_buffer(glconst::PIXEL_UNPACK_BUFFER, 0);
+        gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA8, 1, 1);
+        gl.pixel_store_i(glconst::UNPACK_ALIGNMENT, 1);
+        gl.tex_sub_image_2d(glconst::TEXTURE_2D, 0, 0, 0, 1, 1, glconst::RGBA, glconst::UNSIGNED_BYTE, &[255, 0, 0, 255]);
+        window_target(gl, target);
+        gl.clear_color(0.2, 0.2, 0.2, 1.0);
+        gl.clear(glconst::COLOR_BUFFER_BIT);
+        gl.use_program(program);
+        if set_again {
+            gl.uniform_1i(sampler, 0);
+        }
+        // The texture stays bound to unit 0 (the device would not bind it again); the draw uses the program as it is.
+        let z_location = gl.get_uniform_location(program, "uZ");
+        gl.uniform_1f(z_location, 0.0);
+        let vao = gl.gen_vertex_arrays(1).first().copied().unwrap_or(0);
+        gl.bind_vertex_array(vao);
+        gl.draw_arrays(glconst::TRIANGLES, 0, 3);
+        gl.bind_vertex_array(0);
+        gl.delete_vertex_arrays(&[vao]);
+        gl.finish();
+        checks.push((name, RED, px(gl, size.0 / 2, size.1 / 2)));
+        gl.use_program(0);
+        gl.bind_texture(glconst::TEXTURE_2D, 0);
+        gl.delete_textures(&[texture]);
+        gl.delete_program(program);
+    }
+    let error = gl.get_error();
+    row("external_text", &checks, error, &notes.join("; "))
 }
 
 /// 4d. `textureSize()` in the VERTEX stage (every textured shader of WebRender normalises its UV rectangle by it: `vs_init_sample_color0`, `brush_image`):
@@ -1544,7 +1621,7 @@ fn phase_shared_depth(gl: &GenericGlContext, target: Target, programs: &Programs
 }
 
 /// The phases, by name, in the order the ladder runs them.
-pub const PHASES: [&str; 16] = [
+pub const PHASES: [&str; 17] = [
     "clear",
     "shader",
     "dummy_texture",
@@ -1552,6 +1629,7 @@ pub const PHASES: [&str; 16] = [
     "instanced",
     "flat_lowp",
     "quad_u8norm",
+    "external_text",
     "big_texture",
     "texture_size",
     "data_textures",
@@ -1587,6 +1665,7 @@ pub fn run_ladder(gl: &GenericGlContext, target: Target, show: &mut dyn FnMut(&'
             "instanced" => phase_instanced(gl, target, &programs),
             "flat_lowp" => phase_flat_lowp(gl, target, &programs),
             "quad_u8norm" => phase_quad_u8norm(gl, target, &programs),
+            "external_text" => phase_external_text(gl, target),
             "big_texture" => phase_big_texture(gl, target, &programs),
             "texture_size" => phase_texture_size(gl, target, &programs),
             "data_textures" => phase_data_textures(gl, target, &programs),
