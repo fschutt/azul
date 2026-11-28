@@ -496,13 +496,18 @@ impl PlatformCapability {
     /// enable it (the full command list lives in `ProvisionPlan`).
     pub fn video_codec() -> PlatformCapability {
         use crate::desktop::extra::video_codec;
-        if let Err(why) = video_codec::decode_engine() {
-            return PlatformCapability {
-                available: false,
-                backend: video_codec::VideoEncoder::backend_name(),
-                reason: AzString::from(format!("this build cannot decode H.264: {why}")),
-            };
-        }
+        // The engine, proven: on Android a codec of the device is really created and named, so
+        // `available` is true only where `VideoDecoder::open` gets one.
+        let engine = match video_codec::decode_engine_proven() {
+            Ok(engine) => engine,
+            Err(why) => {
+                return PlatformCapability {
+                    available: false,
+                    backend: video_codec::VideoEncoder::backend_name(),
+                    reason: AzString::from(format!("this build cannot decode H.264: {why}")),
+                };
+            }
+        };
         let p = video_codec::provision::probe_hw_decode();
         let reason = if p.available {
             AzString::from_const_str("")
@@ -516,7 +521,12 @@ impl PlatformCapability {
         };
         PlatformCapability {
             available: p.available,
-            backend: AzString::from_const_str(p.backend),
+            // The engine names itself: MediaCodec says which codec and whether it is hardware.
+            backend: if p.available {
+                AzString::from(engine)
+            } else {
+                AzString::from_const_str(p.backend)
+            },
             reason,
         }
     }
