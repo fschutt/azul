@@ -12,7 +12,7 @@
 #   autofix    api.json through azul-doc: `autofix add` for the new functions, patches until there are none, normalize; the
 #              result is api.json (upload it) and api.diff (what it changed); then a SECOND round that must change nothing
 #   doc_check  azul-doc check (the double-drop invariant, the guide links) and azul-doc check layout
-#   dll_check  cargo check of azul-dll with the bindings (needs --codegen) and the srcgate tests
+#   dll_check  codegen of the bindings from the api.json as it stands, cargo check of azul-dll, the srcgate tests (no --codegen needed)
 # A step that fails does not stop the ones after it; the last lines are one `STEP <name> <exit>` each, and the exit code of the
 # script is 0 only when every step that ran passed.
 set -uo pipefail
@@ -117,6 +117,9 @@ run doc_check doc_check
 
 dll_check() {
   local code=0
+  # the bindings of the api.json as it stands NOW (after the autofix step): azul-dll does not build without them, and a struct
+  # that grew (WindowFlags) must be the same size on both sides
+  cargo run -r -p azul-doc -- codegen all || return 1
   cargo check -p azul-dll || code=1
   cargo test -p azul-srcgate --no-fail-fast || code=1
   return "$code"
