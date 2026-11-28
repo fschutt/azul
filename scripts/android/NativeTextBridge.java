@@ -125,6 +125,11 @@ public final class NativeTextBridge {
         if (activity == null) {
             return;
         }
+        // A window made again in a live process (a warm start) starts from nothing: what the window before it was given is not this one's, and the
+        // engine's bridge the insets were forwarded to is the one of the engine that ended (the new one publishes its own, `installInsetsListener`).
+        lastInsets = null;
+        lastFeatures = null;
+        insetsTarget = 0L;
         final View root = activity.getWindow().getDecorView();
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             rememberInsets(activity, v, insets);

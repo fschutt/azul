@@ -88,10 +88,14 @@ fn the_windows_first_draw_is_held_until_the_first_picture_and_never_trapped() {
     assert!(listener.contains("removeOnPreDrawListener(this)") && listener.contains("return true;"), "and let through, once");
     assert!(listener.contains("the engine never said so"), "a draw let through at the limit says so in the log");
     assert!(java.contains("private static final long FIRST_DRAW_HOLD_MS = 4000;"), "the limit: the window must never stay away for good");
-    assert!(hold.contains("if (firstFrameShown) {"), "a process that has shown its picture holds nothing");
 
+    // The flag is the ACTIVITY's: a warm start (the process lives on, the activity is made again) has a starting window and a first picture of its own.
+    assert!(java.contains("private boolean firstFrameShown;"), "the flag is a field of the activity");
+    assert!(!java.contains("static boolean firstFrameShown"), "not a field of the process: a second activity of a live process would not be held");
+    assert!(!hold.contains("if (firstFrameShown) {"), "no activity is let through because an earlier one showed its picture");
     let first = body(&java, "public static void firstFramePresented(final android.app.Activity activity)");
-    assert!(first.contains("activity.runOnUiThread(() -> firstFrameShown = true)"), "the engine's word reaches the UI thread's flag");
+    assert!(first.contains("activity instanceof AzulActivity"), "the activity the engine names is the one whose flag is set");
+    assert!(first.contains("azul.runOnUiThread(() -> azul.firstFrameShown = true)"), "the engine's word reaches that activity's flag on the UI thread");
 
     for gone in ["setOnExitAnimationListener", "getSplashScreen", "Splash31", "SPLASH_HOLD_MS"] {
         assert!(!java.contains(gone), "AzulActivity still has `{gone}`: the hold that held a copy of the starting window nobody draws");
@@ -137,4 +141,20 @@ fn the_windows_first_insets_are_kept_by_a_listener_installed_in_on_create() {
     // a late attach hands the engine what the window has been given so far
     let late = body(&bridge, "public static void installInsetsListener(final Activity activity, final long nativePtr)");
     assert!(late.contains("insetsTarget = nativePtr;") && late.contains("nativeOnWindowInsets(nativePtr, insets[0]"), "a late attach forwards what was kept");
+}
+
+/// A window made again in a live process (a warm start: the phone keeps the process of an app it has left and makes its activity again) gets its
+/// OWN insets: what the window before it was given, and the engine it was forwarded to, are the previous activity's. The engine of the new window
+/// asks for a snapshot at its surface and must get its window's dispatch or none, not the old one.
+///
+/// Mutation: the early listener keeping the previous window's insets, features and target (a re-made window laid out under the old insets).
+#[test]
+fn a_window_made_again_starts_with_no_insets_of_the_one_before() {
+    let bridge = java_code("scripts/android/NativeTextBridge.java");
+    let early = body(&bridge, "public static void installEarlyInsetsListener(final Activity activity)");
+    let listener = early.find("root.setOnApplyWindowInsetsListener(").expect("the listener");
+    for (reset, what) in [("lastInsets = null;", "the insets"), ("lastFeatures = null;", "the display features"), ("insetsTarget = 0L;", "the engine they are forwarded to")] {
+        let at = early.find(reset).unwrap_or_else(|| panic!("a new window forgets {what}: `{reset}` is missing"));
+        assert!(at < listener, "{what} are forgotten before the new window's listener can keep its own");
+    }
 }

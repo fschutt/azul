@@ -231,8 +231,12 @@ public class AzulActivity extends NativeActivity {
      * for good (a GPU path that could not start, a failure in the first layout).
      */
     private static final long FIRST_DRAW_HOLD_MS = 4000;
-    /** UI thread only: the engine has posted its first picture, or the hold gave up: the window may draw. */
-    private static boolean firstFrameShown;
+    /**
+     * UI thread only: the engine has posted this activity's first picture, or the hold gave up: the window may draw. Per activity, not per
+     * process: a WARM start (the process is alive, the activity is made again, which a phone does all day) has a starting window and an
+     * engine that posts a first picture again, and the same gap between them.
+     */
+    private boolean firstFrameShown;
 
     /**
      * THE STARTING WINDOW STAYS UNTIL THE ENGINE HAS A PICTURE.
@@ -252,9 +256,6 @@ public class AzulActivity extends NativeActivity {
      * ten seconds) and takes it away when it has: the engine's picture is in the window's buffer queue by then.
      */
     private void holdFirstDraw() {
-        if (firstFrameShown) {
-            return; // the window of a process that has shown its picture already
-        }
         final View decor = getWindow().getDecorView();
         final long started = SystemClock.uptimeMillis();
         final long deadline = started + FIRST_DRAW_HOLD_MS;
@@ -284,10 +285,11 @@ public class AzulActivity extends NativeActivity {
      * window away. The held draw asks again every frame, so the next one goes through.
      */
     public static void firstFramePresented(final android.app.Activity activity) {
-        if (activity == null) {
+        if (!(activity instanceof AzulActivity)) {
             return;
         }
-        activity.runOnUiThread(() -> firstFrameShown = true);
+        final AzulActivity azul = (AzulActivity) activity;
+        azul.runOnUiThread(() -> azul.firstFrameShown = true);
     }
 
     /**
