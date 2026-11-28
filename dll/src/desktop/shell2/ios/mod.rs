@@ -1563,7 +1563,7 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
             let reported = window.preference_reader.read().into_preferences();
             // Contract shape (snapshot -> mutate -> pass): the adoption is the mutation and the pass.
             window.snapshot_window_state_baseline("ios.preferences");
-            if window.adopt_reported_preferences(reported) {
+            if window.adopt_reported_preferences_and_tell(reported).is_some() {
                 window.needs_rerender = true;
             }
         }

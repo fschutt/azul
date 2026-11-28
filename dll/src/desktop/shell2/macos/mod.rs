@@ -1777,7 +1777,11 @@ define_class!(
                         // Full rebuild or restyle, decided from what the app's
                         // `layout()` declared it reads — see
                         // `PlatformWindow::adopt_system_style`.
-                        macos_window.adopt_system_style(new_style);
+                        if macos_window.adopt_system_style(new_style) {
+                            // The adoption raised the notice: the pass that tells the window's
+                            // `SystemStyleChanged` listeners (the one above ran before it).
+                            let _ = macos_window.process_window_events(0);
+                        }
                     }
                     let needs_redraw = macos_window.process_timers_and_threads();
                     if needs_redraw || theme_changed {
@@ -3930,7 +3934,11 @@ define_class!(
                         // Full rebuild or restyle, decided from what the app's
                         // `layout()` declared it reads — see
                         // `PlatformWindow::adopt_system_style`.
-                        macos_window.adopt_system_style(new_style);
+                        if macos_window.adopt_system_style(new_style) {
+                            // The adoption raised the notice: the pass that tells the window's
+                            // `SystemStyleChanged` listeners (the one above ran before it).
+                            let _ = macos_window.process_window_events(0);
+                        }
                     }
                     let needs_redraw = macos_window.process_timers_and_threads();
                     // CPU mode: FLAG the frame and let the CVDisplayLink tick

@@ -11679,6 +11679,25 @@ pub trait PlatformWindow {
         self.adopt_system_style(Arc::new(style))
     }
 
+    /// [`Self::adopt_reported_preferences`] from a shell's own schedule (a poll, a notification, a
+    /// resume), at TOP level: when the platform's report moved, the window adopts it and the event
+    /// pass that tells its listeners (`WindowEventFilter::SystemStyleChanged`) follows at once -
+    /// an idle window has no other pass to carry the event. Answers the pass's result for the
+    /// shell to route, `None` when nothing moved.
+    ///
+    /// NEVER from inside a pass (a callback's change goes through
+    /// `CallbackChange::SetAccessibilityOverride`; the notice it raises is told by the window's
+    /// next pass).
+    fn adopt_reported_preferences_and_tell(
+        &mut self,
+        reported: azul_css::accessibility::AccessibilityPreferences,
+    ) -> Option<ProcessEventResult> {
+        if !self.adopt_reported_preferences(reported) {
+            return None;
+        }
+        Some(self.process_window_events(0))
+    }
+
     /// Adopt a style that already carries the pins, choosing between a full DOM
     /// rebuild and a restyle of the existing one.
     ///

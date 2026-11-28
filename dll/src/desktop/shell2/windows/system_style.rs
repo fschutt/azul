@@ -268,76 +268,20 @@ pub(crate) fn discover_timed(
 
         // ── Animation metrics ────────────────────────────────────────
         {
-            let mut anim: i32 = 1;
-            (u32_lib.SystemParametersInfoW)(
-                SPI_GETCLIENTAREAANIMATION,
-                0,
-                &mut anim as *mut i32 as *mut c_void,
-                0,
-            );
-            let mut kb_cues: i32 = 0;
-            (u32_lib.SystemParametersInfoW)(
-                SPI_GETKEYBOARDCUES,
-                0,
-                &mut kb_cues as *mut i32 as *mut c_void,
-                0,
-            );
+            // What `SystemParametersInfo` says of the user's accessibility settings; an option
+            // whose call failed is one nobody answered, and the style keeps its default.
+            read_spi_preferences(&u32_lib, &mut raw);
+            let anim = raw.client_area_animation.unwrap_or(true);
+            let kb_cues = raw.keyboard_cues.unwrap_or(false);
             style.animation = azul_css::system::AnimationMetrics {
-                animations_enabled: anim != 0,
+                animations_enabled: anim,
                 animation_duration_factor: 1.0,
-                focus_indicator_behavior: if kb_cues != 0 {
+                focus_indicator_behavior: if kb_cues {
                     azul_css::system::FocusBehavior::AlwaysVisible
                 } else {
                     azul_css::system::FocusBehavior::KeyboardOnly
                 },
             };
-            raw.client_area_animation = Some(anim != 0);
-            raw.keyboard_cues = Some(kb_cues != 0);
-
-            // High contrast: the `HIGHCONTRASTW` the system fills (`cbSize`, `dwFlags`, the name of
-            // the scheme, which is not asked for: a null pointer).
-            #[repr(C)]
-            struct HighContrastW {
-                cb_size: u32,
-                flags: u32,
-                default_scheme: *mut u16,
-            }
-            let mut contrast = HighContrastW {
-                cb_size: core::mem::size_of::<HighContrastW>() as u32,
-                flags: 0,
-                default_scheme: core::ptr::null_mut(),
-            };
-            if (u32_lib.SystemParametersInfoW)(
-                SPI_GETHIGHCONTRAST,
-                contrast.cb_size,
-                &mut contrast as *mut HighContrastW as *mut c_void,
-                0,
-            ) != 0
-            {
-                raw.high_contrast = Some(contrast.flags & HCF_HIGHCONTRASTON != 0);
-            }
-            // A screen reader that told the system (Narrator, NVDA and JAWS set it).
-            let mut reader: i32 = 0;
-            if (u32_lib.SystemParametersInfoW)(
-                SPI_GETSCREENREADER,
-                0,
-                &mut reader as *mut i32 as *mut c_void,
-                0,
-            ) != 0
-            {
-                raw.screen_reader = Some(reader != 0);
-            }
-            // "Show notifications for": the seconds a notification stays.
-            let mut seconds: u32 = 0;
-            if (u32_lib.SystemParametersInfoW)(
-                SPI_GETMESSAGEDURATION,
-                0,
-                &mut seconds as *mut u32 as *mut c_void,
-                0,
-            ) != 0
-            {
-                raw.message_duration_s = Some(seconds);
-            }
         }
 
         // ── Audio metrics ────────────────────────────────────────────
@@ -570,6 +514,67 @@ fn registry_dword(subkey: &str, name: &str) -> Option<u32> {
         return None;
     }
     Some(u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?))
+}
+
+/// What `SystemParametersInfo` says of the user's accessibility settings: the client-area animation
+/// switch, the keyboard cues, the high-contrast scheme, the screen-reader flag and how long a
+/// notification stays. A call that fails leaves its option `None`: nobody answered.
+fn read_spi_preferences(user32: &User32, raw: &mut RawWindows) {
+    /// The `HIGHCONTRASTW` the system fills (`cbSize`, `dwFlags`, the name of the scheme, which is
+    /// not asked for: a null pointer).
+    #[repr(C)]
+    struct HighContrastW {
+        cb_size: u32,
+        flags: u32,
+        default_scheme: *mut u16,
+    }
+    let ask = |action: u32, size: u32, out: *mut c_void| -> bool {
+        // SAFETY: `out` points to a live value of the type `action` fills, `size` is what the
+        // action takes in `uiParam`.
+        unsafe { (user32.SystemParametersInfoW)(action, size, out, 0) != 0 }
+    };
+    let mut anim: i32 = 0;
+    if ask(SPI_GETCLIENTAREAANIMATION, 0, (&mut anim as *mut i32).cast()) {
+        raw.client_area_animation = Some(anim != 0);
+    }
+    let mut kb_cues: i32 = 0;
+    if ask(SPI_GETKEYBOARDCUES, 0, (&mut kb_cues as *mut i32).cast()) {
+        raw.keyboard_cues = Some(kb_cues != 0);
+    }
+    let mut contrast = HighContrastW {
+        cb_size: core::mem::size_of::<HighContrastW>() as u32,
+        flags: 0,
+        default_scheme: core::ptr::null_mut(),
+    };
+    if ask(
+        SPI_GETHIGHCONTRAST,
+        contrast.cb_size,
+        (&mut contrast as *mut HighContrastW).cast(),
+    ) {
+        raw.high_contrast = Some(contrast.flags & HCF_HIGHCONTRASTON != 0);
+    }
+    // A screen reader that told the system (Narrator, NVDA and JAWS set it).
+    let mut reader: i32 = 0;
+    if ask(SPI_GETSCREENREADER, 0, (&mut reader as *mut i32).cast()) {
+        raw.screen_reader = Some(reader != 0);
+    }
+    // "Show notifications for": the seconds a notification stays.
+    let mut seconds: u32 = 0;
+    if ask(SPI_GETMESSAGEDURATION, 0, (&mut seconds as *mut u32).cast()) {
+        raw.message_duration_s = Some(seconds);
+    }
+}
+
+/// The user's accessibility settings alone, as the typed preferences: the `SystemParametersInfo`
+/// answers and the registry values, nothing else of the style (no theme, no fonts, no colours).
+/// What the window's once-a-second poll asks; the system broadcasts none of the text size, the
+/// transparency switch or the pointer size reliably, and this is a dozen registry reads.
+pub(crate) fn read_preferences() -> Option<azul_css::accessibility::AccessibilityPreferences> {
+    let user32 = User32::load()?;
+    let mut raw = RawWindows::default();
+    read_spi_preferences(&user32, &mut raw);
+    read_windows_registry_preferences(&mut raw);
+    Some(raw.into_preferences())
 }
 
 /// The settings Windows keeps in the registry, for the preferences: the "Text size" slider of

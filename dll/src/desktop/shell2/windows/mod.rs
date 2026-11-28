@@ -925,6 +925,10 @@ impl Win32Window {
         }
         timing_log!("Initialize accessibility adapter", "win:a11y_initialized");
 
+        // The user's accessibility settings are read again once a second (the text size is the one
+        // Windows does not broadcast).
+        result.start_preference_poll();
+
         // Apply initial background material if not Opaque
         // This enables Mica/Acrylic effects on Windows 11
         {
@@ -1177,6 +1181,49 @@ impl Win32Window {
     /// silently kill background-thread polling for the rest of the run and the
     /// `KillTimer` at `WM_EXITSIZEMOVE` would never bring it back.
     pub(crate) const MODAL_LOOP_TIMER_ID: usize = 0xFFFE;
+
+    /// Win32 timer ID of the once-a-second read of the user's accessibility settings.
+    ///
+    /// Windows broadcasts some of them (`WM_SETTINGCHANGE` with the `SPI_*` action of a high
+    /// contrast, a screen reader, the client-area animation) and none reliably of the rest (the
+    /// "Text size" slider, the transparency switch, the pointer size, the colour filters): one
+    /// poll covers every option the same way, and costs a dozen registry reads.
+    pub(crate) const PREFERENCE_POLL_TIMER_ID: usize = 0xFFFD;
+
+    /// How often the accessibility settings are read, in ms.
+    const PREFERENCE_POLL_INTERVAL_MS: u32 = 1000;
+
+    /// Start the once-a-second read of the accessibility settings (the window's own timer: it
+    /// dies with the window).
+    fn start_preference_poll(&self) {
+        unsafe {
+            (self.win32.user32.SetTimer)(
+                self.hwnd,
+                Self::PREFERENCE_POLL_TIMER_ID,
+                Self::PREFERENCE_POLL_INTERVAL_MS,
+                ptr::null(),
+            );
+        }
+    }
+
+    /// Read the accessibility settings and adopt what moved: the restyle (or the rebuild, where
+    /// `layout()` read them), and the pass that tells the window's `SystemStyleChanged`
+    /// listeners. Answers whether the window changed (the caller owes a repaint).
+    fn poll_preferences(&mut self, hwnd: HWND) -> bool {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        let Some(reported) = system_style::read_preferences() else {
+            return false;
+        };
+        // Contract shape (snapshot -> mutate -> pass): the adoption is the mutation and the pass.
+        self.snapshot_window_state_baseline("windows.preferences");
+        match self.adopt_reported_preferences_and_tell(reported) {
+            Some(result) => {
+                self.route_main_window_result(hwnd, result);
+                true
+            }
+            None => false,
+        }
+    }
 
     /// Arm the stand-in for the outer event loop, for the duration of a modal
     /// size/move loop (`WM_ENTERSIZEMOVE` … `WM_EXITSIZEMOVE`).
@@ -6478,6 +6525,14 @@ unsafe extern "system" fn window_proc(
         }
 
         WM_TIMER => {
+            // The window's own once-a-second read of the accessibility settings: not a user timer,
+            // nothing below applies to it.
+            if wparam == Win32Window::PREFERENCE_POLL_TIMER_ID {
+                if window.poll_preferences(hwnd) {
+                    (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+                }
+                return 0;
+            }
             // Timer fired — process_timers_and_threads() handles both user timers
             // (invoke_expired_timers) and thread polling (invoke_thread_callbacks).
             use crate::desktop::shell2::common::event::PlatformWindow;
@@ -7171,7 +7226,13 @@ unsafe extern "system" fn window_proc(
             // window does not care about at all — it is broadcast for
             // environment and policy changes too — so the equality check
             // inside `adopt_system_style` is what keeps those free.
-            window.adopt_system_style(new_style);
+            if window.adopt_system_style(new_style) {
+                // The style changed (an accessibility option, the accent, the fonts): the pass
+                // that tells the window's `SystemStyleChanged` listeners. The adoption installs
+                // the style and raises the notice; the pass above ran before it.
+                let r = window.process_window_events(0);
+                window.route_main_window_result(hwnd, r);
+            }
             unsafe {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
@@ -8367,6 +8428,9 @@ mod tests {
             Win32Window::THREAD_POLL_TIMER_ID,
             "the modal size/move pump and the thread poll need separate timers"
         );
+        // the accessibility poll shares neither: its read must not be taken for a user timer, nor kill one
+        assert_ne!(Win32Window::PREFERENCE_POLL_TIMER_ID, Win32Window::THREAD_POLL_TIMER_ID);
+        assert_ne!(Win32Window::PREFERENCE_POLL_TIMER_ID, Win32Window::MODAL_LOOP_TIMER_ID);
     }
 
     /// Buttons 4/5 arrive with the button in the HIGH word of wParam and the

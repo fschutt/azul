@@ -1861,8 +1861,9 @@ fn adopt_preferences(app: &AndroidApp, window: &mut AndroidWindow) {
     let reported = read_preferences(app);
     // Contract shape (snapshot -> mutate -> pass): the adoption is the mutation and the pass.
     window.snapshot_window_state_baseline("android.preferences");
-    if window.adopt_reported_preferences(reported) {
+    if let Some(result) = window.adopt_reported_preferences_and_tell(reported) {
         window.needs_rerender = true;
+        follow_ui_result(window, result);
     }
 }
 

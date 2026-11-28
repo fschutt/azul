@@ -91,7 +91,7 @@ pub struct RawIos {
     pub mono_audio: Option<bool>,
     /// `UIAccessibility.isVideoAutoplayEnabled`.
     pub video_autoplay: Option<bool>,
-    /// `MADimFlashingLightsEnabled()` of MediaAccessibility ("Dim flashing lights", iOS 16.4).
+    /// `MADimFlashingLightsEnabled()` of `MediaAccessibility` ("Dim flashing lights", iOS 16.4).
     pub dim_flashing_lights: Option<bool>,
     /// `AXAnimatedImagesEnabled()` of the Accessibility framework ("Auto-Play Animated Images").
     pub animated_images: Option<bool>,
@@ -235,8 +235,7 @@ impl RawAndroid {
         preferences.color_filter = state_of(self.daltonizer_enabled);
         preferences.grayscale = match (self.daltonizer_enabled, self.daltonizer_type) {
             (Some(true), Some(0)) => SettingState::On,
-            (Some(_), Some(_)) => SettingState::Off,
-            (Some(false), None) => SettingState::Off,
+            (Some(_), Some(_)) | (Some(false), None) => SettingState::Off,
             _ => SettingState::Unknown,
         };
         // "Reduce bright colors" (`reduce_bright_colors_activated`) cannot be read by an app, and
