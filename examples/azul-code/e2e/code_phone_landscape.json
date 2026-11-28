@@ -9,10 +9,6 @@
     ],
     "steps": [
       {
-        "op": "set_display_preset",
-        "preset": "pixel8"
-      },
-      {
         "op": "resize",
         "width": 914.0,
         "height": 411.0
@@ -27,7 +23,34 @@
         "op": "wait_frame"
       },
       {
+        "op": "set_display_preset",
+        "preset": "pixel8"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "wait_settled"
+      },
+      {
+        "op": "wait",
+        "ms": 300,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "set_mode",
@@ -552,6 +575,10 @@
       {
         "op": "assert_exists",
         "selector": "#__azcode_terminal"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_terminal-bar"
       },
       {
         "op": "wait_frame"

@@ -495,7 +495,10 @@ fn terminal_tab(app: &RefAny, index: usize, t: &TerminalTab, active: bool, heigh
             Dom::create_icon("terminal")
                 .with_css(format!("font-size: 14px; padding-right: 4px; {}", ui::FLORA_GLYPH)),
         )
-        .with_child(Dom::create_span_with_text(format!("{}: {}", t.number, t.title)))
+        .with_child(
+            Dom::create_span_with_text(format!("{}: {}", t.number, t.title))
+                .with_css("max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"),
+        )
 }
 
 extern "C" fn on_new_terminal(mut data: RefAny, mut info: CallbackInfo) -> Update {

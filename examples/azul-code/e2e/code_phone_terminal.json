@@ -69,6 +69,10 @@
         "selector": "#__azcode_terminal"
       },
       {
+        "op": "assert_exists",
+        "selector": "#__azcode_terminal-bar"
+      },
+      {
         "op": "wait_frame"
       },
       {

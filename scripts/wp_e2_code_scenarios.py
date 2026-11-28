@@ -67,7 +67,11 @@ def rest(ms):
 
 
 def window(width, height, preset):
-    return [op("set_display_preset", preset=preset), op("resize", width=float(width), height=float(height))] + frames(3) + [op("wait_settled")]
+    """The window at a size of the brief and the device's bars. The size first, the preset after it: the preset's insets are what the
+    window then rebuilds for (the layout of a window that is wide before the size and short after it changes with the size, and a real
+    wait lets the first layout of a new process finish before the first step asks for its nodes)."""
+    return ([op("resize", width=float(width), height=float(height))] + frames(3) + [op("set_display_preset", preset=preset)] + frames(3)
+            + [op("wait_settled")] + rest(300))
 
 
 def chord(key, primary, shift=False):
@@ -218,8 +222,8 @@ def phone_steps(first_start, width=None, height=None, bars=None, terminal=False)
     # button was)
     s += grip_keys("Up") + settle() + click("#__azcode_panel-close") + missing("#__azcode_sheet")
     if terminal:
-        s += click("#__azcode_status-terminal") + rest(2000) + exists("#__azcode_sheet", "#__azcode_terminal")
-        s += shot()                                                    # 8 the terminal in the sheet: a shell
+        s += click("#__azcode_status-terminal") + rest(2000) + exists("#__azcode_sheet", "#__azcode_terminal", "#__azcode_terminal-bar")
+        s += shot()                                                    # 8 the terminal in the sheet: a shell, its tabs and buttons in a bar
         s += click("#__azcode_panel-close") + missing("#__azcode_sheet")
     s += click("#__azcode_drawer-button") + click("#__azcode_activity-git") + exists("#__azcode_git-panel") + rest(1000)
     s += shot()                                                        # 8 (9 with the terminal) source control in the drawer
@@ -274,7 +278,7 @@ def phone_files():
                        "the sheet, 2 after the command.",
         "only_on": ["android"],
         "steps": [op("set_mode", mode="dark")] + rest(4500) + exists("#__azcode_tab-0", "#__azcode_editor")
-                 + click("#__azcode_status-terminal") + rest(2500) + exists("#__azcode_sheet", "#__azcode_panel-tab-terminal", "#__azcode_terminal")
+                 + click("#__azcode_status-terminal") + rest(2500) + exists("#__azcode_sheet", "#__azcode_panel-tab-terminal", "#__azcode_terminal", "#__azcode_terminal-bar")
                  + shot()
                  + [op("focus_node", selector="#__azcode_terminal")] + frames(2)
                  + [op("text_input", text="echo azcode-terminal-ok")] + frames(2) + press("enter") + rest(1200) + shot()

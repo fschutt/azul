@@ -105,13 +105,28 @@ pub fn panel(app: &RefAny, st: &AppState, phone: bool) -> Dom {
             ui::RULE
         ))
         .with_id(ids::PANEL_HEADER);
-    for t in tabs() {
-        header.add_child(tab_button(app, st, t, t == tab, height));
+    if phone {
+        // The tabs scroll sideways in what the buttons leave them, and the buttons stay: a narrow phone (360 dp) or a count
+        // in a tab's name must never push the close button out of reach.
+        let mut strip = Dom::create_div().with_css(
+            "display: flex; flex-direction: row; align-items: center; flex-grow: 1; flex-shrink: 1; min-width: 0px; \
+             height: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;",
+        );
+        for t in tabs() {
+            strip.add_child(tab_button(app, st, t, t == tab, height));
+        }
+        header.add_child(strip);
+    } else {
+        for t in tabs() {
+            header.add_child(tab_button(app, st, t, t == tab, height));
+        }
+        header.add_child(Dom::create_div().with_css("flex-grow: 1; min-width: 4px;"));
     }
-    header.add_child(Dom::create_div().with_css("flex-grow: 1; min-width: 4px;"));
     match tab {
+        // On a phone the shells' tabs and the new / kill buttons are a bar of their own under the header (see below).
+        PanelTab::Terminal if phone => {}
         PanelTab::Terminal => {
-            for tab in terminal::shell_tabs(app, st, if phone { 36.0 } else { 22.0 }) {
+            for tab in terminal::shell_tabs(app, st, 22.0) {
                 header.add_child(tab);
             }
             for action in terminal::actions(app, button) {
@@ -142,7 +157,7 @@ pub fn panel(app: &RefAny, st: &AppState, phone: bool) -> Dom {
         PanelTab::Problems => problems_view(app, st, phone),
         PanelTab::Output => output_view(st, phone),
     };
-    Dom::create_div()
+    let mut panel = Dom::create_div()
         .with_id(ids::PANEL)
         // The split pane is a block: the panel takes its whole height itself
         // (`flex-grow` alone left it as tall as its header, and the terminal
@@ -151,8 +166,35 @@ pub fn panel(app: &RefAny, st: &AppState, phone: bool) -> Dom {
             "display: flex; flex-direction: column; flex-grow: 1; height: 100%; min-height: 0px; \
              min-width: 0px;",
         )
-        .with_child(header)
-        .with_child(body)
+        .with_child(header);
+    if phone && tab == PanelTab::Terminal {
+        panel.add_child(terminal_bar(app, st));
+    }
+    panel.with_child(body)
+}
+
+/// The Terminal tab's bar on a phone: the shells' tabs (they scroll sideways) and the new / kill buttons, each a finger
+/// wide - the header over it has the three tabs and the close button, and no room for these.
+fn terminal_bar(app: &RefAny, st: &AppState) -> Dom {
+    let mut chips = Dom::create_div().with_css(
+        "display: flex; flex-direction: row; align-items: center; flex-grow: 1; flex-shrink: 1; min-width: 0px; \
+         height: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;",
+    );
+    for chip in terminal::shell_tabs(app, st, 36.0) {
+        chips.add_child(chip);
+    }
+    let mut bar = Dom::create_div()
+        .with_id(ids::TERMINAL_BAR)
+        .with_css(format!(
+            "display: flex; flex-direction: row; align-items: center; height: {PHONE_HEADER_HEIGHT}px; flex-shrink: 0; \
+             padding: 0px 8px 0px 8px; border-top: 1px solid {}; overflow: hidden;",
+            ui::RULE
+        ))
+        .with_child(chips);
+    for action in terminal::actions(app, PHONE_HEADER_HEIGHT) {
+        bar.add_child(action);
+    }
+    bar
 }
 
 /// One tab of the header: its name (and the problems' count), the one in front underlined.

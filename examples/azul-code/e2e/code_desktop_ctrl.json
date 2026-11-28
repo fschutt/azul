@@ -8,10 +8,6 @@
     ],
     "steps": [
       {
-        "op": "set_display_preset",
-        "preset": "off"
-      },
-      {
         "op": "resize",
         "width": 1280.0,
         "height": 800.0
@@ -26,7 +22,34 @@
         "op": "wait_frame"
       },
       {
+        "op": "set_display_preset",
+        "preset": "off"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "wait_settled"
+      },
+      {
+        "op": "wait",
+        "ms": 300,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "set_mode",
