@@ -6294,6 +6294,36 @@ impl CallbackInfo {
         self.get_layout_window().app_services.tray.current_tray_event()
     }
 
+    /// Inside the app's lifecycle handler ([`Self::set_lifecycle_handler`]): which event it runs for -
+    /// the app was sent to the background (`Paused`: write what a person would lose, the process may be
+    /// ended without another word), brought back (`Resumed`), is asked to give memory back
+    /// (`LowMemory`) or is about to end (`WillTerminate`). `None` in any other callback.
+    #[must_use]
+    pub fn get_lifecycle_event(&self) -> Option<azul_core::lifecycle::LifecycleEvent> {
+        self.get_layout_window()
+            .app_services
+            .lifecycle
+            .current_lifecycle_event()
+    }
+
+    /// Install the app's lifecycle handler, replacing any earlier one: `callback` runs with `data`
+    /// whenever the app is sent to the background, brought back, short of memory or about to end, and
+    /// reads which with [`Self::get_lifecycle_event`]. One handler for the app, not one per window:
+    /// the usual place is the window's create callback. An app that sets none hears nothing.
+    pub fn set_lifecycle_handler<I: Into<azul_core::callbacks::CoreCallback>>(
+        &self,
+        data: RefAny,
+        callback: I,
+    ) {
+        self.get_layout_window()
+            .app_services
+            .lifecycle
+            .set_lifecycle_handler(azul_core::menu::CoreMenuCallback {
+                refany: data,
+                callback: callback.into(),
+            });
+    }
+
     /// Read the most recently observed permission state for `capability`
     /// (Camera / Microphone / Geolocation / Sensors / Notifications / …) - e.g.
     /// so a callback can check a capability is `Granted` before using it (show
