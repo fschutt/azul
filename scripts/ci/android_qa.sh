@@ -11,8 +11,8 @@
 #            matrix: every e2e scenario file against its host app (scripts/ci/e2e_matrix.py; AZ_QA_MATRIX_APKS: the e2e APKs);
 #            tabs: the tab strip (examples/azul-widgets/e2e/tab_touch*.json) on the emulator's phone, portrait then landscape: the
 #                 engine's frames of every file (AZ_E2E_SHOT_DIR, pulled), the device's own pictures of a plain start (light, dark) and a
-#                 recording of each run; AZ_ANDROID_DEVICE=pixel_8 and AZ_ANDROID_OVERLAYS=com.android.internal.display.cutout.emulation.hole
-#                 give it the Pixel 8 with its punch hole (first mode only);
+#                 recording of each run; AZ_ANDROID_DEVICE=pixel_8 (when avdmanager has the profile) and
+#                 AZ_ANDROID_OVERLAYS=com.android.internal.emulation.pixel_8 give it the Pixel 8's camera cutout (first mode only);
 #                 AZ_QA_AZMAIL_APK (and AZ_QA_AZMAIL_DATA) adds AzMail on the same phone per orientation (scripts/ci/android_azmail.py);
 #            audit: the phone-fit audit of QA-variant APKs (scripts/ci/mobile_e2e.py --audit-only) on the first mode only: the
 #                 APK, then every APK of AZ_QA_AUDIT_APKS (space separated), each in its own folder <out>/<mode>/audit/<apk name>/
@@ -42,7 +42,7 @@ sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
 export PATH="$sdk:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 image="${AZ_ANDROID_IMAGE:-system-images;android-34;default;x86_64}"
 # the device profile of the AVD (avdmanager list device): AZ_ANDROID_DEVICE=pixel_8; AZ_ANDROID_OVERLAYS: system overlays to enable after the boot
-# (`com.android.internal.display.cutout.emulation.hole` = a punch-hole camera: the system draws the cutout and the app gets its display cutout)
+# (`com.android.internal.emulation.pixel_8` = the Pixel 8's camera cutout: the system draws it and the app gets its display cutout)
 device="${AZ_ANDROID_DEVICE:-pixel_6}"
 # The package the APK declares (aapt2 of build-tools 34)
 aapt2="$ANDROID_HOME/build-tools/34.0.0/aapt2"
@@ -114,9 +114,18 @@ for mode in "${mode_list[@]}"; do
   echo "emulator booted in ${boot_s}s: $(adb shell getprop ro.product.cpu.abi | tr -d '\r'), API $(adb shell getprop ro.build.version.sdk | tr -d '\r')"
   sleep 20   # the launcher and system UI settle (a first screenshot of a booting system shows an ANR dialog)
   if [ -n "${AZ_ANDROID_OVERLAYS:-}" ] && [ "$mode" = "${mode_list[0]}" ]; then
-    for ov in $AZ_ANDROID_OVERLAYS; do adb shell cmd overlay enable "$ov" 2>&1 | tee -a "$d/overlays.log"; done
-    sleep 8
-    adb shell cmd overlay list 2>/dev/null | grep -i -E "cutout|emulation" >>"$d/overlays.log" || true
+    # `com.android.internal.emulation.pixel_8` = the Pixel 8's camera cutout (the system image carries one overlay per Pixel; the AVD's own profile is
+    # enabled at the boot: pixel_6 for a pixel_6 AVD). enable-exclusive turns the others of its category off; whatever other emulation overlay is still
+    # on afterwards is turned off too (two cutouts are not a phone). The first listing is what the image had, the last what it has now.
+    adb shell cmd overlay list 2>/dev/null | tr -d '\r' | grep -i -E "cutout|emulation" | sed 's/^/before: /' >>"$d/overlays.log" || true
+    for ov in $AZ_ANDROID_OVERLAYS; do
+      adb shell cmd overlay enable-exclusive --category "$ov" 2>&1 | tee -a "$d/overlays.log"
+      for other in $(adb shell cmd overlay list 2>/dev/null | tr -d '\r' | sed -n 's/^\[x\] \(com\.android\.internal\..*emulation.*\)$/\1/p'); do
+        [ "$other" = "$ov" ] || adb shell cmd overlay disable "$other" 2>&1 | tee -a "$d/overlays.log"
+      done
+    done
+    sleep 10
+    adb shell cmd overlay list 2>/dev/null | tr -d '\r' | grep -i -E "cutout|emulation" | sed 's/^/after: /' >>"$d/overlays.log" || true
   fi
   if [ "$session" = qa ] || [ "$session" = both ]; then
     python3 "$here/mobile_qa.py" android --out "$d" --apk "$apk" --package "$pkg" --activity "${act:-}" \
@@ -172,10 +181,21 @@ for mode in "${mode_list[@]}"; do
     # the APK on the phone FIRST: the plain start below needs it, and the matrix runs install it only later
     adb install -r -t "$apk" >"$d/install.log" 2>&1 || echo "the e2e APK did not install: $(tail -n 2 "$d/install.log")"
     adb shell settings put system accelerometer_rotation 0
+    # THE LAUNCHER LOCKS PORTRAIT: with it in front the display is portrait whatever user_rotation says, and an app started from it opens in portrait
+    # and turns only seconds later (a 6 s scenario run was portrait from its first frame to its last, the first run of this session). Settings turns
+    # with the user's rotation, so it is brought to the front before every start: the display is already in the orientation when the app's window is made.
+    wait_orientation() {   # wait_orientation <portrait|landscape>: up to 45 s until the display is in it
+      local want="cur=1080x2400"; [ "$1" = landscape ] && want="cur=2400x1080"
+      for _ in $(seq 1 45); do adb shell dumpsys window displays 2>/dev/null | grep -q "$want" && return 0; sleep 1; done
+      echo "the display did not turn to $1 within 45 s"; return 1
+    }
+    bring_settings() {   # the display in the orientation of this pass, with an app in front that does not lock it
+      adb shell am start -a android.settings.SETTINGS >/dev/null 2>&1; sleep 3; wait_orientation "$orient"; sleep 2
+    }
     for orient in portrait landscape; do
       adb shell settings put system user_rotation "$([ "$orient" = portrait ] && echo 0 || echo 1)"
-      sleep 6
       td="$d/tabs-$orient"; mkdir -p "$td/shots" "$td/videos"
+      bring_settings
       adb shell dumpsys window displays 2>/dev/null | grep -i -E "cutout|init=|mRotation|rotation=" | head -n 12 >"$td/display.txt" || true
       adb shell am force-stop "$pkg" >/dev/null 2>&1
       if [ -n "${act:-}" ]; then adb shell am start -n "$pkg/$act" >/dev/null 2>&1; else adb shell monkey -p "$pkg" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1; fi
@@ -186,6 +206,7 @@ for mode in "${mode_list[@]}"; do
       adb shell cmd uimode night no >/dev/null 2>&1; sleep 4
       adb shell am force-stop "$pkg" >/dev/null 2>&1
       for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures tab_looks}; do
+        bring_settings
         vid="/sdcard/tabs-$orient-${part%.json}.mp4"
         ( adb shell screenrecord --time-limit 170 "$vid" >/dev/null 2>&1 & )
         python3 "$here/e2e_matrix.py" android --repo . --out "$td/matrix-${part%.json}" --only "$part" --shots "$td/shots" --apk "$apk" 2>&1 | tee -a "$td/e2e-matrix.log"
@@ -202,6 +223,7 @@ for mode in "${mode_list[@]}"; do
         xn="$(basename "$xapk" .apk)"
         [ -n "$xpkg" ] || { echo "no package in the badging of $xapk"; continue; }
         adb install -r -t "$xapk" >"$td/$xn-install.log" 2>&1 || echo "$xn did not install"
+        bring_settings
         adb shell am force-stop "$xpkg" >/dev/null 2>&1
         if [ -n "$xact" ]; then adb shell am start -n "$xpkg/$xact" >/dev/null 2>&1; else adb shell monkey -p "$xpkg" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1; fi
         sleep 30
@@ -214,6 +236,7 @@ for mode in "${mode_list[@]}"; do
       # AZ_QA_AZMAIL_APK: AzMail on this phone in this orientation (scripts/ci/android_azmail.py: its first start, the sample mailbox when
       # AZ_QA_AZMAIL_DATA names the folder scripts/ci/azmail_sample_data.py wrote, a message, the compose command; the pictures are the answer)
       if [ -n "${AZ_QA_AZMAIL_APK:-}" ]; then
+        bring_settings
         python3 "$here/android_azmail.py" --out "$td/azmail" --apk "$AZ_QA_AZMAIL_APK" --tag "$orient" \
           ${AZ_QA_AZMAIL_DATA:+--data "$AZ_QA_AZMAIL_DATA"} 2>&1 | tee "$td/azmail.log"
       fi
