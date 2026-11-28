@@ -93,6 +93,7 @@ Each command's `op` field selects one debug event variant. Categories overlap wi
 - **Keyboard.** `key_down`, `key_up`, `text_input`.
 - **Window.** `resize`, `move`, `focus`, `blur`, `close`, `dpi_changed`.
 - **Mode and theme.** `get_mode`, `set_mode` (`light`, `dark` or `system`), `get_theme`, `set_theme`. See [Light / dark mode and the app theme](#light--dark-mode-and-the-app-theme).
+- **The display a window sits on.** `get_display_features` answers the cutouts, the system bars, the rounded corners, the fingerprint sensor and the safe-area insets the window has; `set_display_preset` (`pixel8`, `iphone_island`, `iphone_notch`, `iphone_home_button`, `corner_hole`, `double_hole`, or `off` for what the platform reports) makes any window behave as if it sat on that phone (`WindowFlags::display_preset`), so one scenario file runs on a desktop and on a phone. See the guide's section on cutouts and system bars (Deploying to a phone).
 - **Queries.** `get_state`, `get_dom_tree`, `get_node_hierarchy`, `get_layout_tree`, `get_display_list`, `get_html_string`, `hit_test`, `get_logs`.
 - **DOM mutation.** `insert_node`, `delete_node`, `set_node_text`, `set_node_classes`, `set_node_css_override`, `set_node_image`.
 - **Scrolling.** `get_scroll_states`, `get_scrollable_nodes`, `scroll_node_by`, `scroll_node_to`, `scroll_into_view`.

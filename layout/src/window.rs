@@ -1996,6 +1996,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         media_session_manager: _,
         form_validation_manager: _,
         safe_area_insets: _,
+        display_features: _,
         laid_out_env: _,
         laid_out_insets: _,
         frame_titlebar: _,
@@ -2025,6 +2026,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         current_window_state: _,
         // NOT WALKED: one size, set while a layout pass runs.
         pass_window_size: _,
+        // NOT WALKED: four numbers per kind of region, and a few rects the platform honours at most 200 px of.
+        system_gesture_insets: _,
+        system_gesture_exclusion_rects: _,
         document_id: _,
         id_namespace: _,
         epoch: _,
@@ -2866,6 +2870,14 @@ pub struct LayoutWindow {
     /// px. Set by the platform shell (macOS NSScreen.safeAreaInsets, iOS
     /// UIView.safeAreaInsets, Android `WindowInsets`); zero where none.
     pub safe_area_insets: azul_css::system::SafeAreaInsets,
+    /// The SHAPES the safe area is made of, as the platform shell reports them: the cutouts
+    /// (a punch-hole camera, a notch, the Dynamic Island), the rounded corners, the system bars'
+    /// rects and whether they are shown, the fingerprint sensor - in logical px of the window.
+    /// Written by the shell next to [`Self::safe_area_insets`] (Android from `WindowInsets`,
+    /// iOS from a table of the model); empty where there is none. READ it through
+    /// [`Self::effective_display_features`], which honours the simulation
+    /// (`WindowFlags::display_preset`).
+    pub display_features: azul_core::display_features::DisplayFeatures,
     /// The window environment the RETAINED layout tree in `layout_cache` was
     /// built with: the fingerprint of every value `env()` and the `system:`
     /// lengths resolve to (`DynamicSelectorContext::env_fingerprint`).
@@ -2932,6 +2944,13 @@ pub struct LayoutWindow {
     /// field's text applied again, a restored caret, the reveal of the focused caret) paints the canvas
     /// across this size instead ([`Self::window_size_for_canvas`]).
     pub(crate) pass_window_size: Option<LogicalSize>,
+    /// Where the system takes the swipes of its own gestures (the back swipe from the side edges, the home
+    /// swipe at the bottom: [`crate::managers::gesture::SystemGestureInsets`]); a shell fills it, the desktop
+    /// has no such regions.
+    pub system_gesture_insets: crate::managers::gesture::SystemGestureInsets,
+    /// The rects the app asked the system not to take swipes in, as far as the system honours them
+    /// ([`Self::set_system_gesture_exclusion_rects`]); a shell hands them to the platform.
+    pub system_gesture_exclusion_rects: Vec<LogicalRect>,
     /// A "document" in `WebRender` usually corresponds to one tab (i.e. in Azuls case, the whole
     /// window).
     pub document_id: DocumentId,
@@ -4745,6 +4764,7 @@ impl LayoutWindow {
             media_session_manager: azul_core::media_session::MediaSessionManager::new(),
             form_validation_manager: azul_core::form::FormValidationManager::new(),
             safe_area_insets: azul_css::system::SafeAreaInsets::default(),
+            display_features: azul_core::display_features::DisplayFeatures::none(),
             laid_out_env: 0,
             laid_out_insets: [0.0; 4],
             frame_titlebar: azul_css::system::TitlebarReport::Unmeasured,
@@ -4762,6 +4782,8 @@ impl LayoutWindow {
             previous_window_state: None,
             current_window_state: FullWindowState::default(),
             pass_window_size: None,
+            system_gesture_insets: crate::managers::gesture::SystemGestureInsets::default(),
+            system_gesture_exclusion_rects: Vec::new(),
             document_id: new_document_id(),
             id_namespace: new_id_namespace(),
             epoch: Epoch::new(),
@@ -9308,7 +9330,7 @@ impl LayoutWindow {
         let dims = window_state.size.dimensions;
         let mut ctx = base
             .with_viewport(dims.width, dims.height)
-            .with_safe_area(&self.safe_area_insets)
+            .with_safe_area(&self.effective_safe_area_insets(window_state))
             .with_titlebar_area(self.titlebar_area(window_state));
         // Both focus flags, read through the one helper: every backend
         // writes `window_focused`, only Win32 `flags.has_focus`.
@@ -9679,7 +9701,61 @@ impl LayoutWindow {
         if window_state.flags.extend_into_safe_area {
             [0.0; 4]
         } else {
-            Self::safe_area_px(&self.safe_area_insets)
+            Self::safe_area_px(&self.effective_safe_area_insets(window_state))
+        }
+    }
+
+    /// The safe-area insets a window in `window_state` stands on: those of the simulated device
+    /// when `WindowFlags::display_preset` names one (for the window's current size; the
+    /// keyboard's inset is always the real one), else what the shell reported
+    /// ([`Self::safe_area_insets`]). Every reader of the insets takes them from here.
+    #[must_use]
+    pub fn effective_safe_area_insets(
+        &self,
+        window_state: &FullWindowState,
+    ) -> azul_css::system::SafeAreaInsets {
+        let preset = window_state.flags.display_preset;
+        if !preset.is_simulated() {
+            return self.safe_area_insets;
+        }
+        let mut insets = preset.safe_area(window_state.size.dimensions);
+        insets.keyboard = self.safe_area_insets.keyboard;
+        insets
+    }
+
+    /// The shell's report of the display's cutouts, corners, bars and fingerprint sensor, in
+    /// logical px of the window (what it writes after each rotation, resize or change of the
+    /// insets, next to [`Self::safe_area_insets`]). `true` when they differ from the last
+    /// report: the layout of a window that reads them (a tab strip in the status bar's band)
+    /// is then stale, so the shell asks for a new layout pass as it does for a change of the
+    /// insets.
+    pub fn report_display_features(
+        &mut self,
+        features: azul_core::display_features::DisplayFeatures,
+    ) -> bool {
+        if self.display_features == features {
+            return false;
+        }
+        self.display_features = features;
+        true
+    }
+
+    /// The cutouts, corners, bars and fingerprint sensor a window in `window_state` has: those
+    /// of the simulated device when `WindowFlags::display_preset` names one, else what the shell
+    /// reported ([`Self::display_features`]).
+    #[must_use]
+    pub fn effective_display_features(
+        &self,
+        window_state: &FullWindowState,
+    ) -> azul_core::display_features::DisplayFeatures {
+        let preset = window_state.flags.display_preset;
+        if preset.is_simulated() {
+            azul_core::display_features::DisplayFeatures::simulate(
+                preset,
+                window_state.size.dimensions,
+            )
+        } else {
+            self.display_features.clone()
         }
     }
 
@@ -10105,7 +10181,7 @@ impl LayoutWindow {
             if root_insets == [0.0; 4] {
                 full
             } else {
-                Self::inset_by_safe_area(&full, &self.safe_area_insets)
+                Self::inset_by_safe_area(&full, &self.effective_safe_area_insets(window_state))
             }
         };
         // The canvas background is painted under the WHOLE window, safe area
@@ -25133,6 +25209,123 @@ impl LayoutWindow {
             })
     }
 
+    /// The constants of gesture detection this window's recognisers read
+    /// ([`GestureConfig`](crate::managers::gesture::GestureConfig)).
+    #[must_use]
+    pub const fn gesture_config(&self) -> &crate::managers::gesture::GestureConfig {
+        &self.gesture_drag_manager.config
+    }
+
+    /// Sets the constants of gesture detection: a shell calls it once at window creation with what the
+    /// system says (Android's `ViewConfiguration`, `UIKit`'s numbers); a window nobody called it on has the
+    /// defaults. A number that is not usable (NaN, infinite) is replaced by the default's and one outside
+    /// what a touch screen can mean is cut to the limit
+    /// ([`GestureConfig::sanitized`](crate::managers::gesture::GestureConfig::sanitized)); the names of the
+    /// fields that were replaced or cut come back for the shell to log, empty when all was usable.
+    pub fn set_gesture_config(
+        &mut self,
+        config: crate::managers::gesture::GestureConfig,
+    ) -> Vec<&'static str> {
+        let (config, replaced) = config.sanitized();
+        self.gesture_drag_manager.config = config;
+        replaced
+    }
+
+    /// The system took the touch away (Android's `ACTION_CANCEL`, iOS's `touchesCancelled`: the shade, the
+    /// back gesture, a parent that intercepted): every recogniser that was waiting for the rest of the touch
+    /// lets go of it, so that nothing fires from it. A cancelled touch is no tap on what it was on (the
+    /// press target is forgotten, the release that follows completes no click), no long press, no drag of a
+    /// node or of a selection, and no scroll input that is still queued. The shell calls it for the cancel
+    /// instead of the release it would make of a lift.
+    pub fn cancel_touch_gestures(&mut self) {
+        self.gesture_drag_manager.touch_cancel_all();
+        self.gesture_drag_manager.end_current_session();
+        self.gesture_drag_manager.cancel_drag();
+        self.hover_manager.clear_press_targets();
+        self.text_selection_drag_anchor = None;
+        let _ = self.end_selection_handle_drag();
+        let _ = self.scroll_manager.cancel_queued_scroll_input();
+    }
+
+    /// Where the system takes the swipes of its own gestures
+    /// ([`SystemGestureInsets`](crate::managers::gesture::SystemGestureInsets)).
+    #[must_use]
+    pub const fn system_gesture_insets(&self) -> &crate::managers::gesture::SystemGestureInsets {
+        &self.system_gesture_insets
+    }
+
+    /// A shell tells where the system takes the swipes of its own gestures, at window creation and when the
+    /// insets change. A side that is not a number or is negative is 0 (no region), and none is kept beyond
+    /// 10,000 px (a unit mixed up).
+    pub fn set_system_gesture_insets(&mut self, insets: crate::managers::gesture::SystemGestureInsets) {
+        const LIMIT: f32 = 10_000.0;
+        self.system_gesture_insets = crate::managers::gesture::SystemGestureInsets {
+            normal: insets.normal.usable(LIMIT),
+            mandatory: insets.mandatory.usable(LIMIT),
+            tappable: insets.tappable.usable(LIMIT),
+        };
+    }
+
+    /// The rects (window coordinates, logical px) the app asked the system not to take swipes in, as far as
+    /// the system honours them.
+    #[must_use]
+    pub fn system_gesture_exclusion_rects(&self) -> &[LogicalRect] {
+        &self.system_gesture_exclusion_rects
+    }
+
+    /// The app asks the system to leave the swipes inside these rects to it (a slider or a drawer handle at the
+    /// edge, a tab strip near the corners). The system honours at most
+    /// [`SYSTEM_GESTURE_EXCLUSION_LIMIT_PX`](crate::managers::gesture::SYSTEM_GESTURE_EXCLUSION_LIMIT_PX)
+    /// (200) of height of rects at each side edge, so the engine keeps what the platform will keep: a rect
+    /// touching an edge uses that edge's height budget, the first rects of the list first; one that no
+    /// budget is left for is dropped and one that only part of it fits is cut to the height that fits (its top
+    /// part is kept); a rect that is not one (not a number, no size) is dropped; rects away from the edges
+    /// are not limited. Returns how many rects were dropped or cut, so the app and the shell can say so
+    /// (0: all of them stand as asked).
+    pub fn set_system_gesture_exclusion_rects(&mut self, rects: Vec<LogicalRect>) -> usize {
+        use crate::managers::gesture::SYSTEM_GESTURE_EXCLUSION_LIMIT_PX as LIMIT;
+        // A rect whose side lies within this of an edge of the window touches it.
+        const EDGE_SLOP: f32 = 1.0;
+        let width = self.current_window_state.size.dimensions.width;
+        let (mut left_used, mut right_used) = (0.0_f32, 0.0_f32);
+        let mut kept: Vec<LogicalRect> = Vec::with_capacity(rects.len());
+        let mut changed = 0;
+        for mut rect in rects {
+            let (x, y) = (rect.origin.x, rect.origin.y);
+            let (w, h) = (rect.size.width, rect.size.height);
+            if !(x.is_finite() && y.is_finite() && w.is_finite() && h.is_finite()) || w <= 0.0 || h <= 0.0 {
+                changed += 1;
+                continue;
+            }
+            let at_left = x <= EDGE_SLOP;
+            let at_right = width > 0.0 && x + w >= width - EDGE_SLOP;
+            let mut room = f32::INFINITY;
+            if at_left {
+                room = room.min(LIMIT - left_used);
+            }
+            if at_right {
+                room = room.min(LIMIT - right_used);
+            }
+            if room <= 0.0 {
+                changed += 1;
+                continue;
+            }
+            if h > room {
+                rect.size.height = room;
+                changed += 1;
+            }
+            if at_left {
+                left_used += rect.size.height;
+            }
+            if at_right {
+                right_used += rect.size.height;
+            }
+            kept.push(rect);
+        }
+        self.system_gesture_exclusion_rects = kept;
+        changed
+    }
+
     /// The nearest FOCUSABLE ancestor of `node_id` (itself included) — the
     /// caret's "focus scope".
     ///
@@ -34916,6 +35109,9 @@ impl LayoutWindow {
             prev_left_down: _,
             // One size of the window, not keyed by a node.
             pass_window_size: _,
+            // Geometry of the window's edges, not keyed by a node.
+            system_gesture_insets: _,
+            system_gesture_exclusion_rects: _,
             laid_out_dock_generation: _,
             inline_tear,
             gpu_state_manager,
@@ -35099,6 +35295,7 @@ impl LayoutWindow {
             #[cfg(feature = "pdf")]
                 fragmentation_context: _,
             safe_area_insets: _,
+            display_features: _,
             laid_out_env: _,
             laid_out_insets: _,
             frame_titlebar: _,

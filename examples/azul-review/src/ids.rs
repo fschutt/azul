@@ -95,3 +95,9 @@ pub const COMPANION_ACCEPT: AzString = AzString::from_const_str("__azreview_comp
 pub const COMPANION_DECLINE: AzString = AzString::from_const_str("__azreview_companion-decline");
 /// The block of the four quick buttons' fields in the settings.
 pub const COMPANION_BUTTONS: AzString = AzString::from_const_str("__azreview_companion-buttons");
+/// The review session's key at the top right: the group, the state (Start review / Recording 0:42 / Paused 0:42), the dot in it (red only while
+/// audio is being captured) and Stop.
+pub const REVIEW_GROUP: AzString = AzString::from_const_str("__azreview_review-group");
+pub const REVIEW_STATE: AzString = AzString::from_const_str("__azreview_review-state");
+pub const REVIEW_DOT: AzString = AzString::from_const_str("__azreview_review-dot");
+pub const REVIEW_STOP: AzString = AzString::from_const_str("__azreview_review-stop");

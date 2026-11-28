@@ -8064,7 +8064,9 @@ pub(crate) fn tab_header_look_in(
     use crate::widgets::tabs::TabStyle;
     match style.resolved(super::UiTheme::Flora) {
         TabStyle::Rectangular => tab_row_look(TabShape::Rectangular),
-        TabStyle::Pills => crate::widgets::tabs::pill_look(
+        // The touch pills have a DOM of their own (`TabHeader::dom_touch`); the look is only asked
+        // for by the code that builds the other styles, and takes the desktop pills' parts.
+        TabStyle::Pills | TabStyle::TouchPills => crate::widgets::tabs::pill_look(
             super::UiTheme::Flora,
             Some(super::style_kit::FLORA_CLASS),
         ),

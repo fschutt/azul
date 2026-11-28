@@ -7623,10 +7623,13 @@
                                     "type": "bool"
                                 },
                                 "exclude_from_capture": {
-                                    "type": "bool",
-                                    "doc": [
-                                        "Keep this window out of screen captures and recordings (a preview of the camera, a recording indicator: a window that records the screen would otherwise show itself). macOS: the window's sharing type is none; Windows 10 version 2004 and later: WDA_EXCLUDEFROMCAPTURE; X11 and Wayland give no way and the flag has no effect there. Default: false."
-                                    ]
+                                    "type": "bool"
+                                },
+                                "system_bars": {
+                                    "type": "SystemBarsOptions"
+                                },
+                                "display_preset": {
+                                    "type": "DisplayPreset"
                                 }
                             }
                         ],
@@ -10577,6 +10580,347 @@
                                 },
                                 "kept_bytes": {
                                     "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SystemBarIcons": {
+                        "external": "azul_core::display_features::SystemBarIcons",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Light": {},
+                                "Dark": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CornerRadii": {
+                        "external": "azul_core::display_features::CornerRadii",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "top_left": {
+                                    "type": "f32"
+                                },
+                                "top_right": {
+                                    "type": "f32"
+                                },
+                                "bottom_right": {
+                                    "type": "f32"
+                                },
+                                "bottom_left": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CutoutShape": {
+                        "external": "azul_core::display_features::CutoutShape",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Circle": {},
+                                "RoundedRect": {},
+                                "Pill": {},
+                                "Notch": {},
+                                "WaterfallEdge": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DisplayCutout": {
+                        "external": "azul_core::display_features::DisplayCutout",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "rect": {
+                                    "type": "LogicalRect"
+                                },
+                                "shape": {
+                                    "type": "CutoutShape"
+                                },
+                                "approximate": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DisplayCutoutVecSlice": {
+                        "external": "azul_core::display_features::DisplayCutoutVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DisplayCutout",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DisplayFeatures": {
+                        "external": "azul_core::display_features::DisplayFeatures",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cutouts": {
+                                    "type": "DisplayCutoutVec"
+                                },
+                                "bars": {
+                                    "type": "SystemBars"
+                                },
+                                "fingerprint": {
+                                    "type": "OptionFingerprintSensor"
+                                },
+                                "corner_radii": {
+                                    "type": "CornerRadii"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DisplayPreset": {
+                        "external": "azul_core::display_features::DisplayPreset",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Off": {},
+                                "Pixel8": {},
+                                "IPhoneDynamicIsland": {},
+                                "IPhoneNotch": {},
+                                "IPhoneHomeButton": {},
+                                "CornerHole": {},
+                                "DoubleHole": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FingerprintKind": {
+                        "external": "azul_core::display_features::FingerprintKind",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Unknown": {},
+                                "UnderDisplayOptical": {},
+                                "UnderDisplayUltrasonic": {},
+                                "SideMounted": {},
+                                "Rear": {},
+                                "Front": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FingerprintSensor": {
+                        "external": "azul_core::display_features::FingerprintSensor",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "spot": {
+                                    "type": "OptionFingerprintSpot"
+                                },
+                                "kind": {
+                                    "type": "FingerprintKind"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FingerprintSpot": {
+                        "external": "azul_core::display_features::FingerprintSpot",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "center": {
+                                    "type": "LogicalPosition"
+                                },
+                                "radius": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SystemBar": {
+                        "external": "azul_core::display_features::SystemBar",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "rect": {
+                                    "type": "LogicalRect"
+                                },
+                                "visible": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SystemBarMode": {
+                        "external": "azul_core::display_features::SystemBarMode",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Visible": {},
+                                "HiddenTransient": {},
+                                "HiddenSticky": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SystemBars": {
+                        "external": "azul_core::display_features::SystemBars",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "status": {
+                                    "type": "OptionSystemBar"
+                                },
+                                "navigation": {
+                                    "type": "OptionSystemBar"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SystemBarsOptions": {
+                        "external": "azul_core::display_features::SystemBarsOptions",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "status": {
+                                    "type": "SystemBarMode"
+                                },
+                                "navigation": {
+                                    "type": "SystemBarMode"
+                                },
+                                "icons": {
+                                    "type": "SystemBarIcons"
+                                },
+                                "draw_into_cutout": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -21446,6 +21790,24 @@
                                     "type": "StringVec"
                                 },
                                 "fn_body": "object.get_sound_log()"
+                            },
+                            "get_display_features": {
+                                "doc": [
+                                    "The cutouts of the display (a punch-hole camera, a notch, the Dynamic Island), its rounded",
+                                    "corners, the system bars and the fingerprint sensor, in logical px of the window (origin",
+                                    "top left). Where [`Self::get_safe_area_insets`] merges them into one number per side,",
+                                    "this has the shapes. Empty on a desktop window; the shell writes it after each rotation or",
+                                    "change of the window, and `WindowFlags::display_preset` simulates a phone's."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DisplayFeatures"
+                                },
+                                "fn_body": "object.get_display_features()"
                             }
                         },
                         "repr": "C"
@@ -22214,6 +22576,24 @@
                                     "type": "OptionFluentLocalizerHandle"
                                 },
                                 "fn_body": "azul_layout::fluent::fluent_localizer_of(layout_callback_info)"
+                            },
+                            "get_display_features": {
+                                "doc": [
+                                    "The cutouts of the display (a punch-hole camera, a notch, the Dynamic Island), its",
+                                    "rounded corners, the system bars and the fingerprint sensor, in logical px of the window",
+                                    "(origin top left). Where `get_safe_area_insets` merges them into one number per side,",
+                                    "this has the shapes, so that a row in the status bar's band can go around the camera.",
+                                    "Empty on a desktop window; the shell writes it after each rotation or change of the window."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DisplayFeatures"
+                                },
+                                "fn_body": "object.get_display_features()"
                             }
                         },
                         "repr": "C"
@@ -66176,14 +66556,20 @@
                         ],
                         "struct_fields": [
                             {
+                                "on_click": {
+                                    "type": "OptionTabOnClick"
+                                },
+                                "status_bar": {
+                                    "type": "OptionStatusBarBand"
+                                },
                                 "tabs": {
                                     "type": "StringVec"
                                 },
+                                "reveal": {
+                                    "type": "OptionTabReveal"
+                                },
                                 "active_tab": {
                                     "type": "usize"
-                                },
-                                "on_click": {
-                                    "type": "OptionTabOnClick"
                                 },
                                 "theme": {
                                     "type": "OptionUiTheme"
@@ -66191,8 +66577,8 @@
                                 "style": {
                                     "type": "TabStyle"
                                 },
-                                "reveal": {
-                                    "type": "OptionTabReveal"
+                                "flip": {
+                                    "type": "TabFlip"
                                 }
                             }
                         ],
@@ -66387,6 +66773,80 @@
                                     "type": "TabHeader"
                                 },
                                 "fn_body": "object.with_reveal(reveal)"
+                            },
+                            "set_flip": {
+                                "doc": [
+                                    "Whether a vertical swipe on the panel flips to the previous / next tab: `Off`, `AtEdges`",
+                                    "(a finger that pulls past the end of the content; the default) or `Always` (a wheel",
+                                    "that keeps pushing against the end flips too). The panel follows the bar:",
+                                    "`TabContent::with_flip_of(&bar)`. The pills stay the explicit way to choose a tab and the",
+                                    "one assistive technology uses: a flip is a shortcut, never the only path."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "flip": "TabFlip"
+                                    }
+                                ],
+                                "fn_body": "object.set_flip(flip)"
+                            },
+                            "set_status_bar": {
+                                "doc": [
+                                    "Put the strip in the status bar's band: the tab bar takes the place of the clock and the",
+                                    "battery icons, in the band of `band` (`StatusBarBand::from_display`, made from",
+                                    "`LayoutCallbackInfo::get_display_features`), and its pills slide around the cutouts of the",
+                                    "display: the strip is the lanes either side of the camera, what lies under it is covered,",
+                                    "and the selected pill always stands whole inside a lane. The window must draw into the",
+                                    "band (`WindowFlags::extend_into_safe_area`, `system_bars.status` hidden): the strip is the",
+                                    "first thing in the window, at its top edge. A window with no status bar and no cutout has",
+                                    "no band, and the strip is an ordinary row. Only the touch pills (`TabStyle::TouchPills`,",
+                                    "what `Auto` is on a phone) take a band."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "band": "StatusBarBand"
+                                    }
+                                ],
+                                "fn_body": "object.set_status_bar(band)"
+                            },
+                            "with_flip": {
+                                "doc": [
+                                    "[`Self::set_flip`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "flip": "TabFlip"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabHeader"
+                                },
+                                "fn_body": "object.with_flip(flip)"
+                            },
+                            "with_status_bar": {
+                                "doc": [
+                                    "[`Self::set_status_bar`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "band": "StatusBarBand"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabHeader"
+                                },
+                                "fn_body": "object.with_status_bar(band)"
                             }
                         },
                         "repr": "C"
@@ -67366,6 +67826,12 @@
                                 },
                                 "strip_end": {
                                     "type": "OptionDom"
+                                },
+                                "status_bar": {
+                                    "type": "OptionStatusBarBand"
+                                },
+                                "flip": {
+                                    "type": "TabFlip"
                                 }
                             }
                         ],
@@ -67802,6 +68268,75 @@
                                     "type": "Ribbon"
                                 },
                                 "fn_body": "object.with_tab_style(style)"
+                            },
+                            "set_flip": {
+                                "doc": [
+                                    "Whether a vertical swipe on the content band flips to the previous / next tab (told to",
+                                    "`on_tab_click`): `Off`, `AtEdges` (a finger; the default) or `Always` (a wheel too). The",
+                                    "tabs stay the explicit way to choose one. See `TabContent::with_flip_of` for the rules."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "flip": "TabFlip"
+                                    }
+                                ],
+                                "fn_body": "object.set_flip(flip)"
+                            },
+                            "set_status_bar": {
+                                "doc": [
+                                    "Put the tab row in the status bar's band: the tabs take the place of the clock and the",
+                                    "battery icons, in the band of `band` (`StatusBarBand::from_display`), and slide around the",
+                                    "cutouts of the display; the content band sits below. The window must draw into the band",
+                                    "(`WindowFlags::extend_into_safe_area`, `system_bars.status` hidden) and the ribbon be the",
+                                    "first thing in it. Needs `TabStyle::TouchPills` and [`Self::dom_desktop`]; a window with no",
+                                    "status bar and no cutout has no band, and the row is an ordinary one."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "band": "StatusBarBand"
+                                    }
+                                ],
+                                "fn_body": "object.set_status_bar(band)"
+                            },
+                            "with_flip": {
+                                "doc": [
+                                    "[`Self::set_flip`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "flip": "TabFlip"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Ribbon"
+                                },
+                                "fn_body": "object.with_flip(flip)"
+                            },
+                            "with_status_bar": {
+                                "doc": [
+                                    "[`Self::set_status_bar`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "band": "StatusBarBand"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Ribbon"
+                                },
+                                "fn_body": "object.with_status_bar(band)"
                             }
                         },
                         "repr": "C"
@@ -114669,7 +115204,8 @@
                                 "Auto": {},
                                 "Aurora": {},
                                 "Rectangular": {},
-                                "Pills": {}
+                                "Pills": {},
+                                "TouchPills": {}
                             }
                         ],
                         "functions": {
@@ -114721,6 +115257,18 @@
                                 },
                                 "reveal": {
                                     "type": "OptionTabReveal"
+                                },
+                                "flip": {
+                                    "type": "TabFlip"
+                                },
+                                "flip_tabs": {
+                                    "type": "StringVec"
+                                },
+                                "flip_tab": {
+                                    "type": "usize"
+                                },
+                                "on_flip": {
+                                    "type": "OptionTabOnClick"
                                 }
                             }
                         ],
@@ -114887,6 +115435,48 @@
                                     "type": "TabContent"
                                 },
                                 "fn_body": "object.with_reveal(reveal)"
+                            },
+                            "set_flip_of": {
+                                "doc": [
+                                    "Let a vertical swipe on the panel flip to the previous / next tab, as `header` says: its",
+                                    "`flip` (`TabHeader::with_flip`), its tabs (the hint names the one a pull goes to), its",
+                                    "active tab and its `on_click`, which is told of every flip exactly as of a tap on a pill.",
+                                    "",
+                                    "The rules: content that can scroll scrolls first, and a pull that starts at its end",
+                                    "flips; content that does not scroll flips on a swipe; a finger that carries on flips one",
+                                    "tab per 56 px of travel, a fast lift carries over up to four more tabs in a slowing",
+                                    "rhythm, a long page flips once per gesture; never while the finger went down on a nested",
+                                    "scrollable or on a node of the class `__azul-claims-gesture` (a slider, a map, a canvas),",
+                                    "never for a gesture that is more sideways than vertical, never after a cancel (the system",
+                                    "took the finger); the first tab has no previous and the last no next. A tab bar without an",
+                                    "`on_click` has nobody to tell: the panel does not flip."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "header": "*const TabHeader"
+                                    }
+                                ],
+                                "fn_body": "object.set_flip_of(unsafe { &*header })"
+                            },
+                            "with_flip_of": {
+                                "doc": [
+                                    "[`Self::set_flip_of`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "header": "*const TabHeader"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabContent"
+                                },
+                                "fn_body": "object.with_flip_of(unsafe { &*header })"
                             }
                         },
                         "repr": "C"
@@ -116740,6 +117330,74 @@
                                 "pixels": {
                                     "type": "U8VecRef"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StatusBarBand": {
+                        "external": "azul_layout::widgets::tab_strip::StatusBarBand",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "lanes": {
+                                    "type": "LogicalRectVec"
+                                },
+                                "height": {
+                                    "type": "f32"
+                                },
+                                "width": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "from_display": {
+                                "doc": [
+                                    "The band of a window of `window` size with `features` and `safe_area` as the shell reports",
+                                    "them (`LayoutCallbackInfo::get_display_features` / `get_safe_area_insets`).",
+                                    "",
+                                    "The band is the status bar's height; a window with a cutout and no status bar rect takes",
+                                    "the top inset; a window with neither has none (`height == 0`). Lanes are the band between",
+                                    "the left and the right inset, less every cutout in it with [`CUTOUT_MARGIN`] on each side."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "features": "*const DisplayFeatures"
+                                    },
+                                    {
+                                        "safe_area": "*const SafeAreaInsets"
+                                    },
+                                    {
+                                        "window": "LogicalSize"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::tab_strip::StatusBarBand::from_display(unsafe { &*features }, unsafe { &*safe_area }, window)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TabFlip": {
+                        "external": "azul_layout::widgets::tab_flip::TabFlip",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Off": {},
+                                "AtEdges": {},
+                                "Always": {}
                             }
                         ],
                         "repr": "C"
@@ -180678,6 +181336,219 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "DisplayCutoutVec": {
+                        "external": "azul_core::display_features::DisplayCutoutVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DisplayCutout",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "DisplayCutoutVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `DisplayCutoutVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "DisplayCutoutVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `DisplayCutoutVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DisplayCutoutVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "display_cutout_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "display_cutout_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "display_cutout_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `DisplayCutoutVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "DisplayCutout"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DisplayCutoutVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `DisplayCutoutVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const DisplayCutout"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DisplayCutoutVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDisplayCutout"
+                                },
+                                "fn_body": "display_cutout_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `DisplayCutoutVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DisplayCutoutVecSlice"
+                                },
+                                "fn_body": "display_cutout_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DisplayCutoutVecSlice"
+                                },
+                                "fn_body": "display_cutout_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DisplayCutoutVecDestructor": {
+                        "external": "azul_core::display_features::DisplayCutoutVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "DisplayCutoutVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "DisplayCutoutVecDestructorType": {
+                        "external": "azul_core::display_features::DisplayCutoutVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "DisplayCutoutVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -192084,6 +192955,104 @@
                                 "None": {},
                                 "Some": {
                                     "type": "FluentLocalizerHandle"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionFingerprintSensor": {
+                        "external": "azul_core::display_features::OptionFingerprintSensor",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "FingerprintSensor"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionFingerprintSpot": {
+                        "external": "azul_core::display_features::OptionFingerprintSpot",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "FingerprintSpot"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionStatusBarBand": {
+                        "external": "azul_layout::widgets::tab_strip::OptionStatusBarBand",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "StatusBarBand"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionSystemBar": {
+                        "external": "azul_core::display_features::OptionSystemBar",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "SystemBar"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDisplayCutout": {
+                        "external": "azul_core::display_features::OptionDisplayCutout",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "DisplayCutout",
+                                    "doc": [
+                                        "Some value of type DisplayCutout"
+                                    ]
                                 }
                             }
                         ],
