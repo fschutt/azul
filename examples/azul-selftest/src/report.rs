@@ -205,6 +205,58 @@ pub fn report_line(ctx: &Context, rows: &[RowResult]) -> String {
     format!("{REPORT_PREFIX} {}", report_json(ctx, rows))
 }
 
+/// The word of a report that is too long for one line: `AZ_SELFTEST_REPORT_PART i/n <slice>`, the slices of the JSON in order.
+pub const PART_PREFIX: &str = "AZ_SELFTEST_REPORT_PART";
+
+/// The most bytes of one printed line. Android's logcat keeps about 4000 bytes of a line and drops the rest WITHOUT a word (the report of
+/// the first emulator run ended in the middle of its 17th row, every later row was lost), so a line stays well below that.
+pub const MAX_LINE_BYTES: usize = 3000;
+
+/// The lines to print for a report: [`report_line`] when it is at most `max_bytes` long, else the JSON in slices of
+/// `AZ_SELFTEST_REPORT_PART i/n <slice>` (every line at most `max_bytes` long, the slices joined in order are exactly the JSON).
+#[must_use]
+pub fn report_lines(ctx: &Context, rows: &[RowResult], max_bytes: usize) -> Vec<String> {
+    let json = report_json(ctx, rows);
+    let single = format!("{REPORT_PREFIX} {json}");
+    if single.len() <= max_bytes {
+        return vec![single];
+    }
+    split_parts(&json, max_bytes)
+}
+
+/// `json` as `AZ_SELFTEST_REPORT_PART i/n <slice>` lines of at most `max_bytes` each. A slice ends between two characters and not right
+/// after a blank (a log may drop the blanks at the end of a line, and the slices have to join to the JSON).
+fn split_parts(json: &str, max_bytes: usize) -> Vec<String> {
+    // The longest header a report of up to 99 parts has: `AZ_SELFTEST_REPORT_PART 99/99 `.
+    let room = max_bytes.saturating_sub(PART_PREFIX.len() + " 99/99 ".len()).max(64);
+    let mut slices: Vec<&str> = Vec::new();
+    let mut rest = json;
+    while !rest.is_empty() {
+        let mut end = rest.len().min(room);
+        if end < rest.len() {
+            let limit = end;
+            while end > 0 && (!rest.is_char_boundary(end) || rest[..end].ends_with(char::is_whitespace)) {
+                end -= 1;
+            }
+            if end == 0 {
+                // nothing but blanks in `room` bytes: cut at the limit, between characters
+                end = limit;
+                while !rest.is_char_boundary(end) {
+                    end -= 1;
+                }
+            }
+        }
+        slices.push(&rest[..end]);
+        rest = &rest[end..];
+    }
+    let parts = slices.len();
+    slices
+        .iter()
+        .enumerate()
+        .map(|(at, slice)| format!("{PART_PREFIX} {}/{parts} {slice}", at + 1))
+        .collect()
+}
+
 #[cfg(test)]
 #[path = "report_test.rs"]
 mod tests;

@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import android_font_cache_proof as fonts  # noqa: E402
+import android_phone_selftest as phone  # noqa: E402
 import android_probe as probe  # noqa: E402
 
 ROW = "sensors.geolocation"
@@ -47,16 +48,9 @@ LOCATION = ("android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCES
 
 
 def report_rows(log_text):
-    """The rows of the newest AZ_SELFTEST_REPORT line of a logcat: {row id: (verdict, detail)}."""
+    """The rows of the newest AZ_SELFTEST_REPORT of a logcat (one line, or the numbered parts of a long one): {row id: (verdict, detail)}."""
     rows = {}
-    for line in probe.marker_lines(log_text, "AZ_SELFTEST_REPORT"):
-        match = re.search(r"AZ_SELFTEST_REPORT\s+(\{.*\})", line)
-        if not match:
-            continue
-        try:
-            report = json.loads(match.group(1))
-        except ValueError:
-            continue
+    for report in phone.reports_in(log_text):
         rows = {r["id"]: (r.get("verdict"), r.get("detail", "")) for r in report.get("rows", [])}
     return rows
 
