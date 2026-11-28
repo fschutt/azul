@@ -1374,6 +1374,8 @@ pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool, strip: &ui_fram
         .with_button_face(if phone { RibbonButtonFace::Icon } else { RibbonButtonFace::Text })
         // the phone's 18 px rail stands beside the band, under the tab row: the band keeps clear
         .with_content_inset(strip.content_inset)
+        // the window's ONE chevron at the left end of a phone's tab row folds the band away
+        .with_content_toggle(phone && !file_open)
         .with_available_width(strip.width);
     if file_open {
         // File is lit and its band is hidden; no double click can bring the band back (the
