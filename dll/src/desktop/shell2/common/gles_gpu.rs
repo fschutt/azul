@@ -737,6 +737,7 @@ impl GlesGpu {
         };
         let reports_damage = session.info().caps.buffer_age;
         log_info!(LogCategory::Rendering, "[render] {}", gles_trace::extensions_line(&gl));
+        log_info!(LogCategory::Rendering, "[render] limits: {}", gles_trace::limits_line(&gl));
         if let Some((level, path)) = gl_trace_spec() {
             gl_context_loader::trace::start(level, path.as_deref());
         }

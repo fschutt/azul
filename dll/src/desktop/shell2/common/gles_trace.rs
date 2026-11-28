@@ -200,3 +200,40 @@ pub fn read_framebuffer(gl: &GenericGlContext, width: u32, height: u32) -> Vec<u
     );
     pixels
 }
+
+/// EXPERIMENT (the Android GPU root-cause hunt): the implementation limits WebRender's shaders live on (vertex attributes, varyings, uniforms,
+/// texture units per stage, render target sizes), as one line.
+#[must_use]
+pub fn limits_line(gl: &GenericGlContext) -> String {
+    const LIMITS: [(&str, u32); 14] = [
+        ("MAX_VERTEX_ATTRIBS", glconst::MAX_VERTEX_ATTRIBS),
+        ("MAX_VERTEX_UNIFORM_VECTORS", glconst::MAX_VERTEX_UNIFORM_VECTORS),
+        ("MAX_FRAGMENT_UNIFORM_VECTORS", glconst::MAX_FRAGMENT_UNIFORM_VECTORS),
+        ("MAX_VARYING_VECTORS", glconst::MAX_VARYING_VECTORS),
+        ("MAX_VERTEX_OUTPUT_COMPONENTS", glconst::MAX_VERTEX_OUTPUT_COMPONENTS),
+        ("MAX_FRAGMENT_INPUT_COMPONENTS", glconst::MAX_FRAGMENT_INPUT_COMPONENTS),
+        ("MAX_VERTEX_TEXTURE_IMAGE_UNITS", glconst::MAX_VERTEX_TEXTURE_IMAGE_UNITS),
+        ("MAX_TEXTURE_IMAGE_UNITS", glconst::MAX_TEXTURE_IMAGE_UNITS),
+        ("MAX_COMBINED_TEXTURE_IMAGE_UNITS", glconst::MAX_COMBINED_TEXTURE_IMAGE_UNITS),
+        ("MAX_RENDERBUFFER_SIZE", glconst::MAX_RENDERBUFFER_SIZE),
+        ("MAX_COLOR_ATTACHMENTS", glconst::MAX_COLOR_ATTACHMENTS),
+        ("MAX_DRAW_BUFFERS", glconst::MAX_DRAW_BUFFERS),
+        ("MAX_ARRAY_TEXTURE_LAYERS", glconst::MAX_ARRAY_TEXTURE_LAYERS),
+        ("MAX_ELEMENT_INDEX", glconst::MAX_ELEMENT_INDEX),
+    ];
+    let mut parts = Vec::with_capacity(LIMITS.len() + 1);
+    for (name, constant) in LIMITS {
+        let mut value = [0_i32];
+        // SAFETY: a query that writes one integer into a slice of one.
+        unsafe { gl.get_integer_v(constant, &mut value) };
+        parts.push(format!("{name} {}", value[0]));
+    }
+    let mut point = [0_f32; 2];
+    // SAFETY: `glGetFloatv` of the ALIASED_POINT_SIZE_RANGE writes two floats; the table's slot is called only when it has one.
+    if !gl.glGetFloatv.is_null() {
+        let get_floats: extern "system" fn(u32, *mut f32) = unsafe { std::mem::transmute(gl.glGetFloatv) };
+        get_floats(glconst::ALIASED_POINT_SIZE_RANGE, point.as_mut_ptr());
+    }
+    parts.push(format!("ALIASED_POINT_SIZE_RANGE {point:?}"));
+    parts.join(", ")
+}
