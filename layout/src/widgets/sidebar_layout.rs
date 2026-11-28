@@ -228,6 +228,8 @@ pub const RAIL_ICON_PX: f32 = 13.0;
 /// size would break them. Everything else of the family (the rows, the headers, the right dock, the sheet) grows
 /// with the text without a cap. A cap below 1.0 reads as 1.0 (it limits growth only).
 pub const CHROME_TEXT_SCALE_MAX: f32 = 1.3;
+// a cap below 1.0 reads as 1.0 in the engine: it would cap nothing more, so the number is held to 1.0 and above
+const _: () = assert!(CHROME_TEXT_SCALE_MAX >= 1.0);
 
 /// The declaration of [`CHROME_TEXT_SCALE_MAX`] for the CSS of the ROOT of a chrome subtree: the custom property
 /// `--azul-text-scale-max` inherits, and the engine caps the scale of every font size, absolute line height and

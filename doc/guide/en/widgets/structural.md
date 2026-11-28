@@ -72,6 +72,13 @@ let dom = Dom::create_div()
 on click. The active state is driven externally; the widget does not toggle
 itself. Your callback rebuilds the DOM with a new `active_tab`.
 
+The default look (`TabStyle::Auto`) is the theme's buttons floating on a strip of
+leather. A row that is longer than its box scrolls inside it - the wheel (a
+vertical notch moves it sideways), the arrow keys, a drag - without a scrollbar;
+the selected button comes into view by itself and a fade in the leather's colour
+marks each end of the row. A bar with `with_reveal` keeps a row that does not
+scroll.
+
 ## TreeView
 
 `TreeView` renders a hierarchy where each node has a label, an optional list

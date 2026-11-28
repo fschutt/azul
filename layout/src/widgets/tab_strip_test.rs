@@ -530,3 +530,150 @@ fn the_window_is_asked_widest_row_first_and_only_as_far_as_it_has_to() {
     });
     assert_eq!(once, 1, "a row that fits at once is asked once");
 }
+
+// ---- at rest, no pill stands under a camera ----
+
+/// AzWriter on a Pixel 8 overlay (QA, 2026-11-28): four tabs, `FILE HOME INSERT VIEW`, the camera's gap
+/// between 175 and 237 dp. INSERT stood under it and the strip read `FILE HOME (blank) VIEW`.
+#[test]
+fn a_pill_that_would_stand_under_the_camera_starts_the_next_lane() {
+    let lanes = [(0.0, 175.0), (237.0, 412.0)];
+    let widths = [61.0, 72.0, 78.0, 67.0];
+    let room = room_around_cutouts(&widths, 16.0, 8.0, &lanes, 16.0);
+    // FILE 16..77 and HOME 85..157 stand in the left lane (to 175 less the fade's 16: 159); INSERT would
+    // be 165..243, under the gap: it starts the right lane, 16 in from its edge (253), VIEW follows.
+    assert_eq!(room.len(), 4);
+    assert!(near(room[0], 0.0) && near(room[1], 0.0), "{room:?}");
+    assert!(near(room[2], 253.0 - 165.0), "INSERT is moved to the right lane: {room:?}");
+    assert!(near(room[3], 0.0), "VIEW follows INSERT: {room:?}");
+    // and where each one stands then: none of them in the gap
+    let mut x = 16.0;
+    for (width, extra) in widths.iter().zip(&room) {
+        x += extra;
+        let span = (x, x + width);
+        assert!(
+            visible_pieces(span, &[(175.0, 237.0)]).is_empty(),
+            "a pill at {span:?} stands in the camera's gap"
+        );
+        x += width + 8.0;
+    }
+}
+
+#[test]
+fn a_strip_that_fits_its_first_lane_has_no_room_added() {
+    let lanes = [(0.0, 175.0), (237.0, 412.0)];
+    assert_eq!(room_around_cutouts(&[40.0, 40.0], 16.0, 8.0, &lanes, 16.0), vec![0.0, 0.0]);
+    assert_eq!(room_around_cutouts(&[], 16.0, 8.0, &lanes, 16.0), Vec::<f32>::new());
+}
+
+#[test]
+fn a_strip_without_a_cutout_in_it_has_no_room_added() {
+    // one lane (a window without a camera in its band, an iPhone on its side), and none at all
+    for lanes in [&[(0.0, 360.0)][..], &[][..]] {
+        assert_eq!(
+            room_around_cutouts(&[100.0, 100.0, 100.0, 100.0], 16.0, 8.0, lanes, 16.0),
+            vec![0.0; 4],
+            "{lanes:?}"
+        );
+    }
+}
+
+#[test]
+fn the_chevron_takes_room_from_the_first_lane_and_the_pills_move_over_when_it_is_full() {
+    let lanes = [(0.0, 175.0), (237.0, 412.0)];
+    // 32 more before the first pill: FILE stands, HOME (117..189) no longer fits the first lane
+    let room = room_around_cutouts(&[61.0, 72.0, 78.0, 67.0], 48.0, 8.0, &lanes, 16.0);
+    assert!(near(room[0], 0.0), "{room:?}");
+    assert!(near(room[1], 253.0 - 117.0), "HOME starts the right lane: {room:?}");
+    // INSERT and VIEW fill the right lane and run on past it (the strip scrolls): no more room
+    assert!(near(room[2], 0.0) && near(room[3], 0.0), "{room:?}");
+}
+
+#[test]
+fn a_strip_of_three_lanes_hops_each_gap() {
+    // two cutouts: three lanes 0..100, 140..260 and 300..400
+    let lanes = [(0.0, 100.0), (140.0, 260.0), (300.0, 400.0)];
+    let room = room_around_cutouts(&[60.0, 60.0, 60.0, 60.0], 16.0, 8.0, &lanes, 16.0);
+    // 16..76 in the first; 84..144 would end in the gap: 156..216 in the second; 224..284 would not
+    // fit the rest of it: 316..376 in the third; the fourth runs on
+    assert!(near(room[0], 0.0), "{room:?}");
+    assert!(near(room[1], 156.0 - 84.0), "{room:?}");
+    assert!(near(room[2], 316.0 - 224.0), "{room:?}");
+    assert!(near(room[3], 0.0), "{room:?}");
+}
+
+#[test]
+fn a_pill_wider_than_every_lane_and_numbers_that_are_not_numbers_do_not_crash() {
+    let lanes = [(0.0, 175.0), (237.0, 412.0)];
+    // 300 wide fits nowhere: it is placed in the last lane (where the strip clips it) and nothing panics
+    let room = room_around_cutouts(&[300.0, 50.0], 16.0, 8.0, &lanes, 16.0);
+    assert!(room.iter().all(|r| r.is_finite() && *r >= 0.0), "{room:?}");
+    for bad in [f32::NAN, f32::INFINITY, -5.0, 0.0] {
+        let room = room_around_cutouts(&[bad, 40.0], 16.0, 8.0, &lanes, 16.0);
+        assert!(room.iter().all(|r| r.is_finite() && *r >= 0.0), "{bad}: {room:?}");
+    }
+    assert_eq!(
+        room_around_cutouts(&[40.0], f32::NAN, 8.0, &lanes, 16.0),
+        vec![0.0]
+    );
+}
+
+/// Every pill of a longer row stands whole in a lane or runs on past the last one: never in a gap.
+#[test]
+fn no_pill_of_any_strip_stands_in_a_gap_at_rest() {
+    for preset in [
+        DisplayPreset::Pixel8,
+        DisplayPreset::IPhoneDynamicIsland,
+        DisplayPreset::IPhoneNotch,
+        DisplayPreset::CornerHole,
+        DisplayPreset::DoubleHole,
+    ] {
+        for width in [360.0, 390.0, 412.0, 430.0] {
+            let band = band_of(preset, width, 800.0);
+            let (lanes, gaps) = (band.lane_spans(), band.gaps());
+            for count in 2..14 {
+                let widths: Vec<f32> = (0..count).map(|i| 48.0 + (i * 13 % 40) as f32).collect();
+                let lead = lanes.first().map_or(0.0, |l| l.0) + 16.0;
+                let room = room_around_cutouts(&widths, lead, 8.0, &lanes, 16.0);
+                let mut x = lead;
+                let last_lane_end = lanes.last().map_or(width, |l| l.1);
+                for (w, extra) in widths.iter().zip(&room) {
+                    assert!(*extra >= 0.0);
+                    x += extra;
+                    let span = (x, x + w);
+                    // a pill that starts inside the window stands in no gap (the insets at the very
+                    // edge are gaps too: the first pill starts after the first lane's edge)
+                    if span.0 < last_lane_end - 16.0 {
+                        for gap in &gaps {
+                            let overlap = span.1.min(gap.1) - span.0.max(gap.0);
+                            assert!(
+                                overlap <= 0.01 || gap.1 >= last_lane_end,
+                                "{preset:?} {width}: pill {span:?} of {count} stands in the gap {gap:?}: {room:?}"
+                            );
+                        }
+                    }
+                    x += w + 8.0;
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn a_first_pill_at_its_place_stays_when_the_inset_is_the_room_the_row_gives_it() {
+    // a desktop row: the first pill stands 10 px in. With the default inset (12) it would be scrolled out of
+    // its place (the strip moved under the first pill of every desktop row at mount); with the row's own 10 it stays
+    let lanes = [(0.0, 360.0)];
+    let first = (10.0, 70.0);
+    assert!(scroll_for_pill(first, 0.0, 500.0, &lanes) > 0.0, "the default inset moves it");
+    assert_eq!(scroll_for_pill_inset(first, 0.0, 500.0, &lanes, 10.0), 0.0);
+    // and the last pill at the end of the scroll range stays too
+    let last = (700.0, 70.0);
+    let max = 700.0 + 70.0 + 10.0 - 360.0;
+    assert_eq!(scroll_for_pill_inset(last, max, max, &lanes, 10.0), max);
+    // an inset that is not a number is the default
+    assert_eq!(
+        scroll_for_pill_inset(first, 0.0, 500.0, &lanes, f32::NAN),
+        scroll_for_pill(first, 0.0, 500.0, &lanes)
+    );
+}

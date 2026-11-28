@@ -12,10 +12,10 @@
        (`AZ_MAP_RENDER`, `--stats`) while the window is NOT rebuilt for every pointer move
        (`AZMAPS_LAYOUT` - nothing of AzMaps' own is on the map yet);
     4. a click on the map drops a pin (`AZMAPS_PINS 1`), written to maps/pins.json
-       (`AZMAPS_PINS_SAVED 1`); the sidebar's recents list it (`#__azmaps_place-0`);
-    5. the place's row centres the map on it and opens its card - the pin marker's popup, in the
-       map's own view (`AZMAPS_PLACE 0`); the card's Directions makes it the destination
-       (`AZMAPS_TRAVEL car - <lat>,<lon>`) and closes the card;
+       (`AZMAPS_PINS_SAVED 1`), and opens it as a place (`AZMAPS_PLACE 0`, the panel's place view);
+       the search view's recents list it (`#__azmaps_place-0`) once the back key is pressed;
+    5. the place's row shows the map on it and opens its view (`AZMAPS_PLACE 0`); Route makes it
+       the destination (`AZMAPS_TRAVEL car - <lat>,<lon>`) and the panel shows the way instead;
     6. the travel panel: walking (`AZMAPS_TRAVEL walk ...`), a start typed in
        (`AZMAPS_TRAVEL walk 48.2082,16.3738 ...`) shows the distance, and the route worker answers
        off the UI thread (`AZMAPS_ROUTE walk <km> <minutes> <ms>`); the viewport is kept in
@@ -24,19 +24,19 @@
        map's overlays, it moves them itself (`AZMAPS_PAN map`, microseconds): the window is NOT
        rebuilt for a pointer move, the pin follows the drag, and the next rebuild draws it where
        the drag left it; a zoom step of the map rebuilds nothing either;
-    7. the sidebar hides and shows again (`AZMAPS_SIDEBAR closed` / `open`);
+    7. the panel folds away and comes back (`AZMAPS_PANEL closed` / `open`);
     8. the gear opens azul-appkit's settings page, About the standard About box
        (`AZMAPS_ABOUT open`), Escape closes the box, Escape the page;
     9. flora / dark: a screenshot;
    10. a second start opens where the first one was left (the kept `AZMAPS_VIEW`) with its pin
        (`AZMAPS_PINS_LOADED 1`);
-   11. place names, timed: "Frankfurt" typed into the start key by key - each keystroke is the
-       field's own edit, no window rebuild, under KEY_BUDGET_MS - and once the typing rests the
-       geocoder worker answers (`AZMAPS_SUGGEST from <n> <ms>`); a click on the first
-       suggestion makes Frankfurt am Main the start, "Berlin" + Return makes Berlin the
-       destination, the route worker answers a car route of 500 to 600 km in five to six hours
-       (`AZMAPS_ROUTE car ...`) and the map frames it; a drag over the map with the route on it
-       keeps every step under PAN_BUDGET_MS (median).
+   11. place names, timed: "Berlin" typed into the search, its first result opened as a place,
+       Route asked; "Frankfurt" typed into the start key by key - each keystroke is the field's
+       own edit, no window rebuild, under KEY_BUDGET_MS - and once the typing rests the geocoder
+       worker answers (`AZMAPS_SUGGEST from <n> <ms>`); a click on the first suggestion makes
+       Frankfurt am Main the start, the route worker answers a car route of 500 to 600 km in five
+       to six hours (`AZMAPS_ROUTE car ...`) and the map frames it; a drag over the map with the
+       route on it keeps every step under PAN_BUDGET_MS (median).
 
 Tiles need the network: headless runs see the map's ground, the pins and the chrome (offline, the
 tile workers fail fast; `AZ_MAP_TILES` / `AZ_MAP_TILE` lines are logged, not required). AzMaps
@@ -67,7 +67,7 @@ KEY_BUDGET_MS = 120
 PAN_BUDGET_MS = 250
 MAP = "__azmaps_map"
 TITLE = "__azmaps_title"
-SIDEBAR = "__azmaps_sidebar"
+PANEL = "__azmaps_panel"
 
 
 def view(app):
@@ -127,8 +127,8 @@ def body(args, logs, out):
         t = app.rect(TITLE)
         if not t or t.get("y", 99) > 1 or t.get("height", 0) <= 0 or t.get("width", 0) < WIDTH * 0.9:
             raise Failure("no title area across the top of the map: %s" % t)
-        if not app.has_id(SIDEBAR):
-            raise Failure("the sidebar is not open on a first start")
+        if not app.has_id(PANEL):
+            raise Failure("the panel is not open on a first start")
         app.screenshot(os.path.join(out, "1-start.png"))
 
         # The controls and the keys.
@@ -167,14 +167,18 @@ def body(args, logs, out):
         tiles = app.last("AZ_MAP_TILES")
         app.log("tiles (ready pending fetching failed drawn): %s" % (tiles or "no tile came back yet"))
 
-        # A pin: dropped, saved, listed in the recents.
+        # A pin: dropped, saved, opened as a place, listed in the recents.
         app.click(selector="#" + MAP)
         app.expect_line("AZMAPS_PINS", "1", "a click on the map drops a pin")
         app.expect_line("AZMAPS_PINS_SAVED", "1", "the pin is written")
+        app.expect_line("AZMAPS_PLACE", "0", "the dropped pin opens as a place")
+        app.until("the place's view", lambda: app.has_id("__azmaps_place"))
         with open(os.path.join(data_dir, "maps", "pins.json"), "r", encoding="utf-8") as f:
             pins = json.load(f)
         if len(pins) != 1:
             raise Failure("maps/pins.json holds %s" % pins)
+        app.screenshot(os.path.join(out, "2-pin-place.png"))
+        app.click(selector="#__azmaps_back")
         app.until("the pin in the recents", lambda: app.has_id("__azmaps_place-0"))
         # The pins are markers of the map: their icons live in the map's own view (a DOM of its
         # own), not in the window's.
@@ -182,16 +186,15 @@ def body(args, logs, out):
             raise Failure("the pin is not drawn on the map")
         app.screenshot(os.path.join(out, "2-pin.png"))
 
-        # Its card: the pin marker's popup, opened from the recents.
-        card = "__azmaps_place-directions-0"
+        # Its view: opened from the recents; Route makes it the destination.
+        place = "__azmaps_place"
         app.click(selector="#__azmaps_place-0")
-        app.expect_line("AZMAPS_PLACE", "0", "the row opens the place's card")
-        app.until("the place's card above its pin", lambda: app.has_id(card, every_dom=True))
-        app.screenshot(os.path.join(out, "3-card.png"))
-        app.click(selector="#" + card, every_dom=True)
-        app.until("Directions: the place is the destination",
+        app.until("the row opens the place's view", lambda: app.has_id(place))
+        app.screenshot(os.path.join(out, "3-place.png"))
+        app.click(selector="#__azmaps_place-route")
+        app.until("Route: the place is the destination",
                   lambda: app.printed("AZMAPS_TRAVEL", r"car - -?\d+\.\d{4},-?\d+\.\d{4}"))
-        app.until("the card closes", lambda: not app.has_id(card, every_dom=True))
+        app.until("the place's view gives way to the way", lambda: not app.has_id(place))
 
         # The travel panel: a mode, a start; the distance as the crow flies.
         app.click(selector="#__azmaps_travel-walk")
@@ -283,13 +286,13 @@ def body(args, logs, out):
         app.until("the viewport kept", lambda: kept_view(data_dir) == app.last("AZMAPS_VIEW"))
         kept = app.last("AZMAPS_VIEW")
 
-        # The sidebar hides and comes back.
-        app.click(selector="#__azmaps_sidebar-toggle")
-        app.expect_line("AZMAPS_SIDEBAR", "closed", "the sidebar hides")
-        app.until("no sidebar", lambda: not app.has_id(SIDEBAR))
-        app.click(selector="#__azmaps_sidebar-toggle")
-        app.expect_line("AZMAPS_SIDEBAR", "open", "the sidebar shows")
-        app.until("the sidebar again", lambda: app.has_id(SIDEBAR))
+        # The panel folds away and comes back.
+        app.click(selector="#__azmaps_panel-toggle")
+        app.expect_line("AZMAPS_PANEL", "closed", "the panel folds away")
+        app.until("no panel", lambda: not app.has_id(PANEL))
+        app.click(selector="#__azmaps_panel-toggle")
+        app.expect_line("AZMAPS_PANEL", "open", "the panel comes back")
+        app.until("the panel again", lambda: app.has_id(PANEL))
 
         # Settings and About.
         app.click(selector="#__azmaps_settings")
@@ -324,9 +327,19 @@ def body(args, logs, out):
         app.expect_line("AZMAPS_PINS_LOADED", "1", "the pin is read back")
         app.screenshot(os.path.join(out, "7-second-start.png"))
 
-        # Place names: Frankfurt to Berlin by car. A keystroke is the field's own edit - the
-        # window is not rebuilt for it (a rebuild per keystroke locked the UI for 1.5 s each);
-        # the geocoder worker searches once the typing rests.
+        # Place names: Frankfurt to Berlin by car. Berlin is searched, its first result opens as a
+        # place and Route shows the way; Frankfurt is typed into the start. A keystroke is the
+        # field's own edit - the window is not rebuilt for it (a rebuild per keystroke locked the UI
+        # for 1.5 s each); the geocoder worker searches once the typing rests.
+        app.must("focus_node", selector="#__azmaps_search")
+        app.frame()
+        app.must("text_input", text="Berlin")
+        app.frame()
+        app.until("the results for Berlin", lambda: app.has_id("__azmaps_suggestion-0"))
+        app.click(selector="#__azmaps_suggestion-0")
+        app.until("Berlin is a place", lambda: app.has_id("__azmaps_place"))
+        app.click(selector="#__azmaps_place-route")
+        app.until("the way to Berlin", lambda: app.has_id("__azmaps_travel-from"))
         app.must("focus_node", selector="#__azmaps_travel-from")
         app.frame()
         layouts = app.count("AZMAPS_LAYOUT")
@@ -349,15 +362,7 @@ def body(args, logs, out):
         if not app.shows("Frankfurt am Main, Germany"):
             raise Failure("Frankfurt am Main is not among the suggestions")
         app.click(selector="#__azmaps_suggestion-0")
-        app.until("Frankfurt am Main is the start",
-                  lambda: app.printed("AZMAPS_TRAVEL", r"car 50\.1109,8\.6821 -"))
-        app.must("focus_node", selector="#__azmaps_travel-to")
-        app.frame()
-        app.must("text_input", text="Berlin")
-        app.frame()
-        app.until("the suggestions for Berlin", lambda: app.has_id("__azmaps_suggestion-0"))
-        app.key("return")
-        app.until("Berlin is the destination",
+        app.until("Frankfurt am Main is the start and Berlin the destination",
                   lambda: app.printed("AZMAPS_TRAVEL", r"car 50\.1109,8\.6821 52\.5200,13\.4050"))
         route = app.until("the car route",
                           lambda: app.printed("AZMAPS_ROUTE", r"car \d+\.\d \d+ \d+\.\d{3}"))
@@ -392,7 +397,7 @@ def body(args, logs, out):
         raise
     finally:
         app.stop()
-    app.log("PASS: full-window map, controls, keys, pins, the place's card, travel, sidebar, "
+    app.log("PASS: full-window map, controls, keys, pins, the place's view, travel, the panel's fold, "
             "settings, About, kept view and pins, place names and timed typing and panning; "
             "screenshots in %s" % out)
     return True

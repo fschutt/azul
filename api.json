@@ -26725,6 +26725,25 @@
                         },
                         "repr": "C"
                     },
+                    "BottomSheetOnEventCallbackType": {
+                        "external": "azul_layout::widgets::bottom_sheet::BottomSheetOnEventCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "BottomSheetEvent"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
                     "ActionSheetOnEventCallbackType": {
                         "external": "azul_layout::widgets::action_sheet::ActionSheetOnEventCallbackType",
                         "callback_typedef": {
@@ -40764,6 +40783,38 @@
                                 "Resumed": {},
                                 "LowMemory": {},
                                 "WillTerminate": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BottomSheetOnEventCallback": {
+                        "external": "azul_layout::widgets::bottom_sheet::BottomSheetOnEventCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "BottomSheetOnEventCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
                             }
                         ],
                         "repr": "C"
@@ -118200,6 +118251,661 @@
                                 "Off": {},
                                 "AtEdges": {},
                                 "Always": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BottomSheet": {
+                        "external": "azul_layout::widgets::bottom_sheet::BottomSheet",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "content": {
+                                    "type": "Dom"
+                                },
+                                "label": {
+                                    "type": "String"
+                                },
+                                "grip_label": {
+                                    "type": "String"
+                                },
+                                "detent": {
+                                    "type": "SheetDetent"
+                                },
+                                "lowest": {
+                                    "type": "SheetDetent"
+                                },
+                                "highest": {
+                                    "type": "SheetDetent"
+                                },
+                                "container_height": {
+                                    "type": "f32"
+                                },
+                                "peek_height": {
+                                    "type": "f32"
+                                },
+                                "collapsed_height": {
+                                    "type": "f32"
+                                },
+                                "top_margin": {
+                                    "type": "f32"
+                                },
+                                "bottom_inset": {
+                                    "type": "f32"
+                                },
+                                "safe_bottom": {
+                                    "type": "f32"
+                                },
+                                "grab_height": {
+                                    "type": "f32"
+                                },
+                                "on_event": {
+                                    "type": "OptionBottomSheetOnEvent"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A sheet of `content` at its peek."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "content": "Dom"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::bottom_sheet::BottomSheet::create(content)"
+                            }
+                        },
+                        "functions": {
+                            "dom": {
+                                "doc": [
+                                    "The sheet's DOM."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            },
+                            "height_of": {
+                                "doc": [
+                                    "The height of the sheet at `detent`, px, with this sheet's numbers: where an app puts what",
+                                    "floats above the sheet (a map's locate key)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "detent": "SheetDetent"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.height_of(detent)"
+                            },
+                            "set_bottom_inset": {
+                                "doc": [
+                                    "How far the sheet's lower edge lies above the container's, px (the keyboard)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "inset": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_bottom_inset(inset)"
+                            },
+                            "set_collapsed_height": {
+                                "doc": [
+                                    "The collapsed detent's height, px."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_collapsed_height(height)"
+                            },
+                            "set_container_height": {
+                                "doc": [
+                                    "The height of the box the sheet floats in, px."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_container_height(height)"
+                            },
+                            "set_detent": {
+                                "doc": [
+                                    "Where the sheet rests."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "detent": "SheetDetent"
+                                    }
+                                ],
+                                "fn_body": "object.set_detent(detent)"
+                            },
+                            "set_grab_height": {
+                                "doc": [
+                                    "The height of the band at the top that drags, px, the grip included."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_grab_height(height)"
+                            },
+                            "set_grip_label": {
+                                "doc": [
+                                    "The grip's accessible name."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_grip_label(label)"
+                            },
+                            "set_highest": {
+                                "doc": [
+                                    "The highest detent a drag may settle on."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "detent": "SheetDetent"
+                                    }
+                                ],
+                                "fn_body": "object.set_highest(detent)"
+                            },
+                            "set_label": {
+                                "doc": [
+                                    "The sheet's accessible name."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_label(label)"
+                            },
+                            "set_lowest": {
+                                "doc": [
+                                    "The lowest detent a drag may settle on."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "detent": "SheetDetent"
+                                    }
+                                ],
+                                "fn_body": "object.set_lowest(detent)"
+                            },
+                            "set_on_event": {
+                                "doc": [
+                                    "Every step of a drag and every settling."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_event": "BottomSheetOnEventCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_event(data, on_event)"
+                            },
+                            "set_peek_height": {
+                                "doc": [
+                                    "The peek detent's height, px."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_peek_height(height)"
+                            },
+                            "set_safe_bottom": {
+                                "doc": [
+                                    "The room the content keeps at its end, px (the home indicator)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "inset": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_safe_bottom(inset)"
+                            },
+                            "set_top_margin": {
+                                "doc": [
+                                    "The room the full detent leaves above the sheet, px."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "margin": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_top_margin(margin)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Takes the sheet out, leaving an empty one: the move the C ABI makes."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "with_bottom_inset": {
+                                "doc": [
+                                    "[`Self::set_bottom_inset`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "inset": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_bottom_inset(inset)"
+                            },
+                            "with_collapsed_height": {
+                                "doc": [
+                                    "[`Self::set_collapsed_height`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_collapsed_height(height)"
+                            },
+                            "with_container_height": {
+                                "doc": [
+                                    "[`Self::set_container_height`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_container_height(height)"
+                            },
+                            "with_detent": {
+                                "doc": [
+                                    "[`Self::set_detent`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "detent": "SheetDetent"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_detent(detent)"
+                            },
+                            "with_grab_height": {
+                                "doc": [
+                                    "[`Self::set_grab_height`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_grab_height(height)"
+                            },
+                            "with_grip_label": {
+                                "doc": [
+                                    "[`Self::set_grip_label`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_grip_label(label)"
+                            },
+                            "with_highest": {
+                                "doc": [
+                                    "[`Self::set_highest`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "detent": "SheetDetent"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_highest(detent)"
+                            },
+                            "with_label": {
+                                "doc": [
+                                    "[`Self::set_label`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_label(label)"
+                            },
+                            "with_lowest": {
+                                "doc": [
+                                    "[`Self::set_lowest`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "detent": "SheetDetent"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_lowest(detent)"
+                            },
+                            "with_on_event": {
+                                "doc": [
+                                    "[`Self::set_on_event`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_event": "BottomSheetOnEventCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_on_event(data, on_event)"
+                            },
+                            "with_peek_height": {
+                                "doc": [
+                                    "[`Self::set_peek_height`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_peek_height(height)"
+                            },
+                            "with_safe_bottom": {
+                                "doc": [
+                                    "[`Self::set_safe_bottom`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "inset": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_safe_bottom(inset)"
+                            },
+                            "with_top_margin": {
+                                "doc": [
+                                    "[`Self::set_top_margin`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "margin": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BottomSheet"
+                                },
+                                "fn_body": "object.with_top_margin(margin)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "BottomSheetOnEvent": {
+                        "external": "azul_layout::widgets::bottom_sheet::BottomSheetOnEvent",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "BottomSheetOnEventCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SheetDetent": {
+                        "external": "azul_layout::widgets::detents::SheetDetent",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Collapsed": {},
+                                "Peek": {},
+                                "Half": {},
+                                "Full": {}
+                            }
+                        ],
+                        "functions": {
+                            "higher": {
+                                "doc": [
+                                    "The detent above this one (the highest stays)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SheetDetent"
+                                },
+                                "fn_body": "object.higher()"
+                            },
+                            "lower": {
+                                "doc": [
+                                    "The detent below this one (the lowest stays)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SheetDetent"
+                                },
+                                "fn_body": "object.lower()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "BottomSheetEvent": {
+                        "external": "azul_layout::widgets::bottom_sheet::BottomSheetEvent",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "kind": {
+                                    "type": "BottomSheetEventKind"
+                                },
+                                "detent": {
+                                    "type": "SheetDetent"
+                                },
+                                "height": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BottomSheetEventKind": {
+                        "external": "azul_layout::widgets::bottom_sheet::BottomSheetEventKind",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Dragged": {},
+                                "Settled": {}
                             }
                         ],
                         "repr": "C"
@@ -199845,6 +200551,36 @@
                                 "None": {},
                                 "Some": {
                                     "type": "LifecycleEvent"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionBottomSheetOnEvent": {
+                        "external": "azul_layout::widgets::bottom_sheet::OptionBottomSheetOnEvent",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "BottomSheetOnEvent"
                                 }
                             }
                         ],

@@ -1536,7 +1536,10 @@ pub enum TabStyle {
     /// The theme's buttons ("Buttons" in a settings UI) floating on the leather strip: the
     /// selected tab is the submit button, the others the plain button, 22px tall at the house
     /// radius (slightly rounded corners, no capsule ends) in a 28px row (a title bar's) on a
-    /// leather strip that closes on a 2px golden line.
+    /// leather strip that closes on a 2px golden line. A row longer than its box scrolls inside
+    /// it (the wheel, the arrow keys, a drag; no scrollbar), the selected button comes into view
+    /// by itself, and a fade in the leather's colour lies over each end of the row (a bar with a
+    /// reveal keeps a row that does not scroll).
     Pills,
     /// The same buttons for a finger, the look `Auto` takes on a phone: the selected tab is the
     /// submit button, the others the plain button, 32 px tall at the house radius in a 48 px
@@ -1972,6 +1975,12 @@ impl TabHeader {
                 return self.dom_touch(live);
             }
             if resolved == TabStyle::Pills {
+                // The row of desktop pills scrolls when it is longer than the window; a bar with a
+                // reveal keeps the row it had (the reveal's hover areas hang on its nodes).
+                if self.reveal.is_none() {
+                    let look = TabHeaderLook::of(self.theme, self.style);
+                    return self.dom_row(live, &look);
+                }
                 #[allow(clippy::cast_precision_loss)] // a few px
                 {
                     chevron_row = PILL_ROW as f32;
@@ -2213,6 +2222,14 @@ impl TabHeader {
 /// scenario or a test finds the band's row by, whatever other strips the page has.
 pub const BAND_STRIP_CLASS: &str = "__azul-native-tabs-touch-band";
 
+/// What a row of pills asks of the system's text scale: a cap of 1.3.
+///
+/// The labels and the absolute line heights below the row scale with the user's text size up to this
+/// factor and no further (`--azul-text-scale-max`, a custom property that inherits). The pills are 22 / 32 px
+/// boxes in a 28 / 48 px row, and in the status bar's band the height is the system's own: a label that grew
+/// past them would overflow; the page below the row follows the full scale.
+pub(crate) const TEXT_SCALE_CAP_CSS: &str = "--azul-text-scale-max: 1.3;";
+
 /// The classes of the touch strip's header, its scrolling row and its pills.
 static TOUCH_HEADER_CLASSES: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-tabs-touch-header"))];
@@ -2242,6 +2259,15 @@ pub(crate) struct StripScrollData {
     /// The classes that mark a pill among the strip's children (the tabs, the application button of
     /// a ribbon): what the scroll-into-view counts and measures.
     pub(crate) pill_classes: Vec<String>,
+    /// Whether the strip keeps its pills out of the gaps of the band at rest by writing room in front
+    /// of the ones that would stand in one ([`crate::widgets::tab_strip::room_around_cutouts`]).
+    /// `false` for a strip whose pills are placed by other means (a row of icons at positions of its
+    /// own).
+    pub(crate) camera_room: bool,
+    /// The room a pill keeps from the edge of a lane when the strip scrolls the selected one into place
+    /// ([`crate::widgets::tab_strip::LANE_INSET`]): never more than the room the first pill has at rest, or
+    /// the first pill would be scrolled out of its place.
+    pub(crate) inset: f32,
 }
 
 impl StripScrollData {
@@ -2262,6 +2288,8 @@ impl StripScrollData {
             gap: gap_px,
             lanes,
             pill_classes,
+            camera_room: true,
+            inset: crate::widgets::tab_strip::LANE_INSET,
         }
     }
 }
@@ -2279,14 +2307,26 @@ const SELECTED_MARKER_CLASS: &str = "__azul-tabs-selected-marker";
 
 static SELECTED_MARKER_CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str(SELECTED_MARKER_CLASS))];
 
-/// The marker hung in the SELECTED pill, keyed by its tab: a new selection mounts a new marker,
-/// and its `AfterMount` scrolls the strip so that the selected pill stands whole in a lane -
+/// The marker hung in the SELECTED pill, keyed by its tab and by the band's lanes: a new selection, or a
+/// band of other lanes (another phone, a turn), mounts a new marker, and its `AfterMount` gives the pills
+/// their room around the cutouts and scrolls the strip so that the selected pill stands whole in a lane -
 /// whoever changed the selection (a tap, an arrow key, a flip of the panel, the app).
 pub(crate) fn selected_marker(data: StripScrollData, tab: usize) -> Dom {
+    // What the room of the pills was planned for (FNV-1a over the numbers and the classes of its pills): a
+    // strip with other lanes plans again, and so does another kind of strip in the same band - a ribbon's
+    // row that takes the place of a tab bar's keeps the tab's number, and a keyed node that is found again
+    // is not mounted again.
+    let lanes = data
+        .lanes
+        .iter()
+        .flat_map(|(left, right)| [left.to_bits(), right.to_bits()])
+        .chain([data.lead.to_bits(), u32::from(data.camera_room)])
+        .chain(data.pill_classes.iter().flat_map(|class| class.bytes().map(u32::from)))
+        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, word| (hash ^ u64::from(word)).wrapping_mul(0x0100_0000_01b3));
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SELECTED_MARKER_CLASSES))
         .with_css("position: absolute; left: 0px; top: 0px; width: 0px; height: 0px;")
-        .with_key(("azul-tab-selected", tab))
+        .with_key(("azul-tab-selected", tab, lanes))
         .with_callbacks(
             vec![CoreCallbackData {
                 event: EventFilter::Component(azul_core::dom::ComponentEventFilter::AfterMount),
@@ -2368,6 +2408,32 @@ fn scroll_selected_into_lane(
         .into_iter()
         .filter(|n| data.pill_classes.iter().any(|class| roving::has_class(info, *n, class)))
         .collect();
+    let Some(view) = info.get_node_size(strip).map(|size| size.width) else {
+        return Update::DoNothing;
+    };
+    let widths: Vec<f32> = tabs
+        .iter()
+        .map(|tab| info.get_node_size(*tab).map_or(0.0, |size| size.width))
+        .collect();
+    // Nothing laid out yet (a mount before the first frame of the strip): nothing to place or scroll.
+    if view <= 0.0 || widths.iter().any(|width| *width <= 0.0) {
+        return Update::DoNothing;
+    }
+    // At rest no pill stands under a camera: the pill that would starts the next lane, which is room in
+    // front of it, written as the pill's own left margin (a write at run time follows the node across
+    // the app's rebuilds). A strip with no camera in it asks for none, and the same write takes away
+    // the room that a window of another shape had given.
+    #[allow(clippy::cast_precision_loss)] // a few px
+    let room = if data.camera_room {
+        tab_strip::room_around_cutouts(&widths, data.lead, data.gap, &data.lanes, TOUCH_LEAD as f32)
+    } else {
+        vec![0.0; widths.len()]
+    };
+    if data.camera_room {
+        for (tab, extra) in tabs.iter().zip(&room) {
+            info.set_css_property(*tab, CssProperty::margin_left(LayoutMarginLeft::px(*extra)));
+        }
+    }
     let selected = pill.or_else(|| {
         tabs.iter().copied().find(|tab| {
             roving::children_of(info, *tab)
@@ -2378,21 +2444,15 @@ fn scroll_selected_into_lane(
     let Some(index) = selected.and_then(|pill| tabs.iter().position(|n| *n == pill)) else {
         return Update::DoNothing;
     };
-    let Some(view) = info.get_node_size(strip).map(|size| size.width) else {
-        return Update::DoNothing;
-    };
-    // Where each pill stands on the strip: from the room before the first and the widths, so the
-    // answer does not depend on how the engine reports positions of scrolled content.
+    // Where each pill stands on the strip: from the room before the first, the widths and the room
+    // just given, so the answer does not depend on how the engine reports positions of scrolled
+    // content.
     let mut spans = Vec::with_capacity(tabs.len());
     let mut x = data.lead;
-    for tab in &tabs {
-        let width = info.get_node_size(*tab).map_or(0.0, |size| size.width);
-        spans.push((x, width));
+    for (width, extra) in widths.iter().zip(&room) {
+        x += extra;
+        spans.push((x, *width));
         x += width + data.gap;
-    }
-    // Nothing laid out yet (a mount before the first frame of the strip): nothing to scroll.
-    if view <= 0.0 || spans.iter().any(|span| span.1 <= 0.0) {
-        return Update::DoNothing;
     }
     let content = x - data.gap + data.trail;
     let max = tab_strip::max_scroll(content, view);
@@ -2404,7 +2464,7 @@ fn scroll_selected_into_lane(
     } else {
         data.lanes
     };
-    let target = tab_strip::scroll_for_pill(spans[index], now, max, &lanes);
+    let target = tab_strip::scroll_for_pill_inset(spans[index], now, max, &lanes, data.inset);
     if (target - now).abs() >= 0.5 {
         info.scroll_to_animated(strip.dom, strip_id, LogicalPosition { x: target, y: 0.0 });
     }
@@ -2432,7 +2492,9 @@ fn leather_lane(look: &TabHeaderLook, span: Option<(f32, f32)>) -> Dom {
     lane.root
         .set_css(&format!("position: absolute; top: 0px; bottom: 0px; {place} {}", look.header_css));
     if let Some(rule) = look.rule.as_ref() {
-        let mut line = Dom::create_div().with_css_props(rule.clone());
+        let mut line = Dom::create_div()
+            .with_css_props(rule.clone())
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(RULE_CLASS))]));
         if !look.rule_css.is_empty() {
             line.root.set_css(look.rule_css);
         }
@@ -2481,6 +2543,16 @@ pub(crate) fn lane_fades(
     row: f32,
     first_left_room: f32,
 ) -> Vec<Dom> {
+    lane_fades_sized(LANE_FADE_PX, band, row, first_left_room)
+}
+
+/// [`lane_fades`] with fades `fade_px` wide: the room the first pill keeps from the end of the row.
+pub(crate) fn lane_fades_sized(
+    fade_px: f32,
+    band: Option<&crate::widgets::tab_strip::StatusBarBand>,
+    row: f32,
+    first_left_room: f32,
+) -> Vec<Dom> {
     use crate::widgets::themes::decl;
 
     #[allow(clippy::cast_precision_loss)] // 2px
@@ -2503,7 +2575,7 @@ pub(crate) fn lane_fades(
         };
         let mut node = Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(layers.to_vec()));
         node.root.set_css(&format!(
-            "position: absolute; top: 0px; width: {LANE_FADE_PX}px; height: {height}px; {place}"
+            "position: absolute; top: 0px; width: {fade_px}px; height: {height}px; {place}"
         ));
         node
     };
@@ -2514,7 +2586,7 @@ pub(crate) fn lane_fades(
             .flat_map(|(i, (left, right))| {
                 // The first lane's left end is the chevron's: its fade starts after it.
                 let left = if i == 0 { left + first_left_room } else { left };
-                [fade(true, Some(left)), fade(false, Some((right - LANE_FADE_PX).max(left)))]
+                [fade(true, Some(left)), fade(false, Some((right - fade_px).max(left)))]
             })
             .collect(),
         _ => vec![fade(true, Some(first_left_room)), fade(false, None)],
@@ -2725,7 +2797,7 @@ impl TabHeader {
 
         let mut header_css = format!(
             "position: relative; box-sizing: border-box; width: 100%; height: {row}px; \
-             flex-shrink: 0; overflow: hidden;"
+             flex-shrink: 0; overflow: hidden; {TEXT_SCALE_CAP_CSS}"
         );
         if band.is_some() {
             strip.add_class(AzString::from_const_str(BAND_STRIP_CLASS));
@@ -6684,6 +6756,9 @@ mod structure_tests {
         }
     }
 }
+
+#[path = "tab_row.rs"]
+mod tab_row;
 
 #[cfg(test)]
 #[path = "tab_pills_test.rs"]

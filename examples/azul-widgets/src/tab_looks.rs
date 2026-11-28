@@ -49,6 +49,8 @@ pub(crate) struct TabLooksDemo {
     /// The selected tab of the touch strip and the one before it.
     touch_active: usize,
     touch_previous: usize,
+    /// The selected tab of the desktop's row that is longer than its box.
+    wide_active: usize,
     /// The phone the window pretends to sit on: 0 none, 1 Pixel 8, 2 iPhone with the Dynamic Island,
     /// 3 the phone it really runs on (its own cutout, nothing simulated).
     phone: usize,
@@ -84,6 +86,25 @@ fn header(data: &RefAny, demo: &TabLooksDemo, style: TabStyle, theme: UiTheme) -
         .with_theme(theme)
         .with_on_click(data.clone(), on_look_tab as TabOnClickCallbackType)
         .dom()
+}
+
+/// The names of the twelve tabs of the row that is longer than its box: not the touch strip's, so that a
+/// scenario that clicks a pill by its text finds the one it means.
+const WIDE_TABS: [&str; 12] = [
+    "Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel", "India", "Juliet", "Kilo", "Lima",
+];
+
+/// The desktop's row of buttons with more tabs than its box has room for: it scrolls inside the box
+/// (the leather, the golden line and the fades at its ends stay), without a scrollbar.
+fn wide_pills(data: &RefAny, demo: &TabLooksDemo, theme: UiTheme) -> Dom {
+    Dom::create_div().with_id("wide-pills").with_css("max-width: 360px; overflow: hidden;").with_child(
+        TabHeader::create(strs(&WIDE_TABS))
+            .with_active_tab(demo.wide_active)
+            .with_style(TabStyle::Pills)
+            .with_theme(theme)
+            .with_on_click(data.clone(), on_wide_tab as TabOnClickCallbackType)
+            .dom(),
+    )
 }
 
 /// A ribbon button that does nothing but look like one.
@@ -137,6 +158,10 @@ pub(crate) fn tab_looks_section(data: &RefAny, demo: &TabLooksDemo, theme: UiThe
             captioned(
                 "Pills - what Auto is on a desktop",
                 header(data, demo, TabStyle::Pills, theme),
+            ),
+            captioned(
+                "Pills - twelve tabs in a 360 px box: the row scrolls",
+                wide_pills(data, demo, theme),
             ),
             captioned("The panel slides in from the side of the switch", panel),
             captioned("A ribbon on the leather", leather_ribbon(data, demo, theme)),
@@ -409,6 +434,11 @@ extern "C" fn on_touch_tab(mut data: RefAny, _info: CallbackInfo, state: TabHead
             demo.touch_active = state.active_tab;
         }
     })
+}
+
+/// A tab of the row that is longer than its box.
+extern "C" fn on_wide_tab(mut data: RefAny, _info: CallbackInfo, state: TabHeaderState) -> Update {
+    keep(&mut data, |s| s.tab_looks.wide_active = state.active_tab)
 }
 
 /// A tab of any of the three headers: the selection moves, and the panel

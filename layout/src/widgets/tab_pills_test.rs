@@ -447,3 +447,227 @@ fn auto_is_the_touch_pills_in_a_window_under_600_dp_that_sits_on_a_phone_and_the
         );
     }
 }
+
+// ---- at rest, no pill stands under the camera: the marker's callback writes the room ----
+
+/// A header of four tabs in the Pixel 8's band, laid out in a phone's width: the window, the strip's
+/// numbers as the build made them, and the node ids of the strip, the selected pill's marker and the
+/// pills. The pills are 96 px wide whatever the machine's fonts are.
+struct BandStrip {
+    window: crate::window::LayoutWindow,
+    data: StripScrollData,
+    marker: azul_core::dom::NodeId,
+    pills: Vec<azul_core::dom::NodeId>,
+}
+
+fn band_strip() -> BandStrip {
+    use azul_core::{
+        dom::{DomId, NodeId},
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use crate::{callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState};
+
+    let size = LogicalSize { width: 411.0, height: 800.0 };
+    let band = band_of(DisplayPreset::Pixel8, size.width, size.height);
+    let names = StringVec::from_vec(
+        ["Documents", "Reviewing", "Insertion", "Viewing"].iter().map(|s| AzString::from(*s)).collect(),
+    );
+    let header = TabHeader::create(names)
+        .with_active_tab(1)
+        .with_style(TabStyle::TouchPills)
+        .with_theme(UiTheme::Flat)
+        .with_status_bar(band.clone());
+    let mut dom = Dom::create_body().with_child(header.dom());
+    let (css, _) = azul_css::parser2::new_from_str(
+        "* { margin: 0; padding: 0; } .__azul-native-tabs-touch-pill { min-width: 96px; }",
+    );
+    let styled = StyledDom::create(&mut dom, css);
+    let mut window = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut state = FullWindowState::default();
+    state.size.dimensions = size;
+    window.current_window_state = state.clone();
+    window
+        .layout_and_generate_display_list(
+            styled,
+            &state,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the header lays out");
+    let with_class = |class: &str| -> Vec<NodeId> {
+        let styled = &window.layout_results[&DomId::ROOT_ID].styled_dom;
+        (0..styled.node_data.as_ref().len())
+            .map(NodeId::new)
+            .filter(|n| {
+                styled.node_data.as_container()[*n]
+                    .get_ids_and_classes()
+                    .iter()
+                    .any(|c| matches!(c.as_class(), Some(s) if s == class))
+            })
+            .collect()
+    };
+    let marker = with_class(SELECTED_MARKER_CLASS).first().copied().expect("the selected pill carries the marker");
+    let pills = with_class("__azul-native-tabs-touch-pill");
+    let data = StripScrollData::for_band(
+        Some(&band),
+        vec![TAB_ACTIVE_CLASS_NAME.to_string(), TAB_NOT_ACTIVE_CLASS_NAME.to_string()],
+    );
+    BandStrip { window, data, marker, pills }
+}
+
+/// The left margins the marker's `AfterMount` writes on the pills of `strip` (node id, px).
+fn margins_written(strip: &BandStrip) -> Vec<(azul_core::dom::NodeId, f32)> {
+    use std::{collections::BTreeMap, sync::{Arc, Mutex}};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId},
+        geom::OptionLogicalPosition,
+        gl::OptionGlContextPtr,
+        refany::OptionRefAny,
+        resources::RendererResources,
+        styled_dom::NodeHierarchyItemId,
+        window::{MonitorVec, RawWindowHandle},
+    };
+    use azul_css::system::SystemStyle;
+
+    use crate::{
+        callbacks::{CallbackChange, CallbackInfo, CallbackInfoRefData, ExternalSystemCallbacks},
+        window_state::FullWindowState,
+    };
+
+    let renderer_resources = RendererResources::default();
+    let previous_window_state: Option<FullWindowState> = None;
+    let current_window_state = FullWindowState::default();
+    let gl_context = OptionGlContextPtr::None;
+    let scroll_states = BTreeMap::new();
+    let window_handle = RawWindowHandle::Unsupported;
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let ref_data = CallbackInfoRefData {
+        layout_window: &strip.window,
+        renderer_resources: &renderer_resources,
+        previous_window_state: &previous_window_state,
+        current_window_state: &current_window_state,
+        gl_context: &gl_context,
+        current_scroll_manager: &scroll_states,
+        current_window_handle: &window_handle,
+        system_callbacks: &system_callbacks,
+        system_style: Arc::new(SystemStyle::default()),
+        monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
+        #[cfg(feature = "icu")]
+        icu_localizer: crate::icu::IcuLocalizerHandle::default(),
+        ctx: core::cell::RefCell::new(OptionRefAny::None),
+    };
+    let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+    let info = CallbackInfo::new(
+        &ref_data,
+        &changes,
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(strip.marker)),
+        },
+        OptionLogicalPosition::None,
+        OptionLogicalPosition::None,
+    );
+    let _ = on_selected_pill_mounted(RefAny::new(strip.data.clone()), info);
+    let written = changes.lock().expect("the changes").clone();
+    written
+        .into_iter()
+        .filter_map(|change| match change {
+            CallbackChange::ChangeNodeCssProperties { node_id, properties, .. } => {
+                properties.as_ref().iter().find_map(|p| match p {
+                    azul_css::props::property::CssProperty::MarginLeft(v) => {
+                        v.get_property().map(|m| (node_id, m.inner.to_pixels_internal(0.0, 0.0, 0.0)))
+                    }
+                    _ => None,
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn the_marker_of_the_selected_pill_writes_room_before_the_pill_that_would_stand_under_the_camera() {
+    use azul_core::dom::{DomId, DomNodeId};
+    use azul_core::styled_dom::NodeHierarchyItemId;
+
+    let strip = band_strip();
+    assert_eq!(strip.pills.len(), 4, "the four pills");
+    let widths: Vec<f32> = strip
+        .pills
+        .iter()
+        .map(|pill| {
+            strip
+                .window
+                .get_node_layout_rect(DomNodeId {
+                    dom: DomId::ROOT_ID,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(*pill)),
+                })
+                .expect("the pill is laid out")
+                .size
+                .width
+        })
+        .collect();
+    let expected = crate::widgets::tab_strip::room_around_cutouts(
+        &widths,
+        strip.data.lead,
+        strip.data.gap,
+        &strip.data.lanes,
+        TOUCH_LEAD as f32,
+    );
+    assert!(
+        expected.iter().any(|room| *room > 1.0),
+        "harness: a pill of {widths:?} would stand under the camera (lanes {:?}): {expected:?}",
+        strip.data.lanes
+    );
+    let written = margins_written(&strip);
+    assert_eq!(written.len(), 4, "one margin for every pill: {written:?}");
+    for ((pill, extra), (written_for, written)) in strip.pills.iter().zip(&expected).zip(&written) {
+        assert_eq!(pill, written_for, "the margins are written in the order of the pills");
+        assert!((extra - written).abs() < 0.01, "pill {pill:?}: wrote {written}, the plan is {extra}");
+    }
+}
+
+#[test]
+fn a_strip_that_places_its_pills_itself_writes_no_room() {
+    let mut strip = band_strip();
+    strip.data.camera_room = false;
+    assert!(margins_written(&strip).is_empty(), "no margin is written for a strip that opted out");
+}
+
+#[test]
+fn a_strip_with_other_lanes_mounts_a_new_marker_so_that_the_room_is_planned_again() {
+    // the same tab on a Pixel 8's band and on an iPhone's island: another phone, another room around the
+    // camera, and nothing else changed (the selection, the strip's width) that would tell the strip
+    let marker_in = |preset: DisplayPreset| {
+        let band = band_of(preset, 411.0, 800.0);
+        let dom = touch_header(6, 2).with_status_bar(band).dom();
+        let pills = pills_of(strip_of(&dom));
+        let key = pills[2].children.as_ref().last().expect("the marker").root.get_key();
+        key
+    };
+    assert_ne!(marker_in(DisplayPreset::Pixel8), marker_in(DisplayPreset::IPhoneDynamicIsland));
+    assert_eq!(marker_in(DisplayPreset::Pixel8), marker_in(DisplayPreset::Pixel8));
+}
+
+#[test]
+fn a_ribbons_row_in_the_same_band_mounts_its_own_marker_not_the_tab_bars() {
+    // The ribbon's row takes the place of a tab bar's in the same band, on the same tab: the marker of the
+    // one must not be taken for the marker of the other (a keyed node found again is not mounted again,
+    // and nothing would plan the room around the camera for the new row).
+    let band = band_of(DisplayPreset::Pixel8, 411.0, 800.0);
+    let header = StripScrollData::for_band(
+        Some(&band),
+        vec![TAB_ACTIVE_CLASS_NAME.to_string(), TAB_NOT_ACTIVE_CLASS_NAME.to_string()],
+    );
+    let ribbon = StripScrollData::for_band(
+        Some(&band),
+        vec!["__azul-native-ribbon-tab".to_string(), "__azul-native-ribbon-appbutton".to_string()],
+    );
+    assert_ne!(selected_marker(header.clone(), 0).root.get_key(), selected_marker(ribbon, 0).root.get_key());
+    assert_eq!(selected_marker(header.clone(), 0).root.get_key(), selected_marker(header, 0).root.get_key());
+}
