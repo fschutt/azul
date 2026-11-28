@@ -416,10 +416,13 @@ fn view(s: &MapState, app: &RefAny) -> Dom {
 /// The search: the results of what was typed, else what AzMaps remembers - the saved lists, the recent places - or a
 /// line that says what to do.
 fn browse_view(s: &MapState, app: &RefAny) -> Dom {
-    let mut view = Dom::create_div().with_css(VIEW_IN_PANEL).with_id(ids::HOME);
     if let Some(list) = &s.suggestions {
-        return view.with_id(ids::RESULTS).with_child(crate::suggestion_list(list, app));
+        return Dom::create_div()
+            .with_css(VIEW_IN_PANEL)
+            .with_id(ids::RESULTS)
+            .with_child(crate::suggestion_list(list, app));
     }
+    let mut view = Dom::create_div().with_css(VIEW_IN_PANEL).with_id(ids::HOME);
     let saved = lists_ui::saved_section(s, app);
     let recents = crate::recents(s, app);
     if saved.is_none() && recents.is_none() {
