@@ -89,3 +89,19 @@ fn the_list_sits_next_to_the_archive_under_the_archives_own_name() {
         PathBuf::from("libazul.macos-x86_64.a.native-libs")
     );
 }
+
+#[test]
+fn a_windows_consumer_of_the_prebuilt_lib_links_crypt32_for_the_certificate_verifier() {
+    // rustls-platform-verifier (reqwest's TLS on Windows) calls CertOpenStore, CertGetCertificateChain, CertVerifyCertificateChainPolicy
+    // and seven more of crypt32.dll: a prebuilt azul.lib carries no link metadata, and the first Windows link of a demo against it
+    // (2026-11-28, all six apps) stopped with LNK1120 on exactly those ten
+    assert!(WINDOWS_SYSTEM_LIBS.contains(&"crypt32"), "{WINDOWS_SYSTEM_LIBS:?}");
+    // what was there before is still there, once each
+    for lib in ["user32", "gdi32", "advapi32", "shcore", "bcrypt", "ws2_32", "userenv", "ntdll"] {
+        assert_eq!(WINDOWS_SYSTEM_LIBS.iter().filter(|l| **l == lib).count(), 1, "{lib}");
+    }
+    let mut sorted = WINDOWS_SYSTEM_LIBS.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), WINDOWS_SYSTEM_LIBS.len(), "a library is named twice");
+}

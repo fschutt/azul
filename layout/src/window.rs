@@ -2007,6 +2007,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         renderer_type: _,
         previous_window_state: _,
         current_window_state: _,
+        // NOT WALKED: one size, set while a layout pass runs.
+        pass_window_size: _,
         document_id: _,
         id_namespace: _,
         epoch: _,
@@ -2895,6 +2897,14 @@ pub struct LayoutWindow {
     /// Window state of this current window (current frame): initialized to the state of
     /// `WindowCreateOptions`
     pub current_window_state: FullWindowState,
+    /// The size of the window the layout pass that is running lays out for; `None` between passes.
+    ///
+    /// The shells publish the window state of a pass ([`Self::current_window_state`]) AFTER the pass,
+    /// which is what lets the next pass see that the window changed size. Inside the pass that field
+    /// still holds the size of the LAST pass; a display list the pass makes again from inside (a typed
+    /// field's text applied again, a restored caret, the reveal of the focused caret) paints the canvas
+    /// across this size instead ([`Self::window_size_for_canvas`]).
+    pub(crate) pass_window_size: Option<LogicalSize>,
     /// A "document" in `WebRender` usually corresponds to one tab (i.e. in Azuls case, the whole
     /// window).
     pub document_id: DocumentId,
@@ -4722,6 +4732,7 @@ impl LayoutWindow {
             renderer_type: None,
             previous_window_state: None,
             current_window_state: FullWindowState::default(),
+            pass_window_size: None,
             document_id: new_document_id(),
             id_namespace: new_id_namespace(),
             epoch: Epoch::new(),
@@ -4938,6 +4949,9 @@ impl LayoutWindow {
         // work if it is the frame's first.
         let started = crate::probe::monotonic_now_nanos();
         self.frame_clock.note_work(started);
+        // The window this pass lays out for, for whatever the pass makes again from inside
+        // ([`Self::pass_window_size`]); a pass inside a pass gives it back to the outer one.
+        let outer_pass = self.pass_window_size.replace(window_state.size.dimensions);
         let result = self.layout_and_generate_display_list_timed(
             root_dom,
             window_state,
@@ -4946,6 +4960,7 @@ impl LayoutWindow {
             debug_messages,
             new_generation,
         );
+        self.pass_window_size = outer_pass;
         self.frame_clock
             .note_layout(crate::probe::monotonic_now_nanos().saturating_sub(started));
         result
@@ -5464,6 +5479,8 @@ impl LayoutWindow {
                 }
                 self.dom_lint_stamps.insert(*dom_id, stamp);
                 self.dom_lint_runs = self.dom_lint_runs.saturating_add(1);
+                // What the five developer lints cost a DOM that is new to them (`AZ_PROFILE=cpu` lists it).
+                let _lint_span = crate::probe::Probe::span("dom_lints");
                 crate::dom_lint::warn_text_without_block_container(&lr.styled_dom);
                 crate::dom_lint::warn_div_used_as_text_container(&lr.styled_dom);
                 crate::dom_lint::warn_interactive_without_accessibility_in(
@@ -9591,11 +9608,31 @@ impl LayoutWindow {
         viewport: LogicalRect,
         window_state: &FullWindowState,
     ) -> LogicalRect {
+        Self::canvas_rect_for_size(is_root, viewport, window_state.size.dimensions)
+    }
+
+    /// [`Self::canvas_rect_for`] for a window of `window_size`.
+    const fn canvas_rect_for_size(
+        is_root: bool,
+        viewport: LogicalRect,
+        window_size: LogicalSize,
+    ) -> LogicalRect {
         if is_root {
-            LogicalRect::new(LogicalPosition::zero(), window_state.size.dimensions)
+            LogicalRect::new(LogicalPosition::zero(), window_size)
         } else {
             LogicalRect::new(LogicalPosition::zero(), viewport.size)
         }
+    }
+
+    /// The size of the window the canvas of a document made now covers: the window the running layout pass
+    /// lays out for ([`Self::pass_window_size`]), else the window of the last pass. A display list made
+    /// again from inside a pass (`regenerate_display_list_for_dom`) takes its canvas from here and not from
+    /// [`Self::current_window_state`], which the shells publish after the pass: after a rotation it still
+    /// held the old size, and the canvas background of the page laid out for the new one covered the old
+    /// width.
+    fn window_size_for_canvas(&self) -> LogicalSize {
+        self.pass_window_size
+            .unwrap_or(self.current_window_state.size.dimensions)
     }
 
     #[must_use]
@@ -31381,6 +31418,7 @@ impl LayoutWindow {
             };
             let styled_dom = &layout_result.styled_dom;
             let viewport = layout_result.viewport;
+            let window_size = self.window_size_for_canvas();
             let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
             let empty_gpu_cache = GpuValueCache::default();
             let gpu_cache = gpu_cache_for_pass(&self.gpu_state_manager, dom_id, false)
@@ -31404,10 +31442,10 @@ impl LayoutWindow {
                 debug_messages: &mut debug_messages,
                 counters: &mut counter_values,
                 viewport_size: viewport.size,
-                canvas_rect: Self::canvas_rect_for(
+                canvas_rect: Self::canvas_rect_for_size(
                     dom_id == DomId::ROOT_ID,
                     viewport,
-                    &self.current_window_state,
+                    window_size,
                 ),
                 fragmentation_context: None,
                 cursor_is_visible,
@@ -31608,6 +31646,9 @@ impl LayoutWindow {
         let scroll_ids = &layout_result.scroll_ids;
         let styled_dom = &layout_result.styled_dom;
         let viewport = layout_result.viewport;
+        // The canvas of the list made again covers the window of the pass that is running, not the one
+        // the last pass was made for (`Self::window_size_for_canvas`).
+        let window_size = self.window_size_for_canvas();
 
         // Get scroll offsets from scroll manager
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
@@ -31674,10 +31715,10 @@ impl LayoutWindow {
             debug_messages: &mut debug_messages,
             counters: &mut counter_values,
             viewport_size: viewport.size,
-            canvas_rect: Self::canvas_rect_for(
+            canvas_rect: Self::canvas_rect_for_size(
                 dom_id == DomId::ROOT_ID,
                 viewport,
-                &self.current_window_state,
+                window_size,
             ),
             fragmentation_context: None,
             cursor_is_visible,
@@ -34800,6 +34841,8 @@ impl LayoutWindow {
             retired_child_results: _,
             child_dom_fingerprints: _,
             prev_left_down: _,
+            // One size of the window, not keyed by a node.
+            pass_window_size: _,
             laid_out_dock_generation: _,
             inline_tear,
             gpu_state_manager,

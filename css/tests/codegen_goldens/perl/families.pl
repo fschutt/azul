@@ -54,6 +54,7 @@ sub css_str {
 # dropped a value these bindings cannot build: `StyleDirectionValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleTextDecorationColorValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleTextDecorationThicknessValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleTextDecorationStyleValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleTextUnderlineOffsetValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleTextUnderlinePositionValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleHyphenationLanguageValue` is a fake-layout record in the Perl bindings (tag + byte blob)
@@ -77,6 +78,9 @@ sub style_text {
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_tabSize(Azul::AzStyleTabSize->new(inner => ${ Azul::FFI::AzPixelValue_em(4.0) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_userSelect(Azul::AzStyleUserSelect::None())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_textDecoration(Azul::AzStyleTextDecoration::Underline())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::TextDecorationStyle())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::TextDecorationColor())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::TextDecorationThickness())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_caretColor(Azul::AzCaretColor->new(inner => ${ Azul::AzColorU->new(r => 255, g => 0, b => 0, a => 255) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_caretAnimationDuration(Azul::AzCaretAnimationDuration->new(inner => ${ Azul::AzCssDuration->new(inner => 500, unit => Azul::AzCssDurationUnit::Milliseconds()) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_selectionBackgroundColor(Azul::AzSelectionBackgroundColor->new(inner => ${ Azul::AzColorU->new(r => 51, g => 153, b => 255, a => 255) }))),

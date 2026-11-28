@@ -43,6 +43,7 @@ End Function
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleDirectionValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleTextDecorationColorValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleTextDecorationThicknessValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleTextDecorationStyleValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleTextUnderlineOffsetValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleTextUnderlinePositionValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleHyphenationLanguageValue` (or for the CssPropertyValue<T> in its payload)
@@ -52,7 +53,7 @@ End Function
 Function StyleText() As AzCssPropertyWithConditionsVec
     Dim t1(0 To 1) As AzStyleFontFamily
     Dim t2(0 To 0) As AzStyleFontFamily
-    Dim t3(0 To 20) As AzCssPropertyWithConditions
+    Dim t3(0 To 23) As AzCssPropertyWithConditions
     t1(0) = AzStyleFontFamily_system(CssStr("Arial"))
     t1(1) = AzStyleFontFamily_system(CssStr("sans-serif"))
     t2(0) = AzStyleFontFamily_system(CssStr("caption"))
@@ -72,12 +73,15 @@ Function StyleText() As AzCssPropertyWithConditionsVec
     t3(13) = AzCssPropertyWithConditions_simple(AzCssProperty_tabSize(Type<AzStyleTabSize>(AzPixelValue_em(4.0))))
     t3(14) = AzCssPropertyWithConditions_simple(AzCssProperty_userSelect(AzStyleUserSelect_None))
     t3(15) = AzCssPropertyWithConditions_simple(AzCssProperty_textDecoration(AzStyleTextDecoration_Underline))
-    t3(16) = AzCssPropertyWithConditions_simple(AzCssProperty_caretColor(Type<AzCaretColor>(Type<AzColorU>(255, 0, 0, 255))))
-    t3(17) = AzCssPropertyWithConditions_simple(AzCssProperty_caretAnimationDuration(Type<AzCaretAnimationDuration>(Type<AzCssDuration>(500, AzCssDurationUnit_Milliseconds))))
-    t3(18) = AzCssPropertyWithConditions_simple(AzCssProperty_selectionBackgroundColor(Type<AzSelectionBackgroundColor>(Type<AzColorU>(51, 153, 255, 255))))
-    t3(19) = AzCssPropertyWithConditions_simple(AzCssProperty_selectionColor(Type<AzSelectionColor>(Type<AzColorU>(255, 255, 255, 255))))
-    t3(20) = AzCssPropertyWithConditions_simple(AzCssProperty_font(AzStyleFontFamilyVec_copyFromPtr(@t2(0), 1)))
-    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t3(0), 21)
+    t3(16) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_TextDecorationStyle))
+    t3(17) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_TextDecorationColor))
+    t3(18) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_TextDecorationThickness))
+    t3(19) = AzCssPropertyWithConditions_simple(AzCssProperty_caretColor(Type<AzCaretColor>(Type<AzColorU>(255, 0, 0, 255))))
+    t3(20) = AzCssPropertyWithConditions_simple(AzCssProperty_caretAnimationDuration(Type<AzCaretAnimationDuration>(Type<AzCssDuration>(500, AzCssDurationUnit_Milliseconds))))
+    t3(21) = AzCssPropertyWithConditions_simple(AzCssProperty_selectionBackgroundColor(Type<AzSelectionBackgroundColor>(Type<AzColorU>(51, 153, 255, 255))))
+    t3(22) = AzCssPropertyWithConditions_simple(AzCssProperty_selectionColor(Type<AzSelectionColor>(Type<AzColorU>(255, 255, 255, 255))))
+    t3(23) = AzCssPropertyWithConditions_simple(AzCssProperty_font(AzStyleFontFamilyVec_copyFromPtr(@t2(0), 1)))
+    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t3(0), 24)
 End Function
 
 ' CSS: .shorthands

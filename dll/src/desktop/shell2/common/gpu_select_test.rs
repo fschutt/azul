@@ -289,6 +289,21 @@ fn software_renderers_are_known_by_name() {
     }
 }
 
+/// What the loader returns for `glGetString` ends in a NUL; the line the QA reads must not carry it (Android's logger drops a line
+/// that has one).
+#[test]
+fn the_device_text_of_the_contract_line_has_no_control_character() {
+    let device = info("Android Emulator OpenGL ES Translator (Google SwiftShader)\0", "OpenGL ES 3.0\0");
+    assert_eq!(device.describe(), "Android Emulator OpenGL ES Translator (Google SwiftShader)");
+    let decision = decide(GpuRequest::Gpu, Some(Ok(device)));
+    let line = decision.render_line();
+    assert_eq!(
+        line,
+        "[render] backend=gpu requested=gpu device=Android Emulator OpenGL ES Translator (Google SwiftShader)"
+    );
+    assert!(!line.chars().any(char::is_control), "{line:?}");
+}
+
 /// The renderer on a line is one line, capped, and never empty.
 #[test]
 fn the_device_text_is_one_capped_line() {

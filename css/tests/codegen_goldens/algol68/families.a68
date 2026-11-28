@@ -42,6 +42,7 @@ PROC css str = (STRING s) AZSTRING:
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleDirectionValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleTextDecorationColorValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleTextDecorationThicknessValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleTextDecorationStyleValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleTextUnderlineOffsetValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleTextUnderlinePositionValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleHyphenationLanguageValue` (CssPropertyValue<T>) #
@@ -61,7 +62,7 @@ BEGIN
    AZSELECTIONBACKGROUNDCOLOR t9;
    AZSELECTIONCOLOR t10;
    [1] AZSTYLEFONTFAMILY t11;
-   [21] AZCSSPROPERTYWITHCONDITIONS t12;
+   [24] AZCSSPROPERTYWITHCONDITIONS t12;
    inner OF t1 := AZCOLORU (REPR 51, REPR 102, REPR 153, REPR 255);
    inner OF t2 := az pixel value px (14.0);
    t3[1] := az style font family system (css str ("Arial"));
@@ -90,12 +91,15 @@ BEGIN
    t12[14] := az css property with conditions simple (az css property tab size (t6));
    t12[15] := az css property with conditions simple (az css property user select (style user select none));
    t12[16] := az css property with conditions simple (az css property text decoration (style text decoration underline));
-   t12[17] := az css property with conditions simple (az css property caret color (t7));
-   t12[18] := az css property with conditions simple (az css property caret animation duration (t8));
-   t12[19] := az css property with conditions simple (az css property selection background color (t9));
-   t12[20] := az css property with conditions simple (az css property selection color (t10));
-   t12[21] := az css property with conditions simple (az css property font (az style font family vec copy from ptr (t11[1], LENG 1)));
-   az css property with conditions vec copy from ptr (t12[1], LENG 21)
+   t12[17] := az css property with conditions simple (az css property initial (css property type text decoration style));
+   t12[18] := az css property with conditions simple (az css property initial (css property type text decoration color));
+   t12[19] := az css property with conditions simple (az css property initial (css property type text decoration thickness));
+   t12[20] := az css property with conditions simple (az css property caret color (t7));
+   t12[21] := az css property with conditions simple (az css property caret animation duration (t8));
+   t12[22] := az css property with conditions simple (az css property selection background color (t9));
+   t12[23] := az css property with conditions simple (az css property selection color (t10));
+   t12[24] := az css property with conditions simple (az css property font (az style font family vec copy from ptr (t11[1], LENG 1)));
+   az css property with conditions vec copy from ptr (t12[1], LENG 24)
 END;
 
 # CSS: .shorthands #

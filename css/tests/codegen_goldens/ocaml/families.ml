@@ -85,8 +85,12 @@ let style_text () =
     (azCssPropertyWithConditions_simple (azCssProperty_direction (az_union az_style_direction_value 6 (Some (az_payload az_style_direction (StyleDirection.to_int StyleDirection.Rtl))))));
     (azCssPropertyWithConditions_simple (azCssProperty_userSelect (StyleUserSelect.to_int StyleUserSelect.None)));
     (azCssPropertyWithConditions_simple (azCssProperty_textDecoration (StyleTextDecoration.to_int StyleTextDecoration.Underline)));
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.TextDecorationStyle)));
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.TextDecorationColor)));
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.TextDecorationThickness)));
     (azCssPropertyWithConditions_simple (azCssProperty_textDecorationColor (az_union az_style_text_decoration_color_value 6 (Some (az_payload az_style_text_decoration_color (azStyleTextDecorationColor_color (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 204)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 51)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 0)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 255)) ])))))));
     (azCssPropertyWithConditions_simple (azCssProperty_textDecorationThickness (az_union az_style_text_decoration_thickness_value 6 (Some (az_payload az_style_text_decoration_thickness (azStyleTextDecorationThickness_length (azPixelValue_px 2.0)))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_textDecorationStyle (az_union az_style_text_decoration_style_value 6 (Some (az_payload az_style_text_decoration_style (StyleTextDecorationStyle.to_int StyleTextDecorationStyle.Wavy))))));
     (azCssPropertyWithConditions_simple (azCssProperty_textUnderlineOffset (az_union az_style_text_underline_offset_value 6 (Some (az_payload az_style_text_underline_offset (azStyleTextUnderlineOffset_length (azPixelValue_px 3.0)))))));
     (azCssPropertyWithConditions_simple (azCssProperty_textUnderlinePosition (az_union az_style_text_underline_position_value 6 (Some (az_payload az_style_text_underline_position (StyleTextUnderlinePosition.to_int StyleTextUnderlinePosition.UnderLeft))))));
     (azCssPropertyWithConditions_simple (azCssProperty_hyphenationLanguage (az_union az_style_hyphenation_language_value 6 (Some (az_payload az_style_hyphenation_language (az_struct az_style_hyphenation_language [ (fun v -> Ctypes.setf v az_style_hyphenation_language_field_inner (azul_az_string "en-US")) ]))))));
@@ -98,7 +102,7 @@ let style_text () =
     (azCssPropertyWithConditions_simple (azCssProperty_selectionColor (az_struct az_selection_color [ (fun v -> Ctypes.setf v az_selection_color_field_inner (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 255)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 255)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 255)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 255)) ])) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_selectionRadius (az_union az_selection_radius_value 6 (Some (az_payload az_selection_radius (az_struct az_selection_radius [ (fun v -> Ctypes.setf v az_selection_radius_field_inner (azPixelValue_px 3.0)) ]))))));
     (azCssPropertyWithConditions_simple (azCssProperty_font (azStyleFontFamilyVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_font_family [(azStyleFontFamily_system (azul_az_string "caption"))])) (Unsigned.Size_t.of_int 1))))
-  ])) (Unsigned.Size_t.of_int 67))
+  ])) (Unsigned.Size_t.of_int 71))
 
 (* CSS: .shorthands *)
 let style_shorthands () =

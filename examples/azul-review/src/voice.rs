@@ -390,11 +390,13 @@ pub fn pointer(data: &mut RefAny, info: &mut CallbackInfo, down: Option<bool>) -
         return Update::DoNothing;
     }
     let now = s.voice.now_ms();
-    // a rest is anchored where the page was first drawn: lines put in above it are not in it
-    let kept_y = s.page_map(page).to_original(at.y);
+    // a rest is anchored where the page was first drawn: lines put in above it are not in it (and in the page's own px, whatever the
+    // zoom the pages are drawn at)
+    let zoom = s.page_zoom();
+    let kept_y = s.page_map(page).to_original(at.y / zoom);
     let sample = Sample {
         page,
-        x: at.x,
+        x: at.x / zoom,
         y: kept_y,
         pen: pen.is_some(),
         contact,

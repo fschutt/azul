@@ -231,6 +231,44 @@ the GPU if it fell back (`gpu unavailable at <stage>`), the first GPU frame and 
 you scrolled. The two lines that say which renderer drew (and why not the GPU) are also in the unified
 log (Console.app) of an app started from the home screen with the `AZBackend` key set.
 
+### Android: EGL and OpenGL ES
+
+On Android the GPU path is an EGL window surface and an OpenGL ES 3 context made on the loop thread, with WebRender on
+it. `libEGL.so` and `libGLESv3.so` (`libGLESv2.so` on a device that has no v3 library) are opened by name the first time a
+window asks for the GPU: nothing links them, an app that draws on the CPU never loads them, and the APK needs no
+permission, no Java and no build flag. An app on a phone has no environment: `AZ_BACKEND` is read from the system
+property `debug.az.env` (`adb shell setprop debug.az.env 'AZ_BACKEND=gpu'`, then start the app again, see
+[Debugging](../debugging.md)).
+
+Requirements: OpenGL ES 3.0 or newer and a `GL_MAX_TEXTURE_SIZE` of at least 2048 (the `probe` stage says which one a
+driver misses). The emulator's GL is software (SwiftShader), so `auto` keeps the CPU renderer there, by design, and `gpu` is the
+value to test with.
+
+The window's life is the activity's:
+
+- The EGL surface is made when the system hands over the window (`InitWindow`), before any CPU frame is drawn on it (an
+  `ANativeWindow` has one producer: once the CPU path has posted a frame, EGL can no longer connect), and it is destroyed
+  when the system takes the window away (`TerminateWindow`), before the window is released. The context and the renderer
+  stay, so a rotation or coming back from the home screen does not compile the shaders again.
+- A new size or density resizes the frame; the swap interval is 1. A new surface is cleared to the window's colour and
+  shown at once, so the window is not black while WebRender compiles its programs in the first frame.
+- Text is grayscale on a phone in both renderers (`AppConfig::text_antialiasing`: the platform default there, as the CPU
+  renderer has always had it), so the two pictures of one window differ in the antialiasing of glyph edges and curves and
+  nowhere else; `AZ_TEXT_AA=lcd` asks for LCD text on the GPU path too.
+- `onTrimMemory` empties WebRender's caches from `RUNNING_LOW` on (`UI_HIDDEN`, the home button, included: the context and
+  the compiled programs stay, so coming back does not compile them again), and from `BACKGROUND` on, with no window on screen,
+  gives the renderer and the context back as well; they are made again when a window returns.
+- A lost context (the driver reset, the GPU was taken away) is rebuilt once and the frame drawn again; a second loss without
+  a good frame in between ends the GPU path, as any other failure does.
+- The compiled programs are kept between runs in the app's `cache` directory (`azul/shaders`, else `files/azul-shaders`), at
+  most 512 programs and 64 MB: a second start compiles nothing where the driver can save program binaries. The system may
+  empty a cache directory when storage runs low; the next start compiles again.
+
+The check that needs no phone is `scripts/ci/gles_host.sh` (WebRender on Mesa's OpenGL ES 3 compared with the CPU renderer's
+picture of the same page, and the whole lifecycle with real EGL); the one that needs one is
+`scripts/ci/android_phone_gpu.sh <apk>`, which starts the app with each renderer over USB and keeps the engine's `[render]`
+lines, a screenshot, the first-frame time, the frame times of a scroll and the memory of each.
+
 ## Building the native library
 
 Mobile builds use `link-static` with **no default features** (the desktop

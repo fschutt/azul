@@ -176,6 +176,35 @@ fn supports_extension(extensions: &[String], extension: &str) -> bool {
     extensions.iter().any(|s| s == extension)
 }
 
+/// A string of the driver (`glGetString`, `glGetStringi`) as the name it is. `gl-context-loader` returns the C string WITH its
+/// terminating NUL (`cstr_from_ptr` takes `len + 1` bytes), and this device compares whole names: `supports_extension` never found
+/// an extension (every one was "not supported": no buffer storage, no float colour buffers, no dual-source blending, no BGRA
+/// formats, no copy image), and the workarounds that name a renderer (`renderer_name == "Mali-G76"`, `"Adreno (TM) 308"`) never
+/// applied; the Mali Bifrost parts were taken for Valhall.
+pub fn driver_string(raw: String) -> String {
+    raw.trim_end_matches('\0').to_owned()
+}
+
+/// `GL_DEPTH`, the buffer argument of `glClearBufferfv`.
+const GL_DEPTH_BUFFER: u32 = 0x1801;
+
+/// Clears the depth buffer of the bound draw framebuffer to `depth` with `glClearBufferfv(GL_DEPTH, 0, ..)`, which
+/// OpenGL ES 3.0 has and which honours the scissor and the depth write mask like `glClear` does.
+///
+/// For OpenGL ES only. `GenericGlContext::clear_depth` calls `glClearDepth` (a double), which ES does not have: its slot
+/// is empty on an ES context and the call prints "function not loaded" and clears nothing, so every render target
+/// that needs depth would be drawn over the depth of the last frame.
+fn clear_depth_buffer_es(gl: &GenericGlContext, depth: f32) {
+    if gl.glClearBufferfv.is_null() {
+        error!("glClearBufferfv is not loaded: the depth buffer was not cleared");
+        return;
+    }
+    // SAFETY: a non-null `glClearBufferfv` of the table is the function of that name, `void (GLenum buffer, GLint
+    // drawbuffer, const GLfloat *value)`, and `GL_DEPTH` takes one float.
+    let clear: extern "system" fn(u32, i32, *const f32) = unsafe { mem::transmute(gl.glClearBufferfv) };
+    clear(GL_DEPTH_BUFFER, 0, &depth);
+}
+
 fn get_shader_version(gl: &GenericGlContext) -> ShaderVersion {
     match gl.get_type().into() {
         gl::GlType::Gl => ShaderVersion::Gl,
@@ -1076,6 +1105,11 @@ const RESERVE_DEPTH_BITS: i32 = 2;
 pub struct Device {
     gl: Rc<GenericGlContext>,
 
+    /// The context is OpenGL ES. Read once: `GenericGlContext::get_type` asks the driver for `GL_VERSION` and builds a
+    /// string on every call. The GLES-only branches (see `clear_target`) test this, so the desktop GL code is
+    /// the code it was.
+    is_gles: bool,
+
     // Profiling removed - base_gl field deleted
 
     // device state
@@ -1482,9 +1516,9 @@ impl Device {
         // Bug 1702494 tracks re-evaluating this cap.
         let max_texture_size = max_texture_size[0].min(16384);
 
-        let renderer_name = gl.get_string(gl::RENDERER);
+        let renderer_name = driver_string(gl.get_string(gl::RENDERER));
         info!("Renderer: {}", renderer_name);
-        let version_string = gl.get_string(gl::VERSION);
+        let version_string = driver_string(gl.get_string(gl::VERSION));
         info!("Version: {}", version_string);
         info!("Max texture size: {}", max_texture_size);
 
@@ -1495,7 +1529,7 @@ impl Device {
         let extension_count = extension_count[0] as gl::GLuint;
         let mut extensions = Vec::new();
         for i in 0..extension_count {
-            extensions.push(gl.get_string_i(gl::EXTENSIONS, i));
+            extensions.push(driver_string(gl.get_string_i(gl::EXTENSIONS, i)));
         }
 
         if supports_extension(&extensions, "GL_ANGLE_provoking_vertex") {
@@ -1929,8 +1963,11 @@ impl Device {
         // an attached buffer has been orphaned.
         let requires_vao_rebind_after_orphaning = is_adreno_3xx;
 
+        let is_gles = matches!(Into::<gl::GlType>::into(gl.get_type()), gl::GlType::Gles);
+
         Device {
             gl,
+            is_gles,
             crash_annotator,
             annotate_draw_call_crashes: false,
             resource_override_path,
@@ -3817,6 +3854,10 @@ impl Device {
         rect: Option<FramebufferIntRect>,
     ) {
         let mut clear_bits = 0;
+        // OpenGL ES has no `glClearDepth` (it takes a double; ES has `glClearDepthf`), and the function table
+        // (`GenericGlContext`) keeps the desktop names, so on ES the slot is empty and calling it clears nothing.
+        // The depth is cleared by `glClearBufferfv(GL_DEPTH, 0, ..)` instead, which ES 3.0 has, after the colour.
+        let mut es_depth = None;
 
         if let Some(color) = color {
             self.gl.clear_color(color[0], color[1], color[2], color[3]);
@@ -3831,22 +3872,28 @@ impl Device {
                 }
                 assert_ne!(mask[0], 0);
             }
-            self.gl.clear_depth(depth as f64);
-            clear_bits |= gl::DEPTH_BUFFER_BIT;
+            if self.is_gles {
+                es_depth = Some(depth);
+            } else {
+                self.gl.clear_depth(depth as f64);
+                clear_bits |= gl::DEPTH_BUFFER_BIT;
+            }
         }
 
-        if clear_bits != 0 {
-            match rect {
-                Some(rect) => {
-                    self.gl.enable(gl::SCISSOR_TEST);
-                    self.gl
-                        .scissor(rect.min.x, rect.min.y, rect.width(), rect.height());
-                    self.gl.clear(clear_bits);
-                    self.gl.disable(gl::SCISSOR_TEST);
-                }
-                None => {
-                    self.gl.clear(clear_bits);
-                }
+        if clear_bits != 0 || es_depth.is_some() {
+            if let Some(rect) = rect {
+                self.gl.enable(gl::SCISSOR_TEST);
+                self.gl
+                    .scissor(rect.min.x, rect.min.y, rect.width(), rect.height());
+            }
+            if clear_bits != 0 {
+                self.gl.clear(clear_bits);
+            }
+            if let Some(depth) = es_depth {
+                clear_depth_buffer_es(&self.gl, depth);
+            }
+            if rect.is_some() {
+                self.gl.disable(gl::SCISSOR_TEST);
             }
         }
     }
@@ -4859,5 +4906,26 @@ fn texels_to_u8_slice<T: Texel>(texels: &[T]) -> &[u8] {
             texels.as_ptr() as *const u8,
             texels.len() * mem::size_of::<T>(),
         )
+    }
+}
+
+#[cfg(test)]
+mod driver_string_tests {
+    use super::{driver_string, supports_extension};
+
+    /// What the loader hands over for an extension and for a renderer: the name and the NUL that ends the C string.
+    #[test]
+    fn a_name_the_loader_returned_with_its_terminator_matches_again() {
+        let extensions = vec![
+            driver_string("GL_EXT_buffer_storage\0".to_owned()),
+            driver_string("GL_EXT_blend_func_extended\0".to_owned()),
+        ];
+        assert!(supports_extension(&extensions, "GL_EXT_buffer_storage"));
+        assert!(supports_extension(&extensions, "GL_EXT_blend_func_extended"));
+        assert!(!supports_extension(&extensions, "GL_EXT_copy_image"));
+        // The case the terminator hid: a whole-name comparison of a renderer.
+        assert_eq!(driver_string("Mali-G76\0".to_owned()), "Mali-G76");
+        assert_eq!(driver_string("Adreno (TM) 308".to_owned()), "Adreno (TM) 308");
+        assert_eq!(driver_string(String::new()), "");
     }
 }

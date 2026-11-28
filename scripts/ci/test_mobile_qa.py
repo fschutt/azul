@@ -970,6 +970,59 @@ class StartupLinesTests(unittest.TestCase):
         self.assertIsNone(q.median_start(["nothing"]))
 
 
+class PermissionDialogTests(unittest.TestCase):
+    APP = "com.azul.AzMeet"
+    CLEAN = ('<hierarchy><node package="com.azul.AzMeet" class="android.widget.Button" text="Mute" resource-id="" bounds="[0,0][10,10]"/></hierarchy>')
+    DIALOG = ('<hierarchy><node package="com.google.android.permissioncontroller" class="android.widget.Button" text="While using the app" '
+              'resource-id="com.android.permissioncontroller:id/permission_allow_foreground_only_button" bounds="[0,0][10,10]"/></hierarchy>')
+
+    def test_a_clean_screen_has_no_dialog(self):
+        self.assertIsNone(q.detect_permission_dialog("  mCurrentFocus=Window{1 u0 com.azul.AzMeet/com.azul.app.AzulActivity}", self.CLEAN, self.APP))
+
+    def test_the_permission_controller_in_front_is_a_dialog(self):
+        focus = "  mCurrentFocus=Window{9 u0 com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.GrantPermissionsActivity}"
+        self.assertIn("focused window", q.detect_permission_dialog(focus, "", self.APP))
+
+    def test_its_buttons_in_the_dump_are_a_dialog_even_when_the_focus_line_is_missing(self):
+        self.assertIn("permission controller", q.detect_permission_dialog("", self.DIALOG, self.APP))
+
+    def test_an_allow_button_of_another_package_is_a_dialog_but_the_apps_own_is_not(self):
+        other = '<node package="com.android.systemui" class="android.widget.Button" text="Allow" resource-id="" />'
+        own = '<node package="com.azul.AzMeet" class="android.widget.Button" text="Allow" resource-id="" />'
+        self.assertIn("allow", q.detect_permission_dialog("", other, self.APP))          # the text is compared in lower case
+        self.assertIsNone(q.detect_permission_dialog("", own, self.APP))
+
+    def test_tccd_prompt_lines_of_the_app_are_found(self):
+        log = ("2026-11-28 01:00:00 tccd: AUTHREQ_PROMPTING: msgID=1.2, service=kTCCServiceCamera, subject=com.azul.AzMeet\n"
+               "2026-11-28 01:00:01 tccd: AUTHREQ_PROMPTING: msgID=1.3, service=kTCCServiceMicrophone, subject=com.other.app\n"
+               "2026-11-28 01:00:02 tccd: something else\n")
+        self.assertEqual(len(q.ios_permission_prompts(log, "com.azul.AzMeet")), 1)
+        self.assertEqual(len(q.ios_permission_prompts(log)), 2)
+        self.assertEqual(q.ios_permission_prompts("", "x"), [])
+
+
+class PickTargetTests(unittest.TestCase):
+    # AzWidgets' real dump: the label above the field and the field carry the same name
+    DUMP = ("<hierarchy>"
+            '<node index="0" text="" class="android.widget.TextView" content-desc="TextInput" clickable="false" focusable="false" bounds="[110,813][970,850]">'
+            '<node index="0" text="" class="android.widget.TextView" content-desc="TextInput" clickable="false" focusable="false" bounds="[0,0][0,0]" /></node>'
+            '<node index="1" text="" class="android.widget.EditText" content-desc="TextInput" clickable="false" focusable="true" bounds="[118,871][962,986]">'
+            "</node>"
+            '<node index="2" text="" class="android.widget.RadioButton" content-desc="Dark" clickable="true" focusable="true" bounds="[519,251][588,291]" />'
+            '<node index="3" text="" class="android.widget.TextView" content-desc="Dark" clickable="false" focusable="false" bounds="[519,251][588,291]" />'
+            "</hierarchy>")
+
+    def test_the_field_is_picked_before_the_label_with_the_same_name(self):
+        self.assertEqual(q.pick_target(self.DUMP, "TextInput"), (540, 928))
+
+    def test_an_interactive_node_is_picked_before_a_plain_one(self):
+        self.assertEqual(q.pick_target(self.DUMP, "Dark"), (553, 271))
+
+    def test_a_name_that_is_not_there_or_has_no_box_is_none(self):
+        self.assertIsNone(q.pick_target(self.DUMP, "Nothing"))
+        self.assertIsNone(q.pick_target('<node content-desc="Zero" bounds="[0,0][0,0]" />', "Zero"))
+
+
 class CheckedTests(unittest.TestCase):
     XML = ('''<hierarchy><node index="2" text="" class="android.widget.RadioButton" content-desc="Dark" checkable="true" checked="true" clickable="true" bounds="[519,251][588,291]">'''
            '''<node index="0" text="" class="android.widget.TextView" content-desc="Dark" checkable="false" checked="false" bounds="[519,251][588,291]" />'''
@@ -1173,6 +1226,81 @@ class ExitReasonTests(unittest.TestCase):
         got = q.create_activity_lines(ev, "com.azul.AzWidgets")
         self.assertEqual(len(got), 1)
         self.assertTrue(got[0][:18] >= "11-26 06:57:55")
+
+
+class GpuPathTests(unittest.TestCase):
+    """The reads the GPU path's QA steps make: the fallback line, the stage a failure spec names, the memory dump, the env."""
+
+    def test_the_fallback_line_names_stage_and_cause(self):
+        log = ("11-26 09:01:07.1  2528  2528 W RustStdoutStderr: [render] gpu unavailable at surface: eglCreateWindowSurface failed "
+               "(EGL_BAD_NATIVE_WINDOW 0x300b); drawing on the CPU\n"
+               "11-26 09:01:07.2  2528  2528 I RustStdoutStderr: [render] backend=cpu requested=gpu device=software\n")
+        self.assertEqual(q.gpu_fallbacks(log), [("surface", "eglCreateWindowSurface failed (EGL_BAD_NATIVE_WINDOW 0x300b)")])
+        # the fallback line carries no backend=, so the contract line is the only one backend_ran reads
+        self.assertEqual(q.backend_ran(log), ("cpu", "gpu", "software"))
+        self.assertEqual(q.gpu_fallbacks("[render] backend=gpu requested=gpu device=Mali-G78\n"), [])
+        two = ("[render] gpu unavailable at renderer: injected by AZ_GPU_FAIL; drawing on the CPU\n"
+               "[render] gpu unavailable at lost: the context was lost twice without a frame in between; drawing on the CPU\n")
+        self.assertEqual([stage for stage, _ in q.gpu_fallbacks(two)], ["renderer", "lost"])
+
+    def test_a_failure_spec_names_the_stage_the_fallback_will_carry(self):
+        for spec, stage in (("library", "library"), ("context", "context"), ("surface", "surface"), ("make_current", "make_current"),
+                            ("functions", "functions"), ("probe", "probe"), ("renderer", "renderer"), ("document", "document"),
+                            ("shaders", "shaders"), ("renderer:2", "renderer"), ("make-current", "make_current"),
+                            # a frame that cannot go out is a lost context; twice in a row it ends the GPU path at `lost`
+                            ("frame", "lost"), ("lost:2", "lost"), ("lost", "lost")):
+            self.assertEqual(q.gpu_fail_stage(spec), stage, spec)
+
+    def test_the_memory_dump_gives_pss_rss_and_graphics(self):
+        dump = ("** MEMINFO in pid 2528 [com.azul.AzWidgets] **\n"
+                "                   Pss  Private  Private  SwapPss      Rss     Heap     Heap     Heap\n"
+                "                 Total    Dirty    Clean    Dirty    Total     Size    Alloc     Free\n"
+                "  Native Heap   104512   104400        0        0   110000   150000   120000    30000\n"
+                "     Graphics    38208    38208        0        0    38208\n"
+                "        TOTAL PSS:   251332            TOTAL RSS:   310200       TOTAL SWAP PSS:        0\n")
+        self.assertEqual(q.parse_meminfo(dump), {"pss_kb": 251332, "rss_kb": 310200, "graphics_kb": 38208})
+        self.assertEqual(q.parse_meminfo("nothing"), {"pss_kb": None, "rss_kb": None, "graphics_kb": None})
+
+    def test_the_engine_env_is_one_property_that_keeps_the_steps_own_keys(self):
+        self.assertEqual(q.render_env(), "AZ_LOG=info;AZ_DUMP_PRESENT=1")
+        self.assertEqual(q.render_env("AZ_BACKEND=gpu"), "AZ_LOG=info;AZ_DUMP_PRESENT=1;AZ_BACKEND=gpu")
+        # setprop replaces the whole value: the log keys stay when a failure is added
+        self.assertEqual(q.render_env("AZ_BACKEND=gpu;AZ_GPU_FAIL=renderer:2"),
+                         "AZ_LOG=info;AZ_DUMP_PRESENT=1;AZ_BACKEND=gpu;AZ_GPU_FAIL=renderer:2")
+        self.assertEqual(q.render_env(";"), "AZ_LOG=info;AZ_DUMP_PRESENT=1")
+
+    def test_a_step_that_needs_the_app_is_followed_by_the_after_hook(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "android", {})
+            seen = []
+            run.after = lambda s: seen.append(s.name)
+            run.step("a-needs", "x", lambda s: None, needs_app=True)
+            run.step("b-plain", "x", lambda s: None)
+            self.assertEqual(seen, ["a-needs"])
+
+
+class EngineLinesTests(unittest.TestCase):
+    DUMP = "\n".join([
+        "11-26 10:00:01.000  100  100 I ActivityManager: Start proc 2492:com.azul.AzWidgets/u0a141",
+        "11-26 10:00:02.100  2492  2492 I RustStdoutStderr: [render] backend=gpu requested=gpu device=Mali-G78",
+        "11-26 10:00:02.200  2492  2492 I Choreographer: Skipped 3 frames",
+        "11-26 10:00:03.300  2492  2530 E RustStdoutStderr: thread 'WRRenderBackend#0' panicked at render_backend.rs:463",
+        "11-26 10:00:04.400  2492  2492 W libEGL  : EGL_BAD_SURFACE",
+    ])
+
+    def test_only_what_the_renderer_said_is_kept(self):
+        kept = q.engine_lines(self.DUMP).splitlines()
+        self.assertEqual(len(kept), 3)
+        self.assertTrue(all("ActivityManager" not in l and "Choreographer" not in l for l in kept))
+        self.assertIn("[render] backend=gpu", kept[0])
+
+    def test_the_last_lines_win_and_long_lines_are_cut(self):
+        many = "\n".join(f"11-26 10:00:00.000  1  1 I x: [render] line {i} " + "y" * 500 for i in range(50))
+        kept = q.engine_lines(many, limit=10).splitlines()
+        self.assertEqual(len(kept), 10)
+        self.assertIn("line 49", kept[-1])
+        self.assertTrue(all(len(l) <= 300 for l in kept))
 
 
 if __name__ == "__main__":

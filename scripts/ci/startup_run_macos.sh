@@ -18,6 +18,7 @@ ls -la out
 echo "=== AzWidgets on the runner: 7 starts, the timeline of each, exit at the first frame"
 python3 scripts/ci/startup_measure.py --exe "$PWD/out/AzWidgets" --runs 7 --label "AzWidgets macos release (runner VM)" --env "DYLD_LIBRARY_PATH=$PWD/out" --json out/startup-macos-runner.json
 echo "=== the phases of each layout pass: one start with AZ_PROFILE=cpu (the profiler adds a little)"
-( cd out && DYLD_LIBRARY_PATH="$PWD" AZ_STARTUP=1 AZ_PROFILE=cpu AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1 ./AzWidgets 2>&1 | grep -E "^\[CPU\]|^\[startup\]" | head -220 )
+# (a start that does not end by itself is ended by the alarm: a run that never exits holds the job for two hours)
+( cd out && DYLD_LIBRARY_PATH="$PWD" AZ_STARTUP=1 AZ_PROFILE=cpu AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER=1 perl -e 'alarm 90; exec @ARGV' ./AzWidgets 2>&1 | grep -E "^\[CPU\]|^\[startup\]" | head -220 )
 # (The tests run in the Linux job: a second compile of the library in the test cfg would keep the artifacts of this job
 # back by a quarter of an hour.)

@@ -148,6 +148,8 @@ mod a_variable_font_has_at_most_so_many_instances;
 mod a_variable_font_never_reaches_shaping_as_a_variable_file;
 #[path = "a_variable_font_registered_in_memory_is_drawn_at_the_exact_weight.rs"]
 mod a_variable_font_registered_in_memory_is_drawn_at_the_exact_weight;
+#[path = "the_instances_of_all_stacks_of_a_variable_face_are_made_together.rs"]
+mod the_instances_of_all_stacks_of_a_variable_face_are_made_together;
 #[path = "a_vertical_block_gives_its_runs_the_writing_mode_and_combines_its_digits.rs"]
 mod a_vertical_block_gives_its_runs_the_writing_mode_and_combines_its_digits;
 #[path = "white_space_and_the_line_breaking_properties_decide_where_a_line_ends.rs"]
@@ -496,8 +498,14 @@ mod test_text_layout;
 mod text_align_last_text_justify_and_text_indent_place_the_words_of_a_line;
 #[path = "a_decorating_box_draws_its_line_on_its_own_baseline_and_in_its_own_size.rs"]
 mod a_decorating_box_draws_its_line_on_its_own_baseline_and_in_its_own_size;
+#[path = "from_font_takes_the_thickness_and_the_place_the_face_names.rs"]
+mod from_font_takes_the_thickness_and_the_place_the_face_names;
+#[path = "dotted_dashed_and_wavy_lines_are_drawn_as_rows_and_waves.rs"]
+mod dotted_dashed_and_wavy_lines_are_drawn_as_rows_and_waves;
 #[path = "text_decoration_color_and_thickness_paint_the_lines_they_are_set_on.rs"]
 mod text_decoration_color_and_thickness_paint_the_lines_they_are_set_on;
+#[path = "text_decoration_shorthand_and_style_draw_the_lines_they_name.rs"]
+mod text_decoration_shorthand_and_style_draw_the_lines_they_name;
 #[path = "text_rendering_optimize_speed_turns_the_kerning_and_the_ligatures_off.rs"]
 mod text_rendering_optimize_speed_turns_the_kerning_and_the_ligatures_off;
 #[path = "text_shadow_wraps_the_text_it_shadows_in_the_display_list.rs"]
@@ -1481,3 +1489,5 @@ mod a_line_before_a_forced_break_is_not_justified;
 mod ignored_tests_are_on_the_ledger;
 #[path = "a_typed_field_keeps_laying_out_when_the_page_shrinks_before_it.rs"]
 mod a_typed_field_keeps_laying_out_when_the_page_shrinks_before_it;
+#[path = "a_rotated_window_paints_its_canvas_across_its_new_width.rs"]
+mod a_rotated_window_paints_its_canvas_across_its_new_width;

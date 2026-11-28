@@ -6,7 +6,8 @@
 #   session  qa (default): scripts/ci/mobile_qa.py, the life of the app with simctl;
 #            e2e: scripts/ci/mobile_e2e.py, the debug server of a `mobile-e2e` app driven from the runner (scenario files
 #                 named in AZ_QA_SCENARIOS, space separated; the Simulator shares the host's loopback: no port forwarding);
-#            both: qa, then e2e on the same simulator.
+#            both: qa, then e2e on the same simulator;
+#            matrix: every e2e scenario file against its host app, scripts/ci/e2e_matrix.py (AZ_QA_MATRIX_APPS: the app zips).
 #
 # For a macOS runner with Xcode (xcrun simctl). Needs no signing (a Simulator app runs ad-hoc signed). Writes what
 # scripts/ci/mobile_qa.py writes (qa.json, qa.md, shots/, logs/) into <out-dir>. Exit 0 when the simulator ran (the
@@ -79,6 +80,13 @@ if [ "$session" = qa ] || [ "$session" = both ]; then
   python3 "$here/mobile_qa.py" ios --out "$out" --udid "$udid" --bundle "$bid" --exe "$exe" --app "$appdir" --label "$label" \
     ${AZ_QA_EXPECT_GPU:+--expect-gpu} ${AZ_QA_ONLY:+--only "$AZ_QA_ONLY"} ${AZ_QA_BACKEND:+--backend "$AZ_QA_BACKEND"} \
     ${extra[@]+"${extra[@]}"} 2>&1 | tee "$out/qa.log"
+fi
+if [ "$session" = matrix ]; then
+  # every e2e scenario file against its host app (scripts/ci/e2e_matrix.py): AZ_QA_MATRIX_APPS = the zips of the mobile-e2e Simulator apps
+  # (space separated; the app of this session when unset)
+  apps=()
+  for z in ${AZ_QA_MATRIX_APPS:-$app}; do apps+=(--app "$z"); done
+  python3 "$here/e2e_matrix.py" ios --repo . --out "$out" --udid "$udid" ${apps[@]+"${apps[@]}"} 2>&1 | tee "$out/e2e-matrix.log"
 fi
 if [ "$session" = e2e ] || [ "$session" = both ]; then
   scen=()
