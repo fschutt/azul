@@ -991,6 +991,5 @@ fn the_ios_window_hands_the_system_chrome_and_the_display_features_to_uikit_and_
     for private in ["_displayCornerRadius", "_statusBarHeight", "_cornerRadius"] {
         assert!(!ui.contains(private), "no private API: `{private}`");
     }
-    // every cutout is reported approximate: it is from a table
-    at(&ui, "approximate: true", "features_of");
+    // (that every cutout is reported approximate is a unit test of `common/ios_display_features.rs`)
 }
