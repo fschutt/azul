@@ -1040,9 +1040,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let s = &*guard;
     let now = Utc::now();
     let content = if kit::settings_open(&s.kit) {
-        // The settings page keeps the window's own title row (a phone has none to draw).
-        let mut page = Dom::create_div()
-            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
+        // The settings page keeps the window's own title row (a phone has none to draw), and the
+        // room the system keeps at the edges free.
+        let mut page = Dom::create_div().with_css(format!(
+            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; padding: {}px {}px {}px {}px;",
+            env.top, env.right, env.bottom, env.left
+        ));
         if !env.phone {
             page.add_child(kit::title_row(SPEC.name));
         }
