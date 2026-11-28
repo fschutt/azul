@@ -171,15 +171,19 @@ pub fn floating(s: &MapState, app: &RefAny, frame: &Frame) -> Vec<Dom> {
             out.push(bottom_sheet(s, app, frame));
         }
     }
-    out.push(controls(s, app, frame));
-    if s.flow.layers_open {
-        out.push(layers_menu(s, app, frame));
+    // A sheet drawn up to the full height covers the map: its keys wait until it comes down.
+    let covered = !frame.wide() && s.drive.nav.is_none() && s.sheet == SheetDetent::Full;
+    if !covered {
+        out.push(controls(s, app, frame));
+        if s.flow.layers_open {
+            out.push(layers_menu(s, app, frame));
+        }
     }
     if !s.toast.0.is_empty() {
-        let at = if frame.wide() { frame.size.1 - 70.0 } else { frame.size.1 - sheet_height(s.sheet, frame) - 70.0 };
+        let above = if frame.wide() { 0.0 } else { sheet_height(s.sheet, frame) + frame.insets.lift() };
         out.push(
             Dom::create_div()
-                .with_css(format!("{TOAST} bottom: {:.0}px;", (frame.size.1 - at).max(12.0)).as_str())
+                .with_css(format!("{TOAST} bottom: {:.0}px;", above + 70.0).as_str())
                 .with_id(ids::LINK_COPIED)
                 .with_child(Dom::create_span_with_text(s.toast.0.as_str())),
         );
@@ -395,7 +399,6 @@ extern "C" fn on_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
             s.travel.to.clear();
             s.travel.to_pick = None;
         }
-        s.sheet = s.sheet.max(SheetDetent::Peek);
         s.announce_travel();
     });
     crate::adopt_field_texts(&mut info);
