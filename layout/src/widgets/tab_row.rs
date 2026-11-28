@@ -28,7 +28,7 @@ use azul_css::{AzString, OptionString};
 use super::{
     chevron_over_leather, lane_fades_sized, leather_under, on_tab_click, on_tab_key, pill_sized, selected_marker,
     strip_resized_callbacks, StripScrollData, TabHeader, TabHeaderLook, TabLocalDataset, PILL_DESKTOP, PILL_GAP,
-    PILL_LEAD, PILL_ROW, PILL_RULE, TAB_ACTIVE_CLASS_NAME, TAB_NOT_ACTIVE_CLASS_NAME,
+    PILL_LEAD, PILL_ROW, PILL_RULE, TAB_ACTIVE_CLASS_NAME, TAB_NOT_ACTIVE_CLASS_NAME, TEXT_SCALE_CAP_CSS,
 };
 use crate::widgets::{button::ButtonType, themes::UiTheme};
 
@@ -231,7 +231,7 @@ impl TabHeader {
             .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css(&format!(
                 "position: relative; box-sizing: border-box; width: 100%; height: {row}px; \
-                 flex-shrink: 0; overflow: hidden;"
+                 flex-shrink: 0; overflow: hidden; {TEXT_SCALE_CAP_CSS}"
             ))
             .with_children(DomVec::from_vec(children))
     }

@@ -2082,6 +2082,13 @@ impl TabHeader {
 /// scenario or a test finds the band's row by, whatever other strips the page has.
 pub const BAND_STRIP_CLASS: &str = "__azul-native-tabs-touch-band";
 
+/// What a row of pills asks of the system's text scale: the labels and the absolute line heights below the
+/// row scale with the user's text size up to this factor and no further (`--azul-text-scale-max`, a custom
+/// property that inherits). The pills are 22 / 32 px boxes in a 28 / 48 px row, and in the status bar's band
+/// the height is the system's own: a label that grew past them would overflow; the page below the row follows
+/// the full scale.
+pub(crate) const TEXT_SCALE_CAP_CSS: &str = "--azul-text-scale-max: 1.3;";
+
 /// The classes of the touch strip's header, its scrolling row and its pills.
 static TOUCH_HEADER_CLASSES: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-tabs-touch-header"))];
@@ -2595,7 +2602,7 @@ impl TabHeader {
 
         let mut header_css = format!(
             "position: relative; box-sizing: border-box; width: 100%; height: {row}px; \
-             flex-shrink: 0; overflow: hidden;"
+             flex-shrink: 0; overflow: hidden; {TEXT_SCALE_CAP_CSS}"
         );
         let mut strip = strip;
         if band.is_some() {
