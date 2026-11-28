@@ -631,10 +631,14 @@ const fn size_type(dock: PreviewDock) -> CssPropertyType {
     }
 }
 
-/// While the pointer or a key is moving the pane: a cascade-only write of its size (the override
-/// channel, cheap enough for every move of a drag).
+/// While the pointer or a key is moving the pane: a write of its size that is laid out at once.
+/// `set_css_property`, not the override channel: WP-E2's real-dispatcher tests of the bottom sheet
+/// found that through the touch path an override write of a layout property (a height) was not laid
+/// out at all (the app was told every step and the layout stayed at the built size for the whole
+/// drag), while `set_css_property` is, in a tap, a key and a drag. It pins the value as an override
+/// too, so a rebuild of the app in the middle of a drag keeps it; [`size_settled`] drops the pin.
 fn size_while_moving(info: &mut CallbackInfo, pane: azul_core::dom::DomNodeId, dock: PreviewDock, px: f32) {
-    info.override_css_property(pane, size_property(dock, px));
+    info.set_css_property(pane, size_property(dock, px));
 }
 
 /// When the size is settled: written into the pane's own style, and the override of the drag
