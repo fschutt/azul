@@ -33,7 +33,16 @@ for file in $files; do
     mkdir -p "$dir/data" "$dir/home" "$dir/downloads" "$dir/cache" "$dir/systemp" "$shots/$stem"
     form=desktop
     case $stem in
-        *phone*) form=phone ;;
+        *phone*)
+            form=phone
+            # a folder of 80 files besides the sample's: the list scrolls (the selection follows)
+            n=1
+            while [ "$n" -le 80 ]; do
+                num=$(printf '%03d' "$n")
+                printf 'file %s\n' "$num" > "$dir/home/file-$num.txt"
+                n=$((n + 1))
+            done
+            ;;
     esac
     log=$logs/$stem.log
     status=0
@@ -58,6 +67,17 @@ for file in $files; do
     sed "s/${esc}\[[0-9;]*m//g" "$log" | sed -n 's/^.*\[e2e\] SHOT \(.*\)$/\1/p' |
         awk '{ printf "%02d %s\n", NR, $0 }' > "$shots/$stem/captions.txt"
     echo "$file (exit $status): ${summary:-no report}"
+    # the phone's list follows its scroll: the selection was more than one row over the run
+    case $stem in
+        *phone*)
+            moved=$(sed "s/${esc}\[[0-9;]*m//g" "$log" | grep -a '^AZDRIVE_SELECTED 1 ' | awk '{print $3}' | sort -u | wc -l | tr -d ' ')
+            echo "$file: the selection was $moved different rows"
+            if [ "${moved:-0}" -lt 2 ]; then
+                echo "$file: the scroll moved no selection"
+                bad=1
+            fi
+            ;;
+    esac
     case $summary in
         *" 0 failed"*) ;;
         *) bad=1 ;;

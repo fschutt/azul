@@ -77,5 +77,144 @@
         "op": "take_screenshot"
       }
     ]
+  },
+  {
+    "name": "azdrive_on_a_phone_the_selection_and_the_preview_follow_the_row_at_the_top_edge",
+    "description": "Built for a phone, over a folder of 86 items: the list opens with its top row selected (one selected), and every scroll moves the selection to the row at the top edge - the preview, which shows the selected row, with it; the run's log holds more than one selected row (the script checks).",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 800
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azdrive_folder_rows"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "1 of 86 selected",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "print",
+        "text": "SHOT A folder of 86 items on a phone: the top row is the selected row, the preview at the foot shows it"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "scroll_node_by",
+        "selector": "#__azdrive_folder_rows",
+        "delta_x": 0,
+        "delta_y": 600
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "1 of 86 selected",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "print",
+        "text": "SHOT The list scrolled: the selection and the preview are the row at the top edge now"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "scroll_node_by",
+        "selector": "#__azdrive_folder_rows",
+        "delta_x": 0,
+        "delta_y": 900
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "1 of 86 selected",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "print",
+        "text": "SHOT Scrolled again: the selection moved on with the top edge"
+      },
+      {
+        "op": "take_screenshot"
+      }
+    ]
   }
 ]
