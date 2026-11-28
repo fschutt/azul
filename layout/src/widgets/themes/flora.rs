@@ -931,15 +931,18 @@ pub(crate) fn flora_fade_on_curves(
     ]
 }
 
-/// Flora's numbers for the label's step ([`LabelHold`]): flora's accent stone and its paper on
-/// `--fl-ease`, measured on the frames the CPU renderer paints.
+/// Flora's numbers for the label's step ([`LabelHold`]): flora's stones and its paper on `--fl-ease`,
+/// measured on the frames the CPU renderer paints (at a desktop's scale and at a phone's).
 ///
 /// * 59 % of the face's time for a DARK label that becomes light (paper to stone: 3.7:1 either side of the
 ///   step at 250 ms of 420, 3:1 or better from 44 % to 79 %), and
-/// * 9.75 % for a LIGHT label that becomes dark (stone to paper: 3.7:1 either side at 117 ms of 1200,
-///   3:1 or better from 4 % to 15 %): the stone's face is a mid blue, not navy, so the light ink loses its
-///   3:1 as soon as the face has lightened a third of the way.
-pub(crate) const FLORA_LABEL_HOLD: LabelHold = LabelHold { dark: 590, light: 97 };
+/// * 6 % for a LIGHT label that becomes dark (stone to paper). The window is narrow: the accent stone's
+///   dark ink reads from 4 % of the face's time, and the leaf and amber stones are lighter, so their light
+///   ink loses its 3:1 at 7.5 % (2.98:1 at 8 % of 1200 ms for the leaf stone, 2.93:1 for the amber one).
+///   Nine and three quarters (117 ms) was the best point for the blue stone alone.
+///   A stone that is held down when it changes starts from a darker face and would need a later step; no
+///   one step serves both (see the contrast test's note).
+pub(crate) const FLORA_LABEL_HOLD: LabelHold = LabelHold { dark: 590, light: 60 };
 
 impl FloraButtonKind {
     /// The ink of this kind's label, `None` for a command whose face does not change with its kind
