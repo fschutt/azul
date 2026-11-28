@@ -10,6 +10,10 @@
 //! The microphone is told to be open (`Ready`) before the dictation says "listening"; the words so far (`Partial`) show
 //! under the note's words while the user speaks, and each utterance as it ends (`Final`) is the note's text.
 //!
+//! NOTHING of this listens until the person starts a review session (`review_session.rs`, the key in the top bar and its shortcut): the pen's
+//! rest and the pen's nearness are heard only while a session records, the microphone is opened at its start and closed at its pause and its
+//! stop. In a window that was not started a hover starts nothing, opens nothing and is not even looked at for a rest.
+//!
 //! stdout, for scripts (`scripts/azreview_e2e.py`): `AZREVIEW_DICTATION started <note>`, `ready <note>`, `partial
 //! <note> <words>`, `text <note> <words>`, `ended <note> <cause>`, `refused <status> <why>`; `AZREVIEW_MIC <state>`.
 
@@ -43,6 +47,7 @@ use crate::{
     dictation::{self, Cause, Clock, End, Event, Heard, HeardWord, Listener, Mic, Out, Plan, Recognizer, Status},
     dwell::{Allow, Anchor, Config, Dwell, Reaction, Sample},
     model::{Note, NoteState},
+    review_session::{Capture, Event as ReviewEvent, Session},
     speech_gate::{Asked, Gate},
     standby::{self, Action, Arming, Standby},
     ui, AppState,
@@ -127,6 +132,10 @@ pub struct Voice {
     /// The thread that opens and closes the session's microphone, in the order it is asked (a real run once the session is
     /// there; under the e2e server none: what the policy asks is only counted and no test opens a microphone).
     pub mic_thread: Option<MicThread>,
+    /// The review session: whether the person started one. Nothing listens, and the microphone is never kept ready, unless it records.
+    pub review: Session,
+    /// The timer that draws the session's elapsed time again every second is armed (`review_ctl.rs`).
+    pub review_ticking: bool,
 }
 
 impl Voice {
@@ -152,7 +161,57 @@ impl Voice {
             arms: 0,
             disarms: 0,
             mic_thread: None,
+            review: Session::new(),
+            review_ticking: false,
         }
+    }
+
+    /// Whether anything may listen now: only while a review session records. The pen's rest, the pen's nearness and the standby all ask this.
+    #[must_use]
+    pub const fn may_listen(&self) -> bool {
+        self.review.listens()
+    }
+
+    /// An explicit event of the review session (the person's Start, Pause, Resume or Stop, the window closing, the app quitting, the
+    /// microphone lost): the session takes it, and what it asks of the microphone is done here: opened at once when the session starts or
+    /// resumes (where the standby is not off), and closed at once, with a dictation that listens, when it pauses, stops or ends. Answers what
+    /// the session asked of the microphone.
+    pub fn review_event(&mut self, event: ReviewEvent) -> Capture {
+        let now = self.now_ms();
+        let step = self.review.apply(event, now);
+        match step.capture {
+            Capture::Open => self.open_for_session(),
+            Capture::Close => self.close_for_session(event),
+            Capture::Unchanged => {}
+        }
+        println!("AZREVIEW_SESSION {}", self.review.state().name());
+        step.capture
+    }
+
+    /// The session records: the microphone opens now, ahead of the first dictation, unless the standby is off (then it opens when a
+    /// dictation does). Where the speech session is not made yet this waits for it: its readiness calls this again.
+    pub fn open_for_session(&mut self) {
+        // (one ask only: the start and the speech session's readiness both come here, and the second finds it open)
+        if !self.can_arm || !self.may_listen() || self.arming.is_armed() {
+            return;
+        }
+        let now = self.now_ms();
+        // the pen's past is not the session's: it is cold, and the pen coming near (or the start itself) opens it
+        self.arming = Arming::new(self.arming.config());
+        let action = self.arming.near(now);
+        self.apply(action);
+    }
+
+    /// The session paused, stopped or ended: a dictation that listens ends at once and the microphone that was kept ready is closed.
+    fn close_for_session(&mut self, event: ReviewEvent) {
+        let cause = if matches!(event, ReviewEvent::WindowClose | ReviewEvent::AppQuit) { Cause::Closed } else { Cause::Stopped };
+        self.request_stop(cause);
+        self.pending = None;
+        // Closed at once if it was asked to be open (and the session's thread is told), whatever the standby says: "always" keeps it open
+        // for a window that records, not for one that was stopped. Then the policy starts again cold.
+        let action = if self.can_arm && self.arming.is_armed() { Some(Action::Disarm) } else { None };
+        self.apply(action);
+        self.arming = Arming::new(self.arming.config());
     }
 
     /// Milliseconds since the window's voice began: the dwell's clock.
@@ -235,6 +294,12 @@ impl Voice {
     /// session cannot, the policy does not run (`can_arm`), and under the e2e server it is only counted.
     pub fn apply(&mut self, action: Option<Action>) -> Option<Action> {
         let action = action?;
+        // The one rule of the microphone, kept where it is asked for: it is opened only while a review session records, whoever asks. A
+        // path that forgot the gate is told nothing, and the policy starts cold again so that it does not think the microphone open.
+        if action == Action::Arm && !self.may_listen() {
+            self.arming = Arming::new(self.arming.config());
+            return None;
+        }
         match action {
             Action::Arm => {
                 self.arms += 1;
@@ -259,9 +324,10 @@ impl Voice {
         Some(action)
     }
 
-    /// The window opened: "always" opens the microphone now.
+    /// The window opened: nothing is opened at launch, not even for "always": the person's Start opens the microphone
+    /// (`open_for_session`). A window that records at its opening (none does) would have "always" open it now.
     pub fn start_standby(&mut self) -> Option<Action> {
-        if !self.can_arm {
+        if !self.can_arm || !self.may_listen() {
             return None;
         }
         let now = self.now_ms();
@@ -271,7 +337,8 @@ impl Voice {
 
     /// The pen (`pen`) or the mouse is over a page: near enough for a dictation to start soon.
     pub fn pen_near(&mut self, pen: bool) -> Option<Action> {
-        if !self.can_arm || !self.dwell.config().allow.allows(pen) {
+        // a pen over a page opens nothing unless a session records
+        if !self.can_arm || !self.may_listen() || !self.dwell.config().allow.allows(pen) {
             return None;
         }
         let now = self.now_ms();
@@ -282,7 +349,8 @@ impl Voice {
     /// The time passed (once a second while armed): a pen that left the tablet's range, or that has been away for the
     /// idle time, closes the microphone.
     pub fn standby_tick(&mut self, pen_here: bool) -> Option<Action> {
-        if !self.can_arm {
+        // (a session that is not running has nothing open: `close_for_session` closed it, and nothing opens it before a start)
+        if !self.can_arm || !self.may_listen() {
             return None;
         }
         let now = self.now_ms();
@@ -295,7 +363,8 @@ impl Voice {
 
     /// The window is no longer in front: the microphone closes.
     pub fn window_deactivated(&mut self) -> Option<Action> {
-        if !self.can_arm {
+        // (a window that is not recording has nothing open to close, and "always" must not be taken for a reason to open it)
+        if !self.can_arm || !self.may_listen() {
             return None;
         }
         let now = self.now_ms();
@@ -305,7 +374,8 @@ impl Voice {
 
     /// A dictation began or ended: the session is in use, or free again.
     pub fn dictation_busy(&mut self, busy: bool) -> Option<Action> {
-        if !self.can_arm {
+        // (a dictation that ends after its session did leaves the policy cold: it must not open the microphone again)
+        if !self.can_arm || !self.may_listen() {
             return None;
         }
         let now = self.now_ms();
@@ -318,7 +388,8 @@ impl Voice {
         if let Some(thread) = &self.mic_thread {
             thread.ask(MicCmd::Standby(engine_standby(cfg.standby)));
         }
-        if !self.can_arm {
+        // a standby chosen in the settings applies at the next start: choosing "always" opens nothing while no session records
+        if !self.can_arm || !self.may_listen() {
             self.arming = Arming::new(cfg);
             return None;
         }
@@ -386,7 +457,9 @@ pub fn pointer(data: &mut RefAny, info: &mut CallbackInfo, down: Option<bool>) -
     };
     // The pen is at work: the symbol index keeps to the neighbourhood of the file until it is quiet again.
     s.symbols.touch();
-    if s.voice.dwell.config().allow == Allow::Off && s.voice.running.is_none() {
+    // Hovering, moving and pressing over the page are heard only while a review session records: in a window that was not started the
+    // pointer is not even looked at for a rest, and the microphone is not asked for.
+    if (!s.voice.may_listen() || s.voice.dwell.config().allow == Allow::Off) && s.voice.running.is_none() {
         return Update::DoNothing;
     }
     let now = s.voice.now_ms();
@@ -595,8 +668,9 @@ extern "C" fn on_speech_ready(mut app: RefAny, mut msg: RefAny, mut info: Callba
                     }
                 }
                 s.voice.speech = Some(session);
+                // A session the person started before the engine was ready opens the microphone now; none was started: nothing opens.
                 if s.voice.can_arm {
-                    s.voice.start_standby();
+                    s.voice.open_for_session();
                 }
                 Ok(())
             }
@@ -1071,6 +1145,11 @@ pub fn start_scripted(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor
 /// The dictation: what [`start`] and [`start_scripted`] do.
 fn begin(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor, script: Option<(Vec<String>, u64)>) -> Update {
     let scripted = script.is_some();
+    // The real dictation listens through the microphone: only while a review session records. (A scripted one says what it is given
+    // and opens nothing: it is the debug op's, for the tests.)
+    if !scripted && !data.downcast_ref::<AppState>().is_some_and(|s| s.voice.may_listen()) {
+        return Update::DoNothing;
+    }
     // A pen that rests on the grip of a loop that waits for the whiteboard (or holds a press on a loop) is reaching for the
     // board: it is not asking to be listened to.
     if !scripted

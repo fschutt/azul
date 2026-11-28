@@ -34,7 +34,11 @@
        neither ends it nor cycles the nib; the note is saved in the archive and can be deleted.
        Without the test hooks the real recogniser is asked and refuses (an unbundled binary has no
        Info.plist): the message is told over the pages, the empty note is not kept, a second rest
-       starts nothing. No `[azul][a11y]` lint line may print in either run;
+       starts nothing. No `[azul][a11y]` lint line may print in either run. NOTHING listens before the
+       review session is started (the key at the top right): a pointer that moves over a page and rests
+       there starts no note and asks for no microphone, the key's click starts the session (the
+       microphone is asked to open once), a click on it pauses it (closed at once, a hover starts
+       nothing) and resumes it, Stop ends a note that listens and closes the microphone at once;
    10. the restart: a second AzReview on the same folder and data folder gets the saved session back
        when it opens the file (`AZREVIEW_LOADED 1 0`) and adds its next stroke to it.
 
@@ -68,6 +72,27 @@ def state(app):
     """What AzReview says its state is (the debug op `azreview_state`): pen, meaning, nib, panels."""
     answer = app.must("azreview_state")
     return answer["data"]["value"]["result"]["state"]
+
+
+REVIEW_STATE = "__azreview_review-state"
+REVIEW_STOP = "__azreview_review-stop"
+
+
+def review_op(app, action):
+    """The review session's key by the debug op (no key is pressed): start, pause, resume, stop or toggle. The state it says after it."""
+    answer = app.must("azreview_review", action=action)["data"]["value"]["result"]
+    if not answer.get("success"):
+        raise Failure("azreview_review %s: %s" % (action, answer))
+    return answer["state"]
+
+
+def hover_about(app, x, y, seconds=1.5):
+    """The pointer moves over a page and stays there for `seconds` (three times the rest time of the dictation steps)."""
+    for i in range(6):
+        app.must("mouse_move", x=x + i * 7.0, y=y + i * 3.0)
+        app.frame(1)
+    time.sleep(seconds)
+    app.frame(2)
 
 
 def settled(app, node_id, tries=40):
@@ -350,18 +375,54 @@ def dictation(args, logs, out, binary, fake):
             app.until("dictation %d ended (%s)" % (n, cause),
                       lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"ended %d %s" % (n, cause)) > 0)[1])
 
-        # 0. Nothing is open before the pointer comes near a page (the policy only counts under the e2e server: no
-        # test opens a microphone).
-        before = state(app)["standby"]
-        if not before["enabled"] or before["armed"] or before["arms"] != 0 or before["mode"] != "near":
-            raise Failure("the standby before the pointer came near a page: %s" % before)
+        # 0. A window starts IDLE and NOTHING listens (the policy only counts under the e2e server: no test opens a microphone). The key at
+        # the top right says "Start review"; a pointer that moves over a page and rests there for three times the rest time starts no note,
+        # asks for no microphone and starts no session.
+        before = state(app)
+        if not before["standby"]["enabled"] or before["standby"]["armed"] or before["standby"]["arms"] != 0 or before["standby"]["mode"] != "near":
+            raise Failure("the standby before the pointer came near a page: %s" % before["standby"])
+        if before["review"] != {"state": "idle", "elapsed_ms": 0, "may_listen": False}:
+            raise Failure("a window did not start idle: %s" % before["review"])
+        if not app.has_id(REVIEW_STATE) or not app.shows("Start review") or app.has_id(REVIEW_STOP):
+            raise Failure("the key at the top right is not the one that starts a review")
+        app.screenshot(os.path.join(out, "4a-review-idle.png"))
+        hover_about(app, base[0] + 120.0, base[1] + 60.0)
+        hovered = state(app)
+        if (app.count("AZREVIEW_DICTATION") or app.count("AZREVIEW_STANDBY") or app.count("AZREVIEW_SESSION") or hovered["dictating"]
+                or hovered["standby"]["arms"] != 0 or hovered["review"]["state"] != "idle"):
+            raise Failure("hovering over a page started something in a window that was not started: %s %s" % (hovered["review"], hovered["standby"]))
+        # 0b. The key starts a session: the microphone is asked to open once, the key says Recording and has a Stop beside it.
+        app.click(selector="#" + REVIEW_STATE)
+        app.until("the session recording", lambda: app.count("AZREVIEW_SESSION", r"recording") == 1)
+        app.until("the key says Recording", lambda: app.shows("Recording") and app.has_id(REVIEW_STOP))
+        started = state(app)
+        if (started["review"]["state"] != "recording" or not started["review"]["may_listen"] or not started["standby"]["armed"]
+                or started["standby"]["arms"] != 1):
+            raise Failure("a start did not open the microphone once: %s %s" % (started["review"], started["standby"]))
+        app.screenshot(os.path.join(out, "4b-review-recording.png"))
+        # 0c. A click on the key pauses it: the microphone is closed at once, and nothing listens while it is held, whatever the pointer does.
+        app.click(selector="#" + REVIEW_STATE)
+        app.until("the session paused", lambda: app.count("AZREVIEW_SESSION", r"paused") == 1)
+        app.until("the key says Paused", lambda: app.shows("Paused"))
+        held = state(app)
+        if held["standby"]["armed"] or held["standby"]["disarms"] != 1 or held["review"]["may_listen"] or held["review"]["state"] != "paused":
+            raise Failure("a pause did not close the microphone at once: %s %s" % (held["review"], held["standby"]))
+        hover_about(app, base[0] + 120.0, base[1] + 60.0)
+        if app.count("AZREVIEW_DICTATION") or state(app)["standby"]["arms"] != 1:
+            raise Failure("a pointer over a page started something in a session that was held: %s" % state(app)["standby"])
+        # 0d. A click again resumes it: the microphone opens again (the second time it was asked to).
+        app.click(selector="#" + REVIEW_STATE)
+        app.until("the session recording again", lambda: app.count("AZREVIEW_SESSION", r"recording") == 2)
+        resumed = state(app)["standby"]
+        if not resumed["armed"] or resumed["arms"] != 2:
+            raise Failure("a resume did not open the microphone again: %s" % resumed)
         # 1. A rest starts a note that listens.
         rest_at(0.0, 0.0, "the first dictation to start", 1)
         app.until("the conversation's chip in the margin", lambda: app.has_id("__azreview_conv-1", every_dom=True))
         near = state(app)["standby"]
-        if not near["armed"] or near["arms"] != 1:
-            raise Failure("the pointer came near a page and the microphone was not asked to open once: %s" % near)
-        app.until("AZREVIEW_STANDBY armed", lambda: app.count("AZREVIEW_STANDBY", r"armed") == 1)
+        if not near["armed"] or near["arms"] != 2:
+            raise Failure("the pointer came near a page and the microphone was not kept open (asked twice so far, the start and the resume): %s" % near)
+        app.until("AZREVIEW_STANDBY armed", lambda: app.count("AZREVIEW_STANDBY", r"armed") == 2)
         if fake:
             app.until("the marker on the page", lambda: app.has_id("__azreview_marker-1", every_dom=True))
             app.until("the words in the conversation", lambda: app.shows(HEARD, every_dom=True))
@@ -446,9 +507,25 @@ def dictation(args, logs, out, binary, fake):
             # is asked to close, once, and the standby's timer ends with it.
             app.until("the microphone closed after the idle time", lambda: not state(app)["standby"]["armed"])
             closed = state(app)["standby"]
-            if closed["disarms"] != 1:
-                raise Failure("the idle time closed the microphone %s times: %s" % (closed["disarms"], closed))
-            app.until("AZREVIEW_STANDBY disarmed", lambda: app.count("AZREVIEW_STANDBY", r"disarmed") == 1)
+            if closed["disarms"] != 2:
+                raise Failure("the idle time closed the microphone %s times in all (the pause, then the idle time): %s" % (closed["disarms"], closed))
+            app.until("AZREVIEW_STANDBY disarmed", lambda: app.count("AZREVIEW_STANDBY", r"disarmed") == 2)
+            # 9. Stop: the pointer comes near again (the microphone opens, a note starts listening), then Stop ends the note, closes the
+            # microphone at once and ends the session; a hover after it starts nothing, and the key says Start review again.
+            rest_at(0.0, 150.0, "the eighth dictation to start", 8)
+            if not state(app)["standby"]["armed"]:
+                raise Failure("the pointer came near a page again and the microphone was not opened: %s" % state(app)["standby"])
+            app.click(selector="#" + REVIEW_STOP)
+            ended(8, "stopped")
+            app.until("the session stopped", lambda: app.count("AZREVIEW_SESSION", r"stopped") == 1)
+            app.until("the key says Start review again", lambda: app.shows("Start review") and not app.has_id(REVIEW_STOP))
+            stopped = state(app)
+            if (stopped["standby"]["armed"] or stopped["standby"]["disarms"] != 3 or stopped["review"]["state"] != "stopped"
+                    or stopped["review"]["may_listen"] or stopped["dictating"]):
+                raise Failure("a stop did not close the microphone and end the note: %s %s" % (stopped["review"], stopped["standby"]))
+            hover_about(app, base[0] + 120.0, base[1] + 60.0)
+            if app.count("AZREVIEW_DICTATION", r"started 9") or state(app)["standby"]["arms"] != 3:
+                raise Failure("a pointer over a page started something after the session was stopped: %s" % state(app)["standby"])
         else:
             # The real recogniser refuses (the binary has no Info.plist, or no microphone is there):
             # the user is told over the pages, and the empty note is not kept.
@@ -694,6 +771,8 @@ def mic_smoke(args, logs, out, binary):
         app.frame(3)
         strip = app.rect(STRIP)
         base = (strip["x"] + 160.0, strip["y"] + 140.0)
+        if review_op(app, "start") != "recording":
+            raise Failure("the review session did not start")
         app.must("mouse_move", x=base[0], y=base[1])
         app.until("the dictation to start", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started 1") > 0)[1])
         began = time.perf_counter()
@@ -749,7 +828,9 @@ def dictation_stream(args, logs, out, binary):
         base = (strip["x"] + 160.0, strip["y"] + 140.0)
         lines = lambda pattern: app.printed("AZREVIEW_DICTATION", pattern)
 
-        # 1. a rest starts it; the words come as utterances; the quiet ends it where it is
+        # 1. a session is started (nothing listens before it); a rest starts it; the words come as utterances; the quiet ends it where it is
+        if review_op(app, "start") != "recording":
+            raise Failure("the review session did not start")
         app.must("mouse_move", x=base[0], y=base[1])
         app.until("the dictation to start", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started 1") > 0)[1])
         app.until("the microphone is open", lambda: app.count("AZREVIEW_DICTATION", r"ready 1") > 0)

@@ -263,7 +263,7 @@ azreview-whiteboard-import-failed = That file could not be opened: { $why }
 
 ## Dictation and the side column of notes
 
-azreview-shortcut-dictate = Rest the pen on the code to dictate a note; resting again, moving away or drawing ends it
+azreview-shortcut-dictate = While a review session records: rest the pen on the code to dictate a note; resting again, moving away or drawing ends it
 azreview-notes = Notes
 azreview-notes-switch = Show or hide the notes
 azreview-notes-hint-pen = Rest the pen on the code for { $seconds } s and speak: your words become a note here. If nothing starts, the system may not report your pen as a pen: choose Pen or mouse under Settings > Dictation.
@@ -340,7 +340,7 @@ azreview-dictation-pen = Pen
 azreview-dictation-any = Pen or mouse
 azreview-dictation-rest = Rest time
 azreview-dictation-quiet = Stop after quiet
-azreview-dictation-note = Resting the pen on the code starts a note that listens. Drawing, moving away, resting again, Escape or a stretch of quiet ends it. The words stay in the note, which you can edit, and are saved with the session.
+azreview-dictation-note = Nothing listens until you start a review session (the key at the top right, or Mod+Shift+M); hovering, moving and resting the pen over the page start nothing. While a session records, resting the pen on the code starts a note that listens. Drawing, moving away, resting again, Escape or a stretch of quiet ends it. The words stay in the note, which you can edit, and are saved with the session.
 azreview-rest-0-8 = 0.8 s
 azreview-rest-1-2 = 1.2 s
 azreview-rest-2-0 = 2 s
@@ -466,7 +466,7 @@ azreview-idle-15 = 15 s
 azreview-idle-30 = 30 s
 azreview-idle-120 = 2 min
 azreview-idle-600 = 10 min
-azreview-standby-note = Opening the microphone takes a third of a second. Kept ready, a dictation starts the moment the pen has rested and keeps the words spoken just before. "When the pen is near" opens the microphone as the pen comes near a page and closes it when the pen has been away for the time above, or the window goes to the back. The system's microphone indicator is on while the microphone is open; with "Always" it stays on as long as AzReview runs.
+azreview-standby-note = Only while a review session records: opening the microphone takes a third of a second. Kept ready, a dictation starts the moment the pen has rested and keeps the words spoken just before. "When the pen is near" opens the microphone as the pen comes near a page and closes it when the pen has been away for the time above, or the window goes to the back. The system's microphone indicator is on while the microphone is open; with "Always" it stays on as long as AzReview runs.
 azreview-chip-working = an agent is working
 azreview-chip-suggested = a suggestion waits
 azreview-chip-done = done
@@ -535,3 +535,15 @@ azreview-companion-buttons-title = Quick buttons
 azreview-companion-buttons-note = Four instructions you give again and again. A tap on the phone sends the text to an agent, with the context at the pen: the marked region, else the line, else the page. The phone shows them too and can change them.
 azreview-companion-button-label-name = Label of button { $n }
 azreview-companion-button-text-name = Instruction of button { $n }
+
+# the review session: nothing listens until it is started
+azreview-review-start = Start review
+azreview-review-start-name = Start a review session. Nothing listens until you do ({ $keys })
+azreview-review-recording = Recording { $time }
+azreview-review-recording-name = Review session recording, { $time }. Click to pause ({ $keys })
+azreview-review-paused = Paused { $time }
+azreview-review-paused-name = Review session paused, { $time }. Click to resume ({ $keys })
+azreview-review-stop = Stop
+azreview-review-stop-name = Stop the review session and close the microphone ({ $keys })
+azreview-shortcut-review-toggle = Start or stop the review session: nothing listens before it is started
+azreview-shortcut-review-pause = Pause or resume the review session

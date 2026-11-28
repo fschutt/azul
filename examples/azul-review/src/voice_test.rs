@@ -12,6 +12,7 @@ use super::*;
 use crate::{
     dictation::{Mic, Out, Status},
     dwell::{Allow, Config},
+    review_session::State as ReviewState,
     standby::{self, Action, Standby},
 };
 
@@ -214,10 +215,20 @@ fn every_state_of_the_built_in_recogniser_has_its_own_word() {
 
 // ---- the microphone's standby, as the window asks it ----
 
-/// A voice whose session can open the microphone ahead, for the pointers `allow` lets dictate.
+/// A voice whose session can open the microphone ahead, and whose review session records (the person pressed Start), for the pointers
+/// `allow` lets dictate.
 fn standing(allow: Allow) -> Voice {
     let mut v = Voice::new(Config { allow, ..Config::default() }, 10_000);
     v.can_arm = true;
+    v.review = Session::recording_for_test(0);
+    v
+}
+
+/// A voice that can open the microphone ahead and whose review session was NOT started: how a window is after the launch.
+fn not_started(allow: Allow, standby: Standby) -> Voice {
+    let mut v = Voice::new(Config { allow, ..Config::default() }, 10_000);
+    v.can_arm = true;
+    v.arming = Arming::new(standby::Config { standby, idle_ms: standby::DEFAULT_IDLE_MS });
     v
 }
 
@@ -321,6 +332,186 @@ fn a_pen_that_is_not_in_the_tablets_range_is_noticed_by_the_tick_and_closes_the_
     assert_eq!(v.standby_tick(true), None, "the pen is here");
     assert_eq!(v.standby_tick(false), None, "away, but within the grace");
     assert!(v.arming.is_armed());
+}
+
+// ---- the review session: nothing listens until the person starts one ----
+
+#[test]
+fn a_new_window_does_not_listen_and_its_review_session_is_idle() {
+    let v = voice();
+    assert!(!v.may_listen());
+    assert_eq!(v.review.state(), ReviewState::Idle);
+    assert!(!v.review_ticking);
+    assert_eq!((v.arms, v.disarms, v.mic), (0, 0, Mic::Cold));
+}
+
+#[test]
+fn a_storm_of_hovering_in_a_window_that_was_not_started_opens_no_microphone_whatever_the_settings() {
+    for allow in [Allow::Pen, Allow::Any] {
+        for standby in Standby::ALL {
+            let mut v = not_started(allow, standby);
+            assert_eq!(v.start_standby(), None, "the launch: {allow:?} {standby:?}");
+            for i in 0..5_000_u32 {
+                let pen = i % 2 == 0;
+                assert_eq!(v.pen_near(pen), None, "{allow:?} {standby:?}: a pointer over a page opened the microphone");
+                assert_eq!(v.standby_tick(pen), None, "{allow:?} {standby:?}: the standby's clock opened it");
+                assert_eq!(v.dictation_busy(pen), None, "{allow:?} {standby:?}");
+                if i % 250 == 0 {
+                    assert_eq!(v.window_deactivated(), None, "{allow:?} {standby:?}: the window going to the back opened it");
+                }
+            }
+            assert_eq!((v.arms, v.disarms), (0, 0), "{allow:?} {standby:?}");
+            assert_eq!(v.mic, Mic::Cold, "{allow:?} {standby:?}");
+            assert!(!v.arming.is_armed() && !v.wants_standby_timer() && !v.may_listen(), "{allow:?} {standby:?}");
+            assert_eq!(v.review.state(), ReviewState::Idle, "nothing the person does over the page starts a session");
+        }
+    }
+}
+
+#[test]
+fn what_the_person_does_over_the_page_is_no_start_whatever_it_is_called() {
+    for standby in Standby::ALL {
+        for event in ReviewEvent::ALL.into_iter().filter(|e| e.is_annotation()) {
+            let mut v = not_started(Allow::Any, standby);
+            assert_eq!(v.review_event(event), Capture::Unchanged, "{event:?} with {standby:?}");
+            assert!(!v.may_listen(), "{event:?} with {standby:?}");
+            assert_eq!((v.arms, v.disarms, v.mic), (0, 0, Mic::Cold), "{event:?} with {standby:?}");
+        }
+    }
+}
+
+#[test]
+fn a_start_opens_the_microphone_once_where_the_standby_wants_it_and_a_stop_closes_it_at_once_whatever_the_standby() {
+    for (standby, opens) in [(Standby::Near, 1), (Standby::Always, 1), (Standby::Off, 0)] {
+        let mut v = not_started(Allow::Pen, standby);
+        assert_eq!(v.review_event(ReviewEvent::Start), Capture::Open);
+        assert!(v.may_listen());
+        assert_eq!((v.arms, v.mic.is_open()), (opens, opens == 1), "{standby:?}");
+        assert_eq!(v.review_event(ReviewEvent::Start), Capture::Unchanged, "a start of a session that runs");
+        assert_eq!(v.arms, opens, "{standby:?}: a second start opened it again");
+        assert_eq!(v.review_event(ReviewEvent::Stop), Capture::Close);
+        assert!(!v.may_listen());
+        assert!(!v.mic.is_open(), "{standby:?}: the microphone stayed open after the stop");
+        assert_eq!((v.arms, v.disarms), (opens, opens), "{standby:?}");
+        assert!(!v.arming.is_armed(), "{standby:?}");
+        assert_eq!(v.review.state(), ReviewState::Stopped);
+    }
+}
+
+#[test]
+fn a_pause_closes_the_microphone_and_a_resume_opens_it_again_and_nothing_else_does() {
+    let mut v = not_started(Allow::Pen, Standby::Near);
+    v.review_event(ReviewEvent::Start);
+    assert!(v.mic.is_open());
+    assert_eq!(v.review_event(ReviewEvent::Pause), Capture::Close);
+    assert!(!v.mic.is_open() && !v.may_listen());
+    // the pen near, the clock, the window coming and going: nothing opens the microphone of a session that is held
+    let arms = v.arms;
+    for pen in [true, false] {
+        assert_eq!(v.pen_near(pen), None);
+        assert_eq!(v.standby_tick(pen), None);
+    }
+    assert_eq!(v.window_deactivated(), None);
+    assert_eq!(v.arms, arms);
+    assert!(!v.mic.is_open());
+    assert_eq!(v.review_event(ReviewEvent::Resume), Capture::Open);
+    assert!(v.mic.is_open() && v.may_listen());
+    assert_eq!(v.arms, arms + 1);
+}
+
+#[test]
+fn a_stop_ends_a_dictation_that_listens_and_what_waited_for_a_rest_with_it() {
+    let mut v = not_started(Allow::Pen, Standby::Near);
+    v.review_event(ReviewEvent::Start);
+    v.running = Some(Running::for_test(1, 7));
+    v.pending = Some(crate::dwell::Anchor { page: 0, x: 1.0, y: 2.0, contact: false });
+    assert!(v.is_listening());
+    v.review_event(ReviewEvent::Stop);
+    assert!(!v.is_listening(), "the dictation was asked to stop");
+    let running = v.running.as_ref().expect("its worker has yet to finish its call");
+    assert_eq!(running.stopping, Some(Cause::Stopped));
+    assert!(running.stop.load(Ordering::Relaxed), "the worker looks at this between two calls");
+    assert!(v.pending.is_none(), "a rest that waited for the last worker starts nothing after the stop");
+}
+
+#[test]
+fn closing_the_window_and_quitting_close_the_microphone_and_end_what_listens() {
+    for event in [ReviewEvent::WindowClose, ReviewEvent::AppQuit] {
+        let mut v = not_started(Allow::Pen, Standby::Always);
+        v.review_event(ReviewEvent::Start);
+        assert!(v.mic.is_open(), "'always' keeps it open for a session that records");
+        v.running = Some(Running::for_test(1, 7));
+        assert_eq!(v.review_event(event), Capture::Close, "{event:?}");
+        assert!(!v.mic.is_open(), "{event:?}");
+        assert_eq!(v.running.as_ref().and_then(|r| r.stopping), Some(Cause::Closed), "{event:?}");
+        assert_eq!(v.review.state(), ReviewState::Stopped, "{event:?}");
+        // and a window that was never started has nothing to end
+        let mut idle = not_started(Allow::Pen, Standby::Always);
+        assert_eq!(idle.review_event(event), Capture::Unchanged);
+        assert_eq!((idle.arms, idle.disarms), (0, 0));
+    }
+}
+
+#[test]
+fn a_microphone_that_is_lost_holds_the_session_and_the_pen_does_not_open_another() {
+    let mut v = not_started(Allow::Pen, Standby::Near);
+    v.review_event(ReviewEvent::Start);
+    assert_eq!(v.review_event(ReviewEvent::DeviceLost), Capture::Close);
+    assert_eq!(v.review.state(), ReviewState::Paused);
+    assert!(!v.mic.is_open());
+    assert_eq!(v.pen_near(true), None);
+    assert_eq!(v.arms, 1, "only the start opened it");
+}
+
+#[test]
+fn a_start_before_the_speech_session_is_ready_opens_nothing_and_its_readiness_opens_it() {
+    let mut v = voice();
+    assert!(!v.can_arm);
+    assert_eq!(v.review_event(ReviewEvent::Start), Capture::Open);
+    assert!(v.may_listen());
+    assert_eq!((v.arms, v.mic), (0, Mic::Cold), "nothing to open it with yet");
+    // what the speech session being ready does
+    v.can_arm = true;
+    v.open_for_session();
+    assert_eq!((v.arms, v.mic), (1, Mic::Armed));
+    // the readiness after a start that opened it asks nothing more (under the e2e server the policy runs from the first moment)
+    let mut again = not_started(Allow::Pen, Standby::Near);
+    again.review_event(ReviewEvent::Start);
+    again.open_for_session();
+    assert_eq!(again.arms, 1, "it was open already");
+    // a session that ended while the engine was made is not opened for
+    let mut stopped = voice();
+    stopped.review_event(ReviewEvent::Start);
+    stopped.review_event(ReviewEvent::Stop);
+    stopped.can_arm = true;
+    stopped.open_for_session();
+    assert_eq!((stopped.arms, stopped.mic), (0, Mic::Cold));
+}
+
+#[test]
+fn a_standby_chosen_before_a_start_opens_nothing_and_is_the_one_the_start_uses() {
+    let mut v = not_started(Allow::Pen, Standby::Off);
+    let always = standby::Config { standby: Standby::Always, idle_ms: standby::DEFAULT_IDLE_MS };
+    assert_eq!(v.set_standby(always), None, "no session records: nothing opens");
+    assert_eq!(v.arming.config(), always, "the choice is kept");
+    assert_eq!(v.arms, 0);
+    assert_eq!(v.review_event(ReviewEvent::Start), Capture::Open);
+    assert_eq!((v.arms, v.mic), (1, Mic::Armed), "'always' opens it at the start");
+}
+
+#[test]
+fn the_one_place_that_opens_the_microphone_refuses_where_no_session_records_and_closing_is_always_allowed() {
+    let mut v = not_started(Allow::Any, Standby::Always);
+    // a policy that asks all the same: a path that forgot the gate
+    assert_eq!(v.apply(Some(Action::Arm)), None);
+    assert_eq!((v.arms, v.mic), (0, Mic::Cold));
+    assert!(!v.arming.is_armed(), "the policy starts cold again: it does not think the microphone open");
+    assert_eq!(v.apply(Some(Action::Disarm)), Some(Action::Disarm));
+    assert_eq!(v.disarms, 1);
+    // and the same ask is taken while a session records
+    let mut recording = standing(Allow::Any);
+    assert_eq!(recording.apply(Some(Action::Arm)), Some(Action::Arm));
+    assert_eq!(recording.arms, 1);
 }
 
 #[test]
