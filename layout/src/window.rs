@@ -16503,6 +16503,33 @@ impl LayoutWindow {
         Some(rect)
     }
 
+    /// Where a node's laid-out box is on the screen right now, for a node that has no hit-test area
+    /// of its own (the label inside a button, a text run): its box moved by the scroll offsets and
+    /// transforms painted over it, as [`Self::get_node_hit_test_bounds`] does for a box that has one.
+    /// [`Self::get_node_position`] and [`Self::get_node_size`] are the box in CONTENT coordinates:
+    /// inside a scrolled box that is not where the node is drawn, and a click aimed there misses.
+    pub fn get_node_laid_out_bounds_on_screen(&self, node_id: DomNodeId) -> Option<LogicalRect> {
+        let layout_result = self.layout_results.get(&node_id.dom)?;
+        let nid = node_id.node.into_crate_internal()?;
+        let rect = LogicalRect::new(self.get_node_position(node_id)?, self.get_node_size(node_id)?);
+        let Some(&idx) = layout_result
+            .layout_tree
+            .dom_to_layout
+            .get(&nid)
+            .and_then(|indices| indices.first())
+        else {
+            return Some(rect);
+        };
+        Some(crate::headless::node_rect_to_screen(
+            layout_result,
+            node_id.dom,
+            idx.index(),
+            rect,
+            &|d, n| self.scroll_manager.get_current_offset(d, n),
+            &|d, n| self.painted_transform_of(d, n),
+        ))
+    }
+
     /// Get the parent of a node
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_result = self.layout_results.get(&node_id.dom)?;

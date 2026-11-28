@@ -8058,7 +8058,9 @@ fn lift_rect_to_window_space(
 /// `VirtualView`'s document and a `<transient-window>`'s content are laid out,
 /// but their nodes are not in the parent window's hit-test structure, so
 /// `get_node_hit_test_bounds` answers `None` for every one of them and a
-/// selector click into `AzWriter`'s document could only ever fail.
+/// selector click into `AzWriter`'s document could only ever fail. In the
+/// window's own DOM the fallback is the box where it is DRAWN (a label inside
+/// a button has no hit-test area, and a text click lands on the label).
 #[cfg(feature = "std")]
 fn node_centre_for_click(
     callback_info: &azul_layout::callbacks::CallbackInfo,
@@ -8066,7 +8068,20 @@ fn node_centre_for_click(
 ) -> Option<(f32, f32)> {
     callback_info
         .get_node_hit_test_bounds(dom_node_id)
-        .or_else(|| callback_info.get_node_rect(dom_node_id))
+        .or_else(|| {
+            if dom_node_id.dom == ROOT_DOM_ID {
+                // The window's own DOM: the box where it is DRAWN. A label inside a button has no
+                // hit-test area, and its laid-out box is in content coordinates: inside a scrolled
+                // page that is far off the window, and the click missed (the showcase's "Pixel 8" and
+                // "Review", tab_touch.json, 2026-11-28).
+                callback_info
+                    .get_layout_window()
+                    .get_node_laid_out_bounds_on_screen(dom_node_id)
+            } else {
+                // A child DOM: `lift_rect_to_window_space` puts it in its host's place.
+                callback_info.get_node_rect(dom_node_id)
+            }
+        })
         .map(|rect| lift_rect_to_window_space(callback_info, dom_node_id.dom, rect))
         .map(|rect| {
             (
@@ -8119,17 +8134,39 @@ fn reveal_click_target(
         };
         target = parent;
     }
-    let options = ScrollIntoViewOptions {
+    let nearest = ScrollIntoViewOptions {
         block: ScrollLogicalPosition::Nearest,
         inline_axis: ScrollLogicalPosition::Nearest,
         behavior: ScrollIntoViewBehavior::Instant,
     };
-    let adjustments = callback_info
+    let now = azul_core::task::Instant::now();
+    let needed = callback_info
         .get_layout_window()
-        .scroll_into_view_dry_run(target, options, azul_core::task::Instant::now());
-    if adjustments.is_empty() {
+        .scroll_into_view_dry_run(target, nearest, now.clone());
+    if needed.is_empty() {
         return at;
     }
+    // Scrolled, it is put in the MIDDLE of what shows on the axes that move: "nearest" leaves it flush
+    // with the edge of its scroll container, and that is where an overlay scrollbar lies - a press
+    // there is the scrollbar's, not the target's (the showcase's "Pixel 8" button, tab_touch.json).
+    let (needed_x, needed_y) = needed
+        .iter()
+        .fold((0.0_f32, 0.0_f32), |(x, y), a| (x + a.delta.x, y + a.delta.y));
+    let axis = |moves: f32| {
+        if moves == 0.0 {
+            ScrollLogicalPosition::Nearest
+        } else {
+            ScrollLogicalPosition::Center
+        }
+    };
+    let options = ScrollIntoViewOptions {
+        block: axis(needed_y),
+        inline_axis: axis(needed_x),
+        behavior: ScrollIntoViewBehavior::Instant,
+    };
+    let adjustments = callback_info
+        .get_layout_window()
+        .scroll_into_view_dry_run(target, options, now);
     callback_info.scroll_node_into_view(target, options);
     let (dx, dy) = adjustments
         .iter()
@@ -20798,10 +20835,27 @@ fn serve_debug_event(
 
             let dom_id = target_dom(request);
             let node = NodeId::new(nid as usize);
-            let dom_node_id = DomNodeId {
+            let mut dom_node_id = DomNodeId {
                 dom: dom_id,
                 node: NodeHierarchyItemId::from_crate_internal(Some(node)),
             };
+            // A text node has no box of its own - `{"text": ...}` resolves to one - and a node
+            // without a box scrolls nothing into view: scroll to the nearest ancestor that has one,
+            // as `click` reveals its target (the op answered `scrolled: true` and left the page where
+            // it was, so every `scroll_into_view` by text of the tab scenarios did nothing).
+            for _ in 0..64 {
+                if callback_info.get_node_rect(dom_node_id).is_some() {
+                    break;
+                }
+                let Some(parent) = callback_info.get_parent(dom_node_id) else {
+                    break;
+                };
+                dom_node_id = parent;
+            }
+            let node = dom_node_id
+                .node
+                .into_crate_internal()
+                .unwrap_or(node);
 
             // Remember WHAT we asked to be scrolled into view. `scroll_into_view`
             // itself keeps no record (it applies its adjustments and drops them),
