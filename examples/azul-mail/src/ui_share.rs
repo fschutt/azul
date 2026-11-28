@@ -5,7 +5,7 @@
 //! false there, so there is no other way). A desktop has no share sheet: nothing here shows.
 //!
 //! The engine copies a shared file under the display name the app gives, so this file stages the
-//! bytes once in `<data root>/azmail-share/`, hands the staged path over with the name and the MIME
+//! bytes once in `<data root>/staged-shares/`, hands the staged path over with the name and the MIME
 //! type, and removes the staged file when the call has returned.
 //!
 //! The only code that names the share API is [`can_share`] and [`hand_over`], behind the cargo
@@ -28,7 +28,7 @@ pub(crate) const MAX_NAME_CHARS: usize = 100;
 pub(crate) const MAX_SHARED_BYTES: usize = 256 * 1024 * 1024;
 
 /// The folder under the data root where what is being shared is staged.
-pub(crate) const STAGING_FOLDER: &str = "azmail-share";
+pub(crate) const STAGING_FOLDER: &str = "staged-shares";
 
 /// What is handed over: the bytes, the name the receiver shows, their MIME type and the title of
 /// the sheet.
@@ -144,9 +144,9 @@ pub(crate) fn notice_of(answer: &Handed) -> String {
     let with = |key: &str, reason: &str| t_args(key, &[("reason", Arg::from(reason))]);
     match answer {
         Handed::Shown => String::new(),
-        Handed::Unsupported(reason) => with("azmail-share-unsupported", reason),
-        Handed::Failed(reason) => with("azmail-share-failed", reason),
-        Handed::Refused(reason) => with("azmail-share-refused", reason),
+        Handed::Unsupported(reason) => with("staged-shares-unsupported", reason),
+        Handed::Failed(reason) => with("staged-shares-failed", reason),
+        Handed::Refused(reason) => with("staged-shares-refused", reason),
     }
 }
 
@@ -154,9 +154,9 @@ pub(crate) fn notice_of(answer: &Handed) -> String {
 #[must_use]
 pub(crate) fn refusal_notice(refusal: &Refusal) -> String {
     match refusal {
-        Refusal::Nothing => t("azmail-share-nothing"),
+        Refusal::Nothing => t("staged-shares-nothing"),
         Refusal::TooBig(len) => t_args(
-            "azmail-share-too-big",
+            "staged-shares-too-big",
             &[(
                 "size",
                 Arg::from(azul::file::DiskSpace::format_bytes(*len as u64).as_str().to_string()),

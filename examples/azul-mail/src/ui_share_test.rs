@@ -62,8 +62,8 @@ fn an_attachment_that_is_not_there_is_nothing() {
 #[test]
 fn a_share_is_staged_under_the_data_root_by_the_uid_and_the_place_of_the_part() {
     let root = Path::new("/data");
-    assert_eq!(staged_path(root, 7, None), Path::new("/data/azmail-share/7.eml"));
-    assert_eq!(staged_path(root, 7, Some(2)), Path::new("/data/azmail-share/7-2.part"));
+    assert_eq!(staged_path(root, 7, None), Path::new("/data/staged-shares/7.eml"));
+    assert_eq!(staged_path(root, 7, Some(2)), Path::new("/data/staged-shares/7-2.part"));
     assert_ne!(staged_path(root, 7, Some(1)), staged_path(root, 7, Some(2)));
 }
 
