@@ -1774,6 +1774,12 @@ impl DriveState {
         }
     }
 
+    /// The height of a row of the folder view, px: the user's density on a desktop, a touch
+    /// target (48 px) on a phone.
+    pub fn row_px(&self) -> f32 {
+        self.settings.density.row_px_for(self.phone)
+    }
+
     /// How wide the left sidebar's column is, px: what the main view lies beside. 0 where the
     /// sidebar pushes the main view aside instead of narrowing it (a phone's open drawer).
     pub fn sidebar_px(&self) -> f32 {

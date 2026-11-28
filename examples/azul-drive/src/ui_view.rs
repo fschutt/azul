@@ -1336,9 +1336,7 @@ pub(crate) fn line_px(s: &DriveState, layout: ViewLayout) -> f32 {
         return ui_find::row_px(s);
     }
     match layout {
-        ViewLayout::Details | ViewLayout::List | ViewLayout::SmallIcons => {
-            s.settings.density.row_px()
-        }
+        ViewLayout::Details | ViewLayout::List | ViewLayout::SmallIcons => s.row_px(),
         ViewLayout::Content => 56.0,
         ViewLayout::Tiles => TILE_BOX.1 + 8.0,
         ViewLayout::ExtraLargeIcons | ViewLayout::LargeIcons | ViewLayout::MediumIcons => {

@@ -44,7 +44,7 @@ const STATUS: (&str, f32) = ("azdrive-find-column-status", 170.0);
 
 /// A result's row: two lines of snippet under the row's height.
 pub(crate) fn row_px(s: &DriveState) -> f32 {
-    s.settings.density.row_px() + 18.0
+    s.row_px() + 18.0
 }
 
 /// The width the rows draw in: the columns (each with its padding) and the check boxes'.

@@ -1,4 +1,4 @@
-use crate::model::{clamped_preview_size, Settings, SidebarMode, PREVIEW_SIZE_MAX};
+use crate::model::{clamped_preview_size, Density, Settings, SidebarMode, PREVIEW_SIZE_MAX, TOUCH_ROW_PX};
 
 /// Every app starts as the rail: a settings file that says nothing about the sidebar (the files of
 /// the builds before it, which kept a yes or no for the navigation pane) opens the rail.
@@ -56,4 +56,15 @@ fn a_preview_size_from_the_file_is_capped() {
     assert_eq!(clamped_preview_size(f32::NAN), 0.0);
     assert_eq!(clamped_preview_size(f32::INFINITY), 0.0);
     assert_eq!(clamped_preview_size(1.0e9), PREVIEW_SIZE_MAX);
+}
+
+/// Where a finger points (a phone) the rows of the folder view are 48 px, whatever density the user chose for the
+/// pointer of a desktop; a desktop keeps the density's own.
+#[test]
+fn a_touch_screens_rows_are_a_fingers_size_whatever_the_density() {
+    assert_eq!(TOUCH_ROW_PX, 48.0);
+    for density in [Density::Compact, Density::Normal, Density::Comfortable] {
+        assert_eq!(density.row_px_for(true), 48.0);
+        assert_eq!(density.row_px_for(false), density.row_px());
+    }
 }

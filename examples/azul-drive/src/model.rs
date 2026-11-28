@@ -738,6 +738,10 @@ pub enum Density {
     Comfortable,
 }
 
+/// The height of a row of the folder view where a finger is the pointer (a phone), px: a touch target,
+/// whatever density the user chose for the pointer of a desktop.
+pub const TOUCH_ROW_PX: f32 = 48.0;
+
 impl Density {
     /// The height of a row of the folder view (Details, List, Small icons), px.
     #[must_use]
@@ -746,6 +750,16 @@ impl Density {
             Density::Compact => 21.0,
             Density::Normal => 25.0,
             Density::Comfortable => 31.0,
+        }
+    }
+
+    /// [`Self::row_px`], or [`TOUCH_ROW_PX`] where `touch` says a finger points.
+    #[must_use]
+    pub fn row_px_for(self, touch: bool) -> f32 {
+        if touch {
+            TOUCH_ROW_PX
+        } else {
+            self.row_px()
         }
     }
 
