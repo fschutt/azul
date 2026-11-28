@@ -13897,7 +13897,7 @@ pub(crate) fn node_is_top_layer(styled_dom: &StyledDom, tree: &LayoutTree, node_
         .is_some_and(|dom_id| {
             matches!(
                 styled_dom.node_data.as_container()[dom_id].get_node_type(),
-                azul_core::dom::NodeType::TransientWindow(config)
+                NodeType::TransientWindow(config)
                     if config.dock == azul_core::transient::TransientDock::Popup
             )
         })
