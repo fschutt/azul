@@ -197,17 +197,23 @@ fn relayout(lw: &mut LayoutWindow) {
     .expect("the page lays out again");
 }
 
-/// One frame of the animation driver: the clock steps by `dt`, then the frame does the work the tick
-/// says it owes, as the shells do it.
+/// One frame of the animation driver: the clock steps by `dt`, then the frame does the work the tick says it
+/// owes, as the shells do it: the list it owes is rebuilt by the driver (`serve_animation_frame_work`), because a
+/// shell presents the list it has. With `AZ_TEST_NO_REBUILD` the frame is the decision alone, which is what a
+/// driver that hands it to a shell that only presents leaves on the screen (QA's Android frames: the old face).
 fn frame(lw: &mut LayoutWindow, dt: f32) {
     let _ = lw.tick_animations(dt);
-    match lw.take_animation_frame_work() {
-        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
-            lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
-        }
+    let work = if std::env::var_os("AZ_TEST_NO_REBUILD").is_some() {
+        lw.take_animation_frame_work()
+    } else {
+        lw.serve_animation_frame_work()
+    };
+    match work {
         // A press moves a box by a pixel: the frame owes the relayout the shells do.
         ProcessEventResult::ShouldIncrementalRelayout => relayout(lw),
-        ProcessEventResult::ShouldReRenderCurrentWindow | ProcessEventResult::DoNothing => {}
+        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+        | ProcessEventResult::ShouldReRenderCurrentWindow
+        | ProcessEventResult::DoNothing => {}
         other => panic!("a face fade moves no box, yet its frame owes {other:?}"),
     }
 }
