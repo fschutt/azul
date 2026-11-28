@@ -608,6 +608,8 @@ impl App {
     /// (`LayoutWindow::join_app`), hotkey manager included.
     fn start_app_services(&self) {
         crate::desktop::process_app::register(self.ptr.undo_manager.services());
+        // The platform's share sheet (`CallbackInfo::share`): Android's chooser, iOS's activity view, "unsupported" on a desktop.
+        crate::desktop::extra::share::install(self.ptr.undo_manager.services());
         crate::desktop::global_hotkey::choose_platform_backend();
         // The AppConfig's own set: the static list is declared now, the
         // derived callback runs at the loop's first hotkey pump - after the

@@ -91,6 +91,17 @@
             </intent-filter>
         </activity>
 
+        <!-- The files of a share (CallbackInfo::share), served read-only to the app the user picked in the chooser: copies the
+             engine staged in <cache>/azul-share/<token>/<name>, as content://<package>.azul.share/<token>/<name>. NOT exported:
+             another app reaches it only through the read grant of the chooser for the URIs of that one share
+             (grantUriPermissions). It serves nothing but that folder: no <path-permission>, no wide grant, no file path map
+             of the app's data. See scripts/android/AzulShareProvider.java. -->
+        <provider
+            android:name="com.azul.share.AzulShareProvider"
+            android:authorities="@PACKAGE@.azul.share"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <!-- A notification cleared by the user (its delete intent). A
              MANIFEST receiver, because it must also run when the app is not
              running; not exported, only this app's PendingIntents reach it. -->

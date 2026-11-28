@@ -28,5 +28,6 @@ cargo test -p azul-dll --features build-dll \
   --test shells_reach_the_create_callback \
   --test android_build_script_names_its_linker \
   --test android_libraries_are_linked_for_16_kb_pages \
-  --test file_picker_tells_the_truth_contract
+  --test file_picker_tells_the_truth_contract \
+  --test android_share_open_contract
 echo "android host tests: ok"

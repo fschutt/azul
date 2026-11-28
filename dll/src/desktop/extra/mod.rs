@@ -69,6 +69,9 @@ pub mod permission;
 /// behind the `capture_common::register_frame_resampler` seam.
 pub mod resample;
 pub mod screencap;
+/// The share sheet of the platform (`CallbackInfo::share`): Android's chooser, iOS's activity view, "unsupported" on a
+/// desktop. See `share/mod.rs`.
+pub mod share;
 /// The device's sensors and states, every reading of the device in one place.
 ///
 /// - Motion-sensor subscriptions (P6 feature 5). The dispatcher kicks the
