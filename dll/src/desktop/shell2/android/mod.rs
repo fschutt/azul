@@ -60,6 +60,8 @@ mod bridge;
 pub mod clipboard;
 /// The GPU path of the window: EGL and WebRender over the lifecycle executor of `common::gles_gpu`.
 mod gpu;
+/// The user's accessibility and display settings, read through JNI (the NDK has none of them).
+mod preferences;
 /// System sounds: `AudioManager` effects, the user's notification tone and the camera sounds,
 /// through the `AzulSounds` helper (`scripts/android/AzulSounds.java`).
 mod sounds;
@@ -127,6 +129,10 @@ pub struct AndroidWindow {
     /// mirror of the focused text the loop publishes for the IME, and TalkBack's snapshot. The loop
     /// applies the events with this window; the UI thread never gets a reference to it.
     pub bridge: Arc<bridge::UiBridge>,
+    /// When the user's accessibility settings are read again: once a second while the window is in
+    /// front (the animation scales, the colour filters and the like raise no event a native app
+    /// hears), and at every configuration change and resume.
+    preference_watch: crate::desktop::shell2::common::preference_watch::PreferenceWatch,
     /// Shared icon provider — needed by `regenerate_layout()` so widgets
     /// (notably button/icon containers) can resolve `IconReference`s.
     pub icon_provider: SharedIconProvider,
@@ -299,6 +305,9 @@ impl AndroidWindow {
             icon_provider,
             font_registry,
             bridge: Arc::new(bridge::UiBridge::new()),
+            preference_watch: crate::desktop::shell2::common::preference_watch::PreferenceWatch::every(
+                core::time::Duration::from_millis(1000),
+            ),
             present: PresentState::new(),
             bars: BarsState::new(),
             applied_system_bars: None,
@@ -778,6 +787,15 @@ pub fn android_main(app: AndroidApp) {
     if let Some(language) = language_of(&app, config.localization.known_languages.as_slice()) {
         config.system_style.language = language;
     }
+    // The phone's own accessibility settings (the text size above all), before the window takes its
+    // style: the style `App::create` made of the platform defaults knows none of them, and the
+    // first picture would come at the default size. The environment's pins stay over them.
+    config
+        .system_style
+        .set_preferences(read_preferences(&app));
+    config
+        .system_style
+        .overlay_preferences(&app_shared.settings().css.accessibility);
     // The phone's own "Touch sounds" switch is not known yet (the JNI context is published below):
     // the style assumes it is on, and the first Resume reads it (`adopt_touch_sounds`) and at every
     // resume after it. `AudioManager.playSoundEffect` applies the switch live at the call anyway.
@@ -883,6 +901,13 @@ pub fn android_main(app: AndroidApp) {
         // app's layout() ~60x/second for the whole gesture.
         if window.process_timers_and_threads() {
             window.needs_rerender = true;
+        }
+
+        // The accessibility settings no native app is told of (the animation scales, the colour
+        // filters, a quick-settings toggle): read again once a second while the window is in front.
+        #[cfg(feature = "ndk")]
+        if window.native_window.is_some() && window.preference_watch.due() {
+            adopt_preferences(&app, &mut window);
         }
 
         // Native notifications: queued posts out to the NotificationManager
@@ -1822,6 +1847,25 @@ fn adopt_language(app: &AndroidApp, window: &mut AndroidWindow) {
     }
 }
 
+/// What the phone's accessibility settings are now, as the typed preferences: every read is a JNI call
+/// (`preferences.rs`), the meaning of the answers is `RawAndroid::into_preferences`.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn read_preferences(app: &AndroidApp) -> azul_css::accessibility::AccessibilityPreferences {
+    preferences::read_raw(app.vm_as_ptr(), app.activity_as_ptr()).into_preferences()
+}
+
+/// Read the accessibility settings again and, when they are not what was read last, adopt the style that
+/// carries them (the engine restyles, or rebuilds `layout()` where it read them).
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn adopt_preferences(app: &AndroidApp, window: &mut AndroidWindow) {
+    let reported = read_preferences(app);
+    // Contract shape (snapshot -> mutate -> pass): the adoption is the mutation and the pass.
+    window.snapshot_window_state_baseline("android.preferences");
+    if window.adopt_reported_preferences(reported) {
+        window.needs_rerender = true;
+    }
+}
+
 /// "Touch sounds" may have been switched while the app was in the background (Settings is another
 /// activity): read it again at resume and, when it differs from what the window's style carries,
 /// adopt the style that carries it. `AudioManager.playSoundEffect` applies the switch live anyway;
@@ -2004,6 +2048,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // and the engine translates the laid-out text again in place, or builds `layout()`
                 // again when it read the locale.
                 adopt_language(app, window);
+                // The font scale, the bold text and the rest of the accessibility settings
+                // (`fontScale` and `fontWeightAdjustment` are in the manifest's `configChanges`).
+                adopt_preferences(app, window);
                 // Density can change while running: fold/unfold, moving the
                 // app to an external display, the user's display-size setting.
                 // WindowResized alone misses pure-density changes (same
@@ -2073,6 +2120,8 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 tell_app(window, tell);
             }
             MainEvent::Resume { .. } => {
+                // Settings is another activity: whatever the user changed there is read now.
+                adopt_preferences(app, window);
                 adopt_touch_sounds(window);
                 let tell = window.app_phase.on_resume();
                 tell_app(window, tell);

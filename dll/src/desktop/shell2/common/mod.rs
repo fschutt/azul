@@ -14,6 +14,8 @@
 
 pub mod compositor;
 pub mod cpu_compositor;
+/// When a shell re-reads the user's accessibility preferences on its own schedule.
+pub mod preference_watch;
 pub mod dlopen;
 /// EGL for OpenGL ES, loaded at run time: the GPU path of the phone shells (Android), and the host test of it (Linux).
 #[cfg(any(target_os = "android", target_os = "linux"))]

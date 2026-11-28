@@ -878,6 +878,43 @@ impl AccessibilityPreferences {
     }
 }
 
+/// When a shell re-reads the preferences of a platform that has no (or no reliable) notification:
+/// every `interval_ms` and never before the first ask; a pure clock of milliseconds the caller
+/// supplies, so the rule is tested without waiting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PreferencePoll {
+    interval_ms: u64,
+    next_ms: Option<u64>,
+}
+
+impl PreferencePoll {
+    /// A poll that is due now, and then every `interval_ms`.
+    #[must_use]
+    pub const fn every(interval_ms: u64) -> Self {
+        Self {
+            interval_ms,
+            next_ms: None,
+        }
+    }
+
+    /// Whether the preferences are to be read at `now_ms` (and, when they are, the next ask is
+    /// `interval_ms` later). A clock that goes back is not due until it catches up.
+    pub fn due(&mut self, now_ms: u64) -> bool {
+        match self.next_ms {
+            Some(next) if now_ms < next => false,
+            _ => {
+                self.next_ms = Some(now_ms.saturating_add(self.interval_ms));
+                true
+            }
+        }
+    }
+
+    /// The next [`Self::due`] answers `true` (a notification, a resume: something said it moved).
+    pub fn ask_again_now(&mut self) {
+        self.next_ms = None;
+    }
+}
+
 /// The words that put an option back to "not known".
 fn is_unset_word(text: &str) -> bool {
     matches!(text.to_ascii_lowercase().as_str(), "" | "unknown" | "auto" | "unset")

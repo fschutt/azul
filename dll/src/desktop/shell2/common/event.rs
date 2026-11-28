@@ -11660,6 +11660,25 @@ pub trait PlatformWindow {
         self.adopt_effective_style(new_style)
     }
 
+    /// The platform reported these accessibility preferences (a shell's read of UIKit, of the
+    /// Android framework, of the workspace): when they are not what it reported the last time,
+    /// the window adopts the style that carries them ([`Self::adopt_system_style`], so the pins
+    /// and the window's override are laid over them). Returns whether anything changed.
+    ///
+    /// THE entry of a shell that reads the preferences on its own schedule (a poll, a
+    /// notification, a resume) and has nothing else of the style to say.
+    fn adopt_reported_preferences(
+        &mut self,
+        reported: azul_css::accessibility::AccessibilityPreferences,
+    ) -> bool {
+        if self.get_common_mut().detected_preferences == reported {
+            return false;
+        }
+        let mut style = (*self.get_common_mut().system_style).clone();
+        style.set_preferences(reported);
+        self.adopt_system_style(Arc::new(style))
+    }
+
     /// Adopt a style that already carries the pins, choosing between a full DOM
     /// rebuild and a restyle of the existing one.
     ///

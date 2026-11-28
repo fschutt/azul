@@ -592,3 +592,25 @@ fn a_pin_is_laid_over_the_reported_preferences_and_changes_nothing_when_it_says_
     assert!(pinned.accessibility.prefers_bold_text, "the mirrors follow the pin");
     assert_eq!(style.text_scale(), 1.15, "the reported style is untouched");
 }
+
+// ---- the poll of a platform without a notification -------------------------------------------------------------------
+
+#[test]
+fn a_poll_is_due_at_once_and_then_every_interval() {
+    let mut poll = PreferencePoll::every(1000);
+    assert!(poll.due(5), "the first ask is due");
+    assert!(!poll.due(5));
+    assert!(!poll.due(999), "not before the interval");
+    assert!(poll.due(1005), "the interval after the last ask");
+    assert!(!poll.due(1006));
+    // asked again by a notification
+    poll.ask_again_now();
+    assert!(poll.due(1007));
+    assert!(!poll.due(1008));
+    // a clock that went back is not due until it catches up
+    assert!(!poll.due(3));
+    assert!(poll.due(5000));
+    // an interval of zero is due at every ask
+    let mut always = PreferencePoll::every(0);
+    assert!(always.due(1) && always.due(1) && always.due(2));
+}
