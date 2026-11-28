@@ -153,6 +153,7 @@ dependencies = [
  "azul-storage",
  "base64 0.22.1",
  "chrono",
+ "ctor",
  "imap",
  "imap-proto",
  "lettre",
