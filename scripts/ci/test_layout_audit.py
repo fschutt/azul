@@ -54,6 +54,62 @@ class BarsTests(unittest.TestCase):
         self.assertEqual(la.parse_system_bars("")["bands"], [])
 
 
+# the Pixel 6 emulator in landscape (WP-E1, 2026-11-28): 2400 x 1080, the display cutout is a 128 px band at the left and the system puts the window (2272 px wide) beside it
+LETTERBOX_DUMP = """\
+  overrideConfig={1.0 winConfig={ mBounds=Rect(128, 0 - 2400, 1080) mAppBounds=Rect(128, 0 - 2400, 1080) mMaxBounds=Rect(0, 0 - 2400, 1080) }
+      InsetsSource id=3 type=statusBars frame=[0,0][2400,63] visible=true flags=
+      InsetsSource id=6 type=displayCutout frame=[0,0][128,1080] visible=true flags=
+"""
+LETTERBOX_STATE = {"status": "ok", "window_state": {"logical_width": 2272 / SCALE, "logical_height": 1080 / SCALE, "hidpi_factor": SCALE}}
+EDGE_TO_EDGE_STATE = {"status": "ok", "window_state": {"logical_width": 2400 / SCALE, "logical_height": 1080 / SCALE, "hidpi_factor": SCALE}}
+
+
+class LetterboxTests(unittest.TestCase):
+    """The window beside the cutout: the bands are in screen pixels, the boxes in the window's own (a false positive of 8 + 5 nodes in AzReader)."""
+
+    def setUp(self):
+        self.bars = la.parse_system_bars(LETTERBOX_DUMP)
+
+    def test_the_origin_is_the_width_of_the_band_that_explains_the_missing_pixels(self):
+        self.assertEqual(la.window_origin(self.bars, 2272, 1080), (128, 0))
+
+    def test_a_window_as_big_as_the_screen_has_no_origin(self):
+        self.assertEqual(la.window_origin(self.bars, 2400, 1080), (0, 0))
+        self.assertEqual(la.window_origin(self.bars, 2399, 1080), (0, 0))         # rounding
+
+    def test_a_band_that_does_not_explain_the_difference_leaves_the_origin_alone(self):
+        self.assertEqual(la.window_origin(self.bars, 2100, 1080), (0, 0))
+        self.assertEqual(la.window_origin({"screen": None, "bands": []}, 2272, 1080), (0, 0))
+        self.assertEqual(la.window_origin(None, 2272, 1080), (0, 0))
+
+    def test_a_cutout_at_the_right_edge_does_not_move_the_window(self):
+        right = {"screen": (2400, 1080), "bands": [{"name": "displayCutout", "rect": (2272, 0, 2400, 1080)}]}
+        self.assertEqual(la.window_origin(right, 2272, 1080), (0, 0))              # the window is at the left, the band behind its end
+
+    def test_a_node_at_the_left_edge_of_the_window_is_not_under_a_cutout_that_lies_beside_the_window(self):
+        tree = [a11y(1, 1, "Button", "Back", 10, 100, 100, 50, clickable=True), a11y(2, 2, "Label", "Title", 12, 200, 80, 20)]
+        r = la.audit(answer([node(1, "button", 10, 100, 100, 50)]), answer(tree), LETTERBOX_STATE, self.bars, "landscape")
+        self.assertEqual(r["under_bars"]["window_origin_px"], [128, 0])
+        self.assertEqual((r["under_bars"]["tappable"]["count"], r["under_bars"]["text"]["count"]), (0, 0))
+
+    def test_the_same_nodes_ARE_under_the_cutout_when_the_window_is_edge_to_edge(self):
+        tree = [a11y(1, 1, "Button", "Back", 10, 100, 100, 50, clickable=True), a11y(2, 2, "Label", "Title", 12, 200, 80, 20)]
+        r = la.audit(answer([node(1, "button", 10, 100, 100, 50)]), answer(tree), EDGE_TO_EDGE_STATE, self.bars, "landscape")
+        self.assertEqual(r["under_bars"]["window_origin_px"], [0, 0])
+        self.assertEqual((r["under_bars"]["tappable"]["count"], r["under_bars"]["text"]["count"]), (1, 1))
+
+    def test_the_status_bar_still_catches_a_node_at_the_top_of_a_letterboxed_window(self):
+        tree = [a11y(1, 1, "Button", "Menu", 300, 5, 100, 40, clickable=True)]
+        r = la.audit(answer([node(1, "button", 300, 5, 100, 40)]), answer(tree), LETTERBOX_STATE, self.bars, "landscape")
+        self.assertEqual(r["under_bars"]["tappable"]["count"], 1)
+        self.assertIn("statusBars", r["under_bars"]["tappable"]["top"][0]["why"])
+
+    def test_the_report_says_where_the_window_starts(self):
+        tree = [a11y(1, 1, "Button", "Back", 10, 100, 100, 50, clickable=True)]
+        r = la.audit(answer([node(1, "button", 10, 100, 100, 50)]), answer(tree), LETTERBOX_STATE, self.bars, "landscape")
+        self.assertIn("The window starts at screen (128, 0) px", la.report_markdown([r]))
+
+
 class AuditTests(unittest.TestCase):
     def setUp(self):
         self.bars = la.parse_system_bars(WINDOW_DUMP)

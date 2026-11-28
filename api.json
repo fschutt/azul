@@ -7625,6 +7625,9 @@
                                 "exclude_from_capture": {
                                     "type": "bool"
                                 },
+                                "tab_content_hidden": {
+                                    "type": "bool"
+                                },
                                 "system_bars": {
                                     "type": "SystemBarsOptions"
                                 },
@@ -66708,6 +66711,9 @@
                                 },
                                 "flip": {
                                     "type": "TabFlip"
+                                },
+                                "content_toggle": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -66977,6 +66983,42 @@
                                     "type": "TabHeader"
                                 },
                                 "fn_body": "object.with_status_bar(band)"
+                            },
+                            "set_content_toggle": {
+                                "doc": [
+                                    "Draw the window's ONE chevron at the left end of this bar's row: `^` while the content of the",
+                                    "tabs shows, `v` while it is folded away, a click (or Enter, or Space) folds or shows it. The state",
+                                    "is the window's (`WindowFlags::tab_content_hidden`): every `TabContent` with `with_content_toggle`",
+                                    "and every ribbon with it shows nothing while it is folded, and the list under the bar gets the room.",
+                                    "A window has exactly one chevron: when more than one bar asks for it, the first one built has it",
+                                    "and the others draw none."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "content_toggle": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_content_toggle(content_toggle)"
+                            },
+                            "with_content_toggle": {
+                                "doc": [
+                                    "[`Self::set_content_toggle`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "content_toggle": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabHeader"
+                                },
+                                "fn_body": "object.with_content_toggle(content_toggle)"
                             }
                         },
                         "repr": "C"
@@ -67921,26 +67963,32 @@
                         ],
                         "struct_fields": [
                             {
+                                "style": {
+                                    "type": "RibbonStyle"
+                                },
                                 "app_button": {
                                     "type": "OptionRibbonAppButton"
                                 },
-                                "tabs": {
-                                    "type": "RibbonTabVec"
-                                },
-                                "active_tab": {
-                                    "type": "usize"
+                                "strip_end": {
+                                    "type": "OptionDom"
                                 },
                                 "on_tab_click": {
                                     "type": "OptionRibbonOnTabClick"
                                 },
+                                "status_bar": {
+                                    "type": "OptionStatusBarBand"
+                                },
+                                "tabs": {
+                                    "type": "RibbonTabVec"
+                                },
+                                "reveal": {
+                                    "type": "OptionTabReveal"
+                                },
+                                "active_tab": {
+                                    "type": "usize"
+                                },
                                 "tabs_in_titlebar": {
                                     "type": "OptionTabsInTitlebar"
-                                },
-                                "style": {
-                                    "type": "RibbonStyle"
-                                },
-                                "behavior": {
-                                    "type": "RibbonBehavior"
                                 },
                                 "theme": {
                                     "type": "OptionUiTheme"
@@ -67951,17 +67999,17 @@
                                 "tab_style": {
                                     "type": "TabStyle"
                                 },
-                                "reveal": {
-                                    "type": "OptionTabReveal"
-                                },
-                                "strip_end": {
-                                    "type": "OptionDom"
-                                },
-                                "status_bar": {
-                                    "type": "OptionStatusBarBand"
-                                },
                                 "flip": {
                                     "type": "TabFlip"
+                                },
+                                "content_inset": {
+                                    "type": "f32"
+                                },
+                                "behavior": {
+                                    "type": "RibbonBehavior"
+                                },
+                                "content_toggle": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -68467,6 +68515,73 @@
                                     "type": "Ribbon"
                                 },
                                 "fn_body": "object.with_status_bar(band)"
+                            },
+                            "set_content_inset": {
+                                "doc": [
+                                    "Leave `px` of room at the content band's left (a rail beside the band, under the tab row): the band",
+                                    "starts that far in while the tab row stays the whole width. Default `0`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "px": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_content_inset(px)"
+                            },
+                            "set_content_toggle": {
+                                "doc": [
+                                    "Draw the window's ONE chevron at the left end of the tab row and fold the content band away with",
+                                    "it: `^` while the content shows, `v` while it is folded (`WindowFlags::tab_content_hidden`, flipped",
+                                    "by a click, Enter or Space on the chevron). The row, its tabs and its golden line stay; the list",
+                                    "under the ribbon gets the room of the band. A window has exactly one chevron: when more than one",
+                                    "strip asks for it, the first one built has it ([`crate::widgets::tabs::TabHeader::with_content_toggle`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "content_toggle": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_content_toggle(content_toggle)"
+                            },
+                            "with_content_inset": {
+                                "doc": [
+                                    "[`Self::set_content_inset`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "px": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Ribbon"
+                                },
+                                "fn_body": "object.with_content_inset(px)"
+                            },
+                            "with_content_toggle": {
+                                "doc": [
+                                    "[`Self::set_content_toggle`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "content_toggle": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Ribbon"
+                                },
+                                "fn_body": "object.with_content_toggle(content_toggle)"
                             }
                         },
                         "repr": "C"
@@ -115372,8 +115487,20 @@
                                 "content": {
                                     "type": "Dom"
                                 },
-                                "has_padding": {
-                                    "type": "bool"
+                                "on_flip": {
+                                    "type": "OptionTabOnClick"
+                                },
+                                "flip_tabs": {
+                                    "type": "StringVec"
+                                },
+                                "reveal": {
+                                    "type": "OptionTabReveal"
+                                },
+                                "tab": {
+                                    "type": "usize"
+                                },
+                                "flip_tab": {
+                                    "type": "usize"
                                 },
                                 "theme": {
                                     "type": "OptionUiTheme"
@@ -115381,23 +115508,17 @@
                                 "slide": {
                                     "type": "TabSlide"
                                 },
-                                "tab": {
-                                    "type": "usize"
-                                },
-                                "reveal": {
-                                    "type": "OptionTabReveal"
-                                },
                                 "flip": {
                                     "type": "TabFlip"
                                 },
-                                "flip_tabs": {
-                                    "type": "StringVec"
+                                "content_inset": {
+                                    "type": "f32"
                                 },
-                                "flip_tab": {
-                                    "type": "usize"
+                                "has_padding": {
+                                    "type": "bool"
                                 },
-                                "on_flip": {
-                                    "type": "OptionTabOnClick"
+                                "content_toggle": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -115606,6 +115727,71 @@
                                     "type": "TabContent"
                                 },
                                 "fn_body": "object.with_flip_of(unsafe { &*header })"
+                            },
+                            "set_content_inset": {
+                                "doc": [
+                                    "Leave `px` of room at the panel's left (a rail beside the content, under the tab row): the panel's",
+                                    "box starts that far in while the tab row stays the whole width. Default `0`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "px": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_content_inset(px)"
+                            },
+                            "set_content_toggle": {
+                                "doc": [
+                                    "Fold the panel away with the window's chevron (`TabHeader::with_content_toggle`,",
+                                    "`WindowFlags::tab_content_hidden`): while the content is folded the panel shows nothing, and",
+                                    "whatever lies under it gets the room."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "content_toggle": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_content_toggle(content_toggle)"
+                            },
+                            "with_content_inset": {
+                                "doc": [
+                                    "[`Self::set_content_inset`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "px": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabContent"
+                                },
+                                "fn_body": "object.with_content_inset(px)"
+                            },
+                            "with_content_toggle": {
+                                "doc": [
+                                    "[`Self::set_content_toggle`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "content_toggle": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabContent"
+                                },
+                                "fn_body": "object.with_content_toggle(content_toggle)"
                             }
                         },
                         "repr": "C"
