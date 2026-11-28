@@ -1115,6 +1115,18 @@ pub enum CallbackChange {
         owner: azul_core::selection::SelectionOwner,
         color: azul_css::props::basic::color::OptionColorU,
     },
+    /// Play a system sound. APPENDED.
+    ///
+    /// Deferred like `PlayHaptic`: the platform call belongs to the event loop. The window's
+    /// `SoundManager` decides it (the route, the app's mute, the OS switches, the pacing) when
+    /// the shell drains it at the end of the outermost pass.
+    PlaySound {
+        sound: azul_core::sound::SystemSound,
+    },
+    /// Mute or unmute every sound the app asks for. APPENDED.
+    SetSoundsMuted {
+        muted: bool,
+    },
 }
 
 /// Whether a batch of CSS property overrides can move geometry, i.e. whether
@@ -5900,12 +5912,19 @@ impl CallbackInfo {
     /// delivered one. Kept live by the sensor backends (iOS `CoreMotion`,
     /// Android `SensorManager`) via the async channel the layout pass folds
     /// into the manager - so a callback can drive tilt / shake / compass UI.
+    ///
+    /// Reading a sensor IS subscribing to it: the first read starts it (nothing starts at launch, and no
+    /// `SensorChanged` node is needed), and it keeps running while the app keeps reading (a read wants the kind
+    /// for the next three seconds); the engine stops it when the app stops, and on pause. The first read answers
+    /// `None` - the sensor has only just been asked to start - and the next ones carry samples.
     #[must_use]
-    pub const fn get_sensor_reading(
+    pub fn get_sensor_reading(
         &self,
         kind: azul_core::sensors::SensorKind,
     ) -> Option<azul_core::sensors::SensorReading> {
-        self.get_layout_window().sensor_manager.reading(kind)
+        let window = self.get_layout_window();
+        window.app_services.sensors.want(kind);
+        window.sensor_manager.reading(kind)
     }
 
     /// Whether the ENGINE flips scroll deltas (9b-ii-b-i-a):
@@ -5963,7 +5982,13 @@ impl CallbackInfo {
     /// centimetres, where a platform reports them, stay readable through
     /// `get_sensor_reading(SensorKind::Proximity)`.
     #[must_use]
-    pub const fn get_proximity(&self) -> azul_core::sensors::OptionProximity {
+    pub fn get_proximity(&self) -> azul_core::sensors::OptionProximity {
+        // Reading the proximity IS subscribing to it (see `get_sensor_reading`): the monitoring that blanks the
+        // screen near the face is switched on only while an app asks.
+        self.get_layout_window()
+            .app_services
+            .sensors
+            .want(azul_core::sensors::SensorKind::Proximity);
         match self.get_layout_window().sensor_manager.proximity() {
             Some(p) => azul_core::sensors::OptionProximity::Some(p),
             None => azul_core::sensors::OptionProximity::None,
@@ -6521,6 +6546,74 @@ impl CallbackInfo {
     /// has no strength axis at all.
     pub fn play_haptic_request(&mut self, request: azul_core::haptics::HapticRequest) {
         self.push_change(CallbackChange::PlayHaptic { request });
+    }
+
+    /// Play the system sound that stands for this MEANING.
+    ///
+    /// What plays is the platform's own sound for it, never a file of the app's: Android
+    /// plays its `AudioManager` UI effects (`TabChange` and `Click` are the "Touch sounds" click)
+    /// and the user's notification tone, iOS answers with its haptic idiom, and a platform
+    /// with no system sound for the meaning plays nothing. `get_sound_route` says which.
+    ///
+    /// Queued like a haptic: the call costs one push, and the shell plays at the end of the
+    /// outermost event pass. The same sound asked for twice in one pass plays once, and a
+    /// sound asked for again within its minimum interval (40 ms for `Tick` and `TabChange`,
+    /// 100 ms for the others) is dropped, so a callback that fires per page of a fling or per
+    /// frame of a drag ticks once per page, not once per frame. Every request is recorded
+    /// (`get_sound_log`), played or not, with the reason it was not.
+    ///
+    /// The OS stays in charge: Android's "Touch sounds" switch, the ringer mode and Do Not
+    /// Disturb silence what they silence, and `set_sounds_muted` is for kiosks and tests.
+    pub fn play_system_sound(&mut self, sound: azul_core::sound::SystemSound) {
+        self.push_change(CallbackChange::PlaySound { sound });
+    }
+
+    /// Mute (`true`) or unmute every sound the app asks for with `play_system_sound`.
+    ///
+    /// A switch for kiosks, tests and screen recordings: the OS's own settings are the user's
+    /// control, and an app should not put a second one in front of them. On Android the camera
+    /// shutter still plays where the region requires it.
+    pub fn set_sounds_muted(&mut self, muted: bool) {
+        self.push_change(CallbackChange::SetSoundsMuted { muted });
+    }
+
+    /// What `play_system_sound` would do with this sound right now, as one word of text:
+    /// `system:android:FX_KEY_CLICK`, `ringtone:android:notification`,
+    /// `media-action:android:SHUTTER_CLICK`, `haptic:Selection` or `none:<why>`
+    /// (`none:no-system-route`, `none:app-muted`, `none:os:input-feedback-sounds-off`).
+    #[must_use]
+    pub fn get_sound_route(&self, sound: azul_core::sound::SystemSound) -> AzString {
+        let layout_window = self.get_layout_window();
+        let audio = layout_window
+            .system_style
+            .as_deref()
+            .map(|style| style.audio)
+            .unwrap_or_default();
+        azul_core::sound::route(
+            sound,
+            azul_core::sound::SoundPlatform::current(),
+            layout_window.sound_manager.config(),
+            audio,
+        )
+        .label()
+        .into()
+    }
+
+    /// The last (up to 32) sound requests of this window, oldest first, one line each:
+    /// `#3 TabChange [input] route=system:android:FX_KEY_CLICK suppressed_by=- outcome=played`.
+    ///
+    /// The outcome is `pending` until the shell has handed the sound to the platform, at the
+    /// end of the pass; read it from the next callback.
+    #[must_use]
+    pub fn get_sound_log(&self) -> StringVec {
+        let lines: Vec<AzString> = self
+            .get_layout_window()
+            .sound_manager
+            .describe_recent(32)
+            .into_iter()
+            .map(AzString::from)
+            .collect();
+        StringVec::from(lines)
     }
 
     /// Tell the system media session what this app is playing.

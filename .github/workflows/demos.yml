@@ -62,6 +62,7 @@ jobs:
       smoke_taps: ${{ steps.plan.outputs.smoke_taps }}
       smoke_expects: ${{ steps.plan.outputs.smoke_expects }}
       smoke_after: ${{ steps.plan.outputs.smoke_after }}
+      smoke_logs: ${{ steps.plan.outputs.smoke_logs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -753,6 +754,7 @@ jobs:
           AZ_SMOKE_TAPS: ${{ needs.plan.outputs.smoke_taps }}
           AZ_SMOKE_EXPECTS: ${{ needs.plan.outputs.smoke_expects }}
           AZ_SMOKE_AFTER: ${{ needs.plan.outputs.smoke_after }}
+          AZ_SMOKE_LOGS: ${{ needs.plan.outputs.smoke_logs }}
         run: bash scripts/ci/android_smoke.sh demosmoke-android 15 apks/*.apk
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
@@ -790,6 +792,7 @@ jobs:
           AZ_SMOKE_TAPS: ${{ needs.plan.outputs.smoke_taps }}
           AZ_SMOKE_EXPECTS: ${{ needs.plan.outputs.smoke_expects }}
           AZ_SMOKE_AFTER: ${{ needs.plan.outputs.smoke_after }}
+          AZ_SMOKE_LOGS: ${{ needs.plan.outputs.smoke_logs }}
         run: bash scripts/ci/ios_smoke.sh demosmoke-ios 12 apps/*-ios-sim.app.zip
       # What OpenGL ES and Metal really are on this runner's Simulator (the evidence behind the iOS GPU path); information only,
       # it is on no gate and travels with the boot-test artifact
@@ -846,6 +849,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # the state of every job (a cell without a result says whether its job was queued, running, failed or never started)
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --jq '.jobs[] | {name, status, conclusion}' > demo-jobs.json || : > demo-jobs.json
           jobs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --jq '.jobs[] | [.started_at, .completed_at] | @tsv' || true)"
           minutes="$(printf '%s\n' "$jobs" | python3 -c '
           import sys, datetime
@@ -862,7 +867,7 @@ jobs:
       - name: The status table
         run: >-
           python3 scripts/demo_apps.py status demo-all demo-smoke demo-libinfo
-          --artifacts=${{ steps.numbers.outputs.artifacts }} --runner_minutes=${{ steps.numbers.outputs.minutes }}
+          --artifacts=${{ steps.numbers.outputs.artifacts }} --runner_minutes=${{ steps.numbers.outputs.minutes }} --jobs=demo-jobs.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

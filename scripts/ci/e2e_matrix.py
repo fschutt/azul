@@ -37,7 +37,8 @@ VERDICT_LINE = re.compile(r"test (?P<name>.+?) \.\.\. (?P<verdict>PASS|FAIL|SKIP
 FAILURE_HEAD = re.compile(r"^---- (?P<name>.+?) \((?P<verdict>FAIL|XPASS)\) ----$")
 FAILED_STEP = re.compile(r"^\s*step (?P<index>\d+): (?P<op>\S+) → FAILED: (?P<message>.*)$")
 SUMMARY = re.compile(r"test result: .*?(?P<passed>\d+) passed; (?P<failed>\d+) failed")
-PLATFORMS = ("desktop", "android", "ios")
+PLATFORMS = ("desktop", "runner", "android", "ios")
+PLATFORM_LABELS = {"desktop": "desktop (the app, headless backend)", "runner": "desktop (in-process runner)", "android": "android", "ios": "ios"}
 
 # files that assert an app's own DOM and are not in examples/azul-widgets: stem -> the phone app that hosts them (the rest has none)
 PHONE_HOST_BY_STEM = {"azwriter_boot": "AzWriter"}
@@ -139,9 +140,10 @@ def not_applicable(scn, platform, reason):
 # ---- the platform runs -----------------------------------------------------------------------------------------------------------------
 
 def run_desktop(scns, bins, out, timeout=240, azul_doc=""):
-    """The desktop run. A file that MOUNTS its own DOM runs in-process, headless, in `azul-doc e2e <file> --keep-going` (the executor of the app
-    without an app: the same `azul_layout::e2e`); a file that asserts an app's DOM runs in that app's binary (a build with the `e2e` feature,
-    AZ_E2E=<file>, the headless backend) when one is given; the rest is not run here, with the reason."""
+    """The desktop run, two columns. `desktop`: the file runs in the host app's binary of the desktop QA build (the shipped libazul with the e2e
+    executor, AZ_E2E=<file>, the headless backend) when one is given: the same path the phones take. `runner`: a file that MOUNTS its own DOM also
+    runs in-process, headless, in `azul-doc e2e <file> --keep-going --jobs 1` (the CI's harness, `azul_layout::e2e` without a shell). A file
+    that asserts the DOM of a desktop C example is run by neither, with the reason."""
     import os
     records = []
     raw_dir = Path(out) / "raw" / "desktop"
@@ -149,15 +151,15 @@ def run_desktop(scns, bins, out, timeout=240, azul_doc=""):
     for scn in scns:
         host = scn["host"]
         if scn["self_mounted"] and azul_doc:
+            # the files that mount their own DOM also run in process, headless, in `azul-doc e2e` (the CI's harness: the `runner` column)
             started = time.time()
             try:
-                done = subprocess.run([azul_doc, "e2e", scn["file"], "--keep-going"], capture_output=True, text=True, timeout=timeout)
+                done = subprocess.run([azul_doc, "e2e", scn["file"], "--keep-going", "--jobs", "1"], capture_output=True, text=True, timeout=timeout)   # one thread: no test of a file waits on another's process-wide state
                 text, why = done.stdout + "\n" + done.stderr, f"azul-doc exited with status {done.returncode} without a verdict"
             except subprocess.TimeoutExpired as e:
                 text, why = ((e.stdout or b"").decode("utf-8", "replace") if isinstance(e.stdout, bytes) else (e.stdout or "")), f"azul-doc ran longer than {timeout} s"
-            (raw_dir / (Path(scn["rel"]).stem + ".txt")).write_text(text, encoding="utf-8")
-            records += records_for(scn, "desktop", text, started, why)
-            continue
+            (raw_dir / (Path(scn["rel"]).stem + ".runner.txt")).write_text(text, encoding="utf-8")
+            records += records_for(scn, "runner", text, started, why)
         if host is None:
             records += not_applicable(scn, "desktop", NO_DESKTOP_HOST_REASON)
             continue
@@ -332,11 +334,21 @@ def merge(record_sets, scns):
     return table
 
 
+def verdict_class(record):
+    """The verdict as the table compares it: a failure of any kind is FAIL, a platform that did not run the test says nothing."""
+    if not record or record["verdict"] in ("N/A", "not run"):
+        return None
+    return "FAIL" if record["verdict"] in ("FAIL", "NO VERDICT", "XPASS") else record["verdict"]
+
+
 def render_markdown(table, scns):
-    """The matrix as Markdown: one row per test, then a totals table per platform."""
+    """The matrix as Markdown: one row per test with a `same` / `DIFFERENT` mark over the platforms that ran it, the list of the tests whose
+    verdicts differ, then a totals table per platform."""
     order = [(s["rel"], t["name"]) for s in scns for t in s["tests"]]
-    lines = ["# The same e2e files on desktop, Android and iOS", "", "| file | test | desktop | android | ios |", "|---|---|---|---|---|"]
+    lines = ["# The same e2e files on desktop, Android and iOS", "", "| file | test | " + " | ".join(PLATFORM_LABELS[p] for p in PLATFORMS) + " | verdicts |",
+             "|---|---|" + "---|" * (len(PLATFORMS) + 1)]
     counts = {p: {} for p in PLATFORMS}
+    different = []
     for key in order:
         row = table.get(key, {})
         cells = []
@@ -345,7 +357,19 @@ def render_markdown(table, scns):
             cells.append(cell(r))
             verdict = r["verdict"] if r else "not run"
             counts[p][verdict] = counts[p].get(verdict, 0) + 1
-        lines.append(f"| {key[0]} | {key[1][:60]} | " + " | ".join(cells) + " |")
+        classes = {p: verdict_class(row.get(p)) for p in PLATFORMS}
+        ran = {c for c in classes.values() if c}
+        agree = len(ran) <= 1
+        if not agree:
+            different.append((key, row, classes))
+        lines.append(f"| {key[0]} | {key[1][:60]} | " + " | ".join(cells) + f" | {'same' if agree else 'DIFFERENT'} |")
+    lines += ["", "## Where the verdicts differ", ""]
+    if not different:
+        lines.append("- nowhere: every test that ran on more than one platform has the same verdict on all of them")
+    for key, row, classes in different:
+        parts = [f"{p} {row[p]['verdict']}" + (f" ({row[p].get('detail', '')[:110]})" if row[p]["verdict"] != "PASS" and row[p].get("detail") else "")
+                 for p in PLATFORMS if classes[p]]
+        lines.append(f"- {key[0]} :: {key[1][:70]}: " + ", ".join(parts))
     verdicts = sorted({v for c in counts.values() for v in c})
     lines += ["", "## Totals", "", "| platform | " + " | ".join(verdicts) + " |", "|---|" + "---|" * len(verdicts)]
     for p in PLATFORMS:

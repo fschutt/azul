@@ -98,3 +98,21 @@ fn a_folder_that_cannot_be_used_is_said_and_the_phone_still_starts() {
     assert!(net.notes.iter().any(|n| n.contains("could not be kept")), "{:?}", net.notes);
     assert_eq!(net.api.view().session, Session::Unpaired);
 }
+
+#[test]
+fn only_a_store_that_holds_a_mac_says_the_phone_was_paired_and_asking_binds_and_writes_nothing() {
+    assert!(!has_saved_mac_in(None), "no folder: nothing was kept");
+    let dir = Scratch::new("saved");
+    assert!(!has_saved_mac_in(Some(&dir.0)), "no file");
+    assert!(!dir.0.exists(), "asking made no folder");
+    let mut store = FileStore::new(dir.0.join(STORE_FILE));
+    store.save(&Stored { secret_key: Some([2; 32]), mac: None }).expect("kept");
+    assert!(!has_saved_mac_in(Some(&dir.0)), "a key alone is a phone that was never paired");
+    let mac = SavedMac { mac_id: "ab12".into(), name: "Studio Mac".into(), tickets: vec!["some-ticket".into()] };
+    store.save(&Stored { secret_key: Some([2; 32]), mac: Some(mac) }).expect("kept");
+    let before = std::fs::read_to_string(dir.0.join(STORE_FILE)).expect("the file");
+    assert!(has_saved_mac_in(Some(&dir.0)), "a Mac was kept");
+    assert_eq!(std::fs::read_to_string(dir.0.join(STORE_FILE)).expect("the file"), before, "asking changed nothing");
+    std::fs::write(dir.0.join(STORE_FILE), "this is not what the phone keeps").expect("written");
+    assert!(!has_saved_mac_in(Some(&dir.0)), "a damaged file is no Mac");
+}

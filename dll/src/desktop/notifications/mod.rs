@@ -98,6 +98,8 @@ mod windows;
 /// Source-text invariants for the platform code a host cannot run.
 #[cfg(test)]
 mod platform_invariants;
+#[cfg(test)]
+mod sound_invariants;
 
 /// Set by `App::create` when `AZ_BACKEND=headless` asked for it, and by the headless run loop:
 /// no notification is shown, every post is RECORDED for tests and `assert_notification`.
@@ -577,7 +579,7 @@ pub fn dispatch_queued_requests(services: &AppServices) {
 /// answer reaches the permission manager (`Capability::Notifications`) through
 /// its async channel - at once where there is nothing to ask, from the
 /// prompt's completion where there is.
-fn request_permission() {
+pub(crate) fn request_permission() {
     if HEADLESS.load(Ordering::Relaxed) {
         // Every post is recorded: as granted as it gets.
         push_async_result(

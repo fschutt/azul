@@ -51,3 +51,22 @@ fn nothing_but_a_cancel_makes_the_pointer_leave() {
         assert!(!mouse_effect(phase, false).pointer_leaves, "{phase:?}");
     }
 }
+
+/// A pad's sticks, triggers and hat are not pointers; a finger, a stylus, a mouse and a touchpad are.
+///
+/// Mutation: `is_a_pad_stick` answering false for `SOURCE_JOYSTICK` (a stick deflection became a phantom touch at (0, 0)).
+#[test]
+fn a_pad_stick_is_not_a_pointer() {
+    const SOURCE_JOYSTICK: u32 = 0x0100_0010;
+    const SOURCE_GAMEPAD: u32 = 0x0000_0401;
+    const SOURCE_TOUCHSCREEN: u32 = 0x0000_1002;
+    const SOURCE_STYLUS: u32 = 0x0000_4002;
+    const SOURCE_MOUSE: u32 = 0x0000_2002;
+    const SOURCE_TOUCHPAD: u32 = 0x0010_0008;
+    const SOURCE_ROTARY_ENCODER: u32 = 0x0040_0000;
+    assert!(is_a_pad_stick(SOURCE_JOYSTICK));
+    assert!(is_a_pad_stick(SOURCE_JOYSTICK | SOURCE_GAMEPAD), "a device that reports both is still a pad");
+    for pointer in [SOURCE_TOUCHSCREEN, SOURCE_STYLUS, SOURCE_MOUSE, SOURCE_TOUCHPAD, SOURCE_ROTARY_ENCODER, SOURCE_GAMEPAD] {
+        assert!(!is_a_pad_stick(pointer), "{pointer:#x} is not a stick");
+    }
+}

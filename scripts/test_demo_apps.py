@@ -26,6 +26,7 @@ import demo_build  # noqa: E402
 import demo_gate  # noqa: E402
 import demo_icon  # noqa: E402
 import demo_publish  # noqa: E402
+import demo_status_now  # noqa: E402
 sys.path.insert(0, str(HERE / "ci"))
 import png_compare  # noqa: E402
 import smoke_verdict  # noqa: E402
@@ -281,13 +282,14 @@ class E2eVariantTest(unittest.TestCase):
                    if e.get("variant", "").startswith("mobile-e2e")}
         self.assertEqual(sorted(entries), sorted(libs))
         for (leg, variant), e in entries.items():
-            want = sorted(a["package"] for a in self.m["app"] if a.get("e2e") and a["e2e_lib"] == variant and leg in demo_apps.columns_of(a))
+            want = sorted(a["package"] for a in self.m["app"] + self.m["qa_app"]
+                          if a.get("e2e") and a["e2e_lib"] == variant and leg in demo_apps.columns_of(a))
             self.assertEqual(sorted(e["apps"].split()), want)
             self.assertEqual(e["lib_artifacts"], f"demolib-{leg}-{variant}")
             self.assertTrue(e["artifact"].startswith("demoe2e-"), e["artifact"])   # a name the shipped-files patterns never match
             self.assertTrue(e["results_artifact"].startswith("demoresults-"))
         # the apps that use iroh build against the iroh twin, the others against the plain QA library
-        self.assertEqual(sorted(entries[("android-x86_64", "mobile-e2e-iroh")]["apps"].split()), ["AzCompanion", "AzMeet"])
+        self.assertEqual(sorted(entries[("android-x86_64", "mobile-e2e-iroh")]["apps"].split()), ["AzCompanion", "AzMeet", "AzSelfTest"])
         self.assertNotIn("AzMeet", entries[("android-x86_64", "mobile-e2e")]["apps"].split())
         # two uploads of one artifact name fail a run: every artifact of every entry has a name of its own
         names = [e["artifact"] for e in entries.values()] + [e["results_artifact"] for e in entries.values()]
@@ -640,7 +642,8 @@ class QaOnlyAppTest(unittest.TestCase):
 
     def test_the_app_is_a_qa_app_and_not_one_of_the_release(self):
         self.assertNotIn("AzPaint", [a["package"] for a in self.m["app"]])
-        self.assertEqual([a["package"] for a in self.m["qa_app"]], ["AzPaint"])
+        # the stand-in, and the real one of the manifest (AzSelfTest)
+        self.assertEqual([a["package"] for a in self.m["qa_app"]], ["AzPaint", "AzSelfTest"])
         app = self.m["qa_app"][0]
         self.assertTrue(app["qa_only"] and app["e2e"])
         self.assertEqual((app["mobile_lib"], app["e2e_lib"]), ("mobile-e2e", "mobile-e2e"))   # the QA lib it links is its QA lib
@@ -694,6 +697,13 @@ class QaOnlyAppTest(unittest.TestCase):
                     self.assertEqual(demo_apps.main([command, "AzPaint"]), 0, command)
                 self.assertEqual(buf.getvalue().strip(), "mobile-e2e", command)
 
+    def test_the_check_summary_counts_the_qa_only_apps_apart(self):
+        buf = io.StringIO()
+        with mock.patch.object(demo_apps, "load", lambda path=demo_apps.MANIFEST: self.m), contextlib.redirect_stdout(buf):
+            self.assertEqual(demo_apps.main(["check"]), 0)
+        # the stand-in of the fixture and the real one of the manifest (AzSelfTest)
+        self.assertIn(f"ok - {len(self.m['app'])} apps (+ {len(self.m['qa_app'])} QA-only), ", buf.getvalue())
+
     def test_the_qa_only_command_and_the_ios_qa_script_know_it_has_no_shipped_build(self):
         with mock.patch.object(demo_apps, "load", lambda path=demo_apps.MANIFEST: self.m), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(demo_apps.main(["qa-only", "AzPaint"]), 0)
@@ -740,6 +750,237 @@ class QaOnlyAppTest(unittest.TestCase):
                 phone.assert_not_called()
                 self.assertEqual(demo_build.main(argv + ["--variant", "mobile-e2e"]), 0)    # the QA build is the build of it
                 phone.assert_called_once()
+
+
+class SmokeLogCheckTest(unittest.TestCase):
+    """[app.smoke] log_present / log_absent: what the app's own log must hold and must not hold after the boot test. The companion's
+    first screen must say that no Mac is paired and that the local network is left alone, and no iroh endpoint may be bound at all
+    before a pairing starts (the line `[iroh::endpoint] endpoint; id=...` is what a bound endpoint logs): a bind that comes back fails the
+    boot test of the emulator and of the simulator."""
+
+    NO_MAC = "AzCompanion: no Mac is paired: the local network is left alone until a pairing starts"
+    BIND_TEXT = "[iroh::endpoint] endpoint; id="
+    BIND = "2026-11-28T01:02:03Z  INFO [iroh::endpoint] endpoint; id=7f3a9c, relay=none"
+
+    def wanted(self, m):
+        return ui_find.logs_wanted("AzCompanion", {"AZ_SMOKE_LOGS": demo_apps.plan(m)["smoke_logs"]})
+
+    def facts(self, wanted, *logs):
+        return {"alive": True, "alive_after": True, "screen_nonblank": True, "home_similarity": 0.5, "differs_from_home": True,
+                "log": smoke_verdict.log_facts(wanted, logs)}
+
+    def test_the_manifest_names_the_two_texts_and_the_plan_hands_them_on(self):
+        m = demo_apps.load()
+        smoke = next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]
+        self.assertEqual(smoke["log_present"], [self.NO_MAC])
+        self.assertEqual(smoke["log_absent"], [self.BIND_TEXT])
+        self.assertEqual(smoke["after_tap"], ["Demo Mac"])      # the demo still comes up (it binds nothing now)
+        self.assertEqual(json.loads(demo_apps.plan(m)["smoke_logs"]), {"AzCompanion": {"present": [self.NO_MAC], "absent": [self.BIND_TEXT]}})
+        self.assertEqual(self.wanted(m), {"present": [self.NO_MAC], "absent": [self.BIND_TEXT]})
+        self.assertEqual(ui_find.logs_wanted("AzWidgets", {"AZ_SMOKE_LOGS": demo_apps.plan(m)["smoke_logs"]}), {})
+
+    def test_a_log_with_the_line_and_without_the_bind_passes(self):
+        wanted = self.wanted(demo_apps.load())
+        passed, reason = smoke_verdict.judge(self.facts(wanted, "I azul: " + self.NO_MAC + "\nI azul: tap Try it without a Mac\n"))
+        self.assertTrue(passed, reason)
+
+    def test_the_bind_that_comes_back_fails_the_boot_test(self):
+        wanted = self.wanted(demo_apps.load())
+        # the bind is back and so is its line: the log of the launch holds both
+        passed, reason = smoke_verdict.judge(self.facts(wanted, self.NO_MAC + "\n" + self.BIND + "\n"))
+        self.assertFalse(passed)
+        self.assertIn(self.BIND_TEXT, reason)
+        self.assertIn("must not", reason)
+        # the line that says the network is left alone is gone as well (the window setup connects): the other text is missing
+        passed, reason = smoke_verdict.judge(self.facts(wanted, self.BIND + "\n"))
+        self.assertFalse(passed)
+        self.assertIn("no Mac is paired", reason)
+
+    def test_the_check_is_there_because_the_manifest_says_so(self):
+        # the negative control: with the two lines taken out of the manifest, the same log (the bind is back) passes, so the boot test
+        # fails for it only through what the manifest names
+        m = demo_apps.load()
+        smoke = next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]
+        log = self.BIND + "\n"
+        self.assertFalse(smoke_verdict.judge(self.facts(self.wanted(m), log))[0])
+        del smoke["log_present"], smoke["log_absent"]
+        self.assertEqual(self.wanted(m), {})
+        self.assertTrue(smoke_verdict.judge(self.facts(self.wanted(m), log))[0])
+        smoke["log_absent"] = [self.BIND_TEXT]      # only the absent text: the bind is still caught
+        self.assertFalse(smoke_verdict.judge(self.facts(self.wanted(m), log))[0])
+
+    def test_the_verdict_command_writes_what_it_looked_for(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "launch.txt").write_text("I azul: " + self.NO_MAC + "\n", encoding="utf-8")
+            (root / "end.txt").write_text(self.BIND + "\n", encoding="utf-8")
+            argv = ["--out", str(root / "r.json"), "--app", "AzCompanion-android-x86_64", "--alive", "1", "--alive-after", "1",
+                    "--log-check", json.dumps({"present": [self.NO_MAC], "absent": [self.BIND_TEXT]}),
+                    "--run-log", str(root / "launch.txt"), "--run-log", str(root / "end.txt"), "--run-log", str(root / "missing.txt")]
+            smoke_verdict.main(argv)
+            facts = json.loads((root / "r.json").read_text())
+        self.assertEqual(facts["log"], {"present": {self.NO_MAC: True}, "absent": {self.BIND_TEXT: True}})
+
+    def test_the_manifest_check_wants_lists_of_texts(self):
+        for key in ("log_present", "log_absent"):
+            m = demo_apps.load()
+            next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"][key] = "a text"
+            self.assertTrue(any("AzCompanion" in e and key in e and "list" in e for e in demo_apps.check(m)), key)
+            m = demo_apps.load()
+            next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"][key] = [" "]
+            self.assertTrue(any("AzCompanion" in e and key in e for e in demo_apps.check(m)), key)
+        m = demo_apps.load()
+        smoke = next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]
+        smoke["log_absent"] = [self.NO_MAC]      # a text that must be there and must not be: no log can pass
+        self.assertTrue(any("AzCompanion" in e and "log_present" in e and "log_absent" in e for e in demo_apps.check(m)))
+
+    def test_both_boot_tests_turn_the_info_log_on_and_hand_the_logs_to_the_verdict(self):
+        for name in ("android_smoke.sh", "ios_smoke.sh"):
+            text = (HERE / "ci" / name).read_text(encoding="utf-8")
+            self.assertIn("ui_find.py", text, name)
+            self.assertIn("--logs", text, name)              # the texts of the manifest for this app
+            self.assertIn("--log-check", text, name)         # handed to the verdict ...
+            self.assertIn("--run-log", text, name)           # ... with the logs of the run
+        android = (HERE / "ci" / "android_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("logcat-launch.txt", android)          # the log of the launch, before the ring buffer of the emulator can drop it
+        self.assertIn("debug.az.log", android)
+        ios = (HERE / "ci" / "ios_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("SIMCTL_CHILD_AZ_LOG=info", ios)
+        self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "ci" / "ios_smoke.sh")]).returncode, 0)
+        self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "ci" / "android_smoke.sh")]).returncode, 0)
+
+    def test_the_workflow_and_the_build_script_hand_the_texts_on(self):
+        yml = (demo_apps.ROOT / ".github" / "workflows" / "demos.yml").read_text(encoding="utf-8")
+        self.assertIn("smoke_logs: ${{ steps.plan.outputs.smoke_logs }}", yml)
+        self.assertEqual(yml.count("AZ_SMOKE_LOGS: ${{ needs.plan.outputs.smoke_logs }}"), 2)      # the Android and the iOS boot test
+        build = (HERE / "ci" / "android_build_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("AZ_SMOKE_LOGS", build)
+
+
+class PendingCellTest(unittest.TestCase):
+    """A status table made while a run is still going (or whose jobs did not all start) says per cell what is the matter: a cell whose job
+    is queued or running is PENDING ("queued behind other jobs", "building now", "waiting for libazul"), not a red; a cell whose job ended
+    without a result, or never started because a job it needs did not succeed, still is a failure. The state of the jobs comes from the API
+    (`gh api .../actions/runs/<id>/jobs`), through `--jobs=<file>`."""
+
+    def setUp(self):
+        self.m = demo_apps.load()
+        self.plan = demo_apps.plan(self.m)
+
+    def apps_job(self, leg, package):
+        key = {"linux": "apps_linux", "macos-arm64": "apps_macos", "macos-intel": "apps_macos", "windows": "apps_windows"}[leg]
+        e = next(e for e in self.plan[key] if e["leg"] == leg and package in e["apps"].split())
+        return f"Apps ({leg} {e['group']}/{e['groups']})"
+
+    def job(self, name, status, conclusion=None):
+        return {"name": "Demo apps / " + name, "status": status, "conclusion": conclusion}
+
+    def cell(self, jobs, package, column):
+        with tempfile.TemporaryDirectory() as d:
+            data, md = demo_apps.status([pathlib.Path(d)], m=self.m, jobs=jobs)
+        return next(r for r in data["apps"] if r["app"] == package)["cells"][column], data, md
+
+    def test_a_queued_job_is_pending_and_not_a_failure(self):
+        jobs = [self.job(self.apps_job("linux", "AzWidgets"), "queued"), self.job("libazul (lib-linux)", "completed", "success")]
+        cell, data, md = self.cell(jobs, "AzWidgets", "linux")
+        self.assertEqual((cell["status"], cell["reason"]), ("pending", "queued behind other jobs"))
+        self.assertNotIn("AzWidgets/linux", data["summary"]["unexplained_failures"])
+        self.assertIn("pending: queued behind other jobs", md)
+        group = next(e for e in self.plan["apps_linux"] if "AzWidgets" in e["apps"].split())
+        queued = [r["app"] for r in data["apps"] if r["cells"].get("linux", {}).get("reason") == "queued behind other jobs"]
+        self.assertEqual(sorted(queued), sorted(group["apps"].split()))      # every app of the queued job, and no other
+
+    def test_a_job_that_waits_for_a_library_that_is_not_built_says_so(self):
+        jobs = [self.job("Apps (ios-sim)", "queued"), self.job("libazul (lib-ios-sim-mobile)", "queued"),
+                self.job("libazul (lib-ios-device-mobile)", "in_progress"), self.job("libazul (lib-linux)", "completed", "success")]
+        cell, _, _ = self.cell(jobs, "AzWidgets", "ios-sim")
+        self.assertEqual(cell["status"], "pending")
+        self.assertTrue(cell["reason"].startswith("waiting for libazul"), cell["reason"])
+        self.assertIn("ios", cell["reason"])
+
+    def test_a_running_job_is_building_now(self):
+        cell, _, _ = self.cell([self.job("Apps (android-arm64)", "in_progress")], "AzWidgets", "android-arm64")
+        self.assertEqual((cell["status"], cell["reason"]), ("pending", "building now"))
+
+    def test_a_job_that_ended_without_a_result_is_still_a_failure(self):
+        for conclusion, words in (("success", "finished but wrote no result"), ("failure", "failed before it wrote a result"),
+                                  ("cancelled", "was cancelled")):
+            cell, data, _ = self.cell([self.job(self.apps_job("linux", "AzWidgets"), "completed", conclusion)], "AzWidgets", "linux")
+            self.assertEqual(cell["status"], "missing", conclusion)
+            self.assertIn(words, cell["reason"], conclusion)
+            self.assertIn("AzWidgets/linux", data["summary"]["unexplained_failures"], conclusion)
+
+    def test_a_job_that_never_started_because_a_job_it_needs_failed_is_a_failure(self):
+        cell, data, _ = self.cell([self.job("Apps (android-x86_64)", "completed", "skipped")], "AzWidgets", "android-x86_64")
+        self.assertEqual(cell["status"], "missing")
+        self.assertIn("not started", cell["reason"])
+        self.assertIn("AzWidgets/android-x86_64", data["summary"]["unexplained_failures"])
+
+    def test_a_job_the_run_has_not_created_yet_is_pending_while_the_run_goes_and_missing_when_it_is_over(self):
+        # the jobs of a matrix that need a library appear only when that library is built: no record is not a failure while another job runs
+        going = [self.job("libazul (lib-ios-sim-mobile)", "queued"), self.job("libazul (lib-linux)", "completed", "success")]
+        cell, data, _ = self.cell(going, "AzWidgets", "ios-sim")
+        self.assertEqual(cell["status"], "pending")
+        self.assertIn("not started yet", cell["reason"])
+        self.assertNotIn("AzWidgets/ios-sim", data["summary"]["unexplained_failures"])
+        over = [self.job("libazul (lib-linux)", "completed", "success"), self.job("Status table", "in_progress")]   # the report job itself runs
+        cell, data, _ = self.cell(over, "AzWidgets", "ios-sim")
+        self.assertEqual(cell["status"], "missing")
+        self.assertIn("AzWidgets/ios-sim", data["summary"]["unexplained_failures"])
+
+    def test_a_cell_with_a_result_is_what_the_result_says_whatever_the_job_says(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "AzWidgets.linux.result.json").write_text(json.dumps({
+                "app": "AzWidgets", "column": "linux", "status": "built", "size": 4096, "shipped_size": 4096, "seconds": 9,
+                "engine_crates": [], "artifact": "AzWidgets-linux"}))
+            data, _ = demo_apps.status([root], m=self.m, jobs=[self.job(self.apps_job("linux", "AzWidgets"), "in_progress")])
+        self.assertEqual(next(r for r in data["apps"] if r["app"] == "AzWidgets")["cells"]["linux"]["status"], "built")
+
+    def test_without_the_state_of_the_jobs_a_cell_without_a_result_is_missing_as_before(self):
+        with tempfile.TemporaryDirectory() as d:
+            data, _ = demo_apps.status([pathlib.Path(d)], m=self.m)
+        cell = next(r for r in data["apps"] if r["app"] == "AzWidgets")["cells"]["linux"]
+        self.assertEqual(cell["status"], "missing")
+        self.assertEqual(data["summary"]["pending_cells"], 0)
+
+    def test_the_jobs_file_is_one_array_or_one_object_per_line(self):
+        jobs = [self.job("Apps (android-arm64)", "queued"), self.job("libazul (lib-linux)", "completed", "success")]
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "array.json").write_text(json.dumps(jobs), encoding="utf-8")
+            (root / "lines.json").write_text("\n".join(json.dumps(j) for j in jobs) + "\n", encoding="utf-8")
+            (root / "pages.json").write_text(json.dumps(jobs[:1]) + "\n" + json.dumps(jobs[1:]) + "\n", encoding="utf-8")   # gh api --paginate
+            for name in ("array.json", "lines.json", "pages.json"):
+                got = demo_apps.read_jobs(root / name)
+                self.assertEqual(got, {"Apps (android-arm64)": ("queued", None), "libazul (lib-linux)": ("completed", "success")}, name)
+            self.assertEqual(demo_apps.read_jobs(root / "none.json"), {})
+
+    def test_the_report_job_hands_the_jobs_to_the_status_command_and_a_table_can_be_made_while_the_run_goes(self):
+        yml = (demo_apps.ROOT / ".github" / "workflows" / "demos.yml").read_text(encoding="utf-8")
+        self.assertIn("demo-jobs.json", yml)
+        self.assertIn("--jobs=demo-jobs.json", yml)
+        script = (HERE / "demo_status_now.py").read_text(encoding="utf-8")
+        for needle in ('"gh"', "demoresults-", "demolibinfo-", "demosmoke-", "demo_apps.read_jobs", "demo_apps.status", "/actions/runs/"):
+            self.assertIn(needle, script)
+        self.assertEqual(demo_status_now.wanted_artifacts(["demoapps-linux-0", "demoresults-linux-0", "demolibinfo-lib-linux", "demosmoke-ios",
+                                                           "demoe2e-linux", "demo-status", "codegen-tree-Linux"]),
+                         ["demolibinfo-lib-linux", "demoresults-linux-0", "demosmoke-ios"])
+
+    def test_the_command_line_reads_the_jobs_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "jobs.json").write_text(json.dumps([self.job("Apps (android-arm64)", "queued")]), encoding="utf-8")
+            cwd = os.getcwd()
+            try:
+                os.chdir(d)
+                with contextlib.redirect_stdout(io.StringIO()):
+                    demo_apps.main(["status", str(root), f"--jobs={root / 'jobs.json'}"])    # 1: the cells of the jobs the file lacks are missing
+                data = json.loads((root / "demo-status.json").read_text(encoding="utf-8"))
+            finally:
+                os.chdir(cwd)
+        cell = next(r for r in data["apps"] if r["app"] == "AzWidgets")["cells"]["android-arm64"]
+        self.assertEqual(cell["status"], "pending")
 
 
 class WorkflowContractTest(unittest.TestCase):
@@ -910,6 +1151,17 @@ class BuildTest(unittest.TestCase):
         got = self.first_error_of(text)
         self.assertTrue(got.startswith("engine crate compiled into the app: the link has 2 duplicate C ABI symbols (AzApp_getInvocationCtx, ...)"), got)
         self.assertIn("azul-core", got)
+        self.assertLessEqual(len(got), 300)
+
+    def test_the_msvc_linkers_duplicate_symbols_are_named_like_the_lld_ones(self):
+        # the first Windows leg (2026-11-28): link.exe says LNK2005 "<symbol> already defined in <rlib>" per symbol and LNK1169 at the end
+        text = ("error: linking with `link.exe` failed: exit code: 1169\n"
+                "  = note: libazul.rlib(azul_core-bc92.rcgu.o) : error LNK2005: AzApp_getInvocationCtx already defined in libazul_core-d349.rlib(azul_core.o)\n"
+                "          libazul.rlib(azul_core-bc92.rcgu.o) : error LNK2005: AzApp_setGenericInvoker already defined in libazul_core-d349.rlib(azul_core.o)\n"
+                "          libazul.rlib(azul_core-bc92.rcgu.o) : error LNK2005: AzApp_getInvocationCtx already defined in libazul_core-d349.rlib(azul_core.o)\n"
+                "          azul_mail.exe : fatal error LNK1169: one or more multiply defined symbols found\n")
+        got = self.first_error_of(text)
+        self.assertTrue(got.startswith("engine crate compiled into the app: the link has 2 duplicate C ABI symbols (AzApp_getInvocationCtx, ...)"), got)
         self.assertLessEqual(len(got), 300)
 
     def test_a_link_with_undefined_symbols_names_the_first_and_counts_the_rest(self):
@@ -1611,7 +1863,7 @@ class AndroidBuildAllScriptTest(unittest.TestCase):
         builds = {e["variant"]: sorted(e["apps"].split()) for e in plan["apps_android"] if e["leg"] == "android-x86_64"}
         self.assertEqual(builds[""], ["AzCompanion", "AzMaps", "AzMeet", "AzPaint", "AzWidgets", "AzWriter"])
         self.assertEqual(builds["mobile-e2e"], ["AzMaps", "AzPaint", "AzWidgets", "AzWriter"])
-        self.assertEqual(builds["mobile-e2e-iroh"], ["AzCompanion", "AzMeet"])
+        self.assertEqual(builds["mobile-e2e-iroh"], ["AzCompanion", "AzMeet", "AzSelfTest"])   # AzSelfTest: QA only, and its LAN row uses iroh
         self.assertIn("plan --e2e", self.text)
         for name in ("mobile-e2e", "mobile-iroh"):
             self.assertNotIn(name, "\n".join(l for l in self.text.splitlines() if not l.lstrip().startswith("#")))

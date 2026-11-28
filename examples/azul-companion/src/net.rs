@@ -8,6 +8,11 @@
 //!
 //! WHAT IT NEVER DOES: bind to a relay (the companion is for a desk, not the internet), keep a connection while the app is suspended
 //! (the system does not allow it), or make a connection to anything but the Mac the phone was paired with or the offer it was given.
+//!
+//! WHEN IT TOUCHES THE LOCAL NETWORK: binding the endpoint starts the engine's local-network discovery, and on a phone the system asks the
+//! person about it then. So a phone that was paired with a Mac connects when the app starts (the question was answered when it was paired),
+//! and a phone that was not binds nothing until the person starts a pairing ([`has_saved_mac`], `Root::wants_connection_for`): the first
+//! screen, "Scan QR code" and "Try it without a Mac" use no network at all.
 
 use std::path::{Path, PathBuf};
 
@@ -102,7 +107,9 @@ pub fn connect_in(dir: Option<&Path>, app_version: &str) -> Net {
         Ok(link) => {
             let id = link.local_id();
             let config = ClientConfig { phone_name: phone_name(&id), app_version: app_version.to_string() };
-            // the phone announces nothing (an iPhone only looks); it learns from the local network when its Mac appears
+            // the phone looks for its Mac on the local network and learns when it appears; the engine also announces an endpoint that accepts
+            // connections (this one does not set `allowed_peers`, as a client that only dials would): the phone's key and addresses are on
+            // the local link while the app runs. Making it a client that only dials and looks is possible and not done.
             let discovery = link.discovery();
             notes.push(format!("the local network: {}", link.discovery_status()));
             let mut client = PhoneClient::new(link, config, store).with_discovery(Box::new(discovery));
@@ -117,6 +124,22 @@ pub fn connect_in(dir: Option<&Path>, app_version: &str) -> Net {
             Net { api: Box::new(OfflinePhone::new()), notes }
         }
     }
+}
+
+/// Whether the phone was paired with a Mac (one is kept in `dir`). It reads the file and nothing else: nothing is bound, nothing is written, and
+/// a store that is missing, empty, damaged or without a folder says no.
+#[must_use]
+pub fn has_saved_mac_in(dir: Option<&Path>) -> bool {
+    let Some(dir) = dir else {
+        return false;
+    };
+    FileStore::new(dir.join(STORE_FILE)).load().ok().is_some_and(|stored| stored.mac.is_some())
+}
+
+/// Whether the phone was paired with a Mac, in the folder for this machine.
+#[must_use]
+pub fn has_saved_mac() -> bool {
+    has_saved_mac_in(data_dir().as_deref())
 }
 
 /// The connection of the phone's app, with the folder and the version of this build.

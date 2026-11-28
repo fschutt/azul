@@ -6,8 +6,16 @@
 //! callbacks only signal async state/errors. `read` pulls the latest image and
 //! converts YUV_420_888 -> RGBA into the seam. Mirrors libv4l2 (linux) / nokhwa
 //! (windows) / AVFoundation (apple) into the same capture seam.
+//!
+//! The camera is a runtime permission, and a phone never shows a test pattern in the place of a camera: `open`
+//! asks ONCE (`permission::android::ensure`: the dialog appears when the tile is mounted, not at launch, and a
+//! refusal is remembered), waits for the answer, and when there is no camera to open - refused, absent, in use - it
+//! answers [`NOT_OPENED`], a source that delivers nothing, so the tile keeps its placeholder. The app learns why
+//! from `get_permission_status(Camera)`; the log line says it too.
 
 use std::{os::raw::c_char, ptr};
+
+use azul_layout::managers::permission::Capability;
 
 use ndk_sys::{
     ACameraCaptureSession, ACameraCaptureSession_close, ACameraCaptureSession_setRepeatingRequest,
@@ -16,9 +24,11 @@ use ndk_sys::{
     ACameraDevice_request_template, ACameraIdList, ACameraManager, ACameraManager_create,
     ACameraManager_delete, ACameraManager_deleteCameraIdList, ACameraManager_getCameraIdList,
     ACameraManager_openCamera, ACameraOutputTarget, ACameraOutputTarget_create, ACaptureRequest,
-    ACaptureRequest_addTarget, ACaptureSessionOutput, ACaptureSessionOutputContainer,
-    ACaptureSessionOutputContainer_add, ACaptureSessionOutputContainer_create,
-    ACaptureSessionOutput_create, AImage, AImageReader, AImageReader_acquireLatestImage,
+    ACaptureRequest_addTarget, ACaptureRequest_free, ACaptureSessionOutput,
+    ACaptureSessionOutputContainer, ACaptureSessionOutputContainer_add,
+    ACaptureSessionOutputContainer_create, ACaptureSessionOutputContainer_free,
+    ACaptureSessionOutput_create, ACaptureSessionOutput_free, ACameraOutputTarget_free, AImage,
+    AImageReader, AImageReader_acquireLatestImage,
     AImageReader_delete, AImageReader_getWindow, AImageReader_new, AImage_delete,
     AImage_getPlaneData, AImage_getPlanePixelStride, AImage_getPlaneRowStride,
 };
@@ -39,9 +49,38 @@ struct AndroidCam {
     height: u32,
 }
 
-/// Open camera `index` (default if out of range) at `width` x `height`,
-/// YUV_420_888. Returns a boxed handle, or `0` on failure (test-pattern fallback).
+/// The handle of a camera that was not opened. Not `0`, which would make the worker put its colour-cycle TEST PATTERN
+/// in the place of the camera: reads of this handle end at once, so the tile keeps its placeholder.
+const NOT_OPENED: u64 = 1;
+
+/// Open camera `index` at the request's size: ask for the permission first (once, waiting for the answer), then
+/// [`open_device`]. A camera that is not opened is [`NOT_OPENED`], never `0`.
 pub fn open(request: &azul_layout::widgets::capture_common::CaptureRequest) -> u64 {
+    let state = crate::desktop::extra::permission::android::ensure(
+        Capability::Camera,
+        crate::desktop::extra::permission::android::DIALOG_PATIENCE,
+    );
+    if !state.is_granted() {
+        crate::plog_warn!(
+            "[camera] not opened: the camera permission is {:?} (the tile stays empty; the app reads the state with get_permission_status(Camera) and offers the settings)",
+            state
+        );
+        return NOT_OPENED;
+    }
+    match open_device(request) {
+        0 => {
+            crate::plog_warn!(
+                "[camera] the camera could not be opened (absent, in use by another app, or the Camera2 session failed): the tile stays empty, no test pattern stands in for it"
+            );
+            NOT_OPENED
+        }
+        handle => handle,
+    }
+}
+
+/// Open camera `index` (default if out of range) at `width` x `height`,
+/// YUV_420_888. Returns a boxed handle, or `0` on failure.
+fn open_device(request: &azul_layout::widgets::capture_common::CaptureRequest) -> u64 {
     let index = request.index;
     let width = if request.width == 0 {
         640
@@ -161,6 +200,9 @@ pub fn open(request: &azul_layout::widgets::capture_common::CaptureRequest) -> u
 /// the first early read), `Ended` on a broken image.
 pub fn read(handle: u64, out: &mut Vec<u8>) -> azul_layout::widgets::capture_common::CaptureRead {
     use azul_layout::widgets::capture_common::CaptureRead;
+    if handle <= NOT_OPENED {
+        return CaptureRead::Ended;
+    }
     let cam = match unsafe { (handle as *mut AndroidCam).as_mut() } {
         Some(c) => c,
         None => return CaptureRead::Ended,
@@ -223,7 +265,7 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> azul_layout::widgets::capture_com
 
 /// Stop + free everything (drops the boxed `AndroidCam`).
 pub fn close(handle: u64) {
-    if handle == 0 {
+    if handle <= NOT_OPENED {
         return;
     }
     let cam = unsafe { Box::from_raw(handle as *mut AndroidCam) };
@@ -240,6 +282,18 @@ pub fn close(handle: u64) {
         if !cam.manager.is_null() {
             ACameraManager_delete(cam.manager);
         }
-        let _ = (cam.request, cam.target, cam.container, cam.output);
+        // After the session (it holds them): the request, its target and the session's output container were never freed.
+        if !cam.request.is_null() {
+            ACaptureRequest_free(cam.request);
+        }
+        if !cam.target.is_null() {
+            ACameraOutputTarget_free(cam.target);
+        }
+        if !cam.container.is_null() {
+            ACaptureSessionOutputContainer_free(cam.container);
+        }
+        if !cam.output.is_null() {
+            ACaptureSessionOutput_free(cam.output);
+        }
     }
 }

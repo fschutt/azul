@@ -88,7 +88,8 @@ def tail(path, lines=60):
 def link_error(text):
     """A linker's complaint in one line, from the text cargo printed, or None: duplicate symbols (the app compiles an engine crate whose
     C ABI symbols libazul has too) and undefined ones (a library the link line lacks)."""
-    duplicates = sorted(set(re.findall(r"duplicate symbol: (\S+)", text)))
+    # rust-lld says "duplicate symbol: <name>", the MSVC linker "error LNK2005: <name> already defined in <rlib>" (and LNK1169 at the end)
+    duplicates = sorted(set(re.findall(r"duplicate symbol: (\S+)", text)) | set(re.findall(r"error LNK2005: (\S+) already defined", text)))
     if duplicates:
         return (f"engine crate compiled into the app: the link has {len(duplicates)} duplicate C ABI symbols ({duplicates[0]}, ...): "
                 f"a dependency of the app depends on azul-core, whose symbols are also in libazul")[:300]

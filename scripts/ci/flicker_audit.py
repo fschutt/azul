@@ -28,6 +28,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import layout_audit as la  # noqa: E402
 import mobile_qa as q  # noqa: E402
 
 FRAME_W, FRAME_H = 108, 240           # the size a video is cut to for the analysis and the strips
@@ -73,9 +74,26 @@ def percentile(values, p):
     return v[lo] + (v[hi] - v[lo]) * (k - lo)
 
 
-def frame_time_stats(events):
-    """p50 / p95 / max of the intervals between presents, and their count."""
-    iv = intervals_ms(events)
+BURST_GAP_MS = 200      # presents further apart than this are two bursts (two swipes), not one slow frame
+
+
+def split_bursts(events, gap_ms=BURST_GAP_MS):
+    """The presents split where two of them are more than `gap_ms` apart -> ([[event, ...], ...], [the gaps between the bursts in ms]). A pan
+    is several swipes with a pause between them: the pause is not a frame."""
+    bursts, gaps = [], []
+    for e in events:
+        if bursts and (e["us"] - bursts[-1][-1]["us"]) / 1000.0 <= gap_ms:
+            bursts[-1].append(e)
+        else:
+            if bursts:
+                gaps.append(round((e["us"] - bursts[-1][-1]["us"]) / 1000.0, 1))
+            bursts.append([e])
+    return bursts, gaps
+
+
+def frame_time_stats(events, gap_ms=BURST_GAP_MS):
+    """p50 / p95 / max of the intervals between presents INSIDE a burst (the pauses between swipes are no frames), and their count."""
+    iv = [x for burst in split_bursts(events, gap_ms)[0] for x in intervals_ms(burst)]
     if not iv:
         return None
     return {"n": len(iv), "p50": round(percentile(iv, 0.5), 1), "p95": round(percentile(iv, 0.95), 1), "max": round(max(iv), 1)}
@@ -284,6 +302,78 @@ def write_strip(path, frames, rows):
     return True
 
 
+def scroll_samples_during(srv, run_swipe, scroller_id, interval=0.04):
+    """Runs `run_swipe()` (a finger pan through the OS) while a thread asks the debug server for the page scroller's offset every `interval`
+    seconds -> [(seconds since the start, scroll_y)]. The server answers on the engine's UI thread, so the samples are what the engine
+    held at those moments; they are sampled in a swipe of their own: the questions cost the engine work, the frame times are not taken in
+    this one."""
+    samples, stop = [], threading.Event()
+    t0 = time.time()
+
+    def sample():
+        while not stop.is_set():
+            try:
+                for state in la.scroll_states(srv.op("get_scroll_states", timeout=3)):
+                    if state.get("node_id") == scroller_id:
+                        samples.append((round(time.time() - t0, 3), float(state.get("scroll_y", 0.0))))
+            except Exception:  # noqa: BLE001 - a missed sample is a missed sample
+                pass
+            time.sleep(interval)
+
+    thread = threading.Thread(target=sample, daemon=True)
+    thread.start()
+    try:
+        run_swipe()
+        time.sleep(0.4)
+    finally:
+        stop.set()
+        thread.join(timeout=5)
+    return samples
+
+
+def scroll_verdict(samples, direction, tolerance=1.0):
+    """-> (ok, text): the offsets of a pan advance the way the finger moves (`direction` +1: the page scrolls down, the offset grows; -1: it
+    comes back) and never snap back by more than `tolerance` px; at least three samples and a net move."""
+    values = [v for _t, v in samples]
+    if len(values) < 3:
+        return False, f"only {len(values)} offset sample(s): too few to judge"
+    ok, worst = monotonic(values, direction, tolerance)
+    moved = (values[-1] - values[0]) * direction
+    ok = ok and moved > 0
+    return ok, f"{len(values)} samples, {values[0]:.0f} -> {values[-1]:.0f} px, worst step back {worst} px" + ("" if moved > 0 else ", it did not move")
+
+
+def scroll_check(dev, pan, lines, entry, port=8796):
+    """The offset of the page scroller while a real finger pans it (adb's input) up and back: advances the way the finger moves, never snaps
+    back. Needs the debug server of the e2e app: relaunched with AZ_DEBUG, its own cold start, after the frame times were taken."""
+    import mobile_e2e as e2e
+    x1, y1, x2, y2, ms = pan
+    dev.adb("forward", f"tcp:{port}", f"tcp:{port}")
+    dev.sh(f"setprop debug.az.env 'AZ_LOG=info;AZ_DEBUG={port}'")
+    dev.launch(cold=True)
+    dev.wait_for_front(timeout=60)
+    srv = e2e.Server(port)
+    ready, why = srv.ready(60)
+    if ready is None:
+        entry["scroll"] = {"ok": None, "detail": f"the debug server did not answer: {why}"}
+        lines.append(f"  - scroll offset NOT VERIFIED: the debug server did not answer ({why})")
+        return
+    dev.settle(2.0)
+    states = la.scroll_states(srv.op("get_scroll_states"))
+    page = next((st for st in states if st.get("max_scroll_y", 0) > 100), None)
+    if not page:
+        entry["scroll"] = {"ok": None, "detail": "no scroller with more than 100 px to scroll"}
+        lines.append("  - scroll offset NOT VERIFIED: the engine names no scroller with more than 100 px to scroll")
+        return
+    up = scroll_samples_during(srv, lambda: dev.swipe(x1, y1, x2, y2, ms), page["node_id"])
+    down = scroll_samples_during(srv, lambda: dev.swipe(x2, y2, x1, y1, ms), page["node_id"])
+    ok_up, text_up = scroll_verdict(up, +1)
+    ok_down, text_down = scroll_verdict(down, -1)
+    entry["scroll"] = {"ok": ok_up and ok_down, "up": text_up, "down": text_down, "samples_up": up, "samples_down": down}
+    lines.append(f"  - scroll offset, finger up: {'PASS' if ok_up else 'FAIL'}: {text_up}")
+    lines.append(f"  - scroll offset, finger back down: {'PASS' if ok_down else 'FAIL'}: {text_down}")
+
+
 def flash_section(frames, marks, out, lines, report):
     """The flash-frame verdict of a recording cut into `frames`, with the scenario `marks` [(seconds, label)]: appends to `lines` and `report`,
     writes strips/flagged-frames.png for the flags."""
@@ -398,9 +488,11 @@ def android_audit(args):
 
     # ---- 3. pan jitter
     lines += ["## 3. Pan jitter (a finger pan through adb's input: the real finger path)", ""]
+    if getattr(args, "flash_only", False):
+        lines.append("- not run: this audit is for the cold start and the resume of an app that has no page to pan (`--flash-only`).")
     for name, apk, pan in (("AzWidgets (long page)", args.apk_e2e or args.apk_plain, (540, 1800, 540, 600, 700)),
                            ("AzMaps (the map)", args.maps, (300, 1500, 900, 900, 700))):
-        if not apk:
+        if not apk or getattr(args, "flash_only", False):
             continue
         d = device(apk)
         d.launch(cold=True)
@@ -421,14 +513,18 @@ def android_audit(args):
         stats = frame_time_stats(events)
         sig_after, _w, _h, shot_after = d.capture(f"pan-{slug}-after")
         moved = q.sig_diff(sig_before, sig_after)
-        entry = {"app": name, "presents": len(events), "engine_frame_ms": stats, "picture_changed": round(moved, 3),
+        entry = {"app": name, "presents": len(events), "bursts": len(split_bursts(events)[0]), "burst_gaps_ms": split_bursts(events)[1],
+                 "engine_frame_ms": stats, "picture_changed": round(moved, 3),
                  "permission_dialog": dialog, "shots": [shot_before, shot_after]}
         report["pan"].append(entry)
-        lines.append(f"- {name}: {len(events)} presents during three pans; engine present interval " + (f"p50 {stats['p50']} / p95 {stats['p95']} / max {stats['max']} ms (n={stats['n']})" if stats else "n/a (fewer than two presents)"))
+        bursts, gaps = split_bursts(events)
+        lines.append(f"- {name}: {len(events)} presents in {len(bursts)} burst(s) during three pans; engine present interval inside a burst " + (f"p50 {stats['p50']} / p95 {stats['p95']} / max {stats['max']} ms (n={stats['n']}; the pauses between swipes, {gaps} ms, are not frames)" if stats else "n/a (fewer than two presents in a burst)"))
         lines.append(f"  - the picture after the pans differs {moved:.3f} from the one before (shots/{shot_before}, shots/{shot_after})"
                      + (" - the pans moved nothing" if moved < q.SAME_BELOW else ""))
         if dialog:
             lines.append(f"  - A SYSTEM DIALOG STANDS OVER THE APP before the pans, they went to the dialog: {dialog}")
+        if name.startswith("AzWidgets") and args.apk_e2e and not dialog:
+            scroll_check(d, pan, lines, entry)
     lines += ["", "Notes: the engine's present lines carry the engine's own clock; an emulator on a shared runner is not a phone, the shares and the order matter."]
     (out / "flicker.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     (out / "flicker.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
@@ -554,6 +650,7 @@ def main(argv):
     a.add_argument("--apk-e2e", default="")
     a.add_argument("--maps", default="")
     a.add_argument("--serial", default="")
+    a.add_argument("--flash-only", action="store_true", help="idle and the flash frames only: no pan (an app without a page to scroll)")
     i = sub.add_parser("ios")
     i.add_argument("--out", required=True)
     i.add_argument("--udid", required=True)
