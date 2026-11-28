@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The table of the font-miss A/B (scripts/ci/startup_ab_linux.sh): first present of the starts of two builds, A and B, on
+"""The table of the font-miss A/B (scripts/ci/startup_ab.sh): first present of the starts of two builds, A and B, on
 one machine, for starts WITHOUT a font cache (miss) and starts WITH one (hit).
 
     startup_ab_table.py DIR [--json OUT]

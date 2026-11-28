@@ -399,6 +399,14 @@ pub fn faces_covering(
     };
 
     if let Some(registry) = registry {
+        // A character that reaches this point needs a face from the system. While the registry has no manifest and
+        // the scout has not listed the system's fonts, its probe has nothing to answer from (it waits half a second
+        // for a first match, then answers from what is listed so far): the wait the shell's first layout skips for
+        // a DOM whose text the faces in memory draw is made here, for the characters that are not (generated
+        // content, a text-transform's result, text that came later in the pass).
+        if !registry.is_cache_loaded() && !registry.is_scan_complete() {
+            registry.wait_for_fonts(std::slice::from_ref(&key.font_families));
+        }
         // The stack expanded for the MISSING scripts (the probe itself only
         // expands for the default seven): the generic's families, the
         // script candidates for `ranges` (fonts.conf aliases merged over the

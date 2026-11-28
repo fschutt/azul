@@ -258,8 +258,10 @@ pub fn should_request_fonts(build_complete: bool, cache_empty: bool) -> bool {
 /// of the system's fonts (`LayoutCallbackInfo::get_font_cache`, `get_system_fonts`) is the live cache as far as the scan
 /// has come (the old wait made the common families sure, and nothing else; a builder's additions were always visible
 /// meanwhile); and the chains of a DOM the faces in memory draw are resolved without the registry's probe while the
-/// scout has not listed the fonts (`resolve_font_chains_fast`), which waits for the listing itself for any stack the
-/// faces do not draw: a child DOM, text that comes later in the pass.
+/// scout has not listed the fonts (`resolve_font_chains_fast`). The probe is where the wait is made for what the rule
+/// did not see: `resolve_font_chains_fast` waits for the listing for any stack the faces do not draw (a child DOM, text
+/// that comes later in the pass), and `faces_covering` for any character that no face of the chain draws when the text
+/// is shaped (generated content, the result of a `text-transform`).
 fn wait_for_system_fonts_if_needed(
     layout_window: &mut LayoutWindow,
     registry: &FcFontRegistry,

@@ -21,9 +21,11 @@ use azul_layout::{
         collect_font_stacks_from_styled_dom, collect_used_codepoints_all, resolve_font_chains_fast,
         ResolvedFontChains,
     },
-    text3::cache::{FontChainKeyOrRef, MemoryFontTier},
+    text3::cache::{faces_covering, FontChainKey, FontChainKeyOrRef, FontRequest, MemoryFontTier},
 };
-use rust_fontconfig::{config::FcScanConfig, registry::FcFontRegistry, FcFontCache, UnicodeRange};
+use rust_fontconfig::{
+    config::FcScanConfig, registry::FcFontRegistry, FcFontCache, FontFallbackChain, UnicodeRange,
+};
 
 use crate::variable_fonts::{page, red_hat_mono_path, Manager};
 
@@ -137,4 +139,37 @@ fn a_stack_that_names_no_registered_family_waits_for_the_scan_too() {
     late.join().expect("the late start");
     assert!(took >= Duration::from_millis(200), "the resolution took {took:?}");
     assert!(registry.is_scan_complete());
+}
+
+#[test]
+fn a_character_no_face_of_the_chain_draws_waits_for_the_listing_before_its_face_is_looked_up() {
+    // The shaper asks `faces_covering` for the characters its chain does not draw (generated content, the result of a
+    // `text-transform`): the characters the shell's rule did not see.
+    let registry = idle_registry();
+    let late = {
+        let registry = Arc::clone(&registry);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(250));
+            registry.spawn_scout_and_builders();
+        })
+    };
+    let families = vec!["Mem".to_string()];
+    let key = FontChainKey {
+        font_families: families.clone(),
+        request: FontRequest::default(),
+    };
+    let chain = FontFallbackChain::empty(&families);
+    let started = Instant::now();
+    let _ = faces_covering(
+        &key,
+        &chain,
+        std::iter::once('\u{6f22}').collect(),
+        &FcFontCache::default(),
+        Some(&registry),
+        &|_, _| None,
+    );
+    let took = started.elapsed();
+    late.join().expect("the late start");
+    assert!(took >= Duration::from_millis(200), "the lookup took {took:?}: it did not wait for the listing");
+    assert!(registry.is_scan_complete(), "the listing was done when the lookup went on");
 }
