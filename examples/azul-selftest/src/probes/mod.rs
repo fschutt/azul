@@ -16,6 +16,7 @@ use azul::prelude::*;
 use crate::report::{RowResult, Verdict};
 
 pub mod device;
+pub mod files;
 pub mod lifecycle;
 pub mod media;
 pub mod pending;
@@ -108,6 +109,7 @@ pub fn all() -> Vec<&'static ProbeDef> {
         lifecycle::PROBES,
         security::PROBES,
         system::PROBES,
+        files::PROBES,
         platform::PROBES,
         render::PROBES,
         pending::PROBES,

@@ -168,6 +168,22 @@ impl SelfTest {
         }
     }
 
+    /// The app's open handler heard a request: the running row's scratch keeps what `probes::files` reads back from it (the number of
+    /// requests so far, the items, the files with a working copy, the first file's size and digest).
+    pub fn note_open(&mut self, summary: &probes::files::OpenSummary) {
+        use probes::files::{SCRATCH_COPIES, SCRATCH_FIRST_FNV, SCRATCH_FIRST_LEN, SCRATCH_ITEMS, SCRATCH_LEN, SCRATCH_REQUESTS};
+        if let Some(run) = self.running.as_mut() {
+            if run.scratch.len() < SCRATCH_LEN {
+                run.scratch.resize(SCRATCH_LEN, 0);
+            }
+            run.scratch[SCRATCH_REQUESTS] += 1;
+            run.scratch[SCRATCH_ITEMS] = summary.items;
+            run.scratch[SCRATCH_COPIES] = summary.copies;
+            run.scratch[SCRATCH_FIRST_LEN] = summary.first_len;
+            run.scratch[SCRATCH_FIRST_FNV] = summary.first_fnv;
+        }
+    }
+
     /// A frame of the running row's capture widget arrived (the widget's callback, on the loop thread, between two ticks): the
     /// row's scratch keeps `[frames, width, height, loudest sample in millionths]` and the row's next tick reads it.
     pub fn note_media_frame(&mut self, width: u32, height: u32, loudest_micro: u64) {
@@ -407,8 +423,26 @@ extern "C" fn on_lifecycle(mut data: RefAny, info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
+/// The app's open handler: what the system asks this app to open (a file shared to it, "Open with", a link of a declared scheme) goes
+/// to the log, one `AZ_SELFTEST_OPEN {json}` line per request, and to the running row.
+extern "C" fn on_open(mut data: RefAny, info: CallbackInfo) -> Update {
+    if let Some(request) = info.get_open_request().into_option() {
+        let summary = probes::files::summarize(&request);
+        println!("AZ_SELFTEST_OPEN {}", summary.json);
+        {
+            use std::io::Write as _;
+            let _ = std::io::stdout().flush();
+        }
+        if let Some(mut state) = data.downcast_mut::<SelfTest>() {
+            state.note_open(&summary);
+        }
+    }
+    Update::DoNothing
+}
+
 extern "C" fn on_created(data: RefAny, mut info: CallbackInfo) -> Update {
     info.set_lifecycle_handler(data.clone(), on_lifecycle);
+    info.set_open_handler(data.clone(), on_open);
     let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
         .with_interval(Duration::System(SystemTimeDiff::from_millis(TICK_MS)));
     info.add_timer(TimerId::unique(), timer);

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ShareLab: the QA-only target and sender of the files / share / open-with proof (scripts/ci/android_files_proof.py).
+  NEVER shipped, never part of an app of ours: a tiny Java-only APK that
+    - receives what an Az app shares or opens it with (SEND, SEND_MULTIPLE, VIEW), reads every URI through the content resolver (the
+      same read a real mail or chat app does) and logs ONE line `AZ_SHARELAB_RECEIVED {json}` with the action, the type, the text and,
+      per item, the display name, the size, the type the provider answers and the SHA-256 of the bytes read;
+    - sends an Az app a file (SendActivity: ACTION_VIEW / SEND / SEND_MULTIPLE of a document its own provider serves, with a read grant,
+      started WITHOUT FLAG_ACTIVITY_NEW_TASK, the way a share target of a real app starts us), so that the launch mode of the app's
+      activity is proven by a sender that has a task of its own.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.azul.sharelab"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+
+    <application android:label="ShareLab" android:hasCode="true" android:theme="@android:style/Theme.Material.Light">
+
+        <activity android:name=".ReceiveActivity" android:exported="true" android:label="ShareLab" android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
+        <activity android:name=".SendActivity" android:exported="true" android:label="ShareLab sender"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" android:excludeFromRecents="true" />
+
+        <provider android:name=".DocsProvider" android:authorities="com.azul.sharelab.docs"
+            android:exported="false" android:grantUriPermissions="true" />
+    </application>
+</manifest>
