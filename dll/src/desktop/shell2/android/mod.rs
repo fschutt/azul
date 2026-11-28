@@ -60,6 +60,10 @@ mod bridge;
 pub mod clipboard;
 /// The GPU path of the window: EGL and WebRender over the lifecycle executor of `common::gles_gpu`.
 mod gpu;
+/// System sounds: `AudioManager` effects, the user's notification tone and the camera sounds,
+/// through the `AzulSounds` helper (`scripts/android/AzulSounds.java`).
+mod sounds;
+pub use sounds::{play_system_sound, touch_sounds_enabled};
 /// `<webview>`: `android.webkit.WebView`s through the `AzulWebView` bridge.
 #[cfg(feature = "jni")]
 mod webview;
@@ -737,6 +741,10 @@ pub fn android_main(app: AndroidApp) {
     if let Some(language) = language_of(&app, config.localization.known_languages.as_slice()) {
         config.system_style.language = language;
     }
+    // The phone's own "Touch sounds" switch, likewise: the style says whether the input-feedback
+    // sounds of `play_system_sound` are on. Read once here and again at every resume.
+    config.system_style.audio.input_feedback_sounds_enabled =
+        touch_sounds_enabled().unwrap_or(true);
 
     let mut window = match AndroidWindow::new(
         root_window,
@@ -1665,6 +1673,26 @@ fn adopt_language(app: &AndroidApp, window: &mut AndroidWindow) {
     }
 }
 
+/// "Touch sounds" may have been switched while the app was in the background (Settings is another
+/// activity): read it again at resume and, when it differs from what the window's style carries,
+/// adopt the style that carries it. `AudioManager.playSoundEffect` applies the switch live anyway;
+/// this keeps the route table and `get_sound_route` truthful.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn adopt_touch_sounds(window: &mut AndroidWindow) {
+    let Some(enabled) = touch_sounds_enabled() else {
+        return;
+    };
+    if window.common.system_style.audio.input_feedback_sounds_enabled == enabled {
+        return;
+    }
+    let mut style = (*window.common.system_style).clone();
+    style.audio.input_feedback_sounds_enabled = enabled;
+    window.snapshot_window_state_baseline("android.main_event.resume.touch_sounds");
+    if window.adopt_system_style(Arc::new(style)) {
+        window.needs_rerender = true;
+    }
+}
+
 /// The window's engine `dpi` from the configuration the system reported: a density beyond what a phone has
 /// (`MAX_DENSITY`) is capped and the log says so.
 #[cfg(all(target_os = "android", feature = "android-activity"))]
@@ -1859,6 +1887,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // No-op for now; future: pause timers, stop animations.
             }
             MainEvent::Resume { .. } => {
+                adopt_touch_sounds(window);
                 // Back in front (HOME and back, recents, another app's dialog that covered this one): the
                 // surface may have lost what it showed without a `RedrawNeeded` (a black window until
                 // something redrew it, QA run 45776829730). The frame the shell holds is posted once,

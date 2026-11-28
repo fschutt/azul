@@ -1,0 +1,10 @@
+# The steps of this run of scripts/ci/sounds_gate.sh (the COMPILE gate before a push).
+java_compile
+core_tests
+layout_check
+dll_check
+android_check
+ios_cross_check
+autofix
+doc_check
+doc_check_layout
