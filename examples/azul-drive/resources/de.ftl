@@ -18,26 +18,16 @@ azdrive-transfer-left = { $count ->
 
 ## Menüband und Datei-Menü
 azdrive-file-about = Info zu AzDrive
-azdrive-file-about-about = Version, Lizenz, Danksagungen.
 azdrive-file-azterm = AzTerm
-azdrive-file-azterm-about = Azlins Terminal im geöffneten Ordner.
 azdrive-file-back-forward = Zurück und Vor
-azdrive-file-back-forward-about = Vergisst, wohin „Zurück“ und „Vor“ führen.
 azdrive-file-delete-history = Verlauf löschen
 azdrive-file-everything = Alles
-azdrive-file-everything-about = Beides.
-azdrive-file-frequent-places = Häufig besuchte Orte
 azdrive-file-help = Hilfe
 azdrive-file-new-window = Neues Fenster öffnen
-azdrive-file-new-window-about = Ein weiteres AzDrive-Fenster an diesem Ort.
-azdrive-file-new-tab-about = Ein Tab mit diesem Ordner (Strg+T)
-azdrive-file-options-about = Was AzDrive zeigt und tut, die Laufwerke, das Aussehen
 azdrive-file-recent-places = Zuletzt besuchte Orte
 azdrive-file-shortcuts = Tastenkombinationen
-azdrive-file-shortcuts-about = Alle Tasten, die AzDrive kennt (F1).
 azdrive-file-terminal = Terminal
 azdrive-file-terminal-here = Terminal hier öffnen
-azdrive-file-terminal-system = Das Terminal des Systems im geöffneten Ordner.
 azdrive-group-clipboard = Zwischenablage
 azdrive-group-cloud = Cloud
 azdrive-group-current-view = Aktuelle Ansicht
@@ -131,7 +121,6 @@ azdrive-tab-view = Ansicht
 azdrive-undo = Rückgängig
 azdrive-ribbon-history-why = Frühere Versionen brauchen einen versionierten Bucket; AzDrive behält eine Version jeder Datei.
 azdrive-ribbon-advanced-security-why = Wer ein Cloud-Laufwerk lesen darf, legt seine Bucket-Richtlinie fest; bei einem lokalen Ordner die Freigabeeinstellungen des Systems.
-azdrive-file-recent-places-about = Vergisst die Orte, die „Zuletzt besuchte Orte“ und „Häufig besuchte Orte“ sich merken (die angehefteten bleiben).
 azdrive-refine-chosen = { $name }: { $chosen }
 
 ## Commands, menus and their messages
@@ -918,9 +907,6 @@ azdrive-status-items-so-far = { $count ->
         [one] bisher { $n } Element
        *[other] bisher { $n } Elemente
     }
-azdrive-search-placeholder = { $place } durchsuchen
-azdrive-no-subfolders = Dieser Ordner hat keine Unterordner.
-azdrive-listing-folder = Der Ordner wird aufgelistet…
 azdrive-no-drive-for = Es gibt kein Laufwerk für „{ $path }“.
 azdrive-status-selected = { $n } ausgewählt
 azdrive-status-drives = { $count ->
@@ -1072,20 +1058,14 @@ azdrive-side-pinned = { $count ->
         [one] Ein Ordner wurde
        *[other] { $count } Ordner wurden
     } an die Favoriten angeheftet.
-azdrive-side-unpin-place = „{ $name }“ aus den Favoriten entfernen
-azdrive-side-pin-place = „{ $name }“ an die Favoriten anheften
 azdrive-side-state-busy = Wird synchronisiert
 azdrive-side-state-locked = Seine Schlüssel liegen im Schlüsselbund
 azdrive-side-state-connected = Verbunden
 azdrive-side-state-not-opened = Noch nicht geöffnet
-azdrive-side-collapse = Zuklappen
-azdrive-side-expand = Aufklappen
-azdrive-side-eject = „{ $name }“ entfernen
 azdrive-side-activity-progress = { $done } von { $total ->
         [one] einer Datei
        *[other] { $total } Dateien
     } ({ $percent } %)
-azdrive-side-add = Laufwerk hinzufügen oder Ordner anheften
 azdrive-side-sources = Quellen
 
 ## Keyring, results of the file operations
@@ -2669,7 +2649,6 @@ azdrive-git-back = Zurück
 azdrive-git-back-tip = Geht ohne Wechsel zurück zur Liste der Branches.
 
 ## Die Befehlszeile am Fuß eines Ordners
-azdrive-cli-placeholder = Einen Befehl in { $folder } ausführen ({ $keys }), oder /help tippen
 azdrive-cli-field = Befehl
 azdrive-cli-folder-tip = Befehle laufen in { $folder }.
 azdrive-cli-info = Die Befehlszeile am Fuß des Fensters nimmt eine Suche, einen Pfad oder einen Befehl. Eine Zeile, die mit ? beginnt, durchsucht den Ordner und alles darunter, während du tippst; ein Pfad wie Home/Documents oder ~/Pictures geht dorthin; eine Zeile, die mit : beginnt, ist ein Befehl des Fensters (:options, :new window, :about, :sign in, :exit; Tab ergänzt den Namen); eine Zeile, die mit / beginnt, führt eine von AzDrives eigenen Aktionen aus (/help listet sie). Alles andere läuft, ein Befehl nach dem anderen, im gezeigten Ordner, in deiner eigenen Shell: deiner Login-Shell, mit deinen Rechten und deinen Einstellungen, nicht mehr. Die Ausgabe erscheint über der Zeile, Strg+C hält einen Befehl an, und die Pfeiltasten holen frühere Zeilen zurück. Programme, die den ganzen Bildschirm brauchen, etwa vim oder less, brauchen ein echtes Terminal: Öffne dafür eins mit Im Terminal öffnen.

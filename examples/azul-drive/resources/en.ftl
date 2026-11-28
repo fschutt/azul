@@ -20,26 +20,16 @@ azdrive-transfer-left = { $count ->
 
 ## The ribbon and the File menu
 azdrive-file-about = About AzDrive
-azdrive-file-about-about = The version, the license, the credits.
 azdrive-file-azterm = AzTerm
-azdrive-file-azterm-about = Azlin's terminal, in the open folder.
 azdrive-file-back-forward = Back and forward
-azdrive-file-back-forward-about = Forget where Back and Forward go.
 azdrive-file-delete-history = Delete history
 azdrive-file-everything = Everything
-azdrive-file-everything-about = Both.
-azdrive-file-frequent-places = Frequent places
 azdrive-file-help = Help
 azdrive-file-new-window = Open new window
-azdrive-file-new-window-about = Another AzDrive window, at this place.
-azdrive-file-new-tab-about = A tab on this folder (Ctrl+T)
-azdrive-file-options-about = What AzDrive shows and does, the drives, the look
 azdrive-file-recent-places = Recent places
 azdrive-file-shortcuts = Keyboard shortcuts
-azdrive-file-shortcuts-about = Every key AzDrive knows (F1).
 azdrive-file-terminal = Terminal
 azdrive-file-terminal-here = Open terminal here
-azdrive-file-terminal-system = The system's terminal, in the open folder.
 azdrive-group-clipboard = Clipboard
 azdrive-group-cloud = Cloud
 azdrive-group-current-view = Current view
@@ -133,7 +123,6 @@ azdrive-tab-view = View
 azdrive-undo = Undo
 azdrive-ribbon-history-why = Earlier versions need a versioned bucket; AzDrive keeps one version of a file.
 azdrive-ribbon-advanced-security-why = Who may read a cloud drive is set in its bucket policy; a local folder's in the system's sharing settings.
-azdrive-file-recent-places-about = Forget the places Recent locations and Frequent places remember (the pins stay).
 azdrive-refine-chosen = { $name }: { $chosen }
 
 ## Commands, menus and their messages
@@ -920,9 +909,6 @@ azdrive-status-items-so-far = { $count ->
         [one] { $n } item so far
        *[other] { $n } items so far
     }
-azdrive-search-placeholder = Search { $place }
-azdrive-no-subfolders = This folder has no subfolders.
-azdrive-listing-folder = Listing the folder…
 azdrive-no-drive-for = There is no drive for "{ $path }".
 azdrive-status-selected = { $n } selected
 azdrive-status-drives = { $count ->
@@ -1074,20 +1060,14 @@ azdrive-side-pinned = { $count ->
         [one] One folder pinned
        *[other] { $count } folders pinned
     } to Favorites.
-azdrive-side-unpin-place = Remove "{ $name }" from Favorites
-azdrive-side-pin-place = Pin "{ $name }" to Favorites
 azdrive-side-state-busy = Syncing
 azdrive-side-state-locked = Its keys are in the keyring
 azdrive-side-state-connected = Connected
 azdrive-side-state-not-opened = Not opened yet
-azdrive-side-collapse = Close
-azdrive-side-expand = Open
-azdrive-side-eject = Remove "{ $name }"
 azdrive-side-activity-progress = { $done } of { $total ->
         [one] one file
        *[other] { $total } files
     } ({ $percent }%)
-azdrive-side-add = Add a drive or pin a folder
 azdrive-side-sources = Sources
 
 ## Keyring, results of the file operations
@@ -2671,7 +2651,6 @@ azdrive-git-back = Back
 azdrive-git-back-tip = Goes back to the list of branches without switching.
 
 ## The command bar at the foot of a folder
-azdrive-cli-placeholder = Run a command in { $folder } ({ $keys }), or type /help
 azdrive-cli-field = Command
 azdrive-cli-folder-tip = Commands run in { $folder }.
 azdrive-cli-info = The command line at the foot of the window takes a search, a path or a command. A line that starts with ? searches the folder and everything below it as you type; a path such as Home/Documents or ~/Pictures goes there; a line that starts with : is a command of the window (:options, :new window, :about, :sign in, :exit; Tab completes its name); a line that starts with / runs one of AzDrive's own actions (type /help to list them). Anything else runs, one command at a time, in the folder shown, in your own shell: your login shell, with your rights and your settings, nothing more. The output shows above the line, Ctrl+C stops a command, and the arrow keys bring back earlier lines. Programs that take the whole screen, such as vim or less, need a real terminal: use Open in Terminal for them.
