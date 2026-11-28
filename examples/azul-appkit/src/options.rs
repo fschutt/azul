@@ -324,8 +324,11 @@ mod tests {
         let mut settings = AppSettings::default();
         settings.set("speed", "1000");
         let mut args = AppArgs::default();
+        // the theme an app starts with, and the one the page changes it to
+        let start = settings.theme;
+        let other = if start == Theme::Flat { Theme::Flora } else { Theme::Flat };
         let snapshot = Snapshot::take(&settings, &args);
-        settings.theme = Theme::Flora;
+        settings.theme = other;
         settings.mode = ModePref::Dark;
         settings.set("speed", "2000");
         let restored = snapshot.restore(&mut settings, &mut args);
@@ -333,11 +336,11 @@ mod tests {
             restored,
             Restored {
                 save: true,
-                look: Some((Theme::Flat, ModePref::System)),
+                look: Some((start, ModePref::System)),
             }
         );
         assert_eq!(settings.get("speed"), Some("1000"));
-        assert_eq!(settings.theme, Theme::Flat);
+        assert_eq!(settings.theme, start);
     }
 
     #[test]
@@ -377,18 +380,20 @@ mod tests {
 
     #[test]
     fn cancel_brings_back_a_theme_switch_the_page_had_dropped() {
-        // Started with --theme flora; the page's Flat dropped the switch (ui::choose_theme).
+        // Started with --theme flat; the page's Flora (the theme every app starts with) dropped the switch
+        // (ui::choose_theme).
         let mut settings = AppSettings::default();
+        assert_eq!(settings.theme, Theme::Flora, "the file's theme is the default one");
         let mut args = AppArgs {
-            theme: Some(Theme::Flora),
+            theme: Some(Theme::Flat),
             ..AppArgs::default()
         };
         let snapshot = Snapshot::take(&settings, &args);
-        settings.theme = Theme::Flat;
+        settings.theme = Theme::Flora;
         args.theme = None;
         let restored = snapshot.restore(&mut settings, &mut args);
-        assert_eq!(args.theme, Some(Theme::Flora));
-        assert_eq!(restored.look, Some((Theme::Flora, ModePref::System)));
-        assert!(!restored.save, "the file never changed: Flat was its theme already");
+        assert_eq!(args.theme, Some(Theme::Flat));
+        assert_eq!(restored.look, Some((Theme::Flat, ModePref::System)));
+        assert!(!restored.save, "the file never changed: Flora was its theme already");
     }
 }
