@@ -2593,3 +2593,10 @@ pub fn start() {
     window.window_state.window_id = AzString::from(MAIN_WINDOW_ID);
     App::create(RefAny::new(state), config).run(window);
 }
+
+/// The Android entry: the activity loads this library and the library starts the app, as the other phone apps do.
+#[cfg(target_os = "android")]
+#[ctor::ctor]
+fn android_ctor() {
+    start();
+}
