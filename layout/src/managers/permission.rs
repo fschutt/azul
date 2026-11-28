@@ -622,6 +622,14 @@ impl PermissionManager {
         out
     }
 
+    /// Whether a Subscribe waits for the user's gesture: the pump looks again at it with every
+    /// new state the platform's quiet read brings (a capability that turns out granted needs no
+    /// gesture) and with every gesture.
+    #[must_use]
+    pub fn has_held(&self) -> bool {
+        !self.held.is_empty()
+    }
+
     /// The Subscribes still waiting for a gesture, by capability (a test or a hint to the UI).
     #[must_use]
     pub fn held_capabilities(&self) -> Vec<Capability> {

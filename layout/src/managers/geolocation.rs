@@ -172,6 +172,12 @@ impl GeolocationManager {
         core::mem::take(&mut self.pending_events)
     }
 
+    /// Whether a `Subscribe` waits for the user's next gesture ([`Self::take_admitted_events`]).
+    #[must_use]
+    pub const fn has_held_subscribe(&self) -> bool {
+        self.held_subscribe.is_some()
+    }
+
     /// The diff events the platform backend may act on now. A `Subscribe` starts the native
     /// subscription and, with no decision of the user yet, asks them for the permission: it goes
     /// out only when `admit` says so (the permission manager's [`admit`] of the capability:

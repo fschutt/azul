@@ -40,6 +40,8 @@ pub const SENSOR_INTERVAL_MS: u64 = 50;
 pub const GEOLOCATION_INTERVAL_MS: u64 = 200;
 /// How often the platforms' quiet read of the permissions in use is folded into the manager.
 pub const PERMISSION_PROBE_INTERVAL_MS: u64 = 1000;
+/// The same while a Subscribe waits for the user's gesture.
+pub const PERMISSION_WAITING_PROBE_INTERVAL_MS: u64 = 250;
 /// Drain cadence while an async prompt (biometric / keyring / permission)
 /// is in flight and its result may be parked by an OS completion handler.
 pub const ASYNC_RESULT_INTERVAL_MS: u64 = 100;
@@ -140,10 +142,40 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     // the ones with a probe node (it never prompts) - once a second: the OS knows more than the
     // manager (a switch the user flipped in the settings, a camera a backend opened on its own)
     // and `get_permission_status` reads the manager. An app that asks nothing reads nothing.
-    if lw.permission_manager.probe_due(PERMISSION_PROBE_INTERVAL_MS) {
+    // A Subscribe that waits for the user's gesture is looked at again, sooner: the state the read
+    // finds may admit it (granted already: nothing can be asked), and so does a gesture.
+    let waiting = lw.permission_manager.has_held() || lw.geolocation_manager.has_held_subscribe();
+    let every_ms = if waiting {
+        PERMISSION_WAITING_PROBE_INTERVAL_MS
+    } else {
+        PERMISSION_PROBE_INTERVAL_MS
+    };
+    if lw.permission_manager.probe_due(every_ms) {
         for capability in lw.permission_manager.capabilities_in_use() {
             let probed = crate::desktop::extra::permission::probe_status(capability);
             changed |= lw.permission_manager.observe(capability, probed);
+        }
+    }
+    if lw.permission_manager.has_held() {
+        let events = lw.permission_manager.take_dispatchable();
+        if !events.is_empty() {
+            crate::desktop::extra::permission::apply_diff_events(
+                &events,
+                &lw.app_services.permission,
+            );
+            changed = true;
+        }
+    }
+    if lw.geolocation_manager.has_held_subscribe() {
+        let events = {
+            let permissions = &mut lw.permission_manager;
+            lw.geolocation_manager.take_admitted_events(|| {
+                permissions.admit(azul_layout::managers::permission::Capability::Geolocation)
+            })
+        };
+        if !events.is_empty() {
+            crate::desktop::extra::geolocation::apply_diff_events(&events, &lw.app_services);
+            changed = true;
         }
     }
 
