@@ -13,6 +13,7 @@
 #                 engine's frames of every file (AZ_E2E_SHOT_DIR, pulled), the device's own pictures of a plain start (light, dark) and a
 #                 recording of each run; AZ_ANDROID_DEVICE=pixel_8 and AZ_ANDROID_OVERLAYS=com.android.internal.display.cutout.emulation.hole
 #                 give it the Pixel 8 with its punch hole (first mode only);
+#                 AZ_QA_AZMAIL_APK (and AZ_QA_AZMAIL_DATA) adds AzMail on the same phone per orientation (scripts/ci/android_azmail.py);
 #            audit: the phone-fit audit of QA-variant APKs (scripts/ci/mobile_e2e.py --audit-only) on the first mode only: the
 #                 APK, then every APK of AZ_QA_AUDIT_APKS (space separated), each in its own folder <out>/<mode>/audit/<apk name>/
 #                 (layout-audit.md and .json, the dumps, both pictures per orientation, the dark-mode verdict, and the app's own
@@ -168,6 +169,8 @@ for mode in "${mode_list[@]}"; do
     # against the e2e APK, per orientation: (1) the device's own pictures of a plain start, light and dark (the system draws the cutout), (2) per file a
     # recording of its run and the engine's frames of it (AZ_E2E_SHOT_DIR, pulled by scripts/ci/e2e_matrix.py --shots), its verdicts in the table
     adb shell dumpsys window displays 2>/dev/null | grep -i -E "cutout|init=|DisplayInfo" | head -n 24 >"$d/display.txt" || true
+    # the APK on the phone FIRST: the plain start below needs it, and the matrix runs install it only later
+    adb install -r -t "$apk" >"$d/install.log" 2>&1 || echo "the e2e APK did not install: $(tail -n 2 "$d/install.log")"
     adb shell settings put system accelerometer_rotation 0
     for orient in portrait landscape; do
       adb shell settings put system user_rotation "$([ "$orient" = portrait ] && echo 0 || echo 1)"
@@ -182,7 +185,7 @@ for mode in "${mode_list[@]}"; do
       adb exec-out screencap -p >"$td/device-dark-start.png" 2>/dev/null || true
       adb shell cmd uimode night no >/dev/null 2>&1; sleep 4
       adb shell am force-stop "$pkg" >/dev/null 2>&1
-      for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures}; do
+      for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures tab_looks}; do
         vid="/sdcard/tabs-$orient-${part%.json}.mp4"
         ( adb shell screenrecord --time-limit 170 "$vid" >/dev/null 2>&1 & )
         python3 "$here/e2e_matrix.py" android --repo . --out "$td/matrix-${part%.json}" --only "$part" --shots "$td/shots" --apk "$apk" 2>&1 | tee -a "$td/e2e-matrix.log"
@@ -190,6 +193,30 @@ for mode in "${mode_list[@]}"; do
         sleep 4
         adb pull "$vid" "$td/videos/" >/dev/null 2>&1 || echo "no recording $vid"
       done
+      # AZ_QA_TABS_EXTRA_APKS="a.apk b.apk": a first look at other apps on this phone in this orientation (the AzWriter ribbon): installed, started, 30 s,
+      # a picture in light and in dark (the system draws the cutout)
+      for xapk in ${AZ_QA_TABS_EXTRA_APKS:-}; do
+        xb="$("$aapt2" dump badging "$xapk" 2>/dev/null || true)"
+        xpkg="$(echo "$xb" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+        xact="$(echo "$xb" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" | head -n 1)"
+        xn="$(basename "$xapk" .apk)"
+        [ -n "$xpkg" ] || { echo "no package in the badging of $xapk"; continue; }
+        adb install -r -t "$xapk" >"$td/$xn-install.log" 2>&1 || echo "$xn did not install"
+        adb shell am force-stop "$xpkg" >/dev/null 2>&1
+        if [ -n "$xact" ]; then adb shell am start -n "$xpkg/$xact" >/dev/null 2>&1; else adb shell monkey -p "$xpkg" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1; fi
+        sleep 30
+        adb exec-out screencap -p >"$td/$xn-light.png" 2>/dev/null || true
+        adb shell cmd uimode night yes >/dev/null 2>&1; sleep 8
+        adb exec-out screencap -p >"$td/$xn-dark.png" 2>/dev/null || true
+        adb shell cmd uimode night no >/dev/null 2>&1; sleep 4
+        adb shell am force-stop "$xpkg" >/dev/null 2>&1
+      done
+      # AZ_QA_AZMAIL_APK: AzMail on this phone in this orientation (scripts/ci/android_azmail.py: its first start, the sample mailbox when
+      # AZ_QA_AZMAIL_DATA names the folder scripts/ci/azmail_sample_data.py wrote, a message, the compose command; the pictures are the answer)
+      if [ -n "${AZ_QA_AZMAIL_APK:-}" ]; then
+        python3 "$here/android_azmail.py" --out "$td/azmail" --apk "$AZ_QA_AZMAIL_APK" --tag "$orient" \
+          ${AZ_QA_AZMAIL_DATA:+--data "$AZ_QA_AZMAIL_DATA"} 2>&1 | tee "$td/azmail.log"
+      fi
     done
     adb shell settings put system accelerometer_rotation 1
   fi

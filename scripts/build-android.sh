@@ -218,6 +218,26 @@ if [[ -n "${AZ_ANDROID_PERMISSIONS:-}" ]]; then
         [[ "$p" == "android.permission.POST_NOTIFICATIONS" ]] && continue
         EXTRA_PERMISSIONS_XML+="    <uses-permission android:name=\"$p\" />"$'\n'
     done
+    # A FINE location request is made together with the COARSE one (Android 12+: the user may grant the approximate
+    # location only, and a request for the fine one alone is ignored on some releases): declared together, or the
+    # coarse permission of the request is refused for want of a declaration.
+    if [[ "$AZ_ANDROID_PERMISSIONS" == *android.permission.ACCESS_FINE_LOCATION* \
+          && "$AZ_ANDROID_PERMISSIONS" != *android.permission.ACCESS_COARSE_LOCATION* ]]; then
+        EXTRA_PERMISSIONS_XML+="    <uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\" />"$'\n'
+    fi
+    # The hardware a permission goes with is NOT required: a store filters an app out of every device without a
+    # declared feature that is `required` (an app that can use a camera is not an app that needs one). One
+    # <uses-feature required="false"> per capability, whatever the list names.
+    _features=""
+    [[ "$AZ_ANDROID_PERMISSIONS" == *android.permission.CAMERA* ]] \
+        && _features+="android.hardware.camera android.hardware.camera.autofocus "
+    [[ "$AZ_ANDROID_PERMISSIONS" == *android.permission.RECORD_AUDIO* ]] \
+        && _features+="android.hardware.microphone "
+    [[ "$AZ_ANDROID_PERMISSIONS" == *android.permission.ACCESS_*_LOCATION* ]] \
+        && _features+="android.hardware.location android.hardware.location.gps "
+    for f in $_features; do
+        EXTRA_PERMISSIONS_XML+="    <uses-feature android:name=\"$f\" android:required=\"false\" />"$'\n'
+    done
 fi
 # Written to a file because sed cannot substitute a multi-line replacement
 # portably (GNU and BSD disagree), and `r` needs a file.
@@ -254,11 +274,15 @@ printf '%s' "$AUTH_REDIRECT_XML" > "$AUTH_FILE"
 # the script, or with AZ_ANDROID_NO_ICON=1, the manifest names none and Android shows its default.
 ICON_ATTR=""
 rm -rf "$BUILD_DIR/res" "$BUILD_DIR/compiled-res.zip"
+# The theme of the activity (scripts/android/res: the window's colour per night mode, so the starting window, the empty
+# window and the first frame are one colour instead of the platform's default dark window between them), always.
+mkdir -p "$BUILD_DIR/res"
+cp -R "$ASSET_ROOT/scripts/android/res/." "$BUILD_DIR/res/"
 if [[ -f "$ASSET_ROOT/scripts/demo_icon.py" && "${AZ_ANDROID_NO_ICON:-}" != "1" ]]; then
     python3 "$ASSET_ROOT/scripts/demo_icon.py" android "$APP_NAME" "$BUILD_DIR/res"
-    "$BT/aapt2" compile --dir "$BUILD_DIR/res" -o "$BUILD_DIR/compiled-res.zip"
     ICON_ATTR='android:icon="@mipmap/ic_launcher"'
 fi
+"$BT/aapt2" compile --dir "$BUILD_DIR/res" -o "$BUILD_DIR/compiled-res.zip"
 
 sed \
     -e "s|@ICON_ATTR@|$ICON_ATTR|g" \

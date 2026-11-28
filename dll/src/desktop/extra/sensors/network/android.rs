@@ -3,8 +3,10 @@
 //! `NetworkCallback` subclass, which this path has none of, so a thread of its own reads the
 //! service every [`POLL`] (a handful of JNI calls) and a query reads the last reading:
 //!
-//! - connected: `getActiveNetwork()` (API 23) is not null and its `NetworkCapabilities` have
-//!   `NET_CAPABILITY_INTERNET`;
+//! - connected: `getActiveNetwork()` (API 23) is not null and its `NetworkCapabilities` have BOTH
+//!   `NET_CAPABILITY_INTERNET` (the network is meant to reach the internet) and `NET_CAPABILITY_VALIDATED` (the system
+//!   checked that it does): behind a captive portal, or on a Wi-Fi with no route out, the first alone is true and
+//!   `connected` said so for every request that then failed;
 //! - metered: `isActiveNetworkMetered()`;
 //! - constrained: `getRestrictBackgroundStatus()` (API 24) is `ENABLED`: Data Saver is on and
 //!   the app is not let past it;
@@ -32,6 +34,7 @@ const POLL: Duration = Duration::from_secs(10);
 
 /// `NetworkCapabilities` constants.
 const NET_CAPABILITY_INTERNET: i32 = 12;
+const NET_CAPABILITY_VALIDATED: i32 = 16;
 const TRANSPORT_CELLULAR: i32 = 0;
 const TRANSPORT_WIFI: i32 = 1;
 const TRANSPORT_ETHERNET: i32 = 3;
@@ -75,7 +78,9 @@ fn read_with(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> Option<NetworkStat
     if caps.is_null() {
         return Some(NetworkState::OFFLINE);
     }
-    let connected = caps_say(env, &caps, "hasCapability", NET_CAPABILITY_INTERNET);
+    // INTERNET alone is true behind a captive portal and on a Wi-Fi that leads nowhere: the system's own check says more.
+    let connected = caps_say(env, &caps, "hasCapability", NET_CAPABILITY_INTERNET)
+        && caps_say(env, &caps, "hasCapability", NET_CAPABILITY_VALIDATED);
     let kind = if caps_say(env, &caps, "hasTransport", TRANSPORT_WIFI) {
         NetworkKind::WiFi
     } else if caps_say(env, &caps, "hasTransport", TRANSPORT_CELLULAR) {

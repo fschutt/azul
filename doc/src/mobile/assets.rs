@@ -60,6 +60,41 @@ const ASSETS: &[(&str, &str, bool)] = &[
         false,
     ),
     (
+        "scripts/android/res/values/azul_theme.xml",
+        include_str!("../../../scripts/android/res/values/azul_theme.xml"),
+        false,
+    ),
+    (
+        "scripts/android/res/values-night/azul_theme.xml",
+        include_str!("../../../scripts/android/res/values-night/azul_theme.xml"),
+        false,
+    ),
+    (
+        "scripts/android/res/values-v31/azul_theme.xml",
+        include_str!("../../../scripts/android/res/values-v31/azul_theme.xml"),
+        false,
+    ),
+    (
+        "scripts/android/res/values-night-v31/azul_theme.xml",
+        include_str!("../../../scripts/android/res/values-night-v31/azul_theme.xml"),
+        false,
+    ),
+    (
+        "scripts/android/AzulAuthSession.java",
+        include_str!("../../../scripts/android/AzulAuthSession.java"),
+        false,
+    ),
+    (
+        "scripts/android/AzulUrl.java",
+        include_str!("../../../scripts/android/AzulUrl.java"),
+        false,
+    ),
+    (
+        "scripts/android/AzulWebView.java",
+        include_str!("../../../scripts/android/AzulWebView.java"),
+        false,
+    ),
+    (
         "scripts/android/AzulActivity.java",
         include_str!("../../../scripts/android/AzulActivity.java"),
         false,
