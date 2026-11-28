@@ -14,6 +14,7 @@
 #   doc_check  azul-doc check (the double-drop invariant, the guide links) and azul-doc check layout
 #   widgets_check  the AzWidgets example type-checks over the C ABI (after the autofix step's api.json)
 #   dll_check  codegen of the bindings from the api.json as it stands, cargo check of azul-dll, the srcgate tests
+#   srcgate    the srcgate tests alone (the env gate, the speech gate, ...): no bindings needed, a few minutes
 # A step that fails does not stop the ones after it; the last lines are one `STEP <name> <exit>` each, and the exit code of the
 # script is 0 only when every step that ran passed.
 set -uo pipefail
@@ -143,6 +144,13 @@ dll_check() {
   return "$code"
 }
 run dll_check dll_check
+
+# the gates of the sources alone: they read the tree, so nothing has to be generated first
+srcgate() {
+  cargo test -p azul-srcgate --no-fail-fast 2>&1 | tee srcgate.txt
+  return "${PIPESTATUS[0]}"
+}
+run srcgate srcgate
 
 # AzWidgets over the C ABI: the page of this work type-checks against the bindings of the api.json as it stands
 widgets_check() {
