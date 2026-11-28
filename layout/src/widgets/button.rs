@@ -2309,12 +2309,14 @@ mod autotest_generated {
                 if ty.surface() == ButtonSurface::Neutral {
                     expected.push(decl::layers(vec![decl::face(flat::LIGHT_RT, flat::LIGHT_RB)]));
                 }
-                let faded: &[&'static str] = if ty == ButtonType::Link {
-                    &["opacity"]
+                // The unconditional half of the fade: a link dims (`opacity`), any other kind fades its
+                // face and steps its label (`flat::flat_face_fade`, the one rule the themes share).
+                let fade = if ty == ButtonType::Link {
+                    let [fade, _pressed] = decl::state_fade(&["opacity"], decl::BUTTON_FADE_MS);
+                    fade
                 } else {
-                    decl::BUTTON_FACE
+                    flat::flat_face_fade(ty).remove(0)
                 };
-                let [fade, _pressed] = decl::state_fade(faded, decl::BUTTON_FADE_MS);
                 expected.push(fade.property);
             }
             assert_eq!(

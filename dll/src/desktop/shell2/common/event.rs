@@ -5154,13 +5154,15 @@ pub trait PlatformWindow {
         result.max(work)
     }
 
-    /// [`LayoutWindow::take_animation_frame_work`] for this window, and the
-    /// paint-only flag a repaint frame raises: the backends whose bare
+    /// [`LayoutWindow::serve_animation_frame_work`] for this window - the frame's work with the list it
+    /// owes already rebuilt, because the shells present the list they have (a driver that handed them the
+    /// bare `ShouldUpdateDisplayListCurrentWindow` left the faces of faded buttons on the screen as they
+    /// were) - and the paint-only flag a repaint frame raises: the backends whose bare
     /// repaint would otherwise re-run layout (headless `service_frame`) paint
     /// it from the layout as it stands, as the desktop shells present it.
     fn take_animation_frame_work(&mut self) -> ProcessEventResult {
         let work = match self.get_layout_window_mut() {
-            Some(lw) => lw.take_animation_frame_work(),
+            Some(lw) => lw.serve_animation_frame_work(),
             None => return ProcessEventResult::DoNothing,
         };
         if work == ProcessEventResult::ShouldReRenderCurrentWindow {

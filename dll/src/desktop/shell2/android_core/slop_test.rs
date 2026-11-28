@@ -133,3 +133,19 @@ fn a_slop_that_makes_no_sense_is_the_default() {
     assert_eq!(tap.moved((15.0, 0.0)), Move::Hold, "a given slop of 20 dp");
     assert!(matches!(tap.moved((21.0, 0.0)), Move::Start { .. }));
 }
+
+/// A finger that tapped leaves no hover behind it; a pan clicks nothing, and a mouse or a stylus (a contact the slop does
+/// not apply to) still points where it is.
+///
+/// Mutation: every click taken for a finger's (a mouse that clicked loses its hover face under the pointer).
+#[test]
+fn only_a_finger_tap_leaves_no_hover_behind() {
+    let mut tap = TapSlop::default();
+    tap.down(true, (10.0, 10.0), 8.0);
+    let lift = tap.up();
+    assert!(lift.is_a_finger_tap(), "a finger lifted inside the slop: {lift:?}");
+    assert!(!Lift::Pan.is_a_finger_tap(), "a pan clicks nothing and its pointer leaves anyway");
+    let mut pointer = TapSlop::default();
+    pointer.down(false, (10.0, 10.0), 8.0);
+    assert!(!pointer.up().is_a_finger_tap(), "a mouse or a stylus keeps its hover");
+}

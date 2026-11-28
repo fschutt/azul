@@ -491,6 +491,24 @@ fn a_tap_lifts_as_a_click_where_the_finger_landed_not_where_the_jitter_left_it()
     assert_eq!(plan.hit, HitPlan::AtCursor);
 }
 
+/// Touch has no hover: a finger that tapped is gone, and the control it tapped must not keep its hover face (the
+/// phone showed the hovered face on the tapped button until another touch landed elsewhere). The click is delivered
+/// first, then the pointer leaves. A pan, a cancelled gesture (the pointer leaves with them) and a contact the slop
+/// does not apply to (a stylus still points where it is) do not ask for it.
+///
+/// Mutation: `leaves_after` true for every lift (a stylus lost its hover under the pen after each click).
+#[test]
+fn a_finger_that_tapped_leaves_no_hover_behind_it() {
+    let tap = mouse_plan(TouchPhase::Ended, true, None, Some(Lift::Click { at: Some(LANDED) }));
+    assert!(tap.leaves_after, "the tapped control is not hovered after the click");
+    for lift in [Some(Lift::Pan), Some(Lift::Click { at: None }), None] {
+        assert!(!mouse_plan(TouchPhase::Ended, true, None, lift).leaves_after, "{lift:?}");
+    }
+    for phase in [TouchPhase::Began, TouchPhase::Moved, TouchPhase::Cancelled] {
+        assert!(!mouse_plan(phase, true, None, None).leaves_after, "{phase:?}");
+    }
+}
+
 #[test]
 fn a_contact_the_slop_does_not_apply_to_lifts_where_it_is() {
     let plan = mouse_plan(TouchPhase::Ended, true, None, Some(Lift::Click { at: None }));
@@ -523,12 +541,15 @@ fn a_cancelled_gesture_releases_the_button_over_nothing() {
 #[test]
 fn the_first_finger_presses_and_a_second_finger_is_nothing_to_the_mouse() {
     let first = mouse_plan(TouchPhase::Began, true, None, None);
-    assert_eq!(first, MousePlan { left_down: Some(true), cursor: CursorPlan::Follow, hit: HitPlan::AtCursor });
+    assert_eq!(
+        first,
+        MousePlan { left_down: Some(true), cursor: CursorPlan::Follow, hit: HitPlan::AtCursor, leaves_after: false }
+    );
     for phase in [TouchPhase::Began, TouchPhase::Moved, TouchPhase::Ended, TouchPhase::Cancelled] {
         let other = mouse_plan(phase, false, None, None);
         assert_eq!(
             other,
-            MousePlan { left_down: None, cursor: CursorPlan::Stay, hit: HitPlan::Keep },
+            MousePlan { left_down: None, cursor: CursorPlan::Stay, hit: HitPlan::Keep, leaves_after: false },
             "{phase:?} of a finger that is not the primary"
         );
     }

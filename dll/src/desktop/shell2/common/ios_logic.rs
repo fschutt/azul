@@ -429,6 +429,10 @@ pub struct MousePlan {
     pub cursor: CursorPlan,
     /// The hit test.
     pub hit: HitPlan,
+    /// The pointer leaves once this event has been delivered: a finger that tapped is gone and leaves nothing
+    /// under it (touch has no hover), so the control it tapped must not keep its hover face. A pass of its own
+    /// follows the click: the leave and its restyle.
+    pub leaves_after: bool,
 }
 
 /// The mouse's part of one touch phase. `primary_in_set`: this event carries the primary finger (the one the
@@ -453,6 +457,7 @@ pub fn mouse_plan(
         left_down: None,
         cursor: CursorPlan::Stay,
         hit: HitPlan::Keep,
+        leaves_after: false,
     };
     if !primary_in_set {
         return NOTHING;
@@ -462,6 +467,7 @@ pub fn mouse_plan(
             left_down: Some(true),
             cursor: CursorPlan::Follow,
             hit: HitPlan::AtCursor,
+            leaves_after: false,
         },
         TouchPhase::Moved => match slop_move {
             Some(Move::Hold) => NOTHING,
@@ -469,6 +475,7 @@ pub fn mouse_plan(
                 left_down: None,
                 cursor: CursorPlan::Follow,
                 hit: HitPlan::AtCursor,
+                leaves_after: false,
             },
         },
         TouchPhase::Ended => match lift {
@@ -476,22 +483,26 @@ pub fn mouse_plan(
                 left_down: Some(false),
                 cursor: CursorPlan::Leave,
                 hit: HitPlan::Nowhere,
+                leaves_after: false,
             },
-            Some(Lift::Click { at: Some(landed) }) => MousePlan {
+            Some(lift @ Lift::Click { at: Some(landed) }) => MousePlan {
                 left_down: Some(false),
                 cursor: CursorPlan::At(landed),
                 hit: HitPlan::AtCursor,
+                leaves_after: lift.is_a_finger_tap(),
             },
             Some(Lift::Click { at: None }) | None => MousePlan {
                 left_down: Some(false),
                 cursor: CursorPlan::Follow,
                 hit: HitPlan::AtCursor,
+                leaves_after: false,
             },
         },
         TouchPhase::Cancelled => MousePlan {
             left_down: Some(false),
             cursor: CursorPlan::Leave,
             hit: HitPlan::Nowhere,
+            leaves_after: false,
         },
     }
 }
