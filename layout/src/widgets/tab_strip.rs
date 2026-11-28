@@ -362,6 +362,209 @@ pub fn cover_rects(band: &StatusBarBand) -> Vec<LogicalRect> {
         .collect()
 }
 
+// ---- Icon-only pills (a phone's strip whose pills are ONE ICON each) ----
+//
+// The user's rule (2026-11-28): on a phone a tab header is ONE ICON, every pill the same SQUARE, so
+// that the strip splits evenly over the lanes around the camera and fits, where text pills of
+// every length slide under the hole and scroll. The rules are plain numbers:
+// [`icon_pill_layout`] stands the pills in the lanes, [`icon_pill_width_where`] sizes them in a
+// view whose width is only asked about (a strip with no band).
+
+/// The widest (and tallest: an icon pill is a square) an icon pill is, in logical px.
+pub const ICON_PILL_MAX: f32 = 40.0;
+
+/// The narrowest an icon pill is, in logical px: as tall as a text pill. Where the pills do not
+/// fit at this size the strip scrolls as a strip of text pills does.
+pub const ICON_PILL_MIN: f32 = 32.0;
+
+/// The least wide the target of an icon pill is, in logical px (44 pt / 48 dp is the touch
+/// target; the target is a whole row tall): the pill is padded to it, the picture is not.
+pub const ICON_TARGET_MIN: f32 = 44.0;
+
+/// The most pills a strip is laid out for: a strip of more tabs than this is not a strip any
+/// finger can use, and the layout (positions, lane shares) is made for this many ([`IconPillLayout::capped`]).
+pub const MAX_STRIP_PILLS: usize = 256;
+
+/// How a strip of icon pills stands: the one width, the room between two pills of one lane, where
+/// each pill's left edge is, and whether nothing needs to scroll.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IconPillLayout {
+    /// The width of EVERY pill, in logical px: between [`ICON_PILL_MIN`] and [`ICON_PILL_MAX`].
+    /// An icon pill is a square: this is its height too.
+    pub pill_width: f32,
+    /// The room between two pills of one lane, in logical px.
+    pub gap: f32,
+    /// The left edge of each pill in the strip's coordinates, one per tab, left to right.
+    pub positions: Vec<f32>,
+    /// Whether every pill stands whole inside a lane, so that nothing needs to scroll. `false`:
+    /// the pills are [`ICON_PILL_MIN`] wide in one row from the first lane's start, as a strip of
+    /// text pills is laid, and the row scrolls.
+    pub fits: bool,
+    /// The tabs that were asked for were more than [`MAX_STRIP_PILLS`] and the layout was made for
+    /// that many: the diagnostic of the cap.
+    pub capped: bool,
+}
+
+/// How many pills of width `width` with `gap` between them stand in a span of `room` px.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a few pills, never negative
+fn pills_in(room: f32, width: f32, gap: f32) -> usize {
+    if !(room.is_finite() && room >= width && width > 0.0) {
+        return 0;
+    }
+    // n pills need n * width + (n - 1) * gap <= room
+    let n = ((room + gap) / (width + gap)).floor();
+    if n.is_finite() && n >= 1.0 {
+        n as usize
+    } else {
+        0
+    }
+}
+
+/// The pills of each lane when `count` stand in lanes whose rooms take at most `caps` of them: the
+/// even split (the first lanes get the odd one out), and what a lane cannot take goes to the lanes
+/// that can, the nearest first. `None` when the lanes cannot take `count` together.
+fn lane_shares(caps: &[usize], count: usize) -> Option<Vec<usize>> {
+    if caps.is_empty() || caps.iter().sum::<usize>() < count {
+        return None;
+    }
+    let lanes = caps.len();
+    let mut shares: Vec<usize> = (0..lanes)
+        .map(|l| count / lanes + usize::from(l < count % lanes))
+        .collect();
+    // What does not fit where it was dealt moves to the nearest lane with room.
+    for l in 0..lanes {
+        while shares[l] > caps[l] {
+            let target = (1..lanes)
+                .flat_map(|d| [l.checked_sub(d), l.checked_add(d).filter(|&r| r < lanes)])
+                .flatten()
+                .find(|&t| shares[t] < caps[t])?;
+            shares[l] -= 1;
+            shares[target] += 1;
+        }
+    }
+    Some(shares)
+}
+
+/// Stand `count` icon pills in `lanes` (`(left, right)` pairs in the strip's coordinates, one lane
+/// the width of the view for a strip that is not in a band; `gap` the room between two pills).
+///
+/// Every pill is the same width: the largest whole number of px in
+/// [`ICON_PILL_MIN`]..=[`ICON_PILL_MAX`] at which every lane takes its share of the pills with
+/// [`LANE_INSET`] to spare at both ends. The pills are shared out EVENLY over the lanes - the first
+/// `ceil(count / lanes)` in the first lane, the rest in the next (a lane that cannot take its
+/// share gives the rest to its nearest neighbour) - and each lane's pills stand in a group centred
+/// in the lane, so two lanes either side of a camera hole mirror each other. Where they cannot
+/// stand at [`ICON_PILL_MIN`] the layout says `fits: false` and is the plain row of minimum-width
+/// pills that scrolls.
+///
+/// Counts above [`MAX_STRIP_PILLS`] are laid out as [`MAX_STRIP_PILLS`] (`capped`), and numbers
+/// that are not numbers make a lane no lane: never a crash.
+#[must_use]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)] // at most MAX_STRIP_PILLS pills, a few px of width
+pub fn icon_pill_layout(lanes: &[(f32, f32)], count: usize, gap: f32) -> IconPillLayout {
+    let capped = count > MAX_STRIP_PILLS;
+    let count = count.min(MAX_STRIP_PILLS);
+    let gap = if gap.is_finite() && gap >= 0.0 { gap } else { 0.0 };
+    let lanes: Vec<(f32, f32)> = lanes
+        .iter()
+        .copied()
+        .filter(|&(left, right)| left.is_finite() && right.is_finite() && right > left)
+        .collect();
+    let inset = |left: f32, right: f32| -> f32 { LANE_INSET.min(((right - left) / 2.0).max(0.0)) };
+    let row = |first: f32| -> IconPillLayout {
+        IconPillLayout {
+            pill_width: ICON_PILL_MIN,
+            gap,
+            positions: (0..count)
+                .map(|i| first + i as f32 * (ICON_PILL_MIN + gap))
+                .collect(),
+            fits: false,
+            capped,
+        }
+    };
+    if count == 0 {
+        return IconPillLayout {
+            pill_width: ICON_PILL_MAX,
+            gap,
+            positions: Vec::new(),
+            fits: true,
+            capped,
+        };
+    }
+    let Some(first) = lanes.first() else {
+        return row(LANE_INSET);
+    };
+    // The room of each lane for pills: the lane less the inset at both ends.
+    let rooms: Vec<f32> = lanes
+        .iter()
+        .map(|&(left, right)| (right - left) - 2.0 * inset(left, right))
+        .collect();
+    // The largest whole number of px first, down to the smallest.
+    let steps = (ICON_PILL_MAX - ICON_PILL_MIN) as u32;
+    for step in 0..=steps {
+        let width = ICON_PILL_MAX - step as f32;
+        let caps: Vec<usize> = rooms.iter().map(|&room| pills_in(room, width, gap)).collect();
+        if let Some(shares) = lane_shares(&caps, count) {
+            let mut positions = Vec::with_capacity(count);
+            for (&(left, right), &share) in lanes.iter().zip(&shares) {
+                if share == 0 {
+                    continue;
+                }
+                let group = share as f32 * width + (share - 1) as f32 * gap;
+                let start = left + ((right - left) - group) / 2.0;
+                positions.extend((0..share).map(|i| start + i as f32 * (width + gap)));
+            }
+            return IconPillLayout {
+                pill_width: width,
+                gap,
+                positions,
+                fits: true,
+                capped,
+            };
+        }
+    }
+    row(first.0 + inset(first.0, first.1))
+}
+
+/// The width of an icon pill in a view whose width is only ASKED about (a strip in no band: the
+/// window's width is known to the build only as the answers it records): the largest of
+/// [`ICON_PILL_MAX`], and each 4 px less down to [`ICON_PILL_MIN`], at which a row of `count`
+/// pills with `lead` before the first and after the last and `gap` between them is told to fit by
+/// `fits(total)`, and `true`; [`ICON_PILL_MIN`] and `false` where none does (the row scrolls). Only
+/// the widths of the steps tried are asked, widest first.
+#[must_use]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)] // at most MAX_STRIP_PILLS pills, a few px of width
+pub fn icon_pill_width_where(
+    count: usize,
+    lead: f32,
+    gap: f32,
+    mut fits: impl FnMut(f32) -> bool,
+) -> (f32, bool) {
+    let count = count.min(MAX_STRIP_PILLS);
+    let lead = if lead.is_finite() && lead >= 0.0 { lead } else { 0.0 };
+    let gap = if gap.is_finite() && gap >= 0.0 { gap } else { 0.0 };
+    if count == 0 {
+        return (ICON_PILL_MAX, true);
+    }
+    let steps = ((ICON_PILL_MAX - ICON_PILL_MIN) / 4.0) as u32;
+    for step in 0..=steps {
+        let width = ICON_PILL_MAX - 4.0 * step as f32;
+        let total = 2.0 * lead + count as f32 * width + (count - 1) as f32 * gap;
+        if fits(total) {
+            return (width, true);
+        }
+    }
+    (ICON_PILL_MIN, false)
+}
+
 #[cfg(test)]
 #[path = "tab_strip_test.rs"]
 mod tab_strip_test;

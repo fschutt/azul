@@ -162,75 +162,79 @@ n69 p2 d88 Block { establishes_new_context: false } @0,134 640x2 ov=0x0 ic=0/0 r
   dl6 HitTestArea 23,4 28.8125x20
   dl7 Text 11,4 52.8125x20 glyphs=4 fs=12
   dl8 HitTestArea 23,8.40625 28.796875x12
-  dl9 Border 0,32 142x102
-  dl10 Border 2,35 46x66
-  dl11 HitTestArea 2,35 46x66
-  dl12 HitTestArea 25,39 0x0
-  dl13 HitTestArea 10,42 30x12
-  dl14 Text -2,42 54x12 glyphs=5 fs=12
-  dl15 HitTestArea 10,42.40625 30x12
-  dl16 Border 49,35 44x66
-  dl17 HitTestArea 49,35 44x66
-  dl18 HitTestArea 71,39 0x0
-  dl19 HitTestArea 62,42 18x12
-  dl20 Text 50,42 42x12 glyphs=3 fs=12
-  dl21 HitTestArea 62,42.40625 18x12
-  dl22 Border 94,35 44x66
-  dl23 HitTestArea 94,35 44x66
-  dl24 HitTestArea 116,39 0x0
-  dl25 HitTestArea 104,42 24x12
-  dl26 Text 92,42 48x12 glyphs=4 fs=12
-  dl27 HitTestArea 104,42.40625 24x12
-  dl28 HitTestArea 2,106.5 137x11
-  dl29 Text -9,106.5 159x11 glyphs=9 fs=11
-  dl30 HitTestArea 49.046875,106.703125 42.90625x11
-  dl31 Border 142,32 159.625x102
-  dl32 Border 144,35 44x66
-  dl33 HitTestArea 144,35 44x66
-  dl34 HitTestArea 166,39 0x0
-  dl35 HitTestArea 155.79688,42 20.40625x12
-  dl36 Text 143.79688,42 44.40625x12 glyphs=4 fs=12
-  dl37 HitTestArea 155.79688,42.40625 20.40625x12
-  dl38 Border 189,35 44.8125x66
-  dl39 HitTestArea 189,35 44.8125x66
-  dl40 HitTestArea 211.40625,39 0x0
-  dl41 HitTestArea 197,42 28.796875x12
-  dl42 Text 185,42 52.796875x12 glyphs=6 fs=12
-  dl43 HitTestArea 197.01563,42.40625 28.796875x12
-  dl44 Border 234.8125,35 62.8125x66
-  dl45 HitTestArea 234.8125,35 62.8125x66
-  dl46 HitTestArea 266.21875,39 0x0
-  dl47 HitTestArea 242.8125,42 46.796875x12
-  dl48 Text 230.8125,42 70.796875x12 glyphs=9 fs=12
-  dl49 HitTestArea 242.82813,42.40625 46.796875x12
-  dl50 HitTestArea 144,106.5 154.625x11
-  dl51 Text 133,106.5 176.625x11 glyphs=4 fs=11
-  dl52 HitTestArea 210.3125,106.703125 22x11
-  dl53 Border 301.625,32 154.8125x102
-  dl54 Border 303.625,35 44x66
-  dl55 HitTestArea 303.625,35 44x66
-  dl56 HitTestArea 325.625,39 0x0
-  dl57 HitTestArea 315.42188,42 20.40625x12
-  dl58 Text 303.42188,42 44.40625x12 glyphs=4 fs=12
-  dl59 HitTestArea 315.42188,42.40625 20.40625x12
-  dl60 Border 348.625,35 54.40625x66
-  dl61 HitTestArea 348.625,35 54.40625x66
-  dl62 HitTestArea 375.82813,39 0x0
-  dl63 HitTestArea 356.625,42 38.40625x12
-  dl64 Text 344.625,42 62.40625x12 glyphs=7 fs=12
-  dl65 HitTestArea 356.625,42.40625 38.40625x12
-  dl66 Border 404.03125,35 48.40625x66
-  dl67 HitTestArea 404.03125,35 48.40625x66
-  dl68 HitTestArea 428.23438,39 0x0
-  dl69 HitTestArea 412.03125,42 32.40625x12
-  dl70 Text 400.03125,42 56.40625x12 glyphs=6 fs=12
-  dl71 HitTestArea 412.03125,42.40625 32.40625x12
-  dl72 HitTestArea 303.625,106.5 149.8125x11
-  dl73 Text 292.625,106.5 171.8125x11 glyphs=7 fs=11
-  dl74 HitTestArea 362.57813,106.703125 31.90625x11
-  dl75 Image 0,134 640x2
-  dl76 LinearGradient 0,134 640x2
-  dl77 PopStackingContext
+  dl9 PushClip 0,28 640x106
+  dl10 PushScrollFrame 0,28 640x106 content=640x106
+  dl11 Border 0,32 142x102
+  dl12 Border 2,35 46x66
+  dl13 HitTestArea 2,35 46x66
+  dl14 HitTestArea 25,39 0x0
+  dl15 HitTestArea 10,42 30x12
+  dl16 Text -2,42 54x12 glyphs=5 fs=12
+  dl17 HitTestArea 10,42.40625 30x12
+  dl18 Border 49,35 44x66
+  dl19 HitTestArea 49,35 44x66
+  dl20 HitTestArea 71,39 0x0
+  dl21 HitTestArea 62,42 18x12
+  dl22 Text 50,42 42x12 glyphs=3 fs=12
+  dl23 HitTestArea 62,42.40625 18x12
+  dl24 Border 94,35 44x66
+  dl25 HitTestArea 94,35 44x66
+  dl26 HitTestArea 116,39 0x0
+  dl27 HitTestArea 104,42 24x12
+  dl28 Text 92,42 48x12 glyphs=4 fs=12
+  dl29 HitTestArea 104,42.40625 24x12
+  dl30 HitTestArea 2,106.5 137x11
+  dl31 Text -9,106.5 159x11 glyphs=9 fs=11
+  dl32 HitTestArea 49.046875,106.703125 42.90625x11
+  dl33 Border 142,32 159.625x102
+  dl34 Border 144,35 44x66
+  dl35 HitTestArea 144,35 44x66
+  dl36 HitTestArea 166,39 0x0
+  dl37 HitTestArea 155.79688,42 20.40625x12
+  dl38 Text 143.79688,42 44.40625x12 glyphs=4 fs=12
+  dl39 HitTestArea 155.79688,42.40625 20.40625x12
+  dl40 Border 189,35 44.8125x66
+  dl41 HitTestArea 189,35 44.8125x66
+  dl42 HitTestArea 211.40625,39 0x0
+  dl43 HitTestArea 197,42 28.796875x12
+  dl44 Text 185,42 52.796875x12 glyphs=6 fs=12
+  dl45 HitTestArea 197.01563,42.40625 28.796875x12
+  dl46 Border 234.8125,35 62.8125x66
+  dl47 HitTestArea 234.8125,35 62.8125x66
+  dl48 HitTestArea 266.21875,39 0x0
+  dl49 HitTestArea 242.8125,42 46.796875x12
+  dl50 Text 230.8125,42 70.796875x12 glyphs=9 fs=12
+  dl51 HitTestArea 242.82813,42.40625 46.796875x12
+  dl52 HitTestArea 144,106.5 154.625x11
+  dl53 Text 133,106.5 176.625x11 glyphs=4 fs=11
+  dl54 HitTestArea 210.3125,106.703125 22x11
+  dl55 Border 301.625,32 154.8125x102
+  dl56 Border 303.625,35 44x66
+  dl57 HitTestArea 303.625,35 44x66
+  dl58 HitTestArea 325.625,39 0x0
+  dl59 HitTestArea 315.42188,42 20.40625x12
+  dl60 Text 303.42188,42 44.40625x12 glyphs=4 fs=12
+  dl61 HitTestArea 315.42188,42.40625 20.40625x12
+  dl62 Border 348.625,35 54.40625x66
+  dl63 HitTestArea 348.625,35 54.40625x66
+  dl64 HitTestArea 375.82813,39 0x0
+  dl65 HitTestArea 356.625,42 38.40625x12
+  dl66 Text 344.625,42 62.40625x12 glyphs=7 fs=12
+  dl67 HitTestArea 356.625,42.40625 38.40625x12
+  dl68 Border 404.03125,35 48.40625x66
+  dl69 HitTestArea 404.03125,35 48.40625x66
+  dl70 HitTestArea 428.23438,39 0x0
+  dl71 HitTestArea 412.03125,42 32.40625x12
+  dl72 Text 400.03125,42 56.40625x12 glyphs=6 fs=12
+  dl73 HitTestArea 412.03125,42.40625 32.40625x12
+  dl74 HitTestArea 303.625,106.5 149.8125x11
+  dl75 Text 292.625,106.5 171.8125x11 glyphs=7 fs=11
+  dl76 HitTestArea 362.57813,106.703125 31.90625x11
+  dl77 PopScrollFrame
+  dl78 PopClip
+  dl79 Image 0,134 640x2
+  dl80 LinearGradient 0,134 640x2
+  dl81 PopStackingContext
 === list view
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 1000x127 ov=640x127 ic=640/640
