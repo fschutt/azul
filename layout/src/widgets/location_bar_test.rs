@@ -280,3 +280,41 @@ fn the_block_keeps_its_text_to_the_tab_band_and_a_parent_link_is_as_tall_as_its_
         assert!(!declares(&crumb.root.style, CssPropertyType::Height));
     }
 }
+
+// ---- the field that opens empty: typing replaces the name ----
+
+/// The text and the placeholder the block's text input starts with.
+fn field_start(dom: &Dom) -> (String, String) {
+    let field = first(dom, LOCATION_EDIT_CLASS).expect("the field's box");
+    let input = &field.children.as_ref()[0];
+    let mut data = input.root.get_dataset().expect("the input's state").clone();
+    let state = data
+        .downcast_ref::<crate::widgets::text_input::TextInputStateWrapper>()
+        .expect("a text input's state");
+    let placeholder = state.inner.placeholder.as_ref().map(|p| p.as_str().to_string()).unwrap_or_default();
+    (state.inner.get_text(), placeholder)
+}
+
+#[test]
+fn the_field_opens_with_the_name_in_it_unless_the_app_wants_typing_to_replace_it() {
+    let named = bar().with_editing(true, AzString::from("")).dom();
+    assert_eq!(field_start(&named), ("Fonts".to_string(), String::new()), "the name in the field, the caret behind it");
+    let replacing = bar().with_name_as_placeholder(true).with_editing(true, AzString::from("")).dom();
+    assert_eq!(field_start(&replacing), (String::new(), "Fonts".to_string()), "empty, and it says the name");
+    // text the app gives is what the field holds, the name still being what it says when it is emptied
+    let given = bar().with_name_as_placeholder(true).with_editing(true, AzString::from("Fon")).dom();
+    assert_eq!(field_start(&given), ("Fon".to_string(), "Fonts".to_string()));
+}
+
+#[test]
+fn enter_commits_what_was_typed_and_an_empty_field_that_opened_empty_cancels() {
+    let enter = Some(VirtualKeyCode::Return);
+    assert_eq!(key_kind(enter, false, false), Some(LocationEventKind::EditCommitted));
+    assert_eq!(key_kind(enter, true, false), Some(LocationEventKind::EditCommitted), "the name in the field: the app decides");
+    assert_eq!(key_kind(enter, false, true), Some(LocationEventKind::EditCommitted));
+    assert_eq!(key_kind(enter, true, true), Some(LocationEventKind::EditCancelled), "nothing typed, nothing to go to");
+    assert_eq!(key_kind(Some(VirtualKeyCode::NumpadEnter), true, true), Some(LocationEventKind::EditCancelled));
+    assert_eq!(key_kind(Some(VirtualKeyCode::Escape), false, false), Some(LocationEventKind::EditCancelled));
+    assert_eq!(key_kind(Some(VirtualKeyCode::Tab), false, true), None);
+    assert_eq!(key_kind(None, true, true), None);
+}

@@ -18,6 +18,11 @@
 //! and rebuilds. A trail too long for its line folds its leading folders into a "..." link that
 //! goes to the nearest folder it hides.
 //!
+//! The field opens with the NAME in it and the caret behind it (typing appends: a rename). A
+//! block whose field is where the user types where to GO (a drive's folder, with the list below
+//! narrowing as they type) calls [`LocationBar::with_name_as_placeholder`]: the field opens empty and
+//! says the name, typing replaces it, and Enter on an empty field gives the edit up.
+//!
 //! The same block serves every app whose first tab names a place: a drive's folder, a mail
 //! account and its folder ("Outlook Privat / Inbox"), a calendar's year and month, a document's
 //! name. An app with nothing to edit leaves the pen out ([`LocationBar::with_editable`]).
@@ -179,7 +184,7 @@ pub struct LocationBar {
     pub parents: LocationCrumbVec,
     /// The current name, big and bold ("Fonts").
     pub name: AzString,
-    /// The text of the field while `editing`; empty: the name.
+    /// The text of the field while `editing`; empty: the name (or an empty field, see `name_as_placeholder`).
     pub text: AzString,
     /// What the empty field says ("Type a path or a name").
     pub placeholder: AzString,
@@ -197,6 +202,10 @@ pub struct LocationBar {
     /// switch workspace, export, exit) are behind it, the app shows them on a click
     /// ([`LocationEventKind::MoreClicked`]).
     pub more: bool,
+    /// Whether the field OPENS EMPTY with the name as its placeholder, so that typing replaces the name (a
+    /// location the user types where to go to, the list below narrowing as they type) instead of
+    /// appending to it; Enter on an empty field is [`LocationEventKind::EditCancelled`] then.
+    pub name_as_placeholder: bool,
 }
 
 impl LocationBar {
@@ -209,6 +218,7 @@ impl LocationBar {
             editable: true,
             editing: false,
             more: false,
+            name_as_placeholder: false,
             text: AzString::from_const_str(""),
             placeholder: AzString::from_const_str(""),
             separator: AzString::from_const_str("/"),
@@ -268,7 +278,20 @@ impl LocationBar {
         self
     }
 
-    /// The name is a text field holding `text` (empty: the name).
+    /// Whether the field opens empty with the name as its placeholder (typing replaces the name).
+    pub const fn set_name_as_placeholder(&mut self, name_as_placeholder: bool) {
+        self.name_as_placeholder = name_as_placeholder;
+    }
+
+    /// [`Self::set_name_as_placeholder`] for the builder chain.
+    #[must_use]
+    pub const fn with_name_as_placeholder(mut self, name_as_placeholder: bool) -> Self {
+        self.set_name_as_placeholder(name_as_placeholder);
+        self
+    }
+
+    /// The name is a text field holding `text` (empty: the name, or an empty field with the name as its
+    /// placeholder where [`Self::name_as_placeholder`] is set).
     pub fn set_editing(&mut self, editing: bool, text: AzString) {
         self.editing = editing;
         self.text = text;
@@ -392,6 +415,20 @@ struct PartRef {
     on_event: OptionLocationOnEvent,
     kind: LocationEventKind,
     tag: usize,
+    /// Enter on an empty field gives the edit up (the field opened empty: nothing was typed).
+    empty_cancels: bool,
+}
+
+/// What a key in the field reports: Enter commits what was typed (an empty field cancels where it opened empty),
+/// Escape gives the edit up, any other key nothing.
+fn key_kind(key: Option<VirtualKeyCode>, empty: bool, empty_cancels: bool) -> Option<LocationEventKind> {
+    match key {
+        Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter) => {
+            Some(if empty && empty_cancels { LocationEventKind::EditCancelled } else { LocationEventKind::EditCommitted })
+        }
+        Some(VirtualKeyCode::Escape) => Some(LocationEventKind::EditCancelled),
+        _ => None,
+    }
 }
 
 fn emit(on_event: &OptionLocationOnEvent, info: CallbackInfo, kind: LocationEventKind, tag: usize, text: AzString) -> Update {
@@ -425,14 +462,13 @@ extern "C" fn on_field_text(mut data: RefAny, info: CallbackInfo, state: TextInp
 /// Enter takes the text, Escape gives the edit up.
 extern "C" fn on_field_key(mut data: RefAny, info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
     let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
-    let kind = match key {
-        Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter) => Some(LocationEventKind::EditCommitted),
-        Some(VirtualKeyCode::Escape) => Some(LocationEventKind::EditCancelled),
-        _ => None,
-    };
-    let update = match (kind, data.downcast_ref::<PartRef>()) {
-        (Some(kind), Some(part)) => emit(&part.on_event, info, kind, 0, AzString::from(state.get_text())),
-        _ => Update::DoNothing,
+    let text = state.get_text();
+    let update = match data.downcast_ref::<PartRef>() {
+        Some(part) => match key_kind(key, text.is_empty(), part.empty_cancels) {
+            Some(kind) => emit(&part.on_event, info, kind, 0, AzString::from(text)),
+            None => Update::DoNothing,
+        },
+        None => Update::DoNothing,
     };
     OnTextInputReturn {
         update,
@@ -506,6 +542,7 @@ fn crumb(label: &str, tag: usize, kind: LocationEventKind, on_event: &OptionLoca
             on_event: on_event.clone(),
             kind,
             tag,
+            empty_cancels: false,
         }),
     )
 }
@@ -531,6 +568,7 @@ fn build(bar: LocationBar) -> Dom {
         on_event,
         theme,
         more,
+        name_as_placeholder,
     } = bar;
     let phone = form.is_phone();
     let mut parents = parents.into_library_owned_vec();
@@ -573,18 +611,27 @@ fn build(bar: LocationBar) -> Dom {
         on_event: on_event.clone(),
         kind: LocationEventKind::MoreClicked,
         tag: 0,
+        empty_cancels: false,
     });
     let shared = RefAny::new(PartRef {
         on_event,
         kind: LocationEventKind::EditStarted,
         tag: 0,
+        empty_cancels: name_as_placeholder,
     });
     let mut row: Vec<Dom> = Vec::with_capacity(2);
     if editing {
         let on_input: TextInputOnTextInputCallbackType = on_field_text;
         let on_key: TextInputOnVirtualKeyDownCallbackType = on_field_key;
         let on_blur: TextInputOnFocusLostCallbackType = on_field_blur;
-        let start = if text.as_str().is_empty() { name } else { text };
+        // the name in the field, caret behind it (typing appends), or an empty field that says the name (typing replaces)
+        let (start, placeholder) = if name_as_placeholder {
+            (text, name)
+        } else if text.as_str().is_empty() {
+            (name, placeholder)
+        } else {
+            (text, placeholder)
+        };
         let mut input = TextInput::create()
             .with_text(start)
             .with_accessibility_name(AzString::from_const_str("Location"))
