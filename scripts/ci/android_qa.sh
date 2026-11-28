@@ -185,19 +185,37 @@ for mode in "${mode_list[@]}"; do
     # display did not turn at all (no landscape picture exists). Now the system itself is told to IGNORE the orientation an app requests (wm
     # set-ignore-orientation-request true, API 31+): the display follows user_rotation whichever activity is in front, the launcher included. What the system says
     # about the rotation goes into <pass>/rotation.log at every step, so that a pass that stays portrait says why.
-    wait_orientation() {   # wait_orientation <portrait|landscape>: up to 45 s until the display is in it
+    wait_orientation() {   # wait_orientation <portrait|landscape> [seconds, default 45]: until the display is in it
       local want="cur=1080x2400"; [ "$1" = landscape ] && want="cur=2400x1080"
-      for _ in $(seq 1 45); do adb shell dumpsys window displays 2>/dev/null | grep -q "$want" && return 0; sleep 1; done
-      echo "the display did not turn to $1 within 45 s"; return 1
+      for _ in $(seq 1 "${2:-45}"); do adb shell dumpsys window displays 2>/dev/null | grep -q "$want" && return 0; sleep 1; done
+      echo "the display did not turn to $1 within ${2:-45} s"; return 1
     }
     rotation_state() {   # one line of what the system says about the display and its rotation lock
       echo "$(date +%H:%M:%S) $1: $(adb shell dumpsys window displays 2>/dev/null | tr -d '\r' | grep -o -E 'cur=[0-9]+x[0-9]+|mRotation=[0-9]+' | sort -u | tr '\n' ' ') ignore_orientation_request=$(adb shell wm get-ignore-orientation-request 2>&1 | tr -d '\r' | tr '\n' ' ') user_rotation=$(adb shell settings get system user_rotation | tr -d '\r') accelerometer_rotation=$(adb shell settings get system accelerometer_rotation | tr -d '\r') focus=$(adb shell dumpsys window 2>/dev/null | tr -d '\r' | grep -m1 mCurrentFocus | cut -c1-120)" >>"$td/rotation.log"
     }
+    # THE KEEPER: the second run showed that no flag turns the display while the LAUNCHER is in front (rotation.log: cur=1080x2400, launcher focused), and a
+    # scenario file starts its app from the launcher (the app's window was made portrait, the engine's frames came out 1080 x 2400 in the landscape pass). An
+    # app of OURS that has been in front for a few seconds does turn the display (the plain start 30 s later was landscape, every time). So in the landscape pass
+    # such an app (AZ_QA_KEEPER_APK, default the AzMail APK) is started and waited for until the display is landscape; the scenario's app then starts OVER it
+    # (am start -S of another package: the keeper is never stopped, the launcher never shows) and the display stays turned.
+    keeper_pkg=""; keeper_act=""
+    keeper_apk="${AZ_QA_KEEPER_APK:-${AZ_QA_AZMAIL_APK:-}}"
+    if [ -n "$keeper_apk" ] && [ -e "$keeper_apk" ]; then
+      kb="$("$aapt2" dump badging "$keeper_apk" 2>/dev/null || true)"
+      keeper_pkg="$(echo "$kb" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+      keeper_act="$(echo "$kb" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" | head -n 1)"
+      adb install -r -t "$keeper_apk" >"$d/keeper-install.log" 2>&1 || echo "the keeper app did not install: $(tail -n 2 "$d/keeper-install.log")"
+    fi
     bring_settings() {   # the display in the orientation of this pass (the name stays: the call sites are many)
       adb shell wm set-ignore-orientation-request true >>"$td/rotation.log" 2>&1 || true
       adb shell settings put system accelerometer_rotation 0
       adb shell settings put system user_rotation "$([ "$orient" = portrait ] && echo 0 || echo 1)"
-      wait_orientation "$orient" || true
+      if [ "$orient" = landscape ] && [ -n "$keeper_pkg" ]; then
+        if [ -n "$keeper_act" ]; then adb shell am start -n "$keeper_pkg/$keeper_act" >/dev/null 2>&1; else adb shell monkey -p "$keeper_pkg" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1; fi
+        wait_orientation landscape 90 || true
+      else
+        wait_orientation "$orient" || true
+      fi
       sleep 2
       rotation_state "set $orient"
     }
