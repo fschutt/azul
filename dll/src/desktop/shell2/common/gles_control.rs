@@ -220,6 +220,10 @@ const SCATTER_VS: &str = "#version 300 es\nin vec4 aValue;\nin vec2 aPosition;\n
 const SCATTER_FS: &str = "#version 300 es\nprecision highp float;\nin highp vec4 vData;\nout vec4 oValue;\nvoid main() {\n    oValue = vData;\n}\n";
 const EXTERNAL_PLAIN_FS: &str = "#version 300 es\nprecision mediump float;\nuniform sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
 const EXTERNAL_DEAD_FS: &str = "#version 300 es\nprecision mediump float;\n#ifdef WR_FEATURE_TEXTURE_EXTERNAL\n#extension GL_OES_EGL_image_external_essl3 : require\nuniform samplerExternalOES sTex;\n#else\nuniform sampler2D sTex;\n#endif\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
+const EXTERNAL_EXT_ONLY_FS: &str = "#version 300 es\nprecision mediump float;\n#ifdef WR_FEATURE_TEXTURE_EXTERNAL\n#extension GL_OES_EGL_image_external_essl3 : require\n#endif\nuniform sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
+const EXTERNAL_DECL_ONLY_FS: &str = "#version 300 es\nprecision mediump float;\n#ifdef WR_FEATURE_TEXTURE_EXTERNAL\nuniform samplerExternalOES sTex;\n#else\nuniform sampler2D sTex;\n#endif\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
+const EXTERNAL_MACRO_FS: &str = "#version 300 es\nprecision mediump float;\n#ifdef WR_FEATURE_TEXTURE_EXTERNAL\n#define WR_SAMPLER_EXTERNAL samplerExternalOES\n#endif\nuniform sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
+const EXTERNAL_PROSE_FS: &str = "#version 300 es\nprecision mediump float;\n// the external sampler type is named samplerExternalOES here\nuniform sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
 const EXTERNAL_COMMENT_FS: &str = "#version 300 es\nprecision mediump float;\n// uniform samplerExternalOES sTex;\nuniform sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
 const SIZE_VS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\nuniform sampler2D sTex;\nuniform float uZ;\nflat out mediump vec4 v_size;\nout vec2 vUv;\nvoid main() {\n    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n    vUv = p;\n    vec2 size = vec2(textureSize(sTex, 0));\n    v_size = vec4(size / 2048.0, 0.0, 1.0);\n    gl_Position = vec4(p * 2.0 - 1.0, uZ, 1.0);\n}\n";
 const SIZE_FS: &str = "#version 300 es\nprecision highp float;\nflat in mediump vec4 v_size;\nout vec4 oColour;\nvoid main() {\n    oColour = v_size;\n}\n";
@@ -793,13 +797,17 @@ fn phase_big_texture(gl: &GenericGlContext, target: Target, programs: &Programs)
 fn phase_external_text(gl: &GenericGlContext, target: Target) -> Row {
     let size = target.size;
     // (name, fragment shader, uniform set once after the link, uniform set again before the draw, external unbind before the 2D bind)
-    let cases: [(&str, &str, bool, bool, bool); 6] = [
+    let cases: [(&str, &str, bool, bool, bool); 10] = [
         ("plain sampler2D, uniform set once", EXTERNAL_PLAIN_FS, true, false, false),
         ("dead samplerExternalOES text, uniform set once", EXTERNAL_DEAD_FS, true, false, false),
         ("dead text, uniform set once, external unbind before the bind", EXTERNAL_DEAD_FS, true, false, true),
         ("dead text, uniform set before the draw", EXTERNAL_DEAD_FS, true, true, false),
         ("the word in a comment, uniform set once", EXTERNAL_COMMENT_FS, true, false, false),
         ("plain, uniform set once, external unbind before the bind", EXTERNAL_PLAIN_FS, true, false, true),
+        ("dead #extension line only, uniform set once", EXTERNAL_EXT_ONLY_FS, true, false, false),
+        ("dead declaration only (no #extension), uniform set once", EXTERNAL_DECL_ONLY_FS, true, false, false),
+        ("the word in a dead #define only, uniform set once", EXTERNAL_MACRO_FS, true, false, false),
+        ("the word in a prose comment, uniform set once", EXTERNAL_PROSE_FS, true, false, false),
     ];
     let mut checks: Vec<(&str, [u8; 4], [u8; 4])> = Vec::new();
     let mut notes: Vec<String> = Vec::new();
