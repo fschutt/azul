@@ -200,7 +200,7 @@ fn field_ref(app: &RefAny) -> RefAny {
 
 /// The search field with its keys: a search icon, the field, a key that clears it, the microphone.
 fn search_field(s: &MapState, app: &RefAny) -> Dom {
-    let mut row = Dom::create_div().with_css(SEARCH_ROW).with_id(ids::SEARCH_BAR).with_child(
+    let mut row = Dom::create_div().with_css(SEARCH_ROW).with_id(ids::SEARCH_ROW).with_child(
         Dom::create_icon("search").with_css("font-size: 22px; flex-shrink: 0; opacity: 0.7;"),
     );
     row.add_child(
@@ -301,6 +301,7 @@ fn top_bar(s: &MapState, app: &RefAny, frame: &Frame) -> Dom {
     top.add_child(
         Dom::create_div()
             .with_css(format!("{SEARCH_BAR} {FLOAT}").as_str())
+            .with_id(ids::SEARCH_BAR)
             .with_child(Dom::create_div().with_css(FIELD).with_child(search_field(s, app)))
             .with_child(crate::tool(app, "settings", "azmaps-settings", ids::SETTINGS, crate::on_settings_open)),
     );
