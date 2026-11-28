@@ -91,7 +91,7 @@ macro_rules! recent_callbacks {
         )*
 
         /// The callbacks of the recent list's places, in order.
-        const RECENT_CALLBACKS: [CallbackType; RECENT_MAX] = [$($name),*];
+        static RECENT_CALLBACKS: [CallbackType; RECENT_MAX] = [$($name),*];
     };
 }
 
@@ -123,7 +123,7 @@ fn open_recent_menu(app: &RefAny, st: &AppState) -> MenuItem {
     let mut items: Vec<MenuItem> = st
         .recent
         .iter()
-        .zip(RECENT_CALLBACKS)
+        .zip(RECENT_CALLBACKS.iter().copied())
         .map(|(folder, callback)| {
             MenuItem::string(StringMenuItem::create(folder.as_str()).with_callback(app.clone(), callback))
         })
@@ -194,15 +194,5 @@ pub fn menu_bar(app: &RefAny, st: &AppState) -> Menu {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_command_has_a_menu_callback_of_its_own() {
-        let mut seen: Vec<usize> = Action::ALL.iter().map(|a| callback_of(*a) as usize).collect();
-        seen.sort_unstable();
-        seen.dedup();
-        assert_eq!(seen.len(), Action::ALL.len());
-        assert_eq!(RECENT_CALLBACKS.len(), RECENT_MAX);
-    }
-}
+#[path = "menu_test.rs"]
+mod tests;

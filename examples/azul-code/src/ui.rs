@@ -544,7 +544,7 @@ pub(crate) fn code_view(app: &RefAny, st: &AppState, doc: &Doc) -> Dom {
 }
 
 /// What the welcome page lists under "Keyboard shortcuts" (keys of the resources).
-const WELCOME_KEYS: [(&str, &str); 12] = [
+static WELCOME_KEYS: [(&str, &str); 12] = [
     ("azcode-welcome-open-folder", "Mod+K Mod+O"),
     ("azcode-welcome-quick-open", "Mod+P"),
     ("azcode-welcome-palette", "Mod+Shift+P"),
@@ -599,7 +599,7 @@ pub(crate) fn welcome(app: &RefAny, st: &AppState) -> Dom {
     // A phone has no keyboard of shortcuts to learn: the list is the desktop's.
     if !compact {
         page.add_child(heading("azcode-welcome-shortcuts"));
-        for (action, keys) in WELCOME_KEYS {
+        for &(action, keys) in &WELCOME_KEYS {
             page.add_child(shortcut_row(action, &commands::keys(keys)));
         }
     }

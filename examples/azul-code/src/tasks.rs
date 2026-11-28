@@ -151,4 +151,4 @@ pub fn detect(files: &[(String, String)]) -> Vec<Task> {
 
 #[cfg(test)]
 #[path = "tasks_test.rs"]
-mod tasks_test;
+mod tests;

@@ -142,4 +142,4 @@ impl Diagnostics {
 
 #[cfg(test)]
 #[path = "diagnostics_test.rs"]
-mod diagnostics_test;
+mod tests;

@@ -185,4 +185,4 @@ extern "C" fn on_refresh(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 #[cfg(test)]
 #[path = "git_panel_test.rs"]
-mod git_panel_test;
+mod tests;

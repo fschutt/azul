@@ -273,4 +273,4 @@ pub fn press(
 
 #[cfg(test)]
 #[path = "keyrow_test.rs"]
-mod keyrow_test;
+mod tests;

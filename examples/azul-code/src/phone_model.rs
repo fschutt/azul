@@ -105,4 +105,4 @@ impl PhoneState {
 
 #[cfg(test)]
 #[path = "phone_model_test.rs"]
-mod phone_model_test;
+mod tests;

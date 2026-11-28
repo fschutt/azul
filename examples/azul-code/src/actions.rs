@@ -42,35 +42,35 @@ pub enum Action {
     About,
 }
 
-impl Action {
-    /// Every command, in the order the command palette lists them.
-    pub const ALL: [Action; 24] = [
-        Action::OpenFolder,
-        Action::OpenFile,
-        Action::OpenSample,
-        Action::Save,
-        Action::CloseEditor,
-        Action::CloseFolder,
-        Action::Undo,
-        Action::Redo,
-        Action::Find,
-        Action::Replace,
-        Action::FindInFiles,
-        Action::CommandPalette,
-        Action::ShowExplorer,
-        Action::ToggleSideBar,
-        Action::ToggleTerminal,
-        Action::QuickOpen,
-        Action::GoToLine,
-        Action::NewTerminal,
-        Action::KillTerminal,
-        Action::RefreshExplorer,
-        Action::CollapseFolders,
-        Action::Settings,
-        Action::KeyboardShortcuts,
-        Action::About,
-    ];
+/// Every command, in the order the command palette lists them.
+pub static ACTIONS: [Action; 24] = [
+    Action::OpenFolder,
+    Action::OpenFile,
+    Action::OpenSample,
+    Action::Save,
+    Action::CloseEditor,
+    Action::CloseFolder,
+    Action::Undo,
+    Action::Redo,
+    Action::Find,
+    Action::Replace,
+    Action::FindInFiles,
+    Action::CommandPalette,
+    Action::ShowExplorer,
+    Action::ToggleSideBar,
+    Action::ToggleTerminal,
+    Action::QuickOpen,
+    Action::GoToLine,
+    Action::NewTerminal,
+    Action::KillTerminal,
+    Action::RefreshExplorer,
+    Action::CollapseFolders,
+    Action::Settings,
+    Action::KeyboardShortcuts,
+    Action::About,
+];
 
+impl Action {
     /// What the menu and the palette call it: a key of the resources.
     #[must_use]
     pub fn label(self) -> &'static str {
@@ -278,8 +278,9 @@ pub fn available(st: &AppState) -> Vec<Action> {
     let has_file = st.tabs.active().is_some();
     let has_folder = st.workspace.is_some();
     let has_shell = !st.panel.terminals.is_empty();
-    Action::ALL
-        .into_iter()
+    ACTIONS
+        .iter()
+        .copied()
         .filter(|a| match a {
             Action::CloseEditor
             | Action::Undo
@@ -299,19 +300,5 @@ pub fn available(st: &AppState) -> Vec<Action> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_command_has_a_label_a_category_and_a_name_of_its_own() {
-        let mut names: Vec<&str> = Action::ALL.iter().map(|a| a.name()).collect();
-        names.sort_unstable();
-        names.dedup();
-        assert_eq!(names.len(), Action::ALL.len(), "no two commands share a name");
-        for a in Action::ALL {
-            assert!(!a.label().is_empty() && !a.category().is_empty() && !a.icon().is_empty(), "{a:?}");
-        }
-        assert_eq!(Action::OpenFolder.keys(), "Mod+K Mod+O", "VSCode's chord");
-        assert_eq!(Action::ToggleTerminal.keys(), "Ctrl+`");
-    }
-}
+#[path = "actions_test.rs"]
+mod tests;
