@@ -1763,7 +1763,7 @@ pub(crate) fn paint_invalid_ring(info: &mut CallbackInfo, container: DomNodeId, 
     let Some(node_id) = container.node.into_crate_internal() else {
         return;
     };
-    let props: Vec<CssProperty> = if invalid {
+    let mut props: Vec<CssProperty> = if invalid {
         let flora = info
             .get_node_classes(container)
             .as_ref()
@@ -1786,6 +1786,24 @@ pub(crate) fn paint_invalid_ring(info: &mut CallbackInfo, container: DomNodeId, 
             CssProperty::initial(CssPropertyType::BorderLeftColor),
         ]
     };
+    // Colour alone must not say "wrong" (`differentiate-without-color`): an invalid ring is a
+    // dashed one while the user has the setting on, and solid again when the value is valid. The
+    // style is written only while the setting is on: a window without it keeps the fields' own
+    // border style, as before. (A field that is dashed when the setting is switched off stays so
+    // until its next validation with the setting on.)
+    if info
+        .get_accessibility_preferences()
+        .differentiate_without_color
+        .is_on()
+    {
+        let style = if invalid { BorderStyle::Dashed } else { BorderStyle::Solid };
+        props.extend([
+            CssProperty::const_border_top_style(StyleBorderTopStyle { inner: style }),
+            CssProperty::const_border_right_style(StyleBorderRightStyle { inner: style }),
+            CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: style }),
+            CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: style }),
+        ]);
+    }
     info.override_node_css_properties(container.dom, node_id, props.into());
 }
 
