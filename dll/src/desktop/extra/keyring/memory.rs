@@ -42,7 +42,7 @@ struct Entry {
 }
 
 impl Entry {
-    fn plain(secret: String) -> Self {
+    const fn plain(secret: String) -> Self {
         Self {
             secret,
             protection: KeyringProtection::DeviceUnlocked,
