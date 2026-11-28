@@ -36,6 +36,7 @@ azmaps-direction-sw = SW
 azmaps-direction-w = W
 azmaps-direction-nw = NW
 azmaps-location-unavailable = Standort nicht verfügbar
+azmaps-location-denied = Der Standort ist für AzMaps ausgeschaltet: in den Systemeinstellungen erlauben.
 azmaps-show-location = Meinen Standort zeigen
 azmaps-pins-unreadable = Die Pin-Datei konnte nicht gelesen werden: { $why }
 azmaps-pins-unsaved = Die Pins konnten nicht gespeichert werden: { $why }
