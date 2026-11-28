@@ -38,6 +38,10 @@ ed25519-dalek = { version = "2.2", default-features = false, features = ["std", 
 hkdf = "0.12"
 sha2 = "0.10"
 
+# The Android entry (src/lib.rs): the library's constructor starts the app, as in the other phone apps.
+[target.'cfg(target_os = "android")'.dependencies]
+ctor = "0.2"
+
 [dev-dependencies]
 # The shared temporary folder for tests (azul_pim::testing::TempDir).
 azul-pim = { path = "../azul-pim", features = ["test-util"] }

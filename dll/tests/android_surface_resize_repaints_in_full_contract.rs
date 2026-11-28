@@ -11,6 +11,8 @@
 //! The shell is compiled for `target_os = "android"` only, so what it does with a new size is read here:
 //!
 //! * the window's size is written in ONE place, and that place asks for the full repaint when the size changed;
+//! * "the size changed" is ONE question (`surface_size_differs`, the size the window HAS against the new one, bit for bit, in both
+//!   dimensions), the one the `WindowResized` arm asks too to decide whether the system's report is a layout at all;
 //! * the three events that carry a surface size (`InitWindow`, `WindowResized`, `ConfigChanged`) write it there.
 //!
 //!     CARGO_MANIFEST_DIR=$PWD/dll rustc --edition 2021 --test dll/tests/android_surface_resize_repaints_in_full_contract.rs -o /tmp/t && /tmp/t
@@ -62,14 +64,30 @@ fn block<'a>(code: &'a str, needle: &str) -> &'a str {
 fn a_size_that_changed_asks_for_the_full_repaint() {
     let code = shell();
     let helper = block(&code, "fnapply_surface_size(");
-    assert!(
-        helper.contains("now.width.to_bits()!=logical_w.to_bits()||now.height.to_bits()!=logical_h.to_bits()"),
-        "the new size is compared with the window's current one, in both dimensions: {helper}"
-    );
+    let question = helper.find("surface_size_differs(window,logical)").unwrap_or_else(|| {
+        panic!("the new size is compared with the window's current one before anything is written: {helper}")
+    });
     let ask = helper.find("window.cpu_backend.force_full_repaint=true;").expect("a changed size asks for the full repaint");
-    let compare = helper.find("now.width.to_bits()").unwrap();
     let write = helper.find("ws.size.dimensions.width=logical_w;").expect("the helper writes the size");
-    assert!(compare < ask && ask < write, "the question is asked of the size the window HAS, before the new one is written");
+    assert!(question < ask && ask < write, "the question is asked of the size the window HAS, before the new one is written");
+}
+
+/// The question is both dimensions, bit for bit, against the size the window has.
+///
+/// Mutation: the width alone (a rotation of a square window, a split screen that only changes the height: the strip is left
+/// to the incremental repaint, and the `WindowResized` arm lays nothing out for a height that moved).
+#[test]
+fn the_size_question_is_both_dimensions_of_the_size_the_window_has() {
+    let code = shell();
+    let question = block(&code, "fnsurface_size_differs(");
+    assert!(
+        question.contains("now.width.to_bits()!=logical_w.to_bits()||now.height.to_bits()!=logical_h.to_bits()"),
+        "the new size is compared with the window's current one, in both dimensions: {question}"
+    );
+    assert!(
+        question.contains("window.common.current_window_state().size.dimensions"),
+        "the size compared with is the one the window has (its window state), not one the caller passes: {question}"
+    );
 }
 
 /// There is no second place that writes the window's size: a surface event that wrote it directly would skip the question.
