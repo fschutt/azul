@@ -94,6 +94,7 @@ azmaps-save = Speichern
 azmaps-share = Teilen
 azmaps-share-name = Link zu diesem Ort kopieren
 azmaps-link-copied = Link kopiert
+azmaps-search-too-long = Die Suche nimmt höchstens { $max } Zeichen.
 azmaps-layers = Kartenstil
 azmaps-layers-menu = Kartenstile
 azmaps-style-standard = Standard

@@ -36,6 +36,16 @@ use crate::{
 /// and nothing.
 pub const ONLINE_MIN_CHARS: usize = 3;
 
+/// The longest text a search takes, in characters: an address, a name or a pair of coordinates is far shorter. A longer text (a pasted
+/// page) is refused with a notice, not searched (no worker, no request URL of that size).
+pub const MAX_QUERY_CHARS: usize = 256;
+
+/// Whether `text` is no longer than [`MAX_QUERY_CHARS`] (looks at no more of it than that).
+#[must_use]
+pub fn query_fits(text: &str) -> bool {
+    text.chars().nth(MAX_QUERY_CHARS).is_none()
+}
+
 /// A place the online search found, as a suggestion: its town where the town is not its name.
 #[must_use]
 pub fn suggestion_of_found(found: &Found) -> Suggestion {
@@ -297,6 +307,18 @@ mod tests {
         );
         let many: Vec<Suggestion> = (0..10).map(|i| named(&format!("Place {i}"), (50.0 + f64::from(i), 10.0), SuggestionSource::Transitous)).collect();
         assert_eq!(merge(Vec::new(), many, Vec::new(), 6).len(), 6);
+    }
+
+    #[test]
+    fn a_search_text_is_capped_at_256_characters_and_the_count_is_in_characters() {
+        assert!(query_fits(""));
+        assert!(query_fits(&"a".repeat(MAX_QUERY_CHARS)));
+        assert!(!query_fits(&"a".repeat(MAX_QUERY_CHARS + 1)));
+        // characters, not bytes: 256 two-byte letters fit, a 257th does not
+        assert!(query_fits(&"ü".repeat(MAX_QUERY_CHARS)));
+        assert!(!query_fits(&"ü".repeat(MAX_QUERY_CHARS + 1)));
+        // a page-sized paste is refused without counting it all
+        assert!(!query_fits(&"x".repeat(5_000_000)));
     }
 
     #[test]

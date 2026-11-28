@@ -49,7 +49,7 @@
 //! worker, `AZMAPS_ROUTE <mode> <km>
 //! <minutes> <compute_ms>` when its route comes back from the route worker,
 //! `AZMAPS_PANEL open|closed` (the desktop panel folded or shown), `AZMAPS_CHIP <n> <words>`, `AZMAPS_SHARE <link>`,
-//! `AZMAPS_STYLE <key>` (the layers' menu). With `--stats` (`args.rs`): `AZMAPS_LAYOUT
+//! `AZMAPS_STYLE <key>` (the layers' menu), `AZMAPS_LIMIT search <max>` (a text longer than the search takes was refused). With `--stats` (`args.rs`): `AZMAPS_LAYOUT
 //! <n> <us>` for every window rebuild (how long `layout` took), `AZMAPS_PAN
 //! map <us>` for every step of a pan (how long AzMaps took for it), and the map widget's `AZ_MAP_TILES` /
 //! `AZ_MAP_RENDER` / `AZ_MAP_TILE` counters.
@@ -1895,6 +1895,18 @@ extern "C" fn on_travel_text(
     let Some((mut app, end)) = field_of(&mut data) else {
         return keep;
     };
+    // A text longer than the search takes (a pasted page) is refused with a notice; the field keeps what it had.
+    if !geocode::query_fits(state.get_text().as_str()) {
+        println!("AZMAPS_LIMIT search {}", geocode::MAX_QUERY_CHARS);
+        if let Some(mut s) = app.downcast_mut::<MapState>() {
+            let max = Arg::from(geocode::MAX_QUERY_CHARS as i64);
+            s.toast = (t_args("azmaps-search-too-long", &[("max", max)]), TOAST_TICKS);
+        }
+        return OnTextInputReturn {
+            update: Update::RefreshDom,
+            valid: TextInputValid::No,
+        };
+    }
     if let Some(mut s) = app.downcast_mut::<MapState>() {
         *s.travel.text_mut(end) = state.get_text().as_str().to_string();
         s.typed = Some((end, std::time::Instant::now()));

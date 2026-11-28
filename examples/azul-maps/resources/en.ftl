@@ -94,6 +94,7 @@ azmaps-save = Save
 azmaps-share = Share
 azmaps-share-name = Copy a link to this place
 azmaps-link-copied = Link copied
+azmaps-search-too-long = The search takes at most { $max } characters.
 azmaps-layers = Map style
 azmaps-layers-menu = Map styles
 azmaps-style-standard = Standard
