@@ -68,6 +68,8 @@ mod gpu;
 mod locale;
 /// `Url::open`: the iOS hook of the core crate's opener (`UIApplication openURL:options:completionHandler:`).
 mod open_url;
+/// The user's accessibility and display settings, read from UIKit and its siblings.
+mod preferences;
 /// SystemConfiguration's macOS-only half, answered "nothing is configured" (E63): the symbols the iroh dependencies reference and
 /// the iOS SDK marks unavailable. Not for Mac Catalyst, which has the real functions.
 #[cfg(not(target_abi = "macabi"))]
@@ -1554,6 +1556,17 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
                 .common
                 .request_regeneration(RelayoutReason::ModeChange);
         }
+        // The user's accessibility settings (text size, bold text, contrast, reduced motion, ...): UIKit
+        // answers a handful of flags, so the tick asks four times a second and the window adopts a
+        // change through the one funnel (a restyle, or `layout()` again where it read them).
+        if window.preference_watch.due() {
+            let reported = window.preference_reader.read().into_preferences();
+            // Contract shape (snapshot -> mutate -> pass): the adoption is the mutation and the pass.
+            window.snapshot_window_state_baseline("ios.preferences");
+            if window.adopt_reported_preferences(reported) {
+                window.needs_rerender = true;
+            }
+        }
         if window.backend == RenderBackend::Gpu {
             // the GPU window's frame: what is owed is laid out, sent and drawn here, in the tick
             window.gpu_tick();
@@ -2273,6 +2286,11 @@ pub enum IOSEvent {
 pub struct IOSWindow {
     /// Cross-platform window state.
     pub common: CommonWindowState,
+    /// The UIKit flag functions of the user's accessibility settings, looked up once.
+    preference_reader: preferences::PreferenceReader,
+    /// When the settings are read again: every 250 ms in the display tick (UIKit documents no thread
+    /// for its notifications, and a poll needs no observer object).
+    preference_watch: crate::desktop::shell2::common::preference_watch::PreferenceWatch,
     /// CPU rendering backend (replaces WebRender).
     pub cpu_backend: CpuBackend,
     /// A frame must be re-rastered and presented, but the layout is UNCHANGED.
@@ -2565,6 +2583,7 @@ impl IOSWindow {
             (Id::from_ptr(window), Id::from_ptr(vc), Id::from_ptr(view))
         };
 
+        let preference_reader = preferences::PreferenceReader::new();
         let mut common = CommonWindowState::new(
             full_window_state,
             options.mode,
@@ -2580,7 +2599,14 @@ impl IOSWindow {
             // thin, the wrong fade timings, and the Material palette replaced by
             // generic defaults. AppConfig's doc comment already promised this is
             // "passed to all windows"; the desktop backends did, mobile did not.
-            Arc::new(config.system_style.clone()),
+            // The user's accessibility settings (the text size above all) ARE part of the style the
+            // first layout is made in: read here, with the environment's pins laid over them.
+            Arc::new({
+                let mut style = config.system_style.clone();
+                style.set_preferences(preference_reader.read().into_preferences());
+                style.overlay_preferences(&app_shared.settings().css.accessibility);
+                style
+            }),
             Arc::new(RefCell::new(app_data)),
             undo_manager,
             app_shared,
@@ -2590,6 +2616,10 @@ impl IOSWindow {
 
         let mut window = Self {
             common,
+            preference_reader,
+            preference_watch: crate::desktop::shell2::common::preference_watch::PreferenceWatch::every(
+                core::time::Duration::from_millis(250),
+            ),
             cpu_backend: CpuBackend::for_config(&config),
             needs_rerender: false,
             ui_window,
