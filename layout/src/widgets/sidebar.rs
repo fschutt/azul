@@ -1,27 +1,32 @@
 //! The standard Sidebar: ONE left column every heavy app shares (Mail's folders, a drive's trees,
-//! a document's outline, Paint's tools), so no app builds its own.
+//! a document list, a notebook's sections), so no app builds its own.
 //!
 //! ```text
-//!  expanded                 rail (the collapsed state)     handle
-//! ┌──────────────────┐      ┌────┐                          ┌┐
-//! │ ● ● ●            │      │ ●●●│  window controls         ││
-//! │ Favourites       │      │    │                          ││
-//! │ ▸ Inbox      329 │      │ ✉  │  one button per row      │▌│  16 px, grab handle
-//! │ ▾ Archive        │      │ ★  │  with an icon, the       ││
-//! │   2026         4 │      │ ▤  │  label is a tooltip      ││
-//! │ ──────────────── │      │ ── │                          └┘
-//! │ Help             │      │ ?  │
-//! │ ◔ Sync · 82 %    │      │ ◔  │  status pies, a click
-//! │ ◔ Drive · 64 %   │      │ ◔  │  opens a short popover
-//! │ « Collapse       │      │ »  │  the toggle, always last
-//! └──────────────────┘      └────┘
+//!  expanded                 rail: 18 px, collapsed          handle
+//! ┌──────────────────┐      ┌──┐                             ┌┐
+//! │ ● ● ●            │      │●●│ window controls overhang    ││
+//! │ Favourites       │      │  │                             ││
+//! │ ▸ Inbox      329 │      │✉ │ navigation: one button      │▌│  16 px, grab handle
+//! │ ▾ Archive        │      │★ │ per row with an icon        ││
+//! │   2026         4 │      │  │                             ││
+//! │ ──────────────── │      │  │ (free room)                 └┘
+//! │ Help             │      │──│
+//! │ ◔ Sync · 82 %    │      │B │ quick access: the app's own
+//! │ ◔ Drive · 64 %   │      │A │ buttons, the last is the
+//! │                  │      │↶ │ nearest to the thumb
+//! │                  │      │──│
+//! │                  │      │◔ │ status slot: pies, badges
+//! │ « Collapse       │      │» │ the toggle, always last
+//! └──────────────────┘      └──┘
 //! ```
 //!
-//! The sidebar is the FULL height of the window: it runs beside the tab row and the ribbon, down
-//! to the footer, and on a phone its expanded state is a DRAWER that pushes the whole main view
-//! aside (`AppFrame`), never an overlay with a dim. It has three states ([`SidebarState`]): the
-//! icon RAIL is the collapsed one and the one an app starts in; the 16 px HANDLE is supported and
-//! never part of the toggle's round unless the app asks for it.
+//! The sidebar is the FULL height of a desktop window: it runs beside the tab row and the ribbon,
+//! down to the footer. On a phone its collapsed rail starts below the tab row (`AppFrame`), and its
+//! expanded state is a DRAWER that pushes the whole main view aside, never an overlay with a dim.
+//! It has three states ([`SidebarState`]): the icon RAIL is the collapsed one and the one an app
+//! starts in (18 px, with an invisible hit slop 18 px inward and an edge swipe that opens the
+//! drawer); the 16 px HANDLE is supported and never part of the toggle's round unless the app asks
+//! for it.
 //!
 //! # What the app gives it
 //!
@@ -29,14 +34,22 @@
 //!   tinted), a label, a count, a disclosure triangle for a tree (the app flattens its tree: a
 //!   row says its depth, whether it has children and whether they show), a selected row drawn as
 //!   a rounded highlight (macOS Mail's), an optional check mark (a calendar's coloured boxes).
-//!   Rows with an icon are the rail's buttons; a row opts out with `with_in_rail(false)`.
-//! - DOCUMENT ROWS (AzWriter, AzSheets, AzShow list their open documents here): a row may carry
-//!   its own sync PIE and a COLLABORATION icon (off / on, a click asks to switch it,
+//!   Rows with an icon are the rail's NAVIGATION buttons, top-anchored; a row opts out with
+//!   `with_in_rail(false)`.
+//! - QUICK ACCESS ([`SidebarQuickAction`]): the app's own buttons for the collapsed rail
+//!   (`AzWriter`: font colour, bold, highlight, size, undo), bottom-anchored where the thumb of a
+//!   right-handed user holding the phone upright reaches; the app lists them in the order they
+//!   are drawn and puts the most used one LAST. Each has an icon, a tooltip, a state (plain, a
+//!   toggle off or on, disabled) and may carry a colour bar. The expanded sidebar does not show
+//!   them.
+//! - DOCUMENT ROWS (`AzWriter`, `AzSheets`, `AzShow` list their open documents here): a row may
+//!   carry its own sync PIE and a COLLABORATION icon (off / on, a click asks to switch it,
 //!   [`SidebarCollab`]); in the rail the document keeps its icon and a small pie at its corner.
 //!   UI only: what sync and collaboration do is the app's, nothing behind them is in the widget.
-//! - STATUS PIES ([`SidebarStatus`]) stacked directly above the toggle: sync, drive full, battery.
-//!   A click or tap opens a short popover (the same `Dialog` popover a desktop has today, on a
-//!   phone too) with the app's own content or a title and a line of detail.
+//! - The STATUS SLOT ([`SidebarStatus`]) directly above the toggle: small indicators, each a pie
+//!   or a badge. WHICH ones appear is the app's data (a drive's fullness, a sync, unread mail):
+//!   the widget has none of its own. A click or tap opens a short popover (the same `Dialog`
+//!   popover a desktop has, on a phone too) with the app's own content or a title and a line.
 //! - A HELP row, a HEADER slot above the rows (an account, a "New" button), a `label` the
 //!   screen reader names the landmark by.
 //!
@@ -44,8 +57,9 @@
 //!
 //! Every action goes through ONE callback ([`SidebarOnEvent`]) with a [`SidebarEvent`]; the
 //! sidebar owns no state: the app keeps the state, the selection, which rows are expanded, and
-//! rebuilds. The window controls of the OS (macOS's traffic lights) sit over the sidebar's top:
-//! `with_window_controls` keeps their band and their width free (`sidebar_layout.rs`).
+//! rebuilds. The window controls of the OS (macOS's traffic lights) sit over the sidebar's top and
+//! overhang the 18 px rail: `with_window_controls` keeps their band free, `header_left_pad` is
+//! what the tab row keeps clear (`sidebar_layout.rs`).
 //!
 //! # The surface
 //!
@@ -54,8 +68,8 @@
 //! (leather, vellum, blue jeans, aluminium: [`SidebarSurface`]), or nothing at all
 //! ([`SidebarSurface::Inherit`]) where the app paints one surface under everything.
 //!
-//! Key types: [`Sidebar`], [`SidebarSection`], [`SidebarRow`], [`SidebarStatus`],
-//! [`SidebarEvent`], [`SidebarOnEvent`], [`SidebarState`], [`SidebarSurface`].
+//! Key types: [`Sidebar`], [`SidebarSection`], [`SidebarRow`], [`SidebarQuickAction`],
+//! [`SidebarStatus`], [`SidebarEvent`], [`SidebarOnEvent`], [`SidebarState`], [`SidebarSurface`].
 
 use alloc::{format, string::String, vec::Vec};
 use core::fmt::Write as _;
@@ -129,7 +143,7 @@ pub const SIDEBAR_COLLAB_CLASS: &str = "__azul-native-sidebar-collab";
 pub const SIDEBAR_BUTTON_CLASS: &str = "__azul-native-sidebar-button";
 /// The hairline between the sections of the rail and over the foot.
 pub const SIDEBAR_RULE_CLASS: &str = "__azul-native-sidebar-rule";
-/// The foot: help, the status pies and the toggle.
+/// The foot: help, the status indicators and the toggle.
 pub const SIDEBAR_FOOT_CLASS: &str = "__azul-native-sidebar-foot";
 /// A status indicator, a pie or a badge (its invoker; in the rail a button, expanded a row).
 pub const SIDEBAR_STATUS_CLASS: &str = "__azul-native-sidebar-status";
