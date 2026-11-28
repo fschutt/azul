@@ -118,20 +118,29 @@ workspace() {
 run workspace workspace
 
 clippy() {
-  local code=0
-  # The CI's first clippy step: the default features, every finding an error. origin/master carries 36 `unnecessary
-  # qualification` findings in layout/src/window.rs that are not this work's (the paths were written before `CssProperty`
-  # was imported there; they stop the build of azul-layout at its first error, so nothing after it is linted), so both
-  # steps run with that one lint allowed - every other finding is an error, as in CI - and the findings of the lint are
-  # LISTED by file in the last one: the work must add none.
-  cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets -- -D warnings -A unused-qualifications 2>&1 | tee clippy.txt
-  [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
-  # The CI's second step: the feature set the tests compile.
-  cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --features "$features" -- -D warnings -A unused-qualifications 2>&1 | tee clippy-features.txt
-  [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
-  cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --features "$features" 2>&1 | tee clippy-qualifications.txt >/dev/null
-  echo "--- unnecessary qualifications by file (origin/master: layout/src/window.rs 36, nothing else) ---"
-  grep -A1 "unnecessary qualification" clippy-qualifications.txt | grep -- "-->" | sed -E 's/^ *--> //; s/:[0-9]+:[0-9]+$//' | sort | uniq -c
+  local code=0 kind found
+  # The CI's two clippy runs of the three crates (the default features; the feature set the tests compile), the test targets
+  # included. The CI runs them with `-D warnings`, and origin/master carries 36 `unnecessary qualification` findings in
+  # layout/src/window.rs (the paths were written before `CssProperty` was imported there), so that run is red on master; and the
+  # lint cannot be allowed from the command line, because the crate WARNS it in its own source (`#![warn(unused_qualifications)]`
+  # beats `-A`). So the runs are made without `-D warnings`, one line per diagnostic, and every diagnostic that is not that
+  # one finding fails the step: what is checked is the same set of lints, the 36 are listed by file instead.
+  for kind in default features; do
+    if [ "$kind" = features ]; then
+      cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --features "$features" --message-format=short 2>&1 | tee "clippy-$kind.txt"
+    else
+      cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --message-format=short 2>&1 | tee "clippy-$kind.txt"
+    fi
+    [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "clippy ($kind): the build failed"; code=1; }
+    found=$(grep -E '\.rs:[0-9]+:[0-9]+: (warning|error)' "clippy-$kind.txt" | grep -v 'unnecessary qualification' || true)
+    if [ -n "$found" ]; then
+      echo "clippy ($kind): findings that are not master's unnecessary qualification:"
+      echo "$found" | head -80
+      code=1
+    fi
+    echo "--- unnecessary qualifications by file ($kind; origin/master: layout/src/window.rs 36, nothing else) ---"
+    grep -E '\.rs:[0-9]+:[0-9]+: (warning|error): unnecessary qualification' "clippy-$kind.txt" | sed -E 's/:[0-9]+:[0-9]+:.*//' | sort | uniq -c
+  done
   return "$code"
 }
 run clippy clippy

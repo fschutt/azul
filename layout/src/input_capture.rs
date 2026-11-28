@@ -24,7 +24,7 @@
 
 use alloc::vec::Vec;
 
-use azul_core::{dom::DomNodeId, events::SyntheticEvent};
+use azul_core::{dom::DomNodeId, events::SyntheticEvent, styled_dom::NodeHierarchyItem};
 
 use crate::{
     managers::hover::{apply_pointer_capture, HoverManager, PointerCapture},
@@ -76,7 +76,7 @@ impl LayoutWindow {
                 if current == press_node {
                     return true;
                 }
-                match hierarchy.get(current).and_then(|node| node.parent_id()) {
+                match hierarchy.get(current).and_then(NodeHierarchyItem::parent_id) {
                     Some(parent) => current = parent,
                     None => return false,
                 }
