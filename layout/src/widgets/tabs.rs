@@ -3372,9 +3372,19 @@ pub(crate) fn pill_sized(
             v.extend(flora::leather_faces());
         }
         v.extend(flora::gold_edge());
+        // One fade for the whole face: the label's colour, the face, the edge and the shadows move
+        // together and quickly. The button's own face fades its colour in a state change (420 ms) and
+        // its stone in `--fl-dur-slow` (1200 ms); on a pill that changes class with the selection the
+        // label turned white at once-ish over a face that was still cream for half a second (a blank
+        // pill: the iOS Simulator's recording, QA 2026-11-28).
+        v.extend(flora::flora_fade(flora::FLORA_FACE, PILL_FADE_MS));
     }
     CssPropertyWithConditionsVec::from_vec(v)
 }
+
+/// How long a pill's face, label and edge take to change with the selection, ms: the same for all of
+/// them, so that no frame shows a white label on a cream face.
+pub(crate) const PILL_FADE_MS: u32 = 180;
 
 /// A touch pill: [`pill_sized`] at [`PILL_TOUCH`], which does not shrink in a row longer than
 /// the window and is the box the pill's hit area hangs on.

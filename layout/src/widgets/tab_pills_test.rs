@@ -365,3 +365,36 @@ fn the_strip_listens_to_its_own_resize() {
     assert_eq!(resize(strip_of(&dom)), 1, "a turn of the phone moves the lanes: the strip hears it");
     assert_eq!(resize(&dom), 0, "the header around it is not the strip");
 }
+
+#[test]
+fn a_flora_pill_fades_its_label_and_its_face_together_whatever_it_changes_to() {
+    use crate::widgets::button::ButtonType;
+    use azul_css::props::property::CssProperty;
+    for button_type in [ButtonType::Default, ButtonType::Primary] {
+        for metrics in [&super::PILL_DESKTOP, &super::PILL_TOUCH] {
+            let css = super::pill_sized(UiTheme::Flora, button_type, metrics);
+            // The animation that governs the pill at rest: the last one declared with no condition.
+            let list = css
+                .as_ref()
+                .iter()
+                .rev()
+                .filter(|p| p.apply_if.as_ref().is_empty())
+                .find_map(|p| match &p.property {
+                    CssProperty::Animation(value) => value.get_property().cloned(),
+                    _ => None,
+                })
+                .expect("the pill declares its fade");
+            let entries = list.as_ref();
+            let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+            assert!(names.contains(&"color") && names.contains(&"background"), "{button_type:?}: {names:?}");
+            for entry in entries {
+                assert_eq!(
+                    entry.duration.inner,
+                    super::PILL_FADE_MS,
+                    "{button_type:?}: {} fades over the same time as the rest",
+                    entry.name.as_str()
+                );
+            }
+        }
+    }
+}
