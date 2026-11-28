@@ -1,6 +1,18 @@
 use azul_core::dom::{DomId, DomNodeId, NodeId};
+use azul_core::task::SystemTick;
 
 use super::*;
+
+/// A moment on the engine's tick scale (60 ticks are one second): the permission manager runs on
+/// the engine's own `Instant`, so a test can say exactly how long ago a gesture was.
+fn tick(counter: u64) -> Instant {
+    Instant::Tick(SystemTick::new(counter))
+}
+
+/// The gesture window in ticks.
+fn window_ticks() -> u64 {
+    GESTURE_WINDOW.as_secs() * azul_css::props::basic::time::TICKS_PER_SECOND
+}
 
 fn node(idx: usize) -> DomNodeId {
     DomNodeId {
@@ -187,23 +199,23 @@ fn a_held_geolocation_subscribe_goes_with_the_gesture_and_a_release_drops_it() {
 
 #[test]
 fn the_gesture_that_admitted_a_capability_admits_it_again_and_no_other() {
-    let at = std::time::Instant::now();
+    let at = tick(100);
     let mut mgr = PermissionManager::new();
-    mgr.note_gesture_at(at);
-    assert_eq!(mgr.admit_at(Capability::Geolocation, at), Admission::Go);
+    mgr.note_gesture_at(at.clone());
+    assert_eq!(mgr.admit_at(Capability::Geolocation, at.clone()), Admission::Go);
     assert_eq!(
-        mgr.admit_at(Capability::Geolocation, at),
+        mgr.admit_at(Capability::Geolocation, at.clone()),
         Admission::Go,
         "the same click, the same capability"
     );
     assert_eq!(
-        mgr.admit_at(Capability::Camera, at),
+        mgr.admit_at(Capability::Camera, at.clone()),
         Admission::Hold,
         "another capability waits for a click of its own"
     );
     // A new click starts over.
-    mgr.note_gesture_at(at);
-    assert_eq!(mgr.admit_at(Capability::Camera, at), Admission::Go);
+    mgr.note_gesture_at(at.clone());
+    assert_eq!(mgr.admit_at(Capability::Camera, at.clone()), Admission::Go);
     assert_eq!(mgr.admit_at(Capability::Geolocation, at), Admission::Hold);
 }
 
@@ -265,22 +277,29 @@ fn the_pump_reads_the_platform_state_of_what_was_asked_or_is_subscribed_only() {
 
 #[test]
 fn a_gesture_of_long_ago_is_no_cause_of_a_request() {
-    let now = std::time::Instant::now();
-    let Some(long_ago) = now.checked_sub(GESTURE_WINDOW * 4) else {
-        return;
-    };
+    let now = tick(100 * window_ticks());
+    let long_ago = tick(100 * window_ticks() - 4 * window_ticks());
     let mut mgr = PermissionManager::new();
     mgr.note_gesture_at(long_ago);
-    assert_eq!(mgr.admit_at(Capability::Camera, now), Admission::Hold, "a stale gesture asks nobody");
+    assert_eq!(mgr.admit_at(Capability::Camera, now.clone()), Admission::Hold, "a stale gesture asks nobody");
     // The stale gesture is gone; a fresh one admits again.
-    mgr.note_gesture_at(now);
-    assert_eq!(mgr.admit_at(Capability::Camera, now), Admission::Go);
+    mgr.note_gesture_at(now.clone());
+    assert_eq!(mgr.admit_at(Capability::Camera, now.clone()), Admission::Go);
     // And it is used up.
-    assert_eq!(mgr.admit_at(Capability::Microphone, now), Admission::Hold);
+    assert_eq!(mgr.admit_at(Capability::Microphone, now.clone()), Admission::Hold);
     // A gesture just inside the window still counts.
-    let Some(recent) = now.checked_sub(GESTURE_WINDOW / 2) else {
-        return;
-    };
+    let recent = tick(100 * window_ticks() - window_ticks() / 2);
     mgr.note_gesture_at(recent);
     assert_eq!(mgr.admit_at(Capability::Microphone, now), Admission::Go);
+}
+
+#[test]
+fn the_gesture_window_ends_exactly_one_window_after_the_gesture() {
+    // Exactly the window ago is no longer inside it; one tick less is.
+    let now = tick(10 * window_ticks());
+    let mut mgr = PermissionManager::new();
+    mgr.note_gesture_at(tick(10 * window_ticks() - window_ticks()));
+    assert_eq!(mgr.admit_at(Capability::Camera, now.clone()), Admission::Hold);
+    mgr.note_gesture_at(tick(10 * window_ticks() - window_ticks() + 1));
+    assert_eq!(mgr.admit_at(Capability::Camera, now), Admission::Go);
 }
