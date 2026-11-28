@@ -3143,12 +3143,11 @@ pub fn get_background_color(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> ColorU {
-    background_contents_as_declared(styled_dom, node_id, node_state)
+    // A `system:` colour is a solid colour too, once resolved against the theme the cascade
+    // evaluated; the layers are the ones that are painted (the user's settings applied).
+    get_background_contents(styled_dom, node_id, node_state)
         .into_iter()
         .next()
-        // A `system:` colour is a solid colour too, once resolved against
-        // the theme the cascade evaluated.
-        .map(|bottom| system_colors_resolved(styled_dom, bottom))
         .and_then(|bottom| match bottom {
             azul_css::props::style::StyleBackgroundContent::Color(color) => Some(color),
             _ => None, // an image or a gradient: no solid colour
@@ -3314,10 +3313,18 @@ pub fn get_background_contents(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Vec<azul_css::props::style::StyleBackgroundContent> {
-    background_contents_as_declared(styled_dom, node_id, node_state)
+    let layers: Vec<_> = background_contents_as_declared(styled_dom, node_id, node_state)
         .into_iter()
         .map(|layer| system_colors_resolved(styled_dom, layer))
-        .collect()
+        .collect();
+    // The user's contrast and transparency settings (`solver3::presentation`): free when none is on.
+    let presentation = super::presentation::Presentation::of(styled_dom);
+    if !presentation.is_active() {
+        return layers;
+    }
+    let frosted = presentation.opaque
+        && super::presentation::is_frosted(styled_dom, node_id, node_state);
+    super::presentation::present_layers(styled_dom, node_id, frosted, layers)
 }
 
 /// The `background-clip` boxes of `node_id` (CSS Backgrounds 3 s3.7), one per
@@ -3510,9 +3517,26 @@ fn inherited_color_override(styled_dom: &StyledDom, dom_id: NodeId) -> Option<Co
 /// transition, [`inherited_color_override`]), else the compact cache's
 /// inherited value, else the cascade, else the themed UA default;
 /// `system:` keywords resolved against the theme the cascade evaluated.
-#[allow(clippy::cast_possible_truncation)] // the packed 0xRRGGBBAA bytes
+///
+/// Under the user's increased contrast it is the colour the text can be read in on the surface
+/// behind it ([`super::presentation::present_ink`]); the inherited value the cascade keeps is the
+/// colour the page declared.
 #[must_use]
 pub fn get_used_text_color(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+) -> ColorU {
+    super::presentation::present_ink(
+        styled_dom,
+        dom_id,
+        used_text_color_as_declared(styled_dom, dom_id, node_state),
+    )
+}
+
+/// [`get_used_text_color`] as the page declared it: no setting of the user applied.
+#[allow(clippy::cast_possible_truncation)] // the packed 0xRRGGBBAA bytes
+fn used_text_color_as_declared(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     node_state: &StyledNodeState,
@@ -3547,7 +3571,7 @@ pub fn get_used_text_color(
                     .parent_id()
                     .map(|parent| {
                         let state = &styled_dom.styled_nodes.as_container()[parent].styled_node_state;
-                        get_used_text_color(styled_dom, parent, state)
+                        used_text_color_as_declared(styled_dom, parent, state)
                     })
                     .or_else(|| Some(initial_text_color(cache))),
                 CssPropertyValue::Initial => Some(initial_text_color(cache)),
@@ -3675,6 +3699,22 @@ pub fn get_border_info(
     used_side!(right, LayoutBorderRightWidth, StyleBorderRightColor, get_border_right_color);
     used_side!(bottom, LayoutBorderBottomWidth, StyleBorderBottomColor, get_border_bottom_color);
     used_side!(left, LayoutBorderLeftWidth, StyleBorderLeftColor, get_border_left_color);
+    // Increased contrast: a border is seen at 4.5:1 on what lies behind the box.
+    if super::presentation::Presentation::of(styled_dom).more_contrast {
+        macro_rules! present_side {
+            ($side:ident, $Color:ident) => {
+                if let Some(CssPropertyValue::Exact(color)) = info.colors.$side {
+                    info.colors.$side = Some(CssPropertyValue::Exact($Color {
+                        inner: super::presentation::present_edge(styled_dom, node_id, color.inner),
+                    }));
+                }
+            };
+        }
+        present_side!(top, StyleBorderTopColor);
+        present_side!(right, StyleBorderRightColor);
+        present_side!(bottom, StyleBorderBottomColor);
+        present_side!(left, StyleBorderLeftColor);
+    }
     info
 }
 
@@ -10096,9 +10136,23 @@ pub fn get_filter(
 }
 
 /// Get backdrop-filter property. Returns Option with cloned filter list, its
-/// `system:` colours resolved.
+/// `system:` colours resolved. `None` while the user has the transparency effects off: a frosted
+/// surface paints no blur then (and an opaque fill, `solver3::presentation`).
 #[must_use]
 pub fn get_backdrop_filter(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::filter::StyleFilterVec> {
+    if super::presentation::Presentation::of(styled_dom).opaque {
+        return None;
+    }
+    get_backdrop_filter_declared(styled_dom, node_id, node_state)
+}
+
+/// [`get_backdrop_filter`] as the page declared it: the user's settings not applied.
+#[must_use]
+pub fn get_backdrop_filter_declared(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -10248,6 +10302,12 @@ pub fn get_box_shadows(
     {
         if !shadows.contains(&shadow) {
             shadows.push(shadow);
+        }
+    }
+    // Increased contrast: a ring (a focus halo, a border drawn as a shadow) is seen at 4.5:1.
+    if super::presentation::Presentation::of(styled_dom).more_contrast {
+        for shadow in &mut shadows {
+            *shadow = super::presentation::present_shadow(styled_dom, node_id, *shadow);
         }
     }
     // CSS `zoom` (LAYOUT7): a shadow's lengths are paint lengths.

@@ -10,6 +10,8 @@ pub mod fc;
 pub mod footnotes;
 pub mod geometry;
 pub mod getters;
+/// What the user's contrast and transparency settings do to what a node paints.
+pub mod presentation;
 pub mod layout_tree;
 pub use layout_tree::LayoutNodeId;
 pub mod break_token;

@@ -1715,6 +1715,20 @@ impl DynamicSelectorContext {
         bool::from(self.prefers_reduced_motion) || self.preferences.reduces_motion()
     }
 
+    /// Whether the user asked the system for more contrast (a contrast theme counts), or the
+    /// older `prefers_high_contrast` condition, which is what a test mock sets. The painters read
+    /// every ink, edge and fill through it (`solver3::presentation`).
+    #[must_use]
+    pub fn contrast_is_increased(&self) -> bool {
+        bool::from(self.prefers_high_contrast) || self.preferences.high_contrast()
+    }
+
+    /// Whether the user switched the transparency effects off: a frosted surface is opaque.
+    #[must_use]
+    pub const fn transparency_is_reduced(&self) -> bool {
+        self.preferences.reduced_transparency.is_on()
+    }
+
     /// Create a context from `SystemStyle`
     #[must_use]
     pub fn from_system_style(system_style: &crate::system::SystemStyle) -> Self {
