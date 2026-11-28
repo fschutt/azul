@@ -88,5 +88,7 @@ fn a_phone_is_on_its_side_when_it_is_wide_and_short() {
     assert!(!is_landscape_phone(true, false, false));
     assert!(!is_landscape_phone(false, false, true), "a desktop window is no phone");
     assert!(!is_landscape_phone(true, true, true), "too narrow to put the keys beside the display");
-    assert!(LANDSCAPE_MIN_WIDTH < PROGRAMMER_MIN_WIDTH, "the wide-and-short window is the standard one");
 }
+
+/// The wide-and-short window (a phone on its side) is narrower than the programmer's: it is the standard one.
+const _: () = assert!(LANDSCAPE_MIN_WIDTH < PROGRAMMER_MIN_WIDTH);
