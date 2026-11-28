@@ -41,7 +41,9 @@ use std::{
 
 use super::font_instance_store::checksum;
 
-/// The format of the key file: bumped when its lines change (an older file is [`Reason::KeyFileDamaged`]).
+/// The format of the key file: bumped when its lines change (an older file is [`Reason::KeyFileDamaged`]), and WITH THE
+/// rust-fontconfig PIN: a library that computes other values from the same font files (coverage, names, weights)
+/// reads a manifest of the old one without error, and only another number here makes the cache rebuild.
 pub const KEY_FILE_VERSION: u32 = 1;
 
 /// The first word of a key file.
