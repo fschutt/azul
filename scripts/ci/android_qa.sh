@@ -169,11 +169,12 @@ for mode in "${mode_list[@]}"; do
     # every e2e scenario file against its host app (scripts/ci/e2e_matrix.py): the e2e APK of each host (AZ_QA_MATRIX_APKS, space separated)
     mapks=()
     for mapk in "$apk" ${AZ_QA_MATRIX_APKS:-}; do mapks+=(--apk "$mapk"); done
-    # AZ_QA_MATRIX_ONLY=<text>: only the files whose path holds it (e.g. `sounds`: one scenario file of a new feature)
-    python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
+    # AZ_QA_MATRIX_ONLY=<text>: only the files whose path holds it (e.g. `sounds`: one scenario file of a new feature). The engine's frames of every
+    # file (its take_screenshot steps) are kept in <matrix>/shots/<file stem>/shot-NNN.png (WP-E2's request: the pictures of a scenario run were lost)
+    python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" --shots "$d/matrix/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
   fi
   if [ "$session" = tabs ] && [ "$mode" = "${mode_list[0]}" ]; then
-    # THE TAB STRIP on the phone: the files of AZ_QA_TABS_FILES (parts of the file names, default tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag: the last one runs every step whatever the one before said, for the TABS agent's diagnosis of the clicks on a phone)
+    # THE TAB STRIP on the phone: the files of AZ_QA_TABS_FILES (parts of the file names, default tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures: tab_touch_diag runs every step whatever the one before said, for the TABS agent's diagnosis of the clicks on a phone)
     # against the e2e APK, per orientation: (1) the device's own pictures of a plain start, light and dark (the system draws the cutout), (2) per file a
     # recording of its run and the engine's frames of it (AZ_E2E_SHOT_DIR, pulled by scripts/ci/e2e_matrix.py --shots), its verdicts in the table
     adb shell dumpsys window displays 2>/dev/null | grep -i -E "cutout|init=|DisplayInfo" | head -n 24 >"$d/display.txt" || true
@@ -232,7 +233,7 @@ for mode in "${mode_list[@]}"; do
       adb exec-out screencap -p >"$td/device-dark-start.png" 2>/dev/null || true
       adb shell cmd uimode night no >/dev/null 2>&1; sleep 4
       adb shell am force-stop "$pkg" >/dev/null 2>&1
-      for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag}; do
+      for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures}; do
         bring_settings
         vid="/sdcard/tabs-$orient-${part%.json}.mp4"
         ( adb shell screenrecord --time-limit 170 "$vid" >/dev/null 2>&1 & )
