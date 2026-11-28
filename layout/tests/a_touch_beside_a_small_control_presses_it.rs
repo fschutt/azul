@@ -4,7 +4,7 @@
 //!
 //! The tester is built from a real layout, as the shell builds it, and asked the way `perform_hit_test` asks.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData},
@@ -182,5 +182,4 @@ fn an_open_overlay_over_the_touch_blocks_the_slop() {
 fn a_window_without_an_interactive_box_has_no_slop() {
     let s = Scene::new(vec![plain("p", 100.0, 100.0, 20.0, 20.0, "background: #888888;")]);
     assert!(s.touch(94.0, 110.0, &[]).is_none());
-    let _: BTreeMap<DomId, ()> = BTreeMap::new(); // (the scene's tester is built from a real layout)
 }
