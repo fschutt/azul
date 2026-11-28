@@ -1121,6 +1121,20 @@ class FrameRun(SampleRun):
         self.screenshot(os.path.join(out, f'frame-{self.form}-{name}.png'))
         log(f'picture {name}')
 
+    def rect_of_text(self, text):
+        """The box of the first node whose text contains `text` (its nearest ancestor with a box)."""
+        answer = self.op('get_node_hierarchy')
+        nodes = (((answer or {}).get('data') or {}).get('value') or {}).get('nodes') or []
+        by_index = {n.get('index'): n for n in nodes}
+        for n in nodes:
+            if text in (n.get('text') or ''):
+                target = n
+                while target is not None and not target.get('rect'):
+                    target = by_index.get(target.get('parent'))
+                if target is not None:
+                    return target['rect']
+        raise Failure(f'no node reads {text!r}')
+
     def click_sel(self, selector):
         self.settle()
         self.must('click', selector=selector)
@@ -1149,7 +1163,10 @@ class FrameRun(SampleRun):
             self.shot('drawer')
             self.click_sel('.__azul-native-app-frame-catcher')
             self.shot('rail-after-drawer')
-            self.must('double_click', text=subject)
+            # a long press on the row: the sheet (the e2e engine injects the gesture at a place)
+            rect = self.rect_of_text(subject)
+            self.must('long_press', x=rect['x'] + rect['width'] / 2, y=rect['y'] + rect['height'] / 2,
+                      duration_ms=700)
             self.frame(None, 3)
             self.check('the sheet is open', self.has_class('__azul-native-action-sheet-panel'))
             self.shot('sheet')

@@ -111,8 +111,8 @@
     ]
   },
   {
-    "name": "azmail_phone_the_bottom_pane_has_the_message_and_a_row_opens_the_sheet",
-    "description": "On the phone the message is the Preview's bottom pane (a grip bar with the subject and a (?)); a tap on a row selects it and shows it; opening a row (a double tap, Enter) shows the message's quick-action sheet: Reply, Reply all, Forward, Follow up, Unread / Read, Move, Archive and, in red and last, Delete; the scrim closes it.",
+    "name": "azmail_phone_the_bottom_pane_has_the_message_and_a_tap_selects_it",
+    "description": "On the phone the message is the Preview's bottom pane (a grip bar with the subject and a (?)); a tap on a row selects it and shows it there. The message's quick-action sheet opens from a long press on the row (the e2e engine's `long_press` op needs the row's coordinates: scripts/azmail_e2e.py --phase frame --form phone takes that picture).",
     "only_on": [
       "linux",
       "macos",
@@ -158,37 +158,6 @@
       },
       {
         "op": "take_screenshot"
-      },
-      {
-        "op": "double_click",
-        "text": "Seed invoice 2026-114"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "assert_exists",
-        "selector": ".__azul-native-action-sheet-panel"
-      },
-      {
-        "op": "take_screenshot"
-      },
-      {
-        "op": "click",
-        "selector": ".__azul-native-action-sheet-scrim"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "assert_not_exists",
-        "selector": ".__azul-native-action-sheet-panel"
       }
     ]
   }

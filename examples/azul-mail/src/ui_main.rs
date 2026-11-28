@@ -1727,6 +1727,7 @@ pub(crate) fn message_list(s: &MailApp, app: &RefAny) -> Dom {
         }))
         .with_on_select(app.clone(), on_list_event as SummaryListOnEventCallbackType)
         .with_on_open(app.clone(), on_list_event as SummaryListOnEventCallbackType)
+        .with_on_long_press(app.clone(), on_list_event as SummaryListOnEventCallbackType)
         .with_on_flag(app.clone(), on_list_event as SummaryListOnEventCallbackType)
         .with_on_delete(app.clone(), on_list_event as SummaryListOnEventCallbackType)
         .with_on_sort(app.clone(), on_list_event as SummaryListOnEventCallbackType)
@@ -1783,10 +1784,28 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
                     && s.folder.as_deref() == Some(crate::compose::DRAFTS_FOLDER)
                 {
                     ui_compose::open_compose(s, &mut info, app, ComposeKind::Draft);
-                } else if event.kind == SummaryListEventKind::Open && ui_frame::phone_now(s) {
-                    // a phone's quick actions for the message (the list reports no long press yet)
-                    s.sheet = Some(uid);
                 }
+            }
+            SummaryListEventKind::LongPress => {
+                // a phone's quick actions for the message: a long press selects it like a tap
+                // does (and holds it until the list is scrolled on) and opens its sheet
+                let index = event.index;
+                let Some(uid) = s.entry_of_row(index).map(|e| e.uid) else {
+                    return Update::DoNothing;
+                };
+                if !ui_frame::phone_now(s) {
+                    return Update::DoNothing;
+                }
+                s.selection = azul::widgets::ListSelection::create().apply(index as u64, false, false);
+                s.scroll.chose(index);
+                stop_pictures(s, &mut info);
+                let flags = s.open_message(uid);
+                show_own_pictures(s, &mut info, &app);
+                crate::fetch_if_needed(s, &mut info, app.clone());
+                if let Some(flags) = flags {
+                    crate::save_flags(s, &mut info, app.clone(), flags);
+                }
+                s.sheet = Some(uid);
             }
             SummaryListEventKind::Flag => {
                 let Some(entry) = s.entry_of_row(event.index).cloned() else {

@@ -23,7 +23,7 @@ use crate::{
     folders::Role,
     listing,
     nav::{self, NavRow, NavTarget, Quick, QuickState},
-    ui_backstage, ui_frame,
+    ids, ui_backstage, ui_frame,
     ui_main::{self, Action},
     with_app, MailApp, SyncState,
 };
@@ -76,6 +76,7 @@ pub(crate) fn sidebar(s: &MailApp, app: &RefAny) -> Sidebar {
         .with_state(s.sidebar)
         .with_surface(SidebarSurface::Theme)
         .with_form(s.form)
+        .with_dom_id(ids::FOLDER_PANE)
         .with_on_event(app.clone(), on_sidebar as SidebarOnEventCallbackType);
     for status in statuses(s) {
         sidebar = sidebar.with_status(status);

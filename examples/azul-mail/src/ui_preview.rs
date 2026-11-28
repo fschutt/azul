@@ -58,6 +58,7 @@ pub(crate) fn preview(s: &MailApp, app: &RefAny) -> Option<Preview> {
         .with_title(title(s).as_str())
         .with_size(clamped_preview_size(s.preview_size))
         .with_form(s.form)
+        .with_dom_id(crate::ids::PREVIEW)
         .with_on_event(app.clone(), on_preview as PreviewOnEventCallbackType);
     if let Some(open) = &s.open {
         let view = open.view.clone().unwrap_or_default();

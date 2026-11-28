@@ -203,6 +203,7 @@ fn frame(s: &MailApp, app: &RefAny, info: &LayoutCallbackInfo) -> Dom {
     let mut frame = AppFrame::create(header, body)
         .with_sidebar(sidebar)
         .with_footer(ui_main::status_bar(s, app))
+        .with_dom_id(ids::FRAME)
         .with_form(s.form);
     if let Some(preview) = ui_preview::preview(s, app) {
         frame = frame.with_preview(preview);

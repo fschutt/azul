@@ -12,7 +12,7 @@ use azul::str::String as AzString;
 
 /// The ribbon (in the mail view; with File open, its tab row over the backstage).
 pub const RIBBON: AzString = AzString::from_const_str("__azmail_ribbon");
-/// The folder pane (Favorites, every account's folder tree, Mail / Calendar / Contacts / Tasks).
+/// The folder pane: azul's Sidebar (every account's folder tree, Mail / Calendar / Contacts / Tasks).
 pub const FOLDER_PANE: AzString = AzString::from_const_str("__azmail_folder_pane");
 /// The message list.
 pub const MESSAGE_LIST: AzString = AzString::from_const_str("__azmail_message_list");
