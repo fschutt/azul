@@ -81,5 +81,31 @@ class Verdict(unittest.TestCase):
         self.assertIn("cover the top of the phone with your hand", text)
 
 
+class ReportIn(unittest.TestCase):
+    def test_a_console_with_the_report_line_is_done(self):
+        self.assertTrue(st.report_in('noise\nAZ_SELFTEST_REPORT {"rows": []}\n'))
+
+    def test_a_console_without_it_or_with_half_of_it_is_not(self):
+        self.assertFalse(st.report_in("noise only"))
+        self.assertFalse(st.report_in('AZ_SELFTEST_REPORT {"rows": ['))
+
+
+class Bundle(unittest.TestCase):
+    def test_an_explicit_bundle_wins(self):
+        self.assertEqual(st.bundle_of("whatever.app", "com.example.x"), "com.example.x")
+
+    def test_the_app_names_its_own_bundle(self):
+        import plistlib
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.azul.azul_selftest"}))
+            self.assertEqual(st.bundle_of(d, None), "com.azul.azul_selftest")
+
+    def test_without_an_app_or_a_plist_it_is_the_default(self):
+        self.assertEqual(st.bundle_of(None, None), "com.azul.AzSelfTest")
+        self.assertEqual(st.bundle_of("/nonexistent.app", None), "com.azul.AzSelfTest")
+
+
 if __name__ == "__main__":
     unittest.main()
