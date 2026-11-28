@@ -21,6 +21,8 @@
 
 pub mod calc;
 pub mod datecalc;
+/// The ops of the scenario files and the debug server (typed calculations, the sample history).
+pub mod e2e_ops;
 pub mod expr;
 pub mod graph;
 pub mod history;

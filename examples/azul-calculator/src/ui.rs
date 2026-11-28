@@ -1,6 +1,6 @@
-//! AzCalculator's window: azul's S9 `UtilityShell` with the app-drawn title
-//! row (`NoTitle` + `Titlebar`), a View menu, and a calculator that changes
-//! its layout with the window:
+//! AzCalculator's window: azul's S9 `UtilityShell` with the mode tabs in its mode row (where
+//! the window's controls sit at the left of the first tab on a desktop: no title bar), and a
+//! calculator that changes its layout with the window:
 //!
 //! ```text
 //!   small (the default, < 640 px wide)   wider (>= 640)          large (>= 900 x 700)
@@ -171,8 +171,10 @@ const DEFAULT_SIZE: (f32, f32) = (340.0, 560.0);
 /// The smallest window the small calculator still fits.
 const MIN_SIZE: (f32, f32) = (300.0, 460.0);
 
-/// From this width on the window is the programmer calculator.
+/// From this width on the window is the programmer calculator - and from [`PROGRAMMER_MIN_HEIGHT`]:
+/// a phone on its side is wide but short, and the programmer's panel over its keys needs the height.
 pub const PROGRAMMER_MIN_WIDTH: f32 = 640.0;
+pub const PROGRAMMER_MIN_HEIGHT: f32 = 520.0;
 /// From this width AND [`GRAPH_MIN_HEIGHT`] on it is the graphing one.
 pub const GRAPH_MIN_WIDTH: f32 = 900.0;
 pub const GRAPH_MIN_HEIGHT: f32 = 700.0;
@@ -233,10 +235,36 @@ impl View {
 pub fn view_for_size(width: f32, height: f32) -> View {
     if width >= GRAPH_MIN_WIDTH && height >= GRAPH_MIN_HEIGHT {
         View::Graph
-    } else if width >= PROGRAMMER_MIN_WIDTH {
+    } else if width >= PROGRAMMER_MIN_WIDTH && height >= PROGRAMMER_MIN_HEIGHT {
         View::Programmer
     } else {
         View::Micro
+    }
+}
+
+/// The views the mode tabs offer in a window of `width` x `height`, in their order: the graphing
+/// one only where the window can hold it (a phone has no tab for it).
+#[must_use]
+pub fn tab_pins(width: f32, height: f32) -> Vec<Pin> {
+    let mut pins = vec![Pin::Standard, Pin::Programmer];
+    if width >= GRAPH_MIN_WIDTH && height >= GRAPH_MIN_HEIGHT {
+        pins.push(Pin::Graphing);
+    }
+    pins.push(Pin::Date);
+    pins.push(Pin::Convert);
+    pins
+}
+
+/// The view a pinned choice shows in a window of `width` x `height`: the pinned view, except the
+/// graphing one in a window too small for it, which shows what the size alone would.
+#[must_use]
+pub fn view_of_pin(pin: Pin, width: f32, height: f32) -> View {
+    match pin.view() {
+        Some(View::Graph) if view_for_size(width, height) != View::Graph => {
+            view_for_size(width, height)
+        }
+        Some(view) => view,
+        None => view_for_size(width, height),
     }
 }
 
@@ -245,11 +273,12 @@ pub fn view_for_size(width: f32, height: f32) -> View {
 /// asked every time, so all three are recorded).
 fn view_of_window(info: &LayoutCallbackInfo) -> View {
     let narrow = info.window_width_less_than(PROGRAMMER_MIN_WIDTH);
+    let low = info.window_height_less_than(PROGRAMMER_MIN_HEIGHT);
     let below_graph = info.window_width_less_than(GRAPH_MIN_WIDTH);
     let short = info.window_height_less_than(GRAPH_MIN_HEIGHT);
     if !below_graph && !short {
         View::Graph
-    } else if !narrow {
+    } else if !narrow && !low {
         View::Programmer
     } else {
         View::Micro
@@ -371,8 +400,12 @@ pub struct DateState {
 pub struct CalcApp {
     pub kit: RefAny,
     pub calc: Calculator,
-    /// The View menu's choice.
+    /// The mode tabs' choice (`Auto`: the window's size decides).
     pub pin: Pin,
+    /// The window is a phone's (from the last layout): touch sizes, no title strip.
+    pub phone: bool,
+    /// The tabs the last layout offered, by their position.
+    pub tab_pins: Vec<Pin>,
     /// The view the last layout built (`None` before the first).
     pub view: Option<View>,
     pub panel: Panel,
@@ -398,7 +431,7 @@ pub struct CalcApp {
     pub notice: String,
 }
 
-fn now_secs() -> u64 {
+pub(crate) fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -411,7 +444,7 @@ fn today() -> Date {
 }
 
 /// The sample history (`--sample` with an empty history), from the plan.
-fn sample_history() -> Vec<HistoryEntry> {
+pub(crate) fn sample_history() -> Vec<HistoryEntry> {
     let entry = |expr: &str, result: &str| HistoryEntry {
         expr: expr.to_string(),
         result: result.to_string(),
@@ -468,6 +501,8 @@ impl CalcApp {
             kit: kit_ref,
             calc,
             pin,
+            phone: false,
+            tab_pins: tab_pins(DEFAULT_SIZE.0, DEFAULT_SIZE.1),
             view: None,
             panel: Panel::History,
             panel_shown: false,
@@ -538,7 +573,7 @@ impl CalcApp {
     fn current_view(&self, info: &CallbackInfo) -> View {
         self.view.unwrap_or_else(|| {
             let size = info.get_current_window_state().size.dimensions;
-            self.pin.view().unwrap_or_else(|| view_for_size(size.width, size.height))
+            view_of_pin(self.pin, size.width, size.height)
         })
     }
 }
@@ -557,6 +592,7 @@ pub fn start() {
     // `--language`; the system's otherwise).
     let mut config = kit::app_config(&kit_ref);
     crate::l10n::register(&mut config);
+    crate::e2e_ops::register_ops(&mut config);
     let mut kit_now = kit_ref.clone();
     let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
     if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
@@ -958,7 +994,12 @@ fn standard_pad(s: &CalcApp, app: &RefAny, programmer: bool) -> Dom {
             None,
             &[],
             ids::MEMORY_ROW,
-            "height: 28px; flex-shrink: 0; margin-bottom: 5px;",
+            // A finger's row on a phone (44 px), the pointer's on a desktop.
+            if s.phone {
+                "height: 44px; flex-shrink: 0; margin-bottom: 5px;"
+            } else {
+                "height: 28px; flex-shrink: 0; margin-bottom: 5px;"
+            },
             &hooks(),
         ))
         .with_child(keypad::grid(
@@ -981,7 +1022,10 @@ fn micro_view(s: &CalcApp, app: &RefAny) -> Dom {
     } else {
         standard_pad(s, app, false)
     };
-    surface(app).with_child(display(s, View::Micro)).with_child(below)
+    surface(app)
+        .with_css("width: 100%; max-width: 560px; align-self: center;")
+        .with_child(display(s, View::Micro))
+        .with_child(below)
 }
 
 /// Wider: the programmer panel beside the standard keys.
@@ -1289,23 +1333,34 @@ fn icon_button(app: &RefAny, icon: &str, name: &str, id: AzString, cb: ButtonOnC
         .with_accessibility_assign(AccessibilityInfo::named(label(name), AccessibilityRole::PushButton))
 }
 
-/// The View menu, the name of the view the size picked, History, Settings.
-fn modes_row(s: &CalcApp, app: &RefAny, view: View) -> Dom {
-    let labels: Vec<&str> = Pin::ALL.iter().map(|p| p.label()).collect();
+/// The mode tabs, then History (in the views that have it) and Settings. On a desktop the row is
+/// the window's top edge (no title bar): the controls' room is kept free at its ends and the
+/// empty part of it moves the window.
+fn modes_row(s: &CalcApp, app: &RefAny, view: View, controls: Option<kit::TitleInsets>) -> Dom {
+    let labels: Vec<&str> = s.tab_pins.iter().map(|p| p.label()).collect();
+    let active = s
+        .tab_pins
+        .iter()
+        .position(|p| p.view() == Some(view))
+        .unwrap_or(usize::MAX);
+    let (left, right) = controls.map_or((8.0, 8.0), |c| (c.left + 8.0, c.right + 8.0));
+    let drag = if controls.is_some() { " -azul-app-region: drag;" } else { "" };
     let mut row = Dom::create_div()
-        .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 8px; min-width: 0px;")
+        .with_css(format!(
+            "display: flex; flex-direction: row; align-items: center; padding: 4px {right}px 4px {left}px; \
+             min-width: 0px;{drag}"
+        ))
         .with_child(
-            DropDown::create(strs(&labels))
-                .with_selected(s.pin.index())
-                .with_accessibility_name(label("azcalculator-view"))
-                .with_on_choice_change(app.clone(), on_view_pick as DropDownOnChoiceChangeCallbackType)
-                .dom()
-                .with_id(ids::VIEW),
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; flex-grow: 1; min-width: 0px; overflow: hidden; -azul-app-region: no-drag;")
+                .with_child(
+                    TabHeader::create(strs(&labels))
+                        .with_active_tab(active)
+                        .with_on_click(app.clone(), on_mode_tab as TabOnClickCallbackType)
+                        .dom()
+                        .with_id(ids::VIEW),
+                ),
         );
-    if s.pin == Pin::Auto {
-        row.add_child(Dom::create_div_with_text(label(view.label())).with_css(look::VIEW_BADGE));
-    }
-    row.add_child(Dom::create_div().with_css("flex-grow: 1;"));
     if matches!(view, View::Micro | View::Programmer) {
         row.add_child(icon_button(app, "history", "azcalculator-history", ids::TOGGLE_PANEL, on_toggle_panel));
     }
@@ -1382,17 +1437,36 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let dark = matches!(info.get_mode(), DarkLightMode::Dark);
     let flora = info.get_theme().as_str().starts_with("flora");
     let look = Look { flora, dark };
+    let (width, height) = (info.get_window_width(), info.get_window_height());
     let by_size = view_of_window(&info);
+    let phone = azul_appkit::insets::phone_window(width, height);
+    let touch = cfg!(any(target_os = "android", target_os = "ios"));
+    let safe = azul_appkit::insets::SafeInsets::of(&info);
+    // The room the window's controls take at the top (a desktop's: the traffic lights, the
+    // caption buttons); nothing on a phone.
+    let controls = if touch { None } else { Some(kit::title_insets(&info)) };
     let app = data.clone();
     let Some(mut guard) = data.downcast_mut::<CalcApp>() else {
         return Dom::create_body();
     };
     let s = &mut *guard;
-    let view = s.pin.view().unwrap_or(by_size);
+    s.phone = phone;
+    s.tab_pins = tab_pins(width, height);
+    let view = match s.pin.view() {
+        // The graphing view in a window too small for it shows what the size alone would.
+        Some(View::Graph) if by_size != View::Graph => by_size,
+        Some(pinned) => pinned,
+        None => by_size,
+    };
     s.enter_view(view);
     let settings = kit::settings_open(&s.kit);
     let content = if settings {
-        kit::settings_page_with_reload(&s.kit, settings_sections(s, &app), &app, reload_settings)
+        let mut page = Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
+        if !touch {
+            page.add_child(kit::title_row(SPEC.name));
+        }
+        page.with_child(kit::settings_page_with_reload(&s.kit, settings_sections(s, &app), &app, reload_settings))
     } else {
         match view {
             View::Date => date_view(s, &app),
@@ -1400,20 +1474,22 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             _ => calculator(s, &app, view, look),
         }
     };
-    let mut shell = UtilityShell::create(content)
-        .with_title_row(kit::title_row(SPEC.name))
-        .with_label(SPEC.name)
-        .with_min_size(MIN_SIZE.0, MIN_SIZE.1);
+    let mut shell = UtilityShell::create(content).with_label(SPEC.name);
+    if !phone {
+        shell = shell.with_min_size(MIN_SIZE.0, MIN_SIZE.1);
+    }
     if !settings {
-        shell = shell.with_modes(modes_row(s, &app, view));
+        shell = shell.with_modes(modes_row(s, &app, view, controls));
     }
     let column = Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        .with_css(format!(
+            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; {}",
+            safe.padding()
+        ))
         .with_child(shell.dom());
     // The scope as the window's body: no UA margin, the full window height.
-    // Focusable (not a Tab stop): a click on the title row or the mode row's
-    // background focuses at least the body, so the keyboard's TEXT is always
-    // recorded somewhere the window's handler hears it.
+    // Focusable (not a Tab stop): a click on the mode row's background focuses at least the
+    // body, so the keyboard's TEXT is always recorded somewhere the window's handler hears it.
     ShellThemeScope::create(column)
         .with_accent(ShellThemeAccent::Slate)
         .body()
@@ -1495,7 +1571,7 @@ fn save_history(s: &mut CalcApp, info: &mut CallbackInfo, app: &RefAny) {
 
 /// After a key: the display lines and the graph's functions for scripts,
 /// the history to disk.
-fn after_calc(s: &mut CalcApp, info: &mut CallbackInfo, app: &RefAny) {
+pub(crate) fn after_calc(s: &mut CalcApp, info: &mut CallbackInfo, app: &RefAny) {
     s.announce_display();
     s.announce_plots();
     save_history(s, info, app);
@@ -1743,9 +1819,12 @@ extern "C" fn on_open_settings(mut data: RefAny, mut info: CallbackInfo) -> Upda
     with_app(&mut data, &mut info, |s, _info, _| kit::open_settings(&s.kit, None))
 }
 
-extern "C" fn on_view_pick(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+/// A mode tab was chosen: its view is pinned (Alt+0 gives the choice back to the window's size).
+extern "C" fn on_mode_tab(mut data: RefAny, mut info: CallbackInfo, state: TabHeaderState) -> Update {
     with_app(&mut data, &mut info, |s, info, _| {
-        set_pin(s, info, Pin::ALL[index.min(Pin::ALL.len() - 1)]);
+        if let Some(pin) = s.tab_pins.get(state.active_tab).copied() {
+            set_pin(s, info, pin);
+        }
     })
 }
 
@@ -2315,3 +2394,7 @@ mod tests {
         assert_eq!(convert_values(&c).0, "\u{2014}");
     }
 }
+
+#[cfg(test)]
+#[path = "ui_view_test.rs"]
+mod ui_view_test;
