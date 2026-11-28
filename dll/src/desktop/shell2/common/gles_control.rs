@@ -726,11 +726,16 @@ fn phase_big_texture(gl: &GenericGlContext, target: Target, programs: &Programs)
         Err(why) => return failed("big_texture", format!("the program did not build: {why}")),
     };
     let size = target.size;
-    let cases: [(&str, i32, i32); 4] = [
-        ("RGBA8 1024x1024 (4 MB)", 1024, 1024),
-        ("RGBA8 2048x1024 (8 MB)", 2048, 1024),
-        ("RGBA8 2048x2048 (16 MB)", 2048, 2048),
-        ("RGBA8 4096x1024 (16 MB)", 4096, 1024),
+    // (name, width, height, filter): WebRender's render targets are sampled with LINEAR filtering.
+    let cases: [(&str, i32, i32, u32); 8] = [
+        ("RGBA8 1024x1024 (4 MB) nearest", 1024, 1024, glconst::NEAREST),
+        ("RGBA8 2048x1024 (8 MB) nearest", 2048, 1024, glconst::NEAREST),
+        ("RGBA8 2048x2048 (16 MB) nearest", 2048, 2048, glconst::NEAREST),
+        ("RGBA8 4096x1024 (16 MB) nearest", 4096, 1024, glconst::NEAREST),
+        ("RGBA8 1024x1024 (4 MB) linear", 1024, 1024, glconst::LINEAR),
+        ("RGBA8 2048x1024 (8 MB) linear", 2048, 1024, glconst::LINEAR),
+        ("RGBA8 2048x2048 (16 MB) linear", 2048, 2048, glconst::LINEAR),
+        ("RGBA8 4096x1024 (16 MB) linear", 4096, 1024, glconst::LINEAR),
     ];
     let max = {
         let mut value = [0_i32];
@@ -739,15 +744,15 @@ fn phase_big_texture(gl: &GenericGlContext, target: Target, programs: &Programs)
         value[0]
     };
     let mut owned: Vec<(String, [u8; 4], [u8; 4])> = Vec::new();
-    for (name, width, height) in cases {
+    for (name, width, height, filter) in cases {
         if width > max || height > max {
             continue;
         }
         let texture = gl.gen_textures(1).first().copied().unwrap_or(0);
         gl.active_texture(glconst::TEXTURE0);
         bind_2d(gl, target, texture);
-        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
-        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, filter as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, filter as i32);
         gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_S, glconst::CLAMP_TO_EDGE as i32);
         gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_T, glconst::CLAMP_TO_EDGE as i32);
         gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA8, width, height);
