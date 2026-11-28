@@ -10,10 +10,11 @@
 //! The Secret Service has no per-item user check, so a PROTECTED item (`UserPresence` /
 //! `Biometric`) is guarded by the LIBRARY (`KeyringSupport::Library`): its record is a sibling
 //! item under [`record::meta_key`] (level, and for `Biometric` the digest of the enrolled
-//! fingers), and an `Unlock` runs the user's check first - the desktop's polkit dialog for
+//! fingers), and an `Unlock` runs the user's check - the desktop's polkit dialog for
 //! `UserPresence` (the action `io.azul.keyring.unlock`, a policy file packagers install:
 //! `scripts/linux/io.azul.keyring.policy`), the fingerprint reader (fprintd) for `Biometric` -
-//! and only then reads the item. Another process of the same user can read the item without
+//! and hands the secret over only when it passes (an item that is gone answers `NotFound`
+//! without the user being asked). Another process of the same user can read the item without
 //! the check: that is what `Library` says.
 
 use std::{
