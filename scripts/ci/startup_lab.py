@@ -244,6 +244,20 @@ def black_split(labels, sigs, night):
     return gap, len(black) - gap
 
 
+LAUNCHER_DIFF = 0.08   # a frame this close to the recording's first frame (the home screen) is the launcher
+
+
+def launcher_frames(labels, sigs):
+    """How many frames show the LAUNCHER again after the starting window began: the system took the window away before the app had a picture and the home
+    screen shows through (the E60 hold's 2 to 4 frames between the white window and the black). `L` frames before the window are the opening animation."""
+    if sigs is None or not sigs:
+        return 0
+    first = next((i for i, c in enumerate(labels) if c in "SB"), None)
+    if first is None:
+        return 0
+    return sum(1 for i in range(first, len(labels)) if q.sig_diff(sigs[i], sigs[0]) < LAUNCHER_DIFF)
+
+
 def summarize_start(labels, sigs=None, night=False):
     """{splash, black, gap, fade, first, settled, jump, moved, wrong}: the frames of the starting window (S), of black (B) from the first frame of the app phase
     on (and of those, the `gap` with nothing showing and the `fade` of a page that shows through, see `black_split`), of pictures shown before the settled one
@@ -257,6 +271,7 @@ def summarize_start(labels, sigs=None, night=False):
         "black": labels[app:].count("B"),
         "gap": gap,
         "fade": fade,
+        "launcher": launcher_frames(labels, sigs),
         "first": labels.count("1"),
         "settled": labels.count("2"),
         "jump": (moved >= MOVED_FRAMES) if moved is not None else ("1" in labels and "2" in labels),
@@ -339,6 +354,7 @@ def row_verdict(starts):
         "black_max": max(blacks) if blacks else None,
         "gap_median": median([s.get("gap", s["black"]) for s in sums]),
         "gap_max": max((s.get("gap", s["black"]) for s in sums), default=None),
+        "launcher_max": max((s.get("launcher", 0) for s in sums), default=None),
         "first_median": median([s["first"] for s in sums]),
         "wrong_max": max((s.get("wrong", 0) for s in sums), default=None),
         "jump": any(s["jump"] for s in sums),
@@ -358,11 +374,11 @@ def report_text(results):
     """lab.md: one table, one row per lab row, then the first start's run lengths and events of every row."""
     lines = ["# Cold-start lab", "",
              "frames at 30 fps; S = the starting window (or a flat first frame), B = black after it, 1 = a first picture that moved afterwards, 2 = the settled picture, W = a light picture in the night mode",
-             "", "| row | apk | knobs | starts | starting window (frames) | black (median / worst) | of which a window with nothing in it (median / worst) | first picture (frames) | page moved | wrong colour (worst) |", "|---|---|---|---|---|---|---|---|---|---|"]
+             "", "| row | apk | knobs | starts | starting window (frames) | black (median / worst) | of which a window with nothing in it (median / worst) | first picture (frames) | page moved | wrong colour (worst) | launcher shows through (worst) |", "|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in results:
         v = r["verdict"]
         knobs = ", ".join(f"{k}={val}" for k, val in r["props"].items()) + (", night" if r.get("night") else "")
-        lines.append(f"| {r['name']} | {r['apk']} | {knobs} | {v['starts']} | {v['splash_median']} | {v['black_median']} / {v['black_max']} | {v.get('gap_median', v['black_median'])} / {v.get('gap_max', v['black_max'])} | {v['first_median']} | {'yes' if v['jump'] else 'no'} | {v.get('wrong_max')} |")
+        lines.append(f"| {r['name']} | {r['apk']} | {knobs} | {v['starts']} | {v['splash_median']} | {v['black_median']} / {v['black_max']} | {v.get('gap_median', v['black_median'])} / {v.get('gap_max', v['black_max'])} | {v['first_median']} | {'yes' if v['jump'] else 'no'} | {v.get('wrong_max')} | {v.get('launcher_max', 0)} |")
     lines.append("")
     for r in results:
         lines.append(f"## {r['name']}")

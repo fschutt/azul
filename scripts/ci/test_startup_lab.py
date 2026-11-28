@@ -228,6 +228,22 @@ class RealRowsTests(unittest.TestCase):
         self.assertEqual([r["resume"] for r in rows], [True, False])
 
 
+class LauncherTests(unittest.TestCase):
+    def test_the_home_screen_showing_through_after_the_starting_window_is_counted(self):
+        sigs = [LAUNCHER] * 3 + [SPLASH] * 6 + [LAUNCHER] * 2 + [BLACK] * 3 + [SETTLED] * 6
+        labels = lab.label_frames(sigs)
+        s = lab.summarize_start(labels, sigs)
+        self.assertEqual(s["launcher"], 2, "the two frames of the launcher between the window and the black (the E60 hold)")
+
+    def test_the_opening_animation_before_the_window_is_no_show_through(self):
+        sigs = [LAUNCHER] * 6 + [SPLASH] * 6 + [SETTLED] * 6
+        self.assertEqual(lab.summarize_start(lab.label_frames(sigs), sigs)["launcher"], 0)
+
+    def test_the_row_verdict_has_the_worst_show_through(self):
+        starts = [{"summary": {"splash": 6, "black": 0, "first": 0, "settled": 9, "jump": False, "launcher": n}} for n in (0, 3, 1)]
+        self.assertEqual(lab.row_verdict(starts)["launcher_max"], 3)
+
+
 class WindowFlatTests(unittest.TestCase):
     def icon(self, share_of_width):
         """The white starting window with an icon in its middle, `share_of_width` wide (and a third of that high in the sample grid)."""
