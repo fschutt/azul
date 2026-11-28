@@ -153,6 +153,7 @@ pub fn clamp_expanded_width(wanted: f32) -> f32 {
 
 /// How wide the left sidebar's column is.
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(C)]
 pub struct ColumnWidth {
     /// A width in px, or 0 where the column is a share of the frame.
     pub px: f32,

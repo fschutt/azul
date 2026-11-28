@@ -597,3 +597,7 @@ mod tests {
         assert_eq!(px(disc, height), Some(11.0));
     }
 }
+
+#[cfg(test)]
+#[path = "pie_marker_size_test.rs"]
+mod size_test;

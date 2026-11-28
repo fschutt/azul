@@ -30,6 +30,10 @@
 //!   row says its depth, whether it has children and whether they show), a selected row drawn as
 //!   a rounded highlight (macOS Mail's), an optional check mark (a calendar's coloured boxes).
 //!   Rows with an icon are the rail's buttons; a row opts out with `with_in_rail(false)`.
+//! - DOCUMENT ROWS (AzWriter, AzSheets, AzPresent list their open documents here): a row may carry
+//!   its own sync PIE and a COLLABORATION icon (off / on, a click asks to switch it,
+//!   [`SidebarCollab`]); in the rail the document keeps its icon and a small pie at its corner.
+//!   UI only: what sync and collaboration do is the app's, nothing behind them is in the widget.
 //! - STATUS PIES ([`SidebarStatus`]) stacked directly above the toggle: sync, drive full, battery.
 //!   A click or tap opens a short popover (the same `Dialog` popover a desktop has today, on a
 //!   phone too) with the app's own content or a title and a line of detail.
@@ -109,6 +113,10 @@ pub const SIDEBAR_SELECTED_CLASS: &str = "__azul-native-sidebar-selected";
 pub const SIDEBAR_DISCLOSURE_CLASS: &str = "__azul-native-sidebar-disclosure";
 /// A row's count.
 pub const SIDEBAR_BADGE_CLASS: &str = "__azul-native-sidebar-badge";
+/// A document row's own pie (its sync state).
+pub const SIDEBAR_ROW_PIE_CLASS: &str = "__azul-native-sidebar-row-pie";
+/// A document row's collaboration icon.
+pub const SIDEBAR_COLLAB_CLASS: &str = "__azul-native-sidebar-collab";
 /// A button of the rail.
 pub const SIDEBAR_BUTTON_CLASS: &str = "__azul-native-sidebar-button";
 /// The hairline between the sections of the rail and over the foot.
@@ -125,6 +133,10 @@ pub const SIDEBAR_HELP_CLASS: &str = "__azul-native-sidebar-help";
 pub const SIDEBAR_TOGGLE_CLASS: &str = "__azul-native-sidebar-toggle";
 /// The handle's grab pill.
 pub const SIDEBAR_GRAB_CLASS: &str = "__azul-native-sidebar-grab";
+
+/// The pie of a document row, and the small one at the corner of a document's rail button, px.
+const ROW_PIE_PX: f32 = 14.0;
+const RAIL_PIE_PX: f32 = 11.0;
 
 // ---------------------------------------------------------------------------
 // The surface
@@ -239,7 +251,21 @@ pub enum SidebarRowMark {
     Checked,
 }
 
-/// One row of the sidebar: a destination, a folder of a tree, a tool.
+/// A document row's collaboration switch (AzWriter, AzSheets, AzPresent list the open documents in
+/// the sidebar): UI only, the sync kit behind it is not part of the widget.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum SidebarCollab {
+    /// The row has no collaboration icon.
+    #[default]
+    None,
+    /// Collaboration is off: the icon invites ("activate collaboration").
+    Off,
+    /// Collaboration is on: the icon is lit.
+    On,
+}
+
+/// One row of the sidebar: a destination, a folder of a tree, a tool, an open document.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct SidebarRow {
@@ -268,6 +294,13 @@ pub struct SidebarRow {
     pub in_rail: bool,
     /// What the rail's button says under the pointer and on a long press; empty: the label.
     pub tooltip: AzString,
+    /// How far this row's own pie is, 0 to 1 (a document's sync state); a number below 0 (or no
+    /// number) is no pie. APPENDED for ABI stability.
+    pub pie_fraction: f32,
+    /// What the row's pie means: its colour, and whether it breathes.
+    pub pie_tone: PieTone,
+    /// The row's collaboration icon: none, off or on.
+    pub collab: SidebarCollab,
 }
 
 impl_option!(SidebarRow, OptionSidebarRow, copy = false, [Debug, Clone, PartialEq]);
@@ -301,6 +334,9 @@ impl SidebarRow {
             mark: SidebarRowMark::None,
             in_rail: true,
             tooltip: AzString::from_const_str(""),
+            pie_fraction: -1.0,
+            pie_tone: PieTone::Accent,
+            collab: SidebarCollab::None,
         }
     }
 
@@ -423,6 +459,37 @@ impl SidebarRow {
     pub fn with_tooltip(mut self, tooltip: AzString) -> Self {
         self.set_tooltip(tooltip);
         self
+    }
+
+    /// The row's own pie: how far its sync has come, and what that means.
+    pub const fn set_pie(&mut self, fraction: f32, tone: PieTone) {
+        self.pie_fraction = fraction;
+        self.pie_tone = tone;
+    }
+
+    /// [`Self::set_pie`] for the builder chain.
+    #[must_use]
+    pub const fn with_pie(mut self, fraction: f32, tone: PieTone) -> Self {
+        self.set_pie(fraction, tone);
+        self
+    }
+
+    /// The row's collaboration icon.
+    pub const fn set_collab(&mut self, collab: SidebarCollab) {
+        self.collab = collab;
+    }
+
+    /// [`Self::set_collab`] for the builder chain.
+    #[must_use]
+    pub const fn with_collab(mut self, collab: SidebarCollab) -> Self {
+        self.set_collab(collab);
+        self
+    }
+
+    /// Whether the row has its own pie.
+    #[must_use]
+    pub fn has_pie(&self) -> bool {
+        self.pie_fraction.is_finite() && self.pie_fraction >= 0.0
     }
 
     /// Whether this row is a button of the rail: a row with an icon that did not opt out, at the
@@ -639,6 +706,11 @@ pub enum SidebarEventKind {
     HelpClicked,
     /// A row was pressed and held (a phone's long press: the app opens its quick-action sheet).
     RowLongPressed,
+    /// A row's own pie was clicked (a document's sync state): the app shows what it says.
+    RowStatusClicked,
+    /// A row's collaboration icon: `index` and `tag` name the row, `expand` says whether
+    /// collaboration should be on now.
+    RowCollabToggled,
 }
 
 /// One report of the sidebar.
@@ -998,8 +1070,9 @@ extern "C" fn on_part_click(mut data: RefAny, info: CallbackInfo) -> Update {
     report(&mut data, info)
 }
 
-/// A click on a disclosure triangle is the triangle's: the row under it must not also be chosen.
-extern "C" fn on_disclosure_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// A click on a part inside a row (the disclosure triangle, a document's pie, its collaboration
+/// icon) is that part's: the row under it must not also be chosen.
+extern "C" fn on_inner_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     info.stop_propagation();
     report(&mut data, info)
 }
@@ -1238,7 +1311,7 @@ fn row_dom(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
             tri,
             EventFilter::Hover(HoverEventFilter::Click),
             ctx.part(toggle_event),
-            on_disclosure_click,
+            on_inner_click,
         ));
     }
     match row.mark {
@@ -1274,6 +1347,79 @@ fn row_dom(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
             )
             .with_ids_and_classes(classes(SIDEBAR_BADGE_CLASS, &[])),
         );
+    }
+
+    // an open document: its own pie (sync) and its collaboration switch
+    if row.has_pie() {
+        let pie = styled(
+            Dom::create_div().with_child(disc_dom(ROW_PIE_PX, row.pie_fraction, row.pie_tone)),
+            &format!(
+                "display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; \
+                 height: 24px; border-radius: 6px; cursor: pointer; :hover {{ background: {}; }}",
+                ctx.look.hover
+            ),
+        )
+        .with_ids_and_classes(classes(SIDEBAR_ROW_PIE_CLASS, &[]))
+        .with_accessibility_info(AccessibilityInfo::named(
+            format!("Status of {}", row.label.as_str()),
+            AccessibilityRole::PushButton,
+        ))
+        .with_tab_index(TabIndex::NoKeyboardFocus);
+        children.push(on(
+            pie,
+            EventFilter::Hover(HoverEventFilter::Click),
+            ctx.part(SidebarEvent {
+                kind: SidebarEventKind::RowStatusClicked,
+                index,
+                tag: row.tag,
+                expand: false,
+                state: ctx.state,
+            }),
+            on_inner_click,
+        ));
+    }
+    if row.collab != SidebarCollab::None {
+        let lit = row.collab == SidebarCollab::On;
+        let button = styled(
+            Dom::create_div().with_child(icon(
+                if lit { "group" } else { "person_add" },
+                18.0,
+                if lit { "system:accent" } else { ctx.look.quiet },
+            )),
+            &format!(
+                "display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; \
+                 height: 28px; border-radius: 6px; cursor: pointer; :hover {{ background: {}; }}",
+                ctx.look.hover
+            ),
+        )
+        .with_ids_and_classes(classes(SIDEBAR_COLLAB_CLASS, &[]))
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::PushButton,
+            accessibility_name: azul_css::OptionString::Some(AzString::from(if lit {
+                "Collaboration is on, turn it off"
+            } else {
+                "Activate collaboration"
+            })),
+            states: AccessibilityStateVec::from_vec(alloc::vec![if lit {
+                AccessibilityState::CheckedTrue
+            } else {
+                AccessibilityState::CheckedFalse
+            }]),
+            ..Default::default()
+        })
+        .with_tab_index(TabIndex::NoKeyboardFocus);
+        children.push(on(
+            button,
+            EventFilter::Hover(HoverEventFilter::Click),
+            ctx.part(SidebarEvent {
+                kind: SidebarEventKind::RowCollabToggled,
+                index,
+                tag: row.tag,
+                expand: !lit,
+                state: ctx.state,
+            }),
+            on_inner_click,
+        ));
     }
 
     let click = ctx.part(SidebarEvent {
@@ -1384,7 +1530,7 @@ fn rail_button(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
     let b = ctx.button();
     let mut css = format!(
         "display: flex; align-items: center; justify-content: center; box-sizing: border-box; flex-shrink: 0; \
-         width: {b}px; height: {b}px; border-radius: 8px; cursor: pointer; "
+         position: relative; width: {b}px; height: {b}px; border-radius: 8px; cursor: pointer; "
     );
     if row.selected {
         css.push_str(&format!("background: {sel}; :hover {{ background: {sel}; }} ", sel = ctx.look.selected));
@@ -1395,8 +1541,16 @@ fn rail_button(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
     let tint = row.tint.as_ref().map(|c| rgb_css(*c)).unwrap_or_default();
     let color = if tint.is_empty() { String::from(ctx.look.quiet) } else { tint };
     let name = AzString::from(row.rail_name());
+    let mut face: Vec<Dom> = alloc::vec![icon(row.icon.as_str(), 22.0, &color)];
+    // a document keeps its pie in the rail: a small one at the corner of its button
+    if row.has_pie() {
+        face.push(styled(
+            disc_dom(RAIL_PIE_PX, row.pie_fraction, row.pie_tone),
+            "position: absolute; right: 4px; bottom: 4px;",
+        ));
+    }
     let node = styled(
-        Dom::create_div().with_child(icon(row.icon.as_str(), 22.0, &color)),
+        Dom::create_div().with_children(DomVec::from_vec(face)),
         &css,
     )
     .with_ids_and_classes(classes(

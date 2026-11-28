@@ -233,3 +233,29 @@ fn form_factor_auto_is_a_desktop_where_no_window_is_being_built() {
     assert_eq!(FormFactor::Phone.resolved(), FormFactor::Phone);
     assert_eq!(FormFactor::Desktop.resolved(), FormFactor::Desktop);
 }
+
+// ---- the keys on the grip ----
+
+#[test]
+fn an_arrow_key_moves_the_pane_by_16_and_with_ctrl_by_64() {
+    // a right dock grows to the left, a bottom pane grows up
+    assert!(near(step_size(InspectorDock::Right, GripKey::Grow, 320.0, false, 1200.0, 700.0), 336.0));
+    assert!(near(step_size(InspectorDock::Right, GripKey::Shrink, 320.0, false, 1200.0, 700.0), 304.0));
+    assert!(near(step_size(InspectorDock::Bottom, GripKey::Grow, 168.0, false, 400.0, 800.0), 184.0));
+    assert!(near(step_size(InspectorDock::Bottom, GripKey::Shrink, 168.0, true, 400.0, 800.0), 104.0));
+}
+
+#[test]
+fn home_and_end_go_to_the_ends_of_the_range() {
+    assert!(near(step_size(InspectorDock::Right, GripKey::ToMin, 320.0, false, 1200.0, 700.0), INSPECTOR_WIDTH_MIN));
+    assert!(near(step_size(InspectorDock::Right, GripKey::ToMax, 320.0, false, 1200.0, 700.0), 720.0));
+    assert!(near(step_size(InspectorDock::Bottom, GripKey::ToMin, 300.0, false, 400.0, 800.0), PANE_PEEK));
+    assert!(near(step_size(InspectorDock::Bottom, GripKey::ToMax, 300.0, false, 400.0, 800.0), 680.0));
+}
+
+#[test]
+fn a_key_never_takes_the_pane_past_its_limits() {
+    assert!(near(step_size(InspectorDock::Right, GripKey::Shrink, 200.0, true, 1200.0, 700.0), INSPECTOR_WIDTH_MIN));
+    assert!(near(step_size(InspectorDock::Bottom, GripKey::Shrink, 56.0, true, 400.0, 800.0), PANE_PEEK));
+    assert!(near(step_size(InspectorDock::Bottom, GripKey::Grow, 680.0, true, 400.0, 800.0), 680.0));
+}
