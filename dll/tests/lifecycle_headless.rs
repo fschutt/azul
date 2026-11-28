@@ -88,7 +88,7 @@ fn a_paused_app_runs_its_handler_with_the_event() {
     let mut data = RefAny::new(Seen::default());
     install_handler(&window, &data);
 
-    lifecycle::raise(&mut window, LifecycleEvent::Paused);
+    let _ = lifecycle::raise(&mut window, LifecycleEvent::Paused);
 
     assert_eq!(seen_by(&mut data), vec![Some(LifecycleEvent::Paused)]);
 }
@@ -105,7 +105,7 @@ fn every_event_runs_the_handler_once_and_in_order() {
         LifecycleEvent::LowMemory,
         LifecycleEvent::WillTerminate,
     ] {
-        lifecycle::raise(&mut window, event);
+        let _ = lifecycle::raise(&mut window, event);
     }
 
     assert_eq!(
@@ -123,11 +123,11 @@ fn every_event_runs_the_handler_once_and_in_order() {
 fn an_app_without_a_handler_hears_nothing_and_what_it_missed_is_not_replayed() {
     let mut window = window();
     // no handler yet: the event is dropped, nothing breaks
-    lifecycle::raise(&mut window, LifecycleEvent::LowMemory);
+    let _ = lifecycle::raise(&mut window, LifecycleEvent::LowMemory);
 
     let mut data = RefAny::new(Seen::default());
     install_handler(&window, &data);
-    lifecycle::raise(&mut window, LifecycleEvent::Resumed);
+    let _ = lifecycle::raise(&mut window, LifecycleEvent::Resumed);
 
     assert_eq!(seen_by(&mut data), vec![Some(LifecycleEvent::Resumed)], "only what came after the handler");
 }
@@ -147,7 +147,7 @@ fn a_second_handler_replaces_the_first() {
     install_handler(&window, &first);
     install_handler(&window, &second);
 
-    lifecycle::raise(&mut window, LifecycleEvent::Paused);
+    let _ = lifecycle::raise(&mut window, LifecycleEvent::Paused);
 
     assert!(seen_by(&mut first).is_empty(), "the first was replaced");
     assert_eq!(seen_by(&mut second), vec![Some(LifecycleEvent::Paused)]);

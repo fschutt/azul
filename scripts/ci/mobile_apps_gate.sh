@@ -296,6 +296,9 @@ run autofix autofix
 # 7. the double-drop invariant and the guide links (the CI's azul-doc job)
 run doc_check cargo run -r -p azul-doc -- check
 
+# 7a. the tests of the lifecycle work in the layout crate (the mailbox, the e2e op), without the whole workspace
+run lifecycle_tests cargo test -p azul-layout --lib --features azul-layout/e2e-server -- managers::lifecycle e2e::tooling_tests
+
 # 7b. the tests of azul-doc itself (the CI's "azul-doc tests + invariants": the e2e ops' classification, the guide's checks)
 run doc_tests cargo test -r -p azul-doc --bins --no-fail-fast
 

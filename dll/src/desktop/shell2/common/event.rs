@@ -12310,7 +12310,8 @@ pub trait PlatformWindow {
                 .get_layout_window()
                 .is_some_and(|lw| lw.app_services.lifecycle.has_queued_lifecycle_events())
             {
-                crate::desktop::lifecycle::deliver(self);
+                // (a rebuild the handler asked for is requested inside `deliver`)
+                let _ = crate::desktop::lifecycle::deliver(self);
             }
             self.process_transient_dismissal();
             // AFTER the dismissal: an Escape that closed the popup here has
