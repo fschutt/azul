@@ -165,9 +165,12 @@ const FLORA_PAPER: &str =
 /// An error line in the reading pane: Material red under flat; flora's clay stone by day and
 /// its glow at night under flora (the red read 2.4:1 on the night leaf).
 const ERROR_LINE: &str = "padding: 16px; color: system:danger;";
-/// The plain-text paper's font size and a line's height at 100 %.
+/// The plain-text paper's font size and a line's height at 100 %, in px at the default root size.
 const PAPER_FONT_SIZE: f32 = 14.0;
 const PAPER_LINE_HEIGHT: f32 = 18.0;
+/// The engine's default root font size, the unit of `rem`: the paper's sizes are written in `rem`
+/// (14 px is 0.875 rem), so a root size that follows the system text size reaches the mail's text.
+const ROOT_FONT_SIZE: f32 = 16.0;
 
 // ==== The window ====
 
@@ -225,7 +228,7 @@ pub(crate) fn ban_bar(s: &MailApp) -> Option<Dom> {
             .with_id(crate::ids::BAN_BAR)
             .with_css(
                 "display: flex; flex-direction: row; align-items: center; padding: 8px 12px; \
-                 background: #FDE7E9; color: #5C0F14; font-size: 13px;",
+                 background: #FDE7E9; color: #5C0F14; font-size: 0.8125rem;",
             )
             .with_child(Dom::create_span_with_text(text.as_str())),
     )
@@ -1930,20 +1933,20 @@ pub(crate) fn message_body(s: &MailApp, open: &crate::OpenMessage, view: &messag
 fn plain_body(text: &str, zoom: f32) -> Dom {
     let scale = zoom / 100.0;
     let mut body = Dom::create_div().with_css(format!(
-        "{PAPER} font-size: {:.1}px; {FLORA_PAPER}",
-        PAPER_FONT_SIZE * scale
+        "{PAPER} font-size: {:.4}rem; {FLORA_PAPER}",
+        PAPER_FONT_SIZE * scale / ROOT_FONT_SIZE
     ));
-    let line_height = PAPER_LINE_HEIGHT * scale;
+    let line_height = PAPER_LINE_HEIGHT * scale / ROOT_FONT_SIZE;
     let lines = message::quote_lines(text);
     for line in lines.iter().take(MAX_LINES) {
         let css = if line.level == 0 {
             format!(
-                "white-space: pre-wrap; min-height: {line_height:.1}px; overflow-wrap: anywhere;"
+                "white-space: pre-wrap; min-height: {line_height:.4}rem; overflow-wrap: anywhere;"
             )
         } else {
             let colour = QUOTE_COLOURS[(line.level - 1) % QUOTE_COLOURS.len()];
             format!(
-                "white-space: pre-wrap; min-height: {line_height:.1}px; overflow-wrap: anywhere; \
+                "white-space: pre-wrap; min-height: {line_height:.4}rem; overflow-wrap: anywhere; \
                  margin-left: {}px; padding-left: 8px; border-left: 3px solid {colour}; color: \
                  {colour}; {FLORA_QUOTE}",
                 (line.level - 1) * 12
@@ -1961,7 +1964,7 @@ fn plain_body(text: &str, zoom: f32) -> Dom {
                 "azmail-more-lines",
                 &[("count", Arg::from(lines.len() - MAX_LINES))],
             ))
-                .with_css("font-size: 12px; margin-top: 8px;"),
+                .with_css("font-size: 0.75rem; margin-top: 8px;"),
         );
     }
     body
