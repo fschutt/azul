@@ -3577,6 +3577,9 @@ const PREFERENCE_BACKSTOP: core::time::Duration = core::time::Duration::from_sec
 /// which is when the user comes back from the Settings window they changed it in.
 pub(crate) struct PreferenceWatcher {
     receiver: std::sync::mpsc::Receiver<azul_css::accessibility::AccessibilityPreferences>,
+    /// The thread holds a `Weak` of this: when the window (and with it the watcher) is gone, the
+    /// thread finds nobody at its next wake and ends, without waiting for a change to fail a send.
+    _alive: std::sync::Arc<()>,
 }
 
 impl PreferenceWatcher {
@@ -3586,13 +3589,15 @@ impl PreferenceWatcher {
     pub(crate) fn start(env: &PlatformEnv) -> Self {
         let (sender, receiver) = std::sync::mpsc::channel();
         let env = env.clone();
+        let alive = std::sync::Arc::new(());
+        let watching = std::sync::Arc::downgrade(&alive);
         if let Err(error) = std::thread::Builder::new()
             .name("azul-preferences".into())
-            .spawn(move || watch_preferences(&env, &sender))
+            .spawn(move || watch_preferences(&env, &sender, &watching))
         {
             crate::plog_debug!("accessibility settings: no watcher thread: {}", error);
         }
-        Self { receiver }
+        Self { receiver, _alive: alive }
     }
 
     /// The newest settings the watcher found that were not the ones before, if any arrived.
@@ -3616,9 +3621,14 @@ enum Wait {
 fn watch_preferences(
     env: &PlatformEnv,
     sender: &std::sync::mpsc::Sender<azul_css::accessibility::AccessibilityPreferences>,
+    window: &std::sync::Weak<()>,
 ) {
     let mut sent = read_preferences(env);
     let mut on_change = || {
+        // the window is gone: nobody wants the settings, and the read is not made
+        if window.strong_count() == 0 {
+            return false;
+        }
         let now = read_preferences(env);
         if now == sent {
             return true;
