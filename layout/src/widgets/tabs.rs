@@ -1575,11 +1575,15 @@ impl TabStyle {
 /// window narrower than this on a touch platform (Android, iOS).
 pub const PHONE_MAX_WIDTH: f32 = 600.0;
 
-/// Whether the DOM being built is for a phone: a touch platform, and a window narrower than
-/// [`PHONE_MAX_WIDTH`]. Asked through the recorded size queries, so a resize across the width
-/// builds the tab bar again.
+/// Whether the DOM being built is for a phone: a touch platform (or, on a host with none, a window that
+/// sits on a simulated phone, `WindowFlags::display_preset`), and a window narrower than
+/// [`PHONE_MAX_WIDTH`] - the ONE rule the phone's widgets share (the touch pills, the icon pills, the
+/// form factor of an app frame). A landscape phone (852 dp) and a tablet are wider and get the
+/// desktop forms; a desktop with no preset never gets the phone's. Asked through the recorded size
+/// queries, so a resize across the width builds the tab bar again.
 pub(crate) fn phone_build() -> bool {
-    cfg!(any(target_os = "android", target_os = "ios"))
+    (cfg!(any(target_os = "android", target_os = "ios"))
+        || azul_core::callbacks::build_window_simulates_phone())
         && azul_core::callbacks::build_window_width_less_than(PHONE_MAX_WIDTH).unwrap_or(false)
 }
 

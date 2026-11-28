@@ -398,3 +398,40 @@ fn a_flora_pill_fades_its_label_and_its_face_together_whatever_it_changes_to() {
         }
     }
 }
+
+// ---- one rule for the phone's forms: a phone's size, on a phone or a stand-in for one ----
+
+fn is_touch_pills(dom: &azul_core::dom::Dom) -> bool {
+    fn has_touch_header(dom: &azul_core::dom::Dom) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, azul_core::dom::IdOrClass::Class(n) if n.as_str() == "__azul-native-tabs-touch-header"))
+    }
+    has_touch_header(dom)
+}
+
+#[test]
+fn auto_is_the_touch_pills_in_a_window_under_600_dp_that_sits_on_a_phone_and_the_buttons_elsewhere() {
+    use azul_core::callbacks::WindowSizeScope;
+    // (width in dp, sits on a simulated phone): the phone's forms only for a phone narrower than 600 dp.
+    for (width, preset, touch) in [
+        (412.0, true, true),     // a phone, portrait
+        (599.0, true, true),
+        (640.0, true, false),    // a phone on its side (852 dp in life) and a tablet: the desktop form
+        (852.0, true, false),
+        (1280.0, true, false),
+        (412.0, false, false),   // a desktop window that is narrow: never the phone's form
+        (1280.0, false, false),
+    ] {
+        let _scope = WindowSizeScope::enter_for_window(LogicalSize { width, height: 900.0 }, false, preset);
+        let dom = TabHeader::create(labels(4)).with_theme(UiTheme::Flora).dom();
+        assert_eq!(
+            is_touch_pills(&dom),
+            touch,
+            "{width} dp, preset {preset}: {}",
+            if touch { "touch pills" } else { "the desktop form" }
+        );
+    }
+}
