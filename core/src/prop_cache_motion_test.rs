@@ -91,10 +91,11 @@ fn the_animation_properties_are_the_three_that_declare_one() {
 #[test]
 fn the_system_animation_speed_of_zero_and_the_older_condition_ask_for_it_too() {
     let mut sd = styled();
-    let mut preferences = AccessibilityPreferences::default();
-    preferences.animation_scale = OptionF32::Some(0.0);
     sd.set_dynamic_selector_context(DynamicSelectorContext {
-        preferences,
+        preferences: AccessibilityPreferences {
+            animation_scale: OptionF32::Some(0.0),
+            ..AccessibilityPreferences::default()
+        },
         ..DynamicSelectorContext::default()
     });
     assert_eq!(reads(&sd, CssPropertyType::Animation), (false, false), "Android's remove animations");

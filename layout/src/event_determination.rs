@@ -311,12 +311,12 @@ pub struct SystemStyleNotice {
 
 impl SystemStyleNotice {
     /// The style changed: the next pass says so.
-    pub fn raise(&mut self) {
+    pub const fn raise(&mut self) {
         self.pending = true;
     }
 
     /// The pass has collected the event.
-    pub fn clear_pending_event(&mut self) {
+    pub const fn clear_pending_event(&mut self) {
         self.pending = false;
     }
 

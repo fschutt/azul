@@ -757,7 +757,7 @@ pub struct ThemeResponse {
 /// accepted words, is `Err` with the reason (nothing of the step applies then).
 #[cfg(feature = "std")]
 fn accessibility_override_of(
-    options: &std::collections::BTreeMap<String, serde_json::Value>,
+    options: &BTreeMap<String, serde_json::Value>,
 ) -> Result<(azul_css::accessibility::AccessibilityPreferences, Vec<String>), String> {
     let mut preferences = azul_css::accessibility::AccessibilityPreferences::default();
     let mut notes = Vec::new();
@@ -3239,7 +3239,7 @@ pub enum DebugEvent {
         #[serde(default)]
         reset: bool,
         #[serde(flatten)]
-        options: std::collections::BTreeMap<String, serde_json::Value>,
+        options: BTreeMap<String, serde_json::Value>,
     },
     /// Fold the window's tab content away or show it (`WindowFlags::tab_content_hidden`, what the tab
     /// strip's chevron flips): `{"op":"toggle_tab_content"}` flips it, `{"op":"toggle_tab_content",
