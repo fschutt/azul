@@ -9,8 +9,9 @@
 #   1. the scenario files through the engine's own executor (AZ_E2E=<file>: the app runs the file
 #      and exits): examples/azul-mail/e2e_sample/frame.json (the desktop) and frame_phone.json (the
 #      phone preset), which need the sample account (`--sample`, so the e2e matrix does not find
-#      them), and examples/azul-mail/e2e/text_size.json (the phone's own size, no account needed;
-#      QA runs it under each system text size);
+#      them), and examples/azul-mail/e2e_sample/text_size_phone_preset.json, the desktop copy of
+#      e2e/text_size.json (the phone's own size, no account needed, `only_on` phones: QA runs that
+#      one under each system text size);
 #   2. `scripts/azmail_e2e.py --phase frame` for the desktop and for the phone preset
 #      (`--form phone`, a 411 x 760 window): its checks, and the PNGs of the run (flora, light and
 #      dark, the sidebar expanded and as the rail, the Preview with its (?), File's location, the
@@ -30,7 +31,7 @@ export LD_LIBRARY_PATH="$link${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 status=0
 
 # 1. the scenario files: <file>:<form>:<window size>
-for scenario in e2e_sample/frame:desktop:1280x860 e2e_sample/frame_phone:phone:411x760 e2e/text_size:phone:360x640; do
+for scenario in e2e_sample/frame:desktop:1280x860 e2e_sample/frame_phone:phone:411x760 e2e_sample/text_size_phone_preset:phone:360x640; do
   IFS=: read -r path form size <<< "$scenario"
   file=$(basename "$path")
   data=$(mktemp -d)

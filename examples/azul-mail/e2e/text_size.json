@@ -79,6 +79,10 @@
       {
         "op": "take_screenshot"
       }
+    ],
+    "only_on": [
+      "android",
+      "ios"
     ]
   }
 ]
