@@ -96,6 +96,45 @@ def pick_device(devices, wanted):
     return named[0] if named else None
 
 
+def parse_device_types(text):
+    """`simctl list devicetypes -j` -> [{name, identifier}]."""
+    return [{"name": d.get("name", ""), "identifier": d.get("identifier", "")} for d in json.loads(text).get("devicetypes", [])]
+
+
+def parse_runtimes(text):
+    """`simctl list runtimes -j` -> the available iOS runtimes [{identifier, version}], newest first."""
+    out = []
+    for r in json.loads(text).get("runtimes", []):
+        if r.get("isAvailable", True) and str(r.get("name", r.get("identifier", ""))).startswith("iOS"):
+            out.append({"identifier": r.get("identifier", ""), "version": str(r.get("version", "0"))})
+    out.sort(key=lambda r: [int(x) if x.isdigit() else 0 for x in r["version"].split(".")], reverse=True)
+    return out
+
+
+def newest_plain_iphone(devices):
+    """The device named "iPhone <number>" with the largest number (a booted one first among equals): the one every runner has."""
+    plain = [d for d in devices if re.fullmatch(r"iPhone \d+", d["name"])]
+    plain.sort(key=lambda d: (-int(d["name"].split()[1]), d["state"] != "Booted"))
+    return plain[0] if plain else None
+
+
+def resolve_device(wanted, devices, types, runtimes):
+    """-> (action, value, note): ("use", device, "") the device exists; ("create", (name, type id, runtime id), note) the
+    device TYPE exists on this runner and no device of it does (a Simulator is made from it; it stays there); ("use",
+    device, note) neither exists: the newest plain iPhone stands in, and the note says so (the report never claims a
+    model it did not run on); ("none", None, note) there is no iPhone at all."""
+    found = pick_device(devices, wanted)
+    if found is not None:
+        return "use", found, ""
+    kind = next((t for t in types if t["name"] == wanted), None)
+    if kind is not None and runtimes:
+        return "create", (f"AzSelfTest {wanted}", kind["identifier"], runtimes[0]["identifier"]), f"{wanted}: made from its device type"
+    stand_in = newest_plain_iphone(devices)
+    if stand_in is None:
+        return "none", None, f"no iOS Simulator named {wanted!r} and no plain iPhone to stand in"
+    return "use", stand_in, f"{wanted!r} is not on this machine (no device, no device type): ran on {stand_in['name']} instead"
+
+
 def launch_env(fed=True, extra=None):
     """The environment of the app as `simctl launch` passes it: every variable prefixed SIMCTL_CHILD_."""
     env = {"AZ_SELFTEST": "1", "AZ_LOG": "info", "RUST_BACKTRACE": "1"}
@@ -261,11 +300,32 @@ def main(argv):
     if code != 0:
         print(f"`xcrun simctl` does not run here: this needs a Mac with Xcode\n{listing}")
         return 2
-    device = pick_device(parse_devices(listing), args.device)
-    if device is None:
-        print(f"no available iOS Simulator named or identified {args.device!r}")
+    devices = parse_devices(listing)
+    _, types_text = sh(["xcrun", "simctl", "list", "devicetypes", "-j"], timeout=60)
+    _, runtimes_text = sh(["xcrun", "simctl", "list", "runtimes", "-j"], timeout=60)
+    try:
+        types, runtimes = parse_device_types(types_text), parse_runtimes(runtimes_text)
+    except (ValueError, KeyError):
+        types, runtimes = [], []
+    action, value, note = resolve_device(args.device, devices, types, runtimes)
+    if action == "create":
+        name, type_id, runtime_id = value
+        existing = pick_device(devices, name)
+        if existing is None:
+            code, created = sh(["xcrun", "simctl", "create", name, type_id, runtime_id], timeout=120)
+            if code != 0:
+                print(f"could not make the Simulator {name!r}: {created}")
+                return 2
+            devices = parse_devices(sh(["xcrun", "simctl", "list", "devices", "available", "-j"], timeout=60)[1])
+            existing = pick_device(devices, created.strip().splitlines()[-1])
+        value = existing
+    if value is None:
+        print(note)
         return 2
+    device = value
     udid = device["udid"]
+    if note:
+        print(f"note: {note}", flush=True)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     print(f"device {device['name']} {udid} ({device['runtime']}, {device['state']}); app {bundle}", flush=True)
@@ -300,6 +360,8 @@ def main(argv):
                             + " | ".join(result["asked"][:4]))
         summary.append(f"{name}: {len(result['report'].get('rows', []))} rows")
     print("\n================ summary ================")
+    if note:
+        summary.append(f"device: {note}")
     print("; ".join(summary))
     if findings:
         print("\nFINDINGS:\n  " + "\n  ".join(findings))
