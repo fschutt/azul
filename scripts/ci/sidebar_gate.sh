@@ -86,6 +86,7 @@ api_functions=(
   Sidebar.swap_with_default
   Sidebar.column
   Sidebar.toggled_state
+  Sidebar.header_left_pad
   Sidebar.dom
   SidebarSection.create
   SidebarSection.add_row

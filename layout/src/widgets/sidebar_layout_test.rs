@@ -212,8 +212,9 @@ fn a_pane_released_near_an_end_settles_on_it_and_one_between_stays() {
     assert!(near(settle_pane_height(651.0, 800.0), 651.0));
     // a drag past the ends is held first, then settled
     assert!(near(settle_pane_height(5000.0, 800.0), 680.0));
-    // a height that is no height is the default
-    assert!(near(settle_pane_height(-4.0, 800.0), PANE_HEIGHT_DEFAULT));
+    // no height is the default, a negative one the peek
+    assert!(near(settle_pane_height(0.0, 800.0), PANE_HEIGHT_DEFAULT));
+    assert!(near(settle_pane_height(-4.0, 800.0), PANE_PEEK));
 }
 
 #[test]

@@ -164,7 +164,7 @@ impl_option!(Inspector, OptionInspector, copy = false, [Debug, Clone]);
 impl Inspector {
     /// An open Inspector of `pane` beside `body`, docked by the form factor.
     #[must_use]
-    pub fn create(body: Dom, pane: Dom) -> Self {
+    pub const fn create(body: Dom, pane: Dom) -> Self {
         Self {
             body,
             pane,
@@ -347,15 +347,12 @@ struct DragState {
 impl DragState {
     /// Whether a press at (`x`, `y`) in a container `w` x `h` is on the grab zone of the pane.
     fn grabs(&self, x: f32, y: f32, w: f32, h: f32) -> bool {
-        match self.dock {
-            InspectorDock::Bottom => {
-                let top = h - self.size;
-                y >= top - 2.0 && y <= top + GRIP_HEIGHT
-            }
-            _ => {
-                let border = w - self.size;
-                (x - border).abs() <= BORDER_GRAB / 2.0 + 3.0
-            }
+        if self.dock == InspectorDock::Bottom {
+            let top = h - self.size;
+            y >= top - 2.0 && y <= top + GRIP_HEIGHT
+        } else {
+            let border = w - self.size;
+            (x - border).abs() <= BORDER_GRAB / 2.0 + 3.0
         }
     }
 
@@ -623,7 +620,7 @@ fn build(i: Inspector) -> Dom {
     }
 
     let state = RefAny::new(DragState {
-        on_event: on_event.clone(),
+        on_event,
         dock,
         size,
         dragging: false,

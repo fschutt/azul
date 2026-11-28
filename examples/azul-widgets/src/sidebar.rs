@@ -15,8 +15,8 @@
 
 use azul::{
     callbacks::{
-        ActionSheetOnEventCallbackType, InspectorOnEventCallbackType, LocationOnEventCallbackType,
-        RibbonOnTabClickCallbackType, SidebarOnEventCallbackType,
+        ActionSheetOnEventCallbackType, ButtonOnClickCallbackType, InspectorOnEventCallbackType,
+        LocationOnEventCallbackType, RibbonOnTabClickCallbackType, SidebarOnEventCallbackType,
     },
     prelude::*,
     str::String as AzString,

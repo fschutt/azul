@@ -192,7 +192,7 @@ pub struct LocationBar {
 impl LocationBar {
     /// A block of `name`, no parents, with a pen, not editing.
     #[must_use]
-    pub fn create(name: AzString) -> Self {
+    pub const fn create(name: AzString) -> Self {
         Self {
             parents: LocationCrumbVec::from_const_slice(&[]),
             name,
@@ -546,7 +546,7 @@ fn build(bar: LocationBar) -> Dom {
 
     // ---- line 2: the name and the pen, or the field ----
     let shared = RefAny::new(PartRef {
-        on_event: on_event.clone(),
+        on_event,
         kind: LocationEventKind::EditStarted,
         tag: 0,
     });
@@ -555,7 +555,7 @@ fn build(bar: LocationBar) -> Dom {
         let on_input: TextInputOnTextInputCallbackType = on_field_text;
         let on_key: TextInputOnVirtualKeyDownCallbackType = on_field_key;
         let on_blur: TextInputOnFocusLostCallbackType = on_field_blur;
-        let start = if text.as_str().is_empty() { name.clone() } else { text };
+        let start = if text.as_str().is_empty() { name } else { text };
         let mut input = TextInput::create()
             .with_text(start)
             .with_accessibility_name(AzString::from_const_str("Location"))
@@ -588,7 +588,7 @@ fn build(bar: LocationBar) -> Dom {
                         cb: on_field_mounted as usize,
                         ctx: OptionRefAny::None,
                     },
-                    refany: shared.clone(),
+                    refany: shared,
                 }]
                 .into(),
             ),
@@ -596,7 +596,7 @@ fn build(bar: LocationBar) -> Dom {
     } else {
         row.push(
             styled(
-                widget_p_with_text(name.clone()),
+                widget_p_with_text(name),
                 &format!(
                     "margin: 0px; flex-shrink: 1; min-width: 0px; overflow: hidden; white-space: nowrap; \
                      text-overflow: ellipsis; font-size: {}px; font-weight: 700; line-height: 1.15;",

@@ -58,6 +58,7 @@
 //! [`SidebarEvent`], [`SidebarOnEvent`], [`SidebarState`], [`SidebarSurface`].
 
 use alloc::{format, string::String, vec::Vec};
+use core::fmt::Write as _;
 
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
@@ -251,7 +252,7 @@ pub enum SidebarRowMark {
     Checked,
 }
 
-/// A document row's collaboration switch (AzWriter, AzSheets, AzPresent list the open documents in
+/// A document row's collaboration switch (`AzWriter`, `AzSheets`, `AzPresent` list the open documents in
 /// the sidebar): UI only, the sync kit behind it is not part of the widget.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
@@ -798,7 +799,7 @@ impl_option!(Sidebar, OptionSidebar, copy = false, [Debug, Clone]);
 impl Sidebar {
     /// An empty sidebar in the rail state.
     #[must_use]
-    pub fn create() -> Self {
+    pub const fn create() -> Self {
         Self {
             sections: SidebarSectionVec::from_const_slice(&[]),
             statuses: SidebarStatusVec::from_const_slice(&[]),
@@ -997,7 +998,7 @@ impl Sidebar {
 
     /// Replaces `self` with an empty sidebar and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create();
         core::mem::swap(&mut s, self);
         s
@@ -1010,9 +1011,18 @@ impl Sidebar {
         column_width(self.state, self.form, self.expanded_width, self.controls_left)
     }
 
+    /// How far the tab row keeps from the window's left edge to clear the OS's window controls
+    /// that the sidebar does not cover (the handle is narrower than they are): what the app hands
+    /// the ribbon as `TabsInTitlebar::left`. 0 with the rail or the expanded sidebar, which are
+    /// never narrower than the controls.
+    #[must_use]
+    pub fn header_left_pad(&self) -> f32 {
+        super::sidebar_layout::header_left_pad(self.controls_left, self.column().px)
+    }
+
     /// The state the toggle asks for from the current one.
     #[must_use]
-    pub fn toggled_state(&self) -> SidebarState {
+    pub const fn toggled_state(&self) -> SidebarState {
         self.state.toggled(self.handle_in_cycle)
     }
 
@@ -1045,7 +1055,7 @@ struct PartRef {
     event: SidebarEvent,
 }
 
-fn event(kind: SidebarEventKind, state: SidebarState) -> SidebarEvent {
+const fn event(kind: SidebarEventKind, state: SidebarState) -> SidebarEvent {
     SidebarEvent {
         kind,
         index: 0,
@@ -1222,7 +1232,7 @@ struct Ctx {
 }
 
 impl Ctx {
-    fn row_h(&self) -> f32 {
+    const fn row_h(&self) -> f32 {
         if self.phone {
             ROW_HEIGHT_PHONE
         } else {
@@ -1230,7 +1240,7 @@ impl Ctx {
         }
     }
 
-    fn button(&self) -> f32 {
+    const fn button(&self) -> f32 {
         if self.phone {
             RAIL_BUTTON_PHONE
         } else {
@@ -1243,10 +1253,6 @@ impl Ctx {
             on_event: self.on_event.clone(),
             event: ev,
         })
-    }
-
-    fn at(&self, kind: SidebarEventKind) -> SidebarEvent {
-        event(kind, self.state)
     }
 }
 
@@ -1276,15 +1282,17 @@ fn row_dom(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
          cursor: pointer; "
     );
     if row.selected {
-        css.push_str(&format!(
+        let _ = write!(
+            css,
             "background: {sel}; font-weight: 600; :hover {{ background: {sel}; }} ",
             sel = ctx.look.selected
-        ));
+        );
     } else {
-        css.push_str(&format!(
+        let _ = write!(
+            css,
             ":hover {{ background: {}; }} :active {{ background: {}; }} ",
             ctx.look.hover, ctx.look.hover
-        ));
+        );
     }
     css.push_str(":focus-visible { box-shadow: inset 0px 0px 0px 2px #4a8be8; }");
 
@@ -1533,9 +1541,9 @@ fn rail_button(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
          position: relative; width: {b}px; height: {b}px; border-radius: 8px; cursor: pointer; "
     );
     if row.selected {
-        css.push_str(&format!("background: {sel}; :hover {{ background: {sel}; }} ", sel = ctx.look.selected));
+        let _ = write!(css, "background: {sel}; :hover {{ background: {sel}; }} ", sel = ctx.look.selected);
     } else {
-        css.push_str(&format!(":hover {{ background: {}; }} :active {{ background: {}; }} ", ctx.look.hover, ctx.look.hover));
+        let _ = write!(css, ":hover {{ background: {}; }} :active {{ background: {}; }} ", ctx.look.hover, ctx.look.hover);
     }
     css.push_str(":focus-visible { box-shadow: inset 0px 0px 0px 2px #4a8be8; }");
     let tint = row.tint.as_ref().map(|c| rgb_css(*c)).unwrap_or_default();
@@ -1652,10 +1660,11 @@ fn status_dom(ctx: &Ctx, status: &SidebarStatus, expanded: bool, theme: OptionUi
              width: {b}px; height: {b}px; border-radius: 8px; cursor: pointer; "
         )
     };
-    css.push_str(&format!(
+    let _ = write!(
+        css,
         ":hover {{ background: {}; }} :active {{ background: {}; }} :focus-visible {{ box-shadow: inset 0px 0px 0px 2px #4a8be8; }}",
         ctx.look.hover, ctx.look.hover
-    ));
+    );
     let mut children: Vec<Dom> = alloc::vec![styled(disc, "margin: 0px 2px;")];
     if expanded {
         children.push(styled(
@@ -1727,10 +1736,11 @@ fn foot_button(
              width: {b}px; height: {b}px; border-radius: 8px; cursor: pointer; "
         )
     };
-    css.push_str(&format!(
+    let _ = write!(
+        css,
         ":hover {{ background: {}; }} :active {{ background: {}; }} :focus-visible {{ box-shadow: inset 0px 0px 0px 2px #4a8be8; }}",
         ctx.look.hover, ctx.look.hover
-    ));
+    );
     let mut children: Vec<Dom> = alloc::vec![icon(icon_name, if expanded { 18.0 } else { 22.0 }, ctx.look.quiet)];
     if expanded {
         children.push(styled(
@@ -1845,7 +1855,7 @@ fn build(sb: Sidebar) -> Dom {
         state,
         phone,
         look,
-        on_event: on_event.clone(),
+        on_event,
         stop,
     };
 
