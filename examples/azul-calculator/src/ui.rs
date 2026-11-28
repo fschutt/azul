@@ -1017,9 +1017,9 @@ fn standard_pad(s: &CalcApp, app: &RefAny, programmer: bool) -> Dom {
             None,
             &[],
             ids::MEMORY_ROW,
-            // A finger's row on a phone (44 px), the pointer's on a desktop.
+            // A finger's row on a phone (48 px: Android's touch target; iOS asks 44), the pointer's on a desktop.
             if s.phone {
-                "height: 44px; flex-shrink: 0; margin-bottom: 5px;"
+                "height: 48px; flex-shrink: 0; margin-bottom: 5px;"
             } else {
                 "height: 28px; flex-shrink: 0; margin-bottom: 5px;"
             },
