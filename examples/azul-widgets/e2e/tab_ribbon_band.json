@@ -1,0 +1,174 @@
+[
+  {
+    "name": "azul_widgets_selecting_a_tab_of_the_ribbon_in_the_band_keeps_its_pills_in_the_lanes",
+    "description": "The ribbon in the status bar's band on a Pixel 8: every tab is clicked in turn (Insert, Review - the last -, Home, Layout), and after each the picture, the scrollable nodes with their offsets, the scroll states and where the selected tab stands. The host frames of tab_touch_pictures.json show both lanes of the ribbon EMPTY after the click on Review (the row scrolled by 300 px before is fine), so the question is where the strip's scroll offset and the pills stand after a selection. Every step runs whatever the one before said.",
+    "config": {
+      "continue_on_failure": true
+    },
+    "steps": [
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "A phone to try it on",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Pixel 8"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "click",
+        "text": "Ribbon in the band"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "get_scrollable_nodes"
+      },
+      {
+        "op": "get_scroll_states"
+      },
+      {
+        "op": "get_node_layout",
+        "selector": ".__azul-native-ribbon-tab-active"
+      },
+      {
+        "op": "click",
+        "text": "Insert"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "get_scrollable_nodes"
+      },
+      {
+        "op": "get_scroll_states"
+      },
+      {
+        "op": "get_node_layout",
+        "selector": ".__azul-native-ribbon-tab-active"
+      },
+      {
+        "op": "click",
+        "text": "Review"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "get_scrollable_nodes"
+      },
+      {
+        "op": "get_scroll_states"
+      },
+      {
+        "op": "get_node_layout",
+        "selector": ".__azul-native-ribbon-tab-active"
+      },
+      {
+        "op": "click",
+        "text": "Home"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "get_scrollable_nodes"
+      },
+      {
+        "op": "get_scroll_states"
+      },
+      {
+        "op": "get_node_layout",
+        "selector": ".__azul-native-ribbon-tab-active"
+      },
+      {
+        "op": "click",
+        "text": "Layout"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "get_scrollable_nodes"
+      },
+      {
+        "op": "get_scroll_states"
+      },
+      {
+        "op": "get_node_layout",
+        "selector": ".__azul-native-ribbon-tab-active"
+      }
+    ]
+  }
+]
