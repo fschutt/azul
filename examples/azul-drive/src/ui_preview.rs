@@ -164,6 +164,7 @@ pub(crate) fn follow_scroll(
         s.selection.click(&key);
         s.type_ahead.clear();
         s.print_selection();
+        println!("AZDRIVE_FOLLOW {key} {offset:.0}");
         redraw_pane(info);
         ui_view::redraw_rows(info);
     }

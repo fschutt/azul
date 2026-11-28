@@ -71,25 +71,37 @@ for file in $files; do
     sed "s/${esc}\[[0-9;]*m//g" "$log" | sed -n 's/^.*\[e2e\] SHOT \(.*\)$/\1/p' |
         awk '{ printf "%02d %s\n", NR, $0 }' > "$shots/$stem/captions.txt"
     echo "$file (exit $status): ${summary:-no report}"
-    # the phone's list follows its scroll: over the run the selection was the rows the top edge passed (the
-    # first row, the rows of the two wheel scrolls, the tapped one) and ended on the row of the second scroll:
-    # the wheel's 600 + 900 px at 48 px a row (a phone's rows are a finger's size) is the 32nd row (6 folders
-    # and file-026), give or take a few
+    # the phone's list follows its scroll: the selection was the rows the top edge passed over the run, and the
+    # last row the follow chose is the row at the top edge of the offset it was told (a phone's rows are 48 px
+    # and the folder lists 6 folders first: file-NNN is the row NNN + 5, which is the offset over 48)
     case $stem in
         redesign_phone)
-            keys=$(sed "s/${esc}\[[0-9;]*m//g" "$log" | grep -a '^AZDRIVE_SELECTED 1 ' | awk '{print $3}')
+            plain=$(sed "s/${esc}\[[0-9;]*m//g" "$log")
+            keys=$(printf '%s\n' "$plain" | grep -a '^AZDRIVE_SELECTED 1 ' | awk '{print $3}')
             moved=$(printf '%s\n' "$keys" | sort -u | grep -c . || true)
-            last=$(printf '%s\n' "$keys" | tail -n 1)
-            echo "$file: the selection was $moved different rows, the last one ${last:-none}"
+            echo "$file: the selection was $moved different rows"
             printf '%s\n' "$keys" | uniq | tr '\n' ' ' | sed 's/^/AZDRIVE_SELECTED sequence: /'; echo
             if [ "${moved:-0}" -lt 3 ]; then
                 echo "$file: the scroll moved no selection"
                 bad=1
             fi
-            case $last in
-                file-02[4-8].txt) ;;
+            follow=$(printf '%s\n' "$plain" | grep -a '^AZDRIVE_FOLLOW ' | tail -n 1)
+            key=$(printf '%s\n' "$follow" | awk '{print $2}')
+            offset=$(printf '%s\n' "$follow" | awk '{print $3}')
+            echo "$file: the follow's last report: ${key:-none} at offset ${offset:-none}"
+            case $key in
+                file-*.txt)
+                    n=${key#file-}
+                    n=${n%.txt}
+                    n=${n#"${n%%[!0]*}"}
+                    row=$(( ${offset:-0} / 48 ))
+                    if [ $((${n:-0} + 5)) -ne "$row" ] || [ "${offset:-0}" -lt 1400 ]; then
+                        echo "$file: the selection is not the row at the top edge (row $row at offset ${offset:-0}, the wheel scrolled 1500 px)"
+                        bad=1
+                    fi
+                    ;;
                 *)
-                    echo "$file: the selection did not end on the row at the top edge (file-026.txt, give or take two)"
+                    echo "$file: the follow did not end on a file of the folder"
                     bad=1
                     ;;
             esac
