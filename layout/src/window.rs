@@ -9733,6 +9733,50 @@ impl LayoutWindow {
         insets
     }
 
+    /// Store the system's insets the shell reports and tell the scroll manager where the on-screen
+    /// keyboard's top edge is; the ONE writer of [`Self::safe_area_insets`] for a shell.
+    ///
+    /// When the keyboard comes up or changes height and a node is focused, that node is scrolled
+    /// into the part of the window the keyboard does not cover: the keyboard overlays the window and
+    /// is no part of any scroll container, so a field in the lower half of a scrolling page was
+    /// covered by it and nothing moved. The reveal is the focus path's (`nearest`, instant: the keyboard's own
+    /// animation sends the inset once per frame and the page follows it), run again with the new covered
+    /// area; a keyboard that goes away asks for none. Returns whether a scroll
+    /// container moved (the shell repaints). A desktop has no keyboard inset and never scrolls here.
+    pub fn set_safe_area_insets(
+        &mut self,
+        insets: azul_css::system::SafeAreaInsets,
+        now: Instant,
+    ) -> bool {
+        let keyboard_px = |i: &azul_css::system::SafeAreaInsets| -> f32 {
+            i.keyboard
+                .into_option()
+                .and_then(|p| p.to_pixels_absolute().into_option())
+                .unwrap_or(0.0)
+                .max(0.0)
+        };
+        let before = keyboard_px(&self.safe_area_insets);
+        self.safe_area_insets = insets;
+        // the keyboard's inset is always the real one (a display preset simulates the bars only)
+        let keyboard = keyboard_px(&self.safe_area_insets);
+        let height = self.current_window_state.size.dimensions.height;
+        self.scroll_manager
+            .set_covered_below((keyboard > 0.0).then_some((height - keyboard).max(0.0)));
+        if keyboard <= 0.0 || (keyboard - before).abs() < f32::EPSILON {
+            return false;
+        }
+        let Some(focused) = self.focus_manager.get_focused_node().copied() else {
+            return false;
+        };
+        !self
+            .scroll_node_into_view(
+                focused,
+                crate::managers::scroll_into_view::ScrollIntoViewOptions::nearest(),
+                now,
+            )
+            .is_empty()
+    }
+
     /// The shell's report of the display's cutouts, corners, bars and fingerprint sensor, in
     /// logical px of the window (what it writes after each rotation, resize or change of the
     /// insets, next to [`Self::safe_area_insets`]). `true` when they differ from the last

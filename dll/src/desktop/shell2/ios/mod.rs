@@ -1100,7 +1100,7 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
                 insets.right,
             );
             let changed = after != lw.safe_area_insets;
-            lw.safe_area_insets = after;
+            lw.set_safe_area_insets(after, azul_core::task::Instant::now());
             changed
         });
         // The shapes the insets are made of (the cutout, the corners, the bars, the fingerprint sensor): a table of the
@@ -3423,11 +3423,14 @@ extern "C" fn ui_keyboard_frame_changed(this: &Object, _cmd: Sel, notification: 
         // `None`, not `Some(0)`, for a keyboard that covers nothing: the field's own docs
         // distinguish "no keyboard" from "a keyboard covering nothing", and an app that lays out
         // around a zero inset would reserve a row for a keyboard that is not there.
-        lw.safe_area_insets.keyboard =
-            crate::desktop::shell2::common::ios_logic::keyboard_inset(covered);
-        if previous == lw.safe_area_insets.keyboard {
+        let mut after = lw.safe_area_insets;
+        after.keyboard = crate::desktop::shell2::common::ios_logic::keyboard_inset(covered);
+        if previous == after.keyboard {
             return;
         }
+        // The one writer: it also tells the scroll manager where the keyboard's top edge is, and scrolls the focused field above a
+        // keyboard that comes up (the regeneration below repaints it).
+        lw.set_safe_area_insets(after, azul_core::task::Instant::now());
         log_debug!(
             LogCategory::Input,
             "[iOS] keyboard inset -> {:?}",

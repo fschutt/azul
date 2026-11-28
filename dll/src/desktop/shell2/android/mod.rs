@@ -1482,7 +1482,9 @@ fn apply_insets(window: &mut AndroidWindow, px: [i32; 5]) {
     window.bars.forget();
 
     if let Some(lw) = window.common.layout_window.as_mut() {
-        lw.safe_area_insets = insets;
+        // The one writer: it also tells the scroll manager where the keyboard's top edge is, and scrolls the focused field above a keyboard
+        // that comes up (the regeneration below repaints it).
+        lw.set_safe_area_insets(insets, azul_core::task::Instant::now());
         log_info!(
             LogCategory::Window,
             "[Android] insets top={} bottom={} left={} right={} ime={} (physical px)",

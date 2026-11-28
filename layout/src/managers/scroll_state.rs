@@ -621,6 +621,13 @@ pub struct ScrollManager {
     /// Per nested dom: where it is composited ([`NestedDomPlacement`]),
     /// published by `register_scroll_nodes`. Empty with no `VirtualView`.
     nested_doms: BTreeMap<DomId, NestedDomPlacement>,
+    /// The window-space y of the on-screen keyboard's top edge (logical px): the
+    /// screen below it is covered. `None` while no keyboard is up and on every
+    /// desktop. A reveal (`scroll_into_view`) aims at the part of a scroll
+    /// container's visible rect that lies ABOVE it: the keyboard overlays the
+    /// window and is no part of any container, so without this a field under it
+    /// counts as visible and nothing scrolls it into sight.
+    covered_below: Option<f32>,
     /// Per DOM: the scrollbars `register_scroll_nodes` raised after the
     /// layout pass, kept beside the layout tree they amend ([`RaisedBars`]).
     /// No entry for a DOM whose registration raised nothing.
@@ -835,6 +842,18 @@ impl ScrollManager {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Tell the manager where the on-screen keyboard's top edge is (window space, logical px),
+    /// or `None` when no keyboard is up. Written by `LayoutWindow::set_safe_area_insets`.
+    pub const fn set_covered_below(&mut self, y: Option<f32>) {
+        self.covered_below = y;
+    }
+
+    /// The window-space y below which the keyboard covers the window (see [`Self::set_covered_below`]).
+    #[must_use]
+    pub const fn covered_below(&self) -> Option<f32> {
+        self.covered_below
     }
 
     /// Pins the scroll direction the window's settings ask for

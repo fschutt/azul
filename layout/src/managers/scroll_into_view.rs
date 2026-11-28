@@ -74,6 +74,13 @@ struct ScrollableAncestor {
     target_lift: LogicalPosition,
     /// The visible rect of the scroll container (content area)
     visible_rect: LogicalRect,
+    /// The scrollport's own top edge and height, in the static layout space of its dom
+    /// (what `visible_rect` is before the container's own scroll offset is added): where the
+    /// container stands on the screen, which the keyboard's top edge is compared with.
+    scrollport_top: f32,
+    scrollport_height: f32,
+    /// The container's current vertical scroll offset: what it moves the containers INSIDE it by.
+    offset_y: f32,
     /// Whether horizontal scroll is enabled
     scroll_x: bool,
     /// Whether vertical scroll is enabled
@@ -141,17 +148,34 @@ pub(crate) fn scroll_rect_into_view(
     // Transform target_rect relative to each scroll container and calculate deltas
     let mut current_rect = target_rect;
 
-    for ancestor in scroll_ancestors {
+    // The keyboard covers the window below `covered_below`. What moves a container on the screen
+    // is the scroll offset of the containers OUTSIDE it (in its own dom): the walk goes from the
+    // innermost out, so those have not scrolled yet when this one is measured.
+    let covered_below = scroll_manager.covered_below();
+    let outer_offsets: Vec<f32> = (0..scroll_ancestors.len())
+        .map(|i| {
+            scroll_ancestors[i + 1..]
+                .iter()
+                .filter(|outer| outer.dom_id == scroll_ancestors[i].dom_id)
+                .map(|outer| outer.offset_y)
+                .sum()
+        })
+        .collect();
+
+    for (index, ancestor) in scroll_ancestors.into_iter().enumerate() {
         // Express the target in THIS ancestor's dom before comparing. Zero
         // within one dom; non-zero once the walk has left a nested one.
         let mut compare_rect = current_rect;
         compare_rect.origin.x += ancestor.target_lift.x;
         compare_rect.origin.y += ancestor.target_lift.y;
 
+        // The part of the container that the keyboard does not cover: a reveal aims at that.
+        let visible_rect = visible_above_the_keyboard(&ancestor, outer_offsets[index], covered_below);
+
         // Calculate the scroll delta based on options
         let delta = calculate_scroll_delta(
             compare_rect,
-            ancestor.visible_rect,
+            visible_rect,
             options.block,
             options.inline_axis,
             ancestor.scroll_x,
@@ -449,9 +473,38 @@ fn check_if_scrollable(
         // boundaries were crossed to reach this ancestor.
         target_lift: LogicalPosition::zero(),
         visible_rect,
+        scrollport_top: scroll_state.container_rect.origin.y,
+        scrollport_height: scroll_state.container_rect.size.height,
+        offset_y: scroll_state.current_offset.y,
         scroll_x: scroll_x && has_overflow_x,
         scroll_y: scroll_y && has_overflow_y,
     })
+}
+
+/// The part of a scroll container's visible rect that the on-screen keyboard does not cover.
+///
+/// `covered_below` is the window-space y of the keyboard's top edge; it applies to the containers of
+/// the window's own dom (the nested doms of a `VirtualView` keep theirs: the walk continues outward
+/// and the container that holds the view sees the rect already moved). `outer_offset` is how far the
+/// containers outside this one have scrolled, which moves its scrollport up on the screen. A
+/// container the keyboard does not reach, or no keyboard, leaves the rect as it is.
+fn visible_above_the_keyboard(
+    ancestor: &ScrollableAncestor,
+    outer_offset: f32,
+    covered_below: Option<f32>,
+) -> LogicalRect {
+    let mut visible = ancestor.visible_rect;
+    let Some(covered) = covered_below.filter(|_| ancestor.dom_id == DomId::ROOT_ID) else {
+        return visible;
+    };
+    let top = ancestor.scrollport_top - outer_offset;
+    let bottom = top + ancestor.scrollport_height;
+    if covered < bottom {
+        // never less than a pixel: a keyboard higher than the container leaves it something to aim at
+        let cut = bottom - covered.max(top);
+        visible.size.height = (visible.size.height - cut).max(1.0);
+    }
+    visible
 }
 
 /// Calculate the scroll delta needed to bring target into view within container
