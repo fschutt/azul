@@ -171,12 +171,15 @@ fn open_intent<'a>(
     let intent = env.new_object("android/content/Intent", "(Ljava/lang/String;)V", &[JValue::Object(&action)])?;
     let category = env.new_string(CATEGORY_OPENABLE)?;
     env.call_method(&intent, "addCategory", "(Ljava/lang/String;)Landroid/content/Intent;", &[JValue::Object(&category)])?;
-    // read access to what is picked; the grants are not kept (the file is COPIED: a folder is what a persisted grant is for)
+    // read access to what is picked, and write access where the provider gives it (a copy of such a file is saved BACK where it came
+    // from: `Documents::write_back`); the grants are not kept (the file is COPIED: a folder is what a persisted grant is for)
     env.call_method(
         &intent,
         "addFlags",
         "(I)Landroid/content/Intent;",
-        &[JValue::Int(azul_layout::open_intent::FLAG_GRANT_READ_URI_PERMISSION)],
+        &[JValue::Int(
+            azul_layout::open_intent::FLAG_GRANT_READ_URI_PERMISSION | azul_layout::open_intent::FLAG_GRANT_WRITE_URI_PERMISSION,
+        )],
     )?;
     let single = if let [only] = mimes {
         only.as_str()

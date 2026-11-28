@@ -450,3 +450,61 @@ fn a_pipe_that_cannot_seek_is_read_through_to_the_offset_and_not_beyond_what_is_
         other => panic!("{other:?}"),
     }
 }
+
+// ---- saving a working copy back ----
+
+fn working_copy(dir: &TestDir, origin: Option<(String, bool)>) -> String {
+    let copy = dir.file("inbox/token/report.md", b"edited text");
+    if let Some((uri, writable)) = origin {
+        crate::open_inbox::write_origin(std::path::Path::new(&copy), &crate::open_inbox::Origin { uri, writable }).unwrap();
+    }
+    copy
+}
+
+#[test]
+fn a_working_copy_knows_where_it_came_from() {
+    let dir = TestDir::new();
+    let original = dir.file("elsewhere/report.md", b"original");
+    let copy = working_copy(&dir, Some((original.clone(), true)));
+    let docs = Documents::local();
+    let origin = docs.origin(az(&copy)).into_option().expect("an origin");
+    assert_eq!((origin.uri.as_str(), origin.writable), (original.as_str(), true));
+    assert!(docs.origin(az(&dir.file("plain.txt", b"x"))).into_option().is_none(), "a file that was not opened from elsewhere has none");
+}
+
+#[test]
+fn a_save_back_replaces_the_original_with_the_copys_bytes() {
+    let dir = TestDir::new();
+    let original = dir.file("elsewhere/report.md", b"original");
+    let copy = working_copy(&dir, Some((original.clone(), true)));
+    let entry = Documents::local().write_back(az(&copy)).unwrap();
+    assert_eq!(fs::read(&original).unwrap(), b"edited text");
+    assert_eq!(entry.size.as_option().copied(), Some(11));
+    assert_eq!(fs::read(&copy).unwrap(), b"edited text", "the working copy stays");
+}
+
+#[test]
+fn a_read_only_copy_and_a_copy_without_an_origin_are_not_saved_back_and_say_why() {
+    let dir = TestDir::new();
+    let original = dir.file("elsewhere/report.md", b"original");
+    let read_only = working_copy(&dir, Some((original.clone(), false)));
+    match Documents::local().write_back(az(&read_only)) {
+        Err(DocumentError::Denied(why)) => assert!(why.as_str().contains("export_bytes"), "{}", why.as_str()),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(fs::read(&original).unwrap(), b"original", "nothing was written");
+    let loose = dir.file("loose.md", b"x");
+    match Documents::local().write_back(az(&loose)) {
+        Err(DocumentError::Unsupported(why)) => assert!(why.as_str().contains("no origin"), "{}", why.as_str()),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_save_back_to_an_original_that_is_gone_says_so_and_creates_nothing() {
+    let dir = TestDir::new();
+    let gone = dir.path("elsewhere/vanished.md");
+    let copy = working_copy(&dir, Some((gone.clone(), true)));
+    assert!(matches!(Documents::local().write_back(az(&copy)), Err(DocumentError::NotFound(_))));
+    assert!(!std::path::Path::new(&gone).exists());
+}

@@ -23,7 +23,9 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-use azul_core::documents::{AllFilesAccess, DocumentEntry, DocumentEntryVec, DocumentError, Place, PlaceKind, PlaceVec};
+use azul_core::documents::{
+    AllFilesAccess, DocumentEntry, DocumentEntryVec, DocumentError, DocumentOrigin, OptionDocumentOrigin, Place, PlaceKind, PlaceVec,
+};
 use azul_css::{AzString, EmptyStruct, OptionU64, U8Vec};
 
 use crate::mime;
@@ -294,6 +296,54 @@ impl Documents {
     /// `NotFound`, `Denied`, `Unsupported`, or what the platform said.
     pub fn delete(&self, locator: AzString) -> Result<EmptyStruct, DocumentError> {
         self.ptr.delete(locator.as_str()).map(|()| EmptyStruct::default())
+    }
+
+    /// Where the working copy at `working_copy` came from (a file another app opened this app with, a file the person picked), or `None`
+    /// for a file that was not opened from somewhere else.
+    #[must_use]
+    pub fn origin(&self, working_copy: AzString) -> OptionDocumentOrigin {
+        crate::open_inbox::read_origin(Path::new(working_copy.as_str()))
+            .map(|origin| DocumentOrigin {
+                uri: AzString::from(origin.uri),
+                writable: origin.writable,
+            })
+            .into()
+    }
+
+    /// Save the working copy at `working_copy` back where it came from: the bytes of the copy replace the original (through the same
+    /// call as [`Documents::write`]), and the answer is the original as it is now. What the platform cannot do is said:
+    /// `Unsupported` for a file with no origin, `Denied` for one that was opened read-only (offer `FileDialog::export_bytes`
+    /// instead), `Failed` for a copy over the limit of the inbox (256 MiB).
+    ///
+    /// # Errors
+    ///
+    /// The reasons above, or what [`Documents::write`] says; the original is as it was when the answer is an error.
+    pub fn write_back(&self, working_copy: AzString) -> Result<DocumentEntry, DocumentError> {
+        let copy = Path::new(working_copy.as_str());
+        let Some(origin) = crate::open_inbox::read_origin(copy) else {
+            return Err(DocumentError::Unsupported(AzString::from(alloc::format!(
+                "{} has no origin: it was not opened from somewhere else, so there is nothing to save it back to",
+                working_copy.as_str()
+            ))));
+        };
+        if !origin.writable {
+            return Err(DocumentError::Denied(AzString::from(alloc::format!(
+                "{} was opened read-only: save it somewhere with FileDialog::export_bytes",
+                working_copy.as_str()
+            ))));
+        }
+        let limit = crate::open_inbox::OpenLimits::default().max_file_bytes;
+        let size = fs::metadata(copy).map_err(|e| io_error(working_copy.as_str(), &e))?.len();
+        if size > limit {
+            return Err(DocumentError::Failed(AzString::from(alloc::format!(
+                "{} is {} MiB, more than the {} MiB that is saved back",
+                working_copy.as_str(),
+                size.div_ceil(1024 * 1024),
+                limit / (1024 * 1024)
+            ))));
+        }
+        let bytes = fs::read(copy).map_err(|e| io_error(working_copy.as_str(), &e))?;
+        self.ptr.write(&origin.uri, &bytes)
     }
 
     /// Whether the app may use the device's shared storage as plain folders.

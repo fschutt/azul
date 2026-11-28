@@ -214,6 +214,44 @@ impl InboxRequest {
     }
 }
 
+/// Where a working copy came from: what a save writes BACK to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Origin {
+    /// The locator `Documents` takes (a `content://` document URI on Android).
+    pub uri: String,
+    /// The sender or the picker granted writing to it.
+    pub writable: bool,
+}
+
+/// The file that records the origin of the working copy `copy`: `<folder>/.<name>.origin`. A name that starts with a dot is never made
+/// by [`InboxRequest::copy_in`] (it strips them), so the record cannot be mistaken for a copy.
+#[must_use]
+pub fn origin_file(copy: &Path) -> Option<PathBuf> {
+    let name = copy.file_name()?.to_str()?;
+    Some(copy.with_file_name(format!(".{name}.origin")))
+}
+
+/// Record where `copy` came from (next to it, so that the record is removed with the folder and survives a restart).
+///
+/// # Errors
+///
+/// What writing the record said.
+pub fn write_origin(copy: &Path, origin: &Origin) -> std::io::Result<()> {
+    let record = origin_file(copy).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "a copy with no file name"))?;
+    fs::write(record, format!("{}\n{}\n", origin.uri, if origin.writable { "writable" } else { "read-only" }))
+}
+
+/// Where `copy` came from, or `None` for a file that has no record (it was not opened from somewhere else, or it is not a working
+/// copy at all).
+#[must_use]
+pub fn read_origin(copy: &Path) -> Option<Origin> {
+    let text = fs::read_to_string(origin_file(copy)?).ok()?;
+    let mut lines = text.lines();
+    let uri = lines.next().filter(|u| !u.is_empty())?.to_string();
+    let writable = lines.next() == Some("writable");
+    Some(Origin { uri, writable })
+}
+
 fn too_large(name: &str, size: u64, limit: u64) -> String {
     format!(
         "{name} is too large to copy into the app ({} MiB; the limit is {} MiB)",

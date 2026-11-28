@@ -98,6 +98,8 @@ api_functions=(
   Documents.all_files_access
   Documents.request_all_files_access
   Documents.backend_name
+  Documents.origin
+  Documents.write_back
 )
 autofix_round() {
   # a critical FFI error does not stop the round: the patches were written anyway ("fix the errors before proceeding with

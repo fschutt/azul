@@ -111,10 +111,16 @@ fn the_intent_is_built_in_rust_and_both_sides_name_the_same_request_codes() {
 #[test]
 fn a_request_that_could_not_start_is_answered_and_a_cancel_is_answered_at_once() {
     let rust = code(RUST);
-    let dispatch = body(&rust, "pub fn dispatch_open_file(\n    handle: FilePickerHandle,\n    _title: AzString,\n    _default_path: OptionString,\n    filter_descriptors");
-    let taken = dispatch.find("services.pickers.take::<PendingPick>(id)").expect("the request is taken back");
-    let failed = dispatch.rfind("super::fail(&handle, &failed)").expect("and answered with the reason");
-    assert!(taken < failed, "taken back, then answered:\n{dispatch}");
+    // every request (a file, a folder, an export) is started by `start_pick`
+    let start = body(&rust, "fn start_pick(");
+    let taken = start.find("services.pickers.take::<PendingPick>(id)").expect("the request is taken back");
+    let failed = start.rfind("super::fail(handle, &failed)").expect("and answered with the reason");
+    assert!(taken < failed, "taken back, then answered:\n{start}");
+    for dispatcher in ["dispatch_open_file", "dispatch_open_folder", "dispatch_export"] {
+        let at = rust.find(&format!("pub fn {dispatcher}(")).unwrap_or_else(|| panic!("no {dispatcher}"));
+        let dispatch = body(&rust[at..], &format!("pub fn {dispatcher}("));
+        assert!(dispatch.contains("start_pick("), "{dispatcher} starts its request through start_pick:\n{dispatch}");
+    }
     let native = body(&rust, "pub unsafe extern \"system\" fn Java_com_azul_picker_AzulFilePicker_nativeOnActivityResult(");
     assert!(native.contains("FilePickerStatus::Cancelled"), "a cancel is answered on the spot");
     assert!(native.contains("result_code != RESULT_OK || data.is_null()"));

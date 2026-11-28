@@ -174,3 +174,37 @@ fn a_hostile_name_is_made_into_a_plain_one() {
         assert!(copied.path.parent() == Some(request.dir()), "stays inside the request folder: {wanted:?}");
     }
 }
+
+// ---- where a working copy came from ----
+
+#[test]
+fn the_origin_of_a_working_copy_is_kept_next_to_it_and_read_back() {
+    let dir = TestDir::new();
+    let mut request = dir.inbox().begin(small()).unwrap();
+    let copied = request.copy_in("notes.md", &mut Cursor::new(b"# n".to_vec()), Some(3)).unwrap();
+    assert!(read_origin(&copied.path).is_none(), "a copy nobody recorded has no origin");
+    let origin = Origin { uri: "content://x/document/1".to_string(), writable: true };
+    write_origin(&copied.path, &origin).unwrap();
+    assert_eq!(read_origin(&copied.path), Some(origin));
+    let record = origin_file(&copied.path).unwrap();
+    assert_eq!(record.file_name().unwrap().to_str().unwrap(), ".notes.md.origin");
+    assert_eq!(record.parent(), copied.path.parent(), "next to the copy: it goes with the folder");
+    let read_only = Origin { uri: "content://x/document/2".to_string(), writable: false };
+    write_origin(&copied.path, &read_only).unwrap();
+    assert_eq!(read_origin(&copied.path), Some(read_only), "a later record replaces the earlier");
+}
+
+#[test]
+fn a_record_is_never_a_copy_and_a_damaged_one_is_no_origin() {
+    let dir = TestDir::new();
+    let mut request = dir.inbox().begin(small()).unwrap();
+    // a name that starts with a dot is made plain by copy_in: the record's name cannot be one of a copy
+    let hidden = request.copy_in(".notes.md.origin", &mut Cursor::new(b"x".to_vec()), Some(1)).unwrap();
+    assert!(!hidden.name.starts_with('.'), "{}", hidden.name);
+    let copy = request.copy_in("a.txt", &mut Cursor::new(b"a".to_vec()), Some(1)).unwrap();
+    fs::write(origin_file(&copy.path).unwrap(), "").unwrap();
+    assert_eq!(read_origin(&copy.path), None, "an empty record names nothing");
+    fs::write(origin_file(&copy.path).unwrap(), "content://x/document/9\n").unwrap();
+    assert_eq!(read_origin(&copy.path).map(|o| o.writable), Some(false), "a record without the word is read-only");
+    assert!(origin_file(std::path::Path::new("/")).is_none());
+}

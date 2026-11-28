@@ -23,7 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use azul_core::open_files::{OpenAction, OpenRequest, OpenedItem, OpenedItemVec};
+use azul_core::open_files::{OpenRequest, OpenedItem, OpenedItemVec};
 use azul_css::{AzString, OptionU64};
 use azul_layout::{
     mime,
@@ -335,7 +335,8 @@ fn build_request(job: &Job) -> Result<OpenRequest, String> {
         .attach_current_thread()
         .map_err(|e| format!("attach_current_thread: {e:?}"))?;
     let mut items: Vec<OpenedItem> = Vec::new();
-    let writable = job.flags & FLAG_GRANT_WRITE_URI_PERMISSION != 0 && job.plan.action == OpenAction::Edit;
+    // the sender (or the picker) granted writing: a copy of a file with that grant can be saved back where it came from
+    let writable = job.flags & FLAG_GRANT_WRITE_URI_PERMISSION != 0;
 
     if !job.plan.files.is_empty() {
         let inbox = Inbox::new(job.inbox.clone());
@@ -435,14 +436,24 @@ fn copy_one(
     let mut file = unsafe { File::from_raw_fd(fd) };
     let size = size.or_else(|| file.metadata().ok().map(|m| m.len()).filter(|len| *len > 0));
     match request.copy_in(&name, &mut file, size) {
-        Ok(copied) => OpenedItem::file(
-            AzString::from(copied.name),
-            AzString::from(kind),
-            OptionU64::Some(copied.size),
-            AzString::from(copied.path.to_string_lossy().into_owned()),
-            AzString::from(uri),
-            writable,
-        ),
+        Ok(copied) => {
+            // where the copy came from, kept next to it: `Documents::write_back` saves it there, after a restart too
+            let origin = azul_layout::open_inbox::Origin {
+                uri: uri.to_string(),
+                writable,
+            };
+            if let Err(e) = azul_layout::open_inbox::write_origin(&copied.path, &origin) {
+                crate::plog_debug!("[open] the origin of {} could not be recorded: {e}", copied.name);
+            }
+            OpenedItem::file(
+                AzString::from(copied.name),
+                AzString::from(kind),
+                OptionU64::Some(copied.size),
+                AzString::from(copied.path.to_string_lossy().into_owned()),
+                AzString::from(uri),
+                writable,
+            )
+        }
         Err(why) => fail(&name, &kind, size, why),
     }
 }

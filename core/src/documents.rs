@@ -139,7 +139,24 @@ impl_result!(
     [Debug, Clone, PartialEq, Eq]
 );
 
-/// A folder (or place) the app was GRANTED and may use again without asking: what AzDrive lists as "On this phone".
+/// Where a working copy came from (a file another app opened this one with, a file the person picked): what a save writes BACK to.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct DocumentOrigin {
+    /// The locator `Documents` takes.
+    pub uri: AzString,
+    /// The sender or the picker granted writing to it; a copy with `false` is saved with `export_bytes`.
+    pub writable: bool,
+}
+
+impl_option!(
+    DocumentOrigin,
+    OptionDocumentOrigin,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+/// A folder (or place) the app was GRANTED and may use again without asking: what `AzDrive` lists as "On this phone".
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct Place {
