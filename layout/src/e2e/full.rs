@@ -3488,6 +3488,15 @@ pub enum DebugEvent {
         #[serde(default)]
         launched_app: bool,
     },
+    /// `{ "op": "simulate_lifecycle", "event": "paused" }` - the app's life, as a phone's shell reports
+    /// it: `paused` (sent to the background), `resumed`, `low_memory` or `will_terminate`. The event is
+    /// queued into the app's lifecycle mailbox (`AppServices::lifecycle`); the dll's event pass runs the
+    /// handler the app set with `CallbackInfo::set_lifecycle_handler` before the next `wait_frame`
+    /// completes (an app without a handler hears nothing). Needs the dll's event pass: the in-crate
+    /// runner has none, so there the event only waits in the mailbox. An error for an unknown `event`.
+    SimulateLifecycle {
+        event: String,
+    },
 
     // `<webview>` (`azul_core::webview`, `managers::webview`). The headless
     // backend and the in-crate runner have no browser: the scenario plays
@@ -6677,6 +6686,23 @@ fn notification_event_from_op(
     event.payload = AzString::from(payload.unwrap_or(""));
     event.launched_app = launched_app;
     Ok(event)
+}
+
+/// The names `simulate_lifecycle` takes for its `event`.
+const LIFECYCLE_EVENT_NAMES: &str = "paused, resumed, low_memory, will_terminate";
+
+/// The lifecycle event a scenario named, in any case and with `-` or `_` between the words.
+fn lifecycle_event_from_op(name: &str) -> Result<azul_core::lifecycle::LifecycleEvent, String> {
+    use azul_core::lifecycle::LifecycleEvent as E;
+
+    let normalised = name.trim().to_ascii_lowercase().replace('-', "_");
+    match normalised.as_str() {
+        "paused" => Ok(E::Paused),
+        "resumed" => Ok(E::Resumed),
+        "low_memory" | "lowmemory" => Ok(E::LowMemory),
+        "will_terminate" | "willterminate" => Ok(E::WillTerminate),
+        _ => Err(format!("unknown event {name:?} ({LIFECYCLE_EVENT_NAMES})")),
+    }
 }
 
 /// The name `assert_global_hotkeys` reports a status with: the failure's
@@ -18924,6 +18950,29 @@ fn serve_debug_event(
                         request,
                         "notification_event: the notification mailbox is full (nothing drains \
                          it: is the dll's notification service running?)"
+                            .to_string(),
+                    );
+                }
+            }
+        },
+
+        DebugEvent::SimulateLifecycle { event } => match lifecycle_event_from_op(event) {
+            Err(e) => send_err(request, format!("simulate_lifecycle: {e}")),
+            Ok(event) => {
+                if callback_info
+                    .get_layout_window()
+                    .app_services
+                    .lifecycle
+                    .queue_lifecycle_event(event)
+                {
+                    // Wake the loop: the event pass runs the app's handler, not this op.
+                    needs_update = true;
+                    send_ok(request, None, None);
+                } else {
+                    send_err(
+                        request,
+                        "simulate_lifecycle: the lifecycle mailbox is full (nothing drains it: is the \
+                         dll's event pass running?)"
                             .to_string(),
                     );
                 }

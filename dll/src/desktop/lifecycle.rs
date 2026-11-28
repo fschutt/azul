@@ -71,5 +71,11 @@ pub fn deliver<W: PlatformWindow + ?Sized>(window: &mut W) -> ProcessEventResult
         let run = || window.invoke_menu_callback(callback, MenuInvocation::Native { site: "lifecycle" });
         result = result.max(events.with_current_lifecycle_event(&event, run));
     }
+    if result != ProcessEventResult::DoNothing {
+        // What the handler asked for (a rebuild) reaches the window the way a create callback's does.
+        window
+            .get_common_mut()
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+    }
     result
 }
