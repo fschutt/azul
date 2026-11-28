@@ -395,7 +395,9 @@ impl ShareChannel {
         Self::recording_in(&self.lock())
     }
 
-    const fn recording_in(inner: &Inner) -> bool {
+    // `test_hooks` is a `const fn` only in a build without the `test-hooks` feature (the QA builds have it): clippy sees the first
+    #[allow(clippy::missing_const_for_fn)]
+    fn recording_in(inner: &Inner) -> bool {
         // a run that opens nothing (`Url::open` answers "opened" and starts no browser) shows no system sheet either
         inner.recording || azul_core::run_mode::test_hooks().open_nothing
     }
