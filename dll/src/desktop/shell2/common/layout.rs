@@ -739,6 +739,13 @@ pub fn regenerate_layout(
         (old_dims.width - new_dims.width).abs() > SIZE_CHANGE_THRESHOLD
             || (old_dims.height - new_dims.height).abs() > SIZE_CHANGE_THRESHOLD
     };
+    // The window's SAFE AREA moved since the retained layout was placed (the bars of a phone
+    // arrive after its first frame, a rotation moves them). The app's DOM is the same under any
+    // insets - its fingerprint says nothing of them - and its layout is not: the root's box is
+    // the window minus them. The exits that keep the retained layout (the unchanged exit, the
+    // diff-first nodes exit) took a static UI (a map, a canvas, a ribbon) for good at y = 0, under
+    // the status bar, because they asked about the window's size and nothing else.
+    let safe_area_moved_precheck = layout_window.safe_area_moved_since_layout(current_window_state);
     // The window's theme moved since the retained DOM was cascaded. The
     // unchanged exit below returns WITHOUT entering the layout funnel, and the
     // funnel is where the new context (and with it the themed UA defaults and
@@ -869,6 +876,7 @@ pub fn regenerate_layout(
         // retained layout reflects the OLD docking.
         let docks_changed = layout_window.transient_docks_changed();
         if !window_size_changed_precheck
+            && !safe_area_moved_precheck
             && !states_changed
             && !docks_changed
             && !theme_changed_precheck
@@ -986,6 +994,7 @@ pub fn regenerate_layout(
             if layout_window.switches.diff_first_step(azul_layout::window::DiffFirstStep::Text)
                 && !theme_rebuild
                 && !csd_changed_precheck
+                && !safe_area_moved_precheck
                 && fp.style_root == prev.style_root =>
         {
             azul_core::diff::texts_alone_changed(prev, fp)
@@ -1135,6 +1144,7 @@ pub fn regenerate_layout(
                 && !csd_changed_precheck
                 && !theme_changed_precheck
                 && !window_size_changed_precheck
+                && !safe_area_moved_precheck
                 // With the step `text` off, a rebuild of texts alone takes the full path.
                 && (layout_window.switches.diff_first_step(
                     azul_layout::window::DiffFirstStep::Text,
@@ -1920,7 +1930,7 @@ pub fn regenerate_layout(
                 retained.styled_dom.rebuild_derived_node_lists();
             }
 
-            if !window_size_changed && !overlay_retires {
+            if !window_size_changed && !safe_area_moved_precheck && !overlay_retires {
                 // Same rule as the pre-cascade exit above: the DOM is
                 // equivalent, the transferred datasets / VirtualView refanys
                 // are not necessarily — re-invoke every view in place (all but a
@@ -1943,8 +1953,8 @@ pub fn regenerate_layout(
             }
 
             // R1 — THE EQUIVALENCE RESULT IS USED, NOT THROWN AWAY. The size
-            // changed (or the overlay retires what the app acked) but the DOM
-            // did not, so the freshly-produced StyledDom
+            // (or the safe area) changed, or the overlay retires what the app
+            // acked, but the DOM did not, so the freshly-produced StyledDom
             // is DROPPED and the PREVIOUS one — the exact object solver3's
             // warm caches (shaping, intrinsic widths) were built against — is
             // re-laid-out at the new size below. Same-object identity makes
