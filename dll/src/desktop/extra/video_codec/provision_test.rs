@@ -60,3 +60,57 @@ fn without_a_match_the_known_desktops_come_first_then_the_alphabet() {
     );
     assert_eq!(pick_x11_session(Vec::new(), Some("KDE")), None);
 }
+
+/// A codec the OS ships but the build cannot create is NOT available: the probe answers from the
+/// engine behind `VideoDecoder::open` / `VideoEncoder::open`, so `VideoStartupCheck` never says
+/// ready for a handle that opens invalid (Android, before its MediaCodec backend: the arm said
+/// available whatever the build had).
+#[test]
+fn a_codec_the_build_cannot_create_is_not_available_whatever_the_os_ships() {
+    let none = probe_of_engine(
+        "MediaCodec",
+        Err(String::from("the MediaCodec backend is not implemented yet")),
+    );
+    assert!(!none.available);
+    assert_eq!(none.backend, "MediaCodec");
+    assert!(none.detail.contains("not implemented"), "{}", none.detail);
+    assert!(!none.can_remediate, "no driver install adds a system codec");
+
+    let some = probe_of_engine(
+        "MediaCodec",
+        Ok(String::from("MediaCodec (c2.android.avc.decoder, software)")),
+    );
+    assert!(some.available);
+    assert!(some.detail.contains("c2.android.avc.decoder"), "{}", some.detail);
+}
+
+/// The Android arms of both hardware probes answer from the build's own engine check and never
+/// with a literal yes: a source-level invariant (the arms only compile for Android), so the next
+/// edit cannot bring back "available: true" for a service the build does not reach.
+#[test]
+fn the_android_arms_of_the_hardware_probes_ask_the_build_s_engine() {
+    let source = include_str!("provision.rs");
+    for (probe, engine) in [
+        ("pub fn probe_hw_decode()", "super::decode_engine()"),
+        ("fn probe_hw_encode()", "super::encode_engine()"),
+    ] {
+        let from = source.find(probe).unwrap_or_else(|| panic!("{probe} moved"));
+        let body = &source[from..];
+        let arm_start = body
+            .find("#[cfg(target_os = \"android\")]")
+            .unwrap_or_else(|| panic!("{probe} has no android arm"));
+        let arm = &body[arm_start..];
+        let arm_end = arm
+            .find("#[cfg(any(target_os = \"linux\"")
+            .unwrap_or_else(|| panic!("{probe}: the arm after android moved"));
+        let arm = &arm[..arm_end];
+        assert!(
+            arm.contains(engine) && arm.contains("probe_of_engine"),
+            "the android arm of {probe} must answer from {engine}:\n{arm}"
+        );
+        assert!(
+            !arm.contains("available: true") && !arm.contains("            true,"),
+            "the android arm of {probe} says yes without asking the engine:\n{arm}"
+        );
+    }
+}
