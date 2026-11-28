@@ -394,13 +394,47 @@ pub(crate) fn sheet_row_of(tag: usize) -> Option<&'static SheetRow> {
 // ---- the preview follows the top edge of the list ----
 
 /// The message at the top edge of a list whose first visible row is `first`: that row when it is
-/// a message, else the next message below it (a group header is no message).
+/// a message, else the next message below it (a group header is no message); its row and its uid.
 #[must_use]
-pub(crate) fn top_message(rows: &[listing::ListRow], first: usize) -> Option<u32> {
-    rows.iter().skip(first).find_map(|row| match row {
-        listing::ListRow::Message(uid) => Some(*uid),
-        listing::ListRow::Group(_) => None,
-    })
+pub(crate) fn top_message_at(rows: &[listing::ListRow], first: usize) -> Option<(usize, u32)> {
+    rows.iter()
+        .enumerate()
+        .skip(first)
+        .find_map(|(i, row)| match row {
+            listing::ListRow::Message(uid) => Some((i, *uid)),
+            listing::ListRow::Group(_) => None,
+        })
+}
+
+/// What a report of the list's scroll does on a phone: nothing, or the SELECTION and the PREVIEW
+/// move to the message at the top edge (the first message row at or after the first visible row,
+/// group headers skipped). A tap on a row overrides it until the list is scrolled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Follow {
+    /// The scroll changes nothing: not a phone, a tap holds the selection, or the message at the
+    /// top edge is the one shown.
+    Keep,
+    /// The selection goes to row `row`, the Preview to message `uid`.
+    Move { row: usize, uid: u32 },
+}
+
+/// The effect of a scroll report: the list's first visible row is `first`; `pinned_top` is the top
+/// row at the last tap while the tap holds; `shown` is the message the Preview shows now.
+#[must_use]
+pub(crate) fn follow(
+    rows: &[listing::ListRow],
+    first: usize,
+    pinned_top: Option<usize>,
+    shown: Option<u32>,
+    phone: bool,
+) -> Follow {
+    if !phone || !follows_top_edge(pinned_top, first) {
+        return Follow::Keep;
+    }
+    match top_message_at(rows, first) {
+        Some((row, uid)) if shown != Some(uid) => Follow::Move { row, uid },
+        _ => Follow::Keep,
+    }
 }
 
 /// How many rows the list's top edge may move after a tap before the scroll counts as the

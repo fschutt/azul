@@ -349,6 +349,11 @@ fn a_sheet_tag_leads_back_to_its_row() {
 
 // ---- the preview follows the top edge ----
 
+/// The uid of the message at the top edge.
+fn top_message(rows: &[ListRow], first: usize) -> Option<u32> {
+    top_message_at(rows, first).map(|(_, uid)| uid)
+}
+
 #[test]
 fn the_top_edge_is_the_first_visible_message_and_a_group_header_is_none() {
     let rows = vec![
@@ -381,4 +386,66 @@ fn a_tap_holds_the_preview_until_the_top_edge_has_really_moved() {
     assert!(follows_top_edge(Some(10), 8));
     assert!(follows_top_edge(Some(10), usize::MAX));
     assert!(follows_top_edge(Some(usize::MAX), 0));
+}
+
+// ---- a scroll moves the selection and the preview on a phone, a tap holds them ----
+
+fn mail_rows() -> Vec<ListRow> {
+    vec![
+        ListRow::Group(DateGroup::Today),
+        ListRow::Message(30),
+        ListRow::Message(29),
+        ListRow::Message(28),
+        ListRow::Group(DateGroup::Yesterday),
+        ListRow::Message(20),
+        ListRow::Message(19),
+    ]
+}
+
+#[test]
+fn scrolling_moves_the_selection_and_the_preview_to_the_message_at_the_top_edge() {
+    let rows = mail_rows();
+    assert_eq!(follow(&rows, 2, None, Some(30), true), Follow::Move { row: 2, uid: 29 });
+    assert_eq!(follow(&rows, 3, None, Some(29), true), Follow::Move { row: 3, uid: 28 });
+}
+
+#[test]
+fn a_group_header_at_the_top_edge_hands_it_to_the_first_message_under_it() {
+    let rows = mail_rows();
+    assert_eq!(follow(&rows, 4, None, Some(28), true), Follow::Move { row: 5, uid: 20 });
+    assert_eq!(follow(&rows, 0, None, None, true), Follow::Move { row: 1, uid: 30 });
+}
+
+#[test]
+fn a_scroll_that_leaves_the_same_message_at_the_top_changes_nothing() {
+    let rows = mail_rows();
+    assert_eq!(follow(&rows, 1, None, Some(30), true), Follow::Keep);
+    assert_eq!(follow(&rows, 0, None, Some(30), true), Follow::Keep, "the header over it: the same message");
+}
+
+#[test]
+fn a_scroll_past_the_last_message_changes_nothing() {
+    let rows = mail_rows();
+    assert_eq!(follow(&rows, 7, None, Some(19), true), Follow::Keep);
+    assert_eq!(follow(&rows, usize::MAX, None, None, true), Follow::Keep);
+    assert_eq!(follow(&[], 0, None, None, true), Follow::Keep);
+}
+
+#[test]
+fn a_tap_holds_the_selection_and_the_preview_until_the_list_is_scrolled_two_rows() {
+    let rows = mail_rows();
+    // a tap at top row 1 shows message 29 (row 2); the list nudges itself by one row: still held
+    assert_eq!(follow(&rows, 2, Some(1), Some(29), true), Follow::Keep);
+    assert_eq!(follow(&rows, 0, Some(1), Some(29), true), Follow::Keep);
+    // the reader scrolls on: the selection and the preview follow again
+    assert_eq!(follow(&rows, 3, Some(1), Some(29), true), Follow::Move { row: 3, uid: 28 });
+    assert_eq!(follow(&rows, 5, Some(1), Some(29), true), Follow::Move { row: 5, uid: 20 });
+}
+
+#[test]
+fn a_desktop_scroll_moves_nothing() {
+    let rows = mail_rows();
+    for first in 0..rows.len() {
+        assert_eq!(follow(&rows, first, None, Some(1), false), Follow::Keep, "{first}");
+    }
 }

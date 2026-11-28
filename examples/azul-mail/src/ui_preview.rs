@@ -5,9 +5,10 @@
 //! pictures AzMail held back, with its own (?) holding the explanation and "Download pictures".
 //!
 //! On a desktop the Preview is docked at the right of the list; on a phone it is the bottom pane
-//! (four detents, a tap on its grip toggles the peek and the half) and it follows the message at
-//! the TOP EDGE of the list while the list scrolls (`ui_main::on_list_event`): a message is read
-//! by a tap, never by scrolling past it, and the selection never follows the scroll.
+//! (four detents, a tap on its grip toggles the peek and the half) and the SELECTION and the
+//! Preview follow the message at the TOP EDGE of the list while the list scrolls
+//! (`ui_main::on_list_event`, `nav::follow`); a tap holds them until the list is scrolled on, and
+//! a message is marked read by a tap, never by scrolling past it.
 
 use azul::{
     callbacks::{ButtonOnClickCallbackType, PreviewOnEventCallbackType},

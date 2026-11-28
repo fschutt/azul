@@ -1818,14 +1818,25 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
             }
             SummaryListEventKind::Scroll => {
                 let (start, end) = (event.index, event.end);
-                // The phone's Preview follows the message at the list's top edge, not the
-                // selection: only a scroll the reader made (a tap holds the Preview until the
-                // top edge has moved) and without marking the message read.
-                let follows = ui_frame::phone_now(s) && crate::nav::follows_top_edge(s.pinned_top, start);
+                // A phone's SELECTION and Preview follow the message at the list's top edge (the
+                // first message row at or after the first row in view); a tap holds them until
+                // the list is scrolled on (`nav::follow`). The message is shown without being
+                // marked read: reading is a tap.
+                let shown = s
+                    .open
+                    .as_ref()
+                    .filter(|o| s.folder.as_deref() == Some(o.folder.as_str()))
+                    .map(|o| o.entry.uid);
+                let moved = crate::nav::follow(&s.rows, start, s.pinned_top, shown, ui_frame::phone_now(s));
                 s.top_row = start;
-                let followed = follows && {
-                    s.pinned_top = None;
-                    follow_top(s, &mut info, &app)
+                let followed = match moved {
+                    crate::nav::Follow::Move { row, uid } => {
+                        s.pinned_top = None;
+                        s.selection = azul::widgets::ListSelection::create().apply(row as u64, false, false);
+                        follow_top(s, &mut info, &app, uid);
+                        true
+                    }
+                    crate::nav::Follow::Keep => false,
                 };
                 let window_end = s.first_row + LIST_WINDOW;
                 // Rebuild only when the view comes near the window's edges.
@@ -1842,25 +1853,14 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
     .unwrap_or(Update::DoNothing)
 }
 
-/// Shows the message at the list's top edge in the Preview (without marking it read); whether it
-/// changed.
-fn follow_top(s: &mut MailApp, info: &mut CallbackInfo, app: &RefAny) -> bool {
-    let Some(uid) = crate::nav::top_message(&s.rows, s.top_row) else {
-        return false;
-    };
-    let shown = s
-        .open
-        .as_ref()
-        .is_some_and(|o| o.entry.uid == uid && s.folder.as_deref() == Some(o.folder.as_str()));
-    if shown {
-        return false;
-    }
+/// Shows message `uid` in the Preview WITHOUT marking it read (the phone's list was scrolled and the
+/// message is at its top edge): its pictures and its download, as a tap has them.
+fn follow_top(s: &mut MailApp, info: &mut CallbackInfo, app: &RefAny, uid: u32) {
     stop_pictures(s, info);
     s.peek_message(uid);
     show_own_pictures(s, info, app);
     // An Azlin account's big message is downloaded now.
     crate::fetch_if_needed(s, info, app.clone());
-    true
 }
 
 // ==== The reading pane ====
