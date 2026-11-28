@@ -5,10 +5,11 @@
 //! the platform plumbing:
 //!
 //! 1. **Probe** ([`probe_hw_decode`]): can this machine hardware-decode H.264 *right now*? On
-//!    Apple/Android the platform codec (VideoToolbox / MediaCodec) is always present; on
-//!    Linux/Windows we dlopen the Vulkan loader and look for `VK_KHR_video_decode_h264` on any
-//!    physical device (gpu-video, our decode backend there, needs Vulkan Video). Drives
-//!    `capability::video_codec()`.
+//!    Apple the platform codec (VideoToolbox) is present when the runtime-loaded backend
+//!    resolved; on Android the answer is the build's own MediaCodec engine (a codec really
+//!    created, never the OS alone); on Linux/Windows we dlopen the Vulkan loader and look for
+//!    `VK_KHR_video_decode_h264` on any physical device (gpu-video, our decode backend there,
+//!    needs Vulkan Video). Drives `capability::video_codec()`.
 //!
 //! 2. **Plan + run** ([`ProvisionPlan`]): if decode is *not* available but the drivers that would
 //!    enable it can be installed, build the exact command list — kept as `program` + `args` + an
@@ -59,6 +60,29 @@ pub struct HwDecodeProbe {
     pub can_remediate: bool,
 }
 
+/// The probe of a codec the OS ships as a service (MediaCodec) and the build reaches through its
+/// own engine: `engine` is the engine's answer, its name when a codec was really created and why
+/// not otherwise. The OS having the service is not the answer: Android used to report
+/// "available" for it while the build had no engine, so `VideoStartupCheck::hw_decode_ready` was
+/// true and `VideoDecoder::open` handed out an invalid handle.
+#[cfg(any(target_os = "android", test))]
+fn probe_of_engine(backend: &'static str, engine: Result<String, String>) -> HwDecodeProbe {
+    match engine {
+        Ok(name) => HwDecodeProbe {
+            available: true,
+            backend,
+            detail: name,
+            can_remediate: false,
+        },
+        Err(why) => HwDecodeProbe {
+            available: false,
+            backend,
+            detail: why,
+            can_remediate: false,
+        },
+    }
+}
+
 /// Probe whether this machine can hardware-decode H.264 video.
 pub fn probe_hw_decode() -> HwDecodeProbe {
     // Apple ships a system codec — but report what the dlopen'd backend
@@ -97,14 +121,11 @@ pub fn probe_hw_decode() -> HwDecodeProbe {
             can_remediate: false,
         };
     }
+    // Android ships MediaCodec, but the probe says what `VideoDecoder::open` does: it asks the
+    // build's own decode engine (a codec really created, or why not), never the OS alone.
     #[cfg(target_os = "android")]
     {
-        return HwDecodeProbe {
-            available: true,
-            backend: "MediaCodec",
-            detail: String::from("Android MediaCodec (built into the OS)"),
-            can_remediate: false,
-        };
+        return probe_of_engine("MediaCodec", super::decode_engine());
     }
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
@@ -1138,13 +1159,11 @@ fn probe_hw_encode() -> (bool, &'static str, String) {
             String::from("Apple VideoToolbox (built into the OS)"),
         );
     }
+    // As the decode probe: what `VideoEncoder::open` does, from the build's own encode engine.
     #[cfg(target_os = "android")]
     {
-        return (
-            true,
-            "MediaCodec",
-            String::from("Android MediaCodec (built into the OS)"),
-        );
+        let probe = probe_of_engine("MediaCodec", super::encode_engine());
+        return (probe.available, probe.backend, probe.detail);
     }
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {

@@ -9,9 +9,10 @@
 //! is a failure (a recognizer that never answered).
 //!
 //! The microphone permission (`RECORD_AUDIO`, opt-in in the manifest through
-//! `AZ_ANDROID_PERMISSIONS`) is the permission manager's to ask for; without it hearing answers
-//! `Denied`. Without the helper in the APK (`AZ_ANDROID_NO_JAVA=1`) everything answers
-//! `Unavailable`.
+//! `AZ_ANDROID_PERMISSIONS`) is asked for ONCE, when the app first listens (`listen` waits, on its worker
+//! thread, for the dialog to be answered); a refusal answers `Denied` and is not asked again. The helper itself
+//! never asks: it used to answer `Denied` for a permission nobody had requested. Without the helper in the
+//! APK (`AZ_ANDROID_NO_JAVA=1`) everything answers `Unavailable`.
 
 use std::{
     collections::HashMap,
@@ -22,6 +23,7 @@ use std::{
     time::Duration,
 };
 
+use azul_layout::managers::permission::Capability;
 use jni::objects::JValue;
 
 use super::{heard_from_android, HeardStatus, SpeechHeard, SpeechStatus};
@@ -125,6 +127,18 @@ pub fn is_available() -> bool {
 }
 
 pub fn listen(language: &str, timeout_ms: u32) -> SpeechHeard {
+    // Hearing needs the microphone: ask once (the dialog appears when the app listens, not at launch), wait for the
+    // answer, and say `Denied` for a refusal instead of leaving it to the recognizer to fail unasked.
+    let state = crate::desktop::extra::permission::android::ensure(
+        Capability::Microphone,
+        crate::desktop::extra::permission::android::DIALOG_PATIENCE,
+    );
+    if !state.is_granted() {
+        return SpeechHeard::none(
+            HeardStatus::Denied,
+            "the microphone is not allowed: the app can send the user to the settings",
+        );
+    }
     let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
     if let Ok(mut answers) = ANSWERS.lock() {
         answers.get_or_insert_with(HashMap::new).insert(handle, None);

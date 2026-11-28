@@ -282,13 +282,14 @@ class E2eVariantTest(unittest.TestCase):
                    if e.get("variant", "").startswith("mobile-e2e")}
         self.assertEqual(sorted(entries), sorted(libs))
         for (leg, variant), e in entries.items():
-            want = sorted(a["package"] for a in self.m["app"] if a.get("e2e") and a["e2e_lib"] == variant and leg in demo_apps.columns_of(a))
+            want = sorted(a["package"] for a in self.m["app"] + self.m["qa_app"]
+                          if a.get("e2e") and a["e2e_lib"] == variant and leg in demo_apps.columns_of(a))
             self.assertEqual(sorted(e["apps"].split()), want)
             self.assertEqual(e["lib_artifacts"], f"demolib-{leg}-{variant}")
             self.assertTrue(e["artifact"].startswith("demoe2e-"), e["artifact"])   # a name the shipped-files patterns never match
             self.assertTrue(e["results_artifact"].startswith("demoresults-"))
         # the apps that use iroh build against the iroh twin, the others against the plain QA library
-        self.assertEqual(sorted(entries[("android-x86_64", "mobile-e2e-iroh")]["apps"].split()), ["AzCompanion", "AzMeet"])
+        self.assertEqual(sorted(entries[("android-x86_64", "mobile-e2e-iroh")]["apps"].split()), ["AzCompanion", "AzMeet", "AzSelfTest"])
         self.assertNotIn("AzMeet", entries[("android-x86_64", "mobile-e2e")]["apps"].split())
         # two uploads of one artifact name fail a run: every artifact of every entry has a name of its own
         names = [e["artifact"] for e in entries.values()] + [e["results_artifact"] for e in entries.values()]
@@ -641,7 +642,8 @@ class QaOnlyAppTest(unittest.TestCase):
 
     def test_the_app_is_a_qa_app_and_not_one_of_the_release(self):
         self.assertNotIn("AzPaint", [a["package"] for a in self.m["app"]])
-        self.assertEqual([a["package"] for a in self.m["qa_app"]], ["AzPaint"])
+        # the stand-in, and the real one of the manifest (AzSelfTest)
+        self.assertEqual([a["package"] for a in self.m["qa_app"]], ["AzPaint", "AzSelfTest"])
         app = self.m["qa_app"][0]
         self.assertTrue(app["qa_only"] and app["e2e"])
         self.assertEqual((app["mobile_lib"], app["e2e_lib"]), ("mobile-e2e", "mobile-e2e"))   # the QA lib it links is its QA lib
@@ -699,7 +701,8 @@ class QaOnlyAppTest(unittest.TestCase):
         buf = io.StringIO()
         with mock.patch.object(demo_apps, "load", lambda path=demo_apps.MANIFEST: self.m), contextlib.redirect_stdout(buf):
             self.assertEqual(demo_apps.main(["check"]), 0)
-        self.assertIn(f"ok - {len(self.m['app'])} apps (+ 1 QA-only), ", buf.getvalue())
+        # the stand-in of the fixture and the real one of the manifest (AzSelfTest)
+        self.assertIn(f"ok - {len(self.m['app'])} apps (+ {len(self.m['qa_app'])} QA-only), ", buf.getvalue())
 
     def test_the_qa_only_command_and_the_ios_qa_script_know_it_has_no_shipped_build(self):
         with mock.patch.object(demo_apps, "load", lambda path=demo_apps.MANIFEST: self.m), contextlib.redirect_stderr(io.StringIO()):
@@ -1860,7 +1863,7 @@ class AndroidBuildAllScriptTest(unittest.TestCase):
         builds = {e["variant"]: sorted(e["apps"].split()) for e in plan["apps_android"] if e["leg"] == "android-x86_64"}
         self.assertEqual(builds[""], ["AzCompanion", "AzMaps", "AzMeet", "AzPaint", "AzWidgets", "AzWriter"])
         self.assertEqual(builds["mobile-e2e"], ["AzMaps", "AzPaint", "AzWidgets", "AzWriter"])
-        self.assertEqual(builds["mobile-e2e-iroh"], ["AzCompanion", "AzMeet"])
+        self.assertEqual(builds["mobile-e2e-iroh"], ["AzCompanion", "AzMeet", "AzSelfTest"])   # AzSelfTest: QA only, and its LAN row uses iroh
         self.assertIn("plan --e2e", self.text)
         for name in ("mobile-e2e", "mobile-iroh"):
             self.assertNotIn(name, "\n".join(l for l in self.text.splitlines() if not l.lstrip().startswith("#")))

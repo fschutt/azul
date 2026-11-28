@@ -5900,12 +5900,19 @@ impl CallbackInfo {
     /// delivered one. Kept live by the sensor backends (iOS `CoreMotion`,
     /// Android `SensorManager`) via the async channel the layout pass folds
     /// into the manager - so a callback can drive tilt / shake / compass UI.
+    ///
+    /// Reading a sensor IS subscribing to it: the first read starts it (nothing starts at launch, and no
+    /// `SensorChanged` node is needed), and it keeps running while the app keeps reading (a read wants the kind
+    /// for the next three seconds); the engine stops it when the app stops, and on pause. The first read answers
+    /// `None` - the sensor has only just been asked to start - and the next ones carry samples.
     #[must_use]
-    pub const fn get_sensor_reading(
+    pub fn get_sensor_reading(
         &self,
         kind: azul_core::sensors::SensorKind,
     ) -> Option<azul_core::sensors::SensorReading> {
-        self.get_layout_window().sensor_manager.reading(kind)
+        let window = self.get_layout_window();
+        window.app_services.sensors.want(kind);
+        window.sensor_manager.reading(kind)
     }
 
     /// Whether the ENGINE flips scroll deltas (9b-ii-b-i-a):
@@ -5963,7 +5970,13 @@ impl CallbackInfo {
     /// centimetres, where a platform reports them, stay readable through
     /// `get_sensor_reading(SensorKind::Proximity)`.
     #[must_use]
-    pub const fn get_proximity(&self) -> azul_core::sensors::OptionProximity {
+    pub fn get_proximity(&self) -> azul_core::sensors::OptionProximity {
+        // Reading the proximity IS subscribing to it (see `get_sensor_reading`): the monitoring that blanks the
+        // screen near the face is switched on only while an app asks.
+        self.get_layout_window()
+            .app_services
+            .sensors
+            .want(azul_core::sensors::SensorKind::Proximity);
         match self.get_layout_window().sensor_manager.proximity() {
             Some(p) => azul_core::sensors::OptionProximity::Some(p),
             None => azul_core::sensors::OptionProximity::None,

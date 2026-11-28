@@ -27,7 +27,7 @@ use core::ptr;
 
 use azul_core::gamepad::{GamepadButton, GamepadId, GamepadState};
 use azul_layout::managers::gamepad::GamepadStates;
-use objc::{class, msg_send, runtime::Object, sel, sel_impl};
+use objc::{msg_send, runtime::Object, sel, sel_impl};
 
 use super::{apply_axial_deadzone, apply_radial_deadzone};
 
@@ -71,10 +71,21 @@ const GC_TOUCH_STATE_UP: i64 = 0;
 /// already connected, so without this a pad paired at the OS level appears but
 /// one being paired now never does.
 pub fn start() {
+    let Some(cls) = game_controller_class() else {
+        return;
+    };
     unsafe {
-        let cls = class!(GCController);
         let _: () = msg_send![cls, startWirelessControllerDiscoveryWithCompletionHandler: core::ptr::null::<core::ffi::c_void>()];
     }
+}
+
+/// The `GCController` class, with GameController.framework loaded first. The framework is not one the app links (the
+/// iOS link list has no GameController): `class!(GCController)` is a PANIC when nothing has loaded it, and a panic in
+/// a phone app is an abort. After the `dlopen` (which is what `game_controller` does) a missing class is a plain
+/// `None`: no pad, and the poll answers nothing.
+fn game_controller_class() -> Option<&'static objc::runtime::Class> {
+    game_controller()?;
+    objc::runtime::Class::get("GCController")
 }
 
 /// Read a `GCControllerButtonInput.isPressed`.
@@ -110,8 +121,10 @@ unsafe fn axis(stick: *mut Object, sel_name: objc::runtime::Sel) -> f32 {
 
 /// Snapshot every connected controller into the app's `states` queue.
 pub fn poll(states: &GamepadStates) {
+    let Some(cls) = game_controller_class() else {
+        return;
+    };
     unsafe {
-        let cls = class!(GCController);
         let controllers: *mut Object = msg_send![cls, controllers];
         if controllers.is_null() {
             return;
@@ -449,9 +462,8 @@ fn core_haptics() -> Option<&'static libloading::Library> {
     .as_ref()
 }
 
-/// GameController.framework, for its `GCHapticsLocality*` constants. The
-/// classes are reachable already (`class!(GCController)` above works), but
-/// the constants are data symbols and need a handle to look them up on.
+/// GameController.framework, `dlopen`ed once: it is not linked, so this is what makes its classes
+/// ([`game_controller_class`]) and its `GCHapticsLocality*` data symbols reachable at all.
 fn game_controller() -> Option<&'static libloading::Library> {
     static LIB: std::sync::OnceLock<Option<libloading::Library>> = std::sync::OnceLock::new();
     LIB.get_or_init(|| unsafe {
@@ -493,7 +505,7 @@ unsafe fn locality_constant(locality: RumbleLocality) -> Option<*mut Object> {
 
 /// The `GCController` whose address-derived id (see `poll`) is `pad`.
 unsafe fn controller_for_pad(pad: u32) -> Option<*mut Object> {
-    let cls = class!(GCController);
+    let cls = game_controller_class()?;
     let controllers: *mut Object = msg_send![cls, controllers];
     if controllers.is_null() {
         return None;
