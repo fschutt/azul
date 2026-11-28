@@ -199,6 +199,21 @@ fn result_of(outcome: Outcome, stored: KeyringResult) -> KeyringResult {
     }
 }
 
+/// What the keychain answered when it was not "fine" or "absent", with the operation that got it: a result carries no status, so
+/// this line is the only thing that says WHY an operation ended in `Error` or `Unavailable` (an app on a Simulator without the
+/// entitlements of a signed build, a device without a passcode).
+fn note_status(what: &str, key: &str, status: i32) {
+    if status != 0 && status != ERR_SEC_ITEM_NOT_FOUND {
+        crate::log_warn!(
+            crate::desktop::shell2::common::debug_server::LogCategory::Platform,
+            "[keyring] {} of {:?}: the keychain answered OSStatus {}",
+            what,
+            key,
+            status
+        );
+    }
+}
+
 // ---- the ops ------------------------------------------------------------------------------------------------------
 
 fn store(service: &str, key: &str, secret: &[u8], protection: KeyringProtection, interaction: Interaction) -> KeyringResult {
@@ -214,7 +229,10 @@ fn store(service: &str, key: &str, secret: &[u8], protection: KeyringProtection,
                 let _ = delete_item(&meta_service(service), key);
                 KeyringResult::Stored
             }
-            Err(error) => result_of(logic::after_store(error.code(), false, DeviceState::Ready), KeyringResult::Stored),
+            Err(error) => {
+                note_status("store", key, error.code());
+                result_of(logic::after_store(error.code(), false, DeviceState::Ready), KeyringResult::Stored)
+            }
         };
     };
     // A protected item is made from a user's action only (the dispatcher's `UserCheck`).
@@ -258,7 +276,10 @@ fn store(service: &str, key: &str, secret: &[u8], protection: KeyringProtection,
                 result_of(logic::after_store(status, false, DeviceState::Ready), KeyringResult::Stored)
             }
         },
-        Err(error) => result_of(logic::after_store(error.code(), true, device_state_for(level)), KeyringResult::Stored),
+        Err(error) => {
+            note_status("store (protected)", key, error.code());
+            result_of(logic::after_store(error.code(), true, device_state_for(level)), KeyringResult::Stored)
+        }
     }
 }
 
@@ -309,7 +330,10 @@ fn read_unprotected(service: &str, key: &str) -> KeyringResult {
         Err(error) if error.code() == ERR_SEC_PARAM => {
             return match get_generic_password(service, key) {
                 Ok(bytes) => text_of(bytes),
-                Err(error) => result_of(logic::after_plain_read(error.code(), false), KeyringResult::Stored),
+                Err(error) => {
+                    note_status("read (plain)", key, error.code());
+                    result_of(logic::after_plain_read(error.code(), false), KeyringResult::Stored)
+                }
             };
         }
         Err(error) => error.code(),
@@ -322,6 +346,7 @@ fn read_unprotected(service: &str, key: &str) -> KeyringResult {
             Err(status) => result_of(logic::after_plain_read(status, false), KeyringResult::Stored),
         };
     }
+    note_status("read", key, status);
     result_of(logic::after_plain_read(status, false), KeyringResult::Stored)
 }
 
