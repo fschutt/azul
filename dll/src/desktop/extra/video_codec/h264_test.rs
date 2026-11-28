@@ -509,3 +509,64 @@ fn the_bit_reader_reads_exp_golomb_codes() {
     assert_eq!(bits.ue(), None);
     assert_eq!(bits.bits(1), None);
 }
+
+/// A deterministic stream of numbers for the property-style tests below.
+fn pseudo_random(seed: u64) -> impl FnMut() -> u64 {
+    let mut x = seed | 1;
+    move || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    }
+}
+
+#[test]
+fn bytes_that_are_not_a_stream_never_panic_the_parsers() {
+    let mut next = pseudo_random(0x2545_F491_4F6C_DD1D);
+    for round in 0..3000 {
+        let len = (next() % 240) as usize;
+        let mut data: Vec<u8> = (0..len).map(|_| (next() & 0xff) as u8).collect();
+        // Half of the buffers get a start code and an SPS or slice header, so the parsers go deep.
+        if len > 12 && round % 2 == 0 {
+            let header = [0x67, 0x41, 0x65, 0x68, 0x06][(next() % 5) as usize];
+            data[2..6].copy_from_slice(&[0, 0, 1, header]);
+        }
+        let spans = nal_spans(&data);
+        for span in &spans {
+            assert!(span.start_code <= span.payload && span.payload < span.end && span.end <= data.len());
+            let _ = (span.nal_type(&data), span.bytes(&data), span.with_start_code(&data));
+        }
+        let units = split_access_units(&data);
+        let joined: usize = units.iter().map(|unit| unit.len()).sum();
+        assert!(joined <= data.len(), "the units are slices of the chunk");
+        let _ = (first_sps(&data), parameter_sets(&data), contains_idr(&data), starts_with_sps(&data));
+        let _ = with_parameter_sets(&data, &data);
+        let _ = parse_sps(&data);
+    }
+}
+
+#[test]
+fn a_valid_sps_with_every_single_byte_changed_never_panics_and_still_parses_or_says_no() {
+    let good = build_sps(&SpsSpec {
+        profile: 100,
+        vui: Some(VuiSpec {
+            full_range: true,
+            matrix: Some(1),
+            reorder: Some(2),
+            hrd: true,
+        }),
+        ..SpsSpec::default()
+    });
+    assert!(parse_sps(&good).is_some());
+    for at in 0..good.len() {
+        for value in [0u8, 1, 3, 0x7f, 0x80, 0xff] {
+            let mut bad = good.clone();
+            bad[at] = value;
+            // Whatever it gives, the size is a size: nothing here may allocate or panic.
+            if let Some(info) = parse_sps(&bad) {
+                assert!(info.width >= 1 && info.width <= 16384 && info.height >= 1 && info.height <= 16384);
+            }
+        }
+    }
+}

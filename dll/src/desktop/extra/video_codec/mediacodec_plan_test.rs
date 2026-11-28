@@ -172,3 +172,8 @@ fn a_stream_size_outside_what_a_decoder_is_configured_for_is_refused_with_the_nu
         assert!(!error.codec_is_lost());
     }
 }
+
+#[test]
+fn a_decoder_asks_for_nv12_then_i420_then_whatever_the_codec_has() {
+    assert_eq!(DECODER_OUTPUT_HINTS, [Some(21), Some(19), None]);
+}

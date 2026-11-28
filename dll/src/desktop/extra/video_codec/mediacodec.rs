@@ -796,18 +796,54 @@ impl MediaCodecDecoder {
         self.queue_unit(&bytes, frames)
     }
 
-    /// Configures (and starts) the codec for a stream of `size`: a codec that has run is stopped
-    /// and configured again.
+    /// Configures (and starts) a codec for a stream of `size`: the output colour formats of
+    /// [`plan::DECODER_OUTPUT_HINTS`] in turn, the first the codec takes. The codec that was there
+    /// (it ran another stream, or was only made) is deleted: a codec that failed to configure
+    /// cannot be configured again, and every try is a new one.
     fn configure(&mut self, (width, height): (u32, u32)) -> Result<(), MediaCodecError> {
         plan::check_decode_size(width, height)?;
-        let ndk = Arc::clone(&self.ndk);
-        let mut codec = match self.codec.take() {
-            Some(mut codec) => {
-                codec.stop();
-                codec
+        self.codec = None;
+        let mut first_error = None;
+        for hint in plan::DECODER_OUTPUT_HINTS {
+            match self.start_codec((width, height), hint) {
+                Ok(codec) => {
+                    self.codec = Some(codec);
+                    self.configured = Some((width, height));
+                    self.picture = None;
+                    self.in_flight = 0;
+                    self.need_key = true;
+                    self.said = plan::Said::default();
+                    android_log(
+                        LOG_INFO,
+                        &format!(
+                            "decoder: configured for {width}x{height}, output colour format {}: {}",
+                            hint.map_or_else(|| String::from("the codec's own"), |h| format!("{h:#x}")),
+                            plan::engine_label(self.name.as_deref())
+                        ),
+                    );
+                    return Ok(());
+                }
+                Err(error) => {
+                    let line = format!("decoder: output colour format {hint:?}: {error}");
+                    self.say(LOG_INFO, &line);
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
+                }
             }
-            None => Codec::create(&ndk, false)?,
-        };
+        }
+        Err(first_error.unwrap_or(MediaCodecError::NoCodec { encoder: false }))
+    }
+
+    /// A new codec, configured for `size` with the output colour format `hint` (none: the codec's
+    /// own) and started.
+    fn start_codec(
+        &self,
+        (width, height): (u32, u32),
+        hint: Option<i32>,
+    ) -> Result<Codec, MediaCodecError> {
+        let ndk = Arc::clone(&self.ndk);
+        let mut codec = Codec::create(&ndk, false)?;
         let format = Format::new(&ndk)?;
         format.set_string(c"mime", c"video/avc");
         format.set_i32(c"width", i32::try_from(width).unwrap_or(i32::MAX));
@@ -816,25 +852,15 @@ impl MediaCodecDecoder {
         // the size and refuses what it did not expect.
         let max_input = (u64::from(width) * u64::from(height) * 3 / 2).clamp(256 * 1024, 8 << 20);
         format.set_i32(c"max-input-size", i32::try_from(max_input).unwrap_or(i32::MAX));
+        if let Some(color_format) = hint {
+            format.set_i32(c"color-format", color_format);
+        }
         // Realtime and low latency: ignored by a codec that does not know the keys.
         format.set_i32(c"priority", 0);
         format.set_i32(c"low-latency", 1);
         codec.configure(&format, false)?;
         codec.start()?;
-        self.codec = Some(codec);
-        self.configured = Some((width, height));
-        self.picture = None;
-        self.in_flight = 0;
-        self.need_key = true;
-        self.said = plan::Said::default();
-        android_log(
-            LOG_INFO,
-            &format!(
-                "decoder: configured for {width}x{height}: {}",
-                plan::engine_label(self.name.as_deref())
-            ),
-        );
-        Ok(())
+        Ok(codec)
     }
 
     /// Queues one access unit, after taking what is ready (that frees buffers), and waits a

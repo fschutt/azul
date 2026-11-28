@@ -446,3 +446,56 @@ fn without_a_crop_window_the_streams_own_size_is_the_visible_picture() {
     let picture = plan_output(&cropped, Some((1920, 1080))).expect("planned");
     assert_eq!((picture.width, picture.height), (1920, 1072));
 }
+
+#[test]
+fn output_formats_and_buffers_that_make_no_sense_never_panic() {
+    let mut x = 0x9E37_79B9_7F4A_7C15u64;
+    let mut next = move || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    let mut pick = |next: &mut dyn FnMut() -> u64| -> Option<i32> {
+        match next() % 7 {
+            0 => None,
+            1 => Some(0),
+            2 => Some(-1),
+            3 => Some(i32::MAX),
+            4 => Some(i32::MIN),
+            _ => Some((next() % 4000) as i32),
+        }
+    };
+    for _ in 0..4000 {
+        let raw = RawOutputFormat {
+            color_format: Some([19, 21, 0x7F42_0888, 0x7FA3_0C04, 7, -3][(next() % 6) as usize]),
+            width: pick(&mut next),
+            height: pick(&mut next),
+            stride: pick(&mut next),
+            slice_height: pick(&mut next),
+            crop_left: pick(&mut next),
+            crop_top: pick(&mut next),
+            crop_right: pick(&mut next),
+            crop_bottom: pick(&mut next),
+            image_data: None,
+            color_standard: pick(&mut next),
+            color_range: pick(&mut next),
+        };
+        let hint = if next() % 2 == 0 { Some(((next() % 5000) as usize, (next() % 5000) as usize)) } else { None };
+        if let Ok(picture) = plan_output(&raw, hint) {
+            let src_len = (next() % 70_000) as usize;
+            let src = vec![7u8; src_len];
+            if let Some(nv12) = picture.to_nv12(&src) {
+                assert_eq!(Some(nv12.len()), picture.nv12_len());
+            }
+        }
+    }
+    // Random bytes as an image-data blob.
+    for _ in 0..2000 {
+        let len = [80usize, 84, 83, 100, 0, 3][(next() % 6) as usize];
+        let blob: Vec<u8> = (0..len).map(|_| (next() & 0xff) as u8).collect();
+        let mut raw = raw(COLOR_FORMAT_YUV420_FLEXIBLE);
+        raw.image_data = Some(blob);
+        let _ = plan_output(&raw, None);
+    }
+}
