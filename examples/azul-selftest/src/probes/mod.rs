@@ -63,6 +63,10 @@ pub struct Ctx<'a> {
     pub scratch: &'a mut Vec<u64>,
     /// The rows that already have an answer (an aggregate probe reads them).
     pub done: &'a [RowResult],
+    /// The app's own state, for a request whose answer comes back to a callback of the app (a folder picker, an export dialog).
+    pub app: &'a RefAny,
+    /// Texts the probe keeps between ticks and its callbacks fill (the answer of a dialog, the file the app was opened with).
+    pub texts: &'a mut Vec<String>,
     /// The row's own note (what a `Pending` row still has to prove).
     pub note: &'static str,
 }

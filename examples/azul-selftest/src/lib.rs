@@ -46,6 +46,8 @@ struct Running {
     phase: u32,
     widget: bool,
     scratch: Vec<u64>,
+    /// What the row's callbacks wrote down (see `Ctx::texts`).
+    texts: Vec<String>,
 }
 
 /// The app's state: the rows, the queue and what runs.
@@ -181,6 +183,16 @@ impl SelfTest {
             run.scratch[SCRATCH_COPIES] = summary.copies;
             run.scratch[SCRATCH_FIRST_LEN] = summary.first_len;
             run.scratch[SCRATCH_FIRST_FNV] = summary.first_fnv;
+            if let Some((path, writable)) = &summary.first_copy {
+                run.texts.push(format!("copy {} {path}", if *writable { "writable" } else { "read-only" }));
+            }
+        }
+    }
+
+    /// A callback of the app wrote a text for the running row (the answer of a dialog, the file the app was opened with).
+    pub fn note_text(&mut self, text: String) {
+        if let Some(run) = self.running.as_mut() {
+            run.texts.push(text);
         }
     }
 
@@ -199,7 +211,7 @@ impl SelfTest {
     }
 
     /// One tick: start the next row if none runs, step the running one. Whether the list changed.
-    fn advance(&mut self, info: &mut CallbackInfo) -> bool {
+    fn advance(&mut self, info: &mut CallbackInfo, app: &RefAny) -> bool {
         let mut changed = false;
         if self.running.is_none() {
             let Some(idx) = self.queue.pop_front() else {
@@ -218,6 +230,7 @@ impl SelfTest {
                 phase: 0,
                 widget: false,
                 scratch: Vec::new(),
+                texts: Vec::new(),
             });
             changed = true;
         }
@@ -237,6 +250,8 @@ impl SelfTest {
                 want_refresh: false,
                 scratch: &mut run.scratch,
                 done: &done,
+                app,
+                texts: &mut run.texts,
                 note: def.note,
             };
             let step = (def.step)(&mut ctx);
@@ -391,10 +406,13 @@ const fn android_property_set() -> bool {
 }
 
 extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+    // a row that asks the system for something answered later (a folder, a place to save) names the app's state as the data of the
+    // request: it takes it from here
+    let app = data.clone();
     let Some(mut state) = data.downcast_mut::<SelfTest>() else {
         return TimerCallbackReturn::terminate_unchanged();
     };
-    let changed = state.advance(&mut info.callback_info);
+    let changed = state.advance(&mut info.callback_info, &app);
     let mut finished_unattended = false;
     if state.idle() && state.report_due {
         state.report_due = false;
