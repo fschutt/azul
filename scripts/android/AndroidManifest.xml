@@ -69,6 +69,7 @@
     <application
         android:label="@LABEL@"
         android:theme="@style/AzulTheme"
+        android:enableOnBackInvokedCallback="true"
         @ICON_ATTR@
         android:hasCode="false">
 

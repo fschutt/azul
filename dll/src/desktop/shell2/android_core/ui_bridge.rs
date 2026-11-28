@@ -85,6 +85,10 @@ pub enum UiEvent {
     Gesture(RawGesture),
     /// `Activity.onTrimMemory(level)` (the `TRIM_MEMORY_*` of `ComponentCallbacks2`).
     TrimMemory(i32),
+    /// The system's Back key or gesture (`Activity.onBackPressed`, the API 33+ `OnBackInvokedCallback`): the app
+    /// is asked first, then a popup or a pushed view, and only then does the activity leave
+    /// ([`PlatformWindow::press_back`](crate::desktop::shell2::common::event::PlatformWindow::press_back)).
+    Back,
 }
 
 /// The inbox and the mirror. Everything is behind a lock or an atomic.

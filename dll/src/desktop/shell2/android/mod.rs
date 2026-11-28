@@ -258,6 +258,12 @@ impl AndroidWindow {
         // has said so since U2. So the engine paints them and drags them, and
         // this window says so before its first frame.
         layout_window.text_edit_manager.selection_handles = true;
+        // This shell has ONE surface and cannot open another window (`queue_window_create` opens none): the
+        // engine shows every popup and dialog inside this window, over the page, and a second window of the
+        // app as a view pushed over it (`azul_layout::transient::WindowPresentation`).
+        layout_window
+            .transient_windows
+            .set_shell_presentation(azul_layout::transient::WindowPresentation::OneSurface);
 
         let mut common = CommonWindowState::new(
             full_window_state,
@@ -1247,6 +1253,63 @@ fn follow_ui_result(window: &mut AndroidWindow, r: azul_core::events::ProcessEve
     }
 }
 
+/// The system's Back (`UiEvent::Back`): the engine's one entry ([`PlatformWindow::press_back`]) offers it to
+/// the app first, then to a popup or a pushed view; only when nothing took it does the activity leave, as the
+/// system would have done had the app not been asked.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn apply_back(window: &mut AndroidWindow) {
+    use crate::desktop::shell2::common::event::BackOutcome;
+    let (outcome, result) = window.press_back();
+    follow_ui_result(window, result);
+    window.needs_rerender = true;
+    if outcome == BackOutcome::Leave {
+        leave_for_back();
+    }
+}
+
+/// Back, with nothing in the app to take it: what the system does - the task moves to the back when the activity
+/// is its root (the launcher shows, the app keeps its state), anything else finishes. `AzulActivity.leaveForBack`
+/// on the UI thread.
+#[cfg(all(target_os = "android", feature = "jni"))]
+fn leave_for_back() {
+    use jni::JavaVM;
+
+    let vm_ptr = java_vm_ptr();
+    let activity_ptr = activity_ptr();
+    if vm_ptr.is_null() || activity_ptr.is_null() {
+        return;
+    }
+    let result = (|| -> Result<(), String> {
+        let vm = unsafe { JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) }
+            .map_err(|e| format!("JavaVM::from_raw: {e:?}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
+        let activity =
+            unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
+        let class = crate::desktop::extra::find_app_class(&mut env, &activity, "com/azul/app/AzulActivity")
+            .ok_or_else(|| "AzulActivity not in this APK".to_string())?;
+        env.call_static_method(
+            &class,
+            "leaveForBack",
+            "(Landroid/app/Activity;)V",
+            &[jni::objects::JValue::Object(&activity)],
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            let _ = env.exception_clear();
+            format!("call leaveForBack: {e:?}")
+        })
+    })();
+    if let Err(e) = result {
+        log_debug!(LogCategory::Input, "[Android] leave for back: {e}");
+    }
+}
+
+#[cfg(all(target_os = "android", not(feature = "jni")))]
+fn leave_for_back() {}
+
 /// Apply what the Java UI thread queued, in order, on the loop thread with the window this thread owns.
 ///
 /// Each arm is the body of the JNI callback it replaces, which ran on the UI thread: staged edits
@@ -1412,6 +1475,7 @@ fn apply_ui_events(window: &mut AndroidWindow, events: Vec<UiEvent>) {
                 let tell = window.app_phase.on_trim(level);
                 tell_app(window, tell);
             }
+            UiEvent::Back => apply_back(window),
         }
     }
     // The same gate as X11's handle_xi_raw_motion - only while the lock is held - then the shared manager

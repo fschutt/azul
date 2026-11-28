@@ -118,6 +118,7 @@ public class AzulActivity extends NativeActivity {
         }
         // Dismissals a receiver kept while the app was not running.
         AzulNotifications.drainPersisted(this);
+        registerBackCallback();
         // android_main is starting on its own thread — but the
         // ANDROID_WINDOW_PTR may not be set yet. We attach lazily in
         // onWindowFocusChanged so the AndroidWindow* is guaranteed to
@@ -574,4 +575,56 @@ public class AzulActivity extends NativeActivity {
 
     /** Implemented in Rust (dll/src/desktop/shell2/android/bridge.rs). */
     private static native void nativeOnUiModeChanged(long nativePtr, int nightMode);
+
+    /**
+     * The system's Back key (and, before API 33, the Back gesture). NativeActivity forwards no Back press to native
+     * code and its own answer is to leave: the press goes to the shell instead, which offers it to the app first
+     * (its callbacks as an Escape, a popup, a pushed view) and calls {@link #leaveForBack} when nothing took it.
+     */
+    @Override
+    public void onBackPressed() {
+        long nativePtr = nativeGetWindowPointer();
+        if (nativePtr != 0L) {
+            nativeOnBack(nativePtr);
+        } else {
+            super.onBackPressed();
+        }
+    }
+
+    /**
+     * API 33+ delivers the Back gesture to a registered callback, never to {@link #onBackPressed} (the manifest's
+     * {@code enableOnBackInvokedCallback}): the same press, the same hook.
+     */
+    private void registerBackCallback() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                    new android.window.OnBackInvokedCallback() {
+                        @Override
+                        public void onBackInvoked() {
+                            onBackPressed();
+                        }
+                    });
+        }
+    }
+
+    /**
+     * Back, and nothing in the app took it: what the system does - the task goes to the back when this activity is
+     * its root (the launcher shows, the app keeps its state), anything else finishes. Called from the shell.
+     */
+    public static void leaveForBack(final android.app.Activity activity) {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (activity.isTaskRoot()) {
+                    activity.moveTaskToBack(true);
+                } else {
+                    activity.finish();
+                }
+            }
+        });
+    }
+
+    /** Implemented in Rust (dll/src/desktop/shell2/android/bridge.rs). */
+    private static native void nativeOnBack(long nativePtr);
 }

@@ -41,6 +41,26 @@ struct PickerState {
     modal: bool,
     dismissed_calls: Arc<AtomicUsize>,
     presses: Arc<AtomicUsize>,
+    /// The page closes its own page on Escape (a page-stack UI) and says so (`prevent_default`).
+    page_takes_escape: bool,
+    escapes: Arc<AtomicUsize>,
+}
+
+/// The page's own Escape handler (`window` level, as an app's page stack has it): it takes the key.
+extern "C" fn on_page_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let escape = info.get_current_keyboard_state().current_virtual_keycode.into_option()
+        == Some(VirtualKeyCode::Escape);
+    if !escape {
+        return Update::DoNothing;
+    }
+    let takes = data.downcast_mut::<PickerState>().is_some_and(|s| {
+        s.escapes.fetch_add(1, Ordering::SeqCst);
+        s.page_takes_escape
+    });
+    if takes {
+        info.prevent_default();
+    }
+    Update::DoNothing
 }
 
 /// The page's own button: a click on it counts.
@@ -112,10 +132,17 @@ extern "C" fn picker_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom 
             }
             .to_core(),
         );
-    Dom::create_body()
-        .with_css("margin: 0;".into())
-        .with_child(swatch)
-        .with_child(button)
+    let mut body = Dom::create_body().with_css("margin: 0;".into());
+    body.root.add_callback(
+        EventFilter::Window(azul_core::events::WindowEventFilter::VirtualKeyDown),
+        data.clone(),
+        Callback {
+            cb: on_page_key,
+            ctx: azul_core::refany::OptionRefAny::None,
+        }
+        .to_core(),
+    );
+    body.with_child(swatch).with_child(button)
 }
 
 fn headless(options: WindowCreateOptions, app_data: Arc<RefCell<RefAny>>) -> HeadlessWindow {
@@ -146,6 +173,8 @@ fn phone_with(open: bool, modal: bool, preset: DisplayPreset) -> HeadlessWindow 
         modal,
         dismissed_calls: Arc::new(AtomicUsize::new(0)),
         presses: Arc::new(AtomicUsize::new(0)),
+        page_takes_escape: false,
+        escapes: Arc::new(AtomicUsize::new(0)),
     })));
     let mut options = WindowCreateOptions::default();
     options.window_state.size.dimensions = LogicalSize::new(412.0, 915.0);
@@ -346,4 +375,60 @@ fn the_page_under_a_phones_modal_dialog_is_inert() {
     window.regenerate_layout().expect("layout: closed");
     click_at(&mut window, LogicalPosition::new(160.0, 470.0));
     assert_eq!(presses(&window), 1, "the button is the page's again");
+}
+
+fn escapes(window: &HeadlessWindow) -> usize {
+    let mut app = window.common.app_data.borrow_mut();
+    app.downcast_ref::<PickerState>()
+        .map_or(usize::MAX, |s| s.escapes.load(Ordering::SeqCst))
+}
+
+fn page_takes_escape(window: &HeadlessWindow, takes: bool) {
+    let mut app = window.common.app_data.borrow_mut();
+    app.downcast_mut::<PickerState>().unwrap().page_takes_escape = takes;
+}
+
+/// BACK is the app's first: a page that closes itself on Escape takes it, and the shell stays.
+#[test]
+fn back_is_offered_to_the_page_first_and_a_page_that_takes_it_keeps_the_app() {
+    use azul::desktop::shell2::common::event::BackOutcome;
+    let mut window = phone(false, DisplayPreset::Pixel8);
+    window.regenerate_layout().expect("layout");
+    page_takes_escape(&window, true);
+    let (outcome, _) = window.press_back();
+    assert_eq!(escapes(&window), 1, "the page heard it as an Escape");
+    assert_eq!(outcome, BackOutcome::Consumed, "and it said it took it (prevent_default)");
+}
+
+/// BACK with nothing in the app to take it leaves, as the system does.
+#[test]
+fn back_with_nothing_to_take_it_leaves() {
+    use azul::desktop::shell2::common::event::BackOutcome;
+    let mut window = phone(false, DisplayPreset::Pixel8);
+    window.regenerate_layout().expect("layout");
+    let (outcome, _) = window.press_back();
+    assert_eq!(escapes(&window), 1, "the page heard it, and did nothing with it");
+    assert_eq!(outcome, BackOutcome::Leave);
+}
+
+/// With a popup open, BACK closes the popup - the page does not hear it - and the shell stays; the
+/// next BACK is the page's.
+#[test]
+fn back_closes_the_top_popup_first_and_only_then_goes_to_the_page() {
+    use azul::desktop::shell2::common::event::BackOutcome;
+    let mut window = phone(true, DisplayPreset::Pixel8);
+    window.regenerate_layout().expect("layout");
+    page_takes_escape(&window, true);
+    assert_eq!(open_windows(&window), 1);
+
+    let (outcome, _) = window.press_back();
+    assert_eq!(outcome, BackOutcome::Consumed, "a popup took it");
+    assert_eq!(open_windows(&window), 0, "and closed");
+    assert_eq!(escapes(&window), 0, "the page under a popup you work in did not hear the key");
+    window.regenerate_layout().expect("drain the Dismissed event");
+    assert_eq!(dismissed_calls(&window), 1, "the app heard the dismissal");
+
+    let (outcome, _) = window.press_back();
+    assert_eq!(escapes(&window), 1, "now the page hears it");
+    assert_eq!(outcome, BackOutcome::Consumed);
 }

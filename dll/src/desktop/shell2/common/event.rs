@@ -3430,6 +3430,9 @@ pub struct CommonWindowState {
     /// A close the window manager asked for runs the protocol at once and
     /// never sets this.
     close_unconfirmed: bool,
+    /// Whether a callback called `prevent_default()` on the keyboard pass that ran last
+    /// ([`PlatformWindow::press_back`] reads it: the app took the key).
+    pub key_default_prevented: bool,
     /// A scripted E2E run owns this window's animation clock
     /// (`debug_server::scripted_run_owns_the_clock`, read when the window
     /// opens): the wall-clock CSS animation driver is never armed, and
@@ -3794,6 +3797,7 @@ impl CommonWindowState {
             desktop_theme,
             renderer_clear_color: None,
             close_unconfirmed: false,
+            key_default_prevented: false,
             scripted_animation_clock: super::debug_server::scripted_run_owns_the_clock(),
             menu_release_owed: false,
             menu_picks: crate::desktop::menu::MenuPicks::default(),
@@ -4539,6 +4543,15 @@ macro_rules! impl_platform_window_getters {
 /// 2. Import the trait: `use crate::desktop::shell2::common::event::PlatformWindow;`
 /// 3. Call `self.process_window_events(0)` after updating window state
 /// 4. Done! All event processing is now unified.
+/// What a window did with the system's BACK ([`PlatformWindow::press_back`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackOutcome {
+    /// The app, a popup or a pushed view took it: the shell stays.
+    Consumed,
+    /// Nothing took it: the shell leaves as the system does.
+    Leave,
+}
+
 pub trait PlatformWindow {
     // REQUIRED: Simple Getter Methods (Platform Must Implement)
 
@@ -4814,6 +4827,55 @@ pub trait PlatformWindow {
         }
         let up = self.process_window_events(0);
         down.max(up)
+    }
+
+    /// The system's BACK (Android's Back key or gesture, a pushed view's back swipe): what the window does with
+    /// it, in this order - the ONE entry every platform and the e2e use:
+    ///
+    /// 1. The key goes to the app first, as an Escape through the ordinary key passes
+    ///    ([`Self::press_shortcut_keys`]): the handlers, then the key's default action, which a
+    ///    `prevent_default` vetoes. With a popup on top (a window with one surface shows its popups
+    ///    inside itself) the keyboard scoping lets only the top popup hear it, and an `outside` /
+    ///    `escape` popup the engine closes itself.
+    /// 2. It was TAKEN when a popup is open (a dialog that does not close on Escape still holds
+    ///    BACK), when a callback called `prevent_default()` (an app that closes its own page on
+    ///    Escape), or when the key's default action moved the focus.
+    /// 3. Else the top pushed view - a second window of the app on a window with one surface -
+    ///    goes ([`Self::pop_view`]).
+    /// 4. Else [`BackOutcome::Leave`]: nothing in the app took it, the shell leaves as the system
+    ///    does (Android: the task moves to the back).
+    ///
+    /// Returns the outcome and what the key passes asked of the frame (the caller follows it).
+    fn press_back(&mut self) -> (BackOutcome, ProcessEventResult) {
+        let overlays_open = self.get_layout_window().is_some_and(|lw| {
+            lw.transient_windows
+                .open_windows()
+                .iter()
+                .any(|w| w.overlay.is_some())
+        });
+        let focus_before = self
+            .get_layout_window()
+            .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+        self.get_common_mut().key_default_prevented = false;
+        let result = self.press_shortcut_keys(&[azul_core::window::VirtualKeyCode::Escape], "back");
+        let prevented = self.get_common_mut().key_default_prevented;
+        let focus_after = self
+            .get_layout_window()
+            .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+        if overlays_open || prevented || focus_before != focus_after {
+            return (BackOutcome::Consumed, result);
+        }
+        if self.pop_view() {
+            return (BackOutcome::Consumed, result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow));
+        }
+        (BackOutcome::Leave, result)
+    }
+
+    /// A window with ONE surface shows a second window of the app as a view pushed over this one: close the top
+    /// one (the app's `CloseRequested` callbacks may veto, as for a window of its own). `false` when there is no
+    /// view above this window. The default: none.
+    fn pop_view(&mut self) -> bool {
+        false
     }
 
     // Resource Access
@@ -13489,6 +13551,14 @@ pub trait PlatformWindow {
         let deferring = core::mem::replace(&mut self.get_common_mut().defer_content_layout, true);
         let (changes_result, callback_update, prevent_default, scroll_prevented) =
             self.dispatch_events_propagated(&pre_filter.user_events);
+        // What `press_back` asks after the key pass it ran: did the app take the key?
+        if pre_filter
+            .user_events
+            .iter()
+            .any(|e| e.event_type == azul_core::events::EventType::KeyDown)
+        {
+            self.get_common_mut().key_default_prevented = prevent_default;
+        }
         self.get_common_mut().defer_content_layout = deferring;
         result = result.max(changes_result);
 

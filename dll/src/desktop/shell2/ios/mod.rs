@@ -2388,6 +2388,12 @@ impl IOSWindow {
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
         app_shared.seed_window(&mut layout_window, &config);
+        // This shell has ONE surface and cannot open another window (`queue_window_create` below opens none): the
+        // engine shows every popup and dialog inside this window, over the page, and a second window of the app
+        // as a view pushed over it (`azul_layout::transient::WindowPresentation`).
+        layout_window
+            .transient_windows
+            .set_shell_presentation(azul_layout::transient::WindowPresentation::OneSurface);
         // The engine's gesture detection reads the numbers UIKit's own recognizers use (one table: `UIKIT_GESTURES`),
         // not its desktop defaults.
         let replaced = layout_window.set_gesture_config(azul_layout::managers::gesture::GestureConfig {
