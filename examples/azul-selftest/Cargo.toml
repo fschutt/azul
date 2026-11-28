@@ -1,0 +1,32 @@
+[package]
+name = "AzSelfTest"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = """
+    AzSelfTest: every device capability the engine offers, one probe each, on the device it runs on.
+    A probe asks whether the capability is available, then does a REAL operation (a sensor reading,
+    a keyring round trip, a notification posted ...) and answers PASS(numbers), UNAVAILABLE(reason),
+    DENIED, FAIL(detail) or NEEDS-HUMAN(what to do). A device that is unavailable is not a failure;
+    a capability that says it is available and then fails is. A list with 'Run all' and a run per row;
+    the report is one line `AZ_SELFTEST_REPORT {json}` on stdout (logcat / os_log) and a file in the
+    app's data directory. Unattended (AZ_SELFTEST=1, `debug.az.selftest` on Android, `--selftest`)
+    it runs every probe that needs no person, writes the report and exits non-zero when an available
+    capability failed. A QA artifact: never a published demo.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+ctor = "0.2"
+
+[lib]
+name = "azul_selftest"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzSelfTest"
+path = "src/main.rs"
