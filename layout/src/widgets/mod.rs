@@ -3117,6 +3117,15 @@ pub(crate) mod theme_contrast {
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[
+        // The sidebar family (`sidebar.rs`, `preview.rs`, `location_bar.rs`, `action_sheet.rs`,
+        // `app_frame.rs`): the app frame every heavy app shares, on the theme's own grounds.
+        "action_sheet",
+        "app_frame",
+        "location_bar",
+        "preview (bottom)",
+        "preview (right)",
+        "sidebar (expanded)",
+        "sidebar (rail)",
         "address_bar",
         "address_bar (editing)",
         "backstage",

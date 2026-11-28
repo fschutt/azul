@@ -36,6 +36,24 @@
 //! The frame is a layout: every part is a `Dom` or a widget the app builds, the frame owns no
 //! state and no callback of its own besides the one that closes a pushed-aside view.
 //!
+//! # Wiring an app (the example is `azul_appkit::frame::example`, examples/azul-appkit)
+//!
+//! 1. The app keeps ONE model (the sidebar's state, the chosen row, the Preview's size and
+//!    whether it shows, what the location's field holds) and builds the whole frame from it in
+//!    its layout callback; the widgets own nothing.
+//! 2. Every widget reports through ONE callback (`SidebarOnEvent`, `PreviewOnEvent`,
+//!    `LocationOnEvent`, `ActionSheetOnEvent`): the app changes its model and returns
+//!    `Update::RefreshDom`. The toggle, the 16 px handle, a swipe from the rail and a tap on a
+//!    pushed-aside view all arrive as `SidebarEventKind::StateChanged` with the state asked for.
+//! 3. `sidebar_in_window` (appkit) hands the sidebar the window's width and the room of the OS's
+//!    window controls; the tab row keeps `Sidebar::header_left_pad()` clear at its left. The form
+//!    factor is `FormFactor::Auto` everywhere: a phone is a touch platform with a window under
+//!    600 dp, anything else is the desktop's layout.
+//! 4. On a phone the ribbon's content keeps [`AppFrame::rail_inset`] clear at its left (the rail
+//!    stands beside it); `Ribbon::with_content_inset` says so.
+//! 5. The first tab is the location (`RibbonTab::with_location`); the Preview is opt-in: no
+//!    `with_preview`, no dock, no grip and no bottom pane.
+//!
 //! Key types: [`AppFrame`].
 
 use alloc::{format, string::String, vec::Vec};
