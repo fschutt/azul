@@ -192,11 +192,12 @@ impl_option!(
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct FingerprintSensor {
+    /// Where it is on the display. `None` where the sensor is not under the display, or the
+    /// system does not tell. (First: the larger alignment goes first in a `repr(C)` struct, so
+    /// that no padding sits between the fields.)
+    pub spot: OptionFingerprintSpot,
     /// What kind of sensor it is.
     pub kind: FingerprintKind,
-    /// Where it is on the display. `None` where the sensor is not under the display, or the
-    /// system does not tell.
-    pub spot: OptionFingerprintSpot,
 }
 
 impl_option!(
@@ -215,12 +216,12 @@ impl_option!(
 pub struct DisplayFeatures {
     /// The cutouts, in window coordinates. Empty where there is none.
     pub cutouts: DisplayCutoutVec,
-    /// The radii of the display's rounded corners.
-    pub corner_radii: CornerRadii,
     /// The system bars.
     pub bars: SystemBars,
     /// The fingerprint sensor, or `None` for a device without one.
     pub fingerprint: OptionFingerprintSensor,
+    /// The radii of the display's rounded corners.
+    pub corner_radii: CornerRadii,
 }
 
 impl Default for DisplayFeatures {

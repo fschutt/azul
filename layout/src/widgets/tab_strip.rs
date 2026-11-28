@@ -43,16 +43,16 @@ pub const LANE_INSET: f32 = 12.0;
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct StatusBarBand {
+    /// The free stretches of the band, left to right, each as tall as the band. One lane the
+    /// width of the window less its side insets where no cutout is in the band; two or more
+    /// where cutouts are.
+    pub lanes: LogicalRectVec,
     /// The strip's height, from the top edge of the window: the status bar's, and never less than
     /// [`TOUCH_ROW`]. `0` where the window has no status bar and no inset at its top (a desktop
     /// window, an iPhone on its side): the strip is an ordinary one then.
     pub height: f32,
     /// The window's width the lanes were made for.
     pub width: f32,
-    /// The free stretches of the band, left to right, each as tall as the band. One lane the
-    /// width of the window less its side insets where no cutout is in the band; two or more
-    /// where cutouts are.
-    pub lanes: LogicalRectVec,
 }
 
 azul_css::impl_option!(
