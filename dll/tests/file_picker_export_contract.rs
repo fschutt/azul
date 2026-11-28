@@ -83,7 +83,7 @@ fn android_writes_through_the_created_document_on_a_worker_and_answers_after_the
     let named = finish.find("FilePickerStatus::Selected(entry.name)").expect("the answer is the name");
     assert!(write < named, "the name is answered after the write:\n{finish}");
     let failed = finish.find("Err(why) =>").expect("a failed write");
-    let delete = finish.find("documents.delete(").expect("the empty document is deleted again");
+    let delete = finish.find("documents.remove(").expect("the empty document is deleted again");
     assert!(failed < delete && delete < finish.find("the file could not be saved").unwrap(), "delete, then answer:\n{finish}");
     // the native hands an export to `finish_export` and answers nothing before it
     let native = body(&src, "pub unsafe extern \"system\" fn Java_com_azul_picker_AzulFilePicker_nativeOnActivityResult(");

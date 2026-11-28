@@ -99,7 +99,7 @@ api_functions=(
   Documents.create_file
   Documents.create_dir
   Documents.rename
-  Documents.delete
+  Documents.remove
   Documents.all_files_access
   Documents.request_all_files_access
   Documents.backend_name

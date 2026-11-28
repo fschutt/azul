@@ -213640,27 +213640,6 @@
                                 },
                                 "fn_body": "object.create_file(parent, name, mime).into()"
                             },
-                            "delete": {
-                                "doc": [
-                                    "Delete a file, or a folder with everything in it.",
-                                    "",
-                                    "# Errors",
-                                    "",
-                                    "`NotFound`, `Denied`, `Unsupported`, or what the platform said."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "locator": "String"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultEmptyStructDocumentError"
-                                },
-                                "fn_body": "object.delete(locator).into()"
-                            },
                             "forget": {
                                 "doc": [
                                     "Forget a granted place (the permission is released; the folder is untouched).",
@@ -213740,6 +213719,27 @@
                                     "type": "ResultU8VecDocumentError"
                                 },
                                 "fn_body": "object.read(locator, offset, len).into()"
+                            },
+                            "remove": {
+                                "doc": [
+                                    "Delete a file, or a folder with everything in it.",
+                                    "",
+                                    "# Errors",
+                                    "",
+                                    "`NotFound`, `Denied`, `Unsupported`, or what the platform said."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "locator": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultEmptyStructDocumentError"
+                                },
+                                "fn_body": "object.remove(locator).into()"
                             },
                             "rename": {
                                 "doc": [

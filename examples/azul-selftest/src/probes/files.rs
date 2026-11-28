@@ -301,7 +301,7 @@ fn documents_round_trip(ctx: &mut Ctx<'_>) -> Step {
     let root = storage.uri.as_str().to_string();
     let folder = format!("{root}/azul-selftest-documents");
     // a folder of an earlier run: gone first (a missing one is fine)
-    drop(documents.delete(folder.as_str()).into_result());
+    drop(documents.remove(folder.as_str()).into_result());
     let made = match documents.create_dir(root.as_str(), "azul-selftest-documents").into_result() {
         Ok(entry) => entry,
         Err(e) => return Step::Done(Verdict::Fail(said("create_dir", &e))),
@@ -354,7 +354,7 @@ fn documents_round_trip(ctx: &mut Ctx<'_>) -> Step {
         (Err(DocumentError::Exists(_)), Err(DocumentError::NotFound(_)), Err(DocumentError::NotADirectory(_) | DocumentError::Failed(_)), Err(DocumentError::Failed(_))) => {}
         other => return Step::Done(Verdict::Fail(format!("the failures were not told apart: Exists {:?}, NotFound {:?}, NotADirectory {:?}, a hostile name {:?}", other.0.is_err(), other.1.is_err(), other.2.is_err(), other.3.is_err()))),
     }
-    if let Err(e) = documents.delete(made.uri.clone()).into_result() {
+    if let Err(e) = documents.remove(made.uri.clone()).into_result() {
         return Step::Done(Verdict::Fail(said("delete", &e)));
     }
     if !matches!(documents.stat(made.uri.clone()).into_result(), Err(DocumentError::NotFound(_))) {
@@ -400,7 +400,7 @@ fn use_granted_folder(ctx: &mut Ctx<'_>, locator: &str) -> Verdict {
     };
     let bytes = share_one_bytes();
     if let Err(e) = documents.write(created.uri.clone(), bytes.clone().into()).into_result() {
-        drop(documents.delete(created.uri.clone()).into_result());
+        drop(documents.remove(created.uri.clone()).into_result());
         return Verdict::Fail(said("write into the granted folder", &e));
     }
     let back = documents.read(created.uri.clone(), 0, 1_000_000).into_result();
@@ -408,7 +408,7 @@ fn use_granted_folder(ctx: &mut Ctx<'_>, locator: &str) -> Verdict {
     // the same name again is told as taken, not made a second time under another name
     let again = documents.create_file(locator, name.as_str(), "text/plain").into_result();
     let exists_told = matches!(again, Err(DocumentError::Exists(_)));
-    let removed = documents.delete(created.uri.clone()).into_result().is_ok();
+    let removed = documents.remove(created.uri.clone()).into_result().is_ok();
     let after = documents.children(locator).into_result().map(|e| e.as_ref().len()).unwrap_or(usize::MAX);
     match (same, exists_told, removed, after == before) {
         (true, true, true, true) => Verdict::Pass(format!(

@@ -186,11 +186,11 @@ fn a_delete_takes_a_file_or_a_folder_with_what_is_in_it_and_a_missing_one_is_not
     let file = dir.file("f.txt", b"x");
     dir.file("tree/a/b/c.txt", b"deep");
     let docs = Documents::local();
-    docs.delete(az(&file)).unwrap();
+    docs.remove(az(&file)).unwrap();
     assert!(!dir.0.join("f.txt").exists());
-    docs.delete(az(&dir.path("tree"))).unwrap();
+    docs.remove(az(&dir.path("tree"))).unwrap();
     assert!(!dir.0.join("tree").exists());
-    assert!(matches!(docs.delete(az(&dir.path("tree"))), Err(DocumentError::NotFound(_))));
+    assert!(matches!(docs.remove(az(&dir.path("tree"))), Err(DocumentError::NotFound(_))));
 }
 
 #[cfg(unix)]
@@ -199,7 +199,7 @@ fn deleting_a_link_deletes_the_link_and_not_what_it_points_to() {
     let dir = TestDir::new();
     let target = dir.file("keep/precious.txt", b"precious");
     std::os::unix::fs::symlink(dir.0.join("keep"), dir.0.join("link")).unwrap();
-    Documents::local().delete(az(&dir.path("link"))).unwrap();
+    Documents::local().remove(az(&dir.path("link"))).unwrap();
     assert!(!dir.0.join("link").exists());
     assert_eq!(fs::read(target).unwrap(), b"precious");
 }

@@ -289,12 +289,13 @@ impl Documents {
         self.ptr.rename(locator.as_str(), new_name.as_str())
     }
 
-    /// Delete a file, or a folder with everything in it.
+    /// Delete a file, or a folder with everything in it. (Called `remove`: `delete` is the name of the destructor the bindings
+    /// generate for a handle.)
     ///
     /// # Errors
     ///
     /// `NotFound`, `Denied`, `Unsupported`, or what the platform said.
-    pub fn delete(&self, locator: AzString) -> Result<EmptyStruct, DocumentError> {
+    pub fn remove(&self, locator: AzString) -> Result<EmptyStruct, DocumentError> {
         self.ptr.delete(locator.as_str()).map(|()| EmptyStruct::default())
     }
 

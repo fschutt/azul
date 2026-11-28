@@ -495,7 +495,7 @@ fn finish_export(
             Ok(entry) => FilePickerStatus::Selected(entry.name),
             Err(why) => {
                 // the document the system made for it is empty: not left behind
-                drop(documents.delete(AzString::from(locator.as_str())));
+                drop(documents.remove(AzString::from(locator.as_str())));
                 FilePickerStatus::Error(AzString::from(format!("the file could not be saved: {}", why.describe())))
             }
         };

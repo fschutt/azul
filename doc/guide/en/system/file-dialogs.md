@@ -338,7 +338,7 @@ documents.write(locator, bytes);             // replaces a file
 documents.create_file(parent, name, mime);   // never over a name that is taken (`Exists`)
 documents.create_dir(parent, name);
 documents.rename(locator, new_name);
-documents.delete(locator);
+documents.remove(locator);                   // a file, or a folder with what is in it
 documents.forget(locator);                   // release a granted folder (the folder itself is untouched)
 documents.all_files_access();                // Granted / NotGranted / Unavailable (Android's MANAGE_EXTERNAL_STORAGE, a flavour only)
 documents.origin(working_copy);              // where a file another app opened this app with came from, and whether it may be saved back
