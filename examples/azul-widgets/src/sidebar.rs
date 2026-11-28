@@ -355,9 +355,18 @@ fn command(icon: &str, label: &str) -> RibbonItem {
 /// tall as Home's, every tab names its icon (a phone shows the icons as squares), a vertical swipe on
 /// the band flips between the tabs.
 fn the_header(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Dom {
-    let file = RibbonTab::create("File")
-        .with_icon("folder")
-        .with_location(the_location(data, demo, theme));
+    // On a phone the 18 px rail stands under the tab row, beside the band: the band's content keeps
+    // clear of it. `Ribbon::with_content_inset` is the tab widget's own way to say that (the TABS
+    // agent's hook, not on master yet); until then this wrapper does it, for this picture only.
+    let location = the_location(data, demo, theme);
+    let location = if demo.form == 1 {
+        Dom::create_div()
+            .with_css("box-sizing: border-box; width: 100%; height: 100%; padding-left: 18px;")
+            .with_child(location)
+    } else {
+        location
+    };
+    let file = RibbonTab::create("File").with_icon("folder").with_location(location);
     let home = RibbonTab::create("Home")
         .with_icon("home")
         .with_group(
