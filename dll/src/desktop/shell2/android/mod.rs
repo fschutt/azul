@@ -778,6 +778,12 @@ pub fn android_main(app: AndroidApp) {
     if let Some(language) = language_of(&app, config.localization.known_languages.as_slice()) {
         config.system_style.language = language;
     }
+    // The phone's own night mode, before the window takes its style: the style `App::create` made says light for every phone, and a phone
+    // in its dark mode showed a light first picture, then the dark one (the Java side pushes the mode too, but from the first window focus
+    // on: after the first picture). The NDK configuration of the activity has it at once.
+    if let Some(mode) = night_mode_of(&app) {
+        config.system_style.mode = mode;
+    }
     // The phone's own "Touch sounds" switch is not known yet (the JNI context is published below):
     // the style assumes it is on, and the first Resume reads it (`adopt_touch_sounds`) and at every
     // resume after it. `AudioManager.playSoundEffect` applies the switch live at the call anyway.
@@ -1440,10 +1446,6 @@ fn apply_ui_events(window: &mut AndroidWindow, events: Vec<UiEvent>) {
 fn apply_insets(window: &mut AndroidWindow, px: [i32; 5]) {
     use azul_css::props::basic::pixel::{OptionPixelValue, PixelValue};
 
-    // Kept in pixels too: how many rows of the frame lie under the bars decides their icon colour.
-    window.inset_px = px;
-    window.bars.forget();
-
     // THE factor of the window's frame, the one layout and the pixmap use.
     let scale = azul_layout::window::present_geometry::frame_dpi_factor(
         window.common.current_window_state().size.dpi,
@@ -1457,14 +1459,30 @@ fn apply_insets(window: &mut AndroidWindow, px: [i32; 5]) {
             OptionPixelValue::Some(PixelValue::px(v as f32 / scale))
         }
     };
+    let insets = azul_css::system::SafeAreaInsets {
+        top: to_logical(px[0]),
+        bottom: to_logical(px[1]),
+        left: to_logical(px[2]),
+        right: to_logical(px[3]),
+        keyboard: to_logical(px[4]),
+    };
+    // The insets the layout already has (the window's first dispatch was applied at its surface, and the Java side hands the same ones over
+    // again when the bridges attach): nothing moved, so nothing is laid out again. Only a change is a pass.
+    if window.inset_px == px
+        && window
+            .common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| lw.safe_area_insets == insets)
+    {
+        return;
+    }
+    // Kept in pixels too: how many rows of the frame lie under the bars decides their icon colour.
+    window.inset_px = px;
+    window.bars.forget();
+
     if let Some(lw) = window.common.layout_window.as_mut() {
-        lw.safe_area_insets = azul_css::system::SafeAreaInsets {
-            top: to_logical(px[0]),
-            bottom: to_logical(px[1]),
-            left: to_logical(px[2]),
-            right: to_logical(px[3]),
-            keyboard: to_logical(px[4]),
-        };
+        lw.safe_area_insets = insets;
         log_info!(
             LogCategory::Window,
             "[Android] insets top={} bottom={} left={} right={} ime={} (physical px)",
@@ -1557,21 +1575,23 @@ fn apply_display_features(window: &mut AndroidWindow, flat: &[i32]) {
             df::OptionFingerprintSensor::None
         },
     };
-    log_debug!(
-        LogCategory::Window,
-        "[Android] display features: {} cutout(s), corners {:?}, status bar {:?}, navigation bar {:?}, fingerprint sensor {}",
-        px.cutouts.len(),
-        px.corners,
-        px.status,
-        px.navigation,
-        px.fingerprint,
-    );
     let changed = window
         .common
         .layout_window
         .as_mut()
         .is_some_and(|lw| lw.report_display_features(features));
+    // A change is on the record (a window's first dispatch and what the system bars' request makes of it: an app that draws into the status bar's
+    // band reads `status.visible` from here); a dispatch that says the same again is not (the keyboard's animation sends one per frame).
     if changed {
+        log_info!(
+            LogCategory::Window,
+            "[Android] display features changed: {} cutout(s), corners {:?}, status bar {:?}, navigation bar {:?}, fingerprint sensor {}",
+            px.cutouts.len(),
+            px.corners,
+            px.status,
+            px.navigation,
+            px.fingerprint,
+        );
         window.common.request_regeneration(RelayoutReason::Resize);
     }
 }
@@ -1693,6 +1713,156 @@ fn ime_mirror_of(window: &mut AndroidWindow) -> ImeMirror {
     }
 }
 
+/// The phone's own night mode as the activity's NDK configuration says it (`AConfiguration_getUiModeNight`); `None` when the configuration
+/// does not say (the style keeps its mode).
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn night_mode_of(app: &AndroidApp) -> Option<azul_core::window::DarkLightMode> {
+    use android_activity::ndk::configuration::UiModeNight;
+    match app.config().ui_mode_night() {
+        UiModeNight::Yes => Some(azul_core::window::DarkLightMode::Dark),
+        UiModeNight::No => Some(azul_core::window::DarkLightMode::Light),
+        _ => None,
+    }
+}
+
+/// How long the engine asks Java again for the window's first insets while the app's request of the system bars is not in them yet.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+const EARLY_INSETS_POLL: std::time::Duration = std::time::Duration::from_millis(5);
+/// How many times it asks again (80 ms in all: the dispatch that shows the request came 9 and 18 ms after the one before it in the lab).
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+const EARLY_INSETS_POLLS: u32 = 16;
+
+/// Apply what the window's first insets dispatch gave, before the first layout.
+///
+/// The snapshot (`NativeTextBridge.insetsSnapshot`) is asked of Java synchronously: the dispatch comes before the surface exists, this is asked
+/// when the surface does. Nothing when the activity has no dispatch yet: the insets then come the way they always did, from the Java UI thread,
+/// after the first picture.
+///
+/// An app that asks the system to hide a bar (`AzWriter` on a phone) is applied when the snapshot SHOWS the request done: the system applies it in the
+/// window's first dispatches, the very first still shows the bar and the next, a few milliseconds later, does not
+/// (`android_core::display::bars_request_moves_insets`). Java is asked again for up to 80 ms; a request that is still not in the insets by then
+/// leaves the first layout as it always was (no snapshot: the insets come after the request).
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn apply_early_insets(window: &mut AndroidWindow) {
+    use crate::desktop::shell2::android_core::display::{bars_request_moves_insets, decode, split_snapshot};
+
+    let wanted = window.common.current_window_state().flags.system_bars;
+    let (status_hidden, navigation_hidden, draw_into_cutout) = (wanted.status as i32 != 0, wanted.navigation as i32 != 0, wanted.draw_into_cutout);
+    let mut asked_again = 0_u32;
+    let snapshot = loop {
+        let Some(snapshot) = early_insets() else {
+            log_info!(
+                LogCategory::Window,
+                "[Android] no insets yet at the surface: they come from the Java UI thread after the first picture"
+            );
+            return;
+        };
+        let Some((_, features)) = split_snapshot(&snapshot) else {
+            return;
+        };
+        if !bars_request_moves_insets(decode(features).as_ref(), status_hidden, navigation_hidden, draw_into_cutout) {
+            break snapshot;
+        }
+        if asked_again >= EARLY_INSETS_POLLS {
+            log_info!(
+                LogCategory::Window,
+                "[Android] the app's request of the system bars is not in the window's insets after {} ms: its insets come after the request, not at the surface",
+                u128::from(EARLY_INSETS_POLLS) * EARLY_INSETS_POLL.as_millis()
+            );
+            return;
+        }
+        asked_again += 1;
+        std::thread::sleep(EARLY_INSETS_POLL);
+    };
+    if asked_again > 0 {
+        log_info!(
+            LogCategory::Window,
+            "[Android] the app's request of the system bars is in the window's insets after {} ms",
+            u128::from(asked_again) * EARLY_INSETS_POLL.as_millis()
+        );
+    }
+    let Some((insets, features)) = split_snapshot(&snapshot) else {
+        return;
+    };
+    log_info!(
+        LogCategory::Window,
+        "[Android] the window's first insets are known at the surface: top={} bottom={} left={} right={}",
+        insets[0],
+        insets[1],
+        insets[2],
+        insets[3]
+    );
+    // A request for the first layout carries the reason `Initial`, which the app's layout callback reads; a change of the insets or of the
+    // display features raises its own reason over it, so the reason is raised again after them.
+    let first_layout = window.common.regeneration_pending()
+        && window.common.regeneration_reason() == RelayoutReason::Initial;
+    apply_insets(window, insets);
+    if !features.is_empty() {
+        apply_display_features(window, features);
+    }
+    if first_layout {
+        window.common.request_regeneration(RelayoutReason::Initial);
+    }
+}
+
+/// `NativeTextBridge.insetsSnapshot()` through JNI.
+///
+/// The insets of the window's first dispatch and its display features, flat; `None` when the window has had no dispatch, without a JNI context,
+/// or when the call fails.
+#[cfg(all(target_os = "android", feature = "jni"))]
+fn early_insets() -> Option<Vec<i32>> {
+    use jni::JavaVM;
+
+    let vm_ptr = java_vm_ptr();
+    let activity_ptr = activity_ptr();
+    if vm_ptr.is_null() || activity_ptr.is_null() {
+        return None;
+    }
+    let result = (|| -> Result<Option<Vec<i32>>, String> {
+        let vm = unsafe { JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) }
+            .map_err(|e| format!("JavaVM::from_raw: {e:?}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
+        let activity =
+            unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
+        let class = crate::desktop::extra::find_app_class(&mut env, &activity, "com/azul/text/NativeTextBridge")
+            .ok_or_else(|| "NativeTextBridge not in this APK".to_string())?;
+        let value = env
+            .call_static_method(&class, "insetsSnapshot", "()[I", &[])
+            .and_then(jni::objects::JValueGen::l)
+            .map_err(|e| {
+                drop(env.exception_clear());
+                format!("call insetsSnapshot: {e:?}")
+            })?;
+        if value.is_null() {
+            return Ok(None);
+        }
+        let array = jni::objects::JIntArray::from(value);
+        let len = env
+            .get_array_length(&array)
+            .map_err(|e| format!("array length: {e:?}"))?;
+        let mut values = vec![0_i32; usize::try_from(len).unwrap_or(0)];
+        env.get_int_array_region(&array, 0, &mut values)
+            .map_err(|e| format!("array region: {e:?}"))?;
+        Ok(Some(values))
+    })();
+    match result {
+        Ok(values) => values,
+        Err(e) => {
+            log_debug!(LogCategory::Window, "[Android] early insets: {e}");
+            None
+        }
+    }
+}
+
+/// Without `jni` there is no activity to ask.
+#[cfg(all(target_os = "android", feature = "android-activity", not(feature = "jni")))]
+fn early_insets() -> Option<Vec<i32>> {
+    None
+}
+
 /// Whether the window has a surface to lay out for and paint to: false before `InitWindow` and
 /// between `TerminateWindow` and the next `InitWindow` (the activity is in the background).
 #[cfg(all(target_os = "android", feature = "android-activity"))]
@@ -1719,9 +1889,9 @@ fn has_surface(window: &AndroidWindow) -> bool {
 /// 45797870060, ledger A-36). A rotation, a split screen and a soft keyboard that resizes the window
 /// are each a relayout anyway, so the full frame costs next to nothing.
 #[cfg(all(target_os = "android", feature = "android-activity", feature = "ndk"))]
-fn apply_surface_size(window: &mut AndroidWindow, (logical_w, logical_h): (f32, f32)) {
-    let now = window.common.current_window_state().size.dimensions;
-    if now.width.to_bits() != logical_w.to_bits() || now.height.to_bits() != logical_h.to_bits() {
+fn apply_surface_size(window: &mut AndroidWindow, logical: (f32, f32)) {
+    let (logical_w, logical_h) = logical;
+    if surface_size_differs(window, logical) {
         window.cpu_backend.force_full_repaint = true;
     }
     window
@@ -1730,6 +1900,14 @@ fn apply_surface_size(window: &mut AndroidWindow, (logical_w, logical_h): (f32, 
             ws.size.dimensions.width = logical_w;
             ws.size.dimensions.height = logical_h;
         });
+}
+
+/// Whether `logical` is another size than the window has now (bit for bit: the size comes from the surface's pixels by one function, so the same
+/// surface gives the same bits).
+#[cfg(all(target_os = "android", feature = "android-activity", feature = "ndk"))]
+fn surface_size_differs(window: &AndroidWindow, (logical_w, logical_h): (f32, f32)) -> bool {
+    let now = window.common.current_window_state().size.dimensions;
+    now.width.to_bits() != logical_w.to_bits() || now.height.to_bits() != logical_h.to_bits()
 }
 
 /// The reason tag for a geometry/density-driven regeneration.
@@ -1939,6 +2117,12 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         }
                         #[cfg(not(feature = "cpurender"))]
                         let _ = surface_px;
+                        // The insets and the display features of the window's FIRST dispatch (`NativeTextBridge.installEarlyInsetsListener`),
+                        // before the first layout: laid out without them the first picture sat under the status bar, and the insets that
+                        // arrived after it forced a second full layout and moved the page (ledger E60, the Resize pass after the first present).
+                        // An app that asks the system to hide a bar (AzWriter's strip takes the hidden status bar's place) gets them when the
+                        // snapshot shows the request done, and lays its first picture out as it always did when it does not.
+                        apply_early_insets(window);
                         // On the launch InitWindow this preserves the queued
                         // `Initial`; on a re-attach (rotation recreates the
                         // surface with new dimensions and does NOT deliver
@@ -1979,24 +2163,49 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 window.present.surface_changed();
             }
             MainEvent::WindowResized { .. } => {
-                // Contract shape (snapshot → mutate → pass) — see InitWindow.
-                window.snapshot_window_state_baseline("android.main_event.window_resized");
+                // The system says "resized" at every relayout of the window that touches its surface (the first draw going ahead after the hold, a
+                // system bar's appearance, the keyboard), most of them with the size the window already has. A layout for each of those cost 0.3 to
+                // 1.2 s of the engine's time right after the first picture and changed nothing (the startup timeline's `reason=Resize` passes after
+                // `first_present`, the size on the record below). Only another size is a layout.
                 #[cfg(feature = "ndk")]
-                {
-                    if let Some(nw) = window.native_window.as_ref() {
-                        let logical = logical_size(
-                            nw.width(),
-                            nw.height(),
-                            window.common.current_window_state().size.dpi,
+                let owed = match window.native_window.as_ref() {
+                    Some(nw) => {
+                        let (px_w, px_h) = (nw.width(), nw.height());
+                        let logical = logical_size(px_w, px_h, window.common.current_window_state().size.dpi);
+                        let differs = surface_size_differs(window, logical);
+                        log_info!(
+                            LogCategory::Window,
+                            "[Android] WindowResized: the surface is {}x{} px{}",
+                            px_w,
+                            px_h,
+                            if differs { "" } else { ", the size the window has: nothing to lay out" }
                         );
-                        apply_surface_size(window, logical);
+                        differs
                     }
-                    // The GPU path's frame follows the surface's size.
-                    window.gpu_resized();
+                    None => true,
+                };
+                #[cfg(not(feature = "ndk"))]
+                let owed = true;
+                if owed {
+                    // Contract shape (snapshot → mutate → pass) — see InitWindow.
+                    window.snapshot_window_state_baseline("android.main_event.window_resized");
+                    #[cfg(feature = "ndk")]
+                    {
+                        if let Some(nw) = window.native_window.as_ref() {
+                            let logical = logical_size(
+                                nw.width(),
+                                nw.height(),
+                                window.common.current_window_state().size.dpi,
+                            );
+                            apply_surface_size(window, logical);
+                        }
+                        // The GPU path's frame follows the surface's size.
+                        window.gpu_resized();
+                    }
+                    let reason = resize_reason(window);
+                    window.common.request_regeneration(reason);
+                    let _ = window.process_window_events(0);
                 }
-                let reason = resize_reason(window);
-                window.common.request_regeneration(reason);
-                let _ = window.process_window_events(0);
             }
             MainEvent::ConfigChanged { .. } => {
                 // The language can change while running (Settings > System > Languages; the
@@ -3163,10 +3372,12 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
         .app
         .startup()
         .mark_first_present(|| format!("android cpu {}", if plan.dirty.is_some() { "partial" } else { "full" }));
-    window.first_frame_posted();
+    // The icon colour of the bars BEFORE the activity is told that the first picture is there: the window draws (and the system's starting
+    // window leaves) after that, and the bars are then already the colour this picture needs.
     if let Some((status_light, navigation_light)) = bars_to_tell.filter(|_| !window.bars_icons_fixed) {
         set_system_bars_appearance(status_light, navigation_light);
     }
+    window.first_frame_posted();
     Ok(())
 }
 
@@ -3474,7 +3685,8 @@ fn signal_first_frame() {
         })
     })();
     if let Err(e) = result {
-        log_debug!(LogCategory::Window, "[Android] first frame: {e}");
+        // The starting window is held until this call arrives (or the hold's limit): a failure costs the person seconds of a held splash.
+        log_warn!(LogCategory::Window, "[Android] the first picture could not be announced to the activity: {e}");
     }
 }
 

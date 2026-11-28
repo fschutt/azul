@@ -7,6 +7,7 @@
 #   scripts/remote.sh run <full sha | ref> macos-15 'bash scripts/ci/ios_tabs_job.sh' --codegen --artifacts 'demo-out/qa-tabs/**
 #   demo-out/results/*
 #   demo-out/plan.txt'
+# AZ_QA_TABS_FILES="tab_touch_phone tab_label_frames" runs only those scenario files (parts of the file names), AZ_TABS_IOS_DEVICES="iPhone 16 Pro" only that phone (a lean job).
 # AZ_TABS_FLICKER=1 adds, AFTER the two phones, the flicker and jitter audit of the plain app (scripts/ci/qa_ios_flicker.sh: its own library build, the
 # CPU renderer and the GPU path; add 'demo-out/qa-flicker*/**' and 'demo-out/qa-startup/**' to the artifacts): the audit of the iOS Simulator that never ran before the app was
 # installed by it (flicker_audit.py, 7c4e132056).
@@ -42,8 +43,10 @@ e2e_zip="$(ls demo-out/apps/AzWidgets-e2e-ios-sim*.zip 2>/dev/null | head -n 1)"
 # the AzWriter ribbon: its QA build gets a first look on the same phones
 writer_zip="$(ls demo-out/apps/AzWriter-e2e-ios-sim*.zip 2>/dev/null | head -n 1)"
 [ -n "$writer_zip" ] && export AZ_QA_TABS_EXTRA_APPS="$writer_zip"
-# the two phones; a device the runner's Xcode does not have fails its own session (a line says so) and the next one runs
-for dev in "iPhone 16 Pro" "iPhone SE (3rd generation)"; do
+# the two phones (AZ_TABS_IOS_DEVICES="iPhone 16 Pro" runs one: the device types separated by ;); a device the runner's Xcode does not have fails its own session (a line says so) and the next one runs
+devices="${AZ_TABS_IOS_DEVICES:-iPhone 16 Pro;iPhone SE (3rd generation)}"
+IFS=';' read -r -a device_list <<<"$devices"
+for dev in "${device_list[@]}"; do
   tag="$(printf '%s' "$dev" | tr -c 'A-Za-z0-9' '-')"
   AZ_QA_GUI=1 AZ_QA_IOS_DEVICE="$dev" limit 2400 bash scripts/ci/ios_qa.sh "demo-out/qa-tabs/$tag" "$e2e_zip" "tabs $dev" tabs
   echo "SESSION tabs $dev: exit $?"

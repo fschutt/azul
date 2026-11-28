@@ -1212,9 +1212,15 @@ class MapsScriptTests(unittest.TestCase):
             self.assertIn(needle, self.TEXT)
 
     def test_the_map_is_tapped_above_the_sheet_and_a_single_tap_asks_for_the_pin(self):
-        self.assertIn("0.25 if layers else 0.62", self.TEXT)
+        self.assertIn("dev.tap(int(w * 0.5), int(h * 0.30))", self.TEXT)
         self.assertIn("a single tap on the visible map drops a pin and opens its place", self.TEXT)
-        self.assertIn('"a double tap on the map zooms in"', self.TEXT)          # the double tap zooms again, in both apps
+
+    def test_there_is_no_double_tap_zoom_to_check_in_the_refactored_app(self):
+        """WP-E2 (2026-11-28): AzMaps drops a pin on a single tap, so a double tap is two taps (the second closes the card the first opened): the check is gone; only the app before
+        the refactor still gets its double tap that drops a pin"""
+        self.assertNotIn("a double tap on the map zooms in", self.TEXT)
+        self.assertIn("a double tap on the map drops a pin and opens its place", self.TEXT)
+        self.assertNotIn("AZMAPS_VIEW before the double tap", self.TEXT)
 
     def test_the_popover_checks_wait_for_wp_p_and_do_not_fail_the_step(self):
         text = self.TEXT
@@ -1306,6 +1312,22 @@ class LayoutOverflowTests(unittest.TestCase):
         self.assertEqual(top[0][:2], ("div", None))      # the widest first
         self.assertTrue(all(t[1] != "video-overlay" for t in top))   # the button starts at the same x inside the box: not listed again
         self.assertEqual(e.layout_overflow({"data": {}}, 411.4), (0, []))
+
+    def test_the_content_of_a_sideways_scroller_that_fits_the_window_is_not_an_overflow(self):
+        import mobile_e2e as e
+        nodes = [
+            {"node_id": 0, "tag": "body", "id": None, "classes": [], "rect": {"x": 0.0, "y": 0.0, "width": 411.4, "height": 900.0}},
+            {"node_id": 26, "tag": "div", "id": "__azmaps_chips", "classes": [], "rect": {"x": 12.0, "y": 120.0, "width": 387.4, "height": 52.0}},
+            {"node_id": 30, "tag": "button", "id": None, "classes": [], "rect": {"x": 378.5, "y": 122.8, "width": 89.4, "height": 48.0}},
+            {"node_id": 31, "tag": "p", "id": None, "classes": [], "rect": {"x": 407.5, "y": 139.8, "width": 47.4, "height": 14.0}},        # starts past the scroller's edge, inside the button
+            {"node_id": 40, "tag": "div", "id": "wide-card", "classes": [], "rect": {"x": 20.0, "y": 400.0, "width": 480.0, "height": 100.0}},   # a real overflow, elsewhere
+        ]
+        answer = {"status": "ok", "data": {"type": "all_nodes_layout", "value": {"nodes": nodes}}}
+        scroll = {"status": "ok", "data": {"value": {"scroll_states": [{"node_id": 26, "max_scroll_x": 68.5}]}}}
+        count, top = e.layout_overflow(answer, 411.4, scroll)
+        self.assertEqual((count, [t[1] for t in top]), (1, ["wide-card"]))
+        count, top = e.layout_overflow(answer, 411.4)                      # without the scroll states the old answer: the chip, its text and the card
+        self.assertEqual(count, 3)
 
 
 class ExitReasonTests(unittest.TestCase):
@@ -1440,6 +1462,55 @@ class IosPermissionPromptsTests(unittest.TestCase):
         self.assertIn("ios_permission_prompts_of(dev.simctl(", source)
         self.assertNotIn("rc, tcc = dev.simctl", source)
 
+class CodeScriptTests(unittest.TestCase):
+    """The audit script of AzCode (mobile_e2e.py s_script_code, from the AzCode fork, taken over by QA 2026-11-28): real taps, a real swipe, the input method, the key row, the drawer, the
+    Problems sheet; it reads the app's AZCODE_* stdout lines"""
+
+    TEXT = (Path(__file__).resolve().parent / "mobile_e2e.py").read_text(encoding="utf-8")
+    SHELL = (Path(__file__).resolve().parent / "android_qa.sh").read_text(encoding="utf-8")
+
+    def test_the_script_is_registered_and_selectable(self):
+        self.assertIn('"code": s_script_code', self.TEXT)
+        self.assertIn('choices=["", "paint", "writer", "maps", "meet", "code"]', self.TEXT)
+
+    def test_the_audit_names_the_script_after_the_apk(self):
+        self.assertIn("AzCode-*) ascript=code", self.SHELL)
+
+    def test_the_script_reads_the_markers_the_app_prints_and_presses_the_keys_by_their_ids(self):
+        body = self.TEXT[self.TEXT.index("def s_script_code(s):"):self.TEXT.index('scripts = {"paint"')]
+        for marker in ("AZCODE_OPENED", "AZCODE_CARET", "AZCODE_SCROLLED", "AZCODE_EDITED", "AZCODE_KEY", "AZCODE_DRAWER", "AZCODE_PANEL_TAB"):
+            self.assertIn(f'"{marker}"', body, marker)
+        for selector in ("#__azcode_editor", "#__azcode_key-row", "#__azcode_key-2", "#__azcode_drawer-button", "#__azcode_status-problems"):
+            self.assertIn(selector, body, selector)
+
+    def test_the_swipe_and_the_typing_use_the_device_not_the_server(self):
+        body = self.TEXT[self.TEXT.index("def s_script_code(s):"):self.TEXT.index('scripts = {"paint"')]
+        self.assertIn("dev.swipe(", body)
+        self.assertIn('dev.sh("input text hello")', body)
+
+    def test_every_script_of_the_choices_has_a_function(self):
+        import re
+        choices = re.search(r'choices=\[("", (?:"[a-z]+"(?:, )?)+)\]', self.TEXT).group(1)
+        names = [c.strip('"') for c in choices.split(", ") if c.strip('"')]
+        table = self.TEXT[self.TEXT.index('scripts = {"paint"'):].split("\n", 1)[0]
+        for name in names:
+            self.assertIn(f'"{name}": s_script_{name}', table, name)
+
+
+class LocaleStepTests(unittest.TestCase):
+    """The language step of the audit ends with a cold start back in English: the engine does not read the language while it runs, so without it every step after the
+    step (the AzMaps script of run 46136628553) ran in German"""
+    TEXT = (Path(__file__).resolve().parent / "mobile_e2e.py").read_text(encoding="utf-8")
+
+    def test_the_language_is_set_back_and_the_app_started_again_before_the_step_ends(self):
+        back = self.TEXT.index('set-app-locales {pkg} --locales en-US')
+        relaunch = self.TEXT.index('wait_server("a cold start back in English")')
+        self.assertLess(back, relaunch)
+        self.assertIn("am force-stop {pkg}", self.TEXT[back:relaunch])
+        self.assertIn("dev.launch(cold=True)", self.TEXT[back:relaunch])
+        self.assertLess(relaunch, self.TEXT.index('run.step("e35-language-de-and-back"'))     # still inside s_locale
+
+
 class ExtraEnvTests(unittest.TestCase):
     """AZ_QA_EXTRA_ENV: the knobs a job hands to the app under test (TABS: AZ_RECONCILE_DEBUG=1 for the [reconcile] lines), and the pictures of an answer"""
 
@@ -1480,11 +1551,32 @@ class ExtraEnvTests(unittest.TestCase):
         self.assertEqual(e.png_strings({"x": "iVBOR"}), [])
         self.assertEqual(e.png_strings(None), [])
 
+    def test_a_data_uri_is_a_picture_too_and_comes_back_without_its_prefix(self):
+        import mobile_e2e as e
+        a = "iVBORw0KGgo" + "AAAA"
+        self.assertEqual(e.png_strings({"screenshot": "data:image/png;base64," + a}), [a])
+        self.assertEqual(e.png_strings("data:image/png;base64,notapng"), [])
+
+    def test_one_picture_per_step_even_when_the_step_carries_it_twice(self):
+        import mobile_e2e as e
+        a, b, c = ("iVBORw0KGgo" + x * 4 for x in "ABC")
+        uri = lambda x: "data:image/png;base64," + x     # noqa: E731
+        steps = [{"op": "wait_frame", "status": "pass"},
+                 {"op": "take_screenshot", "status": "pass", "screenshot": uri(a), "response": {"data": {"data": uri(a)}}},
+                 {"op": "get_animations", "status": "pass", "response": {"data": {"active": 0}}},
+                 {"op": "take_screenshot", "status": "pass", "response": {"data": {"value": {"data": uri(b)}}}},
+                 {"op": "take_screenshot", "status": "pass", "screenshot": uri(c)}]
+        answer = {"status": "ok", "data": {"results": [{"name": "t", "status": "pass", "steps": steps}]}}
+        self.assertEqual(e.scenario_pictures(answer), [a, b, c])
+        self.assertEqual(e.scenario_pictures({"data": {"value": {"results": [{"steps": steps[3:4]}]}}}), [b])      # the answer wrapped in value
+        self.assertEqual(e.scenario_pictures({"odd": [uri(a), uri(b)]}), [a, b])                                     # not the usual shape: every PNG in order
+
     def test_the_session_uses_the_helpers_on_both_platforms(self):
         source = (Path(__file__).resolve().parent / "mobile_e2e.py").read_text(encoding="utf-8")
         self.assertIn("android_env_property(args.port, qa_extra_env())", source)
         self.assertIn('extra_env=dict({"AZ_DEBUG": str(args.port), "AZ_DUMP_PRESENT": "1"}, **qa_extra_env())', source)
         self.assertIn("scenario-{name}-shot-{k:03d}.png", source)
+        self.assertIn("enumerate(scenario_pictures(answer))", source)
 
 
 if __name__ == "__main__":

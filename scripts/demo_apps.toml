@@ -272,8 +272,10 @@ weight = 1
 package = "AzCalendar"
 dir = "examples/azul-calendar"
 description = "a calendar with a week view and event files; it mints AzMeet links"
-platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 2
+mobile_lib = "mobile"
+e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
 
 [[app]]
 package = "AzClock"
@@ -330,8 +332,12 @@ weight = 1
 package = "AzMail"
 dir = "examples/azul-mail"
 description = "a mail client: IMAP sync to plain files, folders and messages"
-platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 3
+# The lean phone library has the HTTP client (map-tiles brings it) that azul-storage's transport uses; the TLS of IMAP and SMTP is the
+# app's own pure-Rust rustls, the keyring of an Azlin account is the OS's.
+mobile_lib = "mobile"
+e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
 needs = ["an IMAP account"]
 # AzMail compiled azul-core on every desktop platform (the full run of 2026-11-28 refused it on macOS arm64: "engine crates compiled: azul-core,
 # azul-css"; the earlier "built on macOS Intel with no engine crate" came from an experiment ref that allowed it, and ld64 tolerates the
@@ -343,9 +349,10 @@ needs = ["an IMAP account"]
 # ("the one engine crate an app may compile") is gone for that reason. The type belongs in the facade or in a crate of its own, and the
 # icons crate must not depend on azul-core: ledger row. Until then the page says it, and the build is still tried on every run.
 # UPDATE 2026-11-28 05:20: the CODE of that fix is on master (azul-mail-core's own `TlsPolicy`, azul-core a dev-dependency there: `cargo tree -i
-# azul-core -p AzMail` finds nothing; the Android link of AzMail passes, run 46103694882). This entry and the phone platforms change when
-# a demos run (or QA's phone build) has shown the desktop links: ci-wip/azmail-mobile has the manifest part. (azul-icons-haiku has azul-core
-# as a dev-dependency only and azul-appkit behind `trust`, which AzMail does not use: the list above of who pulled it was too long.)
+# azul-core -p AzMail` finds nothing; the Android link of AzMail passes, run 46103694882). The PHONE platforms are listed now (the Android link
+# passes and QA has AzMail on both phones); the known failures of linux and windows below change when a demos run has shown the desktop links.
+# (azul-icons-haiku has azul-core as a dev-dependency only and azul-appkit behind `trust`, which AzMail does not use: the list above of who
+# pulled it was too long.)
 [app.known_failing]
 linux = "AzMail compiles azul-core (the mail connection policy type), whose C ABI symbols are also in the prebuilt libazul: the link fails with duplicate symbols"
 windows = "AzMail compiles azul-core (the mail connection policy type), whose C ABI symbols are also in the prebuilt libazul: the link fails with duplicate symbols"

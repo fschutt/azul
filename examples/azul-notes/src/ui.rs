@@ -754,7 +754,9 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
             s.query.search = event.text.as_str().to_string();
             Update::RefreshDom
         }
-        SummaryListEventKind::Scope | SummaryListEventKind::Scroll => Update::DoNothing,
+        SummaryListEventKind::Scope | SummaryListEventKind::Scroll | SummaryListEventKind::LongPress => {
+            Update::DoNothing
+        }
     })
 }
 

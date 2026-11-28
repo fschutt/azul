@@ -1548,6 +1548,13 @@ pub fn start() {
     app.run(window);
 }
 
+/// The Android entry: the loaded library's constructor starts the app (the other phone apps do the same).
+#[cfg(target_os = "android")]
+#[ctor::ctor]
+fn azul_android_init() {
+    start();
+}
+
 #[cfg(test)]
 mod mode_tests {
     use super::*;

@@ -113,6 +113,8 @@ mod clickable_tests;
 
 #[cfg(feature = "azul")]
 pub mod backstage;
+#[cfg(feature = "azul")]
+pub mod frame;
 #[cfg(feature = "look")]
 pub mod l10n;
 #[cfg(feature = "look")]
