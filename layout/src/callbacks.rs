@@ -5989,8 +5989,20 @@ impl CallbackInfo {
     /// window has no inset. Set by the platform shell (macOS `NSScreen` notch,
     /// iOS `UIView.safeAreaInsets`, Android `WindowInsets`).
     #[must_use]
-    pub const fn get_safe_area_insets(&self) -> azul_css::system::SafeAreaInsets {
-        self.get_layout_window().safe_area_insets
+    pub fn get_safe_area_insets(&self) -> azul_css::system::SafeAreaInsets {
+        self.get_layout_window()
+            .effective_safe_area_insets(self.get_current_window_state())
+    }
+
+    /// The cutouts of the display (a punch-hole camera, a notch, the Dynamic Island), its rounded
+    /// corners, the system bars and the fingerprint sensor, in logical px of the window (origin
+    /// top left). Where [`Self::get_safe_area_insets`] merges them into one number per side,
+    /// this has the shapes. Empty on a desktop window; the shell writes it after each rotation or
+    /// change of the window, and `WindowFlags::display_preset` simulates a phone's.
+    #[must_use]
+    pub fn get_display_features(&self) -> azul_core::display_features::DisplayFeatures {
+        self.get_layout_window()
+            .effective_display_features(self.get_current_window_state())
     }
 
     /// Get the latest state of the gamepad `id` (button bitset + analog

@@ -228,6 +228,8 @@ mod demo_layout_regressions;
 mod direction_and_unicode_bidi_order_the_glyphs_of_a_line;
 #[path = "display_list_ids.rs"]
 mod display_list_ids;
+#[path = "display_preset_insets.rs"]
+mod display_preset_insets;
 #[path = "dl_patch_golden.rs"]
 mod dl_patch_golden;
 #[path = "document_edit_notify.rs"]

@@ -78,6 +78,7 @@ mod autotest_generated {
                 active_route: self.route.as_ref(),
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
+                display_features: crate::display_features::DisplayFeatures::none(),
                 global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
                 window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
             }
@@ -1459,6 +1460,7 @@ mod size_query_tests {
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
+                display_features: crate::display_features::DisplayFeatures::none(),
                 global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
                 window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
             }
@@ -1646,6 +1648,7 @@ mod system_style_dependency_tests {
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
+                display_features: crate::display_features::DisplayFeatures::none(),
                 global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
                 window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
             }
@@ -1870,6 +1873,7 @@ mod global_hotkey_recorder_tests {
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
+                display_features: crate::display_features::DisplayFeatures::none(),
                 global_hotkeys: self.hotkeys.clone(),
                 window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
             }
@@ -2160,6 +2164,7 @@ mod app_theme_tests {
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
+                display_features: crate::display_features::DisplayFeatures::none(),
                 global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
                 window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
             }

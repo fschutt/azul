@@ -84,6 +84,11 @@ mod export_tests;
 #[cfg(test)]
 mod mode_ops_tests;
 
+// The display preset a window simulates (`set_display_preset`) and what the window has of
+// cutouts, bars and insets (`get_display_features`), through the real dispatcher.
+#[cfg(test)]
+mod display_ops_tests;
+
 // The key names `key_down` / `key_up` accept: punctuation and the numeric
 // keypad, so a scenario can type an operator (`plus`, `numpad_multiply`).
 #[cfg(test)]

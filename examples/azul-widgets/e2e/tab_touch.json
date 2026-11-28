@@ -1,0 +1,71 @@
+[
+  {
+    "name": "azul_widgets_touch_tabs_select_and_the_panel_follows",
+    "description": "The touch pills of the Tab looks section: twelve pills in a row that scrolls sideways, one selection, a panel under them. A click on a pill that is far to the right of the row (the row scrolls) selects it and the panel says so; the selected pill is the tab the panel names. The same file runs on a desktop and on a phone.",
+    "steps": [
+      { "op": "scroll_into_view", "text": "A phone to try it on", "block": "center", "behavior": "instant" },
+      { "op": "wait_frame" },
+      { "op": "click", "text": "Review" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "find_node_by_text", "text": "Review panel" },
+      { "op": "assert_response", "contains": "\"found\":true" },
+      { "op": "click", "text": "Account" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "find_node_by_text", "text": "Account panel" },
+      { "op": "assert_response", "contains": "\"found\":true" },
+      { "op": "click", "text": "Home" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "find_node_by_text", "text": "Home panel" },
+      { "op": "assert_response", "contains": "\"found\":true" }
+    ]
+  },
+  {
+    "name": "azul_widgets_a_window_on_a_pixel_8_has_one_hole_in_the_middle_and_a_strip_around_it",
+    "description": "The window made to sit on a Pixel 8 (a preset, on any platform): get_display_features says one circular cutout in the middle of the top edge, a 48 px status bar and the gesture bar; the page's top is then the touch strip in the status bar's band. Turning it off gives the window back what the platform reports.",
+    "steps": [
+      { "op": "scroll_into_view", "text": "A phone to try it on", "block": "center", "behavior": "instant" },
+      { "op": "wait_frame" },
+      { "op": "click", "text": "Pixel 8" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "get_display_features" },
+      { "op": "assert_response", "contains": "\"preset\":\"pixel8\"" },
+      { "op": "assert_response", "contains": "\"shape\":\"Circle\"" },
+      { "op": "assert_response", "contains": "\"approximate\":true" },
+      { "op": "assert_response", "contains": "\"visible\":true" },
+      { "op": "find_node_by_text", "text": "Home" },
+      { "op": "assert_response", "contains": "\"found\":true" },
+      { "op": "click", "text": "No phone" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "get_display_features" },
+      { "op": "assert_response", "contains": "\"preset\":\"off\"" }
+    ]
+  },
+  {
+    "name": "azul_widgets_a_window_on_an_iphone_with_the_island_has_a_pill_and_turns_it_on_its_side",
+    "description": "The preset of an iPhone with the Dynamic Island, then the window turned to landscape: the pill is at the top in portrait and at the left edge on its side, and the insets move to the sides. A preset is a window flag, so the same ops run on a desktop and on a phone.",
+    "steps": [
+      { "op": "resize", "width": 393, "height": 852 },
+      { "op": "wait_frame" },
+      { "op": "set_display_preset", "preset": "iphone_island" },
+      { "op": "wait_frame" },
+      { "op": "get_display_features" },
+      { "op": "assert_response", "contains": "\"shape\":\"Pill\"" },
+      { "op": "assert_response", "contains": "\"top\":59.0" },
+      { "op": "resize", "width": 852, "height": 393 },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "get_display_features" },
+      { "op": "assert_response", "contains": "\"left\":59.0" },
+      { "op": "assert_response", "contains": "\"status_bar\":null" },
+      { "op": "set_display_preset", "preset": "off" },
+      { "op": "wait_frame" },
+      { "op": "get_display_features" },
+      { "op": "assert_response", "contains": "\"preset\":\"off\"" }
+    ]
+  }
+]
