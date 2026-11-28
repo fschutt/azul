@@ -1,0 +1,298 @@
+[
+  {
+    "name": "azul_widgets_tab_overflow_fades_at_the_lanes_on_a_phone_at_its_own_size",
+    "description": "Twelve touch pills in the status bar's band (Pixel 8, then an iPhone with the island): at rest, dragged 150 px, 300 px and to the end. A pill that slides out of a lane fades out at the lane's edge (the window's edge, the camera's cover) and the row shows no scrollbar; at rest and at the end the first and the last pill stand beyond the fade. Frames: Pixel 8 x4, Pixel 8 dark, iPhone x4, in this order. Flora first. The window keeps its own size: this file runs on a phone.",
+    "steps": [
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "A phone to try it on",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Pixel 8"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "get_display_features"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"preset\":\"pixel8\""
+      },
+      {
+        "op": "get_scrollable_nodes"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"can_scroll_x\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "scroll_node_by",
+        "selector": ".__azul-native-tabs-touch-band",
+        "delta_x": 150.0,
+        "delta_y": 0.0
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 400
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "get_scrollbar_info",
+        "selector": ".__azul-native-tabs-touch-band",
+        "orientation": "horizontal"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":false"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "scroll_node_by",
+        "selector": ".__azul-native-tabs-touch-band",
+        "delta_x": 150.0,
+        "delta_y": 0.0
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 400
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "get_scrollbar_info",
+        "selector": ".__azul-native-tabs-touch-band",
+        "orientation": "horizontal"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":false"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "scroll_node_by",
+        "selector": ".__azul-native-tabs-touch-band",
+        "delta_x": 4000.0,
+        "delta_y": 0.0
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 400
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "get_scrollbar_info",
+        "selector": ".__azul-native-tabs-touch-band",
+        "orientation": "horizontal"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":false"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "click",
+        "text": "iPhone 16 Pro"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "get_display_features"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"preset\":\"iphone_island\""
+      },
+      {
+        "op": "get_scrollable_nodes"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"can_scroll_x\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "scroll_node_by",
+        "selector": ".__azul-native-tabs-touch-band",
+        "delta_x": 150.0,
+        "delta_y": 0.0
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 400
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "get_scrollbar_info",
+        "selector": ".__azul-native-tabs-touch-band",
+        "orientation": "horizontal"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":false"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "scroll_node_by",
+        "selector": ".__azul-native-tabs-touch-band",
+        "delta_x": 150.0,
+        "delta_y": 0.0
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 400
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "get_scrollbar_info",
+        "selector": ".__azul-native-tabs-touch-band",
+        "orientation": "horizontal"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":false"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "scroll_node_by",
+        "selector": ".__azul-native-tabs-touch-band",
+        "delta_x": 4000.0,
+        "delta_y": 0.0
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 400
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "get_scrollbar_info",
+        "selector": ".__azul-native-tabs-touch-band",
+        "orientation": "horizontal"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":false"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "No phone"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      }
+    ]
+  }
+]
