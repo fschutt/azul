@@ -27,7 +27,7 @@ use rust_fontconfig::{
     config::FcScanConfig, registry::FcFontRegistry, FcFontCache, FontFallbackChain, UnicodeRange,
 };
 
-use crate::variable_fonts::{page, red_hat_mono_path, Manager};
+use crate::variable_fonts::{page, static_face_path, Manager};
 
 /// The probe's own cap on the wait for a first match is 500 ms: a resolution that took less than this did not make it.
 const BELOW_THE_PROBES_WAIT: Duration = Duration::from_millis(300);
@@ -43,9 +43,10 @@ fn idle_registry() -> Arc<FcFontRegistry> {
 }
 
 /// A manager with the face `family` registered from memory in the fallback tier (the tier of azul's own faces and the
-/// app's) with the Basic Latin block as its coverage.
+/// app's) with the Basic Latin block as its coverage. The face is a static one (a variable face would be drawn as an
+/// instance made on the way, and the timings below are those of the wait).
 fn manager_with_latin_face(family: &str) -> Manager {
-    let file = std::fs::read(red_hat_mono_path()).expect("the face is checked in");
+    let file = std::fs::read(static_face_path()).expect("the face is checked in");
     let mut manager = Manager::new(FcFontCache::default()).expect("font manager");
     let latin = vec![UnicodeRange { start: 0x20, end: 0x7e }];
     let _ = manager.register_named_font_in_tier(family, &file, latin, MemoryFontTier::Fallback);

@@ -73,6 +73,10 @@ fn start_scan_after(registry: &Arc<FcFontRegistry>, after: Duration) -> std::thr
     })
 }
 
+/// The wait for a scan that never starts ends at five seconds: a layout that took less did not make it. The layout of a
+/// debug build takes a good part of the rest on a runner.
+const NOT_THE_FIVE_SECONDS: Duration = Duration::from_millis(4500);
+
 /// How long the scan that a waiting layout depends on is held back, and the least the layout must have waited for it.
 const SCAN_STARTS_AFTER: Duration = Duration::from_millis(300);
 const WAITED_AT_LEAST: Duration = Duration::from_millis(200);
@@ -104,11 +108,12 @@ fn window(
     )
     .expect("a headless window");
     if shipped {
+        // A static face with Basic Latin (the layout tests' proportional mock): a variable one would be drawn as an
+        // instance made on the way.
         let face = std::fs::read(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../doc/fonts/RedHatMono-VariableFont_wght.ttf"),
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../layout/tests/fonts/azul-mock-prop.ttf"),
         )
-        .expect("the variable font of the repository");
+        .expect("the mock face of the layout tests");
         let fonts = Arc::new(RegisteredFonts::default());
         fonts.set_app_fonts(&[NamedFont::new(SHIPPED.into(), face.into())]);
         window.share_registered_fonts(&fonts);
@@ -133,7 +138,7 @@ fn a_dom_the_apps_faces_draw_does_not_wait_for_a_scan_that_has_not_started() {
     window.regenerate_layout().expect("the first layout");
     let took = started.elapsed();
     assert!(
-        took < Duration::from_secs(3),
+        took < NOT_THE_FIVE_SECONDS,
         "the first layout waited {took:?}: the wait for a scan that never starts is five seconds"
     );
     let (skipped, blocked) = counters(&window);
@@ -153,7 +158,7 @@ fn a_stack_that_names_a_generic_family_after_the_shipped_face_does_not_wait_for_
     window.regenerate_layout().expect("the first layout");
     let took = started.elapsed();
     assert!(
-        took < Duration::from_secs(3),
+        took < NOT_THE_FIVE_SECONDS,
         "the first layout waited {took:?}: the generic family after the shipped face brought the scan's wait back"
     );
     let (skipped, blocked) = counters(&window);
