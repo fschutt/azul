@@ -1616,6 +1616,11 @@ pub struct WindowFlags {
     /// Wayland give a program no way to do it and the flag has no effect there.
     /// Default: `false`, and a window that does not ask is left as the system made it.
     pub exclude_from_capture: bool,
+    /// The content of the window's tabs is folded away: the tab strip's one chevron (`TabHeader::with_content_toggle`,
+    /// `Ribbon::with_content_toggle`) flips it, and every `TabContent` and every ribbon band built for the window
+    /// shows nothing while it is set (the list under the strip gets the room). Per window, and the app may start
+    /// the window with it set (`WindowCreateOptions`) or read it back from the window's state. Default: `false`.
+    pub tab_content_hidden: bool,
     /// What the app asks of the system bars (status bar, navigation bar) and of the cutout area: hide
     /// them, light or dark icons, draw into the area of the camera cutout. APPENDED for ABI stability.
     /// A shell without such bars (a desktop) ignores it. Default: everything as the system has it.
@@ -1746,6 +1751,7 @@ impl Default for WindowFlags {
                 draw_into_cutout: false,
             },
             display_preset: crate::display_features::DisplayPreset::Off,
+            tab_content_hidden: false,
         }
     }
 }

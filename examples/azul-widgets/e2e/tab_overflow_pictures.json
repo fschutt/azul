@@ -44,7 +44,11 @@
         "op": "wait_frame"
       },
       {
-        "op": "wait_settled"
+        "op": "tick_ms",
+        "ms": 600
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "get_display_features"
@@ -65,7 +69,7 @@
       },
       {
         "op": "scroll_node_by",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "delta_x": 150.0,
         "delta_y": 0.0
       },
@@ -77,11 +81,15 @@
         "ms": 400
       },
       {
-        "op": "wait_settled"
+        "op": "tick_ms",
+        "ms": 600
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "get_scrollbar_info",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "orientation": "horizontal"
       },
       {
@@ -93,7 +101,7 @@
       },
       {
         "op": "scroll_node_by",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "delta_x": 150.0,
         "delta_y": 0.0
       },
@@ -105,11 +113,15 @@
         "ms": 400
       },
       {
-        "op": "wait_settled"
+        "op": "tick_ms",
+        "ms": 600
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "get_scrollbar_info",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "orientation": "horizontal"
       },
       {
@@ -121,7 +133,7 @@
       },
       {
         "op": "scroll_node_by",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "delta_x": 4000.0,
         "delta_y": 0.0
       },
@@ -133,11 +145,15 @@
         "ms": 400
       },
       {
-        "op": "wait_settled"
+        "op": "tick_ms",
+        "ms": 600
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "get_scrollbar_info",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "orientation": "horizontal"
       },
       {
@@ -158,7 +174,11 @@
         "op": "wait_frame"
       },
       {
-        "op": "wait_settled"
+        "op": "tick_ms",
+        "ms": 600
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "take_screenshot"
@@ -174,7 +194,11 @@
         "op": "wait_frame"
       },
       {
-        "op": "wait_settled"
+        "op": "tick_ms",
+        "ms": 600
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "resize",
@@ -192,7 +216,11 @@
         "op": "wait_frame"
       },
       {
-        "op": "wait_settled"
+        "op": "tick_ms",
+        "ms": 600
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "get_display_features"
@@ -213,7 +241,7 @@
       },
       {
         "op": "scroll_node_by",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "delta_x": 150.0,
         "delta_y": 0.0
       },
@@ -225,11 +253,15 @@
         "ms": 400
       },
       {
-        "op": "wait_settled"
+        "op": "tick_ms",
+        "ms": 600
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "get_scrollbar_info",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "orientation": "horizontal"
       },
       {
@@ -241,7 +273,7 @@
       },
       {
         "op": "scroll_node_by",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "delta_x": 150.0,
         "delta_y": 0.0
       },
@@ -253,11 +285,15 @@
         "ms": 400
       },
       {
-        "op": "wait_settled"
+        "op": "tick_ms",
+        "ms": 600
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "get_scrollbar_info",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "orientation": "horizontal"
       },
       {
@@ -269,7 +305,7 @@
       },
       {
         "op": "scroll_node_by",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "delta_x": 4000.0,
         "delta_y": 0.0
       },
@@ -281,11 +317,15 @@
         "ms": 400
       },
       {
-        "op": "wait_settled"
+        "op": "tick_ms",
+        "ms": 600
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "get_scrollbar_info",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "orientation": "horizontal"
       },
       {
@@ -306,7 +346,11 @@
         "op": "wait_frame"
       },
       {
-        "op": "wait_settled"
+        "op": "tick_ms",
+        "ms": 600
+      },
+      {
+        "op": "wait_frame"
       }
     ]
   }
