@@ -6005,6 +6005,17 @@ impl CallbackInfo {
         self.get_layout_window().safe_area_insets
     }
 
+    /// Where the system takes the swipes of its own gestures, in logical px: the back swipe from the
+    /// side edges, the home and app-switch swipes at the bottom, the shade at the top - the three
+    /// kinds of region Android reports (`WindowInsets.getSystemGestureInsets`, `getMandatorySystemGestureInsets`
+    /// and `getTappableElementInsets`). A touch that starts inside one may be taken by the system, and the
+    /// app then gets a cancel instead of the rest of it: keep draggable strips, sliders and drawer handles
+    /// out of them. Zero where the platform has none (the desktop). Set by the platform shell.
+    #[must_use]
+    pub const fn get_system_gesture_insets(&self) -> crate::managers::gesture::SystemGestureInsets {
+        self.get_layout_window().system_gesture_insets
+    }
+
     /// Get the latest state of the gamepad `id` (button bitset + analog
     /// axes), or `None` if no pad with that id has connected. Kept live by
     /// the controller backend (gilrs / iOS `GCController` / Android
