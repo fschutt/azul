@@ -120,29 +120,41 @@ fn every_visible_border_of_the_widgets_is_seen_at_four_and_a_half_to_one_under_i
                 let node = NodeId::new(index);
                 let state = sd.get_styled_node_state(&node);
                 let info = get_border_info(&sd, node, &state);
-                for (side, width, colour) in [
-                    ("top", info.widths.top, info.colors.top),
-                    ("left", info.widths.left, info.colors.left),
-                ] {
-                    let width = width
-                        .and_then(|w| w.get_property().map(|w| w.inner.to_pixels_internal(0.0, 16.0, 16.0)))
-                        .unwrap_or(0.0);
-                    let Some(CssPropertyValue::Exact(colour)) = colour else {
-                        continue;
-                    };
-                    if width <= 0.0 || colour.inner.a == 0 {
+                let px_top = info
+                    .widths
+                    .top
+                    .as_ref()
+                    .and_then(|w| w.get_property())
+                    .map_or(0.0, |w| w.inner.to_pixels_internal(0.0, 16.0, 16.0));
+                let px_left = info
+                    .widths
+                    .left
+                    .as_ref()
+                    .and_then(|w| w.get_property())
+                    .map_or(0.0, |w| w.inner.to_pixels_internal(0.0, 16.0, 16.0));
+                let colour_top = match info.colors.top {
+                    Some(CssPropertyValue::Exact(c)) => Some(c.inner),
+                    _ => None,
+                };
+                let colour_left = match info.colors.left {
+                    Some(CssPropertyValue::Exact(c)) => Some(c.inner),
+                    _ => None,
+                };
+                for (side, width, colour) in [("top", px_top, colour_top), ("left", px_left, colour_left)] {
+                    let Some(colour) = colour else { continue };
+                    if width <= 0.0 || colour.a == 0 {
                         continue;
                     }
                     borders += 1;
                     let behind = surface_under(&sd, node);
-                    let ratio = colour.inner.contrast_ratio(&behind);
+                    let ratio = colour.contrast_ratio(&behind);
                     let wanted = MORE_CONTRAST_EDGE.min(best_possible(&behind));
                     assert!(
                         ratio >= wanted - 0.01,
                         "{} {}: the {side} border of node {index} is {:?} on {behind:?}: {ratio:.2}:1 (wanted {wanted:.2})",
                         theme.name(),
                         if dark { "dark" } else { "light" },
-                        colour.inner,
+                        colour,
                     );
                 }
             }
