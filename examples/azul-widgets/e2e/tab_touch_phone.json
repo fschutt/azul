@@ -1,7 +1,7 @@
 [
   {
     "name": "azul_widgets_touch_tabs_pictures_on_a_phone_at_its_own_size",
-    "description": "The pictures of the tab strip on a phone, at the window's own size (no resize, no rotation: the phone is the window): the Pixel 8 preset (the strip in the status bar's band around the camera), a far pill selected (the row scrolls to put it whole in a lane), the end of the row, dark, flora, the phone it really runs on ('This phone': its own cutout, nothing simulated), a ribbon in the band, light and dark, and the page with no phone. Taken in this order: 1 Pixel 8 light flat, 2 Design selected, 3 Account selected, 4 dark, 5 flora light, 6 flora dark, 7 this phone, 8 ribbon in the band, 9 ribbon dark. A phone is turned by hand (or by the QA script) for the landscape pictures; the host scenario has them on a resized window.",
+    "description": "The pictures of the tab strip on a phone, at the window's own size (no resize, no rotation: the phone is the window): the Pixel 8 preset (the strip in the status bar's band around the camera), a far pill selected (the row scrolls to put it whole in a lane), the end of the row, dark, flora, the phone it really runs on ('This phone': its own cutout, nothing simulated), a ribbon in the band, light and dark, and the page with no phone. Taken in this order: 1 Pixel 8 light flat, 2 Design selected, 3 Account selected, 4 dark, 5 flora light, 6 flora dark, 7 this phone, 8 ribbon in the band, 9 ribbon dark. 10 the strip built again with Account selected (the phone turned off and on: a strip that is mounted with a far pill selected shows that pill whole in a lane). A phone is turned by hand (or by the QA script) for the landscape pictures; the host scenario has them on a resized window.",
     "steps": [
       {
         "op": "set_mode",
@@ -350,6 +350,35 @@
       {
         "op": "assert_response",
         "contains": "\"preset\":\"off\""
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "A phone to try it on",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Pixel 8"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 800
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
       }
     ]
   }
