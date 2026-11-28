@@ -274,8 +274,7 @@ fn choose(s: &mut MailApp, tag: usize) -> bool {
             };
             s.show_folder(&key);
             s.module = 0;
-            s.top_row = 0;
-            s.pinned_top = None;
+            s.scroll = nav::ListScroll::new();
             true
         }
         Some(NavTarget::Module(module)) => {

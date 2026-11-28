@@ -224,13 +224,11 @@ pub(crate) struct MailApp {
     pub(crate) window_width: f32,
     /// The Preview's size as a drag left it (0: the widget's default).
     pub(crate) preview_size: f32,
-    /// The list's first visible row at the last scroll report: the phone's Preview follows the
-    /// message at this top edge.
-    pub(crate) top_row: usize,
-    /// A tap on a row overrides what the scroll shows in the phone's Preview until the next
-    /// scroll (the selection never follows the scroll, only the Preview does): the list's top row
-    /// at the tap, while the tap holds.
-    pub(crate) pinned_top: Option<usize>,
+    /// The list's scroll: the rows in view as the list last reported them, the choice that holds
+    /// the selection, whether the next scroll report is the selection's own (`nav::ListScroll`).
+    /// The selection and the Preview follow the message at the top edge while the list is
+    /// scrolled; a click, a tap or a key holds them until it is scrolled on.
+    pub(crate) scroll: nav::ListScroll,
     /// The message a phone's action sheet is open for (its uid); `None`: the sheet is closed.
     pub(crate) sheet: Option<u32>,
 
@@ -487,8 +485,7 @@ impl MailApp {
             sidebar: azul::widgets::SidebarState::Rail,
             window_width: 0.0,
             preview_size: 0.0,
-            top_row: 0,
-            pinned_top: None,
+            scroll: nav::ListScroll::new(),
             sheet: None,
             entries: Vec::new(),
             flags: LocalFlags::create(),

@@ -406,34 +406,91 @@ pub(crate) fn top_message_at(rows: &[listing::ListRow], first: usize) -> Option<
         })
 }
 
-/// What a report of the list's scroll does on a phone: nothing, or the SELECTION and the PREVIEW
-/// move to the message at the top edge (the first message row at or after the first visible row,
-/// group headers skipped). A tap on a row overrides it until the list is scrolled.
+/// What a report of the list's scroll does: nothing, or the SELECTION and the PREVIEW move to the
+/// message at the top edge (the first message row at or after the first visible row, group
+/// headers skipped). A click or a tap on a row overrides it until the list is scrolled on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Follow {
-    /// The scroll changes nothing: not a phone, a tap holds the selection, or the message at the
-    /// top edge is the one shown.
+    /// The scroll changes nothing: a click holds the selection, the scroll was the selection's
+    /// own, or the message at the top edge is the one shown.
     Keep,
     /// The selection goes to row `row`, the Preview to message `uid`.
     Move { row: usize, uid: u32 },
 }
 
 /// The effect of a scroll report: the list's first visible row is `first`; `pinned_top` is the top
-/// row at the last tap while the tap holds; `shown` is the message the Preview shows now.
+/// row at the last choice while the choice holds; `shown` is the message the Preview shows now.
 #[must_use]
 pub(crate) fn follow(
     rows: &[listing::ListRow],
     first: usize,
     pinned_top: Option<usize>,
     shown: Option<u32>,
-    phone: bool,
 ) -> Follow {
-    if !phone || !follows_top_edge(pinned_top, first) {
+    if !follows_top_edge(pinned_top, first) {
         return Follow::Keep;
     }
     match top_message_at(rows, first) {
         Some((row, uid)) if shown != Some(uid) => Follow::Move { row, uid },
         _ => Follow::Keep,
+    }
+}
+
+/// What the app keeps of the list's scroll: the rows in view as the list last reported them, the
+/// choice that holds the selection, and whether the next scroll report is the selection's own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ListScroll {
+    /// The first row in view; `end` the row after the last one (`usize::MAX`: not reported yet,
+    /// every row counts as in view).
+    pub top: usize,
+    pub end: usize,
+    /// The top row at the last click, tap or key while that choice holds.
+    pub pinned_top: Option<usize>,
+    /// The choice was a row outside the rows in view (the keys went past the edge): the list will
+    /// scroll it into view, and that scroll is the selection's, not the reader's.
+    pub swallow: bool,
+}
+
+impl ListScroll {
+    /// The state of a list nobody has scrolled or chosen from.
+    #[must_use]
+    pub(crate) const fn new() -> Self {
+        Self {
+            top: 0,
+            end: usize::MAX,
+            pinned_top: None,
+            swallow: false,
+        }
+    }
+
+    /// A row was chosen (a click, a tap, a key): it holds the selection until the list is
+    /// scrolled on, and if it is out of view its scroll into view is not the reader's.
+    pub(crate) fn chose(&mut self, row: usize) {
+        self.pinned_top = Some(self.top);
+        self.swallow = row < self.top || row >= self.end;
+    }
+
+    /// The list reports that rows `start..end` are in view: what the selection and the Preview do.
+    pub(crate) fn scrolled(
+        &mut self,
+        rows: &[listing::ListRow],
+        start: usize,
+        end: usize,
+        shown: Option<u32>,
+    ) -> Follow {
+        let own = core::mem::take(&mut self.swallow);
+        self.top = start;
+        self.end = end;
+        if own {
+            // the choice holds at the place the list scrolled to
+            self.pinned_top = Some(start);
+            return Follow::Keep;
+        }
+        let effect = follow(rows, start, self.pinned_top, shown);
+        if matches!(effect, Follow::Move { .. }) {
+            self.pinned_top = None;
+        }
+        effect
     }
 }
 

@@ -1766,8 +1766,9 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
                     .clone()
                     .apply(index as u64, event.shift, event.ctrl);
                 if !event.shift && !event.ctrl {
-                    // a tap holds the Preview on this message until the list is scrolled
-                    s.pinned_top = Some(s.top_row);
+                    // a click, a tap or a key holds the selection and the Preview on this
+                    // message until the list is scrolled on
+                    s.scroll.chose(index);
                     stop_pictures(s, &mut info);
                     let flags = s.open_message(uid);
                     show_own_pictures(s, &mut info, &app);
@@ -1818,20 +1819,19 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
             }
             SummaryListEventKind::Scroll => {
                 let (start, end) = (event.index, event.end);
-                // A phone's SELECTION and Preview follow the message at the list's top edge (the
-                // first message row at or after the first row in view); a tap holds them until
-                // the list is scrolled on (`nav::follow`). The message is shown without being
-                // marked read: reading is a tap.
+                // The SELECTION and the Preview follow the message at the list's top edge (the
+                // first message row at or after the first row in view); a click, a tap or a key
+                // holds them until the list is scrolled on, and the scroll a choice itself makes
+                // is not the reader's (`nav::ListScroll`). The message is shown without being
+                // marked read: reading is a click or a tap.
                 let shown = s
                     .open
                     .as_ref()
                     .filter(|o| s.folder.as_deref() == Some(o.folder.as_str()))
                     .map(|o| o.entry.uid);
-                let moved = crate::nav::follow(&s.rows, start, s.pinned_top, shown, ui_frame::phone_now(s));
-                s.top_row = start;
+                let moved = s.scroll.scrolled(&s.rows, start, end, shown);
                 let followed = match moved {
                     crate::nav::Follow::Move { row, uid } => {
-                        s.pinned_top = None;
                         s.selection = azul::widgets::ListSelection::create().apply(row as u64, false, false);
                         follow_top(s, &mut info, &app, uid);
                         true

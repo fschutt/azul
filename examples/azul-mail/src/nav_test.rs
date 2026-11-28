@@ -388,7 +388,7 @@ fn a_tap_holds_the_preview_until_the_top_edge_has_really_moved() {
     assert!(follows_top_edge(Some(usize::MAX), 0));
 }
 
-// ---- a scroll moves the selection and the preview on a phone, a tap holds them ----
+// ---- a scroll moves the selection and the preview, a click holds them ----
 
 fn mail_rows() -> Vec<ListRow> {
     vec![
@@ -405,47 +405,89 @@ fn mail_rows() -> Vec<ListRow> {
 #[test]
 fn scrolling_moves_the_selection_and_the_preview_to_the_message_at_the_top_edge() {
     let rows = mail_rows();
-    assert_eq!(follow(&rows, 2, None, Some(30), true), Follow::Move { row: 2, uid: 29 });
-    assert_eq!(follow(&rows, 3, None, Some(29), true), Follow::Move { row: 3, uid: 28 });
+    assert_eq!(follow(&rows, 2, None, Some(30)), Follow::Move { row: 2, uid: 29 });
+    assert_eq!(follow(&rows, 3, None, Some(29)), Follow::Move { row: 3, uid: 28 });
 }
 
 #[test]
 fn a_group_header_at_the_top_edge_hands_it_to_the_first_message_under_it() {
     let rows = mail_rows();
-    assert_eq!(follow(&rows, 4, None, Some(28), true), Follow::Move { row: 5, uid: 20 });
-    assert_eq!(follow(&rows, 0, None, None, true), Follow::Move { row: 1, uid: 30 });
+    assert_eq!(follow(&rows, 4, None, Some(28)), Follow::Move { row: 5, uid: 20 });
+    assert_eq!(follow(&rows, 0, None, None), Follow::Move { row: 1, uid: 30 });
 }
 
 #[test]
 fn a_scroll_that_leaves_the_same_message_at_the_top_changes_nothing() {
     let rows = mail_rows();
-    assert_eq!(follow(&rows, 1, None, Some(30), true), Follow::Keep);
-    assert_eq!(follow(&rows, 0, None, Some(30), true), Follow::Keep, "the header over it: the same message");
+    assert_eq!(follow(&rows, 1, None, Some(30)), Follow::Keep);
+    assert_eq!(follow(&rows, 0, None, Some(30)), Follow::Keep, "the header over it: the same message");
 }
 
 #[test]
 fn a_scroll_past_the_last_message_changes_nothing() {
     let rows = mail_rows();
-    assert_eq!(follow(&rows, 7, None, Some(19), true), Follow::Keep);
-    assert_eq!(follow(&rows, usize::MAX, None, None, true), Follow::Keep);
-    assert_eq!(follow(&[], 0, None, None, true), Follow::Keep);
+    assert_eq!(follow(&rows, 7, None, Some(19)), Follow::Keep);
+    assert_eq!(follow(&rows, usize::MAX, None, None), Follow::Keep);
+    assert_eq!(follow(&[], 0, None, None), Follow::Keep);
 }
 
 #[test]
-fn a_tap_holds_the_selection_and_the_preview_until_the_list_is_scrolled_two_rows() {
+fn a_click_holds_the_selection_and_the_preview_until_the_list_is_scrolled_two_rows() {
     let rows = mail_rows();
-    // a tap at top row 1 shows message 29 (row 2); the list nudges itself by one row: still held
-    assert_eq!(follow(&rows, 2, Some(1), Some(29), true), Follow::Keep);
-    assert_eq!(follow(&rows, 0, Some(1), Some(29), true), Follow::Keep);
+    // a click at top row 1 shows message 29 (row 2); the list nudges itself by one row: still held
+    assert_eq!(follow(&rows, 2, Some(1), Some(29)), Follow::Keep);
+    assert_eq!(follow(&rows, 0, Some(1), Some(29)), Follow::Keep);
     // the reader scrolls on: the selection and the preview follow again
-    assert_eq!(follow(&rows, 3, Some(1), Some(29), true), Follow::Move { row: 3, uid: 28 });
-    assert_eq!(follow(&rows, 5, Some(1), Some(29), true), Follow::Move { row: 5, uid: 20 });
+    assert_eq!(follow(&rows, 3, Some(1), Some(29)), Follow::Move { row: 3, uid: 28 });
+    assert_eq!(follow(&rows, 5, Some(1), Some(29)), Follow::Move { row: 5, uid: 20 });
 }
 
 #[test]
-fn a_desktop_scroll_moves_nothing() {
+fn a_click_on_a_row_in_view_makes_the_next_scroll_the_readers() {
     let rows = mail_rows();
-    for first in 0..rows.len() {
-        assert_eq!(follow(&rows, first, None, Some(1), false), Follow::Keep, "{first}");
-    }
+    let mut list = ListScroll::new();
+    assert_eq!(list.scrolled(&rows, 0, 6, None), Follow::Move { row: 1, uid: 30 }, "the first scroll follows");
+    list.chose(2);
+    assert!(!list.swallow, "a row in view needs no scroll");
+    assert_eq!(list.pinned_top, Some(0));
+    // the reader scrolls three rows: the choice is let go and the top edge decides
+    assert_eq!(list.scrolled(&rows, 3, 7, Some(29)), Follow::Move { row: 3, uid: 28 });
+    assert_eq!(list.pinned_top, None);
+}
+
+#[test]
+fn the_keys_past_the_edge_scroll_the_list_and_that_scroll_does_not_take_the_row_away() {
+    let rows = mail_rows();
+    let mut list = ListScroll::new();
+    let _ = list.scrolled(&rows, 0, 3, Some(30));
+    // the arrow keys chose row 5, out of view: the list will scroll it in
+    list.chose(5);
+    assert!(list.swallow, "row 5 is past the rows in view 0..3");
+    assert_eq!(list.scrolled(&rows, 3, 6, Some(20)), Follow::Keep, "the selection's own scroll");
+    assert!(!list.swallow, "swallowed once");
+    assert_eq!(list.pinned_top, Some(3), "the choice holds at the place the list scrolled to");
+    // a nudge of one row is still the choice's
+    assert_eq!(list.scrolled(&rows, 4, 7, Some(20)), Follow::Keep);
+    // the reader scrolls on by two rows: the top edge decides again
+    assert_eq!(list.scrolled(&rows, 5, 7, Some(29)), Follow::Move { row: 5, uid: 20 });
+    assert_eq!(list.pinned_top, None);
+}
+
+#[test]
+fn a_list_nobody_has_scrolled_counts_every_row_as_in_view() {
+    let mut list = ListScroll::new();
+    list.chose(500);
+    assert!(!list.swallow);
+    list.chose(0);
+    assert!(!list.swallow);
+}
+
+#[test]
+fn a_choice_above_the_rows_in_view_is_the_selections_scroll_too() {
+    let rows = mail_rows();
+    let mut list = ListScroll::new();
+    let _ = list.scrolled(&rows, 3, 6, Some(28));
+    list.chose(1);
+    assert!(list.swallow);
+    assert_eq!(list.scrolled(&rows, 1, 4, Some(30)), Follow::Keep);
 }
