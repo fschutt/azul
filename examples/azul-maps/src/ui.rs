@@ -54,7 +54,6 @@ pub const PANEL_COVER: f32 = PANEL_LEFT + PANEL_WIDTH + 12.0;
 /// A phone's search bar: its height and its gaps, px; what the sheet leaves above itself at the full height.
 const BAR_HEIGHT: f32 = 56.0;
 const BAR_GAP: f32 = 8.0;
-const CHIPS_HEIGHT: f32 = 44.0;
 /// The sheet's peek, px: its grip, a place's name and its keys.
 pub const PEEK_HEIGHT: f32 = 168.0;
 /// The room above a phone's sheet at the full height, px: the search bar stays in sight.
