@@ -40,12 +40,26 @@ build_lib() {   # build_lib <variant>: demo-out/libs/demolib-ios-sim-<variant>
   echo "LIB $variant SECONDS: $(( $(date +%s) - start ))"
 }
 
-echo "=== 1. libraries and the six apps"
+echo "=== 1. libraries and the apps"
+# AZ_QA_IOS_APPS="AzMaps" (space separated) runs only those apps (and AZ_QA_IOS_E2E=0 leaves the e2e library, the matrix and the life of AzWidgets out):
+# a re-run of one app after a fix, in a third of the time
+want="${AZ_QA_IOS_APPS:-AzWidgets AzMaps AzPaint AzWriter AzMeet AzCompanion}"
+need_iroh=""
+for a in $want; do case "$a" in AzMeet|AzCompanion) need_iroh=1 ;; esac; done
 build_lib mobile || { echo "LIB mobile FAILED"; exit 3; }
-iroh=1
-build_lib mobile-iroh || { echo "LIB mobile-iroh FAILED: AzCompanion is skipped"; iroh=0; }
-apps="AzWidgets AzMaps AzPaint AzWriter"
-[ "$iroh" = 1 ] && apps="$apps AzMeet AzCompanion"     # AzMeet and AzCompanion link the iroh library (azul.iroh)
+iroh=0
+if [ -n "$need_iroh" ]; then
+  iroh=1
+  build_lib mobile-iroh || { echo "LIB mobile-iroh FAILED: AzMeet and AzCompanion are skipped"; iroh=0; }
+fi
+apps=""
+for a in $want; do
+  case "$a" in
+    AzMeet|AzCompanion) [ "$iroh" = 1 ] && apps="$apps $a" ;;     # these two link the iroh library (azul.iroh)
+    *) apps="$apps $a" ;;
+  esac
+done
+apps="${apps# }"
 start=$(date +%s)
 python3 scripts/demo_build.py ios --target "$target" --apps "$apps" --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant "" \
   || echo "demo_build.py ios returned non-zero: apps that did not build are skipped below"
@@ -66,7 +80,9 @@ for app in $apps; do
 done
 
 echo "=== 3. the e2e library and apps: the e2e matrix, then the life of AzWidgets with the debug server"
-if build_lib mobile-e2e; then
+if [ "${AZ_QA_IOS_E2E:-1}" != 1 ]; then
+  echo "AZ_QA_IOS_E2E=0: section 3 is left out"
+elif build_lib mobile-e2e; then
   python3 scripts/demo_build.py ios --target "$target" --apps "AzWidgets AzWriter" --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant mobile-e2e \
     || echo "an e2e app did not build"
   e2e_zip="$(ls demo-out/apps/AzWidgets-e2e-ios-sim*.zip 2>/dev/null | head -n 1)"

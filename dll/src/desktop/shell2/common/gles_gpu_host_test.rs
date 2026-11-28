@@ -230,8 +230,11 @@ fn the_first_surface_brings_the_path_up_and_draws_the_cpu_page() {
     assert!(!gpu.has_frame(), "nothing was built yet");
 
     lay_out(&mut window.common, page(), DPI);
+    let reported = |window: &HeadlessWindow| window.common.layout_window.as_ref().map_or(0, |w| w.presented_frame_generation());
+    let before = reported(&window);
     let picture = draw(&mut gpu, &mut window, surface);
     assert!(gpu.has_frame(), "WebRender announced the frame that was drawn");
+    assert!(reported(&window) > before, "a presented GPU frame is in the window's frame report (the e2e assertions read it)");
     assert_same_text_page("executor-page", &picture, &cpu_picture(&window.common, DPI), (80.0 * DPI) as u32);
 
     let mut ctx = GpuCtx { common: &mut window.common, native_window: None };
