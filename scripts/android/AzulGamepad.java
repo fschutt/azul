@@ -223,13 +223,18 @@ public final class AzulGamepad {
         if (event == null || !isGamepad(event.getDeviceId())) {
             return false;
         }
+        // The analog triggers are AXIS_LTRIGGER / AXIS_RTRIGGER on most pads and AXIS_BRAKE / AXIS_GAS on others
+        // (the Android controller guide names both: a PS3-style pad reports only the second pair): whichever the
+        // pad moves. The two pairs of one pad are not both moved, so the larger is the trigger.
         nativeOnAxes(event.getDeviceId(),
                 event.getAxisValue(MotionEvent.AXIS_X),
                 event.getAxisValue(MotionEvent.AXIS_Y),
                 event.getAxisValue(MotionEvent.AXIS_Z),
                 event.getAxisValue(MotionEvent.AXIS_RZ),
-                event.getAxisValue(MotionEvent.AXIS_LTRIGGER),
-                event.getAxisValue(MotionEvent.AXIS_RTRIGGER),
+                Math.max(event.getAxisValue(MotionEvent.AXIS_LTRIGGER),
+                        event.getAxisValue(MotionEvent.AXIS_BRAKE)),
+                Math.max(event.getAxisValue(MotionEvent.AXIS_RTRIGGER),
+                        event.getAxisValue(MotionEvent.AXIS_GAS)),
                 event.getAxisValue(MotionEvent.AXIS_HAT_X),
                 event.getAxisValue(MotionEvent.AXIS_HAT_Y));
         return true;

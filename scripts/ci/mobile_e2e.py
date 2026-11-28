@@ -693,7 +693,9 @@ def e2e_session(args):
             tests = json.loads(Path(path).read_text(encoding="utf-8"))
             if isinstance(tests, dict):
                 tests = tests.get("tests", [tests])
-            answer = srv.op("run_e2e_tests", timeout=240, tests=tests)
+            # `timeout` is OUR wait for the answer; `timeout_secs` is what the server waits for the window's thread (30 s unless the request says
+            # otherwise: a 70-step scenario on a software-GL window or a slow emulator took longer and answered "Timeout waiting for response")
+            answer = srv.op("run_e2e_tests", timeout=240, timeout_secs=240, tests=tests)
             (run.logs_dir / f"scenario-{name}.json").write_text(json.dumps(answer, indent=2), encoding="utf-8")
             data = answer.get("data") if isinstance(answer, dict) else None
             results = (data or {}).get("results") if isinstance(data, dict) else None
