@@ -372,7 +372,7 @@ pub fn icon_button_sized(id: AzString, icon: &str, name: &str, data: RefAny, cal
 }
 
 /// Recent folder `index`: its name, the folder it is in; a click opens it.
-pub fn recent_row(app: &RefAny, id: AzString, index: usize, folder: &str) -> Dom {
+pub fn recent_row(app: &RefAny, id: AzString, index: usize, folder: &str, compact: bool) -> Dom {
     let path = std::path::Path::new(folder);
     let name = path
         .file_name()
@@ -380,8 +380,14 @@ pub fn recent_row(app: &RefAny, id: AzString, index: usize, folder: &str) -> Dom
     let parent = path.parent().map(|p| p.display().to_string()).unwrap_or_default();
     clickable(
         id,
-        "display: flex; flex-direction: row; align-items: center; padding: 3px 4px; border-radius: 3px; \
-         cursor: pointer; :hover { background: rgba(128, 128, 128, 0.15); }",
+        if compact {
+            // a finger's row
+            "display: flex; flex-direction: row; align-items: center; min-height: 48px; padding: 0px 4px; border-radius: 3px; \
+             cursor: pointer; :hover { background: rgba(128, 128, 128, 0.15); }"
+        } else {
+            "display: flex; flex-direction: row; align-items: center; padding: 3px 4px; border-radius: 3px; \
+             cursor: pointer; :hover { background: rgba(128, 128, 128, 0.15); }"
+        },
         &t_args("azcode-open-place", &[("folder", Arg::from(folder))]),
         AccessibilityRole::Link,
         RefAny::new(RecentRef { app: app.clone(), index }),
@@ -391,8 +397,8 @@ pub fn recent_row(app: &RefAny, id: AzString, index: usize, folder: &str) -> Dom
     .with_child(label(
         &name,
         // Under flora a recent folder's name is a link in flora's brass.
-        "font-size: 13px; color: var(--az-accent, #3794FF); padding-right: 8px; flex-shrink: 0; \
-         @theme(flora) { color: system:link; }",
+        "font-size: 13px; color: #006AB1; padding-right: 8px; flex-shrink: 0; \
+         @theme(dark) { color: #3794FF; } @theme(flora) { color: system:link; }",
     ))
     .with_child(label(
         &parent,
@@ -586,8 +592,9 @@ pub(crate) fn welcome(app: &RefAny, st: &AppState) -> Dom {
             "azcode-action-open-folder",
             &commands::keys("Mod+K Mod+O"),
             on_open_folder,
+            compact,
         ))
-        .with_child(link(app, ids::WELCOME_OPEN_FILE, "file_open", "azcode-action-open-file", "", on_open_file))
+        .with_child(link(app, ids::WELCOME_OPEN_FILE, "file_open", "azcode-action-open-file", "", on_open_file, compact))
         .with_child(link(
             app,
             ids::OPEN_SAMPLE,
@@ -595,11 +602,12 @@ pub(crate) fn welcome(app: &RefAny, st: &AppState) -> Dom {
             "azcode-welcome-sample",
             "",
             on_open_sample,
+            compact,
         ));
     if !st.recent.is_empty() {
         page.add_child(heading("azcode-welcome-recent"));
         for (i, folder) in st.recent.iter().enumerate().take(5) {
-            page.add_child(recent_row(app, ids::welcome_recent(i), i, folder));
+            page.add_child(recent_row(app, ids::welcome_recent(i), i, folder, compact));
         }
     }
     // A phone has no keyboard of shortcuts to learn: the list is the desktop's.
@@ -624,22 +632,31 @@ fn heading(title: &str) -> Dom {
 }
 
 /// A link of the welcome page: its icon, its title in the accent, its keys.
-fn link(
+pub(crate) fn link(
     app: &RefAny,
     id: AzString,
     icon: &str,
     title: &str,
     keys: &str,
     callback: CallbackType,
+    compact: bool,
 ) -> Dom {
+    // A phone's link is a finger tall and has no keys to show.
+    let keys = if compact { "" } else { keys };
     let mut row = clickable(
         id,
         // A link is the editor's link blue in each scheme (the system accent of a dark window can be a
         // blue that is about 1.7:1 against the dark ground: the first look's first thing was unreadable);
         // under flora it is flora's brass.
-        "display: flex; flex-direction: row; align-items: center; padding: 4px 0px; cursor: pointer; \
-         color: #006AB1; :hover { opacity: 0.8; } @theme(dark) { color: #3794FF; } @theme(flora) { color: \
-         system:link; }",
+        if compact {
+            "display: flex; flex-direction: row; align-items: center; min-height: 48px; padding: 0px; cursor: pointer; \
+             color: #006AB1; :hover { opacity: 0.8; } @theme(dark) { color: #3794FF; } @theme(flora) { color: \
+             system:link; }"
+        } else {
+            "display: flex; flex-direction: row; align-items: center; padding: 4px 0px; cursor: pointer; \
+             color: #006AB1; :hover { opacity: 0.8; } @theme(dark) { color: #3794FF; } @theme(flora) { color: \
+             system:link; }"
+        },
         title,
         AccessibilityRole::Link,
         app.clone(),
@@ -909,7 +926,7 @@ extern "C" fn on_open_file(data: RefAny, _info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
-extern "C" fn on_open_sample(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_open_sample(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, commands::open_sample)
 }
 

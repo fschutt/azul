@@ -227,6 +227,7 @@ fn row_dom(app: &RefAny, row: &Row, selected: bool, height: f32) -> Dom {
 /// No folder yet: VSCode's empty explorer - what to do, Open Folder, the
 /// recent folders.
 fn no_folder(app: &RefAny, st: &AppState) -> Dom {
+    let compact = phone::is_compact(st.window.0, st.window.1);
     let mut out = Dom::create_div()
         .with_id(ids::NO_FOLDER)
         .with_css(
@@ -248,20 +249,25 @@ fn no_folder(app: &RefAny, st: &AppState) -> Dom {
                         .with_id(ids::OPEN_FOLDER),
                 ),
         )
-        .with_child(label(
-            &t_args(
-                "azcode-no-folder-what",
-                &[
-                    ("open", Arg::from(commands::keys("Mod+K Mod+O"))),
-                    ("quick", Arg::from(commands::keys("Mod+P"))),
-                ],
-            ),
-            "font-size: 12px; opacity: 0.7; padding-top: 10px;",
-        ));
+        .with_child(if compact {
+            // A phone has no keys to name; what it can do is the sample.
+            ui::link(app, ids::DRAWER_SAMPLE, "science", "azcode-welcome-sample", "", ui::on_open_sample, true)
+        } else {
+            label(
+                &t_args(
+                    "azcode-no-folder-what",
+                    &[
+                        ("open", Arg::from(commands::keys("Mod+K Mod+O"))),
+                        ("quick", Arg::from(commands::keys("Mod+P"))),
+                    ],
+                ),
+                "font-size: 12px; opacity: 0.7; padding-top: 10px;",
+            )
+        });
     if !st.recent.is_empty() {
         out.add_child(label(&l10n::t("azcode-welcome-recent").to_uppercase(), "font-size: 11px; opacity: 0.8; padding: 20px 0px 6px 0px;"));
         for (i, folder) in st.recent.iter().enumerate() {
-            out.add_child(ui::recent_row(app, ids::recent(i), i, folder));
+            out.add_child(ui::recent_row(app, ids::recent(i), i, folder, compact));
         }
     }
     out
