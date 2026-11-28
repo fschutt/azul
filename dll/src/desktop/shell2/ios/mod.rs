@@ -78,6 +78,8 @@ mod system_font;
 /// display features (cutout, corners, bars, fingerprint sensor) the engine is told.
 mod system_ui;
 mod text_input;
+/// A second window of the app: a view pushed over the first, the surface being one.
+mod views;
 /// `<webview>`: `WKWebView`s, `WebKit.framework` loaded at the first one.
 mod webview;
 
@@ -1272,6 +1274,24 @@ extern "C" fn on_swipe_down(_t: &Object, _c: Sel, _s: *mut Object) {
     }
 }
 
+/// The back swipe: a pan from the screen's left edge (`UIScreenEdgePanGestureRecognizer`), iOS's own gesture for "go back". It is the
+/// system's BACK ([`PlatformWindow::press_back`]) when the window has something to take it - a popup to close, a view to pop - and
+/// nothing otherwise: the first screen of an app has nowhere to go back to.
+extern "C" fn on_edge_back(_this: &Object, _cmd: Sel, sender: *mut Object) {
+    let state: i64 = unsafe { msg_send![sender, state] };
+    if state != UI_GESTURE_RECOGNIZER_STATE_RECOGNIZED {
+        return;
+    }
+    if let Some(window) = unsafe { azul_ios_window() } {
+        if !window.back_is_owed() {
+            return;
+        }
+        let (_outcome, result) = window.press_back();
+        settle(window, result);
+        let _ = window.present();
+    }
+}
+
 extern "C" fn on_pinch(_this: &Object, _cmd: Sel, sender: *mut Object) {
     use azul_core::geom::LogicalPosition;
     use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
@@ -1451,6 +1471,10 @@ fn get_or_create_gesture_target_class() -> Option<&'static Class> {
             on_swipe_down as extern "C" fn(&Object, Sel, *mut Object),
         );
         decl.add_method(
+            sel!(onEdgeBack:),
+            on_edge_back as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
             sel!(onPinch:),
             on_pinch as extern "C" fn(&Object, Sel, *mut Object),
         );
@@ -1480,6 +1504,9 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
     // place to drive it — it fires every screen refresh — so it now does, and the
     // comment is true.
     if let Some(window) = unsafe { azul_ios_window() } {
+        // The windows the app asked for are pushed over the one on screen, and the close it asked of the one on top runs
+        // (`views.rs`): at this tick, outside any pass.
+        window.apply_pending_views();
         // The answer is "something needs a REPAINT", not "the DOM changed": the pass has already
         // asked for a regeneration itself wherever one is owed (a timer or a writeback that
         // returned `Update::RefreshDom`). Forcing `RefreshDom` here overrode that on every tick -
@@ -1489,6 +1516,8 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
         if window.process_timers_and_threads() {
             window.needs_rerender = true;
         }
+        // The windows under the one on screen keep their timers and threads.
+        window.pump_suspended_views();
         // What the app asks of the system's chrome (`WindowFlags::system_bars`): a callback of any kind (a click, a
         // timer, a thread's writeback) may have changed it, and this shell has no other place that pushes the window
         // state. A tick that finds it unchanged does nothing.
@@ -1739,6 +1768,13 @@ unsafe fn install_gesture_recognizers(view: *mut Object) {
     attach_swipe(2, sel!(onSwipeLeft:));
     attach_swipe(4, sel!(onSwipeUp:));
     attach_swipe(8, sel!(onSwipeDown:));
+
+    // The back swipe from the screen's left edge (`UIRectEdgeLeft` = 2): the system's BACK for a pushed view or a popup.
+    let edge_alloc: *mut Object = msg_send![class!(UIScreenEdgePanGestureRecognizer), alloc];
+    let edge: *mut Object = msg_send![edge_alloc, initWithTarget: target action: sel!(onEdgeBack:)];
+    observe_only(edge);
+    let _: () = msg_send![edge, setEdges: 2u64];
+    let _: () = msg_send![view, addGestureRecognizer: edge];
 }
 
 /// The classes UIKit itself declares that adopt the text-input protocols: where a protocol the
@@ -2347,12 +2383,107 @@ pub struct IOSWindow {
     /// ([`Self::fire_create_callback`]): this shell used to take the options' window state and colours and
     /// DROP the callback, so an app that starts a timer or a worker there was dead on an iPhone.
     create_callback: azul_layout::callbacks::OptionCallback,
+    /// The windows of the app UNDER the one the user sees, oldest first: this shell has one surface, so a second window of the
+    /// app is a VIEW pushed over the first (`views.rs`). `common` is always the window on top.
+    views_below: Vec<CommonWindowState>,
+    /// The windows the app asked for (`queue_window_create`) since the display tick last looked: pushed at the next tick,
+    /// never in the middle of the pass that asked.
+    pending_views: Vec<WindowCreateOptions>,
+    /// The app asked to close the view on top (`CallbackInfo::close_window`): the tick runs the close protocol for it.
+    view_close_owed: bool,
+    /// What the app was configured with, for the views it opens later (`AppConfig::routes`, the bundled fonts).
+    view_config: AppConfig,
     /// What the view controller was last told about the system's chrome (`WindowFlags::system_bars`), so that
     /// `sync_window_state` pushes a change and nothing else.
     applied_system_ui: crate::desktop::shell2::common::ios_display::IosSystemUi,
     /// Whether the device has Touch ID, asked once at creation (`canEvaluatePolicy` + `biometryType`, never a sheet): a
     /// fingerprint sensor of the display features.
     touch_id_hardware: bool,
+}
+
+/// The layout window of a window of the app, seeded from the app (its routes, bundled fonts, mode and language) and set up for
+/// this shell (one surface, UIKit's gesture numbers, WKWebViews): the first window and every view pushed over it are made by it.
+fn make_layout_window(
+    full_window_state: &FullWindowState,
+    fc_cache: &Arc<FcFontCache>,
+    config: &AppConfig,
+    app_shared: &Arc<crate::desktop::shell2::common::app_shared::AppShared>,
+    font_registry: &Option<Arc<FcFontRegistry>>,
+) -> Result<LayoutWindow, WindowError> {
+    let mut layout_window = LayoutWindow::new(fc_cache.as_ref().clone())
+        .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
+    layout_window.current_window_state = full_window_state.clone();
+    layout_window.routes = config.routes.clone();
+    app_shared.seed_window(&mut layout_window, config);
+    // This shell has ONE surface and cannot open another window (`queue_window_create` below opens none): the
+    // engine shows every popup and dialog inside this window, over the page, and a second window of the app
+    // as a view pushed over it (`azul_layout::transient::WindowPresentation`).
+    layout_window
+        .transient_windows
+        .set_shell_presentation(azul_layout::transient::WindowPresentation::OneSurface);
+    // The engine's gesture detection reads the numbers UIKit's own recognizers use (one table: `UIKIT_GESTURES`),
+    // not its desktop defaults.
+    let replaced = layout_window.set_gesture_config(azul_layout::managers::gesture::GestureConfig {
+        drag_distance_threshold: UIKIT_GESTURES.pan_threshold_points,
+        touch_slop: UIKIT_GESTURES.pan_threshold_points,
+        double_click_time_threshold_ms: UIKIT_GESTURES.double_tap_ms,
+        double_tap_timeout_ms: UIKIT_GESTURES.double_tap_ms,
+        long_press_time_threshold_ms: UIKIT_GESTURES.long_press_ms,
+        long_press_timeout_ms: UIKIT_GESTURES.long_press_ms,
+        long_press_distance_threshold: UIKIT_GESTURES.long_press_movement_points,
+        ..azul_layout::managers::gesture::GestureConfig::default()
+    });
+    if !replaced.is_empty() {
+        log_error!(LogCategory::Platform, "[iOS] gesture configuration: {:?} were not usable and were replaced", replaced);
+    }
+    // The faces the app ships (`AppConfig::add_font`): this shell has no app-level font
+    // manager to take them from, so the window registers them itself.
+    layout_window
+        .font_manager
+        .register_app_fonts(config.bundled_fonts.as_ref());
+    // `<webview>`s are WKWebViews (`webview::IosWebViews`).
+    layout_window
+        .webviews
+        .set_platform(azul_layout::managers::webview::WebViewPlatform::Backend);
+    // The system UI font: the scan of an iOS app does not list it (`system_font`), so the family the `system-ui`
+    // chain starts with is registered here when the registry does not know it.
+    if let Some(registry) = font_registry.as_ref() {
+        system_font::ensure_system_ui_font(registry);
+    }
+    Ok(layout_window)
+}
+
+/// The platform state around a layout window, with no UIKit object: the window's state, the style it follows, the app's shared data
+/// and the hit tester.
+fn make_common(
+    full_window_state: FullWindowState,
+    appearance: (
+        azul_core::window::OptionDarkLightMode,
+        azul_css::props::basic::OptionColorU,
+        azul_css::props::basic::OptionColorU,
+    ),
+    fc_cache: Arc<FcFontCache>,
+    system_style: Arc<azul_css::system::SystemStyle>,
+    app_data: Arc<RefCell<RefAny>>,
+    undo_manager: event::SharedUndoManager,
+    app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
+    layout_window: LayoutWindow,
+) -> CommonWindowState {
+    let (mode, background_color_light, background_color_dark) = appearance;
+    let mut common = CommonWindowState::new(
+        full_window_state,
+        mode,
+        background_color_light,
+        background_color_dark,
+        fc_cache,
+        system_style,
+        app_data,
+        undo_manager,
+        app_shared,
+    );
+    common.set_layout_window(layout_window);
+    common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
+    common
 }
 
 impl IOSWindow {
@@ -2383,46 +2514,8 @@ impl IOSWindow {
         let icon_provider_handle = core::mem::take(&mut config.icon_provider);
         let icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
 
-        let mut layout_window = LayoutWindow::new(fc_cache.as_ref().clone())
-            .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
-        layout_window.current_window_state = full_window_state.clone();
-        layout_window.routes = config.routes.clone();
-        app_shared.seed_window(&mut layout_window, &config);
-        // This shell has ONE surface and cannot open another window (`queue_window_create` below opens none): the
-        // engine shows every popup and dialog inside this window, over the page, and a second window of the app
-        // as a view pushed over it (`azul_layout::transient::WindowPresentation`).
-        layout_window
-            .transient_windows
-            .set_shell_presentation(azul_layout::transient::WindowPresentation::OneSurface);
-        // The engine's gesture detection reads the numbers UIKit's own recognizers use (one table: `UIKIT_GESTURES`),
-        // not its desktop defaults.
-        let replaced = layout_window.set_gesture_config(azul_layout::managers::gesture::GestureConfig {
-            drag_distance_threshold: UIKIT_GESTURES.pan_threshold_points,
-            touch_slop: UIKIT_GESTURES.pan_threshold_points,
-            double_click_time_threshold_ms: UIKIT_GESTURES.double_tap_ms,
-            double_tap_timeout_ms: UIKIT_GESTURES.double_tap_ms,
-            long_press_time_threshold_ms: UIKIT_GESTURES.long_press_ms,
-            long_press_timeout_ms: UIKIT_GESTURES.long_press_ms,
-            long_press_distance_threshold: UIKIT_GESTURES.long_press_movement_points,
-            ..azul_layout::managers::gesture::GestureConfig::default()
-        });
-        if !replaced.is_empty() {
-            log_error!(LogCategory::Platform, "[iOS] gesture configuration: {:?} were not usable and were replaced", replaced);
-        }
-        // The faces the app ships (`AppConfig::add_font`): this shell has no app-level font
-        // manager to take them from, so the window registers them itself.
-        layout_window
-            .font_manager
-            .register_app_fonts(config.bundled_fonts.as_ref());
-        // `<webview>`s are WKWebViews (`webview::IosWebViews`).
-        layout_window
-            .webviews
-            .set_platform(azul_layout::managers::webview::WebViewPlatform::Backend);
-        // The system UI font: the scan of an iOS app does not list it (`system_font`), so the family the `system-ui`
-        // chain starts with is registered here when the registry does not know it.
-        if let Some(registry) = font_registry.as_ref() {
-            system_font::ensure_system_ui_font(registry);
-        }
+        let layout_window =
+            make_layout_window(&full_window_state, &fc_cache, &config, &app_shared, &font_registry)?;
 
         // The editable `UITextInteraction`, made below and attached while a node is being edited.
         let mut text_interaction: *mut Object = ptr::null_mut();
@@ -2571,11 +2664,9 @@ impl IOSWindow {
             (Id::from_ptr(window), Id::from_ptr(vc), Id::from_ptr(view))
         };
 
-        let mut common = CommonWindowState::new(
+        let common = make_common(
             full_window_state,
-            options.mode,
-            options.background_color_light,
-            options.background_color_dark,
+            (options.mode, options.background_color_light, options.background_color_dark),
             fc_cache,
             // The style AppConfig detected at startup, not `SystemStyle::default()`.
             // `default()` carries `Platform::Unknown`, which
@@ -2590,9 +2681,8 @@ impl IOSWindow {
             Arc::new(RefCell::new(app_data)),
             undo_manager,
             app_shared,
+            layout_window,
         );
-        common.set_layout_window(layout_window);
-        common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
 
         let mut window = Self {
             common,
@@ -2616,6 +2706,10 @@ impl IOSWindow {
             text_interaction,
             text_interaction_attached: false,
             create_callback,
+            views_below: Vec::new(),
+            pending_views: Vec::new(),
+            view_close_owed: false,
+            view_config: config.clone(),
             applied_system_ui: system_ui_at_start,
             touch_id_hardware,
         };
@@ -3055,9 +3149,28 @@ impl PlatformWindow for IOSWindow {
         }
     }
 
-    fn queue_window_create(&mut self, _options: WindowCreateOptions) {
-        // No popup windows on iOS — sub-windows would require a
-        // separate UIWindow or modal UIViewController.
+    /// The phone has one surface, so a second window of the app is a VIEW pushed over the first (`views.rs`), made at the
+    /// next display tick - never in the middle of the pass that asked.
+    fn queue_window_create(&mut self, options: WindowCreateOptions) {
+        self.pending_views.push(options);
+    }
+
+    /// The back swipe closes the window on top when the app has one pushed (its `CloseRequested` callbacks may veto, as for
+    /// a window of its own).
+    fn pop_view(&mut self) -> bool {
+        if !self.is_pushed_view() {
+            return false;
+        }
+        let outcome = self.run_close_protocol("ios.back");
+        if outcome.confirmed {
+            self.pop_view_now();
+        }
+        true
+    }
+
+    /// The app asked to close the window it is in (`close_window()`): the tick runs the close protocol at its next turn.
+    fn close_owed(&mut self) {
+        self.view_close_owed = true;
     }
 
     fn show_menu_from_callback(
