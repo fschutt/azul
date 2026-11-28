@@ -1,0 +1,159 @@
+[
+  {
+    "name": "azul_code_phone_terminal_shell_answers_device",
+    "description": "The panel's Terminal on an Android phone: the first start has opened the sample workspace; the status bar's Terminal opens the sheet on a shell (a PTY), a command is typed and the shell answers. Pictures, in order: 1 the terminal in the sheet, 2 after the command.",
+    "only_on": [
+      "android"
+    ],
+    "steps": [
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      },
+      {
+        "op": "wait",
+        "ms": 4500,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_tab-0"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_editor"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_status-terminal"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 2500,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_sheet"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_panel-tab-terminal"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_terminal"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "focus_node",
+        "selector": "#__azcode_terminal"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "text_input",
+        "text": "echo azcode-terminal-ok"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "enter"
+      },
+      {
+        "op": "key_up",
+        "key": "enter"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 1200,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#__azcode_panel-close"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azcode_sheet"
+      }
+    ]
+  }
+]

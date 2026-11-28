@@ -1,7 +1,7 @@
 [
   {
     "name": "azul_code_phone_first_start_drawer_sheet_keys_device",
-    "description": "AzCode on the phone itself (the window is the phone's, upright: no resize, no display preset): the first start has opened the sample workspace and its src/main.rs. Pictures, in order: 1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row, 5 the panel's sheet, 6 drawn up, 7 pushed down, 8 source control, 9 run, 10 light (the phone itself has a picture of the braces typed by the key row after the 4th).",
+    "description": "AzCode on the phone itself (the window is the phone's, upright: no resize, no display preset): the first start has opened the sample workspace and its src/main.rs. Pictures, in order: 1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row (and 4b the braces typed by it), 5 the panel's sheet, 6 drawn up, 7 pushed down, 8 source control, 9 run, 10 light.",
     "only_on": [
       "android",
       "ios"

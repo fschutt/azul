@@ -164,12 +164,13 @@ def desktop_files():
 
 # ---- the phone ----
 
-def phone_steps(first_start, width=None, height=None, bars=None):
+def phone_steps(first_start, width=None, height=None, bars=None, terminal=False):
     """first_start: the device's first look is src/main.rs (the phone opened the sample workspace and its first file itself); a host
     window has the welcome page and opens the sample and the file through the UI. bars: (top, bottom, left, right) px the display
     preset keeps for the status bar, the home indicator and the cutout of a window `width` x `height`: the engine insets the ROOT by
     them, so the top bar starts under the status bar, the status bar ends over the home indicator, and the sheet drawn up
-    reaches its top margin under the root's top and no further."""
+    reaches its top margin under the root's top and no further. terminal: the status bar's Terminal opens the sheet on a shell (a host
+    has one; an iPhone has none, and the device test serves both phones)."""
     s = [op("set_mode", mode="dark")]
     s += exists("#__azcode_top-bar", "#__azcode_drawer-button", "#__azcode_palette-button", "#__azcode_status-bar")
     s += missing("#__azcode_drawer", "#__azcode_panel", "#__azcode_key-row", "#__azcode_activity-explorer")
@@ -216,23 +217,29 @@ def phone_steps(first_start, width=None, height=None, bars=None):
     # its header is out of reach at the grip: raised first, and let to settle (a click in the middle of the animation lands where the
     # button was)
     s += grip_keys("Up") + settle() + click("#__azcode_panel-close") + missing("#__azcode_sheet")
+    if terminal:
+        s += click("#__azcode_status-terminal") + rest(2000) + exists("#__azcode_sheet", "#__azcode_terminal")
+        s += shot()                                                    # 8 the terminal in the sheet: a shell
+        s += click("#__azcode_panel-close") + missing("#__azcode_sheet")
     s += click("#__azcode_drawer-button") + click("#__azcode_activity-git") + exists("#__azcode_git-panel") + rest(1000)
-    s += shot()                                                        # 8 source control in the drawer
-    s += click("#__azcode_activity-run") + exists("#__azcode_run-panel") + shot()                  # 9 run
+    s += shot()                                                        # 8 (9 with the terminal) source control in the drawer
+    s += click("#__azcode_activity-run") + exists("#__azcode_run-panel") + shot()                  # 9 (10) run
     # the drawer closes on its scrim (a tap on the strip beside it: the middle of the scrim is under the drawer) or, where the
     # window's size is not known here, on Escape
     if width:
         s += [op("click", x=float(width) - 12.0, y=float(height) / 2.0)] + frames(2) + missing("#__azcode_drawer")
     else:
         s += press("escape") + missing("#__azcode_drawer")
-    s += [op("set_mode", mode="light")] + shot()                       # 10 light
+    s += [op("set_mode", mode="light")] + shot()                       # 10 (11) light
     s += [op("set_mode", mode="dark")]
     return s
 
 
 def phone_files():
     names = ("1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row, 5 the panel's sheet, 6 drawn up, 7 pushed "
-             "down, 8 source control, 9 run, 10 light (the phone itself has a picture of the braces typed by the key row after the 4th)")
+             "down, 8 the terminal in the sheet (a host's), 9 source control, 10 run, 11 light")
+    names_device = ("1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row (and 4b the braces typed by it), 5 the "
+                    "panel's sheet, 6 drawn up, 7 pushed down, 8 source control, 9 run, 10 light")
     # what the display preset keeps (core/src/display_features.rs: the status bar, the navigation bar, the cutout at the left in
     # landscape): top, bottom, left, right
     sizes = [("pixel8", 411, 914, "pixel8", (48.0, 24.0, 0.0, 0.0)), ("iphone", 402, 874, "iphone_island", (59.0, 34.0, 0.0, 0.0)),
@@ -245,7 +252,7 @@ def phone_files():
                            f"over a scrim, the panel a sheet from the bottom, a key row over the keyboard's place, one status bar "
                            f"line. Pictures, in order: {names}.",
             "only_on": ["linux", "macos", "windows"],
-            "steps": window(w, h, preset) + phone_steps(False, w, h, bars),
+            "steps": window(w, h, preset) + phone_steps(False, w, h, bars, terminal=True),
         }]
     # The system's insets arrive after the first frame (a display preset stands for them): the top bar moves under the status bar.
     out["code_phone_insets.json"] = [{
@@ -257,10 +264,26 @@ def phone_files():
                  + [op("snapshot_frame", **{"as": "first_layout"}), op("set_display_preset", preset="pixel8")] + settle()
                  + [op("assert_damage_covers_changes", vs="first_layout")],
     }]
+    # The terminal of the panel on a phone that can start a process (Android: a shell on a PTY; an iPhone has none, and the panel has no
+    # Terminal tab there, so this one is Android's only): the status bar's Terminal opens the sheet on it, a command is typed, the
+    # shell answers.
+    out["code_phone_terminal.json"] = [{
+        "name": "azul_code_phone_terminal_shell_answers_device",
+        "description": "The panel's Terminal on an Android phone: the first start has opened the sample workspace; the status bar's Terminal "
+                       "opens the sheet on a shell (a PTY), a command is typed and the shell answers. Pictures, in order: 1 the terminal in "
+                       "the sheet, 2 after the command.",
+        "only_on": ["android"],
+        "steps": [op("set_mode", mode="dark")] + rest(4500) + exists("#__azcode_tab-0", "#__azcode_editor")
+                 + click("#__azcode_status-terminal") + rest(2500) + exists("#__azcode_sheet", "#__azcode_panel-tab-terminal", "#__azcode_terminal")
+                 + shot()
+                 + [op("focus_node", selector="#__azcode_terminal")] + frames(2)
+                 + [op("text_input", text="echo azcode-terminal-ok")] + frames(2) + press("enter") + rest(1200) + shot()
+                 + click("#__azcode_panel-close") + missing("#__azcode_sheet"),
+    }]
     out["code_phone_device.json"] = [{
         "name": "azul_code_phone_first_start_drawer_sheet_keys_device",
         "description": "AzCode on the phone itself (the window is the phone's, upright: no resize, no display preset): the first start has "
-                       "opened the sample workspace and its src/main.rs. Pictures, in order: " + names + ".",
+                       "opened the sample workspace and its src/main.rs. Pictures, in order: " + names_device + ".",
         "only_on": PHONES,
         "steps": phone_steps(True),
     }]
