@@ -8097,6 +8097,18 @@ impl MacOSWindow {
         };
 
         startup.mark("window:struct_built");
+        // The accessibility tree is built ON DEMAND (A10-19: inside the adapter's `update_if_active`, while an
+        // assistive technology is active). The mode is set HERE, before the initial layout: it was set in
+        // `init_accessibility`, after it, so the first layout pass built a tree that nobody asked for (8.6 ms of
+        // the first frame in the startup timeline of 2026-11-26).
+        #[cfg(feature = "a11y")]
+        {
+            if !window.a11y_eager() {
+                if let Some(lw) = window.common.layout_window.as_mut() {
+                    lw.a11y_manager.on_demand = true;
+                }
+            }
+        }
         // The titlebar in the mode the window will show, before it is ever
         // drawn: a window opened under a dark pin on a light desktop must not
         // flash a light titlebar.
@@ -10586,12 +10598,26 @@ impl MacOSWindow {
             self.awaiting_first_frame = false;
             self.window.setAlphaValue(1.0);
             self.mark_first_present(shows_document);
+            self.exit_after_first_frame_if_asked();
         } else {
             // The frame WebRender is building asks for the draw that shows
             // it; the request keeps a window whose frame never comes on its
             // way to being shown anyway.
             self.blank_first_draws += 1;
             self.request_redraw();
+        }
+    }
+
+    /// CI testing: `AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER` ends the process with 0 once the first frame is on its
+    /// way to the screen. The CPU view's frame path leaves `render_and_present_in_draw_rect` before its end, where
+    /// this check used to stand alone, so a CPU window never exited: the check is at the first present.
+    fn exit_after_first_frame_if_asked(&self) {
+        if self.common.app.settings().shell.exit_after_first_frame {
+            log_info!(
+                LogCategory::General,
+                "[CI] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting"
+            );
+            std::process::exit(0);
         }
     }
 
@@ -10732,6 +10758,7 @@ impl MacOSWindow {
         // Step 0: Update window size from current content view bounds
         // This ensures we always have the latest size, even if resize notifications were missed
         self.sync_window_size_from_content_view();
+        self.common.app.startup().mark_once("frame:first_render_prepared");
 
         // Step 1: Prepare OpenGL context (if using OpenGL backend)
         if self.backend == RenderBackend::OpenGL {
@@ -11088,6 +11115,7 @@ impl MacOSWindow {
                     // callbacks through the content chokepoint, scrollbar cache).
                     // The logic lives in LayoutWindow so no backend can skip a piece.
                     layout_window.prepare_frame_cpu();
+                    self.common.app.startup().mark_once("frame:first_render_content_prepared");
 
                     // Shared CPU renderer (same path as headless + X11 + Wayland):
                     // damage diff + scroll-offset feed + thin-strip scroll-shift with
@@ -11155,6 +11183,7 @@ impl MacOSWindow {
                     // not leave a pointer into the view framebuffer armed
                     // across frames.
                     self.cpu_backend.native_target = None;
+                    self.common.app.startup().mark_once("frame:first_render_rasterized");
 
                     let paint = self.cpu_backend.last_frame_damage.clone();
                     let present = self.cpu_backend.last_present_damage.clone();
@@ -11289,6 +11318,9 @@ impl MacOSWindow {
             // background whose callback draws its frame off the UI thread is
             // asked again on the frames the animation drivers bring.
             self.arm_animation_drivers_if_needed();
+            // The CPU frame is rendered and handed to the view (the startup timeline's split of the first frame:
+            // the pixels are on the screen once the view's `drawRect:` returns).
+            self.common.app.startup().mark_once("frame:first_render_done");
             return Ok(());
         }
 
@@ -11658,13 +11690,7 @@ impl MacOSWindow {
         }
 
         // CI testing: Exit successfully after first frame render if env var is set
-        if self.common.app.settings().shell.exit_after_first_frame {
-            log_info!(
-                LogCategory::General,
-                "[CI] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting"
-            );
-            std::process::exit(0);
-        }
+        self.exit_after_first_frame_if_asked();
 
         Ok(())
     }
@@ -13776,3 +13802,11 @@ mod audit_a10_tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "first_present_exit_test.rs"]
+mod first_present_exit_test;
+
+#[cfg(test)]
+#[path = "a11y_first_layout_test.rs"]
+mod a11y_first_layout_test;

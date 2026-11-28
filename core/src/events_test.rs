@@ -3469,24 +3469,24 @@ mod autotest_generated {
 
         // Button up -> never a drag, even with a drag origin.
         let up = MouseState::default();
-        assert!(handle_mouse_move(&ev, Some(&ht), &up, Some(start)).is_none());
+        assert!(handle_mouse_move(&ev, Some(&ht), &up, Some(start), None).is_none());
 
         // Button down but no drag origin -> not a drag either.
         let down = MouseState {
             left_down: true,
             ..MouseState::default()
         };
-        assert!(handle_mouse_move(&ev, Some(&ht), &down, None).is_none());
+        assert!(handle_mouse_move(&ev, Some(&ht), &down, None, None).is_none());
 
         // Button down + origin but nothing under the cursor -> STILL a drag:
         // reaching past the text (into padding, past the last line) is how a
         // selection gets extended, and the endpoint resolves against the
         // anchor block, not against whatever is under the pointer.
-        assert!(handle_mouse_move(&ev, None, &down, Some(start)).is_some());
-        assert!(handle_mouse_move(&ev, Some(&empty_hit_test()), &down, Some(start)).is_some());
+        assert!(handle_mouse_move(&ev, None, &down, Some(start), None).is_some());
+        assert!(handle_mouse_move(&ev, Some(&empty_hit_test()), &down, Some(start), None).is_some());
 
         // All three present -> a drag selection from origin to the current point.
-        match handle_mouse_move(&ev, Some(&ht), &down, Some(start)) {
+        match handle_mouse_move(&ev, Some(&ht), &down, Some(start), None) {
             Some(InternalEventAction::AddAndPass(SystemChange::TextSelectionDrag {
                 start_position,
                 current_position,
@@ -5521,5 +5521,141 @@ mod window_leave_tests {
         // The window filters that do not depend on the target hear what they always heard.
         assert!(window_listener_hears(WindowEventFilter::MouseOver, &event(EventType::MouseOver, 0, 7)));
         assert!(!window_listener_hears(WindowEventFilter::MouseOver, &event(EventType::MouseLeave, 0, 0)));
+    }
+}
+
+/// The drag of a text selection starts after its press, not in it (E41). A pointer that JUMPS to a point and
+/// presses there in one pass (a script's `mouse_down` with no `mouse_move` before it, a touchpad tap, a remote
+/// desktop) has a move in the pass of its press, and the press has just latched the anchor of the selection at
+/// that same point: a "drag" from a point to itself, whose autoscroll moved the box under the pointer before
+/// the release (a click on text near the edge of a scrolling box was lost).
+#[cfg(test)]
+mod press_pass_drag_tests {
+    use crate::{
+        dom::{DomId, DomNodeId},
+        events::{
+            default_input_interpreter, EventData, EventSource, EventType, InputInterpreterInfo,
+            InputInterpreterState, KeyModifiers, MouseButton, MouseEventData, SyntheticEvent,
+            SystemChange,
+        },
+        geom::LogicalPosition,
+        id::NodeId,
+        styled_dom::NodeHierarchyItemId,
+        task::{Instant, SystemTick},
+        window::{KeyboardState, MouseState, PRIMARY_POINTER_SEAT},
+    };
+
+    /// A left-button event of `seat_id` at `position`.
+    fn event(event_type: EventType, position: LogicalPosition, seat_id: u64) -> SyntheticEvent {
+        SyntheticEvent::new(
+            event_type,
+            EventSource::User,
+            DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
+            },
+            Instant::Tick(SystemTick { tick_counter: 0 }),
+            EventData::Mouse(MouseEventData {
+                position,
+                button: MouseButton::Left,
+                buttons: 1,
+                modifiers: KeyModifiers::default(),
+                seat_id,
+                ..Default::default()
+            }),
+        )
+    }
+
+    /// The selection drags (anchor, current) the interpreter makes of one pass of `events`, the left button
+    /// down and the selection anchored at `anchor`.
+    fn selection_drags(
+        events: &[SyntheticEvent],
+        anchor: LogicalPosition,
+    ) -> Vec<(LogicalPosition, LogicalPosition)> {
+        let keyboard = KeyboardState::default();
+        let mouse = MouseState {
+            left_down: true,
+            ..MouseState::default()
+        };
+        let info = InputInterpreterInfo {
+            seat_focus: &[],
+            events,
+            hit_test: None,
+            keyboard_state: &keyboard,
+            mouse_state: &mouse,
+            state: InputInterpreterState {
+                focused_node: None,
+                click_count: 1,
+                drag_start_position: Some(anchor),
+                has_selection: false,
+                focus_is_editable: false,
+                focus_hears_paste: false,
+            },
+        };
+        default_input_interpreter(&info)
+            .system_changes
+            .into_iter()
+            .filter_map(|change| match change {
+                SystemChange::TextSelectionDrag {
+                    start_position,
+                    current_position,
+                } => Some((start_position, current_position)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_move_that_carries_the_pointer_to_its_press_is_no_selection_drag() {
+        let at = LogicalPosition::new(120.0, 523.0);
+        let pass = [
+            event(EventType::MouseMove, at, PRIMARY_POINTER_SEAT),
+            event(EventType::MouseDown, at, PRIMARY_POINTER_SEAT),
+        ];
+        assert_eq!(
+            selection_drags(&pass, at),
+            Vec::new(),
+            "a drag from the point of the press to the point of the press is no drag: it would start \
+             the autoscroll of a box the pointer only pressed in"
+        );
+    }
+
+    #[test]
+    fn a_move_after_the_press_drags_the_selection_from_the_anchor() {
+        let press = LogicalPosition::new(120.0, 523.0);
+        let moved = LogicalPosition::new(121.0, 523.0);
+        let pass = [event(EventType::MouseMove, moved, PRIMARY_POINTER_SEAT)];
+        assert_eq!(selection_drags(&pass, press), vec![(press, moved)]);
+    }
+
+    #[test]
+    fn a_move_back_to_the_anchor_after_the_press_collapses_the_selection_to_it() {
+        // Not the pass of the press: the pointer is back on the anchor after it left, and the selection
+        // that followed it has to come back too.
+        let press = LogicalPosition::new(120.0, 523.0);
+        let pass = [event(EventType::MouseMove, press, PRIMARY_POINTER_SEAT)];
+        assert_eq!(selection_drags(&pass, press), vec![(press, press)]);
+    }
+
+    #[test]
+    fn the_press_of_another_pointer_does_not_hide_the_drag_of_the_primary_one() {
+        let at = LogicalPosition::new(120.0, 523.0);
+        let pass = [
+            event(EventType::MouseMove, at, PRIMARY_POINTER_SEAT),
+            event(EventType::MouseDown, LogicalPosition::new(10.0, 10.0), 7),
+        ];
+        assert_eq!(selection_drags(&pass, at), vec![(at, at)]);
+    }
+
+    #[test]
+    fn a_press_elsewhere_in_the_pass_does_not_hide_the_move_to_the_anchor() {
+        // The anchor is where the press that latched it landed: a press of this pass at another point is no
+        // press at the anchor, and the move to the anchor is the drag back to it.
+        let anchor = LogicalPosition::new(120.0, 523.0);
+        let pass = [
+            event(EventType::MouseMove, anchor, PRIMARY_POINTER_SEAT),
+            event(EventType::MouseDown, LogicalPosition::new(10.0, 10.0), PRIMARY_POINTER_SEAT),
+        ];
+        assert_eq!(selection_drags(&pass, anchor), vec![(anchor, anchor)]);
     }
 }

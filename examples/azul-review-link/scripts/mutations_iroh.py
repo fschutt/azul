@@ -28,9 +28,6 @@ M = [
  (F,"config = config.with_secret_key(U8Vec::from(key.to_vec()));","let _ = key;","the key is not used"),
  (F,"        if ticket.is_empty() {\n            return Err(\"there is no address to dial\".to_string());\n        }\n","","an empty ticket is dialed"),
  (F,"rtt_ms: u32::try_from(stats.rtt_us / 1_000).unwrap_or(u32::MAX),","rtt_ms: u32::try_from(stats.rtt_us).unwrap_or(u32::MAX),","the round trip is in microseconds"),
- (F,"                        if kept.len() >= MAX_NEWS {\n                            kept.remove(0);\n                        }\n","","the queue of news has no cap"),
- (F,"                            kept.remove(0);","                            kept.pop();","a full queue of news drops the newest and keeps the oldest"),
- (F,".find(|peer| peer.endpoint_id.as_str() == id)",".find(|_peer| true)","the addresses of a neighbour are those of the first one listed"),
  (F,".with_local_discovery(options.local_discovery);",".with_local_discovery(true);","the local discovery cannot be turned off"),
  (F,"        if let Some(text) = &options.advertised {\n            config = config.with_advertised(text.as_str());\n        }\n","","the advertised text is not set"),
 ]

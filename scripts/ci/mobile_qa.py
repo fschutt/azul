@@ -259,7 +259,7 @@ FALLBACK_LINE = re.compile(r"\[render\] gpu unavailable at (\w+): (.*?); drawing
 # The GPU path's first picture: iOS says `[iOS GPU] first frame 1206x2622: ...`, and every phone writes `[render] frames n=..` lines while
 # frames follow one another. On a software GL the first GL frame comes 9-10 s after the start (every WebRender shader is compiled at first
 # use) and the window is BLACK until then: a screenshot before that line is not a picture of the GPU path.
-GPU_FIRST_FRAME = re.compile(r"\[(?:iOS|Android) GPU\] first frame \d+x\d+|\[render\] frames n=\d+")
+GPU_FIRST_FRAME = re.compile(r"\[(?:iOS|Android) GPU\] first frame \d+x\d+|\[render\] first GPU frame: [\d.]+ ms|\[render\] frames n=\d+")
 
 
 def gpu_frame_presented(text):
@@ -454,6 +454,61 @@ def node_checked(xml_text, label):
         if attrs.get("checkable") == "true" and label in (attrs.get("content-desc"), attrs.get("text")):
             return attrs.get("checked") == "true"
     return None
+
+
+PERMISSION_PACKAGES = ("permissioncontroller", "packageinstaller", "com.android.systemui:id/permission")
+PERMISSION_BUTTON_IDS = re.compile(r"permission_(allow|deny)[a-z_]*button|permission_message|grant_dialog|one_time_button", re.I)
+PERMISSION_TEXTS = ("allow", "don't allow", "dont allow", "while using the app", "only this time", "deny")
+
+
+def detect_permission_dialog(focus, ui_xml, package=""):
+    """Is a SYSTEM permission dialog on the screen of an app that was just started? `focus` = the window `dumpsys window` names as the focus,
+    `ui_xml` = a `uiautomator dump`. -> a short description of what shows, or None. A dialog is: the focused window belongs to the permission
+    controller (or the package installer), or the dump holds the controller's buttons (`permission_allow_button`, `permission_deny_button`, ...)
+    or a button of another package that says Allow / Don't allow / While using the app."""
+    focus = focus or ""
+    if any(w in focus.lower() for w in PERMISSION_PACKAGES) and package not in focus:
+        return f"the focused window is the system's: {focus.strip()[:100]}"
+    for m in re.finditer(r"<node\b([^>]*)>", ui_xml or ""):
+        attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', m.group(1)))
+        pkg, rid, text = attrs.get("package", ""), attrs.get("resource-id", ""), (attrs.get("text") or attrs.get("content-desc") or "").strip().lower()
+        if "permissioncontroller" in pkg or PERMISSION_BUTTON_IDS.search(rid):
+            return f"the dump holds the permission controller's node {rid or pkg!r} {text!r}"
+        if package and pkg and pkg != package and attrs.get("class", "").endswith("Button") and text in PERMISSION_TEXTS:
+            return f"a button {text!r} of {pkg}"
+    return None
+
+
+def ios_permission_prompts(log_text, bundle=""):
+    """The lines of the Simulator's log (tccd, SpringBoard) that say a permission prompt was put up for `bundle` (or any app when it is empty):
+    tccd writes `AUTHREQ_PROMPTING` for a prompt it shows."""
+    found = []
+    for line in (log_text or "").splitlines():
+        if "AUTHREQ_PROMPTING" in line and (not bundle or bundle in line):
+            found.append(line.strip()[:200])
+    return found
+
+
+def pick_target(xml_text, label):
+    """The centre (x, y) of the node of a `uiautomator dump` a person would TOUCH for `label`: of the nodes named `label` (text or
+    content-desc) that have a box, the editable field (`EditText`) first, then a focusable or clickable one, then the first. A field and
+    the label above it carry the same name in AzWidgets ('TextInput' is a span and an EditText): the first match is the label, and a
+    tap on a label focuses nothing. -> (x, y) or None."""
+    found = []
+    for order, m in enumerate(re.finditer(r"<node\b([^>]*)>", xml_text)):
+        attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', m.group(1)))
+        if label not in (attrs.get("content-desc"), attrs.get("text")):
+            continue
+        b = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", attrs.get("bounds", ""))
+        if not b:
+            continue
+        l, t, r, bt = (int(v) for v in b.groups())
+        if r <= l or bt <= t:
+            continue
+        editable = attrs.get("class", "").endswith("EditText")
+        interactive = attrs.get("focusable") == "true" or attrs.get("clickable") == "true"
+        found.append((0 if editable else 1 if interactive else 2, order, ((l + r) // 2, (t + bt) // 2)))
+    return min(found)[2] if found else None
 
 
 def parse_bounds(xml_text):
@@ -742,24 +797,31 @@ def device_is_software(device):
     return bool(device and SOFTWARE_DEVICE.search(device))
 
 
-GPU_FIRST_FRAME_SECONDS = 120
+GPU_FIRST_FRAME_SECONDS = 240       # the emulator's software GL takes a minute or two for the first GL frame (every shader compiles at first use)
 IDLE_SECONDS = 4.0         # an idle window is watched this long for frames lines (a window that draws while nothing moves)
 SWIPE_SECONDS = 4.0        # the scripted swipe of the render-mode step: at least three full seconds of frames lines
 
 
-def wait_for_gpu_frame(read_log, seconds, sleep=time.sleep, clock=time.time):
+def wait_for_gpu_frame(read_log, seconds, sleep=time.sleep, clock=time.time, silence=20.0):
     """After a `gpu` launch: wait until the engine's log (`read_log()` -> text) says the GPU path presented a frame, up to `seconds`.
-    -> seconds waited when it did, 0.0 when the log says the request fell back to the CPU (nothing to wait for) or names no GPU path at all,
-    None when the time ran out first."""
+    -> seconds waited when it did, 0.0 when there is nothing to wait for (the log says the request fell back to the CPU, the CPU present
+    path is writing its frames, or the engine has said nothing about a renderer and nothing at all for `silence` seconds: a build without a
+    GPU path), None when the time ran out first."""
     t0 = clock()
+    last_len, last_change = -1, t0
     while True:
         text = read_log()
         ran, _requested, _device = backend_ran(text)
         if gpu_frame_presented(text):
             return clock() - t0
-        if ran == "cpu":
+        if ran == "cpu" or (ran == "unknown" and "[Android] present" in text):
             return 0.0
-        if clock() - t0 >= seconds:
+        now = clock()
+        if len(text) != last_len:
+            last_len, last_change = len(text), now
+        elif ran == "unknown" and now - last_change >= silence:
+            return 0.0
+        if now - t0 >= seconds:
             return None
         sleep(1.0)
 
@@ -912,10 +974,8 @@ class Android:
     def find_label(self, label):
         """The centre of the first on-screen accessibility node named `label` (uiautomator dump of the window), or None."""
         self.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
-        for name, cx, cy in parse_bounds(self.sh("cat /sdcard/qa-ui.xml")):
-            if name == label and cx > 0 and cy > 0:
-                return cx, cy
-        return None
+        at = pick_target(self.sh("cat /sdcard/qa-ui.xml"), label)
+        return at if at and at[0] > 0 and at[1] > 0 else None
 
     def tap_label(self, label, fallback=None):
         """Tap the node named `label`; when the tree does not show it, tap `fallback` (x, y) instead. -> (x, y, how)"""
@@ -1179,6 +1239,11 @@ def android_scenarios(args):
         state["portrait"] = dev.look(s, "portrait")
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
+        # a fresh install, nothing granted: no system permission dialog may stand over the app 5 s after its first frame
+        dev.settle(2.0)
+        dev.sh("uiautomator dump /sdcard/qa-perm.xml", timeout=40)
+        dialog = detect_permission_dialog(dev.sh("dumpsys window | grep -E 'mCurrentFocus'"), dev.sh("cat /sdcard/qa-perm.xml"), args.package)
+        s.check("no system permission dialog stands over the app 5 s after its first frame (a fresh install, nothing granted)", dialog is None, dialog or "")
         # what the app costs when nothing happens
         pid = dev.pid()
         if pid:
@@ -2217,6 +2282,11 @@ def ios_scenarios(args):
         panics = [ln for ln in (err_txt + out_txt).splitlines() if "panicked" in ln or "unexpected panic" in ln or "FATAL" in ln]
         s.check("the console shows no panic", not panics, panics[0][:200] if panics else "")
         s.note(f"console: {len(out_txt.splitlines())} stdout lines, {len(err_txt.splitlines())} stderr lines")
+        # a fresh install, nothing granted: tccd must not have put up a permission prompt for the app (its log says AUTHREQ_PROMPTING)
+        dev.settle(2.0)
+        rc, tcc = dev.simctl("spawn", args.udid, "log", "show", "--last", "2m", "--predicate", 'process == "tccd"', "--style", "compact", timeout=120)
+        prompts = ios_permission_prompts(tcc if rc == 0 else "", args.bundle)
+        s.check("no permission prompt was put up for the app after a fresh install (tccd's log)", not prompts, prompts[0] if prompts else "", required=False)
 
     run.step("03-cold-start", "start the app from nothing: first frame, portrait picture, no panic, no crash report", s_cold)
 
