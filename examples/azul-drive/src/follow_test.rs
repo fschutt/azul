@@ -103,7 +103,7 @@ fn no_row_and_no_number_move_nothing() {
     assert_eq!(follow.scrolled(f32::NAN, Some("b"), &["a"]), Step::Nothing);
     assert_eq!(follow.scrolled(f32::INFINITY, Some("b"), &["a"]), Step::Nothing);
     follow.app_scrolled(f32::NAN);
-    assert_eq!(follow, Follow { last: 50.0, own: None });
+    assert_eq!(follow, Follow { last: 50.0, ..Follow::default() });
 }
 
 /// The selection a scroll leaves is exactly the top row, so Delete, Move to and Rename act on the
@@ -142,4 +142,60 @@ fn the_preview_shows_the_first_row_until_a_row_is_selected() {
     assert_eq!(subject(None, Some("a")), Some("a"));
     assert_eq!(subject(Some("c"), Some("a")), Some("c"));
     assert_eq!(subject::<&str>(None, None), None);
+}
+
+/// A glide reports nothing of its own: the watch reads the list's offset every tick, finds it moving for as
+/// long as it glides, resting for the ticks after, and settled - the watch over - when it has stayed for a
+/// quarter of a second.
+#[test]
+fn the_watch_follows_a_glide_and_ends_when_the_list_has_rested() {
+    let mut follow = Follow::default();
+    assert!(follow.start_watch(0.0), "the first scroll starts the watch");
+    assert!(!follow.start_watch(0.0), "one watch at a time");
+    assert!(follow.is_watching());
+    for offset in [30.0, 75.0, 120.0, 150.0, 165.0, 170.0] {
+        assert_eq!(follow.watch(offset), Watch::Moving, "the glide is at {offset}");
+    }
+    for _ in 1..REST_TICKS {
+        assert_eq!(follow.watch(170.0), Watch::Resting);
+    }
+    assert_eq!(follow.watch(170.0), Watch::Settled);
+    assert!(!follow.is_watching(), "the watch is over");
+    assert!(follow.start_watch(170.0), "the next scroll starts a new one");
+}
+
+/// A pause shorter than a rest does not end the watch: the list moves on and the count starts again.
+#[test]
+fn a_short_pause_does_not_end_the_watch() {
+    let mut follow = Follow::default();
+    follow.start_watch(0.0);
+    assert_eq!(follow.watch(100.0), Watch::Moving);
+    for _ in 1..REST_TICKS {
+        assert_eq!(follow.watch(100.0), Watch::Resting);
+    }
+    assert_eq!(follow.watch(140.0), Watch::Moving, "it moved just before the rest was over");
+    for _ in 1..REST_TICKS {
+        assert_eq!(follow.watch(140.0), Watch::Resting);
+    }
+    assert_eq!(follow.watch(140.0), Watch::Settled);
+}
+
+/// A folder opening ends no watch: the one that runs reads the new list; a number that is no offset is a
+/// list on the move (the next read decides).
+#[test]
+fn a_new_folder_keeps_the_watch_and_a_number_that_is_no_offset_is_no_rest() {
+    let mut follow = Follow::default();
+    follow.start_watch(0.0);
+    follow.reset();
+    assert!(follow.is_watching());
+    assert_eq!(follow.watch(f32::NAN), Watch::Moving);
+    follow.end_watch();
+    assert!(!follow.is_watching());
+}
+
+/// The watch's rhythm: a read every 33 ms, a rest of 8 reads.
+#[test]
+fn the_watch_reads_thirty_times_a_second_and_rests_for_a_quarter_of_a_second() {
+    assert_eq!(WATCH_MS, 33);
+    assert!(REST_TICKS as u64 * WATCH_MS >= 250);
 }

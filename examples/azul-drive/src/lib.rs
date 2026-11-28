@@ -2581,7 +2581,7 @@ pub(crate) fn go(
     s.editing_path = false;
     s.location_text.clear();
     s.sheet = None;
-    s.follow = follow::Follow::default();
+    s.follow.reset();
     s.renaming = None;
     // A search ends where its folder is left (a result's folder opens without it): the box
     // empties too - what was typed there outranks the rebuild until the app sets it.

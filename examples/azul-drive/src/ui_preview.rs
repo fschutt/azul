@@ -17,10 +17,12 @@
 
 use azcloud_kit::sync::session::FileState;
 use azul::{
-    callbacks::PreviewOnEventCallbackType,
+    callbacks::{PreviewOnEventCallbackType, TimerCallbackInfo, TimerCallbackReturn},
     dom::{DomId, NodeId},
     prelude::*,
     str::String as AzString,
+    task::{Timer, TimerId},
+    time::{Duration, SystemTimeDiff},
     widgets::{
         Preview, PreviewBanner, PreviewBannerTone, PreviewDetail, PreviewDock, PreviewEvent,
         PreviewEventKind, SidebarSurface,
@@ -167,6 +169,67 @@ pub(crate) fn follow_scroll(
     }
     if follow::load_due(settled) {
         actions::request_preview(info, app, s);
+    }
+}
+
+/// A scroll of the folder view began (or goes on): while the list moves - a flick or a wheel notch
+/// glides on after the last input and reports nothing of its own - a timer reads where it is every
+/// [`follow::WATCH_MS`] ms and lets the selection and the preview follow its top edge; it ends itself
+/// when the list has rested. One timer at a time.
+pub(crate) fn start_watch(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    if !follow::follows_scroll(s.phone) || ui_view::uses_icon_grid(s) {
+        return;
+    }
+    if !s.follow.start_watch(s.view_scroll.0) {
+        return;
+    }
+    let get_time = info.get_system_time_fn();
+    info.add_timer(
+        TimerId::unique(),
+        Timer::create(app.clone(), on_watch, get_time)
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(follow::WATCH_MS))),
+    );
+}
+
+/// Where the folder view is scrolled to now, if it is there.
+fn scroll_offset(info: &CallbackInfo) -> Option<f32> {
+    let dom = DomId { inner: 0 };
+    let node = info.get_node_id_by_id_attribute(dom, ids::FOLDER_ROWS);
+    let raw = node.into_raw().checked_sub(1)?;
+    info.get_scroll_offset_for_node(dom, NodeId { inner: raw })
+        .into_option()
+        .map(|p| p.y)
+}
+
+/// A read of the watch: the selection and the preview follow the row at the top edge while the list
+/// moves; the read that finds it rested is the settled one (the preview's own content is asked for)
+/// and the timer ends.
+extern "C" fn on_watch(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let mut callback_info = info.callback_info;
+    let app = data.clone();
+    let Some(mut guard) = data.downcast_mut::<DriveState>() else {
+        return TimerCallbackReturn::continue_unchanged();
+    };
+    let s = &mut *guard;
+    if !s.follow.is_watching() {
+        return TimerCallbackReturn::terminate_unchanged();
+    }
+    let Some(offset) = scroll_offset(&callback_info) else {
+        s.follow.end_watch();
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    match s.follow.watch(offset) {
+        follow::Watch::Moving => {
+            s.view_scroll.0 = offset;
+            follow_scroll(&mut callback_info, &app, s, offset, false);
+            TimerCallbackReturn::continue_unchanged()
+        }
+        follow::Watch::Resting => TimerCallbackReturn::continue_unchanged(),
+        follow::Watch::Settled => {
+            s.view_scroll.0 = offset;
+            follow_scroll(&mut callback_info, &app, s, offset, true);
+            TimerCallbackReturn::terminate_unchanged()
+        }
     }
 }
 

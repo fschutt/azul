@@ -1692,6 +1692,10 @@ fn view_scrolled(mut data: RefAny, mut info: CallbackInfo, ended: bool) -> Updat
     // A phone's selection and preview follow the row at the top edge, instantly: only the pane
     // and the rows draw again.
     crate::ui_preview::follow_scroll(&mut info, &handle, s, offset, ended);
+    if !ended {
+        // The glide after the last input has no report of its own: a timer reads it.
+        crate::ui_preview::start_watch(&mut info, &handle, s);
+    }
     let now = std::time::Instant::now();
     if ended {
         s.scroll_work_at = None;

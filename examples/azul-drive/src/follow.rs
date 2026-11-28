@@ -16,6 +16,11 @@
 //! a picture, a PDF page - is asked for when the scroll has settled ([`load_due`]), and the pane
 //! keeps the picture it had meanwhile, so a fast scroll makes no flicker of loading notices.
 //!
+//! A flick or a wheel notch glides on after the last input, and the glide reports nothing of its own:
+//! the first report of a scroll starts a WATCH ([`Follow::start_watch`]) - a timer that reads where the
+//! list is every [`WATCH_MS`] ms ([`Follow::watch`]) and ends when it has rested for [`REST_TICKS`]
+//! ticks - so the selection follows the whole glide, not only its start and its end.
+//!
 //! A desktop's wheel does not move the selection: the mode is a touch layout's ([`follows_scroll`],
 //! the one place that says so). This module holds the rules, without azul types, so that they can
 //! be tested; `ui_preview::follow_scroll` is what runs them from the view's scroll callback.
@@ -35,6 +40,24 @@ const MOVED_PX: f32 = 0.5;
 /// that scroll.
 const OWN_PX: f32 = 1.5;
 
+/// How often the watch reads the list's offset while a scroll runs, ms.
+pub(crate) const WATCH_MS: u64 = 33;
+
+/// How many reads in a row the list must stay where it is before the watch counts its scroll as ended
+/// (a quarter of a second: a glide slows down gently, and a pause of a finger on the glass is shorter).
+pub(crate) const REST_TICKS: u32 = 8;
+
+/// What a read of the watch found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Watch {
+    /// The list moved since the read before.
+    Moving,
+    /// It stayed, for fewer reads than a rest takes.
+    Resting,
+    /// It has rested: the scroll is over and the watch ends.
+    Settled,
+}
+
 /// What a scroll asks of the selection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Step {
@@ -52,6 +75,12 @@ pub(crate) struct Follow {
     /// Where the app scrolled the list to itself, until the report of it came (a key's reveal, a
     /// folder opening at its top).
     own: Option<f32>,
+    /// The offset the watch read last.
+    seen: f32,
+    /// Reads in a row at that offset.
+    rest: u32,
+    /// A watch (a timer) runs.
+    watching: bool,
 }
 
 impl Follow {
@@ -60,6 +89,55 @@ impl Follow {
         if offset.is_finite() {
             self.own = Some(offset);
         }
+    }
+
+    /// The folder changed: what the last scroll left is gone. A running watch stays - it reads the
+    /// new list from here on.
+    pub(crate) fn reset(&mut self) {
+        self.last = 0.0;
+        self.own = None;
+    }
+
+    /// A scroll began at `offset`: whether a watch is to start for it (`false`: one runs already).
+    pub(crate) fn start_watch(&mut self, offset: f32) -> bool {
+        if self.watching {
+            return false;
+        }
+        self.watching = true;
+        self.rest = 0;
+        self.seen = if offset.is_finite() { offset } else { 0.0 };
+        true
+    }
+
+    /// Whether a watch runs (the timer ends itself when the folder changed under it).
+    pub(crate) fn is_watching(&self) -> bool {
+        self.watching
+    }
+
+    /// The watch read the list at `offset`: moving while the offset changes, resting while it stays,
+    /// settled - and the watch over - when it has stayed for [`REST_TICKS`] reads.
+    pub(crate) fn watch(&mut self, offset: f32) -> Watch {
+        if !offset.is_finite() || (offset - self.seen).abs() >= MOVED_PX {
+            if offset.is_finite() {
+                self.seen = offset;
+            }
+            self.rest = 0;
+            return Watch::Moving;
+        }
+        self.rest += 1;
+        if self.rest >= REST_TICKS {
+            self.watching = false;
+            self.rest = 0;
+            Watch::Settled
+        } else {
+            Watch::Resting
+        }
+    }
+
+    /// The watch ends without a verdict (the list is gone).
+    pub(crate) fn end_watch(&mut self) {
+        self.watching = false;
+        self.rest = 0;
     }
 
     /// The list reports its scroll offset `offset` with the row `top` at its top edge (`None`: no
