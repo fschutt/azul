@@ -169,6 +169,28 @@ class TextSizeJobTests(unittest.TestCase):
         self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "text_size_job.sh")]).returncode, 0)
 
 
+class IosTabsJobDevicesTests(unittest.TestCase):
+    """ios_tabs_job.sh: both phones by default, one phone for a lean job (AZ_TABS_IOS_DEVICES, device types separated by ;)"""
+    TEXT = (HERE / "ios_tabs_job.sh").read_text(encoding="utf-8")
+
+    def test_the_default_is_both_phones_in_the_old_order(self):
+        self.assertIn('AZ_TABS_IOS_DEVICES:-iPhone 16 Pro;iPhone SE (3rd generation)', self.TEXT)
+        self.assertLess(self.TEXT.index("iPhone 16 Pro;iPhone SE"), self.TEXT.index('for dev in "${device_list[@]}"'))
+
+    def test_the_device_types_are_split_on_semicolons_so_that_names_with_spaces_survive(self):
+        self.assertIn("IFS=';' read -r -a device_list", self.TEXT)
+
+    def test_the_script_is_valid_shell(self):
+        import subprocess
+        self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "ios_tabs_job.sh")]).returncode, 0)
+
+    def test_the_split_gives_the_names_back_whole(self):
+        import subprocess
+        out = subprocess.run(["bash", "-c", 'devices="iPhone 16 Pro;iPhone SE (3rd generation)"; IFS=";" read -r -a l <<<"$devices"; printf "%s|" "${l[@]}"'],
+                             capture_output=True, text=True).stdout
+        self.assertEqual(out, "iPhone 16 Pro|iPhone SE (3rd generation)|")
+
+
 class E2eJobTests(unittest.TestCase):
     """e2e_job.sh: ONE runner job of the e2e session for the scenario files named: the step responses (the debug server's run_e2e_tests answer) are kept"""
     TEXT = (HERE / "e2e_job.sh").read_text(encoding="utf-8")

@@ -32,6 +32,10 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 # CSV import / export: the crate AzSheets already has (Cargo.lock 1.4.0), no new crate.
 csv = "1.4"
 
+# The Android entry (src/lib.rs): the library's constructor starts the app, as in the other phone apps.
+[target.'cfg(target_os = "android")'.dependencies]
+ctor = "0.2"
+
 [dev-dependencies]
 # The shared temporary folder for tests (azul_pim::testing::TempDir).
 azul-pim = { path = "../azul-pim", features = ["test-util"] }

@@ -369,8 +369,18 @@ class E2eVariantTest(unittest.TestCase):
     def test_the_real_manifest_passes_its_own_check_with_the_variant_in_it(self):
         self.assertTrue(self.m["lib"]["mobile-e2e"]["artifact_only"])
         # the phone apps whose QA variant the layout audit and the scripted checks of the phone QA drive
-        self.assertEqual([a["package"] for a in self.m["app"] if a.get("e2e")],
-                         ["AzWidgets", "AzMaps", "AzPaint", "AzMeet", "AzWriter", "AzCompanion", "AzCode", "AzERP"])
+        # (sorted, one per line: an app that joins the audit is one line more, whoever adds it)
+        self.assertEqual(sorted(a["package"] for a in self.m["app"] if a.get("e2e")),
+                         ["AzCalendar",
+                          "AzCode",
+                          "AzCompanion",
+                          "AzERP",
+                          "AzMail",
+                          "AzMaps",
+                          "AzMeet",
+                          "AzPaint",
+                          "AzWidgets",
+                          "AzWriter"])
         self.assertTrue(self.m["lib"]["mobile-e2e-iroh"]["artifact_only"])
         self.assertEqual([e for e in demo_apps.check(self.m) if "e2e" in e], [])
 
@@ -1799,7 +1809,7 @@ class MobileLibCommandTest(unittest.TestCase):
         self.assertEqual(self.mobile_lib("AzWriter"), (0, "mobile"))
 
     def test_an_app_that_has_no_phone_build_or_is_unknown_is_an_error(self):
-        self.assertEqual(self.mobile_lib("AzMail")[0], 1)
+        self.assertEqual(self.mobile_lib("AzTerm")[0], 1)                    # a desktop-only app
         self.assertEqual(self.mobile_lib("AzNoSuchApp")[0], 1)
         self.assertEqual(self.mobile_lib()[0], 2)
 
@@ -1813,7 +1823,8 @@ class MobileLibCommandTest(unittest.TestCase):
         self.assertEqual(self.e2e_lib("AzWidgets"), (0, "mobile-e2e"))
         self.assertEqual(self.e2e_lib("AzMeet"), (0, "mobile-e2e-iroh"))
         self.assertEqual(self.e2e_lib("AzCompanion"), (0, "mobile-e2e-iroh"))
-        self.assertEqual(self.e2e_lib("AzMail")[0], 1)           # no QA build
+        self.assertEqual(self.e2e_lib("AzMail"), (0, "mobile-e2e"))
+        self.assertEqual(self.e2e_lib("AzMonitor")[0], 1)        # a desktop app: no QA build
         self.assertEqual(self.e2e_lib()[0], 2)
 
 
@@ -1861,8 +1872,22 @@ class AndroidBuildAllScriptTest(unittest.TestCase):
         libs = sorted(e["variant"] for e in plan["libs_android"] if e["leg"] == "android-x86_64")
         self.assertEqual(libs, ["mobile", "mobile-e2e", "mobile-e2e-iroh", "mobile-iroh"])
         builds = {e["variant"]: sorted(e["apps"].split()) for e in plan["apps_android"] if e["leg"] == "android-x86_64"}
-        self.assertEqual(builds[""], ["AzCompanion", "AzERP", "AzMaps", "AzMeet", "AzPaint", "AzWidgets", "AzWriter"])
-        self.assertEqual(builds["mobile-e2e"], ["AzERP", "AzMaps", "AzPaint", "AzWidgets", "AzWriter"])
+        self.assertEqual(builds[""], ["AzCalendar",
+                                      "AzCompanion",
+                                      "AzERP",
+                                      "AzMail",
+                                      "AzMaps",
+                                      "AzMeet",
+                                      "AzPaint",
+                                      "AzWidgets",
+                                      "AzWriter"])
+        self.assertEqual(builds["mobile-e2e"], ["AzCalendar",
+                                                "AzERP",
+                                                "AzMail",
+                                                "AzMaps",
+                                                "AzPaint",
+                                                "AzWidgets",
+                                                "AzWriter"])
         self.assertEqual(builds["mobile-e2e-iroh"], ["AzCompanion", "AzMeet", "AzSelfTest"])   # AzSelfTest: QA only, and its LAN row uses iroh
         self.assertIn("plan --e2e", self.text)
         for name in ("mobile-e2e", "mobile-iroh"):

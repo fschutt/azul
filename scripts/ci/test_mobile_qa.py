@@ -1516,11 +1516,32 @@ class ExtraEnvTests(unittest.TestCase):
         self.assertEqual(e.png_strings({"x": "iVBOR"}), [])
         self.assertEqual(e.png_strings(None), [])
 
+    def test_a_data_uri_is_a_picture_too_and_comes_back_without_its_prefix(self):
+        import mobile_e2e as e
+        a = "iVBORw0KGgo" + "AAAA"
+        self.assertEqual(e.png_strings({"screenshot": "data:image/png;base64," + a}), [a])
+        self.assertEqual(e.png_strings("data:image/png;base64,notapng"), [])
+
+    def test_one_picture_per_step_even_when_the_step_carries_it_twice(self):
+        import mobile_e2e as e
+        a, b, c = ("iVBORw0KGgo" + x * 4 for x in "ABC")
+        uri = lambda x: "data:image/png;base64," + x     # noqa: E731
+        steps = [{"op": "wait_frame", "status": "pass"},
+                 {"op": "take_screenshot", "status": "pass", "screenshot": uri(a), "response": {"data": {"data": uri(a)}}},
+                 {"op": "get_animations", "status": "pass", "response": {"data": {"active": 0}}},
+                 {"op": "take_screenshot", "status": "pass", "response": {"data": {"value": {"data": uri(b)}}}},
+                 {"op": "take_screenshot", "status": "pass", "screenshot": uri(c)}]
+        answer = {"status": "ok", "data": {"results": [{"name": "t", "status": "pass", "steps": steps}]}}
+        self.assertEqual(e.scenario_pictures(answer), [a, b, c])
+        self.assertEqual(e.scenario_pictures({"data": {"value": {"results": [{"steps": steps[3:4]}]}}}), [b])      # the answer wrapped in value
+        self.assertEqual(e.scenario_pictures({"odd": [uri(a), uri(b)]}), [a, b])                                     # not the usual shape: every PNG in order
+
     def test_the_session_uses_the_helpers_on_both_platforms(self):
         source = (Path(__file__).resolve().parent / "mobile_e2e.py").read_text(encoding="utf-8")
         self.assertIn("android_env_property(args.port, qa_extra_env())", source)
         self.assertIn('extra_env=dict({"AZ_DEBUG": str(args.port), "AZ_DUMP_PRESENT": "1"}, **qa_extra_env())', source)
         self.assertIn("scenario-{name}-shot-{k:03d}.png", source)
+        self.assertIn("enumerate(scenario_pictures(answer))", source)
 
 
 if __name__ == "__main__":

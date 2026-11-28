@@ -215,6 +215,13 @@ pub fn start() {
     App::create(RefAny::new(erp), config).run(window);
 }
 
+/// The Android entry: the loaded library's constructor starts the app (the other phone apps do the same).
+#[cfg(target_os = "android")]
+#[ctor::ctor]
+fn azul_android_init() {
+    start();
+}
+
 /// The window is up: the `--shot` timer, then the records on the file thread.
 extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app = data.clone();
