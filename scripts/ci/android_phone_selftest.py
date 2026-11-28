@@ -82,6 +82,19 @@ def people_to_do(report):
     return [(r.get("id", "?"), r.get("detail", "")) for r in report.get("rows", []) if r.get("verdict") == "NEEDS-HUMAN"]
 
 
+def permission_dialog_focused(dumpsys_window):
+    """Whether the focused window in the text of `adb shell dumpsys window` is the system's permission dialog
+    (GrantPermissionsActivity of the permission controller, which has different package names on AOSP, Google and vendor
+    builds). The unattended pass must never show one: a permission dialog comes only when the person asks for the feature."""
+    for line in dumpsys_window.splitlines():
+        if "mCurrentFocus" not in line and "mFocusedWindow" not in line:
+            continue
+        low = line.lower()
+        if "grantpermissionsactivity" in low or "permissioncontroller" in low:
+            return True
+    return False
+
+
 def find_adb():
     """`adb` from PATH or from the Android SDK the environment names; None when there is none."""
     found = shutil.which("adb")
@@ -100,6 +113,7 @@ class Phone:
     def __init__(self, adb, serial):
         self.adb = adb
         self.serial = serial
+        self.dialog_seen = False
 
     def run(self, *args, timeout=60, check=False):
         cmd = [self.adb] + (["-s", self.serial] if self.serial else []) + list(args)
@@ -122,11 +136,19 @@ class Phone:
         self.run("logcat", "-c")
         self.sh(f"am start -n {PACKAGE}/{ACTIVITY}", check=True)
 
-    def wait_for_report(self, seconds, after=0):
-        """The newest report in logcat once there are more than `after`, else the newest there is (or None)."""
+    def permission_dialog_up(self):
+        """Whether the system's permission dialog has the focus right now."""
+        return permission_dialog_focused(self.sh("dumpsys window | grep -E 'mCurrentFocus|mFocusedWindow'"))
+
+    def wait_for_report(self, seconds, after=0, watch_dialog=False):
+        """The newest report in logcat once there are more than `after`, else the newest there is (or None). With
+        `watch_dialog` the focused window is looked at on every round: `self.dialog_seen` says whether the system's
+        permission dialog was ever in front."""
         deadline = time.time() + seconds
         reports = []
         while time.time() < deadline:
+            if watch_dialog and self.permission_dialog_up():
+                self.dialog_seen = True
             reports = reports_in(self.logcat())
             if len(reports) > after:
                 return reports[-1], reports
@@ -187,7 +209,7 @@ def main(argv=None):
     phone.sh("setprop debug.az.selftest 1")
     try:
         phone.launch()
-        unattended, _ = phone.wait_for_report(UNATTENDED_WAIT_S)
+        unattended, _ = phone.wait_for_report(UNATTENDED_WAIT_S, watch_dialog=True)
     finally:
         phone.sh("setprop debug.az.selftest 0")
     (out / "logcat.txt").write_text(phone.logcat(), encoding="utf-8")
@@ -226,6 +248,9 @@ def main(argv=None):
             print("\n".join(table(attended)))
 
     bad = failures(unattended) + (failures(attended) if attended else [])
+    if phone.dialog_seen:
+        bad.append("permission-dialog-in-unattended-run")
+        print("\nA PERMISSION DIALOG SHOWED UP IN THE UNATTENDED RUN: nothing may ask for a permission until a person asks for the feature.")
     print()
     if bad:
         print("FAILED: " + ", ".join(sorted(set(bad))) + f"  (the log: {out / 'logcat.txt'})")
