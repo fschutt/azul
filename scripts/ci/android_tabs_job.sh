@@ -8,6 +8,9 @@
 #   scripts/remote.sh run <full sha | ref> ubuntu-22.04 'bash scripts/ci/android_tabs_job.sh' --codegen --artifacts 'demo-out/qa-tabs/**
 #   demo-out/results/*
 #   demo-out/plan.txt'
+# AZ_TABS_FLICKER=1 adds, AFTER the tab strip session, the plain AzWidgets (the phone library without the QA hooks, built here too) and the flicker and
+# jitter audit of it with the QA APK for the pan (scripts/ci/qa_android_flicker.sh; add 'demo-out/qa-flicker/**' to the artifacts): the black screens
+# at the start and on resume (E46, E47), idle redraws, the pan of the page.
 set -uxo pipefail
 target=x86_64-linux-android
 col=android-x86_64
@@ -40,4 +43,17 @@ apk="demo-out/apps/AzWidgets-e2e-$col.apk"
 AZ_ANDROID_DEVICE=pixel_8 AZ_ANDROID_OVERLAYS=com.android.internal.display.cutout.emulation.hole \
   timeout 4500 bash scripts/ci/android_qa.sh demo-out/qa-tabs "$apk" swiftshader_indirect "AzWidgets tabs" tabs
 echo "SESSION tabs: exit $?"
+if [ "${AZ_TABS_FLICKER:-}" = 1 ]; then
+  plain_features="$(python3 scripts/demo_apps.py features "$col" mobile)"
+  start=$(date +%s)
+  if bash scripts/demo_lib.sh android "$target" "$plain_features" "demo-out/libs/demolib-$col-mobile" \
+     && python3 scripts/demo_build.py android --target "$target" --apps AzWidgets --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant ""; then
+    echo "PLAIN SECONDS: $(( $(date +%s) - start ))"
+    mkdir -p flick && cp "demo-out/apps/AzWidgets-$col.apk" "$apk" flick/
+    timeout 2400 bash scripts/ci/qa_android_flicker.sh flick
+    echo "SESSION flicker: exit $?"
+  else
+    echo "the plain AzWidgets did not build: no flicker audit"
+  fi
+fi
 exit 0
