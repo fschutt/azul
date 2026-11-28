@@ -297,6 +297,71 @@ pub fn get_text_scale(styled_dom: &StyledDom) -> f32 {
         .map_or(1.0, |context| context.preferences.effective_text_scale())
 }
 
+/// The custom property (written `--azul-text-scale-max`) that caps the user's text scale for the
+/// subtree it is declared on, and for everything below it (custom properties inherit).
+///
+/// The text scale is for CONTENT. Chrome that must not grow with it - a collapsed rail of icon glyphs,
+/// a status-bar band, a tab strip's pill - declares `--azul-text-scale-max: 1.3` and its text takes
+/// `min(scale, 1.3)`. A cap below 1.0 is read as 1.0 (it limits GROWTH: smaller text is the
+/// user's choice and stays), and a value that is not a number caps nothing.
+pub const TEXT_SCALE_MAX_PROPERTY: &str = "azul-text-scale-max";
+
+/// Every node's cap of the text scale ([`TEXT_SCALE_MAX_PROPERTY`]) in one pass; `f32::INFINITY`
+/// for a node with none. EMPTY when no node has one (the common document: it has no variables or
+/// none of this name).
+#[cfg_attr(feature = "web_lift", allow(dead_code))]
+fn compute_all_text_scale_caps(styled_dom: &StyledDom) -> Vec<f32> {
+    let envs = &styled_dom.css_property_cache.ptr.custom_property_envs;
+    if envs.is_empty() {
+        return Vec::new();
+    }
+    let n = styled_dom.node_data.len();
+    let mut caps: Vec<f32> = Vec::new();
+    for idx in 0..n {
+        let cap = envs
+            .get(
+                idx,
+                azul_css::dynamic_selector::PseudoStateType::Normal,
+                TEXT_SCALE_MAX_PROPERTY,
+            )
+            .and_then(|value| value.trim().parse::<f32>().ok())
+            .filter(|cap| cap.is_finite() && *cap > 0.0);
+        if let Some(cap) = cap {
+            if caps.is_empty() {
+                caps = vec![f32::INFINITY; n];
+            }
+            caps[idx] = cap;
+        }
+    }
+    caps
+}
+
+/// The text scale of ONE node: the window's ([`get_text_scale`]) under the cap of its subtree
+/// ([`TEXT_SCALE_MAX_PROPERTY`]). The cap limits growth only.
+#[must_use]
+pub fn get_node_text_scale(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+    let scale = get_text_scale(styled_dom);
+    if scale <= 1.0 {
+        return scale;
+    }
+    // The memo's `OnceLock` mis-lifts on the web lift (see `get_element_font_size`): no caps there.
+    #[cfg(feature = "web_lift")]
+    {
+        let _ = dom_id;
+        scale
+    }
+    #[cfg(not(feature = "web_lift"))]
+    {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .resolved_text_scale_caps
+            .get_or_init(|| compute_all_text_scale_caps(styled_dom))
+            .get(dom_id.index())
+            .map_or(scale, |cap| scale.min(cap.max(1.0)))
+    }
+}
+
 /// Whether the document is laid out under a text scale other than 1.0 (the font-size memo then
 /// answers through the scale, and the style of a node is resolved by [`get_element_font_size`]).
 #[must_use]
@@ -313,7 +378,7 @@ pub fn document_has_text_scale(styled_dom: &StyledDom) -> bool {
 /// text scale ([`get_text_scale`]).
 #[must_use]
 pub fn get_effective_text_zoom(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
-    get_effective_zoom(styled_dom, dom_id) * get_text_scale(styled_dom)
+    get_effective_zoom(styled_dom, dom_id) * get_node_text_scale(styled_dom, dom_id)
 }
 
 /// [`zoomed_length`] for a length of TEXT (a line height, a letter or word spacing): an absolute
@@ -331,7 +396,7 @@ pub fn text_zoomed_length(
     let zoomed = zoomed_length(styled_dom, dom_id, metric, resolved);
     match metric {
         SizeMetric::Px | SizeMetric::Pt | SizeMetric::In | SizeMetric::Cm | SizeMetric::Mm => {
-            zoomed * get_text_scale(styled_dom)
+            zoomed * get_node_text_scale(styled_dom, dom_id)
         }
         _ => zoomed,
     }

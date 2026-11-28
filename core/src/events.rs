@@ -1017,6 +1017,9 @@ pub enum EventType {
     WindowFocusOut,
     /// System theme changed
     ThemeChange,
+    /// The system's style changed (the accessibility settings, the accent colour, the fonts ...):
+    /// the window was restyled for it. `WindowEventFilter::SystemStyleChanged`.
+    SystemStyleChange,
     /// Window DPI/scale factor changed (moved to different monitor)
     WindowDpiChanged,
     /// Window moved to a different monitor
@@ -2579,7 +2582,7 @@ fn matches_window_filter(
         MouseLeave, MouseMove, MouseOver, MouseUp, Moved, PenDoubleTap, PenDown, PenEnter,
         PenHover, PenLeave, PenMove, PenSqueeze, PenUp, PermissionChanged, PointerLockChange,
         RawMouseMotion, Resized, RightMouseDown, RightMouseUp, ScreenColorPicked, Scroll,
-        ScrollEnd, ScrollStart, SensorChanged, TextInput, ThemeChanged, TouchCancel, TouchEnd,
+        ScrollEnd, ScrollStart, SensorChanged, SystemStyleChanged, TextInput, ThemeChanged, TouchCancel, TouchEnd,
         TouchMove, TouchStart, VirtualKeyDown, VirtualKeyUp, WindowFocusLost, WindowFocusReceived,
     };
 
@@ -2643,6 +2646,7 @@ fn matches_window_filter(
         (FocusLost, EventType::Blur) => true,
         (CloseRequested, EventType::WindowClose) => true,
         (ThemeChanged, EventType::ThemeChange) => true,
+        (SystemStyleChanged, EventType::SystemStyleChange) => true,
         (WindowFocusReceived, EventType::WindowFocusIn) => true,
         (WindowFocusLost, EventType::WindowFocusOut) => true,
         (PointerLockChange, EventType::PointerLockChange) => true,
@@ -3561,6 +3565,10 @@ pub enum WindowEventFilter {
     CloseRequested,
     /// System theme changed (light/dark mode)
     ThemeChanged,
+    /// The system's style changed: the accessibility settings (text size, bold text, contrast,
+    /// reduced motion, ...), the accent colour, the fonts. The window has been restyled; an app
+    /// that draws or measures on its own reads `CallbackInfo::get_accessibility_preferences`.
+    SystemStyleChanged,
     /// Window received OS-level focus
     WindowFocusReceived,
     /// Window lost OS-level focus
@@ -3760,6 +3768,7 @@ impl WindowEventFilter {
             Self::FocusLost => None,
             Self::CloseRequested => None,
             Self::ThemeChanged => None,
+            Self::SystemStyleChanged => None,
             Self::WindowFocusReceived => None, // specific to window!
             Self::WindowFocusLost => None,     // specific to window!
             Self::PointerLockChange => None,   // specific to window!
@@ -4299,6 +4308,7 @@ static ALL_WINDOW: &[WindowEventFilter] = &[
     WindowEventFilter::FocusLost,
     WindowEventFilter::CloseRequested,
     WindowEventFilter::ThemeChanged,
+    WindowEventFilter::SystemStyleChanged,
     WindowEventFilter::WindowFocusReceived,
     WindowEventFilter::WindowFocusLost,
     WindowEventFilter::PointerLockChange,

@@ -1685,6 +1685,11 @@ pub struct CssPropertyCache {
     /// EMPTY when no node declares a zoom other than 1 - every lookup is
     /// then 1.0 without an index. Cleared with the font sizes.
     pub resolved_zooms: crate::sync::OnceLock<Vec<f32>>,
+    /// Per-node cap of the user's text scale (`--azul-text-scale-max`, an inherited custom
+    /// property), filled lazily by the layout (`solver3::getters::get_node_text_scale`).
+    /// EMPTY when no node declares one - every lookup is then the window's scale. Cleared with the
+    /// font sizes.
+    pub resolved_text_scale_caps: crate::sync::OnceLock<Vec<f32>>,
 
     /// What the ROOT of this DOM inherits from OUTSIDE it: the computed
     /// inheritable values of the node that hosts the DOM - a `VirtualView`'s
@@ -3591,6 +3596,7 @@ impl CssPropertyCache {
             variables_depend_on_context: false,
             resolved_font_sizes_px: crate::sync::OnceLock::new(),
             resolved_zooms: crate::sync::OnceLock::new(),
+            resolved_text_scale_caps: crate::sync::OnceLock::new(),
             inherited_from_host: Vec::new(),
             left_state_mask: 0,
             inline_overruled: alloc::collections::BTreeMap::new(),
@@ -3612,6 +3618,8 @@ impl CssPropertyCache {
         self.resolved_font_sizes_px = crate::sync::OnceLock::new();
         // A restyle can change a `zoom` as well (and with it every font size).
         self.resolved_zooms = crate::sync::OnceLock::new();
+        // and a cap of the text scale (a custom property)
+        self.resolved_text_scale_caps = crate::sync::OnceLock::new();
     }
 
     pub fn append(&mut self, other: &mut Self) {
@@ -3665,6 +3673,7 @@ impl CssPropertyCache {
         // Indices shifted — invalidate the font-size cache too.
         self.resolved_font_sizes_px = crate::sync::OnceLock::new();
         self.resolved_zooms = crate::sync::OnceLock::new();
+        self.resolved_text_scale_caps = crate::sync::OnceLock::new();
 
         // Invalidate compact cache since node IDs shifted
         self.compact_cache = None;

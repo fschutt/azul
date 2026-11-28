@@ -298,6 +298,53 @@ impl EventProvider for DocumentEditEventProvider {
     }
 }
 
+/// Whether the system's style changed since the last pass: raised when the window adopts a style
+/// that differs from the one it had (`LayoutWindow::set_system_style`), delivered ONCE as
+/// `EventType::SystemStyleChange` on the root, cleared by the dispatcher after determination.
+///
+/// Not a window-state field: the style is the system's, and the diff of two window states cannot see
+/// it (the light / dark mode alone is `ThemeChange`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SystemStyleNotice {
+    pending: bool,
+}
+
+impl SystemStyleNotice {
+    /// The style changed: the next pass says so.
+    pub fn raise(&mut self) {
+        self.pending = true;
+    }
+
+    /// The pass has collected the event.
+    pub fn clear_pending_event(&mut self) {
+        self.pending = false;
+    }
+
+    /// An event is waiting for the next pass.
+    #[must_use]
+    pub const fn is_pending(&self) -> bool {
+        self.pending
+    }
+}
+
+impl EventProvider for SystemStyleNotice {
+    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
+        if !self.pending {
+            return Vec::new();
+        }
+        vec![SyntheticEvent::new(
+            EventType::SystemStyleChange,
+            EventSource::User,
+            DomNodeId {
+                dom: DomId { inner: 0 },
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
+            },
+            timestamp,
+            EventData::None,
+        )]
+    }
+}
+
 /// The button, click, context-menu and movement events of ONE pointer seat,
 /// derived from its state delta.
 ///

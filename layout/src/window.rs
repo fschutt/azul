@@ -1867,6 +1867,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         recorded_size_queries: _,
         // A six-bit mask, keyed by nothing.
         recorded_style_dependencies: _,
+        // One flag.
+        system_style_notice: _,
         // Two flags, one language, and the app's language list - bounded by
         // the app's configuration, not by the document.
         depends_on_locale: _,
@@ -2413,6 +2415,9 @@ pub struct LayoutWindow {
     /// which is read conservatively - see
     /// `SystemStyleDependencies::dom_depends_on_change`.
     pub recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies,
+    /// The system's style changed since the last event pass: the dispatcher turns it into ONE
+    /// `SystemStyleChange` event, and clears it.
+    pub system_style_notice: crate::event_determination::SystemStyleNotice,
     /// This window's place in its App's global-hotkey manager: the shared
     /// handle and the window's sequence number. `regenerate_layout` hands
     /// every `layout()` pass's declarations (`LayoutCallbackInfo::
@@ -4618,6 +4623,7 @@ impl LayoutWindow {
             frame_report: FrameReport::default(),
             recorded_size_queries: (Vec::new(), false),
             recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies::empty(),
+            system_style_notice: crate::event_determination::SystemStyleNotice::default(),
             global_hotkeys: crate::managers::global_hotkey::WindowHotkeys::new(
                 app_services.hotkeys.clone(),
             ),
@@ -26914,6 +26920,14 @@ impl LayoutWindow {
             };
             self.icu_localizer = IcuLocalizerHandle::from_system_language(language);
         }
+        // A style that differs from the one the window had (not the first one it takes, and not
+        // the same style handed in again by every layout pass) is an event of its own.
+        let changed = self.system_style.as_ref().is_some_and(|held| {
+            !Arc::ptr_eq(held, &system_style) && **held != *system_style
+        });
+        if changed {
+            self.system_style_notice.raise();
+        }
         self.system_style = Some(system_style);
     }
 
@@ -35309,6 +35323,8 @@ impl LayoutWindow {
             recorded_size_queries: _,
             // A six-bit mask, keyed by nothing.
             recorded_style_dependencies: _,
+            // One flag.
+            system_style_notice: _,
             // Keyed by ACCELERATOR (and the window's sequence number), never
             // by NodeId: a global hotkey belongs to the window, not a node.
             global_hotkeys: _,

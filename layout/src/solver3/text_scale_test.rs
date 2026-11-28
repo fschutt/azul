@@ -239,3 +239,73 @@ fn bold_text_adds_its_step_to_every_weight() {
     assert_eq!(request_weight(&unknown, 0), 400.0);
     assert_eq!(request_weight(&document(css, None), 0), 400.0);
 }
+
+// ---- chrome that must not grow: `--azul-text-scale-max` ---------------------------------------------------------------
+
+/// `<body>` with two `<div>` children (`#rail`, `#page`), the first under `rail_css`.
+fn two_boxes(css: &str, scale: f32) -> StyledDom {
+    use azul_core::dom::{IdOrClass, IdOrClassVec};
+    let rail = Dom::create_div().with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Id(
+        "rail".into(),
+    )]));
+    let page = Dom::create_div().with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Id(
+        "page".into(),
+    )]));
+    let mut dom = Dom::create_body().with_children(vec![rail, page].into());
+    let mut styled = StyledDom::create(&mut dom, azul_css::parser2::new_from_str(css).0);
+    styled.set_dynamic_selector_context(context_with_text_scale(scale));
+    styled
+}
+
+/// A rail declares the cap: its text grows no further than the cap, the page beside it follows the
+/// user's scale.
+#[test]
+fn a_subtree_can_cap_the_text_scale_and_the_rest_of_the_page_does_not() {
+    let css = "div { font-size: 10px; } #rail { --azul-text-scale-max: 1.3; }";
+    let styled = two_boxes(css, 2.0);
+    assert!((font_size(&styled, 1) - 13.0).abs() < 1e-3, "the rail: 10px, capped at 1.3");
+    assert_eq!(font_size(&styled, 2), 20.0, "the page: the user's 2.0");
+
+    // below the cap the cap does nothing
+    let styled = two_boxes(css, 1.2);
+    assert!((font_size(&styled, 1) - 12.0).abs() < 1e-3);
+    // and smaller text is the user's choice, whatever the cap says
+    let styled = two_boxes(css, 0.85);
+    assert!((font_size(&styled, 1) - 8.5).abs() < 1e-3);
+}
+
+#[test]
+fn the_cap_inherits_and_a_nonsense_cap_caps_nothing() {
+    // the children of the rail are capped too (custom properties inherit)
+    let mut dom = Dom::create_body().with_children(
+        vec![Dom::create_div().with_children(vec![Dom::create_div()].into())].into(),
+    );
+    let mut styled = StyledDom::create(
+        &mut dom,
+        azul_css::parser2::new_from_str("div { font-size: 10px; } body > div { --azul-text-scale-max: 1.0; }").0,
+    );
+    styled.set_dynamic_selector_context(context_with_text_scale(2.0));
+    assert_eq!(font_size(&styled, 1), 10.0, "a cap of 1.0 holds the text at its size");
+    assert_eq!(font_size(&styled, 2), 10.0, "the grandchild is under the same cap");
+
+    // a cap below 1.0 limits growth only: the text keeps its size, never shrinks
+    let styled = two_boxes("div { font-size: 10px; } #rail { --azul-text-scale-max: 0.5; }", 2.0);
+    assert_eq!(font_size(&styled, 1), 10.0);
+    // not a number: no cap
+    let styled = two_boxes("div { font-size: 10px; } #rail { --azul-text-scale-max: big; }", 2.0);
+    assert_eq!(font_size(&styled, 1), 20.0);
+}
+
+/// The style of a run in the capped subtree carries the capped size, line height and spacing.
+#[test]
+fn the_cap_reaches_the_style_of_a_text_run() {
+    let css = "div { font-size: 10px; line-height: 20px; letter-spacing: 1px; } \
+               #rail { --azul-text-scale-max: 1.5; }";
+    let styled = two_boxes(css, 2.0);
+    let rail = get_style_properties(&styled, NodeId::new(1), None, viewport());
+    assert!((rail.font_size_px - 15.0).abs() < 1e-3);
+    assert_eq!(rail.letter_spacing, Spacing::PxF(1.5));
+    let page = get_style_properties(&styled, NodeId::new(2), None, viewport());
+    assert!((page.font_size_px - 20.0).abs() < 1e-3);
+    assert_eq!(page.letter_spacing, Spacing::PxF(2.0));
+}
