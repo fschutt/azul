@@ -1,13 +1,15 @@
 [
   {
     "name": "azclock_pages_with_the_sample",
-    "description": "The four places with the sample data (three alarms, two timers, four cities, five laps), light and then dark, one picture each. The sample comes through the app's own e2e op (azclock_load_sample): a phone has no command line for --sample.",
+    "description": "The four places with the sample data (three alarms, two timers, four cities, five laps), light and then dark, one picture each. The sample comes through the app's own e2e op (azclock_load_sample): a phone has no command line for --sample. The Alarm place is chosen explicitly first: an app keeps the place it was left on, and the phones run the files one after the other on one installation.",
     "steps": [
       {"op": "wait_frame"},
       {"op": "wait_frame"},
       {"op": "wait_settled"},
       {"op": "azclock_load_sample"},
       {"op": "assert_response", "contains": "\"alarms\":3"},
+      {"op": "key_down", "key": "1", "modifiers": {"alt": true}},
+      {"op": "key_up", "key": "1", "modifiers": {"alt": true}},
       {"op": "wait_frame"},
       {"op": "wait_frame"},
       {"op": "wait_settled"},
