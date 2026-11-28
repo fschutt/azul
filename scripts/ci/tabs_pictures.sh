@@ -49,6 +49,9 @@ step scenarios_overflow_phone env AZ_E2E_SHOT_DIR="$PWD/demo-out/tabs-shots/over
 # the window's chevron: a click folds the content of the tabs away and the next one shows it again
 mkdir -p demo-out/tabs-shots/toggle
 step scenarios_toggle env AZ_E2E_SHOT_DIR="$PWD/demo-out/tabs-shots/toggle" $matrix --only tab_content_toggle --out demo-out/e2e-tabs/toggle
+# the desktop's row of buttons that is longer than its box: a fixed box on the leather with the row inside, which scrolls
+mkdir -p demo-out/tabs-shots/desktop-row
+step scenarios_desktop_row env AZ_E2E_SHOT_DIR="$PWD/demo-out/tabs-shots/desktop-row" $matrix --only tab_desktop_row --out demo-out/e2e-tabs/desktop-row
 # the matrix exits 0 on a FAIL verdict: read them
 step verdicts python3 scripts/ci/tabs_verdicts.py demo-out/e2e-tabs
 # 6. the source gates of the dll (the shells read the window flags this work added)

@@ -113,9 +113,21 @@ fn laid_out(app_theme: &str, header: impl FnOnce() -> Dom) -> Laid {
                     )
                 })
                 .unwrap_or_else(|| panic!("the {label} tab's text"));
-            let tab = hierarchy[NodeId::new(text)]
+            // The tab is the node that carries the tab class: the text's parent, or - a row of buttons holds
+            // its label in a block of its own - the parent's.
+            let is_tab = |n: NodeId| {
+                nodes[n]
+                    .get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|c| c.as_class().is_some_and(|c| c.starts_with("__azul-native-tabs-tab")))
+            };
+            let mut tab = hierarchy[NodeId::new(text)]
                 .parent_id()
                 .unwrap_or_else(|| panic!("the {label} tab"));
+            while !is_tab(tab) {
+                tab = hierarchy[tab].parent_id().unwrap_or_else(|| panic!("the {label} tab has a tab node"));
+            }
             lw.get_node_layout_rect(DomNodeId {
                 dom: DomId::ROOT_ID,
                 node: NodeHierarchyItemId::from_crate_internal(Some(tab)),
