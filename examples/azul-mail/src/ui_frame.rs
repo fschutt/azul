@@ -34,6 +34,8 @@ use azul::{
     widgets::{AppFrame, FormFactor, SidebarState, TabsInTitlebar},
 };
 
+use azul_appkit::l10n::label;
+
 use crate::{ids, ui_backstage, ui_main, ui_preview, ui_sheet, ui_sidebar, MailApp};
 
 /// The environment variable that asks for the phone's layout (`phone`) or the desktop's
@@ -177,6 +179,8 @@ fn frame(s: &MailApp, app: &RefAny, info: &LayoutCallbackInfo) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: 0px;")
+                // the list's landmark: its name for a screen reader (the shell gave it before)
+                .with_accessibility_name(label("azmail-message-list"))
                 .with_child(ui_main::message_list(s, app)),
         );
     if s.show_todo && !phone && s.module == 0 {
