@@ -696,6 +696,7 @@ fn call_layout(
         system_fonts: fc_cache.as_ref(),
         // The web target has no app-level font manager to hand over.
         registered_fonts: None,
+        localizer: None,
         system_style,
         active_route,
         // Web target: no OS monitor enumeration.
