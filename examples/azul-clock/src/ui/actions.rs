@@ -8,7 +8,7 @@ use azul::{
     dom::VirtualKeyCode,
     prelude::*,
     widgets::{
-        DateRepeatRule, ModalState, NumberInputState, OnTextInputReturn, SwitchState,
+        DateRepeatRule, NumberInputState, OnTextInputReturn, SwitchState,
         TextInputState, TextInputValid, TimePickerState,
     },
 };
@@ -38,6 +38,10 @@ pub enum Action {
     EditorSave,
     EditorCancel,
     EditorDelete,
+    /// The editor's sound: a position in [`Sound::ALL`].
+    EditorSound(usize),
+    /// The Back button of a pushed page: the editor or the city search closes.
+    Back,
     /// The weekday chips' shortcuts: no repeat, every day, weekdays, weekends.
     RepeatPreset(u8),
     /// Add the city of a zone (the search's result).
@@ -190,6 +194,15 @@ pub(crate) fn run(s: &mut ClockApp, info: &mut CallbackInfo, action: Action) {
         }
         Action::EditorSave => save_draft(s),
         Action::EditorCancel => s.editor = None,
+        Action::Back => {
+            s.editor = None;
+            s.city_search = None;
+        }
+        Action::EditorSound(i) => {
+            if let Some(d) = s.editor.as_mut() {
+                d.sound = Sound::ALL.get(i).copied().unwrap_or_default();
+            }
+        }
         Action::EditorDelete => {
             if let Some(id) = s.editor.take().and_then(|d| d.id) {
                 if let Some(i) = s.alarm_index(&id) {
@@ -368,13 +381,6 @@ pub extern "C" fn on_editor_repeat(mut data: RefAny, mut info: CallbackInfo, rul
     edit_draft(&mut data, &mut info, |d| d.rule = rule)
 }
 
-/// The editor's sound.
-pub extern "C" fn on_editor_sound(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    edit_draft(&mut data, &mut info, |d| {
-        d.sound = Sound::ALL.get(index).copied().unwrap_or_default();
-    })
-}
-
 /// The editor's snooze length.
 pub extern "C" fn on_editor_snooze(mut data: RefAny, mut info: CallbackInfo, state: NumberInputState) -> Update {
     let minutes = state.number.round().clamp(1.0, MAX_SNOOZE_MINUTES as f32) as u32;
@@ -409,19 +415,6 @@ fn edit_draft(data: &mut RefAny, _info: &mut CallbackInfo, f: impl FnOnce(&mut A
         }
         None => Update::DoNothing,
     }
-}
-
-/// The editor's or the city search's Modal was closed (its X, Escape).
-pub extern "C" fn on_modal_close(mut data: RefAny, mut info: CallbackInfo, _state: ModalState) -> Update {
-    with_app(&mut data, &mut info, |s, _info, _| {
-        s.editor = None;
-        s.city_search = None;
-    })
-}
-
-/// The ringing overlay's close: dismiss.
-pub extern "C" fn on_ring_close(mut data: RefAny, mut info: CallbackInfo, _state: ModalState) -> Update {
-    with_app(&mut data, &mut info, |s, info, _| super::dismiss(s, info))
 }
 
 /// The city search: the results follow the query.

@@ -36,7 +36,6 @@ names! {
     CITIES = "cities";
     /// Class of one city row.
     CITY_ROW = "city-row";
-    CITY_MODAL = "city-modal";
     CITY_QUERY = "city-query";
     CITY_RESULTS = "city-results";
     /// Class of one search result.
@@ -47,7 +46,6 @@ names! {
     /// Class of one alarm row, and of its switch.
     ALARM_ROW = "alarm-row";
     ALARM_SWITCH = "alarm-switch";
-    EDITOR_MODAL = "editor-modal";
     EDITOR = "editor";
     EDITOR_TIME = "editor-time";
     EDITOR_REPEAT = "editor-repeat";
@@ -55,7 +53,6 @@ names! {
     EDITOR_SOUND = "editor-sound";
     EDITOR_SNOOZE = "editor-snooze";
     EDITOR_DELETE = "editor-delete";
-    EDITOR_CANCEL = "editor-cancel";
     EDITOR_SAVE = "editor-save";
     // ---- timer ----
     TIMER_VIEW = "timer-view";
@@ -76,7 +73,6 @@ names! {
     /// Class of one lap row.
     LAP_ROW = "lap-row";
     // ---- ringing ----
-    RING_MODAL = "ring-modal";
     RING = "ring";
     RING_SNOOZE = "ring-snooze";
     RING_DISMISS = "ring-dismiss";

@@ -1104,3 +1104,7 @@ pub(crate) fn copy_laps(s: &ClockApp, info: &mut CallbackInfo) {
     });
     println!("AZCLOCK_COPIED {}", s.stopwatch.laps.len());
 }
+
+#[cfg(test)]
+#[path = "screen_test.rs"]
+mod screen_test;

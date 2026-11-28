@@ -7,12 +7,15 @@
 //! The window is azul's S11 `MobileShell` (the app bar holds only Settings,
 //! the page host the list and the floating button, the bottom tabs the four
 //! places) in a column that never grows past [`COLUMN_MAX`] px: a desktop
-//! shows the same column a phone does, centred.
+//! shows the same column a phone does, centred. The alarm editor and the
+//! add-city search are pages pushed over the list (a Back button in the app
+//! bar), a ring is a page of its own: nothing opens a window of its own, which
+//! a phone has none of.
 
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, DateRepeatPickerOnChangeCallbackType,
-        DropDownOnChoiceChangeCallbackType, MobileShellOnTabCallbackType, ModalOnCloseCallbackType,
+        DropDownOnChoiceChangeCallbackType, MobileShellOnTabCallbackType,
         NumberInputOnValueChangeCallbackType, SwitchOnToggleCallbackType,
         TextInputOnTextInputCallbackType, TimePickerOnChangeCallbackType,
     },
@@ -24,7 +27,7 @@ use azul::{
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        ButtonType, DatePickerWeekStart, DateRepeatPicker, DropDown, Gauge, GaugeKind, Modal,
+        ButtonType, DatePickerWeekStart, DateRepeatPicker, DropDown, Gauge, GaugeKind,
         NumberInput, Switch, TextInput, TimePicker,
     },
 };
@@ -162,25 +165,20 @@ fn fab(s: &ClockApp, app: &RefAny) -> Option<Dom> {
     )
 }
 
-/// The whole window below the settings page: the column, its shell, the dialogs over it.
+/// The whole window below the settings page: the column and its shell; a ring instead of both
+/// while something rings.
 pub fn window(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, env: &Env) -> Dom {
-    let mut shell = MobileShell::create(AzString::from(""))
-        .with_page(page(s, app, now))
-        .with_actions(settings_button(app))
-        .with_tabs(azul::vec::ShellBottomTabVec::from_vec(tabs()))
-        .with_active_tab(s.screen.index())
-        .with_top_inset(env.top)
-        .with_on_tab(app.clone(), actions::on_tab as MobileShellOnTabCallbackType);
-    if let Some(fab) = fab(s, app) {
-        shell = shell.with_fab(fab);
-    }
+    let body = match s.ringing.first() {
+        Some(r) => ring_page(s, r, app, now),
+        None => shell(s, app, now, env),
+    };
     let mut column = Dom::create_div()
         .with_css(format!(
             "{FILL} position: relative; width: 100%; max-width: {COLUMN_MAX}px;"
         ))
-        .with_child(shell.dom());
+        .with_child(body);
     if !env.phone {
-        // A window without a title bar: the empty part of the app bar moves it (the controls sit
+        // A window without a title bar: the empty part of the top bar moves it (the controls sit
         // over its left end, the gear is clear of it).
         column.add_child(
             Dom::create_div()
@@ -190,7 +188,7 @@ pub fn window(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, env: &Env) -> Dom 
                 ),
         );
     }
-    for overlay in overlays(s, app, now) {
+    for overlay in overlays(s, app) {
         column.add_child(overlay);
     }
     // The column, centred; the system's room at the edges around it.
@@ -200,6 +198,42 @@ pub fn window(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, env: &Env) -> Dom 
             env.right, env.bottom, env.left
         ))
         .with_child(column)
+}
+
+/// The shell of the places: the list page with the four places in the bottom bar and the
+/// floating button, or - while an alarm is edited or a city searched - that page alone, with a
+/// Back button, over where it came from.
+fn shell(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, env: &Env) -> Dom {
+    let title = if let Some(d) = s.editor.as_ref() {
+        label(if d.id.is_some() { "azclock-edit-alarm" } else { "azclock-new-alarm" })
+    } else if s.city_search.is_some() {
+        label("azclock-add-a-city")
+    } else {
+        AzString::from("")
+    };
+    let shell = MobileShell::create(title)
+        .with_top_inset(env.top)
+        .with_on_back(act(app, Action::Back), actions::on_act as ButtonOnClickCallbackType);
+    if let Some(d) = s.editor.as_ref() {
+        return shell
+            .with_page(editor_page(s, d, app))
+            .with_back(true)
+            .with_actions(primary("azclock-save", app, Action::EditorSave).with_id(ids::EDITOR_SAVE))
+            .dom();
+    }
+    if let Some(query) = s.city_search.as_deref() {
+        return shell.with_page(city_page(query, app)).with_back(true).dom();
+    }
+    let mut shell = shell
+        .with_page(page(s, app, now))
+        .with_actions(settings_button(app))
+        .with_tabs(azul::vec::ShellBottomTabVec::from_vec(tabs()))
+        .with_active_tab(s.screen.index())
+        .with_on_tab(app.clone(), actions::on_tab as MobileShellOnTabCallbackType);
+    if let Some(fab) = fab(s, app) {
+        shell = shell.with_fab(fab);
+    }
+    shell.dom()
 }
 
 // ==== The page ====
@@ -597,18 +631,9 @@ fn stopwatch_page(s: &ClockApp, app: &RefAny) -> Dom {
 
 // ==== Dialogs and the ringing overlay ====
 
-/// The dialogs that are open, the ringing overlay, the toast.
-pub fn overlays(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Vec<Dom> {
+/// What floats over the column: the toast.
+pub fn overlays(s: &ClockApp, app: &RefAny) -> Vec<Dom> {
     let mut out = Vec::new();
-    if let Some(d) = s.editor.as_ref() {
-        out.push(editor(s, d, app));
-    }
-    if let Some(query) = s.city_search.as_deref() {
-        out.push(city_search(query, app));
-    }
-    if let Some(r) = s.ringing.first() {
-        out.push(ringing(s, r, app, now));
-    }
     if let Some((message, _)) = s.toast.as_ref() {
         out.push(
             Dom::create_div()
@@ -625,16 +650,17 @@ pub fn overlays(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Vec<Dom> {
     out
 }
 
-/// A labelled row of the editor.
+/// A labelled row of the editor: the label over its control.
 fn field(label: &str, control: Dom) -> Dom {
     Dom::create_div()
-        .with_css(format!("{} padding: 6px 0px;", row_css(12)))
-        .with_child(line(label, "width: 80px; flex-shrink: 0; font-size: 13px;"))
+        .with_css(format!("{COLUMN} row-gap: 6px; padding: 10px 0px;"))
+        .with_child(line(label, "font-size: 13px; opacity: 0.7;"))
         .with_child(control)
 }
 
-/// The alarm editor: time, repeat, label, sound, snooze; Delete, Cancel, Save.
-fn editor(s: &ClockApp, d: &super::AlarmDraft, app: &RefAny) -> Dom {
+/// The page of the alarm editor: time, repeat, label, sound, snooze (and Delete, for an alarm
+/// that exists); Back cancels, Save in the top bar saves.
+fn editor_page(s: &ClockApp, d: &super::AlarmDraft, app: &RefAny) -> Dom {
     let twelve = s.twelve_hour();
     let picker = if twelve {
         let (h12, pm) = match d.hour {
@@ -647,28 +673,25 @@ fn editor(s: &ClockApp, d: &super::AlarmDraft, app: &RefAny) -> Dom {
     } else {
         TimePicker::create(d.hour, d.minute).with_24h(true)
     };
-    let sounds: Vec<&str> = Sound::ALL.iter().map(|s| s.label()).collect();
     let presets = Dom::create_div()
-        .with_css(format!("{} flex-wrap: wrap; row-gap: 6px;", row_css(6)))
+        .with_css(format!("{} flex-wrap: wrap; row-gap: 8px;", row_css(8)))
         .with_child(button("azclock-repeat-once", app, Action::RepeatPreset(0)))
         .with_child(button("azclock-repeat-every-day", app, Action::RepeatPreset(1)))
         .with_child(button("azclock-repeat-weekdays", app, Action::RepeatPreset(2)))
         .with_child(button("azclock-repeat-weekends", app, Action::RepeatPreset(3)));
-    let mut footer = Dom::create_div().with_css(format!("{} padding-top: 12px;", row_css(8)));
-    if d.id.is_some() {
-        footer.add_child(
-            Button::with_type(label("azclock-delete"), ButtonType::Danger)
-                .with_on_click(act(app, Action::EditorDelete), actions::on_act as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::EDITOR_DELETE),
+    // The sounds: a tap picks one, the picked one is the primary button.
+    let mut sounds = Dom::create_div().with_css(format!("{} flex-wrap: wrap; row-gap: 8px;", row_css(8)));
+    for (i, sound) in Sound::ALL.iter().enumerate() {
+        let on = *sound == d.sound;
+        sounds.add_child(
+            Button::with_type(label(sound.label()), if on { ButtonType::Primary } else { ButtonType::Default })
+                .with_on_click(act(app, Action::EditorSound(i)), actions::on_act as ButtonOnClickCallbackType)
+                .dom(),
         );
     }
-    footer.add_child(Dom::create_div().with_css(SPACER));
-    footer.add_child(button("kit-button-cancel", app, Action::EditorCancel).with_id(ids::EDITOR_CANCEL));
-    footer.add_child(primary("azclock-save", app, Action::EditorSave).with_id(ids::EDITOR_SAVE));
-    let content = Dom::create_div()
+    let mut content = Dom::create_div()
         .with_id(ids::EDITOR)
-        .with_css("display: flex; flex-direction: column; padding: 8px 4px; width: 100%; max-width: 420px; min-width: 0px; box-sizing: border-box;")
+        .with_css(format!("{COLUMN} padding: 8px 20px 32px 20px; min-width: 0px; box-sizing: border-box; overflow-y: auto; flex-grow: 1; min-height: 0px;"))
         .with_child(field(
             "azclock-time",
             picker
@@ -698,15 +721,7 @@ fn editor(s: &ClockApp, d: &super::AlarmDraft, app: &RefAny) -> Dom {
                 .dom()
                 .with_id(ids::EDITOR_LABEL),
         ))
-        .with_child(field(
-            "azclock-sound",
-            DropDown::create(strs(&sounds))
-                .with_selected(d.sound.index())
-                .with_accessibility_name(label("azclock-sound"))
-                .with_on_choice_change(app.clone(), actions::on_editor_sound as DropDownOnChoiceChangeCallbackType)
-                .dom()
-                .with_id(ids::EDITOR_SOUND),
-        ))
+        .with_child(field("azclock-sound", sounds.with_id(ids::EDITOR_SOUND)))
         .with_child(field(
             "azclock-snooze",
             Dom::create_div()
@@ -719,21 +734,25 @@ fn editor(s: &ClockApp, d: &super::AlarmDraft, app: &RefAny) -> Dom {
                         .with_id(ids::EDITOR_SNOOZE),
                 )
                 .with_child(text("azclock-min")),
-        ))
-        .with_child(footer);
-    Modal::create(content)
-        .with_title(label(if d.id.is_some() { "azclock-edit-alarm" } else { "azclock-new-alarm" }))
-        .with_open(true)
-        .with_on_close(app.clone(), actions::on_modal_close as ModalOnCloseCallbackType)
-        .dom()
-        .with_id(ids::EDITOR_MODAL)
+        ));
+    if d.id.is_some() {
+        content.add_child(
+            Dom::create_div().with_css("padding-top: 16px;").with_child(
+                Button::with_type(label("azclock-delete"), ButtonType::Danger)
+                    .with_on_click(act(app, Action::EditorDelete), actions::on_act as ButtonOnClickCallbackType)
+                    .dom()
+                    .with_id(ids::EDITOR_DELETE),
+            ),
+        );
+    }
+    content
 }
 
-/// The add-city dialog: a search over every zone, a button per result.
-fn city_search(query: &str, app: &RefAny) -> Dom {
+/// The add-city page: a search over every zone, a button per result.
+fn city_page(query: &str, app: &RefAny) -> Dom {
     let mut results = Dom::create_div()
         .with_id(ids::CITY_RESULTS)
-        .with_css("display: flex; flex-direction: column; max-height: 280px; overflow-y: auto; row-gap: 2px; padding-top: 8px;");
+        .with_css("display: flex; flex-direction: column; row-gap: 4px; padding-top: 8px;");
     let found = world::search(query, 30);
     if query.trim().is_empty() {
         results.add_child(line("azclock-city-search-hint", SECONDARY));
@@ -749,8 +768,8 @@ fn city_search(query: &str, app: &RefAny) -> Dom {
                 .with_class(ids::CITY_RESULT),
         );
     }
-    let content = Dom::create_div()
-        .with_css("display: flex; flex-direction: column; width: 100%; max-width: 380px; min-width: 0px; padding: 8px 4px; box-sizing: border-box;")
+    Dom::create_div()
+        .with_css(format!("{COLUMN} padding: 8px 20px 24px 20px; min-width: 0px; box-sizing: border-box; overflow-y: auto; flex-grow: 1; min-height: 0px;"))
         .with_child(
             TextInput::create_search()
                 .with_text(query)
@@ -761,21 +780,11 @@ fn city_search(query: &str, app: &RefAny) -> Dom {
                 .with_id(ids::CITY_QUERY),
         )
         .with_child(results)
-        .with_child(
-            Dom::create_div()
-                .with_css(format!("{} justify-content: flex-end; padding-top: 8px;", row_css(8)))
-                .with_child(button("azclock-close", app, Action::CloseCitySearch)),
-        );
-    Modal::create(content)
-        .with_title(label("azclock-add-a-city"))
-        .with_open(true)
-        .with_on_close(app.clone(), actions::on_modal_close as ModalOnCloseCallbackType)
-        .dom()
-        .with_id(ids::CITY_MODAL)
 }
 
-/// The ringing overlay: the time and the label in large, Snooze and Dismiss.
-fn ringing(s: &ClockApp, r: &Ringing, app: &RefAny, now: DateTime<Utc>) -> Dom {
+/// The ring: the time and the label in large, Snooze and Dismiss, on a page of its own (the
+/// column, over everything else, as an alarm clock rings).
+fn ring_page(s: &ClockApp, r: &Ringing, app: &RefAny, now: DateTime<Utc>) -> Dom {
     let twelve = s.twelve_hour();
     let (big, label, snooze) = match r {
         Ringing::Alarm { id, .. } => match s.alarm_index(id) {
@@ -804,14 +813,18 @@ fn ringing(s: &ClockApp, r: &Ringing, app: &RefAny, now: DateTime<Utc>) -> Dom {
         }
     };
     let local = now.with_timezone(&Local);
-    let content = Dom::create_div()
+    Dom::create_div()
         .with_id(ids::RING)
-        .with_css("display: flex; flex-direction: column; align-items: center; row-gap: 12px; padding: 24px 16px; width: 100%; max-width: 360px; min-width: 0px; box-sizing: border-box;")
+        .with_css(format!(
+            "{FILL} align-items: center; justify-content: center; row-gap: 14px; padding: 24px 16px;"
+        ))
         .with_child(line(
             &big,
-            &format!("font-size: 52px; font-weight: 600; font-family: monospace; {FIGURES_FLORA}"),
+            &format!(
+                "font-size: 64px; font-weight: 300; @media (max-height: 520px) {{ font-size: 44px; }} {FIGURES_FLORA}"
+            ),
         ))
-        .with_child(line(&label, "font-size: 20px;"))
+        .with_child(line(&label, "font-size: 22px;"))
         .with_child(line(
             &format!(
                 "{} {}",
@@ -822,19 +835,10 @@ fn ringing(s: &ClockApp, r: &Ringing, app: &RefAny, now: DateTime<Utc>) -> Dom {
         ))
         .with_child(
             Dom::create_div()
-                .with_css(format!("{} padding-top: 12px;", row_css(12)))
+                .with_css(format!("{} padding-top: 16px; flex-wrap: wrap; justify-content: center; row-gap: 12px;", row_css(12)))
                 .with_child(button(&snooze, app, Action::Snooze).with_id(ids::RING_SNOOZE))
                 .with_child(primary("azclock-dismiss", app, Action::Dismiss).with_id(ids::RING_DISMISS)),
-        );
-    Modal::create(content)
-        .with_title(l10n::label(match r {
-            Ringing::Alarm { .. } => "azclock-alarm",
-            Ringing::Timer { .. } => "azclock-timer",
-        }))
-        .with_open(true)
-        .with_on_close(app.clone(), actions::on_ring_close as ModalOnCloseCallbackType)
-        .dom()
-        .with_id(ids::RING_MODAL)
+        )
 }
 
 // ==== Settings ====

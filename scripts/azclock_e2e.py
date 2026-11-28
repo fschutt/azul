@@ -7,15 +7,15 @@
        world.json, stopwatch.json);
     2. the OS schedule: the alarms that are on are handed to the notification backend
        (AZCLOCK_SCHEDULED, Notification::with_deliver_at; the headless backend records them);
-    3. Alarms: three rows (Gym Mon Wed Fri, Wake up Weekdays, Market Sat - off); the first
-       switch turns Gym off and on again; "New alarm" opens the editor, "Weekdays" and Save make
-       a fourth alarm file;
-    4. World: the analog face and four cities; "Add city" searches "lima" and adds America/Lima
+    3. Alarm (the bottom bar's first place): three rows (Gym Mon Wed Fri, Wake up Weekdays, Market
+       Sat - off); the first switch turns Gym off and on again; the floating + opens the editor,
+       "Weekdays" and Save make a fourth alarm file;
+    4. Clock: the big time and four cities; the floating + searches "lima" and adds America/Lima
        to world.json;
     5. Timer: "Tea" is shown; the 1 min preset starts a third timer file;
     6. Stopwatch: the sample's 04:17.36 with five laps; Reset, Start, Lap, Stop;
     7. the settings page (Mod+,): the Clock section, Flora + Dark saved, OK closes it;
-    8. a screenshot of every screen (Alarms, World and Timer under flora by night and by day,
+    8. a screenshot of every screen (Alarm, Clock and Timer under flora by night and by day,
        each after the theme's fades: <screen>-flora-dark.png, <screen>-flora-light.png);
     9. with --ring: the 1 min timer rings (AZCLOCK_RING timer), the overlay shows "Time is up",
        Dismiss ends it.
@@ -93,45 +93,43 @@ def body(args, logs, out):
                   lambda: app.click(selector="." + P + "alarm-switch"))
         app.after("the first switch to turn Gym on", "AZCLOCK_ALARM_SWITCH", r"\S+ on",
                   lambda: app.click(selector="." + P + "alarm-switch"))
-        # The editor, the city search and the ringing overlay are Modals: windows of their
-        # own, where their nodes are laid out and clicked (e2e.modal_window).
+        # The editor, the city search and the ring are pages of the window itself (a phone has no
+        # second window): their nodes are laid out and clicked in the window.
         app.click(selector="#" + P + "new")
         app.until("the alarm editor", lambda: app.has_id(P + "editor"))
-        editor = e2e.modal_window(app)
-        editor.until("the editor in its window", lambda: editor.laid_out("#" + P + "editor-save"))
-        editor.screenshot(os.path.join(out, "editor.png"))
-        editor.click(text="Weekdays")
+        app.until("the editor laid out", lambda: app.laid_out("#" + P + "editor-save"))
+        app.screenshot(os.path.join(out, "editor.png"))
+        app.click_exact("Weekdays")
         app.after("the new alarm to be saved", "AZCLOCK_ALARM_SAVED", r"\S+",
-                  lambda: editor.click(selector="#" + P + "editor-save"))
+                  lambda: app.click(selector="#" + P + "editor-save"))
         app.until("a fourth alarm file", lambda: len(files(data_dir, "alarms/*.json")) == 4)
         app.until("the editor to close", lambda: not app.has_id(P + "editor"))
         app.log("a new weekday alarm is a fourth file")
 
-        # 4. World.
-        app.click(text="World")
-        app.until("the World screen", lambda: app.last("AZCLOCK_SCREEN") == "world")
+        # 4. Clock (the screen's key is "world": the time here, big, and the cities).
+        app.click_exact("Clock")
+        app.until("the Clock screen", lambda: app.last("AZCLOCK_SCREEN") == "world")
         app.frame(2)
-        if not app.has_id(P + "face") or len(app.nodes_with_class(P + "city-row")) != 4:
-            raise Failure("the face and four city rows are expected")
+        if not app.has_id(P + "big-time") or len(app.nodes_with_class(P + "city-row")) != 4:
+            raise Failure("the big time and four city rows are expected")
         for text in ["Reykjavik", "New York", "Tokyo", "Sydney"]:
             if not app.shows(text):
                 raise Failure("the world clock does not show %r" % text)
         app.screenshot(os.path.join(out, "world.png"))
         app.click(selector="#" + P + "new")
         app.until("the city search", lambda: app.has_id(P + "city-query"))
-        search = e2e.modal_window(app)
-        search.until("the search in its window", lambda: search.laid_out("#" + P + "city-query"))
-        search.text_input("#" + P + "city-query", "lima")
-        search.until("Lima among the results", lambda: search.shows("Lima - America/Lima"))
+        app.until("the search laid out", lambda: app.laid_out("#" + P + "city-query"))
+        app.text_input("#" + P + "city-query", "lima")
+        app.until("Lima among the results", lambda: app.shows("Lima - America/Lima"))
         app.after("Lima to be added", "AZCLOCK_CITY_ADDED", r"\S+",
-                  lambda: search.click(text="Lima - America/Lima"))
+                  lambda: app.click(text="Lima - America/Lima"))
         app.until("world.json to hold Lima",
                   lambda: any(c.get("zone") == "America/Lima"
                               for c in read_json(os.path.join(data_dir, "clock", "world.json")).get("cities", [])))
         app.log("Lima added to world.json")
 
         # 5. Timer.
-        app.click(text="Timer")
+        app.click_exact("Timer")
         app.until("the Timer screen", lambda: app.last("AZCLOCK_SCREEN") == "timer")
         app.frame(2)
         if not app.shows("Tea") or not app.has_id(P + "timer-time"):
@@ -144,7 +142,7 @@ def body(args, logs, out):
         app.log("the 1 min preset started a timer")
 
         # 6. Stopwatch.
-        app.click(text="Stopwatch")
+        app.click_exact("Stopwatch")
         app.until("the Stopwatch screen", lambda: app.last("AZCLOCK_SCREEN") == "stopwatch")
         app.frame(2)
         if not app.shows("00:04:17.36") or len(app.nodes_with_class(P + "lap-row")) != 5:
@@ -175,15 +173,15 @@ def body(args, logs, out):
         app.screenshot(os.path.join(out, "settings-flora-dark.png"))
         app.click(selector="#appkit-settings-ok")  # OK keeps them (Escape would cancel)
         app.until("the settings page to close", lambda: not app.has_id("appkit-settings"))
-        for screen in ["Alarms", "World", "Timer"]:
-            app.click(text=screen)
+        for screen in ["Alarm", "Clock", "Timer"]:
+            app.click_exact(screen)
             app.frame(2)
             app.settle()
             app.screenshot(os.path.join(out, "%s-flora-dark.png" % screen.lower()))
         # Flora by day too (the debug server's mode; the settings keep the dark one).
         app.must("set_mode", mode="light")
-        for screen in ["Alarms", "World", "Timer"]:
-            app.click(text=screen)
+        for screen in ["Alarm", "Clock", "Timer"]:
+            app.click_exact(screen)
             app.frame(2)
             app.settle()
             app.screenshot(os.path.join(out, "%s-flora-light.png" % screen.lower()))
@@ -193,11 +191,10 @@ def body(args, logs, out):
         if RING:
             app.until("the 1 min timer to ring", lambda: app.printed("AZCLOCK_RING", r"timer \S+"))
             app.until("the ringing overlay", lambda: app.shows("Time is up"))
-            overlay = e2e.modal_window(app)
-            overlay.until("the overlay in its window", lambda: overlay.laid_out("#" + P + "ring-dismiss"))
-            overlay.screenshot(os.path.join(out, "ringing.png"))
+            app.until("the ring page laid out", lambda: app.laid_out("#" + P + "ring-dismiss"))
+            app.screenshot(os.path.join(out, "ringing.png"))
             app.after("Dismiss", "AZCLOCK_DISMISSED", r"\S+",
-                      lambda: overlay.click(selector="#" + P + "ring-dismiss"))
+                      lambda: app.click(selector="#" + P + "ring-dismiss"))
             app.log("the timer rang and was dismissed")
 
         app.log("PASS")
