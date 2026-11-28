@@ -579,7 +579,7 @@ public class AzulActivity extends NativeActivity {
     /**
      * The system's Back key (and, before API 33, the Back gesture). NativeActivity forwards no Back press to native
      * code and its own answer is to leave: the press goes to the shell instead, which offers it to the app first
-     * (its callbacks as an Escape, a popup, a pushed view) and calls {@link #leaveForBack} when nothing took it.
+     * (its callbacks as an Escape, a popup, a pushed view) and leaves, over JNI and from Rust, when nothing took it.
      */
     @Override
     public void onBackPressed() {
@@ -606,23 +606,6 @@ public class AzulActivity extends NativeActivity {
                         }
                     });
         }
-    }
-
-    /**
-     * Back, and nothing in the app took it: what the system does - the task goes to the back when this activity is
-     * its root (the launcher shows, the app keeps its state), anything else finishes. Called from the shell.
-     */
-    public static void leaveForBack(final android.app.Activity activity) {
-        activity.runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                if (activity.isTaskRoot()) {
-                    activity.moveTaskToBack(true);
-                } else {
-                    activity.finish();
-                }
-            }
-        });
     }
 
     /** Implemented in Rust (dll/src/desktop/shell2/android/bridge.rs). */

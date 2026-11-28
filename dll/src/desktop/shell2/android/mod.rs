@@ -1268,8 +1268,8 @@ fn apply_back(window: &mut AndroidWindow) {
 }
 
 /// Back, with nothing in the app to take it: what the system does - the task moves to the back when the activity
-/// is its root (the launcher shows, the app keeps its state), anything else finishes. `AzulActivity.leaveForBack`
-/// on the UI thread.
+/// is its root (the launcher shows, the app keeps its state), anything else finishes. The framework's own
+/// `Activity.isTaskRoot` / `moveTaskToBack` / `finish`, called from here: no Java of ours is in it.
 #[cfg(all(target_os = "android", feature = "jni"))]
 fn leave_for_back() {
     use jni::JavaVM;
@@ -1288,18 +1288,27 @@ fn leave_for_back() {
         let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
         let activity =
             unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
-        let class = crate::desktop::extra::find_app_class(&mut env, &activity, "com/azul/app/AzulActivity")
-            .ok_or_else(|| "AzulActivity not in this APK".to_string())?;
-        env.call_static_method(
-            &class,
-            "leaveForBack",
-            "(Landroid/app/Activity;)V",
-            &[jni::objects::JValue::Object(&activity)],
-        )
-        .map(|_| ())
-        .map_err(|e| {
+        let is_root = env
+            .call_method(&activity, "isTaskRoot", "()Z", &[])
+            .and_then(|v| v.z())
+            .map_err(|e| {
+                let _ = env.exception_clear();
+                format!("isTaskRoot: {e:?}")
+            })?;
+        let left = if is_root {
+            env.call_method(
+                &activity,
+                "moveTaskToBack",
+                "(Z)Z",
+                &[jni::objects::JValue::Bool(1)],
+            )
+            .map(|_| ())
+        } else {
+            env.call_method(&activity, "finish", "()V", &[]).map(|_| ())
+        };
+        left.map_err(|e| {
             let _ = env.exception_clear();
-            format!("call leaveForBack: {e:?}")
+            format!("leave: {e:?}")
         })
     })();
     if let Err(e) = result {

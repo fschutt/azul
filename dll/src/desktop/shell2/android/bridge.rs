@@ -171,7 +171,7 @@ pub unsafe extern "system" fn Java_com_azul_app_AzulActivity_nativeOnTrimMemory(
 /// `AzulActivity.nativeOnBack(cookie)`: the system's Back key or gesture. NativeActivity forwards no Back
 /// press to native code, and the system's own answer (leave) must not be given before the app has had its
 /// say, so the activity forwards it here and the LOOP decides ([`UiEvent::Back`]): the app's callbacks, a
-/// popup, a pushed view, and last the activity's `leaveForBack`.
+/// popup, a pushed view, and last the shell leaves (`leave_for_back`).
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_azul_app_AzulActivity_nativeOnBack(
     _env: *mut core::ffi::c_void,
