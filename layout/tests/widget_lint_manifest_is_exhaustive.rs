@@ -98,6 +98,11 @@ const EXEMPT: &[(&str, &str)] = &[
     ),
     ("video", "single replaced node, zero create_text_* calls"),
     (
+        "detents",
+        "the rules of a pane that rests at a few heights as plain numbers (the four detents, where a drag settles, what the keys \
+         do): no widget type and no dom() of its own; the bottom sheet that uses them is the \"bottom_sheet\" entry",
+    ),
+    (
         "list_selection",
         "the selection MODEL of a list (ListSelection: click / Ctrl / Shift rules over u64 keys): \
          declares no widget type with a dom() and builds no DOM",
