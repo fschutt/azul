@@ -276,3 +276,28 @@ fn a_failure_names_the_document_as_a_person_knows_it() {
     assert_eq!(readable_name("content://com.android.externalstorage.documents/tree/primary%3ADownload"), "Download");
     assert_eq!(readable_name("/storage/emulated/0/x"), "/storage/emulated/0/x", "not a document URI: shown as it is");
 }
+
+// ---- where the picker opens ----
+
+#[test]
+fn a_folder_of_the_shared_storage_is_where_the_picker_opens() {
+    for (path, expected) in [
+        ("/storage/emulated/0/Documents/AzProof", "content://com.android.externalstorage.documents/document/primary%3ADocuments%2FAzProof"),
+        ("/sdcard/Download/", "content://com.android.externalstorage.documents/document/primary%3ADownload"),
+        ("/storage/self/primary/Pictures/My Photos", "content://com.android.externalstorage.documents/document/primary%3APictures%2FMy%20Photos"),
+    ] {
+        assert_eq!(initial_uri_for(path).as_deref(), Some(expected), "{path}");
+    }
+}
+
+#[test]
+fn a_document_uri_is_passed_on_in_the_frameworks_form_and_nothing_else_is_guessed() {
+    let tree = "content://com.android.externalstorage.documents/tree/primary%3ADownload";
+    assert_eq!(
+        initial_uri_for(tree).as_deref(),
+        Some("content://com.android.externalstorage.documents/tree/primary%3ADownload/document/primary%3ADownload")
+    );
+    for none in ["", "/data/user/0/com.x/files", "/storage/emulated/0/", "/sdcard/../etc", "/storage/emulated/0/a//b", "relative/path", "https://x/y"] {
+        assert_eq!(initial_uri_for(none), None, "{none:?}");
+    }
+}

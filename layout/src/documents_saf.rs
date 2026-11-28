@@ -176,6 +176,27 @@ impl Locator {
     }
 }
 
+/// The document URI of the shared storage's folder at `path` (`/storage/emulated/0/Documents/Notes`), in the form the system's picker
+/// takes as `EXTRA_INITIAL_URI` (where it opens): `content://com.android.externalstorage.documents/document/primary%3ADocuments%2FNotes`.
+/// A `content://` URI that is a document is passed as it is; anything else (a path that is not under the shared storage, a text that
+/// is neither) is `None` and the picker opens where it opened last.
+#[must_use]
+pub fn initial_uri_for(default_path: &str) -> Option<String> {
+    const SHARED: [&str; 3] = ["/storage/emulated/0/", "/sdcard/", "/storage/self/primary/"];
+    let text = default_path.trim();
+    if let Some(parsed) = Locator::parse(text) {
+        return Some(parsed.document_uri());
+    }
+    let relative = SHARED.iter().find_map(|root| text.strip_prefix(root))?.trim_end_matches('/');
+    let valid = !relative.is_empty() && !relative.split('/').any(|piece| piece.is_empty() || piece == "." || piece == "..");
+    valid.then(|| {
+        alloc::format!(
+            "content://com.android.externalstorage.documents/document/{}",
+            android_encode(&alloc::format!("primary:{relative}"))
+        )
+    })
+}
+
 /// What a person calls the document a locator addresses, for the failure texts ("Download/sub/a.txt" -> "a.txt"; a locator that is
 /// not a document URI is shown as it is).
 #[must_use]

@@ -49,6 +49,9 @@ const ACTION_OPEN_DOCUMENT_TREE: &str = "android.intent.action.OPEN_DOCUMENT_TRE
 const ACTION_CREATE_DOCUMENT: &str = "android.intent.action.CREATE_DOCUMENT";
 #[cfg(target_os = "android")]
 const EXTRA_TITLE: &str = "android.intent.extra.TITLE";
+/// `DocumentsContract.EXTRA_INITIAL_URI`.
+#[cfg(target_os = "android")]
+const EXTRA_INITIAL_URI: &str = "android.provider.extra.INITIAL_URI";
 /// `Intent.FLAG_GRANT_PREFIX_URI_PERMISSION`: the grant covers every document under the tree's URI.
 #[cfg(target_os = "android")]
 const FLAG_GRANT_PREFIX_URI_PERMISSION: i32 = 0x80;
@@ -319,10 +322,31 @@ pub fn dispatch_export(handle: FilePickerHandle, _suggested_name: AzString, _mim
     handle.set_status(FilePickerStatus::Cancelled);
 }
 
-/// A folder request: the system's tree picker, whose grant is kept (see [`status_of_folder`]).
+/// A folder request: the system's tree picker, whose grant is kept (see [`status_of_folder`]). `default_path`, a folder of the shared
+/// storage or a document URI, is where the picker opens (API 26+; the picker opens where it opened last when the text is neither).
 #[cfg(target_os = "android")]
-pub fn dispatch_open_folder(handle: FilePickerHandle, _title: AzString, _default_path: OptionString) {
-    start_pick(&handle, PickKind::Folder, None, folder_intent);
+pub fn dispatch_open_folder(handle: FilePickerHandle, _title: AzString, default_path: OptionString) {
+    let initial = default_path
+        .as_ref()
+        .and_then(|path| azul_layout::documents_saf::initial_uri_for(path.as_str()));
+    start_pick(&handle, PickKind::Folder, None, move |env| {
+        let intent = folder_intent(env)?;
+        if let Some(initial) = &initial {
+            // a hint: a picker that does not know the URI opens where it opened last
+            let key = env.new_string(EXTRA_INITIAL_URI)?;
+            let text = env.new_string(initial)?;
+            let uri = env
+                .call_static_method("android/net/Uri", "parse", "(Ljava/lang/String;)Landroid/net/Uri;", &[jni::objects::JValue::Object(&text)])?
+                .l()?;
+            env.call_method(
+                &intent,
+                "putExtra",
+                "(Ljava/lang/String;Landroid/os/Parcelable;)Landroid/content/Intent;",
+                &[jni::objects::JValue::Object(&key), jni::objects::JValue::Object(&uri)],
+            )?;
+        }
+        Ok(intent)
+    });
 }
 
 #[cfg(not(target_os = "android"))]
