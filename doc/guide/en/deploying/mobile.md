@@ -580,6 +580,18 @@ lane instead of being cut; the first and the last pill stand 16 px in, so at res
 Pills that do not fit are never folded into a "more" pill: the row scrolls. The pills are tabs for
 TalkBack and VoiceOver (the tab role, the name, the selected state) and the arrow keys move between them.
 
+**One chevron per window.** `TabHeader::with_content_toggle(true)` and `Ribbon::with_content_toggle(true)` draw ONE chevron
+at the very left end of the tab row (on a phone, at the left end of the first lane, left of the camera): `^` while the
+content of the tabs shows, `v` while it is folded away; a click, Enter or Space on it folds or shows the content. The state is
+the window's, not a widget's (`WindowFlags::tab_content_hidden`; an app may start a window with it set and reads it back
+from the window's state): every `TabContent::with_content_toggle(true)` panel and every ribbon with `with_content_toggle(true)`
+shows nothing while it is folded, and the list under the tab row gets the room (the row, its tabs and the golden line stay). A
+window has exactly one chevron whatever its page holds: the first strip of a build that asks for it takes it and the strips after
+it draw none. The e2e ops `toggle_tab_content` (flip, or `{"hidden": true}` to set) and `get_tab_content` do the same
+from a scenario. A rail beside the content, under the tab row (the sidebar's 18 px rail on a phone), is
+`TabContent::with_content_inset(px)` / `Ribbon::with_content_inset(px)`: the content starts that far in while the row stays
+the whole width.
+
 **The strip in the status bar's band.** An app that does not need the clock and the battery while the user works (a
 word processor) gives that row to its tabs: the window draws under the bars (`extend_into_safe_area`), hides the status
 bar (`system_bars.status` as `HiddenTransient`), draws into the cutout area (`system_bars.draw_into_cutout`) and builds

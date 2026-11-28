@@ -682,6 +682,7 @@ class Run:
                           f"of the pixels and a mean difference below {MAX_MEAN_DIFF}/255): {d['share'] * 100:.2f} % of the pixels differ, "
                           f"mean {d['mean_abs']:.2f}/255, max {d['max_abs']}" + (f", box {d['bbox']}" if d.get("bbox") else "")
                           + f" - {'PASS' if d['ok'] else 'FAIL'}; the diff image is shots/{d['image']}"]
+            lines += ["", STARTUP_METRIC_NOTE]
         if self.extra_md:
             lines += [""] + self.extra_md
         (self.out / "qa.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -695,6 +696,13 @@ def displayed_ms(text, package=""):
         if m:
             found = int(m.group(1) or 0) * 1000 + int(m.group(2))
     return found
+
+
+# WP-S's startup fix (2026-11-28: the activity holds the window's first draw until the engine's first present) moves the SYSTEM's launch metric from the blank
+# starting window to the first Azul picture. The note stands under every table that shows it, and both metrics stay in the table, so old and new runs compare.
+STARTUP_METRIC_NOTE = ("Displayed and TotalTime are the system's metric: with the startup fix (the activity holds the window's first draw until the engine's first "
+                       "present) it means 'the first Azul picture' and no longer 'the blank window at about 0.4 s', so it jumps by the first-layout time on every app "
+                       "(not a regression); compare the engine timeline's first_present and the black frames after the starting window; both metrics stay in the table.")
 
 
 def marker_values(text, name, since=None):
@@ -1455,6 +1463,7 @@ def android_scenarios(args):
             dev.sh(f"am force-stop {pkg}")
             return times, timelines, texts
 
+        run.extra_md += ["## How to read the startup numbers", "", STARTUP_METRIC_NOTE, ""]    # (not a step note: the notes column is cut at 300 characters)
         if args.startup:
             dev.sh("setprop debug.az.startup 1")       # the engine's startup timeline (AZ_STARTUP has no environment on Android)
         mine, mine_timelines, mine_texts = series(args.package, dev.resolve_activity(), "app")

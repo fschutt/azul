@@ -556,6 +556,8 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // test hook of the cutout / system bar / fingerprint API), and `get_display_features` reads
     // what the window has. A window flag like any an app sets, so a legitimate drive surface.
     ("set_display_preset",        None),
+    // `WindowFlags::tab_content_hidden`: what the tab strip's chevron flips, and what it reads back.
+    ("toggle_tab_content",        None),
 
     // -- ALLOW: HARNESS CONTROL --------------------------------------------
     ("mount",                     None),
@@ -599,6 +601,7 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("get_mode",                  None),
     ("get_theme",                 None),
     ("get_display_features",      None),
+    ("get_tab_content",           None),
     ("get_selection_state",       None),
     ("dump_selection_manager",    None),
     ("get_scroll_states",         None),
