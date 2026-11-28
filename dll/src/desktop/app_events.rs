@@ -29,6 +29,7 @@ use azul_core::{events::ProcessEventResult, menu::CoreMenuCallback};
 use azul_layout::managers::{
     app_target::{pick_app_target, AppTargetCandidate},
     notification::NotificationDelivery,
+    open_files::OpenDelivery,
     tray_event::TrayDelivery,
 };
 
@@ -45,6 +46,8 @@ pub(crate) struct AppEvents {
     tray: Vec<TrayDelivery>,
     /// Notification events, routed to their notification's callback.
     notifications: Vec<NotificationDelivery>,
+    /// What the system asked the app to open (a file shared to it, "Open with"), for the app's open handler.
+    open: Vec<OpenDelivery>,
     /// `AZ_RICING=watch` saw a rice file change (`azul_css::rice::poll_watch`,
     /// on the watcher thread): every window rebuilds with the reloaded rice.
     rice_reloaded: bool,
@@ -68,6 +71,7 @@ impl AppEvents {
             tray_menu: crate::desktop::tray::pump_tray(),
             tray: crate::desktop::tray::take_tray_deliveries(),
             notifications: crate::desktop::notifications::pump_notifications(),
+            open: crate::desktop::extra::open_files::take_deliveries(),
             rice_reloaded: azul_css::rice::take_reload_signal(),
             #[cfg(feature = "debug-server")]
             debug_request: azul_layout::e2e::take_debug_request_wake(),
@@ -81,6 +85,7 @@ impl AppEvents {
         self.tray_menu.is_empty()
             && self.tray.is_empty()
             && self.notifications.is_empty()
+            && self.open.is_empty()
             && !self.rice_reloaded
             && !self.debug_request
     }
@@ -90,6 +95,7 @@ impl AppEvents {
         self.tray_menu.len()
             + self.tray.len()
             + self.notifications.len()
+            + self.open.len()
             + usize::from(self.rice_reloaded)
             + usize::from(self.debug_request)
     }
@@ -101,6 +107,7 @@ impl AppEvents {
             tray_menu,
             tray,
             notifications,
+            open,
             rice_reloaded,
             debug_request,
         } = self;
@@ -140,6 +147,9 @@ impl AppEvents {
             && crate::desktop::notifications::invoke_deliveries(window, notifications)
         {
             result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+        if !open.is_empty() {
+            result = result.max(crate::desktop::extra::open_files::invoke_deliveries(window, open));
         }
         result
     }
@@ -183,12 +193,15 @@ fn report_undelivered(events: AppEvents) {
         tray_menu,
         tray,
         notifications,
+        open,
         rice_reloaded: _,
         debug_request: _,
     } = events;
     if !notifications.is_empty() {
         crate::desktop::notifications::defer_deliveries(notifications);
     }
+    // the request that started the app arrives before its first window: kept for the next pump that has one
+    crate::desktop::extra::open_files::defer_deliveries(open);
     let dropped = tray_menu.len() + tray.len();
     if dropped > 0 {
         crate::plog_debug!("[app-events] {dropped} tray event(s) had no window to run against");

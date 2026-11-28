@@ -38,6 +38,7 @@ import com.azul.gamepad.AzulGamepad;
 import com.azul.permission.AzulPermissions;
 import com.azul.media.AzulMediaSession;
 import com.azul.notify.AzulNotifications;
+import com.azul.open.AzulOpenIntent;
 import com.azul.geolocation.AzulGeolocation;
 import com.azul.sensors.AzulSensors;
 
@@ -115,6 +116,8 @@ public class AzulActivity extends NativeActivity {
         // holds the same intent, and the tap must not be reported twice.
         if (savedInstanceState == null) {
             AzulNotifications.onIntent(this, getIntent(), true);
+            // the intent that started the app may ask it to open something (a file shared to it, "Open with")
+            AzulOpenIntent.forward(this, getIntent(), true);
         }
         // Dismissals a receiver kept while the app was not running.
         AzulNotifications.drainPersisted(this);
@@ -218,6 +221,8 @@ public class AzulActivity extends NativeActivity {
             return;
         }
         AzulNotifications.onIntent(this, intent, false);
+        // another app asks the running app to open something (a file shared to it, "Open with", a link of a declared scheme)
+        AzulOpenIntent.forward(this, intent, false);
     }
 
     // ---- the system's starting window, held until the first picture (Android 12 and later) ----------------------------

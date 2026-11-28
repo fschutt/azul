@@ -60,6 +60,9 @@ pub mod keyring;
 pub mod map;
 pub mod media_keys;
 pub mod natural_scroll;
+/// What the system asks the app to open (a file shared to it, "Open with", a link of a declared scheme): the pump of the app's
+/// handler and the platform entry points. See `open_files/mod.rs`.
+pub mod open_files;
 /// PDF (P5 AzulDoc). The `Pdf` handle is always present (so it codegen-exposes
 /// with no feature-gating); the `printpdf` engine behind it is opt-in via the
 /// `pdf` feature. Without it, `Pdf::from_dom` / `write_json` return empty.
