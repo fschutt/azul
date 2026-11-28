@@ -762,6 +762,21 @@ impl PlatformWindow for AndroidWindow {
     /// The activity has one surface, so a second window of the app is a VIEW pushed over the first
     /// (`views.rs`), made at the next turn of the loop - never in the middle of the pass that asked.
     fn queue_window_create(&mut self, options: WindowCreateOptions) {
+        // A menu or a tooltip window is a popup of the desktop: here the app shows it as a popup of its own
+        // page (`<transient-window>`) or opens a menu (`CallbackInfo::open_menu`); a view that covers the
+        // screen would be the wrong answer to it.
+        if matches!(
+            options.window_state.flags.window_type,
+            azul_core::window::WindowType::Menu | azul_core::window::WindowType::Tooltip
+        ) {
+            log_warn!(
+                LogCategory::Window,
+                "[Android] a {:?} window cannot be opened on a phone: show the menu with CallbackInfo::open_menu and the rest \
+                 as a <transient-window>",
+                options.window_state.flags.window_type
+            );
+            return;
+        }
         self.pending_views.push(options);
     }
 
