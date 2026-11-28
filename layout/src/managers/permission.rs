@@ -626,7 +626,7 @@ impl PermissionManager {
     /// new state the platform's quiet read brings (a capability that turns out granted needs no
     /// gesture) and with every gesture.
     #[must_use]
-    pub fn has_held(&self) -> bool {
+    pub const fn has_held(&self) -> bool {
         !self.held.is_empty()
     }
 

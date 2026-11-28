@@ -141,9 +141,11 @@ impl KeyringProtection {
     }
 }
 
-/// The text of the OS sheet an op may show (iOS `localizedReason` and `localizedCancelTitle`,
-/// Android `PromptInfo`, the Windows Hello message, the polkit message). An empty `reason` is
-/// "Unlock <the app's name>"; an empty `cancel_label` is the platform's own, localised "Cancel".
+/// The text of the OS sheet an op may show.
+///
+/// iOS `localizedReason` and `localizedCancelTitle`, Android `PromptInfo`, the Windows Hello
+/// message, the polkit message. An empty `reason` is "Unlock <the app's name>"; an empty
+/// `cancel_label` is the platform's own, localised "Cancel".
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct KeyringPrompt {
@@ -156,7 +158,7 @@ pub struct KeyringPrompt {
 impl KeyringPrompt {
     /// A prompt that shows `reason` and the platform's own cancel button.
     #[must_use]
-    pub fn create(reason: AzString) -> Self {
+    pub const fn create(reason: AzString) -> Self {
         Self {
             reason,
             cancel_label: AzString::from_const_str(""),
@@ -171,11 +173,11 @@ impl KeyringPrompt {
     }
 }
 
-/// A keyring operation queued by a callback
-/// (`CallbackInfo::keyring_store` / `keyring_store_protected` / `keyring_get` /
-/// `keyring_unlock` / `keyring_delete`) and dispatched to the platform backend by the layout pass.
+/// A keyring operation queued by a callback and dispatched to the platform backend by the layout
+/// pass.
 ///
-/// `secret` is an [`AzString`] — the common case is a password / token;
+/// The callbacks are `CallbackInfo::keyring_store`, `keyring_store_protected`, `keyring_get`,
+/// `keyring_unlock` and `keyring_delete`. `secret` is an [`AzString`] — the common case is a password / token;
 /// binary blobs are base64-encoded by the caller. `key` is the lookup
 /// name, scoped to a [`KeyringNamespace`] (the app's own unless the call
 /// names one).

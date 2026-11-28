@@ -245,7 +245,8 @@ impl StandInUser {
             let state = self.lock();
             (state.enrolled, state.passcode_set)
         };
-        if !enrolled && !(allow_device_credential && passcode_set) {
+        let can_check = enrolled || (allow_device_credential && passcode_set);
+        if !can_check {
             return BiometricResult::Unavailable;
         }
         let next = self.lock().outcomes.pop_front().unwrap_or(ScriptedOutcome::Match);
