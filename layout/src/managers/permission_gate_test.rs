@@ -86,8 +86,19 @@ fn a_denied_capability_is_not_asked_again() {
         mgr.subscribe(Capability::Camera, node(1));
         mgr.note_gesture();
         assert!(mgr.take_dispatchable().is_empty(), "{decided:?}");
-        assert!(mgr.held_capabilities().is_empty(), "{decided:?}: dropped, not held");
+        assert_eq!(
+            mgr.held_capabilities(),
+            vec![Capability::Camera],
+            "{decided:?}: kept, never asked"
+        );
         assert_eq!(mgr.admit(Capability::Camera), Admission::Skip);
+        // The user grants it in the settings: the probe that waited starts, nothing is asked.
+        assert!(mgr.observe(
+            Capability::Camera,
+            PermissionState::Granted(PermissionQuality::Full)
+        ));
+        assert_eq!(subscribe_count(&mgr.take_dispatchable()), 1, "{decided:?}");
+        assert!(mgr.held_capabilities().is_empty());
     }
 }
 
@@ -158,12 +169,20 @@ fn a_held_geolocation_subscribe_goes_with_the_gesture_and_a_release_drops_it() {
     assert!(matches!(go.as_slice(), [GeolocationDiffEvent::Subscribe { .. }]));
     assert!(geo.take_admitted_events(|| perm.admit(Capability::Geolocation)).is_empty());
     // A denied user is not asked: the probe leaves (its Release goes out) and a new probe's
-    // Subscribe is dropped.
+    // Subscribe is held, not started.
     perm.set_status(Capability::Geolocation, PermissionState::Denied);
     geo.diff_layout(|_| {});
     geo.diff_layout(|emit| emit(cfg));
     let after = geo.take_admitted_events(|| perm.admit(Capability::Geolocation));
     assert!(matches!(after.as_slice(), [GeolocationDiffEvent::Release]), "{after:?}");
+    assert!(geo.has_held_subscribe());
+    // The user grants it in the settings: the probe starts, with no gesture and no question.
+    assert!(perm.observe(
+        Capability::Geolocation,
+        PermissionState::Granted(PermissionQuality::Full)
+    ));
+    let started = geo.take_admitted_events(|| perm.admit(Capability::Geolocation));
+    assert!(matches!(started.as_slice(), [GeolocationDiffEvent::Subscribe { .. }]), "{started:?}");
 }
 
 #[test]

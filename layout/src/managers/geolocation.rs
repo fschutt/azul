@@ -200,8 +200,9 @@ impl GeolocationManager {
             match event {
                 GeolocationDiffEvent::Subscribe { .. } => match admit() {
                     Admission::Go => out.push(event),
-                    Admission::Hold => self.held_subscribe = Some(event),
-                    Admission::Skip => {}
+                    // Held until a gesture (`Hold`) or until the user's decision changes (`Skip`:
+                    // denied now; granted later in the settings it starts without asking).
+                    Admission::Hold | Admission::Skip => self.held_subscribe = Some(event),
                 },
                 GeolocationDiffEvent::Reconfigure { config } => {
                     if self.held_subscribe.is_some() {

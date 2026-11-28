@@ -197,8 +197,9 @@ fn the_standalone_gate_and_the_availability_follow_the_same_scripted_user() {
 fn a_permission_that_may_ask_waits_for_the_users_gesture_and_a_decided_one_is_not_asked() {
     use azul_layout::managers::permission::{Admission, Capability, PermissionState};
     let mut lw = window();
-    // The pump folds the platform's quiet read in at its first pass; nothing in it prompts.
+    // An app that asked nothing and mounted nothing: the pump reads nothing and sets no state.
     pump(&mut lw);
+    assert!(lw.permission_manager.capabilities_in_use().is_empty());
     let manager = &mut lw.permission_manager;
     manager.set_status(Capability::Camera, PermissionState::Denied);
     assert_eq!(manager.admit(Capability::Camera), Admission::Skip, "denied is not asked again");

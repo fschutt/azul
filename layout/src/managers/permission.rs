@@ -633,7 +633,10 @@ impl PermissionManager {
                     }
                     match self.admit(capability) {
                         Admission::Go => out.push(event),
-                        Admission::Hold => {
+                        // Held: it waits for a gesture (`Hold`) or for the user's decision to
+                        // change (`Skip`: denied now; granted later in the settings it goes
+                        // without asking anything, `admit` says `Go` then).
+                        Admission::Hold | Admission::Skip => {
                             let waiting = self.held.iter().any(|held| {
                                 matches!(held, PermissionDiffEvent::Subscribe { capability: c, .. } if *c == capability)
                             });
@@ -641,7 +644,6 @@ impl PermissionManager {
                                 self.held.push(event);
                             }
                         }
-                        Admission::Skip => {}
                     }
                 }
                 PermissionDiffEvent::Release { capability } => {
@@ -656,9 +658,10 @@ impl PermissionManager {
         out
     }
 
-    /// Whether a Subscribe waits for the user's gesture: the pump looks again at it with every
-    /// new state the platform's quiet read brings (a capability that turns out granted needs no
-    /// gesture) and with every gesture.
+    /// Whether a Subscribe waits for the user's gesture (or, for a denied capability, for the
+    /// user to grant it in the settings): the pump looks again at it with every new state the
+    /// platform's quiet read brings (a capability that turns out granted needs no gesture) and
+    /// with every gesture.
     #[must_use]
     pub const fn has_held(&self) -> bool {
         !self.held.is_empty()
