@@ -32,15 +32,15 @@ class AbTable(unittest.TestCase):
         write(self.dir, "ab-A-hit-1.json", [run(900, "miss, 0 faces"), run(500, "hit, 8 faces"), run(520, "hit, 8 faces")])
         write(self.dir, "ab-A-miss-1.json", [run(1500, "miss, 0 faces", "waited 400.0 ms")])
         found = ab.collect(self.dir)
-        self.assertEqual(len(found[("A", "hit")]), 2)
-        self.assertEqual(len(found[("A", "miss")]), 1)
+        self.assertEqual(len(found[("", "A", "hit")]), 2)
+        self.assertEqual(len(found[("", "A", "miss")]), 1)
 
     def test_the_medians_and_the_words_of_the_marks(self):
         write(self.dir, "ab-B-miss-1.json", [run(1000, "miss, 0 faces", "skipped: the DOM's text is drawn by faces in memory")])
         write(self.dir, "ab-B-miss-2.json", [run(1200, "rebuilt (no key file), 0 faces", "skipped: x")])
         write(self.dir, "ab-B-miss-3.json", [run(1400, "miss, 0 faces", "waited 12.0 ms")])
         summary = {k: ab.summarize(v) for k, v in ab.collect(self.dir).items()}
-        block = summary[("B", "miss")]
+        block = summary[("", "B", "miss")]
         self.assertEqual(block["median_ms"], 1200)
         self.assertEqual((block["min_ms"], block["max_ms"]), (1000, 1400))
         self.assertEqual(block["font_cache"], {"miss": 2, "rebuilt": 1})
@@ -48,7 +48,7 @@ class AbTable(unittest.TestCase):
 
     def test_a_run_without_a_timeline_counts_as_a_start_but_not_as_a_time(self):
         write(self.dir, "ab-A-miss-1.json", [{"i": 1, "exit": 1, "timeline": None}])
-        block = ab.summarize(ab.collect(self.dir)[("A", "miss")])
+        block = ab.summarize(ab.collect(self.dir)[("", "A", "miss")])
         self.assertEqual((block["starts"], block["with_a_timeline"], block["median_ms"]), (1, 0, None))
 
     def test_files_of_other_names_are_left_alone_and_the_table_names_both_builds(self):
@@ -59,6 +59,17 @@ class AbTable(unittest.TestCase):
         self.assertIn("| A | miss |", text)
         self.assertIn("| B | miss |", text)
         self.assertNotIn("other", text)
+
+    def test_the_app_of_a_file_name_is_a_column_of_the_table(self):
+        write(self.dir, "ab-AzDrive-A-miss-1.json", [run(1000, "miss, 0 faces", "waited 400.0 ms: x")])
+        write(self.dir, "ab-AzDrive-B-miss-1.json", [run(700, "miss, 0 faces", "skipped: y")])
+        write(self.dir, "ab-AzWidgets-A-miss-1.json", [run(1100, "miss, 0 faces", "waited 1.0 ms: x")])
+        found = ab.collect(self.dir)
+        self.assertEqual(sorted(found), [("AzDrive", "A", "miss"), ("AzDrive", "B", "miss"), ("AzWidgets", "A", "miss")])
+        text = ab.table({k: ab.summarize(v) for k, v in found.items()})
+        self.assertIn("| app | build |", text)
+        self.assertIn("| AzDrive | A | miss |", text)
+        self.assertIn("| AzWidgets | A | miss |", text)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ one machine, for starts WITHOUT a font cache (miss) and starts WITH one (hit).
 
     startup_ab_table.py DIR [--json OUT]
 
-DIR holds the files `ab-<A|B>-<miss|hit>-<n>.json` that `startup_measure.py --json` wrote. A miss file has one run; a hit
+DIR holds the files `ab-[<app>-]<A|B>-<miss|hit>-<n>.json` that `startup_measure.py --json` wrote. A miss file has one run; a hit
 file has the warm-up run first (it makes the cache: dropped) and then the measured ones. For each block the table gives the
 number of starts, the median, min and max of the first present, how the font cache answered (`fonts:cache`: hit, miss,
 rebuilt) and what the first layout did about the font scan (`fonts:first_layout_wait`: skipped, waited). Std only."""
@@ -14,7 +14,7 @@ import re
 import statistics
 import sys
 
-FILE = re.compile(r"^ab-(A|B)-(miss|hit)-(\d+)\.json$")
+FILE = re.compile(r"^ab-(?:([A-Za-z0-9_]+)-)?(A|B)-(miss|hit)-(\d+)\.json$")
 
 
 def first_word(text):
@@ -31,18 +31,19 @@ def mark_detail(run, name):
 
 
 def collect(directory):
-    """{('A','miss'): [run, ...], ...}: every run of every file of the directory, the warm-up of a hit file left out."""
+    """{('AzDrive', 'A', 'miss'): [run, ...], ...} ('' for a file with no app in its name): every run of every file of the
+    directory, the warm-up of a hit file left out."""
     found = {}
     for name in sorted(os.listdir(directory), key=lambda n: (n.split("-")[:3], int(re.sub(r"\D", "", n.split("-")[-1]) or 0))):
         match = FILE.match(name)
         if not match:
             continue
-        which, kind, _ = match.groups()
+        app, which, kind, _ = match.groups()
         with open(os.path.join(directory, name)) as handle:
             runs = json.load(handle).get("runs", [])
         if kind == "hit":
             runs = runs[1:]
-        found.setdefault((which, kind), []).extend(runs)
+        found.setdefault((app or "", which, kind), []).extend(runs)
     return found
 
 
@@ -68,22 +69,27 @@ def summarize(runs):
 
 
 def table(summary):
+    apps = sorted({app for (app, _, _) in summary})
+    with_apps = apps != [""]
+    head = "| app | build |" if with_apps else "| build |"
     lines = [
-        "| build | font cache | starts | first present median ms | min | max | font cache answered | first layout's wait |",
-        "|---|---|---|---|---|---|---|---|",
+        f"{head} font cache | starts | first present median ms | min | max | font cache answered | first layout's wait |",
+        ("|---|---|" if with_apps else "|---|") + "---|---|---|---|---|---|---|",
     ]
-    for which in ("A", "B"):
-        for kind in ("miss", "hit"):
-            block = summary.get((which, kind))
-            if block is None:
-                continue
-            fmt = lambda v: "-" if v is None else f"{v:.0f}"
-            lines.append(
-                f"| {which} | {kind} | {block['with_a_timeline']}/{block['starts']} | {fmt(block['median_ms'])} | "
-                f"{fmt(block['min_ms'])} | {fmt(block['max_ms'])} | "
-                f"{', '.join(f'{k} {v}' for k, v in sorted(block['font_cache'].items()))} | "
-                f"{', '.join(f'{k} {v}' for k, v in sorted(block['first_layout_wait'].items()))} |"
-            )
+    for app in apps:
+        for which in ("A", "B"):
+            for kind in ("miss", "hit"):
+                block = summary.get((app, which, kind))
+                if block is None:
+                    continue
+                fmt = lambda v: "-" if v is None else f"{v:.0f}"
+                lead = f"| {app} | {which} |" if with_apps else f"| {which} |"
+                lines.append(
+                    f"{lead} {kind} | {block['with_a_timeline']}/{block['starts']} | {fmt(block['median_ms'])} | "
+                    f"{fmt(block['min_ms'])} | {fmt(block['max_ms'])} | "
+                    f"{', '.join(f'{k} {v}' for k, v in sorted(block['font_cache'].items()))} | "
+                    f"{', '.join(f'{k} {v}' for k, v in sorted(block['first_layout_wait'].items()))} |"
+                )
     return "\n".join(lines)
 
 
@@ -98,7 +104,7 @@ def main(argv):
     if "--json" in argv:
         out = argv[argv.index("--json") + 1]
         with open(out, "w") as handle:
-            json.dump({f"{w}-{k}": v for (w, k), v in summary.items()}, handle, indent=2)
+            json.dump({"-".join(part for part in key if part): v for key, v in summary.items()}, handle, indent=2)
     return 0 if summary else 1
 
 
