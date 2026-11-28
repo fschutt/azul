@@ -12,12 +12,46 @@ macro_rules! names {
 names! {
     /// The map's area: the whole window (the widget and what is drawn on it).
     MAP = "map";
-    /// The draggable title area over the map.
+    /// The draggable strip over the top of the map (a desktop's window moves by it).
     TITLE = "title";
-    /// The sidebar's show / hide button (in the title area).
-    SIDEBAR_TOGGLE = "sidebar-toggle";
-    /// The sidebar: the travel panel and the recent places.
-    SIDEBAR = "sidebar";
+    /// The panel at the left of the map (a desktop, a tablet, a phone on its side): search, results, the place or the way.
+    PANEL = "panel";
+    /// The panel's fold-away button (a desktop's panel folds to its search key).
+    PANEL_TOGGLE = "panel-toggle";
+    /// The key of the folded panel: it shows the panel again, the search focused.
+    PANEL_SHOW = "panel-show";
+    /// The bottom sheet of a phone upright: the place, the results or the way.
+    SHEET = "sheet";
+    /// A phone's search bar, the floating surface on top of the map (its box is the bar's: 56 dp tall, 12 px from the sides).
+    SEARCH_BAR = "search-bar";
+    /// The row inside it (and in the desktop panel's head): the search icon, the field, its clear key and the microphone.
+    SEARCH_ROW = "search-row";
+    /// The search field. (The destination's field of the travel panel is [`TRAVEL_TO`]: a search and a destination are the
+    /// same text, and one of the two shows.)
+    SEARCH = "search";
+    SEARCH_CLEAR = "search-clear";
+    /// The chips under the search bar (each chip `chip-<n>`, see [`indexed`]).
+    CHIPS = "chips";
+    /// What the panel / sheet holds, by its view.
+    HOME = "home";
+    RESULTS = "results";
+    PLACE = "place";
+    /// The way back from a place or from the way (the arrow at the head of the view).
+    BACK = "back";
+    /// A place's keys: the way there, saved, shared, removed.
+    PLACE_ROUTE = "place-route";
+    PLACE_SAVE = "place-save";
+    PLACE_SHARE = "place-share";
+    PLACE_REMOVE = "place-remove";
+    /// The searched place's pin on the map (a dropped pin's icon is `place-pin-<n>`).
+    PLACE_PIN = "place-pin";
+    /// The map styles' key and its menu (each style `style-<n>`).
+    LAYERS = "layers";
+    LAYERS_MENU = "layers-menu";
+    /// The floating keys at the right of the map.
+    CONTROLS = "controls";
+    /// The notice that Share copied a link.
+    LINK_COPIED = "link-copied";
     // ---- the travel panel ----
     TRAVEL = "travel";
     TRAVEL_FROM = "travel-from";
@@ -82,7 +116,7 @@ names! {
     OFFLINE_STOP = "offline-stop";
     OFFLINE_NOTE = "offline-note";
     // ---- saved places (`lists_ui.rs`) ----
-    /// The sidebar's saved lists (each row `list-<n>`, the open one's places `saved-place-<n>`).
+    /// The saved lists of the search view (each row `list-<n>`, the open one's places `saved-place-<n>`).
     SAVED = "saved";
     SAVED_LISTS = "saved-lists";
     CLEAR_RECENT_DESTINATIONS = "clear-recent-destinations";

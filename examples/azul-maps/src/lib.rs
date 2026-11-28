@@ -1,33 +1,34 @@
 //! AzMaps: the `MapWidget` (layout/src/widgets/map.rs) in an app - the map is
-//! the window, everything else floats on it.
+//! the window, everything else floats on it ([`ui`]).
 //!
 //! ```text
-//! +----------------------------------------------------------------------+
-//! | o o o  [sidebar]           (drag the window here)         [settings] |  title area
-//! |  +- sidebar ---------+                                               |
-//! |  | o  From      [^v] |          the map, the whole window            |
-//! |  | v  To             |                     v                         |
-//! |  | [car][walk][bike] |                  +--------+                   |
-//! |  |   [transit] 412km |                  | popover|  a place's card   |
-//! |  | Recents     [del] |                  +--------+          [locate] |
-//! |  | v 37.77 N 122.4 W |                                       [+] [-] |
-//! |  +-------------------+                         (c) OpenStreetMap ... |
-//! +----------------------------------------------------------------------+
+//!  a desktop, a tablet, a phone on its side         a phone upright
+//! +--------------------------------------------+   +-------------------------+
+//! | +-panel-----------+                  [+][-] |   | ( search places  [x][mic] )
+//! | | ( search  [<] ) |                  [ o ]  |   | [Food] [Coffee] [Fuel] ...
+//! | | [Food] [Fuel]   |                  [ = ]  |   |                  [ o ]  |
+//! | | results, a      |                         |   |  the map         [ = ]  |
+//! | | place, the way  |   the map               |   | +-sheet-----------+     |
+//! | +-----------------+                         |   | | ---  a place     |     |
+//! +--------------------------------------------+   +-+------------------+-----+
 //! ```
 //!
-//! A click on the map drops a pin; the pins are the RECENT places (newest
-//! first in the sidebar, a click centres the map on one and opens its card).
-//! A place's card shows above its pin (Directions, Remove): the pin marker's
-//! popup. The travel panel takes a start (empty: where you are, once the
-//! location is known) and a destination, each a place name picked from the
-//! typeahead's suggestions (`places.rs`, searched on the geocoder worker once
-//! the typing rests) or `lat, lon`, a mode (drive, walk, cycle, public
-//! transport), and draws the way between them: the straight line with its
-//! distance at once, then the road route the route worker works out on the
-//! routing tiles (`--routing`, ROUTING.md), or its estimate without them.
+//! No ribbon, no tab row: the map fills the window. The panel (a phone upright: the search bar
+//! and the sheet) holds three views ([`flow::Panel`]): the search - the field, the chips, the
+//! results of what was typed, then the recent and the saved places - one place - its name,
+//! Route, Save, Share - and the way - both ends, the modes, the summary, the steps. A click on
+//! the map drops a pin and shows it as a place (the pins are the RECENT places); a result of the
+//! search shows its place; Route on a place shows the way to it. The travel panel takes a
+//! start (empty: where you are, once the location is known) and a destination, each a place name
+//! picked from the typeahead's suggestions (`places.rs`, searched on the geocoder worker once the
+//! typing rests) or `lat, lon`, a mode (drive, walk, cycle, public transport), and draws the way
+//! between them: the straight line with its distance at once, then the road route the route
+//! worker works out on the routing tiles (`--routing`, ROUTING.md), or its estimate without them.
+//! The search field and the destination's field are one text: the search is a search for the
+//! destination.
 //!
 //! Pins are kept in the data tree (`maps/pins.json`, through azul-appkit's
-//! file jobs on a Thread); the last viewport and the sidebar in settings.json.
+//! file jobs on a Thread); the last viewport, the panel's fold and the map style in settings.json.
 //! azul-appkit gives the switches (`--theme`, `--mode`, `--size`, `--shot`,
 //! `--data-dir`) and the settings page (the gear, Mod+,). Arrows pan, `+` /
 //! `-` zoom (not while a travel field is being typed in). The tiles come from
@@ -47,7 +48,8 @@
 //! <compute_ms>` when the typeahead's suggestions come back from the geocoder
 //! worker, `AZMAPS_ROUTE <mode> <km>
 //! <minutes> <compute_ms>` when its route comes back from the route worker,
-//! `AZMAPS_SIDEBAR open|closed`. With `--stats` (`args.rs`): `AZMAPS_LAYOUT
+//! `AZMAPS_PANEL open|closed` (the desktop panel folded or shown), `AZMAPS_CHIP <n> <words>`, `AZMAPS_SHARE <link>`,
+//! `AZMAPS_STYLE <key>` (the layers' menu). With `--stats` (`args.rs`): `AZMAPS_LAYOUT
 //! <n> <us>` for every window rebuild (how long `layout` took), `AZMAPS_PAN
 //! map <us>` for every step of a pan (how long AzMaps took for it), and the map widget's `AZ_MAP_TILES` /
 //! `AZ_MAP_RENDER` / `AZ_MAP_TILE` counters.
@@ -79,6 +81,7 @@
 
 pub mod args;
 mod drive_ui;
+pub mod flow;
 pub mod geocode;
 pub mod ids;
 pub mod import;
@@ -96,13 +99,14 @@ pub mod route;
 pub mod saved;
 pub mod services;
 mod transit_panel;
+mod ui;
 pub mod voice;
 
 use std::{
     cell::Cell,
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicU64, Ordering},
         Arc,
     },
 };
@@ -124,8 +128,8 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     vec::{MapLatLonVec, MapOverlayVec, U8Vec},
     widgets::{
-        Button, ButtonType, MapLatLon, MapLineDash, MapMarker, MapOverlay, MapPolyline, MapSetup, MapTileId,
-        MapTileLayer, MapViewport, MapWidget, OnTextInputReturn, TextInputState, TextInputValid,
+        Button, MapLatLon, MapLineDash, MapMarker, MapOverlay, MapPolyline, MapSetup, MapTheme, MapTileId,
+        MapTileLayer, MapViewport, MapWidget, OnTextInputReturn, SheetDetent, TextInputState, TextInputValid,
     },
 };
 use azul_appkit::{
@@ -134,15 +138,17 @@ use azul_appkit::{
     files::{FileJob, FileOutcome},
     l10n::{label, t_args, Arg},
     shortcuts::Shortcut,
+    insets::Insets,
     ui as kit,
 };
 
 use crate::{
+    flow::{Panel, PlaceCard},
     geocode::{SearchReply, SearchRequest},
     model::{
-        cardinal, distance_km, distance_text, duration_text, fit_view, pan_tiles, parse_place,
+        cardinal, centre_in_free, distance_km, distance_text, duration_text, fit_view, pan_tiles, parse_place,
         parse_view, pin_of_marker, pins_from_json, pins_to_json, plan_overlays, End, FROM_MARKER,
-        HERE_MARKER, TO_MARKER,
+        HERE_MARKER, PLACE_MARKER, TO_MARKER,
         place_text, route_line as route_reply_line, travel_line, view_line, view_value, TravelMode, HOME, MAX_ZOOM,
         MIN_ZOOM, PINS_FILE, SIDEBAR_KEY, VIEW_KEY,
     },
@@ -151,7 +157,7 @@ use crate::{
 };
 
 /// What azul-appkit's switches know about AzMaps.
-pub const SPEC: AppSpec = AppSpec {
+pub static SPEC: AppSpec = AppSpec {
     name: "AzMaps",
     binary: "AzMaps",
     summary: "a map with pins, on azul's MapWidget",
@@ -160,7 +166,7 @@ pub const SPEC: AppSpec = AppSpec {
 };
 
 /// The About facts.
-pub const ABOUT: AboutInfo = AboutInfo {
+pub static ABOUT: AboutInfo = AboutInfo {
     name: "AzMaps",
     version: env!("CARGO_PKG_VERSION"),
     summary: "A map with pins on azul's MapWidget: OpenStreetMap vector tiles, your pins kept \\
@@ -170,7 +176,7 @@ pub const ABOUT: AboutInfo = AboutInfo {
 };
 
 /// The keys AzMaps answers (the kit adds Mod+, / F1 / Escape).
-pub const SHORTCUTS: [Shortcut; 6] = [
+pub static SHORTCUTS: [Shortcut; 6] = [
     Shortcut::new("azmaps-shortcuts-map", "Left", "azmaps-pan-west"),
     Shortcut::new("azmaps-shortcuts-map", "Right", "azmaps-pan-east"),
     Shortcut::new("azmaps-shortcuts-map", "Up", "azmaps-pan-north"),
@@ -181,7 +187,10 @@ pub const SHORTCUTS: [Shortcut; 6] = [
 
 /// AzMaps' own categories of the settings page (`azmaps-category-<name>`): Navigation (where
 /// the position comes from), Places (imports, the review, exports).
-pub const APP_CATEGORIES: [&str; 2] = ["Navigation", "Places"];
+pub static APP_CATEGORIES: [&str; 2] = ["Navigation", "Places"];
+
+/// A place as `(lat, lon)` in degrees.
+type LatLon = (f64, f64);
 
 /// The write-back tags of AzMaps' file jobs.
 const TAG_LOAD: u64 = 1;
@@ -196,10 +205,24 @@ const TICK_MS: u64 = 100;
 /// drag or a held key is one write, not one per frame): half a second.
 const VIEW_SAVE_IDLE_TICKS: u32 = 5;
 
-/// `--stats`: the window rebuilds and the pan steps on stdout
-/// (`AZMAPS_LAYOUT <n> <us>`, `AZMAPS_PAN <what> <us>`).
-static STATS: AtomicBool = AtomicBool::new(false);
-static LAYOUTS: AtomicU64 = AtomicU64::new(0);
+/// Ticks a notice that a link was copied stays: three seconds.
+pub(crate) const TOAST_TICKS: u32 = 30;
+
+/// An instant far enough back that a travel field's text typed "then" has rested: the search starts at the next tick.
+pub(crate) fn rested() -> std::time::Instant {
+    let back = std::time::Duration::from_millis(TYPEAHEAD_REST_MS as u64 + 50);
+    std::time::Instant::now().checked_sub(back).unwrap_or_else(std::time::Instant::now)
+}
+
+/// The map's look for the style the layers' menu picked (`flow::STYLES`, by its index).
+pub(crate) fn theme_of(index: usize) -> MapTheme {
+    match index {
+        1 => MapTheme::Positron,
+        2 => MapTheme::Bright,
+        3 => MapTheme::Liberty,
+        _ => MapTheme::System,
+    }
+}
 
 /// How long the typing in a travel field rests before its text is searched:
 /// a search per keystroke would only be superseded by the next one.
@@ -241,53 +264,6 @@ const ROOT: &str =
 const MAP_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; \
                         background: #cbd2d8; overflow: hidden; @theme(flora) { background: \
                         system:under-page-background; }";
-/// The title area over the map: the window's drag region. The window's own controls sit over
-/// one of its ends (macOS's traffic lights on the left, the caption buttons on the right on
-/// Windows): [`title_area_css`] gives it their room.
-const TITLE_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; display: flex; \
-                          flex-direction: row; align-items: center; gap: 6px; -azul-app-region: drag;";
-/// The title area's height without window controls taller than its buttons, px.
-const TITLE_HEIGHT: f32 = 40.0;
-/// The same on a phone, where its buttons are a finger tall (48 dp) and the row is Material's app bar.
-const TITLE_HEIGHT_PHONE: f32 = 56.0;
-/// The title area's own room at each end, beside the window controls' room, px.
-const TITLE_PAD: f32 = 10.0;
-/// A control in the drag region keeps its clicks.
-const NO_DRAG: &str = "-azul-app-region: no-drag;";
-/// A floating group of map controls (Apple Maps' rounded pills).
-const CONTROL_GROUP: &str = "display: flex; flex-direction: column; background: \
-                             system:window-background; border-radius: 8px; box-shadow: 0px 1px \
-                             4px rgba(0,0,0,0.3); -azul-app-region: no-drag; @theme(flora) { \
-                             border-radius: 5px; box-shadow: 0px 1px 4px rgba(48, 45, 38, 0.3); \
-                             @media (prefers-color-scheme: dark) { box-shadow: 0px 1px 4px \
-                             rgba(0, 0, 0, 0.55); } }";
-/// The controls' column, bottom right.
-const CONTROLS: &str = "position: absolute; right: 12px; bottom: 30px; display: flex; \
-                        flex-direction: column; gap: 10px;";
-/// The part of the window's left edge the open sidebar covers (its left
-/// offset, its width, a gap): a framed route stays right of it.
-const SIDEBAR_INSET: f32 = 310.0;
-/// The floating sidebar, below the title area.
-const SIDEBAR: &str = "position: absolute; left: 10px; top: 44px; bottom: 26px; width: 290px; \
-                       display: flex; flex-direction: column; gap: 12px; padding: 12px; \
-                       background: system:window-background; color: system:text; \
-                       border-radius: 12px; box-shadow: 0px 2px 10px rgba(0,0,0,0.25); \
-                       @theme(flora) { border-radius: 5px; box-shadow: 0px 2px 10px rgba(48, \
-                       45, 38, 0.22); @media (prefers-color-scheme: dark) { box-shadow: 0px 2px \
-                       10px rgba(0, 0, 0, 0.5); } }";
-/// The window width under which the screen is a phone's (portrait): the sidebar is a sheet, not a
-/// column. A landscape phone (852 x 393) keeps the column, which is 323 px tall there.
-const COMPACT_WIDTH: f32 = 560.0;
-/// The sidebar on a phone in portrait: a sheet across the top of the map, as tall as its content up to
-/// 62 % of the screen. The 290 px column that runs from the title to the bottom covered the whole map
-/// of a 411 dp screen (the boot picture of the Android emulator showed a grey card and no map).
-const SIDEBAR_SHEET: &str = "position: absolute; left: 8px; right: 8px; top: 60px; max-height: 62%; \
-                             display: flex; flex-direction: column; gap: 12px; padding: 12px; \
-                             background: system:window-background; color: system:text; \
-                             border-radius: 12px; box-shadow: 0px 2px 10px rgba(0,0,0,0.25); \
-                             overflow-y: auto; @theme(flora) { border-radius: 5px; box-shadow: 0px \
-                             2px 10px rgba(48, 45, 38, 0.22); @media (prefers-color-scheme: dark) { \
-                             box-shadow: 0px 2px 10px rgba(0, 0, 0, 0.5); } }";
 const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
 const TRAVEL_PANEL: &str = "display: flex; flex-direction: column; gap: 6px;";
 const ROW: &str = "display: flex; flex-direction: row; align-items: center; gap: 6px;";
@@ -330,21 +306,22 @@ const SECTION_HEAD: &str = "display: flex; flex-direction: row; align-items: cen
                             letter-spacing: 0.12em; }";
 const RECENTS_LIST: &str = "display: flex; flex-direction: column; gap: 2px; overflow-y: auto; \
                             flex-grow: 1; min-height: 0px;";
-/// A place's card in its popover.
-const CARD: &str = "display: flex; flex-direction: column; gap: 6px; padding: 4px; min-width: \
-                    210px;";
-const CARD_TITLE: &str = "font-size: 15px; font-weight: bold;";
-const CARD_SUB: &str = "font-size: 12px; color: system:secondary-text;";
 /// The tiles' licence line - required (ODbL, CC BY), so it stays, small.
-const ATTRIBUTION: &str = "position: absolute; right: 4px; bottom: 3px; font-size: 10px; color: \
+const ATTRIBUTION_LOOK: &str = "font-size: 10px; color: \
                            #333333; background: rgba(255,255,255,0.7); padding: 1px 4px; \
                            border-radius: 3px; @theme(flora) { color: #262521; background: \
                            rgba(251, 250, 246, 0.8); @media (prefers-color-scheme: dark) { \
                            color: #E7E7E7; background: rgba(29, 29, 29, 0.8); } }";
 /// Where a problem with the pins file is shown: centred and 360 px wide in a desktop window; on a phone from the
 /// left edge to the zoom keys (a window narrower than 360 dp would have lost both ends of the 360 px).
-const NOTICE_SPOT: &str = "position: absolute; left: 50%; bottom: 30px; width: 360px; margin-left: -180px;";
-const NOTICE_SPOT_PHONE: &str = "position: absolute; left: 8px; right: 72px; bottom: 30px;";
+/// `bottom` px above the window's lower edge: above a phone's sheet.
+fn notice_spot(wide: bool, bottom: f32) -> String {
+    if wide {
+        format!("position: absolute; left: 50%; bottom: {bottom:.0}px; width: 360px; margin-left: -180px;")
+    } else {
+        format!("position: absolute; left: 8px; right: 72px; bottom: {bottom:.0}px;")
+    }
+}
 /// A problem with the pins file, as a small toast.
 const NOTICE: &str = "text-align: center; font-size: 12px; color: #ffffff; background: \
                       rgba(176,0,32,0.9); padding: 6px 10px; border-radius: 6px; @theme(flora) \
@@ -355,7 +332,7 @@ const LOCATION_DOT: &str = "width: 16px; height: 16px; background: #4285f4; bord
                             box-shadow: 0px 0px 0px 3px rgba(66,133,244,0.35); @theme(flora) { \
                             background: system:accent; box-shadow: 0px 0px 0px 3px \
                             system:selection-background; }";
-const COMPASS_BADGE: &str = "position: absolute; right: 12px; top: 50px; width: 44px; height: \
+const COMPASS_BADGE: &str = "position: absolute; right: 12px; width: 44px; height: \
                              44px; border-radius: 22px; background: rgba(20,20,28,0.85); border: \
                              2px solid #6a7080; display: flex; align-items: center; \
                              justify-content: center; box-shadow: 0px 1px 4px rgba(0,0,0,0.4);";
@@ -454,11 +431,24 @@ struct MapState {
     locating: bool,
     last_fix: Option<(f64, f64)>,
     /// The recent places (dropped pins), oldest first as the pins file
-    /// keeps them; the sidebar shows them newest first.
+    /// keeps them; the search view shows them newest first.
     pins: Vec<(f64, f64)>,
-    /// The place whose card is open (an index into `pins`).
+    /// The dropped pin whose card is open (an index into `pins`); `flow.place` holds the card.
     selected: Option<usize>,
-    sidebar_open: bool,
+    /// What the panel (a desktop) or the sheet (a phone) holds.
+    flow: flow::Flow,
+    /// Where a phone's sheet rests.
+    sheet: SheetDetent,
+    /// The map style the layers' menu picked, an index into `flow::STYLES`.
+    style: usize,
+    /// A notice that is no problem (a link was copied) and the ticks it has left.
+    toast: (String, u32),
+    /// `--stats`: the window rebuilds and the pan steps on stdout (`AZMAPS_LAYOUT <n> <us>`, `AZMAPS_PAN <what> <us>`).
+    stats: bool,
+    /// The window rebuilds so far (`--stats`); a cell: the layout callback reads the state shared.
+    layouts: Cell<u64>,
+    /// The window as the last build saw it (its size, the insets, the controls' room): what the framing between builds is done against.
+    frame: Cell<Option<ui::Frame>>,
     travel: Travel,
     mag_x: f32,
     mag_y: f32,
@@ -498,7 +488,7 @@ struct MapState {
     /// it and its part of the line is drawn over the rest.
     selected_step: Option<usize>,
     /// What the newest route request asked: the ends and the mode.
-    route_asked: Option<((f64, f64), (f64, f64), TravelMode)>,
+    route_asked: Option<(LatLon, LatLon, TravelMode)>,
     /// The newest route request's number, shared with the route workers: an
     /// older one gives up, its reply is dropped.
     route_latest: Arc<AtomicU64>,
@@ -517,6 +507,8 @@ struct MapState {
     search_latest: Arc<AtomicU64>,
     /// The online services of the session and the cache of their answers (`services.rs`).
     services: crate::services::Services,
+    /// AzMaps' own list of cities (`resources/places.tsv`), parsed once at the start and shared with every search.
+    cities: Arc<places::Gazetteer>,
     /// The public transport panel: its time and its journeys (`transit_panel.rs`).
     transit: transit_panel::TransitState,
     /// The navigation under way and the position source (`drive_ui.rs`).
@@ -592,7 +584,7 @@ impl MapState {
 
     /// The travel panel's ends as places: the start as typed, or - left
     /// empty - where you are once that is known; the destination as typed.
-    fn travel_ends(&self) -> (Option<(f64, f64)>, Option<(f64, f64)>) {
+    fn travel_ends(&self) -> (Option<LatLon>, Option<LatLon>) {
         let from = if self.travel.from.trim().is_empty() {
             self.last_fix
         } else {
@@ -613,10 +605,15 @@ impl MapState {
             self.suggestions = None;
             self.announce_travel();
             // Typed coordinates are a place like a picked one: with both ends
-            // places the map frames the way between them.
-            if self.travel.place(end).is_some() {
-                if let (Some(a), Some(b)) = self.travel_ends() {
-                    self.frame_travel(a, b);
+            // places the map frames the way between them, and in the search they open the place.
+            if let Some(at) = self.travel.place(end) {
+                if self.flow.panel == Panel::Directions {
+                    if let (Some(a), Some(b)) = self.travel_ends() {
+                        self.frame_travel(a, b);
+                    }
+                } else if end == End::To {
+                    self.open_place(PlaceCard { name: String::new(), kind: "", at, pin: None });
+                    self.show_place_at(at, PICKED_PLACE_ZOOM);
                 }
             }
             return (None, true);
@@ -630,6 +627,7 @@ impl MapState {
             online: self.services.transit.clone(),
             language: azul_appkit::l10n::locale().chars().take(2).collect(),
             saved: Arc::clone(&self.lists.lists),
+            cities: Arc::clone(&self.cities),
             latest: self.search_latest.clone(),
             on_done: on_search_done,
         };
@@ -660,19 +658,75 @@ impl MapState {
         self.typed = None;
         self.pick_first = None;
         self.announce_travel();
-        match self.travel_ends() {
-            (Some(a), Some(b)) => self.frame_travel(a, b),
-            _ => self.show_at(place.lat, place.lon, PICKED_PLACE_ZOOM),
+        if self.flow.panel == Panel::Directions {
+            match self.travel_ends() {
+                (Some(a), Some(b)) => self.frame_travel(a, b),
+                _ => self.show_at(place.lat, place.lon, PICKED_PLACE_ZOOM),
+            }
+        } else {
+            // The search found a place: its view opens, the map shows it beside the panel or above the sheet.
+            let (name, kind) = (place.label(azul_appkit::l10n::locale().starts_with("de")), kind_key(place.kind));
+            let at = (place.lat, place.lon);
+            self.open_place(PlaceCard { name, kind, at, pin: None });
+            self.show_place_at(at, PICKED_PLACE_ZOOM);
         }
         true
     }
 
-    /// Frames the way from `a` to `b` in the part of the window the sidebar
-    /// leaves free.
+    /// What the panel at the left (its width) and the sheet at the bottom (its height) cover of
+    /// the map, px: what a place or a route is framed beside.
+    fn covered(&self) -> (f32, f32) {
+        let (width, height) = self.size.get();
+        if self.drive.nav.is_some() {
+            return (0.0, 0.0);
+        }
+        if flow::is_wide(width) {
+            return (if self.flow.collapsed { 0.0 } else { ui::PANEL_COVER }, 0.0);
+        }
+        let sheet = ui::sheet_height(self.sheet, &self.frame_of());
+        (0.0, sheet.min(height))
+    }
+
+    /// The window as the last build saw it (before the first build: its size, no insets).
+    fn frame_of(&self) -> ui::Frame {
+        self.frame.get().unwrap_or(ui::Frame {
+            size: self.size.get(),
+            insets: Insets::default(),
+            title: kit::TitleInsets { left: 0.0, right: 0.0, height: 0.0 },
+        })
+    }
+
+    /// Frames the way from `a` to `b` in the part of the window the panel and the sheet leave free.
     fn frame_travel(&mut self, a: (f64, f64), b: (f64, f64)) {
-        let inset = if self.sidebar_open { SIDEBAR_INSET } else { 0.0 };
-        let (lat, lon, zoom) = fit_view(a, b, self.size.get(), inset);
+        let (left, _) = self.covered();
+        let (lat, lon, zoom) = fit_view(a, b, self.size.get(), left);
         self.show_at(lat, lon, zoom);
+    }
+
+    /// Shows the place `at` at `zoom`, in the middle of what the panel and the sheet leave free.
+    fn show_place_at(&mut self, at: (f64, f64), zoom: f32) {
+        let (left, bottom) = self.covered();
+        let min = MIN_ZOOM.max(self.layer.min_zoom as f32);
+        let max = MAX_ZOOM.min(self.layer.max_zoom as f32);
+        let zoom = zoom.clamp(min, max);
+        let (lat, lon) = centre_in_free(at, zoom, left, bottom);
+        self.viewport.zoom = zoom;
+        self.centre_on(lat, lon);
+    }
+
+    /// `card` opens in the panel or the sheet; a dropped pin's card is the pin selected.
+    fn open_place(&mut self, card: PlaceCard) {
+        self.selected = card.pin;
+        self.flow.show_place(card);
+        self.sheet = SheetDetent::Peek;
+    }
+
+    /// The dropped pin `index` opens as a place.
+    fn open_pin(&mut self, index: usize) {
+        if let Some(&at) = self.pins.get(index) {
+            self.open_place(PlaceCard { name: String::new(), kind: "", at, pin: Some(index) });
+            println!("AZMAPS_PLACE {index}");
+        }
     }
 
     /// Centres the map on `lat`, `lon` at `zoom`, within the layer's zooms.
@@ -693,7 +747,9 @@ impl MapState {
     /// asks for the route already asked for, or an end is not a place. A new
     /// request supersedes the one in flight (`route.rs`).
     fn route_request(&mut self) -> Option<RouteRequest> {
-        let (Some(from), Some(to)) = self.travel_ends() else {
+        // A search and a place have no way: it is asked once the way is shown.
+        let ends = if self.flow.panel == Panel::Directions { self.travel_ends() } else { (None, None) };
+        let (Some(from), Some(to)) = ends else {
             if self.route_asked.take().is_some() {
                 // Supersede what is still in flight: no answer for ends that
                 // are gone.
@@ -826,6 +882,18 @@ extern "C" fn on_route_progress(mut app: RefAny, mut msg: RefAny, _info: Callbac
 
 // ==== Layout ====
 
+/// The key of the words of a suggestion's kind.
+fn kind_key(kind: places::SuggestionKind) -> &'static str {
+    use places::SuggestionKind::{Address, City, Place, Saved, Station};
+    match kind {
+        City => "azmaps-kind-city",
+        Station => "azmaps-kind-station",
+        Address => "azmaps-kind-address",
+        Place => "azmaps-kind-place",
+        Saved => "azmaps-kind-saved",
+    }
+}
+
 /// `37.7749° N 122.4194° W`.
 fn coords(lat: f64, lon: f64) -> String {
     format!(
@@ -845,44 +913,6 @@ fn tool(app: &RefAny, icon: &str, name: &str, id: AzString, on_click: ButtonOnCl
         .dom()
         .with_id(id)
         .with_accessibility_name(label(name))
-}
-
-/// The title area over the map: the window moves by it; the sidebar's
-/// button on the left, the settings on the right, no text.
-/// The title area's CSS, clear of the window's own controls where they sit over it.
-fn title_area_css(insets: kit::TitleInsets, phone: bool) -> String {
-    format!(
-        "{TITLE_AREA} height: {:.0}px; padding: 0px {:.0}px 0px {:.0}px;",
-        insets.height.max(if phone { TITLE_HEIGHT_PHONE } else { TITLE_HEIGHT }),
-        insets.right + TITLE_PAD,
-        insets.left + TITLE_PAD
-    )
-}
-
-/// The title area over the map: the sidebar's toggle at its start, Settings at its end, the
-/// window controls' room `insets` beside them.
-fn title_area(s: &MapState, app: &RefAny, insets: kit::TitleInsets) -> Dom {
-    let toggle_name = label(if s.sidebar_open { "azmaps-hide-sidebar" } else { "azmaps-show-sidebar" });
-    Dom::create_div()
-        .with_css(title_area_css(insets, s.size.get().0 < COMPACT_WIDTH).as_str())
-        .with_id(ids::TITLE)
-        .with_child(
-            Dom::create_div().with_css(NO_DRAG).with_child(
-                Button::create("")
-                    .with_icon("view_sidebar")
-                    .with_toggled(s.sidebar_open)
-                    .with_on_click(app.clone(), on_toggle_sidebar as ButtonOnClickCallbackType)
-                    .dom()
-                    .with_id(ids::SIDEBAR_TOGGLE)
-                    .with_accessibility_name(toggle_name),
-            ),
-        )
-        .with_child(Dom::create_div().with_css("flex-grow: 1; height: 100%;"))
-        .with_child(
-            Dom::create_div()
-                .with_css(NO_DRAG)
-                .with_child(tool(app, "settings", "azmaps-settings", ids::SETTINGS, on_settings_open)),
-        )
 }
 
 /// One travel field: which one, and the app.
@@ -1267,77 +1297,6 @@ fn recents(s: &MapState, app: &RefAny) -> Option<Dom> {
     )
 }
 
-/// The sidebar: travel, then the recent places. Nothing else. `compact`: a phone's portrait screen, where
-/// it is a sheet over the top of the map ([`SIDEBAR_SHEET`]) and not a column along its whole height.
-fn sidebar(s: &MapState, app: &RefAny, compact: bool) -> Dom {
-    let mut side = Dom::create_div()
-        .with_css(if compact { SIDEBAR_SHEET } else { SIDEBAR })
-        .with_id(ids::SIDEBAR)
-        .with_accessibility_name(label("azmaps-sidebar"))
-        .with_child(travel_panel(s, app));
-    if let Some(saved) = lists_ui::saved_section(s, app) {
-        side.add_child(saved);
-    }
-    if let Some(list) = recents(s, app) {
-        side.add_child(list);
-    }
-    side
-}
-
-/// A place's card, in the popover at its pin: what it is, where it is,
-/// directions to it, remove it.
-fn place_card(app: &RefAny, index: usize, lat: f64, lon: f64, address: Option<&str>) -> Dom {
-    let pin = || {
-        RefAny::new(PinRef {
-            app: app.clone(),
-            index,
-        })
-    };
-    Dom::create_div()
-        .with_css(CARD)
-        .with_child(
-            Dom::create_div()
-                .with_css(CARD_TITLE)
-                .with_child(Dom::create_span_with_text(match address {
-                    // The search's address of the place, else what it is.
-                    Some(address) => AzString::from(address.to_string()),
-                    None => label("azmaps-dropped-pin"),
-                })),
-        )
-        .with_child(
-            Dom::create_div()
-                .with_css(CARD_SUB)
-                .with_child(Dom::create_span_with_text(coords(lat, lon))),
-        )
-        .with_child(
-            Dom::create_div()
-                .with_css(ROW)
-                .with_child(
-                    Button::with_type(label("azmaps-directions"), ButtonType::Primary)
-                        .with_icon("directions")
-                        .with_on_click(pin(), on_place_directions as ButtonOnClickCallbackType)
-                        .dom()
-                        .with_id(ids::indexed("place-directions", index)),
-                )
-                .with_child(
-                    Button::create("")
-                        .with_icon("star")
-                        .with_on_click(pin(), on_place_favourite as ButtonOnClickCallbackType)
-                        .dom()
-                        .with_id(ids::indexed("place-favourite", index))
-                        .with_accessibility_name(label("azmaps-favourite")),
-                )
-                .with_child(
-                    Button::create("")
-                        .with_icon("delete")
-                        .with_on_click(pin(), on_place_remove as ButtonOnClickCallbackType)
-                        .dom()
-                        .with_id(ids::indexed("place-remove", index))
-                        .with_accessibility_name(label("azmaps-remove")),
-                ),
-        )
-}
-
 /// A pin's icon: the red head with its white dot, its point on the place.
 fn pin_icon(index: usize, (lat, lon): (f64, f64)) -> Dom {
     Dom::create_div()
@@ -1370,13 +1329,23 @@ fn travel_polyline(points: MapLatLonVec, road: bool, mode: TravelMode) -> MapPol
     }
 }
 
+/// The pin of the place the search found: the same head, no index.
+fn place_icon((lat, lon): (f64, f64)) -> Dom {
+    Dom::create_div()
+        .with_css(PIN_HEAD)
+        .with_child(Dom::create_div().with_css(PIN_DOT))
+        .with_id(ids::PLACE_PIN)
+        .with_accessibility_name(coords(lat, lon))
+}
+
 /// What AzMaps puts on the map ([`plan_overlays`]) as the map widget's
 /// overlays: the travel line (the road route, or the straight preview until
-/// it arrives), its ends, the pins - the selected one with its card above it -
-/// and where you are, on top.
-fn map_overlays(s: &MapState, app: &RefAny) -> Vec<MapOverlay> {
-    let travel = match s.travel_ends() {
-        (Some(a), Some(b)) => Some((a, b)),
+/// it arrives) and its ends once the way is shown, the pins, the place the
+/// search found, and where you are, on top.
+fn map_overlays(s: &MapState) -> Vec<MapOverlay> {
+    // The way is drawn while it is shown: a search and a place have none.
+    let travel = match (s.flow.panel == Panel::Directions, s.travel_ends()) {
+        (true, (Some(a), Some(b))) => Some((a, b)),
         _ => None,
     };
     let road = s.route.as_ref().and_then(|reply| {
@@ -1425,14 +1394,18 @@ fn map_overlays(s: &MapState, app: &RefAny) -> Vec<MapOverlay> {
     }
     for pin in plan.pins {
         let (lat, lon) = pin.at;
-        let mut marker = MapMarker::create(pin.index as u64, at(pin.at), pin_icon(pin.index, pin.at))
+        let marker = MapMarker::create(pin.index as u64, at(pin.at), pin_icon(pin.index, pin.at))
             .with_anchor(PIN_HALF_WIDTH, PIN_TIP_DEPTH)
             .with_name(AzString::from(coords(lat, lon)));
-        if pin.open {
-            let address = lists_ui::address_of(s, (lat, lon));
-            marker = marker.with_popup(place_card(app, pin.index, lat, lon, address), true);
-        }
         out.push(MapOverlay::Marker(marker));
+    }
+    // The place the search found: its pin (a dropped pin has its own, above).
+    if let Some(card) = s.flow.place.as_ref().filter(|c| c.pin.is_none() && s.flow.panel != Panel::Directions) {
+        out.push(MapOverlay::Marker(
+            MapMarker::create(PLACE_MARKER, at(card.at), place_icon(card.at))
+                .with_anchor(PIN_HALF_WIDTH, PIN_TIP_DEPTH)
+                .with_name(AzString::from(coords(card.at.0, card.at.1))),
+        ));
     }
     if let Some(place) = plan.here {
         out.push(MapOverlay::Marker(
@@ -1452,7 +1425,7 @@ fn map_overlays(s: &MapState, app: &RefAny) -> Vec<MapOverlay> {
 /// says so). Shipped so the map shows the world before its first download and
 /// on a first start without a network; one set serves the light and the dark
 /// look, a vector tile carries no colours.
-const SEED_TILES: [(u8, u32, u32, &[u8]); 5] = [
+static SEED_TILES: [(u8, u32, u32, &[u8]); 5] = [
     (0, 0, 0, include_bytes!("../assets/seed/0-0-0.pbf")),
     (1, 0, 0, include_bytes!("../assets/seed/1-0-0.pbf")),
     (1, 1, 0, include_bytes!("../assets/seed/1-1-0.pbf")),
@@ -1471,7 +1444,7 @@ fn map_setup(data_root: &std::path::Path, layer: &MapTileLayer, setup: MapSetup)
         setup = setup.with_disk_cache(AzString::from(folder.to_string_lossy().into_owned()), 0);
     }
     if layer.url_template == MapTileLayer::default().url_template {
-        for (z, x, y, bytes) in SEED_TILES {
+        for &(z, x, y, bytes) in &SEED_TILES {
             setup = setup.with_seed_tile(MapTileId { z, x, y }, U8Vec::from(bytes.to_vec()));
         }
     }
@@ -1493,10 +1466,10 @@ extern "C" fn on_map_mount(mut data: RefAny, _: CallbackInfo, setup: MapSetup) -
 /// ([`map_overlays`]), the compass. The map draws the overlays in its own
 /// view and moves them with every pan, pinch, turn and tilt: a pan rebuilds
 /// nothing here.
-fn map_area(s: &MapState, app: &RefAny) -> Dom {
+fn map_area(s: &MapState, app: &RefAny, compass_top: f32) -> Dom {
     let map = MapWidget::create(s.layer.clone())
         .with_viewport(s.viewport)
-        .with_overlays(MapOverlayVec::from_vec(map_overlays(s, app)))
+        .with_overlays(MapOverlayVec::from_vec(map_overlays(s)))
         .with_on_viewport_changed(app.clone(), on_viewport_changed)
         .with_on_pin_tap(app.clone(), on_pin_tap)
         .with_on_marker_tap(app.clone(), on_marker_tap)
@@ -1525,7 +1498,7 @@ fn map_area(s: &MapState, app: &RefAny) -> Dom {
         );
         area.add_child(
             Dom::create_div()
-                .with_css(COMPASS_BADGE)
+                .with_css(format!("{COMPASS_BADGE} top: {compass_top:.0}px;").as_str())
                 .with_accessibility_name(t_args(
                     "azmaps-heading",
                     &[
@@ -1544,61 +1517,50 @@ fn map_area(s: &MapState, app: &RefAny) -> Dom {
     area
 }
 
-/// The floating controls, bottom right: where am I, zoom.
-fn map_controls(s: &MapState, app: &RefAny) -> Dom {
-    let (locate_icon, locate_name) = if s.locate_failed {
-        ("location_disabled", label("azmaps-location-unavailable"))
-    } else {
-        ("my_location", label("azmaps-show-location"))
-    };
-    Dom::create_div()
-        .with_css(CONTROLS)
-        .with_child(
-            Dom::create_div().with_css(CONTROL_GROUP).with_child(
-                Button::create("")
-                    .with_icon(locate_icon)
-                    .with_toggled(s.locating)
-                    .with_on_click(app.clone(), on_locate as ButtonOnClickCallbackType)
-                    .dom()
-                    .with_id(ids::LOCATE)
-                    .with_accessibility_name(locate_name),
-            ),
-        )
-        .with_child(
-            Dom::create_div()
-                .with_css(CONTROL_GROUP)
-                .with_child(tool(app, "add", "azmaps-zoom-in", ids::ZOOM_IN, on_zoom_in))
-                .with_child(tool(app, "remove", "azmaps-zoom-out", ids::ZOOM_OUT, on_zoom_out)),
-        )
-}
-
 /// The map screen: the map, and what floats on it.
-fn screen(s: &MapState, app: &RefAny, dark: bool, insets: kit::TitleInsets) -> Dom {
-    let mut root = Dom::create_div()
-        .with_css(ROOT)
-        .with_child(map_area(s, app))
-        .with_child(title_area(s, app, insets));
-    if s.sidebar_open {
-        root.add_child(sidebar(s, app, s.size.get().0 < COMPACT_WIDTH));
+fn screen(s: &MapState, app: &RefAny, dark: bool, frame: &ui::Frame) -> Dom {
+    let wide = frame.wide();
+    // What a phone's sheet covers at the bottom (and the keyboard under it): the keys, the licence line and the notices stand above it.
+    let above = if wide || s.drive.nav.is_some() { 0.0 } else { ui::sheet_height(s.sheet, frame) + frame.insets.lift() };
+    let compass_top = if wide { frame.top() + 8.0 } else { frame.top() + 56.0 + 8.0 + 44.0 + 12.0 };
+    let mut root = Dom::create_div().with_css(ROOT).with_child(map_area(s, app, compass_top));
+    if let Some(strip) = ui::drag_strip(frame) {
+        root.add_child(strip);
     }
-    root.add_child(map_controls(s, app));
-    // The routing server's credit beside the map's, while routes are asked of it.
-    let mut credits = s.layer.attribution.as_str().to_string();
+    for part in ui::floating(s, app, frame) {
+        root.add_child(part);
+    }
+    // The credit of the map as it is shown: the data's, the style on show (the layer's own line names both halves of a style that
+    // follows the window's mode), and the routing server's while routes are asked of it.
+    let mut credits = MapTileLayer::default().attribution.as_str().to_string();
+    let style_credit = s.layer.theme.credit(if dark { DarkLightMode::Dark } else { DarkLightMode::Light });
+    if !style_credit.as_str().is_empty() {
+        credits.push_str(" \u{b7} ");
+        credits.push_str(style_credit.as_str());
+    }
     if s.routing.is_none() && s.online.is_some() {
         credits.push_str(" \u{b7} ");
         credits.push_str(label("azmaps-routing-credit").as_str());
     }
-    root.add_child(
-        Dom::create_div()
-            .with_css(ATTRIBUTION)
-            .with_child(Dom::create_span_with_text(credits)),
-    );
-    if s.location_denied {
-        // The refusal of the location: the text, and the way back (a refused permission is not asked again).
-        let spot = if s.size.get().0 < COMPACT_WIDTH { NOTICE_SPOT_PHONE } else { NOTICE_SPOT };
+    let spot = if wide || s.drive.nav.is_some() {
+        "position: absolute; right: 4px; bottom: 3px;".to_string()
+    } else {
+        format!("position: absolute; left: 6px; bottom: {:.0}px; max-width: 72%;", above + 4.0)
+    };
+    // A sheet drawn up to its full height hides the map but a strip under the search bar: the credit would stand over the bar
+    // there, so it waits (with the keys) until the sheet comes down.
+    if wide || s.drive.nav.is_some() || s.sheet != SheetDetent::Full {
         root.add_child(
             Dom::create_div()
-                .with_css(format!("{spot} {NOTICE}"))
+                .with_css(format!("{spot} {ATTRIBUTION_LOOK}").as_str())
+                .with_child(Dom::create_span_with_text(credits)),
+        );
+    }
+    if s.location_denied {
+        // The refusal of the location: the text, and the way back (a refused permission is not asked again).
+        root.add_child(
+            Dom::create_div()
+                .with_css(format!("{} {NOTICE}", notice_spot(wide, 30.0 + above)))
                 .with_child(Dom::create_span_with_text(label("azmaps-location-denied").as_str()))
                 .with_child(
                     Dom::create_div().with_css(NOTICE_ACTION).with_child(
@@ -1610,10 +1572,9 @@ fn screen(s: &MapState, app: &RefAny, dark: bool, insets: kit::TitleInsets) -> D
                 ),
         );
     } else if !s.notice.is_empty() {
-        let spot = if s.size.get().0 < COMPACT_WIDTH { NOTICE_SPOT_PHONE } else { NOTICE_SPOT };
         root.add_child(
             Dom::create_div()
-                .with_css(format!("{spot} {NOTICE}"))
+                .with_css(format!("{} {NOTICE}", notice_spot(wide, 30.0 + above)))
                 .with_child(Dom::create_span_with_text(s.notice.as_str())),
         );
     }
@@ -1636,12 +1597,18 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode makes a light / dark switch rebuild the window (the
     // tiles' style follows it).
     let dark = matches!(info.get_mode(), DarkLightMode::Dark);
-    let size = (info.get_window_width(), info.get_window_height());
+    let window = (info.get_window_width(), info.get_window_height());
     let app = data.clone();
     let Some(s) = data.downcast_ref::<MapState>() else {
         return Dom::create_body();
     };
+    // The engine insets the window's root by the bars and the cutout: the root is what the layout has to lay out in, and what is left
+    // of the system's room is the keyboard.
+    let raw = Insets::of(&info);
+    let size = raw.root_size(window);
     s.size.set(size);
+    let frame = ui::Frame { size, insets: raw.inside_root(), title: kit::title_insets(&info) };
+    s.frame.set(Some(frame));
     let content = if kit::settings_open(&s.kit) {
         // azul-appkit's settings page: Appearance, Data, Shortcuts, About.
         Dom::create_div()
@@ -1657,16 +1624,18 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 ],
             ))
     } else {
-        screen(&s, &app, dark, kit::title_insets(&info))
+        screen(&s, &app, dark, &frame)
     };
     let column = Dom::create_div().with_css(COLUMN).with_child(content);
     // The scope as the window's body: no UA margin, the full window height.
     let body = ShellThemeScope::create(column)
         .with_accent(ShellThemeAccent::Leaf)
         .body()
+        .with_accessibility_name(label("azmaps-window"))
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key);
-    if STATS.load(Ordering::Relaxed) {
-        let n = LAYOUTS.fetch_add(1, Ordering::Relaxed) + 1;
+    if s.stats {
+        let n = s.layouts.get() + 1;
+        s.layouts.set(n);
         println!("AZMAPS_LAYOUT {n} {}", started.elapsed().as_micros());
     }
     body
@@ -1678,7 +1647,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 fn with_map(data: &mut RefAny, f: impl FnOnce(&mut MapState)) -> Update {
     match data.downcast_mut::<MapState>() {
         Some(mut s) => {
-            f(&mut *s);
+            f(&mut s);
             Update::RefreshDom
         }
         None => Update::DoNothing,
@@ -1728,6 +1697,7 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
                                 s.pins = loaded;
                                 // Indexes moved: no card stays open on another place.
                                 s.selected = None;
+                                s.flow.pin_removed(None);
                                 println!("AZMAPS_PINS_LOADED {}", s.pins.len());
                             }
                             Err(why) => {
@@ -1777,23 +1747,30 @@ extern "C" fn on_viewport_changed(mut data: RefAny, _info: CallbackInfo, vp: Map
     };
     s.viewport = vp;
     s.moved();
-    if STATS.load(Ordering::Relaxed) {
+    if s.stats {
         println!("AZMAPS_PAN map {}", started.elapsed().as_micros());
     }
     Update::DoNothing
 }
 
-/// A tap on the map drops a pin - unless a place's card is open: then the tap
-/// closes it, as a tap outside a card does.
+/// A tap on the map drops a pin and shows it as a place - unless a place is open: then the tap
+/// closes it, as a tap outside a card does. While the way is shown a tap drops a pin and leaves the way alone.
 extern "C" fn on_pin_tap(mut data: RefAny, mut info: CallbackInfo, coord: MapLatLon) -> Update {
     let mut dropped = false;
     let update = with_map(&mut data, |s| {
-        if s.selected.is_some() {
+        if s.flow.panel == Panel::Place {
             s.selected = None;
+            s.flow.clear();
+            s.travel.to.clear();
+            s.travel.to_pick = None;
             return;
         }
         s.pins.push((coord.lat_deg, coord.lon_deg));
         dropped = true;
+        if s.flow.panel == Panel::Browse {
+            let last = s.pins.len() - 1;
+            s.open_pin(last);
+        }
     });
     if dropped {
         save_pins(&data, &mut info);
@@ -1806,18 +1783,18 @@ fn pin_of(data: &mut RefAny) -> Option<(RefAny, usize)> {
     data.downcast_ref::<PinRef>().map(|p| (p.app.clone(), p.index))
 }
 
-/// A recent place's row: the map centres on it and its card opens.
+/// A recent place's row: the map shows it and its view opens.
 extern "C" fn on_place_row(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, index)) = pin_of(&mut data) else {
         return Update::DoNothing;
     };
     let mut opened = None;
     let update = with_map(&mut app, |s| {
-        if let Some((lat, lon)) = s.pins.get(index).copied() {
-            s.centre_on(lat, lon);
-            s.selected = Some(index);
-            opened = Some((lat, lon));
-            println!("AZMAPS_PLACE {index}");
+        if let Some(at) = s.pins.get(index).copied() {
+            s.open_pin(index);
+            let zoom = s.viewport.zoom.max(PICKED_PLACE_ZOOM);
+            s.show_place_at(at, zoom);
+            opened = Some(at);
         }
     });
     // The card shows the place's address once the search knows it.
@@ -1827,20 +1804,27 @@ extern "C" fn on_place_row(mut data: RefAny, mut info: CallbackInfo) -> Update {
     update
 }
 
-/// A tap on a marker: a pin opens its card, or closes it when it is open;
-/// the travel line's ends and where you are do nothing.
+/// A tap on a marker: a pin opens its view, or closes it when it is open; the searched place's pin
+/// shows its view again; the travel line's ends and where you are do nothing.
 extern "C" fn on_marker_tap(mut data: RefAny, mut info: CallbackInfo, id: u64) -> Update {
+    if id == PLACE_MARKER {
+        return with_map(&mut data, |s| {
+            if s.flow.place.is_some() && s.flow.panel == Panel::Browse {
+                s.flow.panel = Panel::Place;
+            }
+        });
+    }
     let Some(index) = pin_of_marker(id) else {
         return Update::DoNothing;
     };
     let mut opened = None;
     let update = with_map(&mut data, |s| {
-        if s.selected == Some(index) {
+        if s.selected == Some(index) && s.flow.panel == Panel::Place {
             s.selected = None;
+            s.flow.clear();
         } else if index < s.pins.len() {
-            s.selected = Some(index);
+            s.open_pin(index);
             opened = s.pins.get(index).copied();
-            println!("AZMAPS_PLACE {index}");
         }
     });
     if let Some(at) = opened {
@@ -1849,83 +1833,13 @@ extern "C" fn on_marker_tap(mut data: RefAny, mut info: CallbackInfo, id: u64) -
     update
 }
 
-/// Directions to a place: it becomes the destination, the sidebar shows the
-/// travel panel, the card closes; the route is asked of the route worker.
-extern "C" fn on_place_directions(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((mut app, index)) = pin_of(&mut data) else {
-        return Update::DoNothing;
-    };
-    let update = with_map(&mut app, |s| {
-        if let Some((lat, lon)) = s.pins.get(index).copied() {
-            s.travel.to = place_text(lat, lon);
-            s.travel.to_pick = None;
-            s.sidebar_open = true;
-            s.selected = None;
-            s.announce_travel();
-        }
-    });
-    adopt_field_texts(&mut info);
-    ask_route(&app, &mut info);
-    update
-}
-
-/// A dropped pin's star: the place goes into the favourites, or out of them.
-extern "C" fn on_place_favourite(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some((mut app, index)) = pin_of(&mut data) else {
-        return Update::DoNothing;
-    };
-    with_map(&mut app, |s| {
-        if let Some((lat, lon)) = s.pins.get(index).copied() {
-            lists_ui::toggle_favourite(s, &coords(lat, lon), (lat, lon));
-            println!(
-                "AZMAPS_FAVOURITE {} {}",
-                index,
-                if lists_ui::is_favourite(s, (lat, lon)) { "on" } else { "off" }
-            );
-        }
-    })
-}
-
-/// A place removed from the recents (and the map).
-extern "C" fn on_place_remove(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((mut app, index)) = pin_of(&mut data) else {
-        return Update::DoNothing;
-    };
-    let mut removed = false;
-    let update = with_map(&mut app, |s| {
-        if index < s.pins.len() {
-            s.pins.remove(index);
-            removed = true;
-        }
-        s.selected = None;
-    });
-    if removed {
-        save_pins(&app, &mut info);
-    }
-    update
-}
-
 extern "C" fn on_clear_pins(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let update = with_map(&mut data, |s| {
         s.pins.clear();
         s.selected = None;
+        s.flow.pin_removed(None);
     });
     save_pins(&data, &mut info);
-    update
-}
-
-/// Shows or hides the sidebar (kept in settings.json).
-extern "C" fn on_toggle_sidebar(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let mut kit_and_value = None;
-    let update = with_map(&mut data, |s| {
-        s.sidebar_open = !s.sidebar_open;
-        let value = if s.sidebar_open { "open" } else { "closed" };
-        println!("AZMAPS_SIDEBAR {value}");
-        kit_and_value = Some((s.kit.clone(), value));
-    });
-    if let Some((kit_ref, value)) = kit_and_value {
-        kit::set_value(&kit_ref, &mut info, SIDEBAR_KEY, value);
-    }
     update
 }
 
@@ -1943,7 +1857,7 @@ extern "C" fn on_travel_text(
     _info: CallbackInfo,
     state: TextInputState,
 ) -> OnTextInputReturn {
-    let keep = OnTextInputReturn {
+    let mut keep = OnTextInputReturn {
         update: Update::DoNothing,
         valid: TextInputValid::Yes,
     };
@@ -1953,6 +1867,13 @@ extern "C" fn on_travel_text(
     if let Some(mut s) = app.downcast_mut::<MapState>() {
         *s.travel.text_mut(end) = state.get_text().as_str().to_string();
         s.typed = Some((end, std::time::Instant::now()));
+        // Typing in the search leaves the place that is open: what it finds comes in the search view (one rebuild for the
+        // first key, none for the rest).
+        if end == End::To && s.flow.panel == Panel::Place {
+            s.flow.clear();
+            s.selected = None;
+            keep.update = Update::RefreshDom;
+        }
     }
     keep
 }
@@ -2085,6 +2006,10 @@ extern "C" fn on_search_done(mut app: RefAny, mut msg: RefAny, mut info: Callbac
         };
         println!("AZMAPS_SUGGEST_SOURCE {} {} {stage}", end.key(), list.len());
         let pick_now = s.pick_first == Some(end) && !list.is_empty();
+        // The results are what the sheet of a phone shows now: at its peek it would show two rows of them.
+        if !list.is_empty() && matches!(s.sheet, SheetDetent::Collapsed | SheetDetent::Peek) {
+            s.sheet = SheetDetent::Half;
+        }
         s.suggestions = Some(Suggestions {
             end,
             query,
@@ -2223,7 +2148,7 @@ fn typing(info: &CallbackInfo) -> bool {
     let Some(focus) = info.get_focused_node().into_option() else {
         return false;
     };
-    let fields: Vec<usize> = [ids::TRAVEL_FROM, ids::TRAVEL_TO]
+    let fields: Vec<usize> = [ids::TRAVEL_FROM, ids::TRAVEL_TO, ids::SEARCH]
         .into_iter()
         .map(|id| info.get_node_id_by_id_attribute(DomId { inner: 0 }, id).inner)
         .filter(|node| *node != 0)
@@ -2256,11 +2181,13 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     }
     let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
-    let card_open = data
-        .downcast_ref::<MapState>()
-        .is_some_and(|s| s.selected.is_some());
-    if key == Some(VirtualKeyCode::Escape) && card_open {
-        return with_map(&mut data, |s| s.selected = None);
+    // Escape steps back: the way goes to its place, the place to the search (the styles' popover closes itself).
+    let open = data.downcast_ref::<MapState>().is_some_and(|s| s.flow.panel != Panel::Browse);
+    if key == Some(VirtualKeyCode::Escape) && open {
+        return with_map(&mut data, |s| {
+            s.flow.back();
+            s.selected = s.flow.place.as_ref().and_then(|p| p.pin);
+        });
     }
     let step: fn(&mut MapState) = match key {
         Some(VirtualKeyCode::Left) => |s: &mut MapState| s.pan(-1.0, 0.0),
@@ -2360,6 +2287,14 @@ extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallba
                 }
             }
         }
+        // The notice that a link was copied goes after its ticks.
+        if s.toast.1 > 0 {
+            s.toast.1 -= 1;
+            if s.toast.1 == 0 {
+                s.toast.0.clear();
+                changed = true;
+            }
+        }
         if s.view_dirty {
             s.view_idle_ticks = s.view_idle_ticks.saturating_add(1);
             if s.view_idle_ticks >= VIEW_SAVE_IDLE_TICKS {
@@ -2447,7 +2382,6 @@ pub fn start() {
         }
     };
     if args.stats {
-        STATS.store(true, Ordering::Relaxed);
         // The map widget's own switch: its counters and its tile worker's.
         // Set before the app starts a single thread.
         std::env::set_var("AZ_MAP_STATS", "1");
@@ -2462,22 +2396,19 @@ pub fn start() {
     if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
         azul_appkit::l10n::set_locale(language.tag());
     }
-    let (data_root, pins_key, kept, sidebar_open) = {
+    let (data_root, pins_key, kept, sidebar_open, style) = {
         let mut k = kit_ref.clone();
         let read = match k.downcast_ref::<kit::Kit>() {
             Some(k) => (
                 k.data_root.clone(),
                 k.key(PINS_FILE),
-                k.settings.get(VIEW_KEY).and_then(|text| parse_view(text)),
-                // Without a choice of the user's: open on a desktop, closed on a phone, where the map is
-                // the first thing the app shows and the sidebar is a sheet over it.
-                match k.settings.get(SIDEBAR_KEY) {
-                    Some("open") => true,
-                    Some("closed") => false,
-                    _ => !cfg!(any(target_os = "android", target_os = "ios")),
-                },
+                k.settings.get(VIEW_KEY).and_then(parse_view),
+                // Open until the user folds the panel away (a phone upright has the sheet instead: this is
+                // the panel of a desktop, a tablet, a phone on its side).
+                !matches!(k.settings.get(SIDEBAR_KEY), Some("closed")),
+                flow::style_index(k.settings.get(flow::STYLE_KEY)),
             ),
-            None => (PathBuf::new(), String::new(), None, true),
+            None => (PathBuf::new(), String::new(), None, true, 0),
         };
         read
     };
@@ -2574,12 +2505,18 @@ pub fn start() {
             bearing_deg: 0.0,
             pitch_deg: 0.0,
         },
-        layer: tile_layer(tiles),
+        layer: tile_layer(tiles).with_theme(theme_of(style)),
         locating: false,
         last_fix: None,
         pins: Vec::new(),
         selected: None,
-        sidebar_open,
+        flow: flow::Flow { collapsed: !sidebar_open, ..flow::Flow::default() },
+        sheet: SheetDetent::Peek,
+        style,
+        toast: (String::new(), 0),
+        stats: args.stats,
+        layouts: Cell::new(0),
+        frame: Cell::new(None),
         travel: Travel::default(),
         mag_x: 0.0,
         mag_y: 0.0,
@@ -2609,6 +2546,7 @@ pub fn start() {
         pick_first: None,
         search_latest: Arc::new(AtomicU64::new(0)),
         services,
+        cities: Arc::new(places::gazetteer()),
         transit: transit_panel::TransitState::new(transit_provider),
         drive: drive_ui::DriveState::new(source, simulate_mps, args.navigate, args.replay_speed.unwrap_or(1.0)),
         lists: lists_ui::ListsState::new(
@@ -2653,33 +2591,6 @@ mod travel_line_tests {
 }
 
 #[cfg(test)]
-mod title_area_tests {
-    use super::*;
-
-    #[test]
-    fn the_title_area_keeps_the_window_controls_room_on_the_side_they_sit() {
-        let mac = title_area_css(kit::TitleInsets { left: 78.0, right: 0.0, height: 28.0 }, false);
-        assert!(mac.contains("padding: 0px 10px 0px 88px;"), "{mac}");
-        let windows = title_area_css(kit::TitleInsets { left: 0.0, right: 138.0, height: 32.0 }, false);
-        assert!(windows.contains("padding: 0px 148px 0px 10px;"), "the caption buttons keep their room: {windows}");
-    }
-
-    #[test]
-    fn the_title_area_is_at_least_as_tall_as_its_buttons_and_the_window_controls() {
-        assert!(title_area_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 28.0 }, false).contains("height: 40px;"));
-        assert!(title_area_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 46.0 }, false).contains("height: 46px;"));
-    }
-
-    #[test]
-    fn the_title_area_of_a_phone_is_an_app_bar_for_48_dp_keys() {
-        let phone = title_area_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 28.0 }, true);
-        assert!(phone.contains("height: 56px;"), "{phone}");
-        let tall = title_area_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 64.0 }, true);
-        assert!(tall.contains("height: 64px;"), "window controls taller than the bar keep their height: {tall}");
-    }
-}
-
-#[cfg(test)]
 mod map_setup_tests {
     use super::*;
 
@@ -2697,8 +2608,10 @@ mod map_setup_tests {
 
     #[test]
     fn another_tile_server_gets_no_shipped_tiles_and_no_data_folder_no_disk_cache() {
-        let mut layer = MapTileLayer::default();
-        layer.url_template = AzString::from("http://localhost:8080/{z}/{x}/{y}.pbf");
+        let layer = MapTileLayer {
+            url_template: AzString::from("http://localhost:8080/{z}/{x}/{y}.pbf"),
+            ..MapTileLayer::default()
+        };
         let setup = map_setup(&PathBuf::from("/data/azmaps"), &layer, MapSetup::create());
         assert_eq!(setup.seed_tiles.len(), 0, "the seeds are OpenFreeMap's tiles only");
         let setup = map_setup(&PathBuf::new(), &MapTileLayer::default(), MapSetup::create());
@@ -2710,7 +2623,7 @@ mod map_setup_tests {
         let mut ids: Vec<(u8, u32, u32)> = SEED_TILES.iter().map(|(z, x, y, _)| (*z, *x, *y)).collect();
         ids.sort_unstable();
         assert_eq!(ids, vec![(0, 0, 0), (1, 0, 0), (1, 0, 1), (1, 1, 0), (1, 1, 1)]);
-        for (z, x, y, bytes) in SEED_TILES {
+        for &(z, x, y, bytes) in &SEED_TILES {
             assert!(bytes.len() > 1000, "{z}/{x}/{y}: {} bytes", bytes.len());
             assert_eq!(bytes[0], 0x1a, "{z}/{x}/{y} starts with a layer: a vector tile");
         }

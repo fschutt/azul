@@ -658,3 +658,22 @@ fn no_pill_of_any_strip_stands_in_a_gap_at_rest() {
         }
     }
 }
+
+#[test]
+fn a_first_pill_at_its_place_stays_when_the_inset_is_the_room_the_row_gives_it() {
+    // a desktop row: the first pill stands 10 px in. With the default inset (12) it would be scrolled out of
+    // its place (the strip moved under the first pill of every desktop row at mount); with the row's own 10 it stays
+    let lanes = [(0.0, 360.0)];
+    let first = (10.0, 70.0);
+    assert!(scroll_for_pill(first, 0.0, 500.0, &lanes) > 0.0, "the default inset moves it");
+    assert_eq!(scroll_for_pill_inset(first, 0.0, 500.0, &lanes, 10.0), 0.0);
+    // and the last pill at the end of the scroll range stays too
+    let last = (700.0, 70.0);
+    let max = 700.0 + 70.0 + 10.0 - 360.0;
+    assert_eq!(scroll_for_pill_inset(last, max, max, &lanes, 10.0), max);
+    // an inset that is not a number is the default
+    assert_eq!(
+        scroll_for_pill_inset(first, 0.0, 500.0, &lanes, f32::NAN),
+        scroll_for_pill(first, 0.0, 500.0, &lanes)
+    );
+}
