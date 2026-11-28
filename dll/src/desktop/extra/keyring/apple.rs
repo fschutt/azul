@@ -4,25 +4,28 @@
 //!
 //! Items are stored as `kSecClassGenericPassword` under the namespace's
 //! service, keyed by the request's `key` (the Keychain *account*). A
-//! `Store { require_biometry: true }` sets `kSecAttrAccessControl =
-//! biometryCurrentSet`, so a later `Get` triggers the OS biometric prompt
-//! and the item is invalidated if the user re-enrolls biometrics.
+//! protected `Store` sets `kSecAttrAccessControl` (`userPresence` /
+//! `biometryCurrentSet`), so a later `Unlock` triggers the OS prompt
+//! and a `Biometric` item is invalidated if the user re-enrolls biometrics.
 //!
-//! A callback's op runs on a spawned thread (the dispatcher's): a biometry-bound
-//! `Get` calls `SecItemCopyMatching`, which **blocks synchronously** on the OS
+//! A callback's op runs on a spawned thread (the dispatcher's): an `Unlock` of a protected
+//! item calls `SecItemCopyMatching`, which **blocks synchronously** on the OS
 //! prompt — doing that on the layout thread would freeze rendering.
 //!
 //! A quiet op (background work) never shows a prompt: on macOS the keychain's
 //! dialogs are off while it runs ([`in_turn`]), so an item only that dialog
 //! would hand over (another app's, an unsigned build's, a locked keychain's)
 //! fails with `errSecInteractionNotAllowed`; a quiet read skips the items behind
-//! Touch ID or a passcode. Both answer `Denied`.
+//! Touch ID or a passcode. Both answer `WouldPrompt`.
 
 use std::sync::{Mutex, PoisonError};
 
-use azul_core::keyring::{KeyringRequest, KeyringResult};
+use azul_core::keyring::{
+    KeyringNeed, KeyringProtection, KeyringRequest, KeyringResult, KeyringSupport,
+};
 #[cfg(target_os = "macos")]
 use security_framework::os::macos::keychain::SecKeychain;
+use super::Interaction;
 use security_framework::{
     item::{update_item, ItemClass, ItemSearchOptions, ItemUpdateOptions, Limit, SearchResult},
     passwords::{
@@ -60,30 +63,39 @@ pub(super) fn in_turn<T>(quiet: bool, op: impl FnOnce() -> T) -> T {
     op()
 }
 
-/// One op on the items of `service`, on the calling thread (a biometry-bound read waits for
-/// the OS prompt here; a `quiet` read never does).
-pub(super) fn handle(service: &str, req: &KeyringRequest, quiet: bool) -> KeyringResult {
+/// One op on the items of `service`, on the calling thread (an `Unlock` of a protected item
+/// waits for the OS prompt here; the dispatcher lets nothing else show a sheet).
+pub(super) fn handle(service: &str, req: &KeyringRequest, interaction: Interaction) -> KeyringResult {
+    let _ = interaction;
     match req {
-        KeyringRequest::Get { key } if quiet => get_quietly(service, key.as_str()),
+        // A get never shows a sheet: a protected item is skipped and answers `WouldPrompt`.
+        KeyringRequest::Get { key } => get_quietly(service, key.as_str()),
         KeyringRequest::Store {
             key,
             secret,
-            require_biometry,
+            protection,
+            ..
         } => {
             let bytes = secret.as_str().as_bytes();
-            let res = if *require_biometry {
-                let mut opts = PasswordOptions::new_generic_password(service, key.as_str());
-                opts.set_access_control_options(AccessControlOptions::BIOMETRY_CURRENT_SET);
-                set_generic_password_options(bytes, opts)
-            } else {
-                set_generic_password(service, key.as_str(), bytes)
+            let res = match protection {
+                KeyringProtection::DeviceUnlocked => {
+                    set_generic_password(service, key.as_str(), bytes)
+                }
+                level => {
+                    let mut opts = PasswordOptions::new_generic_password(service, key.as_str());
+                    opts.set_access_control_options(match level {
+                        KeyringProtection::Biometric => AccessControlOptions::BIOMETRY_CURRENT_SET,
+                        _ => AccessControlOptions::USER_PRESENCE,
+                    });
+                    set_generic_password_options(bytes, opts)
+                }
             };
             match res {
                 Ok(()) => KeyringResult::Stored,
                 Err(e) => map_err(e),
             }
         }
-        KeyringRequest::Get { key } => match get_generic_password(service, key.as_str()) {
+        KeyringRequest::Unlock { key, .. } => match get_generic_password(service, key.as_str()) {
             Ok(bytes) => text_of(bytes),
             Err(e) => map_err(e),
         },
@@ -120,7 +132,7 @@ pub(super) fn move_entry(key: &str, from: &str, to: &str) -> bool {
 }
 
 /// A read that never shows a prompt: the search skips an item behind Touch ID or a passcode
-/// (`kSecUseAuthenticationUISkip`), so an item that is there but was not read answers `Denied`,
+/// (`kSecUseAuthenticationUISkip`), so an item that is there but was not read answers `WouldPrompt`,
 /// as does one only the keychain's dialog would hand over while the prompts are off. A keychain
 /// that does not take the skip (`errSecParam`) is read plainly - on macOS with the prompts off.
 fn get_quietly(service: &str, key: &str) -> KeyringResult {
@@ -152,7 +164,7 @@ fn get_quietly(service: &str, key: &str) -> KeyringResult {
     }
 }
 
-/// What a quiet read that got no secret says: `Denied` when the item is there (its attributes
+/// What a quiet read that got no secret says: `WouldPrompt` when the item is there (its attributes
 /// are read without a prompt), else `NotFound`.
 fn absent_or_denied(service: &str, key: &str) -> KeyringResult {
     let mut search = ItemSearchOptions::new();
@@ -163,8 +175,28 @@ fn absent_or_denied(service: &str, key: &str) -> KeyringResult {
         .load_attributes(true)
         .limit(Limit::Max(1));
     match search.search() {
-        Ok(found) if !found.is_empty() => KeyringResult::Denied,
+        Ok(found) if !found.is_empty() => KeyringResult::WouldPrompt,
         _ => KeyringResult::NotFound,
+    }
+}
+
+/// What a read of `key` needs: the item's attributes only, no secret (no sheet).
+pub(super) fn needs_prompt(service: &str, key: &str) -> KeyringNeed {
+    match get_quietly(service, key) {
+        KeyringResult::Retrieved(_) => KeyringNeed::Nothing,
+        KeyringResult::NotFound => KeyringNeed::NotFound,
+        // There, but not readable without the user: its level is in the record the Apple
+        // backend adds; until then the weaker sheet is promised.
+        KeyringResult::WouldPrompt => KeyringNeed::UserPresence,
+        _ => KeyringNeed::Error,
+    }
+}
+
+/// What the Keychain does for `protection` (the Apple backend adds the probe of the sensor).
+pub(super) fn support(protection: KeyringProtection) -> KeyringSupport {
+    match protection {
+        KeyringProtection::DeviceUnlocked => KeyringSupport::Hardware,
+        _ => KeyringSupport::Unavailable,
     }
 }
 
@@ -180,11 +212,12 @@ fn text_of(bytes: Vec<u8>) -> KeyringResult {
 fn map_err(e: security_framework::base::Error) -> KeyringResult {
     match e.code() {
         ERR_SEC_ITEM_NOT_FOUND => KeyringResult::NotFound,
-        // User cancelled or failed the biometric gate on a protected read; or a quiet op met an
-        // item only a prompt would have handed over.
-        ERR_SEC_USER_CANCELED | ERR_SEC_AUTH_FAILED | ERR_SEC_INTERACTION_NOT_ALLOWED => {
-            KeyringResult::Denied
-        }
+        // The user dismissed the sheet.
+        ERR_SEC_USER_CANCELED => KeyringResult::Cancelled,
+        // The check did not pass.
+        ERR_SEC_AUTH_FAILED => KeyringResult::Failed,
+        // A quiet op met an item only a prompt would have handed over.
+        ERR_SEC_INTERACTION_NOT_ALLOWED => KeyringResult::WouldPrompt,
         _ => KeyringResult::Error,
     }
 }

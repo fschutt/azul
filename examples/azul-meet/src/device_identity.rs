@@ -10,8 +10,17 @@ pub(crate) fn keyring_outcome(result: &KeyringResult) -> Arg {
         KeyringResult::Retrieved(_) => ("azmeet-keyring-retrieved", "retrieved"),
         KeyringResult::Deleted => ("azmeet-keyring-deleted", "deleted"),
         KeyringResult::NotFound => ("azmeet-keyring-not-found", "not found"),
-        KeyringResult::Denied => ("azmeet-keyring-denied", "denied"),
-        KeyringResult::Unavailable => ("azmeet-keyring-unavailable", "unavailable"),
+        // The user's check did not pass, or the keyring would have to ask: the keyring said no.
+        KeyringResult::Denied
+        | KeyringResult::Cancelled
+        | KeyringResult::Failed
+        | KeyringResult::LockedOut
+        | KeyringResult::WouldPrompt => ("azmeet-keyring-denied", "denied"),
+        KeyringResult::Unavailable | KeyringResult::NotEnrolled => {
+            ("azmeet-keyring-unavailable", "unavailable")
+        }
+        // A protected secret whose enrolment changed is gone for good.
+        KeyringResult::Invalidated => ("azmeet-keyring-not-found", "not found"),
         KeyringResult::Error => ("azmeet-keyring-error", "error"),
     };
     Arg::word(key, english)
@@ -160,7 +169,7 @@ pub(crate) extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackI
                 match crypto::Identity::generate() {
                     Ok(me) => {
                         let json = me.to_secret_json();
-                        info.keyring_store(identity::KEYRING_KEY, json.as_str(), false);
+                        info.keyring_store(identity::KEYRING_KEY, json.as_str());
                         s.keyring = Some(KeyringStep::Store);
                         identity_ready(s, me, identity::Source::Keyring, true);
                     }

@@ -56,6 +56,8 @@ impl LocalDiscovery for Recording {
 fn config() -> IrohConfig {
     IrohConfig::create(AzString::from_const_str("azul/iroh-platform-test/1"))
         .with_relay_mode(IrohRelayMode::Disabled)
+        // Off by default; these tests are about the lookup a bind starts (or does not start).
+        .with_local_discovery(true)
 }
 
 #[test]

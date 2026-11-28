@@ -50,6 +50,10 @@ pub use mount_views::{
     MOUNT_VIEW_MAX_ROW_HEIGHT,
 };
 
+// The engine's own ops of the keyring and the biometric stand-in (`standin_user`, `keyring`,
+// `biometric_prompt`): a scenario drives a protected secret's whole flow on any host.
+mod standin_ops;
+
 mod runner;
 pub use runner::{run_e2e_test, run_e2e_test_with_settings};
 

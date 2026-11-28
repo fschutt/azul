@@ -30,6 +30,7 @@ use super::shared_queue::SharedQueue;
 // dep on `azul-layout`. Re-exported here for the existing
 // `azul_layout::managers::biometric::*` import paths.
 pub use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
+use super::stand_in_user::StandInUser;
 use azul_core::{
     dom::DomNodeId,
     events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
@@ -188,6 +189,10 @@ pub struct BiometricChannels {
     pub requests: SharedQueue<BiometricPrompt>,
     /// Outcomes the platform backend parked, in arrival order; the last one applied wins.
     pub results: SharedQueue<BiometricResult>,
+    /// The scripted user the STAND-INS answer from (the headless / test keyring and the test
+    /// run's biometric gate): what is enrolled and what the user does at each sheet. The e2e
+    /// scenarios and the tests script it; a real backend never reads it.
+    pub user: StandInUser,
 }
 
 impl BiometricChannels {

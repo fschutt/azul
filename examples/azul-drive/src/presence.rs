@@ -123,7 +123,8 @@ pub(crate) fn decide(result: BiometricResult, test_stand_in: bool) -> Decision {
     match result {
         BiometricResult::Authenticated | BiometricResult::FellBackToPasscode => Decision::Run,
         BiometricResult::Unavailable if test_stand_in => Decision::Run,
-        BiometricResult::Unavailable => Decision::Unchecked,
+        // No sensor, or nothing set up to check with (no finger, no passcode): the same.
+        BiometricResult::Unavailable | BiometricResult::NotEnrolled => Decision::Unchecked,
         BiometricResult::Cancelled => Decision::Stop("azdrive-presence-cancelled"),
         _ => Decision::Stop("azdrive-presence-failed"),
     }

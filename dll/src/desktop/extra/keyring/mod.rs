@@ -8,25 +8,29 @@
 //! op into the right native keyring call and parks its answer in the result
 //! channel (a later frame's `KeyringResult` event):
 //!
-//! | Platform | Backend |
-//! |----------|---------|
-//! | iOS / macOS | Keychain `SecItemAdd` / `SecItemCopyMatching` / `SecItemDelete` (objc2 / Security.framework), `kSecAttrAccessControl = biometryCurrentSet` for biometry-bound items |
-//! | Android | `KeyStore` + `setUserAuthenticationRequired(true)` (JNI helper) |
-//! | Linux | libsecret (`secret_password_store/lookup/clear`) via the secret-service D-Bus |
-//! | Windows | Credential Manager (`CredWriteW` / `CredReadW` / `CredDeleteW`, generic credentials) |
+//! | Platform | Backend | A protected item (`UserPresence` / `Biometric`) |
+//! |----------|---------|--------------------------------------------------|
+//! | iOS / macOS | Keychain `SecItemAdd` / `SecItemCopyMatching` / `SecItemDelete` (Security.framework) | `SecAccessControl` (`userPresence` / `biometryCurrentSet`), read through an `LAContext`: released by the Secure Enclave after the check |
+//! | Android | `KeyStore` keys + ciphertext in the app's storage (JNI helper) | a key per entry that needs the user (`setUserAuthenticationRequired`), opened through a `BiometricPrompt` `CryptoObject` |
+//! | Linux | libsecret (`secret_password_store/lookup/clear`) via the secret-service D-Bus | the library's gate: fprintd / polkit first, then the item (`KeyringSupport::Library`) |
+//! | Windows | Credential Manager (`CredWriteW` / `CredReadW` / `CredDeleteW`, generic credentials) | a Windows Hello key: the secret is sealed (DPAPI) with the Hello signature of a fixed challenge as entropy |
 //!
-//! MWA-C-keyring: ALL FOUR desktop backends are real (the stub-era note
-//! that used to live here claimed Windows/Linux resolve to Unavailable —
-//! stale). A biometry-bound `Get` parks its outcome back in the app's result
-//! queue (`KeyringChannels::results`) asynchronously from the OS prompt's reply.
+//! One model on every platform (`azul_core::keyring`): the user-check sheet shows only for an
+//! `Unlock` and a protected `Store` ([`Interaction::UserCheck`]); every other op, and every op
+//! of a worker thread, answers `WouldPrompt` for what would need one. A protected item has a
+//! record readable without the sheet (its level), so [`need_in`] can say what a read needs and
+//! `Invalidated` can be told from `NotFound`.
+//!
+//! A protected `Unlock` parks its outcome in the app's result queue (`KeyringChannels::results`)
+//! asynchronously from the OS prompt's reply.
 //!
 //! [`request_blocking`] (the C API's [`Keyring`]: `Keyring::get_blocking`,
 //! `store_blocking`, `delete_blocking` and their `_in` forms) runs one op on the CALLING thread and
 //! returns its answer: what an app's worker `Thread` reads and writes the
 //! keyring with - it re-reads a secret another process may have changed (an
 //! Azlin drive's rotating token) and writes one before its work goes on. Both
-//! ways reach the same keyring. Android's helper answers through its Java
-//! callback only: a blocking call answers `Unavailable` there.
+//! ways reach the same keyring. It never shows the user-check sheet and reads and writes
+//! UNPROTECTED items only: a protected one answers `WouldPrompt`.
 //!
 //! Every entry lives in a [`KeyringNamespace`] - the keyring service - so azul
 //! apps do not read each other's secrets by accident: an app's own (its app
@@ -64,11 +68,11 @@
 //! an op that never shows a prompt - what an app's background work uses, so a
 //! start, a timer or a poll never raises the keychain's dialog. Where the
 //! system would have to ask (an item behind Touch ID, another app's item, a
-//! locked keychain) it answers `Denied`, and the app waits for the user's own
+//! locked keychain) it answers `WouldPrompt`, and the app waits for the user's own
 //! action to ask. Only the Apple keychain prompts per item; the Credential
 //! Manager never asks, and libsecret asks only to unlock a locked collection (the login keyring
 //! is unlocked at login): a quiet op looks at the default collection first ([`quiet_verdict`]) and
-//! answers `Denied` while it is locked, and for a store where there is no default collection yet
+//! answers `WouldPrompt` while it is locked, and for a store where there is no default collection yet
 //! (making one asks for a password). A libsecret too old to say whether a collection is locked
 //! (before 0.18) leaves that look out, and its unlock dialog can still come.
 
@@ -78,9 +82,12 @@ use std::{
     sync::{Mutex, PoisonError},
 };
 
-use azul_core::keyring::{KeyringNamespace, KeyringRequest, KeyringResult};
+use azul_core::keyring::{
+    KeyringNamespace, KeyringNeed, KeyringProtection, KeyringPrompt, KeyringRequest, KeyringResult,
+    KeyringSupport,
+};
 use azul_css::AzString;
-use azul_layout::managers::shared_queue::SharedQueue;
+use azul_layout::managers::{shared_queue::SharedQueue, stand_in_user::StandInUser};
 
 #[cfg(target_os = "android")]
 pub mod android;
@@ -92,6 +99,7 @@ pub mod linux;
 /// flags): compiled and tested on every host; `apple.rs` (iOS + macOS) makes the calls.
 pub(crate) mod apple_logic;
 mod memory;
+pub(crate) mod record;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
@@ -116,14 +124,35 @@ pub const KEYRING_CHOICE_VAR: &str = azul_core::run_mode::KEYRING_CHOICE_VAR;
 #[used]
 pub static AZUL_KEYRING_TEST_HOOKS: [u8; 32] = *b"azul-keyring-test-hooks-enabled\0";
 
-/// Whether a keyring op may show the system's prompt (a keychain unlock, an
-/// "allow this app" dialog, Touch ID).
+/// What a keyring op may show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Prompts {
-    /// The user asked for what the op serves: the system may ask them.
-    Allowed,
-    /// Background work: an op the system would have to ask for answers `Denied`.
-    Never,
+pub(crate) enum Interaction {
+    /// The op of a user's action, through the request channel: the user-check sheet (biometric /
+    /// passcode / Hello / polkit) and the system's own dialogs (a keychain unlock, an "allow
+    /// this app" dialog) may show.
+    UserCheck,
+    /// A worker thread's blocking call: the system's own dialogs may show, the user-check sheet
+    /// never (an op that needs it answers `WouldPrompt`).
+    Dialogs,
+    /// Background work: nothing shows. An op the system would have to ask for, or that needs the
+    /// user-check sheet, answers `WouldPrompt`.
+    Quiet,
+}
+
+impl Interaction {
+    /// Whether the user-check sheet may show.
+    pub(crate) const fn user_check(self) -> bool {
+        matches!(self, Self::UserCheck)
+    }
+
+    /// Whether nothing at all may show.
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "macos", target_os = "ios")),
+        allow(dead_code) // only the Apple keychain and libsecret have a dialog to leave out
+    )]
+    pub(crate) const fn quiet(self) -> bool {
+        matches!(self, Self::Quiet)
+    }
 }
 
 /// Where a run's keyring ops go.
@@ -261,18 +290,27 @@ pub fn service_of(namespace: &KeyringNamespace) -> String {
 /// later frame.
 ///
 /// iOS/macOS → Keychain; Windows → Credential Manager; Linux → libsecret,
-/// each op on a thread of its own (a biometry-bound read waits for the OS
+/// each op on a thread of its own (an `Unlock` waits for the OS
 /// prompt); Android → KeyStore (JNI, answered by its Java callback). Targets
-/// without any backend resolve to `Unavailable`.
+/// without any backend resolve to `Unavailable`. The stand-ins answer from `user`, the
+/// scripted user of the app (`BiometricChannels::user`): what is enrolled and what they do at
+/// each sheet.
 pub fn request(
     namespace: &KeyringNamespace,
     req: &KeyringRequest,
     results: &SharedQueue<KeyringResult>,
+    user: &StandInUser,
 ) {
     let service = service_of(namespace);
     match backend_of_run() {
         Backend::Platform => platform_request(service, req, results),
-        stand_in => results.push(answer_in(&service, req, &stand_in)),
+        stand_in => results.push(answer_with(
+            &service,
+            req,
+            &stand_in,
+            Interaction::UserCheck,
+            user,
+        )),
     }
 }
 
@@ -294,7 +332,13 @@ fn platform_request(service: String, req: &KeyringRequest, results: &SharedQueue
         let req = req.clone();
         let results = results.clone();
         std::thread::spawn(move || {
-            results.push(answer_in(&service, &req, &Backend::Platform));
+            results.push(answer_with(
+                &service,
+                &req,
+                &Backend::Platform,
+                Interaction::UserCheck,
+                &StandInUser::new(),
+            ));
         });
     }
     #[cfg(not(any(
@@ -311,50 +355,101 @@ fn platform_request(service: String, req: &KeyringRequest, results: &SharedQueue
 }
 
 /// Runs one keyring op in `namespace` on the calling thread and answers it -
-/// blocking: a biometry-bound read waits for the OS prompt, a locked keychain
-/// for its unlock. For worker threads; a UI callback queues its op with
-/// `CallbackInfo::keyring_*` instead.
+/// blocking: a locked keychain waits for its unlock dialog. For worker threads; a UI callback
+/// queues its op with `CallbackInfo::keyring_*` instead. Never the user-check sheet: an op that
+/// needs it (an `Unlock`, a protected `Store`) answers `WouldPrompt`, and so does a `Get` of a
+/// protected item.
 #[must_use]
 pub fn request_blocking(namespace: &KeyringNamespace, req: &KeyringRequest) -> KeyringResult {
-    answer_in(&service_of(namespace), req, &backend_of_run())
+    answer_with(
+        &service_of(namespace),
+        req,
+        &backend_of_run(),
+        Interaction::Dialogs,
+        &process_user(),
+    )
 }
 
-/// [`request_blocking`] that never shows a prompt: an op the system would have
-/// to ask the user for answers `Denied` (see the module). For background work,
+/// [`request_blocking`] that never shows anything: an op the system would have
+/// to ask the user for answers `WouldPrompt` (see the module). For background work,
 /// which must not raise a dialog the user did not ask for.
 #[must_use]
 pub fn request_quietly_blocking(namespace: &KeyringNamespace, req: &KeyringRequest) -> KeyringResult {
-    answer_with(&service_of(namespace), req, &backend_of_run(), Prompts::Never)
+    answer_with(
+        &service_of(namespace),
+        req,
+        &backend_of_run(),
+        Interaction::Quiet,
+        &process_user(),
+    )
 }
 
-/// One op in `service` on `backend`, answered on this thread. The entry of the
+/// Whether this run's keyring is a stand-in (the memory or the file of a debug build or a test
+/// run) and not the system's: what a scenario that drives the keyring asks first.
+#[must_use]
+pub fn is_stand_in_run() -> bool {
+    backend_for(&RunFacts::of_this_run()) != Backend::Platform
+}
+
+/// The scripted user of the stand-ins for a call that has no context (a worker thread's
+/// static): the one of the app this process runs, else a device with nothing set up. A real
+/// backend never reads it.
+fn process_user() -> StandInUser {
+    crate::desktop::process_app::services()
+        .map_or_else(StandInUser::new, |services| services.biometric.user)
+}
+
+/// What a read of `key` in `namespace` needs, asked quietly: the item's record only, never a
+/// sheet. See `azul_core::keyring::KeyringNeed`.
+#[must_use]
+pub fn need_for(namespace: &KeyringNamespace, key: &AzString) -> KeyringNeed {
+    need_in(&service_of(namespace), key.as_str(), &backend_of_run(), &process_user())
+}
+
+/// What this device does for `protection`, asked quietly. See
+/// `azul_core::keyring::KeyringSupport`.
+#[must_use]
+pub fn support_for(protection: KeyringProtection) -> KeyringSupport {
+    support_in(protection, &backend_of_run(), &process_user())
+}
+
+/// One op in `service` on `backend`, answered on this thread, with the system's own dialogs
+/// allowed and no user-check sheet ([`Interaction::Dialogs`]). The entry of the
 /// same name in the service every azul app shared before namespaces moves into
 /// `service` first ([`fold_legacy`]), so an app's entries survive the change
 /// and no other app finds them there any more.
+#[cfg(test)]
 pub(crate) fn answer_in(service: &str, req: &KeyringRequest, backend: &Backend) -> KeyringResult {
-    answer_with(service, req, backend, Prompts::Allowed)
+    answer_with(service, req, backend, Interaction::Dialogs, &StandInUser::new())
 }
 
-/// [`answer_in`], the system's prompts allowed or not. On the platform's keyring
-/// the move and the op run as one turn ([`platform_turn`]).
+/// [`answer_in`] with what the op may show (`interaction`) and, for the stand-ins, the scripted
+/// user that answers a sheet. On the platform's keyring the move and the op run as one turn
+/// ([`platform_turn`]).
 pub(crate) fn answer_with(
     service: &str,
     req: &KeyringRequest,
     backend: &Backend,
-    prompts: Prompts,
+    interaction: Interaction,
+    user: &StandInUser,
 ) -> KeyringResult {
     // The same on every system: libsecret kept a secret with a NUL as "" (a C string ends there).
     if has_nul(service, req) {
         return KeyringResult::Error;
     }
+    // The same on every system: the user-check sheet shows only where the user asked for it. An
+    // op that needs it anywhere else answers WouldPrompt before any keyring is touched.
+    if req.may_show_sheet() && !interaction.user_check() {
+        return KeyringResult::WouldPrompt;
+    }
     let run = || {
         if service != KeyringNamespace::LEGACY_SERVICE && namespaces_apply(backend) {
-            fold_legacy(service, key_of(req), backend, prompts);
+            fold_legacy(service, req.key(), backend, interaction);
         }
-        op_in(service, req, backend, prompts)
+        op_in(service, req, backend, interaction, user)
     };
     match backend {
-        Backend::Platform => platform_turn(prompts, run),
+        Backend::Platform => platform_turn(interaction, run),
         _ => run(),
     }
 }
@@ -371,7 +466,7 @@ fn namespaces_apply(backend: &Backend) -> bool {
 /// system and every stand-in, so a secret that works on one computer does not become nothing on another.
 pub(crate) fn has_nul(service: &str, req: &KeyringRequest) -> bool {
     service.contains('\0')
-        || key_of(req).as_str().contains('\0')
+        || req.key().as_str().contains('\0')
         || matches!(req, KeyringRequest::Store { secret, .. } if secret.as_str().contains('\0'))
 }
 
@@ -407,35 +502,64 @@ pub(crate) enum Collection {
 }
 
 /// What a quiet op answers when the default collection's `state` settles it without touching the
-/// collection; `None`: go on and ask libsecret. A locked collection is `Denied` for every op (the
+/// collection; `None`: go on and ask libsecret. A locked collection is `WouldPrompt` for every op (the
 /// unlock would show a dialog nobody asked for); with no collection a read finds nothing, a delete
-/// has nothing to delete, and only a store - which would make one - is `Denied` (AZ-W16).
+/// has nothing to delete, and only a store - which would make one - is `WouldPrompt` (AZ-W16).
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn quiet_verdict(state: Collection, req: &KeyringRequest) -> Option<KeyringResult> {
     match (state, req) {
         (Collection::Locked, _) | (Collection::Missing, KeyringRequest::Store { .. }) => {
-            Some(KeyringResult::Denied)
+            Some(KeyringResult::WouldPrompt)
         }
-        (Collection::Missing, KeyringRequest::Get { .. }) => Some(KeyringResult::NotFound),
+        (Collection::Missing, KeyringRequest::Get { .. } | KeyringRequest::Unlock { .. }) => {
+            Some(KeyringResult::NotFound)
+        }
         (Collection::Missing, KeyringRequest::Delete { .. }) => Some(KeyringResult::Deleted),
         (Collection::Unlocked | Collection::Unknown, _) => None,
     }
 }
 
-fn key_of(req: &KeyringRequest) -> &AzString {
-    match req {
-        KeyringRequest::Store { key, .. }
-        | KeyringRequest::Get { key }
-        | KeyringRequest::Delete { key } => key,
+/// One op in `service` on `backend`, nothing moved.
+fn op_in(
+    service: &str,
+    req: &KeyringRequest,
+    backend: &Backend,
+    interaction: Interaction,
+    user: &StandInUser,
+) -> KeyringResult {
+    match backend {
+        Backend::Platform => platform_blocking(service, req, interaction),
+        Backend::Memory => memory::answer(service, req, interaction, user),
+        Backend::File(path) => memory::answer_in_file(service, req, path, interaction, user),
     }
 }
 
-/// One op in `service` on `backend`, nothing moved.
-fn op_in(service: &str, req: &KeyringRequest, backend: &Backend, prompts: Prompts) -> KeyringResult {
+/// What a read of `key` in `service` needs on `backend` (see [`need_for`]).
+pub(crate) fn need_in(
+    service: &str,
+    key: &str,
+    backend: &Backend,
+    user: &StandInUser,
+) -> KeyringNeed {
+    if service.contains('\0') || key.contains('\0') {
+        return KeyringNeed::Error;
+    }
     match backend {
-        Backend::Platform => platform_blocking(service, req, prompts),
-        Backend::Memory => memory::answer(service, req),
-        Backend::File(path) => memory::answer_in_file(service, req, path),
+        Backend::Platform => platform_need(service, key),
+        Backend::Memory => memory::need(service, key, user),
+        Backend::File(path) => memory::need_in_file(service, key, path, user),
+    }
+}
+
+/// What `backend` does for `protection` (see [`support_for`]).
+pub(crate) fn support_in(
+    protection: KeyringProtection,
+    backend: &Backend,
+    user: &StandInUser,
+) -> KeyringSupport {
+    match backend {
+        Backend::Platform => platform_support(protection),
+        Backend::Memory | Backend::File(_) => memory::support(protection, user),
     }
 }
 
@@ -451,7 +575,7 @@ static FOLDED: Mutex<BTreeSet<(String, String)>> = Mutex::new(BTreeSet::new());
 /// goes). Before a store too, so a stale secret never stays readable there, and before a
 /// delete, so a deleted entry never comes back from it. A move that fails (a locked keyring)
 /// is tried again by the next op.
-fn fold_legacy(service: &str, key: &AzString, backend: &Backend, prompts: Prompts) {
+fn fold_legacy(service: &str, key: &AzString, backend: &Backend, interaction: Interaction) {
     let marker = (service.to_string(), key.as_str().to_string());
     let mut folded = FOLDED.lock().unwrap_or_else(PoisonError::into_inner);
     let platform = *backend == Backend::Platform;
@@ -459,8 +583,8 @@ fn fold_legacy(service: &str, key: &AzString, backend: &Backend, prompts: Prompt
         return;
     }
     let moved = match backend {
-        Backend::Platform => platform_move(key, service, prompts),
-        stand_in => move_by_copy(key, service, stand_in, prompts),
+        Backend::Platform => platform_move(key, service, interaction),
+        stand_in => move_by_copy(key, service, stand_in, interaction),
     };
     if moved && platform {
         folded.insert(marker);
@@ -470,71 +594,162 @@ fn fold_legacy(service: &str, key: &AzString, backend: &Backend, prompts: Prompt
 /// [`fold_legacy`] by reading the old entry, storing it in `service` and deleting it: for the
 /// keyrings with no other way (and no biometry binding to keep). `true` when nothing is left
 /// in the old service.
-fn move_by_copy(key: &AzString, service: &str, backend: &Backend, prompts: Prompts) -> bool {
+fn move_by_copy(
+    key: &AzString,
+    service: &str,
+    backend: &Backend,
+    interaction: Interaction,
+) -> bool {
     let legacy = KeyringNamespace::LEGACY_SERVICE;
-    let secret = match op_in(legacy, &KeyringRequest::Get { key: key.clone() }, backend, prompts) {
+    // The old shared service held unprotected entries only: nothing here shows a sheet, and
+    // the move needs no scripted user.
+    let user = StandInUser::new();
+    let op = |service: &str, req: &KeyringRequest| op_in(service, req, backend, interaction, &user);
+    let secret = match op(legacy, &KeyringRequest::Get { key: key.clone() }) {
         KeyringResult::Retrieved(secret) => secret,
         KeyringResult::NotFound => return true,
         _ => return false,
     };
-    match op_in(service, &KeyringRequest::Get { key: key.clone() }, backend, prompts) {
+    match op(service, &KeyringRequest::Get { key: key.clone() }) {
         KeyringResult::Retrieved(_) => {}
         KeyringResult::NotFound => {
             let store = KeyringRequest::Store {
                 key: key.clone(),
                 secret,
-                require_biometry: false,
+                protection: KeyringProtection::DeviceUnlocked,
+                prompt: KeyringPrompt::default(),
             };
-            if op_in(service, &store, backend, prompts) != KeyringResult::Stored {
+            if op(service, &store) != KeyringResult::Stored {
                 return false;
             }
         }
         _ => return false,
     }
-    op_in(legacy, &KeyringRequest::Delete { key: key.clone() }, backend, prompts)
-        == KeyringResult::Deleted
+    op(legacy, &KeyringRequest::Delete { key: key.clone() }) == KeyringResult::Deleted
 }
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-fn platform_blocking(service: &str, req: &KeyringRequest, prompts: Prompts) -> KeyringResult {
-    apple::handle(service, req, prompts == Prompts::Never)
+fn platform_blocking(service: &str, req: &KeyringRequest, interaction: Interaction) -> KeyringResult {
+    apple::handle(service, req, interaction)
 }
 
-/// The Credential Manager never asks.
+/// The Windows keyring: the Credential Manager never asks; a protected item behind the Hello
+/// gesture shows the Hello sheet for an `Unlock` ([`Interaction::UserCheck`]) only.
 #[cfg(target_os = "windows")]
-fn platform_blocking(service: &str, req: &KeyringRequest, _prompts: Prompts) -> KeyringResult {
-    windows::handle(service, req)
+fn platform_blocking(service: &str, req: &KeyringRequest, interaction: Interaction) -> KeyringResult {
+    windows::handle(service, req, interaction)
 }
 
-/// libsecret asks only to unlock a locked collection: a quiet op looks first (see the module).
+/// libsecret asks only to unlock a locked collection: a quiet op looks first (see the module); a
+/// protected item runs the fprintd / polkit check first for an `Unlock` only.
 #[cfg(target_os = "linux")]
-fn platform_blocking(service: &str, req: &KeyringRequest, prompts: Prompts) -> KeyringResult {
-    linux::handle(service, req, prompts == Prompts::Never)
+fn platform_blocking(service: &str, req: &KeyringRequest, interaction: Interaction) -> KeyringResult {
+    linux::handle(service, req, interaction)
 }
 
-/// Android's KeyStore helper answers through its Java callback only; other
-/// targets have no keyring.
+/// Android's KeyStore: a worker thread's call reaches the helper's synchronous entry (an
+/// unprotected item needs no sheet, so no callback); the user-check sheet comes through
+/// [`android::request`] only.
+#[cfg(target_os = "android")]
+fn platform_blocking(
+    _service: &str,
+    req: &KeyringRequest,
+    interaction: Interaction,
+) -> KeyringResult {
+    android::blocking(req, interaction)
+}
+
+/// Other targets have no keyring.
 #[cfg(not(any(
     target_os = "ios",
     target_os = "macos",
     target_os = "windows",
-    target_os = "linux"
+    target_os = "linux",
+    target_os = "android"
 )))]
-fn platform_blocking(_service: &str, _req: &KeyringRequest, _prompts: Prompts) -> KeyringResult {
+fn platform_blocking(
+    _service: &str,
+    _req: &KeyringRequest,
+    _interaction: Interaction,
+) -> KeyringResult {
     KeyringResult::Unavailable
+}
+
+/// What a read needs on the platform's keyring (the item's record, never a sheet).
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn platform_need(service: &str, key: &str) -> KeyringNeed {
+    apple::needs_prompt(service, key)
+}
+
+#[cfg(target_os = "windows")]
+fn platform_need(service: &str, key: &str) -> KeyringNeed {
+    windows::needs_prompt(service, key)
+}
+
+#[cfg(target_os = "linux")]
+fn platform_need(service: &str, key: &str) -> KeyringNeed {
+    linux::needs_prompt(service, key)
+}
+
+#[cfg(target_os = "android")]
+fn platform_need(_service: &str, key: &str) -> KeyringNeed {
+    android::needs_prompt(key)
+}
+
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "linux",
+    target_os = "android"
+)))]
+fn platform_need(_service: &str, _key: &str) -> KeyringNeed {
+    KeyringNeed::Unavailable
+}
+
+/// What the platform's keyring does for `protection`.
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn platform_support(protection: KeyringProtection) -> KeyringSupport {
+    apple::support(protection)
+}
+
+#[cfg(target_os = "windows")]
+fn platform_support(protection: KeyringProtection) -> KeyringSupport {
+    windows::support(protection)
+}
+
+#[cfg(target_os = "linux")]
+fn platform_support(protection: KeyringProtection) -> KeyringSupport {
+    linux::support(protection)
+}
+
+#[cfg(target_os = "android")]
+fn platform_support(protection: KeyringProtection) -> KeyringSupport {
+    android::support(protection)
+}
+
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "linux",
+    target_os = "android"
+)))]
+fn platform_support(_protection: KeyringProtection) -> KeyringSupport {
+    KeyringSupport::Unavailable
 }
 
 /// One turn at the Apple keychain: the ops of this process take turns there, as
 /// a quiet op turns the keychain's prompts off for the whole process while it
 /// runs ([`apple::in_turn`]).
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-fn platform_turn<T>(prompts: Prompts, op: impl FnOnce() -> T) -> T {
-    apple::in_turn(prompts == Prompts::Never, op)
+fn platform_turn<T>(interaction: Interaction, op: impl FnOnce() -> T) -> T {
+    apple::in_turn(interaction.quiet(), op)
 }
 
 /// The other keyrings need no turns.
 #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-fn platform_turn<T>(_prompts: Prompts, op: impl FnOnce() -> T) -> T {
+fn platform_turn<T>(_interaction: Interaction, op: impl FnOnce() -> T) -> T {
     op()
 }
 
@@ -542,14 +757,14 @@ fn platform_turn<T>(_prompts: Prompts, op: impl FnOnce() -> T) -> T {
 /// and a biometry-bound item stays bound. A quiet move runs with the prompts
 /// off already ([`platform_turn`]).
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-fn platform_move(key: &AzString, service: &str, _prompts: Prompts) -> bool {
+fn platform_move(key: &AzString, service: &str, _interaction: Interaction) -> bool {
     apple::move_entry(key.as_str(), KeyringNamespace::LEGACY_SERVICE, service)
 }
 
-/// libsecret and the Credential Manager have no biometry binding to keep.
+/// libsecret and the Credential Manager have no protected item in the old service to keep.
 #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-fn platform_move(key: &AzString, service: &str, prompts: Prompts) -> bool {
-    move_by_copy(key, service, &Backend::Platform, prompts)
+fn platform_move(key: &AzString, service: &str, interaction: Interaction) -> bool {
+    move_by_copy(key, service, &Backend::Platform, interaction)
 }
 
 /// The system keyring as a worker thread uses it: every call runs its op
@@ -557,9 +772,14 @@ fn platform_move(key: &AzString, service: &str, prompts: Prompts) -> bool {
 /// `CallbackInfo::keyring_*`, whose answer arrives on a later frame as the
 /// window's `KeyringResult` event. What an app's `Thread` re-reads a secret
 /// with that another process may have changed, and writes one with before
-/// its work goes on. Never call it from a callback: a biometry-bound item
-/// shows the OS prompt and the call waits for it. Both reach the same
-/// keyring (in a headless / E2E run the same stand-in).
+/// its work goes on. Both reach the same keyring (in a headless / E2E run the
+/// same stand-in).
+///
+/// These calls NEVER show the user-check sheet (biometric / passcode / Hello) and read and write
+/// UNPROTECTED items only: a protected item answers `WouldPrompt` - the app asks the user with
+/// `CallbackInfo::keyring_unlock` from the callback of their action. The system keychain's own
+/// dialogs (a locked keychain, an unsigned build's access list) can still show for the blocking
+/// calls; the `*_quietly*` ones never show anything.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[allow(clippy::pub_underscore_fields)] // _reserved: FFI/api.json static-namespace placeholder
@@ -574,6 +794,17 @@ impl Default for Keyring {
     }
 }
 
+fn plain_store(key: AzString, secret: AzString) -> KeyringRequest {
+    let mut secret = secret;
+    secret.set_secret(true);
+    KeyringRequest::Store {
+        key,
+        secret,
+        protection: KeyringProtection::DeviceUnlocked,
+        prompt: KeyringPrompt::default(),
+    }
+}
+
 impl Keyring {
     /// Returns a zero-initialised namespace handle. Static-only - the struct
     /// is just a hook for the FFI layer.
@@ -583,23 +814,18 @@ impl Keyring {
     }
 
     /// Reads the secret stored under `key` in the app's own namespace (its
-    /// app id), on this thread: `Retrieved`, `NotFound`, or why not (`Denied`,
-    /// `Unavailable`, `Error`).
+    /// app id), on this thread: `Retrieved`, `NotFound`, or why not (`WouldPrompt` for a
+    /// protected item, `Invalidated`, `Denied`, `Unavailable`, `Error`).
     #[must_use]
     pub fn get_blocking(key: AzString) -> KeyringResult {
         Self::get_blocking_in(KeyringNamespace::app(), key)
     }
 
     /// Stores `secret` under `key` in the app's own namespace (replacing what
-    /// was there), on this thread: `Stored`, or why not. `require_biometry` as
-    /// in `CallbackInfo::keyring_store`.
+    /// was there, unprotected), on this thread: `Stored`, or why not.
     #[must_use]
-    pub fn store_blocking(
-        key: AzString,
-        secret: AzString,
-        require_biometry: bool,
-    ) -> KeyringResult {
-        Self::store_blocking_in(KeyringNamespace::app(), key, secret, require_biometry)
+    pub fn store_blocking(key: AzString, secret: AzString) -> KeyringResult {
+        Self::store_blocking_in(KeyringNamespace::app(), key, secret)
     }
 
     /// Removes the item stored under `key` in the app's own namespace, on this
@@ -616,24 +842,14 @@ impl Keyring {
         request_blocking(&namespace, &KeyringRequest::Get { key })
     }
 
-    /// Stores `secret` under `key` in `namespace`, on this thread.
+    /// Stores `secret` under `key` in `namespace`, unprotected, on this thread.
     #[must_use]
     pub fn store_blocking_in(
         namespace: KeyringNamespace,
         key: AzString,
         secret: AzString,
-        require_biometry: bool,
     ) -> KeyringResult {
-        let mut secret = secret;
-        secret.set_secret(true);
-        request_blocking(
-            &namespace,
-            &KeyringRequest::Store {
-                key,
-                secret,
-                require_biometry,
-            },
-        )
+        request_blocking(&namespace, &plain_store(key, secret))
     }
 
     /// Removes the item stored under `key` in `namespace`, on this thread.
@@ -642,9 +858,9 @@ impl Keyring {
         request_blocking(&namespace, &KeyringRequest::Delete { key })
     }
 
-    /// [`Self::get_blocking_in`] without ever showing a prompt: where the system
-    /// would have to ask the user (an item behind Touch ID, another app's item,
-    /// a locked keychain) the answer is `Denied` and nothing shows. For
+    /// [`Self::get_blocking_in`] without ever showing anything: where the system
+    /// would have to ask the user (a protected item, another app's item,
+    /// a locked keychain) the answer is `WouldPrompt` and nothing shows. For
     /// background work - a sync at the start, a timer's poll - which must not
     /// raise a dialog the user did not ask for.
     #[must_use]
@@ -652,31 +868,46 @@ impl Keyring {
         request_quietly_blocking(&namespace, &KeyringRequest::Get { key })
     }
 
-    /// [`Self::store_blocking_in`] without ever showing a prompt (`Denied` where
+    /// [`Self::store_blocking_in`] without ever showing anything (`WouldPrompt` where
     /// the system would have to ask).
     #[must_use]
     pub fn store_quietly_in(
         namespace: KeyringNamespace,
         key: AzString,
         secret: AzString,
-        require_biometry: bool,
     ) -> KeyringResult {
-        let mut secret = secret;
-        secret.set_secret(true);
-        request_quietly_blocking(
-            &namespace,
-            &KeyringRequest::Store {
-                key,
-                secret,
-                require_biometry,
-            },
-        )
+        request_quietly_blocking(&namespace, &plain_store(key, secret))
     }
 
-    /// [`Self::delete_blocking_in`] without ever showing a prompt (`Denied`
+    /// [`Self::delete_blocking_in`] without ever showing anything (`WouldPrompt`
     /// where the system would have to ask).
     #[must_use]
     pub fn delete_quietly_in(namespace: KeyringNamespace, key: AzString) -> KeyringResult {
         request_quietly_blocking(&namespace, &KeyringRequest::Delete { key })
+    }
+
+    /// What a read of `key` in the app's own namespace needs, asked quietly (the item's record
+    /// only, never a sheet): nothing, the user's biometric, the user's biometric or passcode, or
+    /// the keyring's own unlock - so an app can explain BEFORE the sheet comes. See
+    /// [`Self::needs_prompt_in`].
+    #[must_use]
+    pub fn needs_prompt(key: AzString) -> KeyringNeed {
+        Self::needs_prompt_in(KeyringNamespace::app(), key)
+    }
+
+    /// [`Self::needs_prompt`] in `namespace`.
+    #[must_use]
+    pub fn needs_prompt_in(namespace: KeyringNamespace, key: AzString) -> KeyringNeed {
+        need_for(&namespace, &key)
+    }
+
+    /// What this device does for `protection`, asked quietly: `Hardware` (the OS or the secure
+    /// hardware releases the secret only after the user's check), `Library` (azul runs the
+    /// check, then reads an item that is not itself bound to it), `NotEnrolled` (nothing set up:
+    /// no biometric, no passcode) or `Unavailable`. For `DeviceUnlocked` it says whether the
+    /// platform keyring works at all.
+    #[must_use]
+    pub fn support(protection: KeyringProtection) -> KeyringSupport {
+        support_for(protection)
     }
 }
