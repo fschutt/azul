@@ -65,13 +65,14 @@ run workspace workspace
 
 clippy() {
   local code=0
-  # The CI's first clippy step: the default features, every finding an error.
-  cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets -- -D warnings 2>&1 | tee clippy.txt
+  # The CI's first clippy step: the default features, every finding an error. origin/master carries 36 `unnecessary
+  # qualification` findings in layout/src/window.rs that are not this work's (the paths were written before `CssProperty`
+  # was imported there; they stop the build of azul-layout at its first error, so nothing after it is linted), so both
+  # steps run with that one lint allowed - every other finding is an error, as in CI - and the findings of the lint are
+  # LISTED by file in the last one: the work must add none.
+  cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets -- -D warnings -A unused-qualifications 2>&1 | tee clippy.txt
   [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
-  # The CI's second step: the feature set the tests compile. origin/master carries 36 `unnecessary qualification`
-  # findings in layout/src/window.rs that are not this work's (the paths were written before `CssProperty` was imported
-  # there), so the step runs with that one lint allowed - every other finding is an error, as in CI - and the findings of
-  # the lint are LISTED by file in the next one: the work must add none.
+  # The CI's second step: the feature set the tests compile.
   cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --features "$features" -- -D warnings -A unused-qualifications 2>&1 | tee clippy-features.txt
   [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
   cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --features "$features" 2>&1 | tee clippy-qualifications.txt >/dev/null
