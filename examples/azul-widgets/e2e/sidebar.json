@@ -1086,5 +1086,178 @@
         "contains": "\"found\":true"
       }
     ]
+  },
+  {
+    "name": "azul_widgets_the_inspectors_border_is_dragged_with_the_pointer",
+    "description": "The Inspector on a desktop is resized by dragging its left border with the pointer: the frame (880 px wide) sits at x 42 in a 1100 px window, the pane is 320 px wide, so its border is at x 601; the pointer goes down on it, moves 100 px to the left and is let go: the pane reports it settled at 420 px. The press is captured by the container, so the drag goes on outside the border.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "mouse_move",
+        "x": 602,
+        "y": 450
+      },
+      {
+        "op": "mouse_down",
+        "x": 602,
+        "y": 450,
+        "button": "left"
+      },
+      {
+        "op": "mouse_move",
+        "x": 552,
+        "y": 450
+      },
+      {
+        "op": "mouse_move",
+        "x": 502,
+        "y": 450
+      },
+      {
+        "op": "mouse_up",
+        "x": 502,
+        "y": 450,
+        "button": "left"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: inspector Settled 420"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_the_phones_pane_is_dragged_up_by_its_grip",
+    "description": "The Inspector as a phone's bottom pane is resized by dragging its grip: the pointer goes down on the grip row, moves 100 px up and is let go: the pane grows from 168 to 268 px (between the peek and its largest, so it stays where it was left).",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-form-phone"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "mouse_move",
+        "x": 100,
+        "y": 676
+      },
+      {
+        "op": "mouse_down",
+        "x": 100,
+        "y": 676,
+        "button": "left"
+      },
+      {
+        "op": "mouse_move",
+        "x": 100,
+        "y": 626
+      },
+      {
+        "op": "mouse_move",
+        "x": 100,
+        "y": 576
+      },
+      {
+        "op": "mouse_up",
+        "x": 100,
+        "y": 576,
+        "button": "left"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: inspector Settled 268"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      }
+    ]
   }
 ]
