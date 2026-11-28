@@ -2520,7 +2520,7 @@ fn build(sb: Sidebar) -> Dom {
                 ),
             )
             .with_ids_and_classes(classes(SIDEBAR_LIST_CLASS, &[]))
-            .with_accessibility_info(AccessibilityInfo::named(label.clone(), AccessibilityRole::Outline)),
+            .with_accessibility_info(AccessibilityInfo::named(label, AccessibilityRole::Outline)),
         );
         if !quick.is_empty() {
             kids.push(rule("width: 12px;"));
@@ -2625,7 +2625,7 @@ fn build(sb: Sidebar) -> Dom {
              scrollbar-width: none; padding: 4px 0px 8px 0px;",
         )
         .with_ids_and_classes(classes(SIDEBAR_LIST_CLASS, &[]))
-        .with_accessibility_info(AccessibilityInfo::named(label.clone(), AccessibilityRole::Outline)),
+        .with_accessibility_info(AccessibilityInfo::named(label, AccessibilityRole::Outline)),
     );
 
     // ---- the foot: help, the status indicators, the toggle ----
