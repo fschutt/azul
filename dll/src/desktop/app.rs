@@ -16,6 +16,79 @@ use crate::desktop::{
     startup_timeline::StartupTimeline,
 };
 
+/// What the font cache did for this start: the verdict of its check, how many faces a hit put in the registry, and what
+/// the check and the load cost (milliseconds).
+#[cfg(all(not(miri), not(feature = "web")))]
+struct FontCacheStart {
+    verdict: crate::desktop::font_cache_guard::Verdict,
+    /// The faces a HIT loaded: `None` when nothing was loaded. Read before the scan threads exist (they add to it).
+    loaded_faces: Option<usize>,
+    check_ms: f64,
+    load_ms: f64,
+}
+
+/// Checks the manifest at `manifest` (`font_cache_guard::check`) and, when it holds, loads it into `registry`.
+/// A manifest the check vouches for and the library refuses is a rebuild like any other.
+#[cfg(all(not(miri), not(feature = "web")))]
+fn start_font_cache(
+    registry: &FcFontRegistry,
+    manifest: Option<&std::path::Path>,
+    key: &crate::desktop::font_cache_guard::Key,
+) -> FontCacheStart {
+    use crate::desktop::font_cache_guard::{check, Reason, Verdict};
+    let check_started = std::time::Instant::now();
+    let verdict = match manifest {
+        None => Verdict::NoDirectory,
+        Some(path) => check(path, key),
+    };
+    let check_ms = check_started.elapsed().as_secs_f64() * 1000.0;
+    let load_started = std::time::Instant::now();
+    let (verdict, loaded) = match (verdict.is_hit(), manifest) {
+        (true, Some(path)) => match registry.load_from_disk_cache_at(path) {
+            Some(()) => (verdict, true),
+            None => (Verdict::Rebuilt(Reason::ManifestRejected), false),
+        },
+        _ => (verdict, false),
+    };
+    let load_ms = load_started.elapsed().as_secs_f64() * 1000.0;
+    FontCacheStart {
+        verdict,
+        // Nothing but the manifest's faces is in a registry that was just made.
+        loaded_faces: loaded.then(|| registry.cache.len()),
+        check_ms,
+        load_ms,
+    }
+}
+
+/// The end of a scan (`font_cache_guard::persist`): the number of DISK faces the registry holds decides whether
+/// anything new was found. The registry also holds faces that are not in the manifest and never will be - the static
+/// instances of variable fonts a layout makes (macOS's `SFNS.ttf` asks for several in the first layout), faces
+/// registered from memory - so the count of ALL faces differs from what a hit loaded on every start, and a start
+/// that found nothing wrote the manifest again. Returns what was done and the number of disk faces.
+#[cfg(all(not(miri), not(feature = "web")))]
+fn persist_font_cache(
+    registry: &FcFontRegistry,
+    manifest: &std::path::Path,
+    key: &crate::desktop::font_cache_guard::Key,
+    loaded_faces: Option<usize>,
+) -> (crate::desktop::font_cache_guard::Persisted, usize) {
+    let disk_paths: Vec<String> = registry
+        .list()
+        .into_iter()
+        .filter_map(|(_, id)| registry.get_disk_font_path(&id).map(|font| font.path))
+        .collect();
+    let faces = disk_paths.len();
+    let persisted = crate::desktop::font_cache_guard::persist(
+        manifest,
+        key,
+        loaded_faces,
+        faces,
+        |path| registry.save_to_disk_cache_at(path).is_some(),
+        || disk_paths,
+    );
+    (persisted, faces)
+}
+
 /// Wait (off the calling thread) for the font scan to finish, then write the on-disk font manifest and its key file
 /// (`font_cache_guard`) - unless the cache was a hit and the scan found nothing new.
 ///
@@ -53,24 +126,10 @@ fn spawn_font_cache_persist(
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
-            let faces = registry.cache.len();
             let started = std::time::Instant::now();
-            let persisted = crate::desktop::font_cache_guard::persist(
-                &manifest,
-                &key,
-                loaded_faces,
-                faces,
-                |path| registry.save_to_disk_cache_at(path).is_some(),
-                || {
-                    registry
-                        .list()
-                        .into_iter()
-                        .filter_map(|(_, id)| registry.get_disk_font_path(&id).map(|font| font.path))
-                        .collect()
-                },
-            );
+            let (persisted, faces) = persist_font_cache(&registry, &manifest, &key, loaded_faces);
             startup.mark_with("fonts:cache_written", || {
-                format!("{persisted:?}, {faces} faces, {:.1} ms", started.elapsed().as_secs_f64() * 1000.0)
+                format!("{persisted:?}, {faces} disk faces, {:.1} ms", started.elapsed().as_secs_f64() * 1000.0)
             });
             debug_server::log(
                 debug_server::LogLevel::Info,
@@ -985,30 +1044,13 @@ impl AppInternal {
                 rust_fontconfig::disk_cache::FontManifest::CURRENT_VERSION,
                 registry.scan_dirs(),
             );
-            let check_started = std::time::Instant::now();
-            let verdict = match manifest_path.as_deref() {
-                None => crate::desktop::font_cache_guard::Verdict::NoDirectory,
-                Some(path) => crate::desktop::font_cache_guard::check(path, &cache_key),
-            };
-            let check_ms = check_started.elapsed().as_secs_f64() * 1000.0;
-            let load_started = std::time::Instant::now();
-            let (cache_verdict, had_cache) = match (&verdict, manifest_path.as_deref()) {
-                (crate::desktop::font_cache_guard::Verdict::Hit, Some(path)) => {
-                    match registry.load_from_disk_cache_at(path) {
-                        Some(()) => (verdict.clone(), Some(())),
-                        None => (
-                            crate::desktop::font_cache_guard::Verdict::Rebuilt(
-                                crate::desktop::font_cache_guard::Reason::ManifestRejected,
-                            ),
-                            None,
-                        ),
-                    }
-                }
-                _ => (verdict.clone(), None),
-            };
-            let load_ms = load_started.elapsed().as_secs_f64() * 1000.0;
-            // What the cache put in the registry, read before the scan threads exist (they add to it).
-            let loaded_faces = had_cache.map(|()| registry.cache.len());
+            let FontCacheStart {
+                verdict: cache_verdict,
+                loaded_faces,
+                check_ms,
+                load_ms,
+            } = start_font_cache(&registry, manifest_path.as_deref(), &cache_key);
+            let had_cache = loaded_faces.map(|_| ());
             startup.mark_with("fonts:disk_cache_read", || {
                 format!("loaded={}", had_cache.is_some())
             });
@@ -1219,3 +1261,7 @@ pub(crate) fn discover_system_style_timed(
         azul_css::system::SystemStyle::detect()
     }
 }
+
+#[cfg(all(test, not(miri), not(feature = "web")))]
+#[path = "app_font_cache_test.rs"]
+mod app_font_cache_test;
