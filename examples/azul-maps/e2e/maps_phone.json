@@ -1,7 +1,7 @@
 [
   {
     "name": "azul_maps_phone_pixel8_search_place_way_host",
-    "description": "AzMaps in a 411 x 914 window (pixel8), as a phone shows it: the search bar and the chips on top of the map, the sheet from the bottom (peek, half, full). Pictures, in order: 1 first look, 2 the results of 'Stutt', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 the map styles, 8 dark.",
+    "description": "AzMaps in a 411 x 914 window (pixel8), as a phone shows it: the search bar and the chips on top of the map, the sheet from the bottom (peek, half, full). Pictures, in order: 1 first look, 2 the results of 'Stutt', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 a chip's search, 8 dark.",
     "only_on": [
       "linux",
       "macos",
@@ -329,7 +329,7 @@
       },
       {
         "op": "click",
-        "selector": "#__azmaps_layers"
+        "selector": "#__azmaps_chip-0"
       },
       {
         "op": "wait_frame"
@@ -348,16 +348,6 @@
       },
       {
         "op": "take_screenshot"
-      },
-      {
-        "op": "click",
-        "selector": "#__azmaps_style-1"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
       },
       {
         "op": "set_mode",
@@ -383,7 +373,7 @@
   },
   {
     "name": "azul_maps_phone_iphone_search_place_way_host",
-    "description": "AzMaps in a 402 x 874 window (iphone_island), as a phone shows it: the search bar and the chips on top of the map, the sheet from the bottom (peek, half, full). Pictures, in order: 1 first look, 2 the results of 'Stutt', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 the map styles, 8 dark.",
+    "description": "AzMaps in a 402 x 874 window (iphone_island), as a phone shows it: the search bar and the chips on top of the map, the sheet from the bottom (peek, half, full). Pictures, in order: 1 first look, 2 the results of 'Stutt', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 a chip's search, 8 dark.",
     "only_on": [
       "linux",
       "macos",
@@ -711,7 +701,7 @@
       },
       {
         "op": "click",
-        "selector": "#__azmaps_layers"
+        "selector": "#__azmaps_chip-0"
       },
       {
         "op": "wait_frame"
@@ -730,16 +720,6 @@
       },
       {
         "op": "take_screenshot"
-      },
-      {
-        "op": "click",
-        "selector": "#__azmaps_style-1"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
       },
       {
         "op": "set_mode",
@@ -765,7 +745,7 @@
   },
   {
     "name": "azul_maps_phone_small_search_place_way_host",
-    "description": "AzMaps in a 360 x 640 window (off), as a phone shows it: the search bar and the chips on top of the map, the sheet from the bottom (peek, half, full). Pictures, in order: 1 first look, 2 the results of 'Stutt', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 the map styles, 8 dark.",
+    "description": "AzMaps in a 360 x 640 window (off), as a phone shows it: the search bar and the chips on top of the map, the sheet from the bottom (peek, half, full). Pictures, in order: 1 first look, 2 the results of 'Stutt', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 a chip's search, 8 dark.",
     "only_on": [
       "linux",
       "macos",
@@ -1093,7 +1073,7 @@
       },
       {
         "op": "click",
-        "selector": "#__azmaps_layers"
+        "selector": "#__azmaps_chip-0"
       },
       {
         "op": "wait_frame"
@@ -1112,16 +1092,6 @@
       },
       {
         "op": "take_screenshot"
-      },
-      {
-        "op": "click",
-        "selector": "#__azmaps_style-1"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
       },
       {
         "op": "set_mode",
@@ -1147,7 +1117,7 @@
   },
   {
     "name": "azul_maps_phone_landscape_search_place_way_host",
-    "description": "AzMaps in a 914 x 411 window (pixel8), as a phone shows it: the search bar and the chips on top of the map, the sheet from the bottom (the panel at the left: a phone on its side is wide). Pictures, in order: 1 first look, 2 the results of 'Stutt', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 the map styles, 8 dark.",
+    "description": "AzMaps in a 914 x 411 window (pixel8), as a phone shows it: the search bar and the chips on top of the map, the sheet from the bottom (the panel at the left: a phone on its side is wide). Pictures, in order: 1 first look, 2 the results of 'Stutt', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 a chip's search, 8 dark.",
     "only_on": [
       "linux",
       "macos",
@@ -1382,33 +1352,7 @@
       },
       {
         "op": "click",
-        "selector": "#__azmaps_layers"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "assert_exists",
-        "selector": "#__azmaps_layers-menu"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_settled"
-      },
-      {
-        "op": "take_screenshot"
-      },
-      {
-        "op": "click",
-        "selector": "#__azmaps_style-1"
+        "selector": "#__azmaps_chip-0"
       },
       {
         "op": "wait_frame"
@@ -1542,7 +1486,7 @@
   },
   {
     "name": "azul_maps_phone_search_place_way_device",
-    "description": "AzMaps on the phone itself (the window is the phone's, upright: no resize, no display preset). Pictures, in order: 1 first look, 2 the results of 'Stutt', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 the map styles, 8 dark.",
+    "description": "AzMaps on the phone itself (the window is the phone's, upright: no resize, no display preset). Pictures, in order: 1 first look, 2 the results of 'Stutt', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 a chip's search, 8 dark.",
     "only_on": [
       "android",
       "ios"
@@ -1848,7 +1792,7 @@
       },
       {
         "op": "click",
-        "selector": "#__azmaps_layers"
+        "selector": "#__azmaps_chip-0"
       },
       {
         "op": "wait_frame"
@@ -1867,16 +1811,6 @@
       },
       {
         "op": "take_screenshot"
-      },
-      {
-        "op": "click",
-        "selector": "#__azmaps_style-1"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
       },
       {
         "op": "set_mode",

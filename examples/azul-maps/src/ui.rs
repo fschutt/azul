@@ -28,7 +28,10 @@ use azul::{
     },
     prelude::*,
     str::String as AzString,
-    widgets::{BottomSheet, BottomSheetEvent, BottomSheetEventKind, Button, ButtonType, SheetDetent, TextInput},
+    widgets::{
+        BottomSheet, BottomSheetEvent, BottomSheetEventKind, Button, ButtonType, Dialog, Popover, SheetDetent,
+        TextInput,
+    },
 };
 use azul_appkit::{
     insets::Insets,
@@ -97,9 +100,8 @@ const HINT: &str = "font-size: 13px; color: system:secondary-text; white-space: 
 /// The floating keys at the right of the map: the zoom pair, the locate key, the styles' key.
 const CONTROLS: &str = "position: absolute; right: 12px; display: flex; flex-direction: column; gap: 10px;";
 const GROUP: &str = "display: flex; flex-direction: column; border-radius: 8px;";
-/// The styles' menu, beside the keys that open it.
-const LAYERS_MENU: &str = "position: absolute; right: 72px; width: 220px; display: flex; flex-direction: column; \
-                           gap: 4px; padding: 8px; box-sizing: border-box; border-radius: 12px;";
+/// The styles' menu, the content of the popover the layers key opens.
+const LAYERS_MENU: &str = "display: flex; flex-direction: column; gap: 4px; min-width: 180px;";
 /// The little notice that says a link was copied.
 const TOAST: &str = "position: absolute; left: 12px; right: 84px; display: flex; flex-direction: row; \
                      justify-content: center; text-align: center; font-size: 13px; color: #ffffff; \
@@ -175,9 +177,6 @@ pub fn floating(s: &MapState, app: &RefAny, frame: &Frame) -> Vec<Dom> {
     let covered = !frame.wide() && s.drive.nav.is_none() && s.sheet == SheetDetent::Full;
     if !covered {
         out.push(controls(s, app, frame));
-        if s.flow.layers_open {
-            out.push(layers_menu(s, app, frame));
-        }
     }
     if !s.toast.0.is_empty() {
         let above = if frame.wide() { 0.0 } else { sheet_height(s.sheet, frame) + frame.insets.lift() };
@@ -629,17 +628,7 @@ fn controls(s: &MapState, app: &RefAny, frame: &Frame) -> Dom {
                     .with_accessibility_name(locate_name),
             ),
         );
-    keys.add_child(
-        Dom::create_div().with_css(format!("{GROUP} {FLOAT}").as_str()).with_child(
-            Button::create("")
-                .with_icon("layers")
-                .with_toggled(s.flow.layers_open)
-                .with_on_click(app.clone(), on_layers as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::LAYERS)
-                .with_accessibility_name(label("azmaps-layers")),
-        ),
-    );
+    keys.add_child(Dom::create_div().with_css(format!("{GROUP} {FLOAT}").as_str()).with_child(layers_key(s, app)));
     keys
 }
 
@@ -652,22 +641,22 @@ fn controls_bottom(s: &MapState, frame: &Frame) -> f32 {
     (sheet_height(s.sheet, frame) + frame.insets.lift() + ABOVE_SHEET).min(frame.size.1 - 3.0 * KEY - frame.top())
 }
 
-/// The map styles' key: the menu opens, or shuts.
-extern "C" fn on_layers(mut data: RefAny, _info: CallbackInfo) -> Update {
-    crate::with_map(&mut data, |s| s.flow.toggle_layers())
-}
-
 /// A style's index and the app.
 struct StyleRef {
     app: RefAny,
     index: usize,
 }
 
-/// The styles' menu: one row each, the chosen one lit.
-fn layers_menu(s: &MapState, app: &RefAny, frame: &Frame) -> Dom {
-    let bottom = controls_bottom(s, frame);
+/// The map styles' key: a popover (the engine's own: it opens below the key on a click and closes on a press outside, on Escape
+/// or when a style is picked) with one row per style, the chosen one lit.
+fn layers_key(s: &MapState, app: &RefAny) -> Dom {
+    let anchor = Button::create("")
+        .with_icon("layers")
+        .dom()
+        .with_id(ids::LAYERS)
+        .with_accessibility_name(label("azmaps-layers"));
     let mut menu = Dom::create_div()
-        .with_css(format!("{LAYERS_MENU} {FLOAT} bottom: {bottom:.0}px;").as_str())
+        .with_css(LAYERS_MENU)
         .with_id(ids::LAYERS_MENU)
         .with_accessibility_name(label("azmaps-layers-menu"));
     for (index, style) in flow::STYLES.iter().enumerate() {
@@ -682,7 +671,7 @@ fn layers_menu(s: &MapState, app: &RefAny, frame: &Frame) -> Dom {
                 .with_id(ids::indexed("style", index)),
         );
     }
-    menu
+    Popover::create(anchor, menu).dom()
 }
 
 /// A style was picked: the map is drawn in it, the choice is kept.
@@ -697,13 +686,15 @@ extern "C" fn on_style(mut data: RefAny, mut info: CallbackInfo) -> Update {
         };
         s.style = index;
         s.layer.theme = crate::theme_of(index);
-        s.flow.layers_open = false;
         println!("AZMAPS_STYLE {}", style.key);
         kept = Some((s.kit.clone(), style.key));
     });
     if let Some((kit_ref, value)) = kept {
         kit::set_value(&kit_ref, &mut info, flow::STYLE_KEY, value);
     }
+    // The popover holds the row that was pressed: it closes.
+    let hit = info.get_hit_node();
+    let _ = Dialog::close_from(info, hit, "");
     update
 }
 

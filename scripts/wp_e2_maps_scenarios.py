@@ -88,10 +88,9 @@ def desktop_steps():
     s += click("#__azmaps_suggestion-0") + [op("assert_exists", selector="#__azmaps_place")] + shot()  # 3 the place
     s += click("#__azmaps_place-route") + [op("assert_exists", selector="#__azmaps_travel")] + shot()  # 4 the way
     s += click("#__azmaps_back") + click("#__azmaps_back") + [op("assert_exists", selector="#__azmaps_chips")]
-    s += click("#__azmaps_layers") + [op("assert_exists", selector="#__azmaps_layers-menu")] + shot()  # 5 the map styles
-    s += click("#__azmaps_style-1") + shot()                      # 6 a style picked
-    s += [op("set_mode", mode="dark")] + shot()                   # 7 dark
-    s += [op("set_mode", mode="light")] + click("#__azmaps_panel-toggle") + [op("assert_exists", selector="#__azmaps_panel-show")] + shot()  # 8 folded
+    s += click("#__azmaps_chip-0") + shot()                       # 5 a chip's search
+    s += [op("set_mode", mode="dark")] + shot()                   # 6 dark
+    s += [op("set_mode", mode="light")] + click("#__azmaps_panel-toggle") + [op("assert_exists", selector="#__azmaps_panel-show")] + shot()  # 7 folded
     s += click("#__azmaps_panel-show") + [op("assert_exists", selector="#__azmaps_panel")]
     return s
 
@@ -99,7 +98,8 @@ def desktop_steps():
 def desktop_file():
     desc = ("AzMaps on a desktop, 1280 x 800: the map fills the window, the panel at the left (search, chips, then the results, the place, "
             "the way), the zoom, locate and map-style keys at the right. Pictures, in order: 1 first look, 2 the results of 'Stutt', 3 the "
-            "place, 4 the way (Route), 5 the map styles' menu, 6 a style picked, 7 dark, 8 the panel folded away to its search key.")
+            "place, 4 the way (Route), 5 a chip's search, 6 dark, 7 the panel folded away to its search key. (The map styles' popover is a "
+            "window of its own: the host's picture is of the main window, so no step opens it.)")
     return [{
         "name": "azul_maps_desktop_panel_search_place_way",
         "description": desc,
@@ -123,14 +123,14 @@ def phone_steps():
     s += grip_keys("Up") + shot()                                 # 5 full
     s += grip_keys("Down", "Down") + [op("assert_exists", selector="#__azmaps_place-route")]
     s += click("#__azmaps_place-route") + [op("assert_exists", selector="#__azmaps_travel")] + shot()  # 6 the way
-    s += click("#__azmaps_back") + click("#__azmaps_back") + click("#__azmaps_layers") + shot()       # 7 the map styles
-    s += click("#__azmaps_style-1") + [op("set_mode", mode="dark")] + shot()                         # 8 dark
+    s += click("#__azmaps_back") + click("#__azmaps_back") + click("#__azmaps_chip-0") + shot()       # 7 a chip's search
+    s += [op("set_mode", mode="dark")] + shot()                                                      # 8 dark
     s += [op("set_mode", mode="light")]
     return s
 
 
 def phone_file():
-    names = "1 first look, 2 the results of 'Stutt', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 the map styles, 8 dark"
+    names = "1 first look, 2 the results of 'Stutt', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 a chip's search, 8 dark"
     sizes = [("pixel8", 411, 914, "pixel8"), ("iphone", 402, 874, "iphone_island"), ("small", 360, 640, "off"),
              ("landscape", 914, 411, "pixel8")]
     tests = []

@@ -2152,18 +2152,12 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     }
     let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
-    // Escape steps back: the styles' menu shuts, the way goes to its place, the place to the search.
-    let open = data
-        .downcast_ref::<MapState>()
-        .is_some_and(|s| s.flow.panel != Panel::Browse || s.flow.layers_open);
+    // Escape steps back: the way goes to its place, the place to the search (the styles' popover closes itself).
+    let open = data.downcast_ref::<MapState>().is_some_and(|s| s.flow.panel != Panel::Browse);
     if key == Some(VirtualKeyCode::Escape) && open {
         return with_map(&mut data, |s| {
-            if s.flow.layers_open {
-                s.flow.layers_open = false;
-            } else {
-                s.flow.back();
-                s.selected = s.flow.place.as_ref().and_then(|p| p.pin);
-            }
+            s.flow.back();
+            s.selected = s.flow.place.as_ref().and_then(|p| p.pin);
         });
     }
     let step: fn(&mut MapState) = match key {
