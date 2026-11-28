@@ -62,6 +62,7 @@ dependencies = [
  "azul-search",
  "azul-storage",
  "azul-termkit",
+ "ctor",
  "serde",
  "serde_json",
  "syntect",
