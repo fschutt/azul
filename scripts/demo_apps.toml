@@ -24,6 +24,13 @@
 #   <Name>-linux  <Name>-macos  <Name>-macos-intel  <Name>-windows.exe        (shipped as .tar.gz)
 #   <Name>-android-arm64.apk  <Name>-android-x86_64.apk
 #   <Name>-ios-device.app.zip  <Name>-ios-sim.app.zip
+#
+# QA-ONLY APPS (`qa_only = true`, AzSelfTest: every device capability, one probe each): an app that exists only as a QA build. It is
+# built when a run asks for QA builds (rust.yml's demos_e2e), for the phone columns of the artifact-only library its `mobile_lib` names
+# (which is its QA library: android-arm64, android-x86_64, ios-sim), as <Name>-e2e-<column> in artifacts named demoe2e-*. It is no row or
+# link of the release page, no release asset, no cell of the status table (its builds are lines of the QA table) and no entry of the
+# shipped plan: scripts/demo_apps.py load() keeps it in m["qa_app"], apart from m["app"], and the page generator drops it when it reads
+# this file. Phones only (platforms = ["android", "ios"]); `demo_apps.py check` refuses everything else.
 
 schema = 1
 
@@ -76,7 +83,8 @@ reason = "azul.iroh for the phone apps that use it (AzCompanion: AzReview over t
 # AZLIN-BUILD-MARKER:test-hooks, and scripts/demo_lib.sh checks it both ways: a library WITHOUT the feature (everything that
 # ships) must not hold the marker, this one must; `demo_apps.py check` refuses the feature in any lib that is not artifact_only.
 features = "std,logging,link-static,a11y,map-tiles,pdf,debug-server,e2e-scripting,test-hooks"
-targets = ["android-x86_64", "ios-sim"]
+# android-arm64 is the phone in the hand (the QA on a real device, AzSelfTest), android-x86_64 the emulator, ios-sim the Simulator
+targets = ["android-arm64", "android-x86_64", "ios-sim"]
 artifact_only = true
 reason = "the engine's debug server for the E2E and lifecycle tests of the phone shells (never shipped)"
 
@@ -84,7 +92,7 @@ reason = "the engine's debug server for the E2E and lifecycle tests of the phone
 # The QA twin of mobile-iroh: mobile-e2e (the debug server, E2E scripting and test hooks) plus iroh, for the QA builds (`e2e = true`) of
 # the apps that use iroh (`e2e_lib = "mobile-e2e-iroh"`: AzMeet, AzCompanion). Artifact only, as mobile-e2e is, and for the same reasons.
 features = "std,logging,link-static,a11y,map-tiles,pdf,debug-server,e2e-scripting,test-hooks,iroh"
-targets = ["android-x86_64", "ios-sim"]
+targets = ["android-arm64", "android-x86_64", "ios-sim"]
 artifact_only = true
 reason = "the engine's debug server for the QA builds of the apps that use iroh (never shipped)"
 
