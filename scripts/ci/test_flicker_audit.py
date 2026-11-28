@@ -319,6 +319,21 @@ class IosAuditTests(unittest.TestCase):
         self.assertIsNone(report["flash"]["ok"])
 
 
+class CommandLineTests(unittest.TestCase):
+    def parse(self, argv):
+        real = f.android_audit
+        f.android_audit = lambda args: args
+        try:
+            return f.main(argv)
+        finally:
+            f.android_audit = real
+
+    def test_flash_only_is_an_option_of_the_android_audit(self):
+        args = self.parse(["android", "--out", "o", "--apk-plain", "a.apk", "--flash-only"])
+        self.assertTrue(args.flash_only)
+        self.assertFalse(self.parse(["android", "--out", "o", "--apk-plain", "a.apk"]).flash_only)
+
+
 class MonotonicTests(unittest.TestCase):
     def test_an_offset_that_advances_is_fine(self):
         self.assertEqual(f.monotonic([0, 30, 90, 200, 360, 420, 430]), (True, 0.0))
