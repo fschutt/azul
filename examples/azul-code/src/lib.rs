@@ -217,7 +217,8 @@ pub fn start() {
     if args.kit.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);
     }
-    let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (720.0, 480.0), on_window_created);
+    // A desktop window never gets short enough to flip to the phone's composition (a window under COMPACT_HEIGHT px tall).
+    let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (720.0, phone::COMPACT_HEIGHT), on_window_created);
     App::create(RefAny::new(st), config).run(window);
 }
 
