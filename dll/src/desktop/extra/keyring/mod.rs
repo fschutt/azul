@@ -88,6 +88,9 @@ pub mod android;
 pub mod apple;
 #[cfg(target_os = "linux")]
 pub mod linux;
+/// What the Apple keyring decides without an Apple (OSStatus / LAError tables, the meta record, the access-control
+/// flags): compiled and tested on every host; `apple.rs` (iOS + macOS) makes the calls.
+pub(crate) mod apple_logic;
 mod memory;
 #[cfg(target_os = "windows")]
 pub mod windows;

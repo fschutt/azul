@@ -899,3 +899,41 @@ mod autotest_generated {
         assert!(PARSED.is_err());
     }
 }
+
+/// iOS starts no process, and `Url::open` answered `false` there (`opener_command` had no arm for it): an app could not
+/// open a page, and the "permission refused: open the settings" path of every app had nowhere to go. The decision is
+/// the platform's own opener for a URL, and none for a path (there is no file manager to show it in).
+#[cfg(feature = "std")]
+mod ios_opener {
+    use super::*;
+
+    #[test]
+    fn a_url_on_ios_goes_to_the_platform_opener() {
+        assert_eq!(
+            opener_command("https://example.com/a?b=1&c=2", false, "ios"),
+            Some((IOS_OPEN_PROGRAM, alloc::vec!["https://example.com/a?b=1&c=2"]))
+        );
+        // the settings page of the app is a URL like any other
+        assert_eq!(
+            opener_command("app-settings:", false, "ios").map(|(_, args)| args),
+            Some(alloc::vec!["app-settings:"])
+        );
+    }
+
+    #[test]
+    fn a_path_on_ios_has_no_opener() {
+        assert_eq!(opener_command("/var/mobile/Documents/a.pdf", true, "ios"), None);
+    }
+
+    #[test]
+    fn the_spawner_is_asked_for_the_platform_opener_and_its_answer_is_the_answer() {
+        let hooks = crate::run_mode::TestHooks::from_env(&|_| None);
+        let mut asked = alloc::vec::Vec::new();
+        let answer = open_with(&hooks, "https://example.com", false, "ios", &mut |program, args| {
+            asked.push((alloc::string::String::from(program), args.len()));
+            false
+        });
+        assert!(!answer, "the system refusing is a false");
+        assert_eq!(asked, alloc::vec![(alloc::string::String::from(IOS_OPEN_PROGRAM), 1)]);
+    }
+}

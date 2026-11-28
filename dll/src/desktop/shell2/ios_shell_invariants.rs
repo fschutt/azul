@@ -9,6 +9,16 @@ const IOS_A11Y_RS: &str = include_str!("ios/accessibility.rs");
 const IOS_TEXT_INPUT_RS: &str = include_str!("ios/text_input.rs");
 const IOS_CLIPBOARD_RS: &str = include_str!("ios/clipboard.rs");
 const IOS_WEBVIEW_RS: &str = include_str!("ios/webview.rs");
+const IOS_SYSTEM_FONT_RS: &str = include_str!("ios/system_font.rs");
+const IOS_OPEN_URL_RS: &str = include_str!("ios/open_url.rs");
+const AUTH_APPLE_RS: &str = include_str!("../extra/auth_session/apple.rs");
+const PERMISSION_IOS_RS: &str = include_str!("../extra/permission/ios.rs");
+const GAMEPAD_APPLE_RS: &str = include_str!("../extra/gamepad/apple.rs");
+const GEOLOCATION_IOS_RS: &str = include_str!("../extra/geolocation/ios.rs");
+const MIC_APPLE_RS: &str = include_str!("../extra/audio/avfoundation_mic.rs");
+const SENSORS_APPLE_SYNC_RS: &str = include_str!("../extra/sensors/apple.rs");
+const SENSORS_MOD_RS: &str = include_str!("../extra/sensors/mod.rs");
+const CAPABILITY_PUMP_RS: &str = include_str!("common/capability_pump.rs");
 const FILE_PICKER_RS: &str = include_str!("../extra/file_picker/ios.rs");
 const CAMERA_RS: &str = include_str!("../extra/camera/avfoundation.rs");
 const AVF_AUTH_RS: &str = include_str!("../extra/camera/avf_auth.rs");
@@ -69,6 +79,8 @@ fn the_ios_shell_does_not_unwrap_what_the_objective_c_runtime_hands_it() {
         ("ios/text_input.rs", IOS_TEXT_INPUT_RS),
         ("ios/clipboard.rs", IOS_CLIPBOARD_RS),
         ("ios/webview.rs", IOS_WEBVIEW_RS),
+        ("ios/system_font.rs", IOS_SYSTEM_FONT_RS),
+        ("ios/open_url.rs", IOS_OPEN_URL_RS),
         ("extra/file_picker/ios.rs", FILE_PICKER_RS),
     ] {
         for (n, line) in code_of(source).lines().enumerate() {
@@ -487,18 +499,23 @@ fn the_protected_requests_of_the_ios_build_check_their_purpose_string_first() {
     let check = auth.find("request_would_stop_the_process(key)").expect("a check");
     assert!(check < request, "the check comes before the first request");
 
-    let sensors = body(SENSORS_APPLE_RS, "fn start_push_only_sensors(");
+    // The barometer and the step counter are started one by one, each only after the Motion purpose-string check
+    // (`motion_key_blocks`), and only for an app that reads them.
+    let check = body(SENSORS_APPLE_RS, "fn motion_key_blocks(");
+    at(check, "request_would_stop_the_process(keys::MOTION)", "motion_key_blocks");
+    let barometer = body(SENSORS_APPLE_RS, "fn start_barometer(");
     in_order(
-        sensors,
-        "request_would_stop_the_process(keys::MOTION)",
+        barometer,
+        "motion_key_blocks(",
         "CMAltimeter::isRelativeAltitudeAvailable()",
-        "start_push_only_sensors",
+        "start_barometer",
     );
+    let steps = body(SENSORS_APPLE_RS, "fn start_steps(");
     in_order(
-        sensors,
-        "request_would_stop_the_process(keys::MOTION)",
+        steps,
+        "motion_key_blocks(",
         "startPedometerUpdatesFromDate_withHandler",
-        "start_push_only_sensors",
+        "start_steps",
     );
 }
 
@@ -657,4 +674,214 @@ fn a_frame_is_requested_from_the_layer_and_the_display_tick_produces_it_itself()
         tick_code.contains("present_pending_frame("),
         "the display tick produces the owed frame itself: the first layout does not wait for Core Animation to ask"
     );
+}
+
+/// The scan of an iOS app (CoreText's AvailableFonts) does not hold San Francisco, so the family the `system-ui`
+/// chain starts with was in no scan and every launch warned `the system UI font "System Font" was NOT found` (the
+/// Simulator consoles of 2026-11-26): the window registers it itself, before its first layout, from the file CoreText
+/// made the system UI font from, only when the registry does not know the family already (a persisted manifest of an
+/// earlier launch holds it), under the name the chain asks for, with the file's own coverage and style.
+#[test]
+fn the_ios_window_registers_the_system_ui_font_the_scan_does_not_list() {
+    let new = body(IOS_MOD_RS, "pub fn new(");
+    at(new, "system_font::ensure_system_ui_font(registry)", "IOSWindow::new");
+    let font = code_of(IOS_SYSTEM_FONT_RS);
+    for needed in [
+        "CTFontCreateUIFontForLanguage(",
+        "kCTFontURLAttribute",
+        "registry.query(&wanted).is_some()",
+        "FcParseFontPatterns(",
+        "registry.insert_font(",
+        "SYSTEM_FONT_FAMILY",
+    ] {
+        assert!(font.contains(needed), "ios/system_font.rs: `{needed}` is missing");
+    }
+    let known = font.find("registry.query(&wanted).is_some()").expect("asks the registry first");
+    let read = font.find("std::fs::read(").expect("reads the file");
+    assert!(known < read, "the file is read only when the registry does not know the family");
+}
+
+/// GameController.framework is not linked into the iOS app: `class!(GCController)` is a PANIC (an abort in a phone app)
+/// when nothing has loaded the framework. Every lookup goes through the helper that `dlopen`s it first and answers
+/// `None` for a missing class.
+#[test]
+fn the_gamepad_backend_loads_game_controller_before_it_looks_up_its_class() {
+    let code = code_of(GAMEPAD_APPLE_RS);
+    assert!(!code.contains("class!(GCController)"), "a panic in a phone app is an abort");
+    assert_eq!(
+        code.matches("Class::get(\"GCController\")").count(),
+        1,
+        "one lookup, in `game_controller_class`"
+    );
+    let helper = body(GAMEPAD_APPLE_RS, "fn game_controller_class(");
+    in_order(helper, "game_controller()?", "Class::get(\"GCController\")", "game_controller_class");
+}
+
+/// What CoreLocation says must reach the app: a failure (`didFailWithError:` was not implemented: a denied grant and a
+/// failed lookup were swallowed), the moment the fix was MEASURED (`CLLocation.timestamp`: the callback's own clock made a
+/// cached first fix look fresh), an invalid fix (negative horizontal accuracy) dropped, and a request that cannot show
+/// (no purpose string) said out loud instead of a silent no-op.
+#[test]
+fn the_ios_location_delegate_reports_failures_and_the_fixs_own_time() {
+    let code = code_of(GEOLOCATION_IOS_RS);
+    for needed in [
+        "sel!(locationManager:didFailWithError:)",
+        "push_error(",
+        "msg_send![loc, timestamp]",
+        "timeIntervalSince1970",
+        "if h_acc < 0.0",
+        "missing_key_message(",
+        "keys::LOCATION_WHEN_IN_USE",
+    ] {
+        assert!(code.contains(needed), "extra/geolocation/ios.rs: `{needed}` is missing");
+    }
+}
+
+/// An iPhone's `AVCaptureAudioDataOutput` delivers 16-bit signed integer PCM unless asked otherwise, the macOS HAL
+/// Float32: the converter reads the format of EVERY sample buffer from its description (`read_asbd`), and on iOS that
+/// read used to answer `None` (the Float32 assumption), so each sample was read as the wrong type.
+#[test]
+fn the_microphone_reads_the_format_of_its_samples_on_ios_too() {
+    let code = code_of(MIC_APPLE_RS);
+    let ios_reader = code
+        .split("fn read_asbd(")
+        .nth(2)
+        .expect("a second read_asbd: the one that is not macOS's");
+    assert!(
+        ios_reader.contains("CMAudioFormatDescriptionGetStreamBasicDescription("),
+        "the non-macOS read_asbd must ask CoreMedia, not answer None"
+    );
+    assert!(
+        !ios_reader.trim_start().starts_with("_sample_buffer: &CMSampleBuffer) -> Option<Asbd> {\n    None"),
+        "the stub that answered None is gone"
+    );
+}
+
+/// Nothing starts at launch, and the sensors that cost something start only for an app that READS them: CoreMotion
+/// started only for an app with a `SensorChanged` node (an app that read the magnetometer from a timer saw `None` for
+/// ever) and started everything, the barometer and the step counter included, at the first pump of any app with a
+/// listener (the Motion & Fitness prompt at launch). The pump syncs what is wanted (a read wants a kind for a lease), the
+/// groups start and stop on their own, proximity monitoring is switched off again, and the background stops them.
+#[test]
+fn the_ios_sensors_start_on_demand_and_stop_when_nobody_reads_them() {
+    let pump = code_of(CAPABILITY_PUMP_RS);
+    assert!(pump.contains("sensors::sync(&lw.app_services.sensors, listeners)"), "the pump syncs what is wanted");
+    assert!(
+        !pump.contains("sensors::ensure_started("),
+        "the pump no longer starts everything for a listener"
+    );
+    let apple = code_of(SENSORS_APPLE_SYNC_RS);
+    for needed in [
+        "pub fn sync(",
+        "fn start_barometer(",
+        "fn start_steps(",
+        "fn stop_proximity(",
+        "fn stop_motion(",
+        "stopAccelerometerUpdates()",
+        "setProximityMonitoringEnabled: false",
+        "wanted.barometer",
+        "wanted.steps",
+        "wanted.proximity",
+    ] {
+        assert!(apple.contains(needed), "extra/sensors/apple.rs: `{needed}` is missing");
+    }
+    assert!(!apple.contains("pub fn start("), "there is no start-everything call on Apple");
+    let sync = body(SENSORS_MOD_RS, "pub fn sync(");
+    assert!(sync.contains("wanted_any(&[SensorKind::Barometer])"), "the barometer is wanted by a read of the barometer only");
+    let background = body(IOS_MOD_RS, "extern \"C\" fn app_did_enter_background(");
+    at(background, "sensors::pause(", "app_did_enter_background");
+}
+
+/// `Url::open` on iOS: the core crate's opener starts a process and iOS starts none, so it answered `false` and an app
+/// could not open a page or its own settings (`app-settings:`). The core crate calls the shell's hook
+/// (`azul_ios_open_url`), which asks `UIApplication` on the MAIN thread: a call from a worker is handed to the main queue
+/// (UIKit is main-thread only), the string is made with a factory that cannot raise on bad bytes, and no object is used
+/// before it is checked for nil.
+#[test]
+fn url_open_on_ios_asks_uikit_on_the_main_thread() {
+    let code = code_of(IOS_OPEN_URL_RS);
+    for needed in [
+        "pub fn azul_ios_open_url(",
+        "#[no_mangle]",
+        "isMainThread",
+        "dispatch_async_f(",
+        "openURL: nsurl options: options completionHandler:",
+        "URLWithString:",
+        "if nsurl.is_null()",
+        "CString::new(",
+    ] {
+        assert!(code.contains(needed), "ios/open_url.rs: `{needed}` is missing");
+    }
+    at(IOS_MOD_RS, "mod open_url;", "the iOS shell declares the opener");
+}
+
+/// `ASWebAuthenticationPresentationContextProviding` is a protocol apps adopt and Apple's own classes do not, so the runtime
+/// may have no object for it (the same lookup of `UIApplicationDelegate` came back nil on the iOS 26.2 Simulator and
+/// aborted every launch): the attach registers a protocol of the NAME when the lookup is empty (conformance is compared by
+/// name), and a start that could not attach answers "not available" instead of presenting a sheet that cannot be shown.
+#[test]
+fn the_web_sign_in_makes_its_protocol_when_the_runtime_has_none() {
+    let code = code_of(AUTH_APPLE_RS);
+    for needed in [
+        "AnyProtocol::get(name).or_else(",
+        "ProtocolBuilder::new(name)",
+        "builder.register()",
+        "if !AnchorProvider::attach_protocol()",
+        "class_addProtocol(",
+    ] {
+        assert!(code.contains(needed), "extra/auth_session/apple.rs: `{needed}` is missing");
+    }
+}
+
+/// A permission request on iOS is the capability's own, from the permission manager (after a user gesture), and the
+/// state read is quiet and cheap: `handle_event` was a no-op (a probe node never asked), `probe_status` had no caller
+/// (Camera, Microphone, Motion read NotDetermined for ever), the location status made a `CLLocationManager` per probe,
+/// and a when-in-use grant was reported as Denied for the background capability (a final-looking refusal; the app may
+/// still ask for the upgrade to Always).
+#[test]
+fn the_ios_permission_backend_requests_one_capability_at_a_time_and_reads_quietly() {
+    let code = code_of(PERMISSION_IOS_RS);
+    for needed in [
+        "pub fn request(capability: Capability)",
+        "Capability::Camera =>",
+        "Capability::Microphone =>",
+        "Capability::Geolocation =>",
+        "Capability::GeolocationBackground =>",
+        "Capability::Notifications =>",
+        "request_av_access_nonblocking(true",
+        "request_av_access_nonblocking(false",
+        "msg_send![cls, authorizationStatus]",
+    ] {
+        assert!(code.contains(needed), "extra/permission/ios.rs: `{needed}` is missing");
+    }
+    let status = body(PERMISSION_IOS_RS, "fn cl_status(");
+    assert!(!status.contains("msg_send![cls, new]"), "no manager is made per probe: the status is a class method");
+    assert!(
+        status.contains("PermissionState::NotDetermined") && !status.contains("PermissionState::Denied\n                } else"),
+        "a when-in-use grant is not a refusal of the background capability"
+    );
+    // the request path is the only one that asks: the probes never do
+    let probe = body(PERMISSION_IOS_RS, "pub fn probe_status(");
+    for asking in ["requestAccess", "requestWhenInUse", "requestAlways", "request_av_access", "request_permission"] {
+        assert!(!probe.contains(asking), "probe_status must never ask ({asking})");
+    }
+}
+
+/// The engine's gesture detection takes UIKit's numbers (one table, `ios_logic::UIKIT_GESTURES`) at window creation, and the
+/// touch handler's slop is the table's pan threshold, not a number of its own.
+#[test]
+fn the_ios_window_feeds_the_engines_gesture_config_from_uikits_numbers() {
+    let new = body(IOS_MOD_RS, "pub fn new(");
+    for needed in [
+        "gesture_drag_manager.config",
+        "UIKIT_GESTURES.pan_threshold_points",
+        "UIKIT_GESTURES.long_press_ms",
+        "UIKIT_GESTURES.long_press_movement_points",
+        "UIKIT_GESTURES.double_tap_ms",
+    ] {
+        assert!(new.contains(needed), "IOSWindow::new: `{needed}` is missing");
+    }
+    let touch = body(IOS_MOD_RS, "fn handle_touch(");
+    at(touch, "UIKIT_GESTURES.pan_threshold_points", "handle_touch");
+    assert!(!code_of(touch).contains("10.0"), "the slop is the table's, not a literal");
 }

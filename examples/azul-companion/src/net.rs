@@ -107,7 +107,9 @@ pub fn connect_in(dir: Option<&Path>, app_version: &str) -> Net {
         Ok(link) => {
             let id = link.local_id();
             let config = ClientConfig { phone_name: phone_name(&id), app_version: app_version.to_string() };
-            // the phone announces nothing (an iPhone only looks); it learns from the local network when its Mac appears
+            // the phone looks for its Mac on the local network and learns when it appears; the engine also announces an endpoint that accepts
+            // connections (this one does not set `allowed_peers`, as a client that only dials would): the phone's key and addresses are on
+            // the local link while the app runs. Making it a client that only dials and looks is possible and not done.
             let discovery = link.discovery();
             notes.push(format!("the local network: {}", link.discovery_status()));
             let mut client = PhoneClient::new(link, config, store).with_discovery(Box::new(discovery));
