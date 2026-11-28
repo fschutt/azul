@@ -24,6 +24,7 @@
 //!   detent, after a fling has carried it on) and [`Heights::settle_free`] (the same for a pane that stays where it was left
 //!   between the detents and snaps only within a few px of one);
 //! * [`Heights::dragged`]: the height the pointer makes of the pane;
+//! * [`Heights::toggle_peek_half`]: what a tap on a splitter's handle does (peek <-> half);
 //! * [`detent_after_key`] and [`step_round`]: what the keys on a grip and a tap on it do.
 //!
 //! Key types: [`SheetDetent`], [`Heights`].
@@ -179,6 +180,20 @@ impl Heights {
             self.of(near)
         } else {
             height
+        }
+    }
+
+    /// What a tap on a splitter's handle (a pane that stays where it was left between the detents) does to a pane `height` tall: a
+    /// pane below the peek (collapsed, or a drag that stopped short of it) comes up to the peek, a pane at the peek (within `snap`
+    /// px of it) or between the peek and the half opens to the half, a pane at or above the half (within `snap` px of it) goes back
+    /// to the peek. A height that is no number is as low as a pane can be: the peek.
+    #[must_use]
+    pub fn toggle_peek_half(&self, height: f32, snap: f32) -> f32 {
+        let snap = if snap.is_finite() && snap > 0.0 { snap } else { 0.0 };
+        if height.is_nan() || height < self.peek - snap || height >= self.half - snap {
+            self.peek
+        } else {
+            self.half
         }
     }
 

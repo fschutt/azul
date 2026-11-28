@@ -28,9 +28,13 @@
 //!
 //! The sheet owns nothing: the app keeps the detent, hears every drag step and every settling
 //! through ONE callback ([`BottomSheetOnEvent`]) and rebuilds with the detent it heard (a sheet whose
-//! app does not store it goes back to the detent it was built at). A drag in flight survives a
-//! rebuild (`merge_sheet_state`): while the pointer is down it wins. The sheet's node is keyed by
-//! its detent and its height, so what a drag wrote is never carried onto a sheet the app moved.
+//! app does not store it goes back to the detent it was built at, when the app next builds). A drag
+//! in flight survives a rebuild (`merge_sheet_state`): while the pointer is down it wins. The live
+//! height of a drag is a runtime override of the sheet's node (the engine's override channel: cheap
+//! for every step); when the pointer is up the node's own style takes the settled height and the
+//! override is handed back, so the app's next build is the truth again and a detent the app sets
+//! later is obeyed. The node is keyed, so it keeps its identity (and the override of a drag in
+//! flight) through a rebuild whatever the app builds around it.
 //!
 //! Heights. `Peek` (130 px) and `Collapsed` (30 px) are px ([`BottomSheet::with_peek_height`],
 //! [`BottomSheet::with_collapsed_height`]), `Half` is half the container, `Full` 85 % of it or the
@@ -48,13 +52,16 @@ use alloc::{format, string::String, vec::Vec};
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole},
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClassVec, TabIndex},
+    dom::{Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClassVec, TabIndex},
     events::FocusEventFilter,
     refany::{OptionRefAny, RefAny},
     window::VirtualKeyCode,
 };
 use azul_css::{
-    impl_option, props::layout::LayoutHeight, props::property::CssProperty, AzString,
+    impl_option,
+    props::layout::LayoutHeight,
+    props::property::{CssProperty, CssPropertyType},
+    AzString,
 };
 
 use super::detents::{detent_after_key, length, step_round, Heights, CONTAINER_HEIGHT_DEFAULT};
@@ -436,14 +443,102 @@ struct DragState {
     step: f32,
 }
 
+/// One step of a drag: whether it began the drag, and the height the pointer makes of the sheet.
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct DragStep {
+    started: bool,
+    height: f32,
+}
+
 impl DragState {
     fn heights(&self) -> Heights {
         Heights::new(self.container, self.collapsed, self.peek, self.top_margin)
+    }
+
+    /// A press at window `y` on the sheet whose top edge is at `top` and which is `height` tall, in a box `container` tall (as the
+    /// layout has it now): the sheet's when it lies in the band that drags (the grip, and the band the app named under it), else
+    /// it belongs to what is there and nothing is armed.
+    fn press(&mut self, y: f32, top: f32, height: f32, container: f32) -> bool {
+        let in_sheet = y - top;
+        if !in_sheet.is_finite() || in_sheet > self.grab.max(GRIP_HEIGHT) || in_sheet < 0.0 {
+            return false;
+        }
+        self.container = container;
+        self.armed = true;
+        self.dragging = false;
+        self.on_grip = in_sheet <= GRIP_HEIGHT;
+        self.start_y = y;
+        self.last_y = y;
+        self.step = 0.0;
+        if height.is_finite() && height > 0.0 {
+            self.height = height;
+        }
+        self.start_height = self.height;
+        true
+    }
+
+    /// The pointer at window `y` with a press down: `None` before it has moved past the tap slop (and with no press); else the step
+    /// - the sheet follows the pointer from here until it is let go.
+    fn drag_to(&mut self, y: f32) -> Option<DragStep> {
+        if !self.armed {
+            return None;
+        }
+        let started = !self.dragging;
+        if started && (self.start_y - y).abs() <= TAP_SLOP {
+            return None;
+        }
+        self.dragging = true;
+        self.step = self.last_y - y;
+        self.last_y = y;
+        let heights = self.heights();
+        let height = heights.dragged(self.start_height, self.start_y, y, self.lowest, self.highest);
+        self.height = height;
+        self.detent = heights.nearest(height, self.lowest, self.highest);
+        Some(DragStep { started, height })
+    }
+
+    /// The pointer is up (`leaving`: it left the sheet with the button already up, a release that never came): where the sheet
+    /// comes to rest - a drag settles on the nearest detent after a fling, a tap on the grip steps to the next one up. `None`:
+    /// nothing of the sheet's (no press, a press in the band under the grip - it belongs to what is there - or a press on the
+    /// grip that merely left).
+    fn lift(&mut self, leaving: bool) -> Option<SheetDetent> {
+        if !self.armed {
+            return None;
+        }
+        self.armed = false;
+        if self.dragging {
+            self.dragging = false;
+            Some(self.heights().settle(self.height, self.step, self.lowest, self.highest))
+        } else if self.on_grip && !leaving {
+            Some(step_round(self.detent, self.lowest, self.highest))
+        } else {
+            None
+        }
+    }
+
+    /// The sheet rests at `detent`: its height, px.
+    fn rest(&mut self, detent: SheetDetent) -> f32 {
+        self.detent = detent;
+        self.height = self.heights().of(detent);
+        self.height
     }
 }
 
 fn height_property(px: f32) -> CssProperty {
     CssProperty::const_height(LayoutHeight::px(px))
+}
+
+/// A step of a drag: the live height, on the engine's override channel (cheap for every frame, and it follows the node through a
+/// rebuild while the pointer is down).
+fn follow_pointer(info: &mut CallbackInfo, root: DomNodeId, px: f32) {
+    info.override_css_property(root, height_property(px));
+}
+
+/// The sheet rests at `px`: the node's own style says so, and the drag's override is handed back, so the app's next build is the
+/// truth again (the engine's way for a widget to end a gesture: `set_css_property`, then `override_css_property` with `initial`).
+fn rest_at(info: &mut CallbackInfo, root: DomNodeId, px: f32) {
+    info.set_css_property(root, height_property(px));
+    info.override_css_property(root, CssProperty::initial(CssPropertyType::Height));
 }
 
 /// Tells the app: the event as the state has it now.
@@ -485,7 +580,7 @@ fn measured_container(info: &CallbackInfo, built: f32) -> f32 {
         .unwrap_or(built)
 }
 
-extern "C" fn on_press(mut data: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn on_press(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some(y) = window_y(&info) else {
         return Update::DoNothing;
     };
@@ -495,22 +590,8 @@ extern "C" fn on_press(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut st) = data.downcast_mut::<DragState>() else {
         return Update::DoNothing;
     };
-    // Where the press lies in the sheet: from the sheet's own top edge.
-    let in_sheet = y - rect.origin.y;
-    if !in_sheet.is_finite() || in_sheet > st.grab.max(GRIP_HEIGHT) || in_sheet < 0.0 {
-        return Update::DoNothing;
-    }
-    st.container = measured_container(&info, st.container);
-    st.armed = true;
-    st.dragging = false;
-    st.on_grip = in_sheet <= GRIP_HEIGHT;
-    st.start_y = y;
-    st.last_y = y;
-    st.step = 0.0;
-    if rect.size.height.is_finite() && rect.size.height > 0.0 {
-        st.height = rect.size.height;
-    }
-    st.start_height = st.height;
+    let container = measured_container(&info, st.container);
+    st.press(y, rect.origin.y, rect.size.height, container);
     Update::DoNothing
 }
 
@@ -524,50 +605,34 @@ extern "C" fn on_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(y) = window_y(&info) else {
         return Update::DoNothing;
     };
-    if !st.dragging {
-        if (st.start_y - y).abs() <= TAP_SLOP {
-            return Update::DoNothing;
-        }
+    let Some(step) = st.drag_to(y) else {
+        return Update::DoNothing;
+    };
+    let root = info.get_hit_node();
+    if step.started {
         // Past the slop the press is a drag: the pointer is the sheet's until it is let go.
-        st.dragging = true;
-        let root = info.get_hit_node();
         info.capture_pointer(root);
     }
-    st.step = st.last_y - y;
-    st.last_y = y;
-    let heights = st.heights();
-    let height = heights.dragged(st.start_height, st.start_y, y, st.lowest, st.highest);
-    st.height = height;
-    st.detent = heights.nearest(height, st.lowest, st.highest);
-    let root = info.get_hit_node();
-    info.set_css_property(root, height_property(height));
+    follow_pointer(&mut info, root, step.height);
     report(&mut st, info, BottomSheetEventKind::Dragged)
 }
 
 /// The pointer is up: a drag settles on a detent, a tap on the grip steps to the next one, a press in the band under the grip
 /// belongs to what is there.
-fn finish(st: &mut DragState, info: CallbackInfo, leaving: bool) -> Update {
-    st.armed = false;
-    let heights = st.heights();
-    let wanted = if st.dragging {
-        st.dragging = false;
-        heights.settle(st.height, st.step, st.lowest, st.highest)
-    } else if st.on_grip && !leaving {
-        // A tap on the grip: the next detent up.
-        step_round(st.detent, st.lowest, st.highest)
-    } else {
+fn finish(st: &mut DragState, mut info: CallbackInfo, leaving: bool) -> Update {
+    let Some(detent) = st.lift(leaving) else {
         return Update::DoNothing;
     };
-    settle_at(st, info, wanted)
+    let px = st.rest(detent);
+    let root = info.get_hit_node();
+    rest_at(&mut info, root, px);
+    report(st, info, BottomSheetEventKind::Settled)
 }
 
 extern "C" fn on_release(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some(mut st) = data.downcast_mut::<DragState>() else {
         return Update::DoNothing;
     };
-    if !st.armed {
-        return Update::DoNothing;
-    }
     finish(&mut st, info, false)
 }
 
@@ -581,20 +646,7 @@ extern "C" fn on_leave(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some(mut st) = data.downcast_mut::<DragState>() else {
         return Update::DoNothing;
     };
-    if !st.armed {
-        return Update::DoNothing;
-    }
     finish(&mut st, info, true)
-}
-
-/// The sheet rests at `detent`: its height set, the app told.
-fn settle_at(st: &mut DragState, mut info: CallbackInfo, detent: SheetDetent) -> Update {
-    let heights = st.heights();
-    st.detent = detent;
-    st.height = heights.of(detent);
-    let root = info.get_hit_node();
-    info.set_css_property(root, height_property(st.height));
-    report(st, info, BottomSheetEventKind::Settled)
 }
 
 /// The keys on the focused grip.
@@ -615,10 +667,8 @@ extern "C" fn on_grip_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     st.container = measured_container(&info, st.container);
-    let heights = st.heights();
-    st.detent = wanted;
-    st.height = heights.of(wanted);
-    info.set_css_property(root, height_property(st.height));
+    let px = st.rest(wanted);
+    rest_at(&mut info, root, px);
     report(&mut st, info, BottomSheetEventKind::Settled)
 }
 
@@ -791,15 +841,15 @@ fn build(sheet: BottomSheet) -> Dom {
     )
     .with_ids_and_classes(classes(&[BOTTOM_SHEET_CONTENT_CLASS]));
 
-    // A runtime patch (the height a drag writes with `set_css_property`) follows a node's IDENTITY across a rebuild and wins over
-    // the fresh cascade: a sheet the app moves to another detent (a place opens, the way is asked) would stay at the height of the
-    // user's last drag. The key makes the node a NEW one whenever the detent or the height built for it changes, so the patch of
-    // the old node is not carried over; a rebuild in the middle of a drag keeps both, and the patch with them.
+    // A runtime override (the height a drag writes) follows a node's IDENTITY across a rebuild and wins over the fresh cascade; a
+    // key that does not change keeps the sheet one node whatever the app builds around it (and whatever detent it builds the sheet
+    // at), so a rebuild in the middle of a drag keeps the drag's override. The override is handed back when the pointer is up
+    // (`rest_at`), so nothing of a drag is carried onto the next build.
     styled(
         Dom::create_div().with_children(DomVec::from_vec(alloc::vec![grip, content])),
         &root_css(height, bottom_inset),
     )
-    .with_key((BOTTOM_SHEET_CLASS, detent, height.to_bits()))
+    .with_key(BOTTOM_SHEET_CLASS)
     .with_ids_and_classes(classes(&[BOTTOM_SHEET_CLASS, detent_class(detent)]))
     .with_accessibility_info(AccessibilityInfo::named(label, AccessibilityRole::Pane))
     .with_callbacks(

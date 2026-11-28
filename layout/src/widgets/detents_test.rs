@@ -163,3 +163,36 @@ fn a_tap_or_enter_steps_up_and_from_the_highest_back_to_the_lowest() {
     }
     assert_eq!(step_round(SheetDetent::Peek, hi, lo), SheetDetent::Half, "a range the wrong way round");
 }
+
+// ---- a tap on a splitter's handle: peek <-> half ----
+
+#[test]
+fn a_tap_on_a_handle_goes_from_the_peek_to_the_half_and_back() {
+    let h = Heights::new(800.0, 30.0, 130.0, 0.0);
+    assert!(near(h.peek, 130.0) && near(h.half, 400.0));
+    // below the peek (collapsed, or a drag that stopped short of it): up to the peek
+    assert!(near(h.toggle_peek_half(30.0, 28.0), 130.0));
+    assert!(near(h.toggle_peek_half(100.0, 28.0), 130.0));
+    // at the peek (within the snap of it) or between the peek and the half: open to the half
+    assert!(near(h.toggle_peek_half(102.0, 28.0), 400.0));
+    assert!(near(h.toggle_peek_half(130.0, 28.0), 400.0));
+    assert!(near(h.toggle_peek_half(250.0, 28.0), 400.0));
+    assert!(near(h.toggle_peek_half(371.0, 28.0), 400.0));
+    // at the half (within the snap of it) or above it, the full detent included: back to the peek
+    assert!(near(h.toggle_peek_half(372.0, 28.0), 130.0));
+    assert!(near(h.toggle_peek_half(400.0, 28.0), 130.0));
+    assert!(near(h.toggle_peek_half(680.0, 28.0), 130.0));
+}
+
+#[test]
+fn a_tap_on_a_handle_with_no_snap_is_exact_and_a_bad_number_is_the_peek() {
+    let h = Heights::new(800.0, 30.0, 130.0, 0.0);
+    assert!(near(h.toggle_peek_half(129.0, 0.0), 130.0));
+    assert!(near(h.toggle_peek_half(130.0, 0.0), 400.0));
+    assert!(near(h.toggle_peek_half(399.0, 0.0), 400.0));
+    assert!(near(h.toggle_peek_half(400.0, 0.0), 130.0));
+    // a snap that is no positive number is none
+    assert!(near(h.toggle_peek_half(129.0, f32::NAN), 130.0));
+    assert!(near(h.toggle_peek_half(130.0, -5.0), 400.0));
+    assert!(near(h.toggle_peek_half(f32::NAN, 28.0), 130.0));
+}
