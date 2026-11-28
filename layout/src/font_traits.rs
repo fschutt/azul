@@ -133,6 +133,22 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
     fn weight_class(&self) -> Option<u16> {
         None
     }
+
+    /// The underline the face draws, as fractions of the em: `(position, thickness)`, the
+    /// position the distance from the baseline down to the top of the underline (the `post`
+    /// table's `underlinePosition` and `underlineThickness`). `None` for a face that names
+    /// none (0 in the table) and for a backend that cannot tell: `from-font` is then `auto`.
+    fn underline_metrics(&self) -> Option<(f32, f32)> {
+        None
+    }
+
+    /// The strike-through the face draws, as fractions of the em: `(position, thickness)`, the
+    /// position the distance from the baseline up to the top of the stroke (the OS/2 table's
+    /// `yStrikeoutPosition` and `yStrikeoutSize`). `None` for a face that names none and for a
+    /// backend that cannot tell: `from-font` is then `auto`.
+    fn strikeout_metrics(&self) -> Option<(f32, f32)> {
+        None
+    }
 }
 
 /// Trait for loading fonts from raw bytes.
