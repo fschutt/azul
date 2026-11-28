@@ -26,11 +26,10 @@ fn keyring_is_the_stand_in() -> bool {
     cfg!(debug_assertions) || azul_core::run_mode::test_hooks().keyring_headless
 }
 
-/// A key no other test of this process uses (the stand-in's store is the process's one).
+/// A key no other test of this process uses: each test names its own (`what` differs between
+/// the tests), because the stand-in's store is the process's one.
 fn key(what: &str) -> AzString {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    AzString::from(format!("pump-flow/{what}/{}", NEXT.fetch_add(1, Ordering::Relaxed)))
+    AzString::from(format!("pump-flow/{what}"))
 }
 
 /// What a callback does and the next frame sees: queue the op, run the pump, read the answer.

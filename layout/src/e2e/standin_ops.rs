@@ -43,11 +43,9 @@ const NOT_A_STAND_IN_GATE: &str = "biometric_prompt: this run's biometric gate i
     sensor, not the stand-in a scenario drives (a build with the cargo feature test-hooks in a \
     headless run): the step is not made, no sheet is shown";
 
-/// The op names the engine answers itself.
-pub(crate) const ENGINE_OPS: [&str; 3] = ["standin_user", "keyring", "biometric_prompt"];
-
 /// The engine's answer to the op `name` with `args`, or `None` when the op is not one of the
-/// engine's own ([`ENGINE_OPS`]): then an app's command (or its catch-all handler) is asked.
+/// engine's own (`standin_user`, `keyring`, `biometric_prompt`): then an app's command (or its
+/// catch-all handler) is asked.
 #[must_use]
 pub(crate) fn engine_op(
     lw: &LayoutWindow,

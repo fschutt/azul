@@ -198,7 +198,7 @@ pub enum PermissionDiffEvent {
 /// How long after a user gesture a request may still be taken for its consequence: a button's
 /// callback mounts a probe within the same pass, a slower chain (a dialog of the app first) within
 /// seconds; a probe mounted by a timer minutes later is no consequence of a click.
-pub const GESTURE_WINDOW: core::time::Duration = core::time::Duration::from_secs(5);
+pub static GESTURE_WINDOW: core::time::Duration = core::time::Duration::from_secs(5);
 
 /// What [`PermissionManager::admit`] says about an op that may ask the user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

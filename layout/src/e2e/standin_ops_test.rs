@@ -3,6 +3,9 @@ use serde_json::json;
 
 use super::*;
 
+/// The op names the engine answers itself (the arms of `engine_op`).
+static ENGINE_OPS: [&str; 3] = ["standin_user", "keyring", "biometric_prompt"];
+
 fn window() -> LayoutWindow {
     let lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     // The run of these tests has stand-ins: what the pump of a headless or debug run says.
