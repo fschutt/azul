@@ -104,6 +104,10 @@ mod tab_flip_ops_tests;
 #[cfg(test)]
 mod tab_strip_ops_tests;
 
+// The tab strip's chevron and the ops that flip and read the window's tab content flag.
+#[cfg(test)]
+mod tab_content_toggle_ops_tests;
+
 // A click by text lands where the text is DRAWN in a scrolled page (the label inside a button has no
 // hit-test area; its laid-out box is in content coordinates).
 #[cfg(test)]

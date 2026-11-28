@@ -14,6 +14,9 @@
 #                 recording of each run; AZ_ANDROID_DEVICE=pixel_8 (when avdmanager has the profile) and
 #                 AZ_ANDROID_OVERLAYS=com.android.internal.emulation.pixel_8 give it the Pixel 8's camera cutout (first mode only);
 #                 AZ_QA_AZMAIL_APK (and AZ_QA_AZMAIL_DATA) adds AzMail on the same phone per orientation (scripts/ci/android_azmail.py);
+#            fontwait: the font-wait A/B of the startup agent's E73 lever (scripts/ci/font_wait_series.py): cold starts of one app, build A against build B, from an empty
+#                 font cache (pm clear before every start) and with the cache filled; AZ_QA_FONTWAIT_PLAN="control:A=a.apk;control:B=b.apk;bundled:A=...;bundled:B=...",
+#                 AZ_QA_FONTWAIT_STARTS starts per block (default 10); all builds are the same package, on one boot (first mode only);
 #            audit: the phone-fit audit of QA-variant APKs (scripts/ci/mobile_e2e.py --audit-only) on the first mode only: the
 #                 APK, then every APK of AZ_QA_AUDIT_APKS (space separated), each in its own folder <out>/<mode>/audit/<apk name>/
 #                 (layout-audit.md and .json, the dumps, both pictures per orientation, the dark-mode verdict, and the app's own
@@ -171,10 +174,23 @@ for mode in "${mode_list[@]}"; do
     for mapk in "$apk" ${AZ_QA_MATRIX_APKS:-}; do mapks+=(--apk "$mapk"); done
     # AZ_QA_MATRIX_ONLY=<text>: only the files whose path holds it (e.g. `sounds`: one scenario file of a new feature). The engine's frames of every
     # file (its take_screenshot steps) are kept in <matrix>/shots/<file stem>/shot-NNN.png (WP-E2's request: the pictures of a scenario run were lost)
-    python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" --shots "$d/matrix/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
+    if [ -n "${AZ_QA_TEXT_SIZES:-}" ]; then
+      # AZ_QA_TEXT_SIZES="1.0 1.3 2.0": the same files once per system font scale (settings put system font_scale), each in its own folder; 1.0 is put back at the end
+      for ts in $AZ_QA_TEXT_SIZES; do
+        adb shell settings put system font_scale "$ts"; sleep 3
+        python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix-text-$ts" --shots "$d/matrix-text-$ts/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee -a "$d/e2e-matrix.log"
+      done
+      adb shell settings put system font_scale 1.0
+    else
+      python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" --shots "$d/matrix/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
+    fi
+  fi
+  if [ "$session" = fontwait ] && [ "$mode" = "${mode_list[0]}" ]; then
+    python3 "$here/font_wait_series.py" android --out "$d/fontwait" --package "$pkg" --activity "$act" --starts "${AZ_QA_FONTWAIT_STARTS:-10}" \
+      --plan "${AZ_QA_FONTWAIT_PLAN:?AZ_QA_FONTWAIT_PLAN}" --label "$label" 2>&1 | tee "$d/fontwait.log"
   fi
   if [ "$session" = tabs ] && [ "$mode" = "${mode_list[0]}" ]; then
-    # THE TAB STRIP on the phone: the files of AZ_QA_TABS_FILES (parts of the file names, default tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures: tab_touch_diag runs every step whatever the one before said, for the TABS agent's diagnosis of the clicks on a phone)
+    # THE TAB STRIP on the phone: the files of AZ_QA_TABS_FILES (parts of the file names, default tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures tab_content_toggle: tab_touch_diag runs every step whatever the one before said, for the TABS agent's diagnosis of the clicks on a phone)
     # against the e2e APK, per orientation: (1) the device's own pictures of a plain start, light and dark (the system draws the cutout), (2) per file a
     # recording of its run and the engine's frames of it (AZ_E2E_SHOT_DIR, pulled by scripts/ci/e2e_matrix.py --shots), its verdicts in the table
     adb shell dumpsys window displays 2>/dev/null | grep -i -E "cutout|init=|DisplayInfo" | head -n 24 >"$d/display.txt" || true
@@ -232,8 +248,14 @@ for mode in "${mode_list[@]}"; do
       adb shell cmd uimode night yes >/dev/null 2>&1; sleep 8
       adb exec-out screencap -p >"$td/device-dark-start.png" 2>/dev/null || true
       adb shell cmd uimode night no >/dev/null 2>&1; sleep 4
+      # the system text size (does the engine follow it?): fontScale 1.3 and 2.0, a picture each, back to 1.0; the light start above is the baseline
+      for fs in 1.3 2.0; do
+        adb shell settings put system font_scale "$fs"; sleep 6
+        adb exec-out screencap -p >"$td/device-fontscale-$fs.png" 2>/dev/null || true
+      done
+      adb shell settings put system font_scale 1.0; sleep 3
       adb shell am force-stop "$pkg" >/dev/null 2>&1
-      for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures}; do
+      for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures tab_content_toggle}; do
         bring_settings
         vid="/sdcard/tabs-$orient-${part%.json}.mp4"
         ( adb shell screenrecord --time-limit 170 "$vid" >/dev/null 2>&1 & )
@@ -259,6 +281,11 @@ for mode in "${mode_list[@]}"; do
         adb shell cmd uimode night yes >/dev/null 2>&1; sleep 8
         adb exec-out screencap -p >"$td/$xn-dark.png" 2>/dev/null || true
         adb shell cmd uimode night no >/dev/null 2>&1; sleep 4
+        for fs in 1.3 2.0; do
+          adb shell settings put system font_scale "$fs"; sleep 6
+          adb exec-out screencap -p >"$td/$xn-fontscale-$fs.png" 2>/dev/null || true
+        done
+        adb shell settings put system font_scale 1.0; sleep 3
         adb shell am force-stop "$xpkg" >/dev/null 2>&1
       done
       # AZ_QA_AZMAIL_APK: AzMail on this phone in this orientation (scripts/ci/android_azmail.py: its first start, the sample mailbox when

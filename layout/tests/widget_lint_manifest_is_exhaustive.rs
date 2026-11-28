@@ -43,6 +43,12 @@ const EXEMPT: &[(&str, &str)] = &[
          the fling): no widget type and no dom() of its own; the panel that uses them is the \"tabs\" entry",
     ),
     (
+        "tab_content_toggle",
+        "the chevron a tab row (TabHeader, Ribbon) draws at its left end with `with_content_toggle`: an icon \
+         and no text node, no widget type with a dom() of its own; the \"tabs\" and ribbon entries \
+         render it when they ask for it",
+    ),
+    (
         "tab_strip",
         "the geometry of a tab strip in the status bar's band (the lanes, where the selected pill \
          stands): plain numbers, no widget type and no dom() of its own; the touch strip that uses \

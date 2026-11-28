@@ -151,9 +151,12 @@ def flat_frame(sig):
     return q.flat_fraction(sig) >= VIDEO_FLAT_FRACTION
 
 
+LEADING_MIN_FRAMES = 15                  # a recording that STARTS in one colour for at least this long (0.5 s at 30 fps) has a flat run with no normal frame before it
+
+
 def flat_runs(sigs):
     """[(start, end_exclusive)] maximal runs of flat frames with a normal frame on BOTH sides (a recording that starts or ends in one
-    colour has no 'between'). A stretch of flat frames that changes from black to a lighter colour (or back) is TWO runs: the system's
+    colour has no 'between'; but see LEADING_MIN_FRAMES). A stretch of flat frames that changes from black to a lighter colour (or back) is TWO runs: the system's
     white starting window held for 13 frames and the 13 black frames after it were one run of 26 frames whose middle frame was black, and the
     whole 0.87 s was called black (the Android shell agent's frame-by-frame count: 0.43 s of white, then 0.43 s of black)."""
     runs, i, n = [], 0, len(sigs)
@@ -164,7 +167,9 @@ def flat_runs(sigs):
         j = i
         while j < n and flat_frame(sigs[j]):
             j += 1
-        if i > 0 and j < n:
+        # a normal frame on both sides; a run at the very START of the recording counts too when it is long (the recording begins at the cold start: the iOS
+        # Simulator's GPU path showed 17.4 s of black from the first frame and nothing was flagged, because no normal frame came before it)
+        if j < n and (i > 0 or j - i >= LEADING_MIN_FRAMES):
             k = i
             while k < j:
                 black = mean_luma(sigs[k]) < BLACK_LUMA

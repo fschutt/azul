@@ -87,6 +87,35 @@ def parse_system_bars(text):
     return {"screen": screen, "app": app, "bands": bands}
 
 
+ORIGIN_SLACK_PX = 4
+
+
+def window_origin(bars, width_px, height_px):
+    """The window's top-left corner in SCREEN pixels, (x, y), when the system has put a window that is smaller than the screen beside a band. The
+    bands of `dumpsys window` are in screen pixels and the boxes of the audit in the window's own, so a band that lies before the window starts must not
+    be compared with window x = 0: the Pixel 6 emulator in landscape letterboxes the window beside the 128 px display cutout (a black band at the left,
+    window 2272 px of 2400, engine insets left=0), and every node at x < 49 dp was reported under the cutout bar (WP-E1, 2026-11-28). Only a band that
+    touches the left (or top) edge of the screen and is exactly as wide (or tall) as the screen is larger than the window explains an offset; anything else,
+    a window as big as the screen (edge to edge) included, leaves the origin at (0, 0)."""
+    screen = (bars or {}).get("screen")
+    if not screen or width_px <= 0 or height_px <= 0:
+        return 0, 0
+    origin = [0, 0]
+    for axis, (size, window) in enumerate(((screen[0], width_px), (screen[1], height_px))):
+        delta = size - window
+        if delta <= ORIGIN_SLACK_PX:
+            continue
+        for band in (bars or {}).get("bands") or []:
+            l, t, r, b = band["rect"]
+            touches_start = (l == 0 and (r - l) < size) if axis == 0 else (t == 0 and (b - t) < size)
+            spans_other_axis = (b - t) >= screen[1] - ORIGIN_SLACK_PX if axis == 0 else (r - l) >= screen[0] - ORIGIN_SLACK_PX
+            extent = (r - l) if axis == 0 else (b - t)
+            if touches_start and spans_other_axis and abs(extent - delta) <= ORIGIN_SLACK_PX:
+                origin[axis] = extent
+                break
+    return origin[0], origin[1]
+
+
 # ---- reading the dumps ----------------------------------------------------------------------------------------------------------
 
 def layout_nodes(answer):
@@ -224,6 +253,7 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
 
     # -- under the bars (the a11y tree: device pixels)
     bands = (bars or {}).get("bands") or []
+    origin_x, origin_y = window_origin(bars, width_dp * scale, height_dp * scale)
     under = {"tappable": [], "text": [], "boxes": 0}
     for a in a11y:
         if a.get("hidden") or a.get("dom_id") not in (0, None):
@@ -235,7 +265,7 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
         tappable = bool(a.get("clickable")) or role in INTERACTIVE_ROLES
         texty = bool(a.get("name")) and role in TEXT_ROLES
         for band in bands:
-            bl, bt, br, bb = (v / scale for v in band["rect"])          # the bars are in device pixels, the boxes in dp
+            bl, bt, br, bb = ((v - o) / scale for v, o in zip(band["rect"], (origin_x, origin_y, origin_x, origin_y)))   # the bars are in screen pixels, the boxes in the window's dp
             dx = min(box[2], br) - max(box[0], bl)
             dy = min(box[3], bb) - max(box[1], bt)
             if dx >= MIN_UNDER_BAR_DP and dy >= MIN_UNDER_BAR_DP:
@@ -248,7 +278,7 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
                 else:
                     under["boxes"] += 1
                 break
-    result["under_bars"] = {"bands_px": [{"name": b["name"], "rect": list(b["rect"])} for b in bands],
+    result["under_bars"] = {"bands_px": [{"name": b["name"], "rect": list(b["rect"])} for b in bands], "window_origin_px": [origin_x, origin_y],
                             "tappable": {"count": len(under["tappable"]), "top": under["tappable"]},
                             "text": {"count": len(under["text"]), "top": under["text"]},
                             "other_boxes": under["boxes"]}
@@ -389,8 +419,11 @@ def report_markdown(audits, label=""):
             out += _table(e["top"], ["node", "role", "text", "x", "y", "w", "h", "why"])
         u = a["under_bars"]
         bands = ", ".join(f"{b['name']} {b['rect']}" for b in u["bands_px"]) or "none found"
-        out += [f"### Under a system bar (bands in device px: {bands})", "",
-                f"tappable: {u['tappable']['count']}, text: {u['text']['count']}, other boxes: {u['other_boxes']}", ""]
+        origin = u.get("window_origin_px") or [0, 0]
+        letterbox = (f" The window starts at screen ({origin[0]}, {origin[1]}) px (the system letterboxes it beside a band): the bands are compared in the window's own coordinates."
+                     if any(origin) else "")
+        out += [f"### Under a system bar (bands in screen px: {bands})", "",
+                f"tappable: {u['tappable']['count']}, text: {u['text']['count']}, other boxes: {u['other_boxes']}.{letterbox}", ""]
         out += _table(u["tappable"]["top"] + u["text"]["top"], ["node", "role", "text", "x", "y", "w", "h", "why"])
         s = a["small_targets"]
         out += [f"### Tappable nodes smaller than {MIN_TARGET_DP:.0f} dp: {s['small']} of {s['tappable']} "
