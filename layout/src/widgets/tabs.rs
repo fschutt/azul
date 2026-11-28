@@ -1527,27 +1527,24 @@ pub(crate) const CSS_MATCH_11510695043643111367: CssPropertyWithConditionsVec =
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub enum TabStyle {
-    /// The theme's own tabs: Aurora under flora, Rectangular under flat.
+    /// The theme's buttons floating on the leather strip, in every theme: [`Self::Pills`] on a
+    /// desktop and [`Self::TouchPills`] on a phone.
     #[default]
     Auto,
-    /// Firefox's curved tabs: the sides of every tab are S curves rolling
-    /// from the strip's foot into the tab's top edge, so all tabs share one
-    /// shape; the selected one stands on the strip's rule.
-    Aurora,
     /// Classic square tabs, the selected one open onto the panel below.
     Rectangular,
-    /// The theme's buttons ("Buttons" in a settings UI): the selected tab
-    /// is the submit button, the others the plain button, 22px tall at the
-    /// house radius in a 28px row (a title bar's) on a leather strip that
-    /// closes on a 2px golden line.
+    /// The theme's buttons ("Buttons" in a settings UI) floating on the leather strip: the
+    /// selected tab is the submit button, the others the plain button, 22px tall at the house
+    /// radius (slightly rounded corners, no capsule ends) in a 28px row (a title bar's) on a
+    /// leather strip that closes on a 2px golden line.
     Pills,
-    /// Pills for a finger, the look `Auto` takes on a phone: the selected tab is the submit
-    /// button, the others the plain button, 32 px tall with full-radius ends in a 48 px row,
-    /// each with a hit area of the whole row (the target is padded, not the picture). The
-    /// row is longer than the window: it scrolls sideways under a finger (momentum), the
-    /// wheel and the keys, without a scrollbar, and the selected pill comes into view by
-    /// itself. In the status bar's band (`TabHeader::with_status_bar`) it slides around the
-    /// cutouts of the display.
+    /// The same buttons for a finger, the look `Auto` takes on a phone: the selected tab is the
+    /// submit button, the others the plain button, 32 px tall at the house radius in a 48 px
+    /// row, floating on the leather strip, each with a hit area of the whole row (the target is
+    /// padded, not the picture). The row is longer than the window: it scrolls sideways under a
+    /// finger (momentum), the wheel and the keys, without a scrollbar, and the selected button
+    /// comes into view by itself. In the status bar's band (`TabHeader::with_status_bar`) it
+    /// slides around the cutouts of the display.
     TouchPills,
 }
 
@@ -1557,15 +1554,14 @@ impl TabStyle {
     pub const fn resolved(self, theme: crate::widgets::themes::UiTheme) -> Self {
         use crate::widgets::themes::UiTheme;
         match (self, theme) {
-            (Self::Auto, UiTheme::Flora) => Self::Aurora,
-            (Self::Auto, UiTheme::Flat) => Self::Rectangular,
+            (Self::Auto, UiTheme::Flora | UiTheme::Flat) => Self::Pills,
             (other, _) => other,
         }
     }
 
     /// [`Self::resolved`], with `Auto` answering a PHONE's window (`phone`: a touch platform and
-    /// a window narrower than [`PHONE_MAX_WIDTH`]) with the touch pills instead of the theme's
-    /// look. Desktop keeps the theme's look; any style named by the app stays.
+    /// a window narrower than [`PHONE_MAX_WIDTH`]) with the buttons at touch sizes instead of
+    /// the desktop's. Any style named by the app stays.
     #[must_use]
     pub const fn resolved_for(self, theme: crate::widgets::themes::UiTheme, phone: bool) -> Self {
         match (self, phone) {
@@ -1582,7 +1578,7 @@ pub const PHONE_MAX_WIDTH: f32 = 600.0;
 /// Whether the DOM being built is for a phone: a touch platform, and a window narrower than
 /// [`PHONE_MAX_WIDTH`]. Asked through the recorded size queries, so a resize across the width
 /// builds the tab bar again.
-fn phone_build() -> bool {
+pub(crate) fn phone_build() -> bool {
     cfg!(any(target_os = "android", target_os = "ios"))
         && azul_core::callbacks::build_window_width_less_than(PHONE_MAX_WIDTH).unwrap_or(false)
 }
@@ -1609,7 +1605,7 @@ pub struct TabHeader {
     /// to follow the app theme (`AppConfig::with_theme`,
     /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
-    /// The shape of the tabs (`with_style`); `Auto` takes the theme's own.
+    /// The shape of the tabs (`with_style`); `Auto` is the theme's buttons on the leather.
     pub style: TabStyle,
     /// Whether a vertical swipe on the panel of this bar flips to the previous / next tab
     /// (`with_flip`, then `TabContent::with_flip_of`): `AtEdges` (the default) flips with a finger
@@ -1731,8 +1727,9 @@ impl TabHeader {
         self
     }
 
-    /// The shape of the tabs: Aurora's curves, square tabs or pills.
-    /// `Auto` (the default) takes the theme's own.
+    /// The shape of the tabs: the theme's buttons floating on the leather (`Auto`, `Pills`,
+    /// `TouchPills`) or square tabs (`Rectangular`).
+    /// `Auto` (the default) is the buttons in every theme, at touch sizes on a phone.
     pub const fn set_style(&mut self, style: TabStyle) {
         self.style = style;
     }
@@ -1842,7 +1839,7 @@ impl TabHeader {
         // carries both looks, each in its `@theme(<name>)` block. The tabs,
         // their classes, datasets, click and arrow keys are the same in every
         // theme.
-        // The look's curves (Aurora) and rule (Pills) are nodes, so they are
+        // The look's curves (the ribbon's row) and rule (the buttons) are nodes, so they are
         // in the tree when it is built for a theme and style that has them -
         // the pinned look, or the app theme the DOM is built for (a theme
         // switch rebuilds the DOM, as for every widget whose looks build
@@ -1984,18 +1981,6 @@ impl TabHeader {
                         tab_dom = tab_dom.with_tab_index(crate::widgets::roving::item_tab_index(
                             tab_idx, tab_stop,
                         ));
-                    }
-                    // The tab's curves (and the selected tab's run-outs),
-                    // after its label text.
-                    let curves = if tab_is_active {
-                        look.selected_curves.as_ref()
-                    } else {
-                        look.tab_curves.as_ref()
-                    };
-                    if let Some(curves) = curves {
-                        for curve in australis_curves(curves) {
-                            tab_dom.add_child(curve);
-                        }
                     }
                     tab_items.push(tab_dom);
                 }
@@ -2244,6 +2229,46 @@ fn scroll_selected_into_lane(
     Update::DoNothing
 }
 
+/// The leather one stretch of a touch strip lies on - `span` (`left`, `right` in the strip's own
+/// coordinates), or the whole row for `None` - with the golden line along its foot: the Pills look of
+/// `look`, the theme's buttons on a leather strip that closes on a 2px golden line. In the status bar's
+/// band the camera sits between two of them, where the window shows through.
+fn leather_lane(look: &TabHeaderLook, span: Option<(f32, f32)>) -> Dom {
+    use crate::widgets::themes::decl;
+
+    let leather = || StyleBackgroundContent::Image(AzString::from_const_str("azul-builtin:leather"));
+    let layers = decl::themed_layers(
+        vec![StyleBackgroundContent::Color(ColorU::rgb(0xF4, 0xF0, 0xE8)), leather()],
+        vec![StyleBackgroundContent::Color(ColorU::rgb(0x3A, 0x32, 0x2C)), leather()],
+    );
+    let mut lane = Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(layers.to_vec()));
+    let place = match span {
+        Some((left, right)) => format!("left: {left}px; width: {}px;", (right - left).max(0.0)),
+        None => "left: 0px; width: 100%;".to_string(),
+    };
+    // The custom properties the leather's material reads (its tint), after its style.
+    lane.root
+        .set_css(&format!("position: absolute; top: 0px; bottom: 0px; {place} {}", look.header_css));
+    if let Some(rule) = look.rule.as_ref() {
+        let mut line = Dom::create_div().with_css_props(rule.clone());
+        if !look.rule_css.is_empty() {
+            line.root.set_css(look.rule_css);
+        }
+        lane.add_child(line);
+    }
+    lane
+}
+
+/// The leather under a touch row: one stretch per lane of `band`, the whole row without a band.
+fn leather_under(look: &TabHeaderLook, band: Option<&crate::widgets::tab_strip::StatusBarBand>) -> Vec<Dom> {
+    match band.map(crate::widgets::tab_strip::StatusBarBand::lane_spans) {
+        Some(lanes) if !lanes.is_empty() => {
+            lanes.into_iter().map(|lane| leather_lane(look, Some(lane))).collect()
+        }
+        _ => vec![leather_lane(look, None)],
+    }
+}
+
 impl TabHeader {
     /// The tab bar as touch pills ([`TabStyle::TouchPills`]): a header, a row of pills that
     /// scrolls inside it without a scrollbar, and - in the status bar's band - a cover over each
@@ -2385,9 +2410,14 @@ impl TabHeader {
         if band.is_some() {
             strip.add_class(AzString::from_const_str(BAND_STRIP_CLASS));
         }
-        let mut children = vec![strip];
+        // The leather under the row, one stretch per lane of the band (the whole row where there is no
+        // band), with the golden line at its foot; the strip's own pills lie over it.
+        let look = pill_look(theme, None);
+        let mut children = leather_under(&look, band.as_ref());
+        children.push(strip);
         if let Some(band) = band.as_ref() {
-            // The window's background under the band, and over the pills where the cutouts are.
+            // The window's background under the band (where the cutouts are, the leather has a gap)
+            // and over the pills there.
             header_css.push_str(" background: system:window-background;");
             children.extend(tab_strip::cover_rects(band).iter().map(gap_cover));
         }
@@ -2541,11 +2571,17 @@ pub(crate) fn attach_flip_band(
 
 /// The header of a strip in the status bar's band: `strip` (the scrolling row) in a box as tall as
 /// the band with the window's background, and a cover over each gap the cutouts leave.
-pub(crate) fn touch_header(strip: Dom, band: &crate::widgets::tab_strip::StatusBarBand) -> Dom {
+pub(crate) fn touch_header(
+    strip: Dom,
+    band: &crate::widgets::tab_strip::StatusBarBand,
+    theme: crate::widgets::themes::UiTheme,
+) -> Dom {
     let row = band.height.max(crate::widgets::tab_strip::TOUCH_ROW);
     let mut strip = strip;
     strip.add_class(AzString::from_const_str(BAND_STRIP_CLASS));
-    let mut children = vec![strip];
+    // The leather under the row, one stretch per lane, the camera between them.
+    let mut children = leather_under(&pill_look(theme, None), Some(band));
+    children.push(strip);
     children.extend(crate::widgets::tab_strip::cover_rects(band).iter().map(gap_cover));
     Dom::create_div()
         .with_css(&format!(
@@ -2993,12 +3029,6 @@ pub(crate) struct TabHeaderLook {
     pub(crate) inactive: CssPropertyWithConditionsVec,
     /// The theme marker class on the header, if the look has one.
     pub(crate) marker: Option<&'static str>,
-    /// The curves hung on the selected tab (Aurora), its run-outs included;
-    /// `None` hangs none.
-    pub(crate) selected_curves: Option<TabCurveLook>,
-    /// The curves hung on every other tab (Aurora): the same shape as the
-    /// selected tab's, in the unselected tab's paint and without run-outs.
-    pub(crate) tab_curves: Option<TabCurveLook>,
     /// The rule along the strip's foot, its own node (Pills); `None` for a
     /// look whose rule is the header's own border.
     pub(crate) rule: Option<CssPropertyWithConditionsVec>,
@@ -3011,8 +3041,7 @@ pub(crate) struct TabHeaderLook {
 }
 
 impl TabHeaderLook {
-    /// A look of the six parts with nothing hung on them: no curves, no
-    /// rule node, no extra CSS.
+    /// A look of the six parts with nothing hung on them: no rule node, no extra CSS.
     #[allow(clippy::too_many_arguments)]
     pub(crate) const fn plain(
         header: CssPropertyWithConditionsVec,
@@ -3033,8 +3062,6 @@ impl TabHeaderLook {
             after_active,
             inactive,
             marker,
-            selected_curves: None,
-            tab_curves: None,
             rule: None,
             header_css: "",
             rule_css: "",
@@ -3137,7 +3164,7 @@ pub(crate) const TOUCH_LEAD: isize = 12;
 /// The pill of a finger: 32 tall with full-radius ends, 16 beside the label.
 pub(crate) static PILL_TOUCH: PillMetrics = PillMetrics {
     height: TOUCH_PILL_HEIGHT,
-    radius: TOUCH_PILL_HEIGHT / 2,
+    radius: PILL_RADIUS,
     side: TOUCH_PILL_SIDE,
 };
 
@@ -4104,7 +4131,7 @@ mod autotest_generated {
             numbered_labels(1000),
         ] {
             let expected: Vec<AzString> = labels.as_ref().to_vec();
-            let header = TabHeader::create(labels);
+            let header = TabHeader::create(labels).with_style(TabStyle::Rectangular);
 
             assert_eq!(
                 header.tabs.as_ref(),
@@ -4123,7 +4150,7 @@ mod autotest_generated {
     fn create_accepts_an_empty_label_vec_and_still_renders_the_spacers() {
         // Zero tabs is the degenerate case: the loop body never runs, but the
         // before/after spacers must still be emitted or the header collapses.
-        let dom = TabHeader::create(strings(&[])).dom();
+        let dom = TabHeader::create(strings(&[])).with_style(TabStyle::Rectangular).dom();
         let children = dom.children.as_ref();
 
         assert_eq!(children.len(), 2, "an empty header is just the two spacers");
@@ -4155,7 +4182,7 @@ mod autotest_generated {
                 .map(|s| AzString::from(s.clone()))
                 .collect(),
         );
-        let dom = TabHeader::create(labels).dom();
+        let dom = TabHeader::create(labels).with_style(TabStyle::Rectangular).dom();
         let children = dom.children.as_ref();
 
         assert_eq!(children.len(), pathological.len() + 2);
@@ -4188,7 +4215,7 @@ mod autotest_generated {
         ];
 
         for value in extremes {
-            let mut header = TabHeader::create(strings(&["a", "b", "c"]));
+            let mut header = TabHeader::create(strings(&["a", "b", "c"])).with_style(TabStyle::Rectangular);
             header.set_active_tab(value);
             assert_eq!(
                 header.active_tab, value,
@@ -4205,7 +4232,7 @@ mod autotest_generated {
 
     #[test]
     fn set_active_tab_touches_nothing_but_the_index() {
-        let mut header = TabHeader::create(strings(&["a", "b"]));
+        let mut header = TabHeader::create(strings(&["a", "b"])).with_style(TabStyle::Rectangular);
         header.set_on_click(RefAny::new(ClickLog::default()), cb(record_click));
 
         header.set_active_tab(usize::MAX);
@@ -4224,8 +4251,8 @@ mod autotest_generated {
     #[test]
     fn with_active_tab_agrees_with_set_active_tab_at_every_extreme() {
         for value in [0usize, 1, usize::MAX / 2, usize::MAX - 1, usize::MAX] {
-            let built = TabHeader::create(strings(&["a", "b"])).with_active_tab(value);
-            let mut mutated = TabHeader::create(strings(&["a", "b"]));
+            let built = TabHeader::create(strings(&["a", "b"])).with_style(TabStyle::Rectangular).with_active_tab(value);
+            let mut mutated = TabHeader::create(strings(&["a", "b"])).with_style(TabStyle::Rectangular);
             mutated.set_active_tab(value);
 
             assert_eq!(built.active_tab, mutated.active_tab);
@@ -4237,7 +4264,7 @@ mod autotest_generated {
 
     #[test]
     fn with_active_tab_chains_last_wins() {
-        let header = TabHeader::create(strings(&["a"]))
+        let header = TabHeader::create(strings(&["a"])).with_style(TabStyle::Rectangular)
             .with_active_tab(usize::MAX)
             .with_active_tab(7)
             .with_active_tab(0);
@@ -4250,7 +4277,7 @@ mod autotest_generated {
         // than panicking or wrapping onto some other tab.
         let n = 4usize;
         for active in [n, n + 1, n + 2, usize::MAX / 2, usize::MAX - 1, usize::MAX] {
-            let dom = TabHeader::create(numbered_labels(n))
+            let dom = TabHeader::create(numbered_labels(n)).with_style(TabStyle::Rectangular)
                 .with_active_tab(active)
                 .dom();
             let children = dom.children.as_ref();
@@ -4277,7 +4304,7 @@ mod autotest_generated {
         // Pinned to flat: the comparison is with flat's const style vecs,
         // which an unpinned bar carries inside its `@theme(flat)` block.
         let n = 5usize;
-        let dom = TabHeader::create(numbered_labels(n))
+        let dom = TabHeader::create(numbered_labels(n)).with_style(TabStyle::Rectangular)
             .with_active_tab(usize::MAX)
             .with_theme(UiTheme::Flat)
             .dom();
@@ -4302,7 +4329,7 @@ mod autotest_generated {
         // drawn as the neighbour of a selected one: the last tab keeps its
         // right border.
         let n = 3usize;
-        let dom = TabHeader::create(numbered_labels(n))
+        let dom = TabHeader::create(numbered_labels(n)).with_style(TabStyle::Rectangular)
             .with_active_tab(n)
             .dom();
         let children = dom.children.as_ref();
@@ -4317,7 +4344,7 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_moves_the_state_out_and_leaves_a_default() {
-        let mut header = TabHeader::create(strings(&["a", "b", "c"])).with_active_tab(2);
+        let mut header = TabHeader::create(strings(&["a", "b", "c"])).with_style(TabStyle::Rectangular).with_active_tab(2);
         header.set_on_click(RefAny::new(ClickLog::default()), cb(record_click));
 
         let taken = header.swap_with_default();
@@ -4342,7 +4369,7 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_twice_yields_a_default_the_second_time() {
-        let mut header = TabHeader::create(strings(&["a"])).with_active_tab(usize::MAX);
+        let mut header = TabHeader::create(strings(&["a"])).with_style(TabStyle::Rectangular).with_active_tab(usize::MAX);
         let first = header.swap_with_default();
         let second = header.swap_with_default();
 
@@ -4355,7 +4382,7 @@ mod autotest_generated {
     #[test]
     fn swap_with_default_releases_the_callback_payload_when_dropped() {
         let user = RefAny::new(ClickLog::default());
-        let mut header = TabHeader::create(strings(&["a"]));
+        let mut header = TabHeader::create(strings(&["a"])).with_style(TabStyle::Rectangular);
         header.set_on_click(user.clone(), cb(record_click));
         assert_eq!(user.get_ref_count(), 2);
 
@@ -4373,8 +4400,8 @@ mod autotest_generated {
 
     #[test]
     fn with_on_click_installs_the_callback_and_touches_nothing_else() {
-        let before = TabHeader::create(strings(&["a", "b"])).with_active_tab(1);
-        let mut after = TabHeader::create(strings(&["a", "b"]))
+        let before = TabHeader::create(strings(&["a", "b"])).with_style(TabStyle::Rectangular).with_active_tab(1);
+        let mut after = TabHeader::create(strings(&["a", "b"])).with_style(TabStyle::Rectangular)
             .with_active_tab(1)
             .with_on_click(RefAny::new(ClickLog::default()), cb(record_click));
 
@@ -4394,7 +4421,7 @@ mod autotest_generated {
 
     #[test]
     fn set_on_click_overwrites_the_previous_callback_and_payload() {
-        let mut header = TabHeader::create(strings(&["a"]));
+        let mut header = TabHeader::create(strings(&["a"])).with_style(TabStyle::Rectangular);
         header.set_on_click(RefAny::new(ClickLog::default()), cb(record_click));
         header.set_on_click(RefAny::new(42u32), cb(click_do_nothing));
 
@@ -4421,7 +4448,7 @@ mod autotest_generated {
     fn set_on_click_drops_the_previous_payload() {
         let first = RefAny::new(ClickLog::default());
         let second = RefAny::new(ClickLog::default());
-        let mut header = TabHeader::create(strings(&["a"]));
+        let mut header = TabHeader::create(strings(&["a"])).with_style(TabStyle::Rectangular);
 
         header.set_on_click(first.clone(), cb(record_click));
         assert_eq!(first.get_ref_count(), 2);
@@ -4458,7 +4485,7 @@ mod autotest_generated {
         for n in [0usize, 1, 2, 3, 17] {
             // Pinned to flat: the styles compared are flat's parts (the
             // widget's base, then flat's const vecs).
-            let dom = TabHeader::create(numbered_labels(n))
+            let dom = TabHeader::create(numbered_labels(n)).with_style(TabStyle::Rectangular)
                 .with_theme(UiTheme::Flat)
                 .dom();
             let look = flat::tab_header_look();
@@ -4493,7 +4520,7 @@ mod autotest_generated {
     fn dom_marks_exactly_one_tab_active_for_every_in_range_index() {
         let n = 6usize;
         for active in 0..n {
-            let dom = TabHeader::create(numbered_labels(n))
+            let dom = TabHeader::create(numbered_labels(n)).with_style(TabStyle::Rectangular)
                 .with_active_tab(active)
                 .dom();
             let children = dom.children.as_ref();
@@ -4533,7 +4560,7 @@ mod autotest_generated {
     #[test]
     fn dom_gives_the_neighbours_of_the_active_tab_their_seam_classes() {
         // active = 2 of 5: tab 1 loses its right border, tab 3 its left one.
-        let dom = TabHeader::create(numbered_labels(5))
+        let dom = TabHeader::create(numbered_labels(5)).with_style(TabStyle::Rectangular)
             .with_active_tab(2)
             .dom();
         let children = dom.children.as_ref();
@@ -4561,7 +4588,7 @@ mod autotest_generated {
         // border straight against the active tab's right edge. Every other
         // selection (see the test above) does emit the class. Pinned as-is so the
         // fix flips this test loudly.
-        let dom = TabHeader::create(numbered_labels(4))
+        let dom = TabHeader::create(numbered_labels(4)).with_style(TabStyle::Rectangular)
             .with_active_tab(0)
             .dom();
         let children = dom.children.as_ref();
@@ -4576,7 +4603,7 @@ mod autotest_generated {
 
         // The symmetric neighbour (active = 1) *does* get the class, which is what
         // makes the case above an inconsistency rather than a design choice.
-        let dom = TabHeader::create(numbered_labels(4))
+        let dom = TabHeader::create(numbered_labels(4)).with_style(TabStyle::Rectangular)
             .with_active_tab(1)
             .dom();
         assert_eq!(
@@ -4595,7 +4622,7 @@ mod autotest_generated {
         let n = 6usize;
         for active in [0usize, 1, 2, n - 1, n, usize::MAX] {
             // Pinned to flat: the styles compared are flat's const vecs.
-            let dom = TabHeader::create(numbered_labels(n))
+            let dom = TabHeader::create(numbered_labels(n)).with_style(TabStyle::Rectangular)
                 .with_active_tab(active)
                 .with_theme(UiTheme::Flat)
                 .dom();
@@ -4853,7 +4880,7 @@ mod autotest_generated {
         }
 
         // Pinned to flat: this counts the flat look's hover rules and twins.
-        let dom = TabHeader::create(numbered_labels(4))
+        let dom = TabHeader::create(numbered_labels(4)).with_style(TabStyle::Rectangular)
             .with_active_tab(1)
             .with_theme(UiTheme::Flat)
             .dom();
@@ -4941,7 +4968,7 @@ mod autotest_generated {
     #[test]
     fn dom_datasets_carry_the_position_of_their_tab() {
         for n in [1usize, 2, 5, 1000] {
-            let dom = TabHeader::create(numbered_labels(n)).dom();
+            let dom = TabHeader::create(numbered_labels(n)).with_style(TabStyle::Rectangular).dom();
             let children = dom.children.as_ref();
             for (i, node) in children[1..=n].iter().enumerate() {
                 assert_eq!(
@@ -4955,7 +4982,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_attaches_a_dataset_even_without_a_click_callback() {
-        let dom = TabHeader::create(numbered_labels(2)).dom();
+        let dom = TabHeader::create(numbered_labels(2)).with_style(TabStyle::Rectangular).dom();
         for node in &dom.children.as_ref()[1..=2] {
             assert!(
                 node.root.get_dataset().is_some(),
@@ -4971,7 +4998,7 @@ mod autotest_generated {
     #[test]
     fn dom_attaches_the_click_and_the_arrow_key_callback_per_tab_when_on_click_is_set() {
         let n = 4usize;
-        let dom = TabHeader::create(numbered_labels(n))
+        let dom = TabHeader::create(numbered_labels(n)).with_style(TabStyle::Rectangular)
             .with_on_click(RefAny::new(ClickLog::default()), cb(record_click))
             .dom();
         let children = dom.children.as_ref();
@@ -5017,7 +5044,7 @@ mod autotest_generated {
         // `estimated_total_children` is what sizes the flat arena; a stale value
         // makes `convert_dom_into_compact_dom` under-allocate and panic.
         for n in [0usize, 1, 2, 50] {
-            let dom = TabHeader::create(numbered_labels(n)).dom();
+            let dom = TabHeader::create(numbered_labels(n)).with_style(TabStyle::Rectangular).dom();
             assert_eq!(
                 dom.estimated_total_children,
                 dom.recompute_estimated_total_children(),
@@ -5044,7 +5071,7 @@ mod autotest_generated {
         // widget leaked one, the app state would outlive the DOM forever.
         for n in [0usize, 1, 5] {
             let user = RefAny::new(ClickLog::default());
-            let dom = TabHeader::create(numbered_labels(n))
+            let dom = TabHeader::create(numbered_labels(n)).with_style(TabStyle::Rectangular)
                 .with_on_click(user.clone(), cb(record_click))
                 .dom();
 
@@ -5066,7 +5093,7 @@ mod autotest_generated {
     #[test]
     fn dom_is_deterministic() {
         let build = || {
-            let dom = TabHeader::create(numbered_labels(5))
+            let dom = TabHeader::create(numbered_labels(5)).with_style(TabStyle::Rectangular)
                 .with_active_tab(2)
                 .dom();
             let children = dom.children.as_ref();
@@ -5360,7 +5387,7 @@ mod autotest_generated {
     fn clicking_a_rendered_tab_selects_that_tab_end_to_end() {
         let n = 5usize;
         let mut user = RefAny::new(ClickLog::default());
-        let dom = TabHeader::create(numbered_labels(n))
+        let dom = TabHeader::create(numbered_labels(n)).with_style(TabStyle::Rectangular)
             .with_on_click(user.clone(), cb(record_click))
             .dom();
 
@@ -5393,7 +5420,7 @@ mod autotest_generated {
         // else. Re-rendering the *same* header must therefore keep tab 0 active.
         let user = RefAny::new(ClickLog::default());
         let header =
-            TabHeader::create(numbered_labels(3)).with_on_click(user.clone(), cb(record_click));
+            TabHeader::create(numbered_labels(3)).with_style(TabStyle::Rectangular).with_on_click(user.clone(), cb(record_click));
         let dom = header.clone().dom();
 
         let data = dom.children.as_ref()[3]
@@ -5454,7 +5481,7 @@ mod autotest_generated {
     /// An interactive three-tab header with tab `active` active; clicks (and
     /// arrow activations) are logged into `user`.
     fn three_tabs(active: usize, user: &RefAny) -> TabHeader {
-        TabHeader::create(strings(&["one", "two", "three"]))
+        TabHeader::create(strings(&["one", "two", "three"])).with_style(TabStyle::Rectangular)
             .with_active_tab(active)
             .with_on_click(user.clone(), cb(record_click))
     }
@@ -5500,7 +5527,7 @@ mod autotest_generated {
     fn a_tab_list_without_on_click_stays_out_of_the_tab_order() {
         // Guard (green before and after P2-12): a header nobody can activate is
         // inert - no stop, no handlers.
-        let styled = tab_page(TabHeader::create(strings(&["one", "two", "three"])));
+        let styled = tab_page(TabHeader::create(strings(&["one", "two", "three"])).with_style(TabStyle::Rectangular));
         assert_eq!(
             rv::tab_walk(&styled, Some(page_before()), true, 1),
             vec![page_after(3)],
@@ -5605,7 +5632,7 @@ mod autotest_generated {
             let header = if with_on_click {
                 three_tabs(1, &user)
             } else {
-                TabHeader::create(strings(&["one", "two", "three"])).with_active_tab(1)
+                TabHeader::create(strings(&["one", "two", "three"])).with_style(TabStyle::Rectangular).with_active_tab(1)
             };
             let styled = tab_page(header);
             assert_eq!(
@@ -5679,7 +5706,7 @@ mod theme_tests {
                 .iter()
                 .map(|s| AzString::from(*s))
                 .collect(),
-        ))
+        )).with_style(TabStyle::Rectangular)
         .with_active_tab(1)
         .with_on_click(RefAny::new(()), pick as TabOnClickCallbackType)
         .with_theme(theme)
@@ -5732,7 +5759,7 @@ mod theme_tests {
 
     #[test]
     fn a_tab_bar_without_a_theme_follows_the_app_theme_and_set_theme_pins_it() {
-        let header = TabHeader::create(StringVec::from_const_slice(&[]));
+        let header = TabHeader::create(StringVec::from_const_slice(&[])).with_style(TabStyle::Rectangular);
         assert_eq!(header.theme, OptionUiTheme::None, "a fresh bar follows the app");
         assert_eq!(TabHeader::default().theme, OptionUiTheme::None);
         let mut set = header.clone();
@@ -5866,43 +5893,12 @@ mod theme_tests {
                 "dark={dark}: the selected tab breaks the rule"
             );
         }
-        // Its sides: the two curves, each the S cut from the same rolled
-        // metal, then the run-outs that ease the rule into the turn colour
-        // beside each foot (`.fl-tab-runout-l/-r`).
-        let kids = active.children.as_ref();
-        assert_eq!(kids.len(), 5, "the label, the two curves, the two run-outs");
-        for (i, class) in [(1usize, CURVE_LEFT_CLASS), (2, CURVE_RIGHT_CLASS)] {
-            assert!(tc::has_class(&kids[i], class));
-            let metal = tc::find(&kids[i], CURVE_STROKE_CLASS).expect("the S");
-            assert_eq!(
-                layers(metal, false, None),
-                vec![tc::flora_css_rolled_tab()],
-                "the S is the rolled metal - the bead the head is cut from"
-            );
-            assert_eq!(
-                width(metal, CssPropertyType::BorderTopWidth, false).unwrap_or(0.0),
-                0.0,
-                "the S is the band of metal itself, not a flat stroke"
-            );
-            // The stone inside the S stands where the middle's does: below
-            // the 2px head, so the three boxes meet without a seam.
-            let fill = tc::find(&kids[i], CURVE_FILL_CLASS).expect("the stone inside the S");
-            assert_eq!(
-                tc::background_clips(fill, false, None),
-                vec![StyleBackgroundClip::ContentBox]
-            );
-            assert_eq!(
-                tc::resolve(fill, CssPropertyType::PaddingTop, false, None),
-                Some(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2)))
-            );
-        }
-        for (i, class, left) in [
-            (3usize, "__azul-native-tab-runout-left", true),
-            (4, "__azul-native-tab-runout-right", false),
-        ] {
-            assert!(tc::has_class(&kids[i], class), "child {i} is the {class}");
-            assert_eq!(layers(&kids[i], false, None), vec![tc::flora_css_runout(left)]);
-        }
+        // Its sides are not curves any more: a square tab has none to hang (only the ribbon's row has curves).
+        assert_eq!(
+            active.children.as_ref().len(),
+            1,
+            "a square selected tab holds its label and nothing hung off its sides"
+        );
         assert!(
             tc::find(&bar(UiTheme::Flat), CURVE_LEFT_CLASS).is_none(),
             "flat's native tabs are boxes"
@@ -6154,14 +6150,19 @@ mod structure_tests {
                 "flat's leading spacer grows (1); flora's tabs start a fixed curve's width in (0)",
             ),
             (
+                "__azul-native-tabs-before-tabs",
+                CssPropertyType::Display,
+                "flora's square tabs need no room before the first one: its spacer leaves the row",
+            ),
+            (
                 "__azul-native-tabs-tab-active",
                 CssPropertyType::Position,
-                "flora hangs the Australis curves off its selected tab",
+                "flora's selected tab is positioned for what hangs off it",
             ),
             (
                 "__azul-native-tabs-tab-not-active",
                 CssPropertyType::Position,
-                "flora's Aurora row hangs curves off every tab",
+                "flora's curved ribbon row hangs curves off every tab",
             ),
             (
                 "__azul-native-tabs-tab-active",
@@ -6178,7 +6179,7 @@ mod structure_tests {
             // Each tab active in turn: the active tab, the two seam tabs
             // beside it and the other inactive tabs.
             for active in 0..5 {
-                let dom = under(t, || TabHeader::create(labels()).with_active_tab(active).dom());
+                let dom = under(t, || TabHeader::create(labels()).with_style(crate::widgets::tabs::TabStyle::Rectangular).with_active_tab(active).dom());
                 assert_structure_is_shared(
                     &format!("tab bar (tab {active} active), built for {}", t.name()),
                     &dom,

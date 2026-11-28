@@ -1,0 +1,34 @@
+[
+  {
+    "name": "azul_widgets_a_click_on_a_phone_button_is_seen_in_the_display_features_and_in_two_pictures",
+    "description": "What a click on the Pixel 8 button does, step by step, with the answers kept: where the button is, a picture before, the click, three frames, what the window says (display features), a picture after, half a second more. It passes on a desktop; on a phone it is the diagnosis of a click that changes nothing (Android emulator 2026-11-28: after the click the display features still said \"off\"): every step runs whatever the one before said, the first failing step is the one to read, and the two pictures (AZ_E2E_SHOT_DIR) show the page before and after.",
+    "config": {
+      "continue_on_failure": true
+    },
+    "steps": [
+      { "op": "set_theme", "theme": "flora" },
+      { "op": "wait_frame" },
+      { "op": "scroll_into_view", "text": "A phone to try it on", "block": "center", "behavior": "instant" },
+      { "op": "wait_frame" },
+      { "op": "get_node_layout", "text": "Pixel 8" },
+      { "op": "get_display_features" },
+      { "op": "take_screenshot" },
+      { "op": "click", "text": "Pixel 8" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "get_display_features" },
+      { "op": "take_screenshot" },
+      { "op": "tick_ms", "ms": 500 },
+      { "op": "wait_frame" },
+      { "op": "get_display_features" },
+      { "op": "assert_response", "contains": "\"preset\":\"pixel8\"" },
+      { "op": "click", "text": "No phone" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "get_display_features" },
+      { "op": "assert_response", "contains": "\"preset\":\"off\"" }
+    ]
+  }
+]

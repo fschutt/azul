@@ -86,7 +86,7 @@ fn the_touch_pills_are_a_row_of_tabs_with_a_padded_target_and_the_selected_one_a
 
 #[test]
 fn the_other_looks_are_built_as_they_were() {
-    for style in [TabStyle::Pills, TabStyle::Rectangular, TabStyle::Aurora] {
+    for style in [TabStyle::Pills, TabStyle::Rectangular] {
         let dom = Ribbon::new(tabs(3))
             .with_tab_style(style)
             .with_theme(UiTheme::Flat)
@@ -104,11 +104,12 @@ fn the_other_looks_are_built_as_they_were() {
 #[test]
 fn in_the_status_bars_band_the_row_sits_in_a_header_with_a_cover_over_the_camera() {
     let dom = touch(5).with_status_bar(pixel_8_band()).dom_desktop();
-    // The first child of the ribbon is the header of the band: the row, and one cover for the one gap.
+    // The first child of the ribbon is the header of the band: the leather of the two lanes beside
+    // the camera, the row, and one cover for the one gap.
     let header = &dom.children.as_ref()[0];
     assert!(!has_class(header, TAB_BAR), "the row is inside the header");
-    assert_eq!(header.children.as_ref().len(), 2);
-    assert!(has_class(&header.children.as_ref()[0], TAB_BAR));
+    assert_eq!(header.children.as_ref().len(), 2 + 1 + 1);
+    assert!(header.children.as_ref().iter().any(|c| has_class(c, TAB_BAR)));
 }
 
 #[test]

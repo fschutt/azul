@@ -1511,7 +1511,11 @@ pub fn start() {
     });
     // `None` follows the desktop - the default, spelled out: an app that
     // starts pinned passes `OptionDarkLightMode::Some(DarkLightMode::Dark)`.
-    let config = AppConfig::create().with_mode(OptionDarkLightMode::None);
+    // The showcase starts in the Flora theme (the toolbar's Flat / Flora switch stays); the engine's own
+    // default is Flat.
+    let config = AppConfig::create()
+        .with_mode(OptionDarkLightMode::None)
+        .with_theme("flora");
     let app = App::create(data, config);
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = "Azul Widget Showcase".into();

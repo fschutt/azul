@@ -83,154 +83,154 @@ n29 p28 d29 Inline @607,6 -x- ic=22/22
   dl50 PopStackingContext
 === ribbon
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 1000x119 ov=640x119 ic=640/640
-n1 p0 d1 Flex @0,0 640x119 ov=640x119 ic=640/640 rel=0,0
-n2 p1 d2 Flex @0,0 640x119 ov=640x118 ic=456.4375/456.4375 rel=0,0
-n3 p2 d3 Flex @0,0 640x26 ov=640x26 ic=54.8125/54.8125 rel=0,0
-n4 p3 d4 Flex @0,0 54.8125x26 ov=28.8125x12 ic=28.8125/28.8125 rel=0,0
-n5 p4 d5 Inline @13,7 28.8125x12 ov=28.796875x12 bl=10 ic=28.8125/28.8125 rel=0,0
-n6 p5 d6 Inline @13,7 -x- ic=28.8125/28.8125
-n7 p3 d7 Block { establishes_new_context: false } @54.8125,0 585.1875x26 ov=0x0 ic=0/0 rel=54.8125,0
-n8 p2 d27 Flex @0,26 640x92 ov=456.4375x92 ic=456.4375/456.4375 rel=0,26
-n9 p8 d28 Flex @0,26 142x92 ov=137x86 ic=137/137 rel=0,0
-n10 p9 d29 Flex @2,29 137x68 ov=136x66 ic=137/137 rel=0,0
-n11 p10 d30 Flex @2,29 46x66 ov=30x15 ic=30/30 rel=0,0
-n12 p11 d31 Inline @25,33 0x0 ov=0x0 ic=0/0 rel=15,0
-n13 p12 d32 Inline @25,33 -x- ic=0/0
-n14 p11 d33 Inline @10,36 30x12 ov=30x12 bl=10 ic=30/30 rel=0,3
-n15 p14 d34 Inline @10,36 -x- ic=30/30
-n16 p10 d35 Flex @49,29 44x66 ov=23x15 ic=28/28 rel=47,0
-n17 p16 d36 Inline @71,33 0x0 ov=0x0 ic=0/0 rel=14,0
-n18 p17 d37 Inline @71,33 -x- ic=0/0
-n19 p16 d38 Inline @62,36 18x12 ov=18x12 bl=10 ic=18/18 rel=5,3
-n20 p19 d39 Inline @62,36 -x- ic=18/18
-n21 p10 d40 Flex @94,29 44x66 ov=26x15 ic=28/28 rel=92,0
-n22 p21 d41 Inline @116,33 0x0 ov=0x0 ic=0/0 rel=14,0
-n23 p22 d42 Inline @116,33 -x- ic=0/0
-n24 p21 d43 Inline @104,36 24x12 ov=24x12 bl=10 ic=24/24 rel=2,3
-n25 p24 d44 Inline @104,36 -x- ic=24/24
-n26 p9 d45 Flex @2,97 137x18 ov=137x14.5 ic=42.90625/42.90625 rel=0,68
-n27 p26 d46 Inline @2,100.5 137x11 ov=42.90625x11 bl=9 ic=42.90625/42.90625 rel=0,3.5
-n28 p27 d47 Inline @2,100.5 -x- ic=42.90625/42.90625
-n29 p8 d48 Flex @142,26 159.625x92 ov=154.625x86 ic=154.625/154.625 rel=142,0
-n30 p29 d49 Flex @144,29 154.625x68 ov=153.625x66 ic=154.625/154.625 rel=0,0
-n31 p30 d50 Flex @144,29 44x66 ov=24.203125x15 ic=28/28 rel=0,0
-n32 p31 d51 Inline @166,33 0x0 ov=0x0 ic=0/0 rel=14,0
-n33 p32 d52 Inline @166,33 -x- ic=0/0
-n34 p31 d53 Inline @155.79688,36 20.40625x12 ov=20.40625x12 bl=10 ic=20.40625/20.40625 rel=3.796875,3
-n35 p34 d54 Inline @155.79688,36 -x- ic=20.40625/20.40625
-n36 p30 d55 Flex @189,29 44.8125x66 ov=28.8125x15 ic=28.8125/28.8125 rel=45,0
-n37 p36 d56 Inline @211.40625,33 0x0 ov=0x0 ic=0/0 rel=14.40625,0
-n38 p37 d57 Inline @211.40625,33 -x- ic=0/0
-n39 p36 d58 Inline @197,36 28.796875x12 ov=28.796875x12 bl=10 ic=28.8125/28.8125 rel=0,3
-n40 p39 d59 Inline @197,36 -x- ic=28.8125/28.8125
-n41 p30 d60 Flex @234.8125,29 62.8125x66 ov=46.8125x15 ic=46.8125/46.8125 rel=90.8125,0
-n42 p41 d61 Inline @266.21875,33 0x0 ov=0x0 ic=0/0 rel=23.40625,0
-n43 p42 d62 Inline @266.21875,33 -x- ic=0/0
-n44 p41 d63 Inline @242.8125,36 46.796875x12 ov=46.796875x12 bl=10 ic=46.8125/46.8125 rel=0,3
-n45 p44 d64 Inline @242.8125,36 -x- ic=46.8125/46.8125
-n46 p29 d65 Flex @144,97 154.625x18 ov=154.625x14.5 ic=22/22 rel=0,68
-n47 p46 d66 Inline @144,100.5 154.625x11 ov=22x11 bl=9 ic=22/22 rel=0,3.5
-n48 p47 d67 Inline @144,100.5 -x- ic=22/22
-n49 p8 d68 Flex @301.625,26 154.8125x92 ov=149.8125x86 ic=149.8125/149.8125 rel=301.625,0
-n50 p49 d69 Flex @303.625,29 149.8125x68 ov=148.8125x66 ic=149.8125/149.8125 rel=0,0
-n51 p50 d70 Flex @303.625,29 44x66 ov=24.203125x15 ic=28/28 rel=0,0
-n52 p51 d71 Inline @325.625,33 0x0 ov=0x0 ic=0/0 rel=14,0
-n53 p52 d72 Inline @325.625,33 -x- ic=0/0
-n54 p51 d73 Inline @315.42188,36 20.40625x12 ov=20.40625x12 bl=10 ic=20.40625/20.40625 rel=3.796875,3
-n55 p54 d74 Inline @315.42188,36 -x- ic=20.40625/20.40625
-n56 p50 d75 Flex @348.625,29 54.40625x66 ov=38.40625x15 ic=38.40625/38.40625 rel=45,0
-n57 p56 d76 Inline @375.82813,33 0x0 ov=0x0 ic=0/0 rel=19.203125,0
-n58 p57 d77 Inline @375.82813,33 -x- ic=0/0
-n59 p56 d78 Inline @356.625,36 38.40625x12 ov=38.40625x12 bl=10 ic=38.40625/38.40625 rel=0,3
-n60 p59 d79 Inline @356.625,36 -x- ic=38.40625/38.40625
-n61 p50 d80 Flex @404.03125,29 48.40625x66 ov=32.40625x15 ic=32.40625/32.40625 rel=100.40625,0
-n62 p61 d81 Inline @428.23438,33 0x0 ov=0x0 ic=0/0 rel=16.203125,0
-n63 p62 d82 Inline @428.23438,33 -x- ic=0/0
-n64 p61 d83 Inline @412.03125,36 32.40625x12 ov=32.40625x12 bl=10 ic=32.40625/32.40625 rel=0,3
-n65 p64 d84 Inline @412.03125,36 -x- ic=32.40625/32.40625
-n66 p49 d85 Flex @303.625,97 149.8125x18 ov=149.8125x14.5 ic=31.90625/31.90625 rel=0,68
-n67 p66 d86 Inline @303.625,100.5 149.8125x11 ov=31.90625x11 bl=9 ic=31.90625/31.90625 rel=0,3.5
-n68 p67 d87 Inline @303.625,100.5 -x- ic=31.90625/31.90625
-  dl0 PushStackingContext 0,0 1000x119
-  dl1 Rect 0,0 640x119
-  dl2 Border 0,0 640x119
-  dl3 Rect 0,0 640x26
-  dl4 Rect 0,0 54.8125x26
-  dl5 Border 0,0 54.8125x26
-  dl6 HitTestArea 0,0 54.8125x26
-  dl7 HitTestArea 13,7 28.8125x12
-  dl8 Text 1,7 52.8125x12 glyphs=4 fs=12
-  dl9 HitTestArea 13,7.40625 28.796875x12
-  dl10 Border 54.8125,0 585.1875x26
-  dl11 LinearGradient 0,26 640x92
-  dl12 Border 0,26 142x92
-  dl13 Border 2,29 46x66
-  dl14 HitTestArea 2,29 46x66
-  dl15 HitTestArea 25,33 0x0
-  dl16 HitTestArea 10,36 30x12
-  dl17 Text -2,36 54x12 glyphs=5 fs=12
-  dl18 HitTestArea 10,36.40625 30x12
-  dl19 Border 49,29 44x66
-  dl20 HitTestArea 49,29 44x66
-  dl21 HitTestArea 71,33 0x0
-  dl22 HitTestArea 62,36 18x12
-  dl23 Text 50,36 42x12 glyphs=3 fs=12
-  dl24 HitTestArea 62,36.40625 18x12
-  dl25 Border 94,29 44x66
-  dl26 HitTestArea 94,29 44x66
-  dl27 HitTestArea 116,33 0x0
-  dl28 HitTestArea 104,36 24x12
-  dl29 Text 92,36 48x12 glyphs=4 fs=12
-  dl30 HitTestArea 104,36.40625 24x12
-  dl31 HitTestArea 2,100.5 137x11
-  dl32 Text -9,100.5 159x11 glyphs=9 fs=11
-  dl33 HitTestArea 49.046875,100.703125 42.90625x11
-  dl34 Border 142,26 159.625x92
-  dl35 Border 144,29 44x66
-  dl36 HitTestArea 144,29 44x66
-  dl37 HitTestArea 166,33 0x0
-  dl38 HitTestArea 155.79688,36 20.40625x12
-  dl39 Text 143.79688,36 44.40625x12 glyphs=4 fs=12
-  dl40 HitTestArea 155.79688,36.40625 20.40625x12
-  dl41 Border 189,29 44.8125x66
-  dl42 HitTestArea 189,29 44.8125x66
-  dl43 HitTestArea 211.40625,33 0x0
-  dl44 HitTestArea 197,36 28.796875x12
-  dl45 Text 185,36 52.796875x12 glyphs=6 fs=12
-  dl46 HitTestArea 197.01563,36.40625 28.796875x12
-  dl47 Border 234.8125,29 62.8125x66
-  dl48 HitTestArea 234.8125,29 62.8125x66
-  dl49 HitTestArea 266.21875,33 0x0
-  dl50 HitTestArea 242.8125,36 46.796875x12
-  dl51 Text 230.8125,36 70.796875x12 glyphs=9 fs=12
-  dl52 HitTestArea 242.82813,36.40625 46.796875x12
-  dl53 HitTestArea 144,100.5 154.625x11
-  dl54 Text 133,100.5 176.625x11 glyphs=4 fs=11
-  dl55 HitTestArea 210.3125,100.703125 22x11
-  dl56 Border 301.625,26 154.8125x92
-  dl57 Border 303.625,29 44x66
-  dl58 HitTestArea 303.625,29 44x66
-  dl59 HitTestArea 325.625,33 0x0
-  dl60 HitTestArea 315.42188,36 20.40625x12
-  dl61 Text 303.42188,36 44.40625x12 glyphs=4 fs=12
-  dl62 HitTestArea 315.42188,36.40625 20.40625x12
-  dl63 Border 348.625,29 54.40625x66
-  dl64 HitTestArea 348.625,29 54.40625x66
-  dl65 HitTestArea 375.82813,33 0x0
-  dl66 HitTestArea 356.625,36 38.40625x12
-  dl67 Text 344.625,36 62.40625x12 glyphs=7 fs=12
-  dl68 HitTestArea 356.625,36.40625 38.40625x12
-  dl69 Border 404.03125,29 48.40625x66
-  dl70 HitTestArea 404.03125,29 48.40625x66
-  dl71 HitTestArea 428.23438,33 0x0
-  dl72 HitTestArea 412.03125,36 32.40625x12
-  dl73 Text 400.03125,36 56.40625x12 glyphs=6 fs=12
-  dl74 HitTestArea 412.03125,36.40625 32.40625x12
-  dl75 HitTestArea 303.625,100.5 149.8125x11
-  dl76 Text 292.625,100.5 171.8125x11 glyphs=7 fs=11
-  dl77 HitTestArea 362.57813,100.703125 31.90625x11
-  dl78 PopStackingContext
+n0 root d0 Block { establishes_new_context: true } @0,0 1000x136 ov=640x136 ic=640/640
+n1 p0 d1 Flex @0,0 640x136 ov=640x136 ic=640/640 rel=0,0
+n2 p1 d2 Flex @0,0 640x136 ov=640x136 ic=456.4375/456.4375 rel=0,0
+n3 p2 d3 Flex @0,0 640x28 ov=54.8125x25 ic=54.8125/54.8125 rel=0,0
+n4 p3 d4 Flex @10,3 54.8125x22 ov=28.8125x20 ic=28.8125/28.8125 rel=0,3
+n5 p4 d5 Inline @23,4 28.8125x20 ov=28.796875x20 bl=14 ic=28.8125/28.8125 rel=0,0
+n6 p5 d6 Inline @23,4 -x- ic=28.8125/28.8125
+n7 p3 d7 Block { establishes_new_context: false } @70.8125,14 559.1875x0 ov=0x0 ic=0/0 rel=60.8125,14
+n8 p2 d27 Flex @0,28 640x106 ov=456.4375x102 ic=456.4375/456.4375 rel=0,28
+n9 p8 d28 Flex @0,32 142x102 ov=137x86 ic=137/137 rel=0,0
+n10 p9 d29 Flex @2,35 137x68 ov=136x66 ic=137/137 rel=0,0
+n11 p10 d30 Flex @2,35 46x66 ov=30x15 ic=30/30 rel=0,0
+n12 p11 d31 Inline @25,39 0x0 ov=0x0 ic=0/0 rel=15,0
+n13 p12 d32 Inline @25,39 -x- ic=0/0
+n14 p11 d33 Inline @10,42 30x12 ov=30x12 bl=10 ic=30/30 rel=0,3
+n15 p14 d34 Inline @10,42 -x- ic=30/30
+n16 p10 d35 Flex @49,35 44x66 ov=23x15 ic=28/28 rel=47,0
+n17 p16 d36 Inline @71,39 0x0 ov=0x0 ic=0/0 rel=14,0
+n18 p17 d37 Inline @71,39 -x- ic=0/0
+n19 p16 d38 Inline @62,42 18x12 ov=18x12 bl=10 ic=18/18 rel=5,3
+n20 p19 d39 Inline @62,42 -x- ic=18/18
+n21 p10 d40 Flex @94,35 44x66 ov=26x15 ic=28/28 rel=92,0
+n22 p21 d41 Inline @116,39 0x0 ov=0x0 ic=0/0 rel=14,0
+n23 p22 d42 Inline @116,39 -x- ic=0/0
+n24 p21 d43 Inline @104,42 24x12 ov=24x12 bl=10 ic=24/24 rel=2,3
+n25 p24 d44 Inline @104,42 -x- ic=24/24
+n26 p9 d45 Flex @2,103 137x18 ov=137x14.5 ic=42.90625/42.90625 rel=0,68
+n27 p26 d46 Inline @2,106.5 137x11 ov=42.90625x11 bl=9 ic=42.90625/42.90625 rel=0,3.5
+n28 p27 d47 Inline @2,106.5 -x- ic=42.90625/42.90625
+n29 p8 d48 Flex @142,32 159.625x102 ov=154.625x86 ic=154.625/154.625 rel=142,0
+n30 p29 d49 Flex @144,35 154.625x68 ov=153.625x66 ic=154.625/154.625 rel=0,0
+n31 p30 d50 Flex @144,35 44x66 ov=24.203125x15 ic=28/28 rel=0,0
+n32 p31 d51 Inline @166,39 0x0 ov=0x0 ic=0/0 rel=14,0
+n33 p32 d52 Inline @166,39 -x- ic=0/0
+n34 p31 d53 Inline @155.79688,42 20.40625x12 ov=20.40625x12 bl=10 ic=20.40625/20.40625 rel=3.796875,3
+n35 p34 d54 Inline @155.79688,42 -x- ic=20.40625/20.40625
+n36 p30 d55 Flex @189,35 44.8125x66 ov=28.8125x15 ic=28.8125/28.8125 rel=45,0
+n37 p36 d56 Inline @211.40625,39 0x0 ov=0x0 ic=0/0 rel=14.40625,0
+n38 p37 d57 Inline @211.40625,39 -x- ic=0/0
+n39 p36 d58 Inline @197,42 28.796875x12 ov=28.796875x12 bl=10 ic=28.8125/28.8125 rel=0,3
+n40 p39 d59 Inline @197,42 -x- ic=28.8125/28.8125
+n41 p30 d60 Flex @234.8125,35 62.8125x66 ov=46.8125x15 ic=46.8125/46.8125 rel=90.8125,0
+n42 p41 d61 Inline @266.21875,39 0x0 ov=0x0 ic=0/0 rel=23.40625,0
+n43 p42 d62 Inline @266.21875,39 -x- ic=0/0
+n44 p41 d63 Inline @242.8125,42 46.796875x12 ov=46.796875x12 bl=10 ic=46.8125/46.8125 rel=0,3
+n45 p44 d64 Inline @242.8125,42 -x- ic=46.8125/46.8125
+n46 p29 d65 Flex @144,103 154.625x18 ov=154.625x14.5 ic=22/22 rel=0,68
+n47 p46 d66 Inline @144,106.5 154.625x11 ov=22x11 bl=9 ic=22/22 rel=0,3.5
+n48 p47 d67 Inline @144,106.5 -x- ic=22/22
+n49 p8 d68 Flex @301.625,32 154.8125x102 ov=149.8125x86 ic=149.8125/149.8125 rel=301.625,0
+n50 p49 d69 Flex @303.625,35 149.8125x68 ov=148.8125x66 ic=149.8125/149.8125 rel=0,0
+n51 p50 d70 Flex @303.625,35 44x66 ov=24.203125x15 ic=28/28 rel=0,0
+n52 p51 d71 Inline @325.625,39 0x0 ov=0x0 ic=0/0 rel=14,0
+n53 p52 d72 Inline @325.625,39 -x- ic=0/0
+n54 p51 d73 Inline @315.42188,42 20.40625x12 ov=20.40625x12 bl=10 ic=20.40625/20.40625 rel=3.796875,3
+n55 p54 d74 Inline @315.42188,42 -x- ic=20.40625/20.40625
+n56 p50 d75 Flex @348.625,35 54.40625x66 ov=38.40625x15 ic=38.40625/38.40625 rel=45,0
+n57 p56 d76 Inline @375.82813,39 0x0 ov=0x0 ic=0/0 rel=19.203125,0
+n58 p57 d77 Inline @375.82813,39 -x- ic=0/0
+n59 p56 d78 Inline @356.625,42 38.40625x12 ov=38.40625x12 bl=10 ic=38.40625/38.40625 rel=0,3
+n60 p59 d79 Inline @356.625,42 -x- ic=38.40625/38.40625
+n61 p50 d80 Flex @404.03125,35 48.40625x66 ov=32.40625x15 ic=32.40625/32.40625 rel=100.40625,0
+n62 p61 d81 Inline @428.23438,39 0x0 ov=0x0 ic=0/0 rel=16.203125,0
+n63 p62 d82 Inline @428.23438,39 -x- ic=0/0
+n64 p61 d83 Inline @412.03125,42 32.40625x12 ov=32.40625x12 bl=10 ic=32.40625/32.40625 rel=0,3
+n65 p64 d84 Inline @412.03125,42 -x- ic=32.40625/32.40625
+n66 p49 d85 Flex @303.625,103 149.8125x18 ov=149.8125x14.5 ic=31.90625/31.90625 rel=0,68
+n67 p66 d86 Inline @303.625,106.5 149.8125x11 ov=31.90625x11 bl=9 ic=31.90625/31.90625 rel=0,3.5
+n68 p67 d87 Inline @303.625,106.5 -x- ic=31.90625/31.90625
+n69 p2 d88 Block { establishes_new_context: false } @0,134 640x2 ov=0x0 ic=0/0 rel=0,134
+  dl0 PushStackingContext 0,0 1000x136
+  dl1 Rect 0,0 640x136
+  dl2 Image 0,0 640x136
+  dl3 Rect 10,3 54.8125x22
+  dl4 Border 10,3 54.8125x22
+  dl5 HitTestArea 10,3 54.8125x22
+  dl6 HitTestArea 23,4 28.8125x20
+  dl7 Text 11,4 52.8125x20 glyphs=4 fs=12
+  dl8 HitTestArea 23,8.40625 28.796875x12
+  dl9 Border 0,32 142x102
+  dl10 Border 2,35 46x66
+  dl11 HitTestArea 2,35 46x66
+  dl12 HitTestArea 25,39 0x0
+  dl13 HitTestArea 10,42 30x12
+  dl14 Text -2,42 54x12 glyphs=5 fs=12
+  dl15 HitTestArea 10,42.40625 30x12
+  dl16 Border 49,35 44x66
+  dl17 HitTestArea 49,35 44x66
+  dl18 HitTestArea 71,39 0x0
+  dl19 HitTestArea 62,42 18x12
+  dl20 Text 50,42 42x12 glyphs=3 fs=12
+  dl21 HitTestArea 62,42.40625 18x12
+  dl22 Border 94,35 44x66
+  dl23 HitTestArea 94,35 44x66
+  dl24 HitTestArea 116,39 0x0
+  dl25 HitTestArea 104,42 24x12
+  dl26 Text 92,42 48x12 glyphs=4 fs=12
+  dl27 HitTestArea 104,42.40625 24x12
+  dl28 HitTestArea 2,106.5 137x11
+  dl29 Text -9,106.5 159x11 glyphs=9 fs=11
+  dl30 HitTestArea 49.046875,106.703125 42.90625x11
+  dl31 Border 142,32 159.625x102
+  dl32 Border 144,35 44x66
+  dl33 HitTestArea 144,35 44x66
+  dl34 HitTestArea 166,39 0x0
+  dl35 HitTestArea 155.79688,42 20.40625x12
+  dl36 Text 143.79688,42 44.40625x12 glyphs=4 fs=12
+  dl37 HitTestArea 155.79688,42.40625 20.40625x12
+  dl38 Border 189,35 44.8125x66
+  dl39 HitTestArea 189,35 44.8125x66
+  dl40 HitTestArea 211.40625,39 0x0
+  dl41 HitTestArea 197,42 28.796875x12
+  dl42 Text 185,42 52.796875x12 glyphs=6 fs=12
+  dl43 HitTestArea 197.01563,42.40625 28.796875x12
+  dl44 Border 234.8125,35 62.8125x66
+  dl45 HitTestArea 234.8125,35 62.8125x66
+  dl46 HitTestArea 266.21875,39 0x0
+  dl47 HitTestArea 242.8125,42 46.796875x12
+  dl48 Text 230.8125,42 70.796875x12 glyphs=9 fs=12
+  dl49 HitTestArea 242.82813,42.40625 46.796875x12
+  dl50 HitTestArea 144,106.5 154.625x11
+  dl51 Text 133,106.5 176.625x11 glyphs=4 fs=11
+  dl52 HitTestArea 210.3125,106.703125 22x11
+  dl53 Border 301.625,32 154.8125x102
+  dl54 Border 303.625,35 44x66
+  dl55 HitTestArea 303.625,35 44x66
+  dl56 HitTestArea 325.625,39 0x0
+  dl57 HitTestArea 315.42188,42 20.40625x12
+  dl58 Text 303.42188,42 44.40625x12 glyphs=4 fs=12
+  dl59 HitTestArea 315.42188,42.40625 20.40625x12
+  dl60 Border 348.625,35 54.40625x66
+  dl61 HitTestArea 348.625,35 54.40625x66
+  dl62 HitTestArea 375.82813,39 0x0
+  dl63 HitTestArea 356.625,42 38.40625x12
+  dl64 Text 344.625,42 62.40625x12 glyphs=7 fs=12
+  dl65 HitTestArea 356.625,42.40625 38.40625x12
+  dl66 Border 404.03125,35 48.40625x66
+  dl67 HitTestArea 404.03125,35 48.40625x66
+  dl68 HitTestArea 428.23438,39 0x0
+  dl69 HitTestArea 412.03125,42 32.40625x12
+  dl70 Text 400.03125,42 56.40625x12 glyphs=6 fs=12
+  dl71 HitTestArea 412.03125,42.40625 32.40625x12
+  dl72 HitTestArea 303.625,106.5 149.8125x11
+  dl73 Text 292.625,106.5 171.8125x11 glyphs=7 fs=11
+  dl74 HitTestArea 362.57813,106.703125 31.90625x11
+  dl75 Image 0,134 640x2
+  dl76 LinearGradient 0,134 640x2
+  dl77 PopStackingContext
 === list view
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 1000x127 ov=640x127 ic=640/640
