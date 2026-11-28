@@ -6282,6 +6282,16 @@ impl CallbackInfo {
         self.get_layout_window().app_services.share.share(&request)
     }
 
+    /// A handle on the app's `Documents`: files and folders the user owns, wherever the platform keeps them - a path on a desktop, a
+    /// folder the person granted on a phone (an Android `content://` tree, an iOS bookmarked folder) - listed, read, written,
+    /// created, renamed and deleted by LOCATOR, with failures that say what to do (`Denied`: ask for the folder again, `NotFound`:
+    /// forget it, `TimedOut`: retry). The handle is `Clone + Send + Sync`: take it here, move it to a worker thread (every call
+    /// blocks until the platform answers) and call from there.
+    #[must_use]
+    pub fn documents(&self) -> crate::documents::Documents {
+        self.get_layout_window().app_services.documents.handle()
+    }
+
     /// Whether this app can show a share sheet now: ask before a Share button is shown, and offer something else (reveal the
     /// file, copy the link) where it cannot.
     #[must_use]

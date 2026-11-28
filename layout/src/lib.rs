@@ -391,6 +391,13 @@ pub use fluent::{
 pub mod mime;
 /// What an Android intent asks of the app (files to copy, links, texts, what the sender wants done), decided without the platform.
 pub mod open_intent;
+/// `Documents`: files and folders the user owns, by locator, with typed failures (a path, an Android tree, an iOS bookmarked folder).
+#[cfg(feature = "text_layout")]
+pub mod documents;
+/// What Android's storage framework says, in the engine's words: a provider's rows, flags and exceptions as `Documents` entries and
+/// errors (the pure half of the phone's backend, which `azul-dll` completes with the JNI calls).
+#[cfg(feature = "text_layout")]
+pub mod documents_saf;
 /// The folder the working copies of what the system opened the app with live in, and the limits of making them.
 #[cfg(feature = "text_layout")]
 pub mod open_inbox;

@@ -529,9 +529,16 @@ pub mod lifecycle;
 /// The slot of the platform's backend and the checks live in `azul-layout` (`managers::share`), the OS plumbing in
 /// `azul-dll` (`desktop/extra/share`) - the notifications' split.
 pub mod share;
-/// What the system asks the app to open (`OpenRequest`: a file shared to the app or opened with it, a link of a declared scheme, a
-/// text): the POD types; the queue and the handler live in `azul-layout` (`managers::open_files`).
+/// What the system asks the app to open (`OpenRequest`): the POD types.
+///
+/// A file shared to the app or opened with it, a link of a declared scheme, a text; the queue and the handler live in `azul-layout`
+/// (`managers::open_files`).
 pub mod open_files;
+/// Files and folders the user owns, wherever the platform keeps them: the POD types of `Documents`.
+///
+/// A locator is a path, an Android `content://` tree or an iOS bookmarked folder; the failures say what to do next. The behaviour is
+/// `azul-layout`'s.
+pub mod documents;
 /// Built-in user-agent default stylesheet.
 pub mod ua_css;
 /// Default font/text constants and small geometry helpers for layout.
