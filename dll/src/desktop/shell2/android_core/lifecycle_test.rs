@@ -45,3 +45,41 @@ fn trim_memory_levels_release_by_how_bad_it_is() {
     assert_eq!(trim_plan(0), TrimPlan { release_caches: false, purge_allocator: false });
     assert_eq!(trim_plan(-1), TrimPlan { release_caches: false, purge_allocator: false });
 }
+
+/// The app is told it is paused ONCE, whichever of `Pause` and a lost surface comes first, and told it is back only after a pause.
+///
+/// Mutation: `on_resume` answering `Resumed` at the launch's first `Resume` (an app that saves on Paused and reloads on Resumed
+/// reloaded its fresh document over itself).
+#[test]
+fn the_app_hears_paused_once_and_resumed_only_after_a_pause() {
+    let mut phase = AppPhase::default();
+    assert_eq!(phase.on_resume(), None, "the launch's Resume is no return");
+    assert_eq!(phase.on_pause(), Some(Tell::Paused));
+    assert_eq!(phase.on_pause(), None, "a second Pause says nothing new");
+    assert_eq!(phase.on_surface_lost(), None, "and neither does the surface going after it");
+    assert_eq!(phase.on_resume(), Some(Tell::Resumed));
+    assert_eq!(phase.on_resume(), None);
+    // the surface can go first (the loop has seen TerminateWindow before Pause)
+    assert_eq!(phase.on_surface_lost(), Some(Tell::Paused));
+    assert_eq!(phase.on_pause(), None);
+}
+
+/// A low memory is told at every trim from the running-low level on, not below it; the last word is said once, and an app that was
+/// never told it paused hears it first.
+#[test]
+fn memory_and_the_last_word() {
+    let mut phase = AppPhase::default();
+    assert_eq!(phase.on_trim(5), None, "RUNNING_MODERATE: the system only notes it");
+    assert_eq!(phase.on_trim(TRIM_MEMORY_RUNNING_LOW), Some(Tell::LowMemory));
+    assert_eq!(phase.on_trim(TRIM_MEMORY_UI_HIDDEN), Some(Tell::LowMemory));
+    assert_eq!(phase.on_low_memory(), Some(Tell::LowMemory));
+    assert_eq!(phase.on_destroy(), [Some(Tell::Paused), Some(Tell::WillTerminate)]);
+    assert_eq!(phase.on_destroy(), [None, None], "once");
+    assert_eq!(phase.on_low_memory(), None, "nothing after the last word");
+    assert_eq!(phase.on_resume(), None);
+    // a paused app hears only the last word at its end
+    let mut phase = AppPhase::default();
+    assert_eq!(phase.on_pause(), Some(Tell::Paused));
+    assert_eq!(phase.on_destroy(), [None, Some(Tell::WillTerminate)]);
+}
+

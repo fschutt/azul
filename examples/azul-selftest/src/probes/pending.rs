@@ -7,18 +7,6 @@ use crate::report::Verdict;
 
 pub static PROBES: &[ProbeDef] = &[
     pending(
-        "media.camera",
-        "media",
-        "Camera frames",
-        "CameraWidget (api.json widgets.CameraWidget, with_on_frame): frames arrive on the loop thread with a non-zero size; denied permission is DENIED; the widget is added only while the row runs so no dialog comes at launch; torch on a device that has one",
-    ),
-    pending(
-        "media.microphone",
-        "media",
-        "Microphone frames",
-        "MicrophoneWidget (with_on_frame): audio frames arrive with a non-zero RMS when the emulator feeds the host microphone, DENIED when the RECORD_AUDIO permission is refused",
-    ),
-    pending(
         "media.screen_capture",
         "media",
         "Screen capture",

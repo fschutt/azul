@@ -9,6 +9,7 @@
 
 use azul::{
     dom::{Dom, GeolocationProbeConfig},
+    prelude::RefAny,
     misc::{Capability, PermissionState},
     sensor::SensorKind,
     window::PlatformCapability,
@@ -20,7 +21,7 @@ use crate::report::Verdict;
 /// How long a sensor gets to deliver its first reading.
 const SENSOR_WAIT_MS: u64 = 3_000;
 /// How long the location probe waits for a fix.
-const FIX_WAIT_MS: u64 = 15_000;
+const FIX_WAIT_MS: u64 = 30_000;
 
 pub static PROBES: &[ProbeDef] = &[
     plain("sensors.accelerometer", "sensors", "Accelerometer", accelerometer),
@@ -105,7 +106,7 @@ fn any_sensor(ctx: &mut Ctx<'_>) -> Step {
 
 /// The probe node: the engine subscribes to the platform's location service while the node is in the DOM
 /// (and asks for the permission then: a dialog comes only when this row runs).
-fn location_widget(_elapsed_ms: u64) -> Dom {
+fn location_widget(_data: &RefAny, _elapsed_ms: u64) -> Dom {
     Dom::create_geolocation_probe(GeolocationProbeConfig {
         high_accuracy: true,
         background: false,
@@ -127,6 +128,7 @@ fn geolocation(ctx: &mut Ctx<'_>) -> Step {
                     .into(),
             ));
         }
+        PermissionState::NotDetermined if ctx.unattended && ctx.elapsed_ms < super::SETTLE_MS => return Step::Wait,
         PermissionState::NotDetermined if ctx.unattended => {
             return Step::Done(Verdict::NeedsHuman(
                 "the location permission was never granted: grant it (adb shell pm grant <package> android.permission.ACCESS_FINE_LOCATION), or run this row by hand and answer the dialog"

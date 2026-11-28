@@ -7,11 +7,15 @@
 //! * a 100 ms timer runs one probe at a time, calling its step until it answers;
 //! * the report is ONE line `AZ_SELFTEST_REPORT {json}` on stdout (logcat on Android, `os_log` / the console on
 //!   iOS) and a file `az-selftest-report.json` in the app's data directory (`AZ_SELFTEST_REPORT_FILE` overrides),
-//!   printed whenever the queue runs empty after a run;
+//!   printed whenever the queue runs empty after a run. On Android a report longer than 3000 bytes leaves as numbered
+//!   parts, `AZ_SELFTEST_REPORT_PART i/n <slice>` (the slices joined in order are the JSON): logcat drops what is past
+//!   ~4000 bytes of a line without a word, and a full report of 30 rows is longer than that;
 //! * unattended (`AZ_SELFTEST=1`, `--selftest`, on Android `adb shell setprop debug.az.selftest 1`): runs every row
 //!   that needs no person (the others are listed with their instruction), writes the report, closes the window; the
 //!   process exits with 1 when a capability that says it is available failed.
 //!
+//! `AZ_SELFTEST_ROWS=<id>,<id>` (Android: `setprop debug.az.selftest_rows <id>`) runs just those rows, with a person (a harness that taps the
+//! dialogs) or unattended, prints the report; an attended run stays open for the harness.
 //! A system permission dialog appears only when a person runs a row that needs one: an unattended run never asks, it
 //! lists what to grant (`adb shell pm grant ...`). The same app runs on the desktop and says UNAVAILABLE for what
 //! only a phone has, so it cannot rot. A QA artifact: never a published demo.
@@ -84,10 +88,25 @@ impl SelfTest {
             report_due: false,
             exit_code: 0,
         };
-        if unattended {
+        // Rows asked for by name (a harness that plays the person for one row: `AZ_SELFTEST_ROWS`, on Android the property
+        // `debug.az.selftest_rows`) run on their own, attended or not; otherwise an unattended run does every row and an
+        // attended one waits for a tap.
+        let wanted = rows_requested();
+        if !wanted.is_empty() {
+            state.queue_rows(&wanted);
+        } else if unattended {
             state.queue_all();
         }
         state
+    }
+
+    /// Queue the rows whose ids are in `ids`.
+    fn queue_rows(&mut self, ids: &[String]) {
+        for idx in 0..self.rows.len() {
+            if ids.iter().any(|id| id == self.rows[idx].0.id) {
+                self.queue_one(idx);
+            }
+        }
     }
 
     fn queue_all(&mut self) {
@@ -133,6 +152,20 @@ impl SelfTest {
         }
         let elapsed = u64::try_from(run.started.elapsed().as_millis()).unwrap_or(u64::MAX);
         self.rows[run.idx].0.widget.map(|widget| (widget, elapsed))
+    }
+
+    /// A frame of the running row's capture widget arrived (the widget's callback, on the loop thread, between two ticks): the
+    /// row's scratch keeps `[frames, width, height, loudest sample in millionths]` and the row's next tick reads it.
+    pub fn note_media_frame(&mut self, width: u32, height: u32, loudest_micro: u64) {
+        if let Some(run) = self.running.as_mut() {
+            if run.scratch.len() < 4 {
+                run.scratch.resize(4, 0);
+            }
+            run.scratch[0] += 1;
+            run.scratch[1] = u64::from(width);
+            run.scratch[2] = u64::from(height);
+            run.scratch[3] = run.scratch[3].max(loudest_micro);
+        }
     }
 
     /// One tick: start the next row if none runs, step the running one. Whether the list changed.
@@ -251,7 +284,12 @@ impl SelfTest {
             unattended: self.unattended,
             total_ms: u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX),
         };
-        println!("{}", report::report_line(&ctx, &rows));
+        // On Android one line when it fits, else numbered parts (logcat drops what is past ~4000 bytes of a line without a word);
+        // elsewhere always the one line (the readers of iOS and the desktop grep that, and their consoles keep long lines).
+        let limit = if cfg!(target_os = "android") { report::MAX_LINE_BYTES } else { usize::MAX };
+        for line in report::report_lines(&ctx, &rows, limit) {
+            println!("{line}");
+        }
         let path = report_path();
         if let Err(e) = std::fs::write(&path, report::report_json(&ctx, &rows)) {
             eprintln!("AzSelfTest: cannot write the report file {}: {e}", path.display());
@@ -292,13 +330,29 @@ fn unattended_requested() -> bool {
     env_set || arg_set || android_property_set()
 }
 
+/// The value of the Android system property `name` (`getprop`), empty when it is not set.
+#[cfg(target_os = "android")]
+fn android_property(name: &str) -> String {
+    std::process::Command::new("getprop")
+        .arg(name)
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
 #[cfg(target_os = "android")]
 fn android_property_set() -> bool {
-    std::process::Command::new("getprop")
-        .arg("debug.az.selftest")
-        .output()
-        .map(|out| String::from_utf8_lossy(&out.stdout).trim() == "1")
-        .unwrap_or(false)
+    android_property("debug.az.selftest") == "1"
+}
+
+/// The rows a harness asked for: `AZ_SELFTEST_ROWS`, on Android the property `debug.az.selftest_rows`.
+fn rows_requested() -> Vec<String> {
+    let from_env = std::env::var("AZ_SELFTEST_ROWS").unwrap_or_default();
+    #[cfg(target_os = "android")]
+    let from_property = android_property("debug.az.selftest_rows");
+    #[cfg(not(target_os = "android"))]
+    let from_property = String::new();
+    report::parse_row_list(&format!("{from_env},{from_property}"))
 }
 
 #[cfg(not(target_os = "android"))]
@@ -413,7 +467,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_child(header)
         .with_child(list);
     if let Some((widget, elapsed_ms)) = widget {
-        body = body.with_child(widget(elapsed_ms));
+        body = body.with_child(widget(&data, elapsed_ms));
     }
     body
 }

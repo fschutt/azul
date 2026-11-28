@@ -77,7 +77,11 @@ pub mod frame_schedule;
 /// The decisions of the iOS shell that need no UIKit (safe-area insets, the keyboard's cover, the
 /// names of its Objective-C classes, the pieces of a log line), so a host can test them.
 pub mod ios_display;
+/// The engine's `DisplayFeatures` of an iOS display (the answer of `ios_display` in the shapes of the layout window), host-tested.
+pub mod ios_display_features;
 pub mod ios_logic;
+/// The SystemConfiguration symbols iOS marks unavailable that the iroh dependencies still reference (E63): the table the iOS shim defines.
+pub mod ios_system_configuration;
 pub mod layout;
 /// The runtime gate for every `log_*!` macro, plus RAII enter/exit spans.
 /// Logging is gated here by atomics — never by a cargo feature.
@@ -99,6 +103,8 @@ pub mod style_discovery;
 pub mod thread_handover;
 /// Which presses may start a text selection by dragging (a finger scrolls).
 pub mod touch_selection;
+/// What counts as a user gesture (a click, a tap, a key press): a permission that may ask the user goes out only after one.
+pub mod user_gesture;
 pub mod transient;
 /// `<webview>`: the backend trait every platform's native web view
 /// implements, the headless one, and the pump that runs them.

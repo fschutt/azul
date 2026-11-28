@@ -35,6 +35,9 @@
          (granted at install, no prompt). Without it the endpoint works and
          local_discovery_status() says "unavailable". -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- CHANGE_WIFI_MULTICAST_STATE implies the Wi-Fi hardware as a REQUIRED feature, which a store reads as "not for a
+         device without Wi-Fi": the app works without it (the relay), so it is declared optional. -->
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
 
     <!-- DANGEROUS permissions are opt-in, injected here by build-android.sh
          from AZ_ANDROID_PERMISSIONS. Declaring CAMERA / RECORD_AUDIO /
@@ -60,8 +63,12 @@
         </intent>
     </queries>
 
+    <!-- The activity's theme (res/values*/azul_theme.xml): the window is the engine's own default colour per night
+         mode, so the system's starting window is followed by that colour, not by the platform's default dark window
+         while the engine draws its first frame. -->
     <application
         android:label="@LABEL@"
+        android:theme="@style/AzulTheme"
         @ICON_ATTR@
         android:hasCode="false">
 

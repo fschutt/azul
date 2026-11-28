@@ -277,6 +277,8 @@ class IosAuditTests(unittest.TestCase):
 
     class FakeIOS:
         shows_app = True
+        install_rc = 0
+        installed_first = []          # the order of what the audit did to the simulator, shared by the instances of one test
 
         def __init__(self, run, udid, bundle, exe, app_dir=None):
             self.base_env, self.calls, self.launched, self.home_sig = {}, [], False, None
@@ -285,10 +287,15 @@ class IosAuditTests(unittest.TestCase):
             self.calls.append(a)
             return 0, "", ""
 
+        def to_file(self, log_name, *cmd, timeout=600):
+            self.installed_first.append(("to_file", cmd))
+            return self.install_rc, "No such file: the app bundle" if self.install_rc else ""
+
         def terminate(self):
             self.launched = False
 
         def launch(self, extra_env=None, cold=True):
+            self.installed_first.append(("launch", ()))
             self.launched = True
             return {}
 
@@ -302,20 +309,38 @@ class IosAuditTests(unittest.TestCase):
             picture = PAGE if (self.launched and self.shows_app) else IosAuditTests.HOME
             return picture, 1206, 2622, ""
 
-    def run_audit(self, shows_app=True):
+    def run_audit(self, shows_app=True, install_rc=0):
         import tempfile
         import time as _t
         out = tempfile.mkdtemp(prefix="flicker-ios-test-")
         real_ios, real_ffmpeg, real_sleep = f.q.IOS, f.ensure_ffmpeg, _t.sleep
-        f.q.IOS = type("IOS", (self.FakeIOS,), {"shows_app": shows_app})
+        self.order = []
+        f.q.IOS = type("IOS", (self.FakeIOS,), {"shows_app": shows_app, "install_rc": install_rc, "installed_first": self.order})
         f.ensure_ffmpeg = lambda: None
         _t.sleep = lambda s: None
         try:
-            args = type("A", (), {"out": out, "udid": "U", "bundle": "com.x.App", "exe": "", "app": "", "backend": "", "first_frame_timeout": 60.0})()
-            self.assertEqual(f.ios_audit(args), 0)
+            args = type("A", (), {"out": out, "udid": "U", "bundle": "com.x.App", "exe": "", "app": "App.app", "backend": "", "first_frame_timeout": 60.0})()
+            self.assertEqual(f.ios_audit(args), 0 if install_rc == 0 else 1)
         finally:
             f.q.IOS, f.ensure_ffmpeg, _t.sleep = real_ios, real_ffmpeg, real_sleep
         return Path(out)
+
+    def test_the_app_is_installed_on_the_simulator_before_it_is_launched(self):
+        """both first runs recorded the home screen for 80 s: nothing installed the app"""
+        self.run_audit()
+        self.assertEqual(self.order[0][0], "to_file")
+        self.assertIn("install", self.order[0][1])
+        self.assertIn("App.app", self.order[0][1])
+        self.assertLess([k for k, _ in self.order].index("to_file"), [k for k, _ in self.order].index("launch"))
+
+    def test_an_app_that_does_not_install_fails_the_audit_and_is_never_launched(self):
+        out = self.run_audit(install_rc=1)
+        import json
+        report = json.loads((out / "flicker.json").read_text())
+        self.assertFalse(report["idle"]["ok"])
+        self.assertIn("the app did not install on the Simulator", report["idle"]["detail"])
+        self.assertIsNone(report["flash"]["ok"])
+        self.assertNotIn("launch", [k for k, _ in self.order])
 
     def test_an_idle_app_passes_and_the_rest_says_what_was_not_run(self):
         out = self.run_audit()
@@ -363,6 +388,27 @@ class MonotonicTests(unittest.TestCase):
 
     def test_the_other_direction(self):
         self.assertTrue(f.monotonic([500, 400, 300, 120], direction=-1)[0])
+
+
+class IosAuditSourceTests(unittest.TestCase):
+    """The iOS audit is driven by `simctl`, which this machine has not: what it must do first is read from its source."""
+
+    def ios_audit_source(self):
+        text = (Path(__file__).resolve().parent / "flicker_audit.py").read_text(encoding="utf-8")
+        start = text.index("def ios_audit(")
+        return text[start:text.index("\ndef ", start + 1)]
+
+    def test_the_app_is_installed_before_the_first_launch(self):
+        # the two first runs of the audit recorded the home screen for 80 s: nothing installed the app and `simctl launch` of an app that is
+        # not there starts nothing
+        src = self.ios_audit_source()
+        install = src.index('"simctl", "install"')
+        self.assertLess(install, src.index("dev.launch("), "the app must be installed before it is launched")
+
+    def test_an_app_that_does_not_install_is_a_failure_that_says_so(self):
+        src = self.ios_audit_source()
+        self.assertIn("the app did not install on the Simulator", src)
+        self.assertIn("return 1", src)
 
 
 if __name__ == "__main__":

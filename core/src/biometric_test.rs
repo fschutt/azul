@@ -71,9 +71,12 @@ mod autotest_generated {
         assert!(!BiometricResult::Cancelled.is_success());
         assert!(!BiometricResult::Unavailable.is_success());
         assert!(!BiometricResult::Error.is_success());
+        // A locked-out or not-enrolled sensor is no unlock either.
+        assert!(!BiometricResult::LockedOut.is_success());
+        assert!(!BiometricResult::NotEnrolled.is_success());
     }
 
-    /// invariant: exactly two of the six variants are successes — a naive
+    /// invariant: exactly two of the eight variants are successes — a naive
     /// impl that treated `FellBackToPasscode` as failure, or `Failed` as
     /// success, would break this count.
     #[test]
@@ -85,6 +88,8 @@ mod autotest_generated {
             BiometricResult::FellBackToPasscode,
             BiometricResult::Unavailable,
             BiometricResult::Error,
+            BiometricResult::LockedOut,
+            BiometricResult::NotEnrolled,
         ];
         let successes = all.iter().filter(|r| r.is_success()).count();
         assert_eq!(successes, 2);
@@ -283,7 +288,8 @@ mod autotest_generated {
         assert_eq!(BiometricKind::default() as u32, 0);
     }
 
-    /// `BiometricResult` discriminants are 0..=5 in declaration order.
+    /// `BiometricResult` discriminants are 0..=7 in declaration order (0..=5 are the first
+    /// version's, `LockedOut` and `NotEnrolled` come after them).
     /// Note `Authenticated == 0`: a zeroed result is a *success*, so the
     /// backends must never hand out a default-initialised result.
     #[test]
@@ -294,6 +300,8 @@ mod autotest_generated {
         assert_eq!(BiometricResult::FellBackToPasscode as u32, 3);
         assert_eq!(BiometricResult::Unavailable as u32, 4);
         assert_eq!(BiometricResult::Error as u32, 5);
+        assert_eq!(BiometricResult::LockedOut as u32, 6);
+        assert_eq!(BiometricResult::NotEnrolled as u32, 7);
     }
 
     /// encode == decode: variant -> discriminant -> variant is the
@@ -319,6 +327,8 @@ mod autotest_generated {
                 3 => Some(BiometricResult::FellBackToPasscode),
                 4 => Some(BiometricResult::Unavailable),
                 5 => Some(BiometricResult::Error),
+                6 => Some(BiometricResult::LockedOut),
+                7 => Some(BiometricResult::NotEnrolled),
                 _ => None,
             }
         }
@@ -338,6 +348,8 @@ mod autotest_generated {
             BiometricResult::FellBackToPasscode,
             BiometricResult::Unavailable,
             BiometricResult::Error,
+            BiometricResult::LockedOut,
+            BiometricResult::NotEnrolled,
         ] {
             assert_eq!(result_from_u32(r as u32), Some(r));
         }
@@ -345,7 +357,7 @@ mod autotest_generated {
         // Boundary / bogus native codes.
         assert_eq!(kind_from_u32(4), None);
         assert_eq!(kind_from_u32(u32::MAX), None);
-        assert_eq!(result_from_u32(6), None);
+        assert_eq!(result_from_u32(8), None);
         assert_eq!(result_from_u32(u32::MAX), None);
     }
 
@@ -438,10 +450,12 @@ mod autotest_generated {
             BiometricResult::FellBackToPasscode,
             BiometricResult::Unavailable,
             BiometricResult::Error,
+            BiometricResult::LockedOut,
+            BiometricResult::NotEnrolled,
         ];
 
         assert_eq!(kinds.iter().collect::<HashSet<_>>().len(), 4);
-        assert_eq!(results.iter().collect::<HashSet<_>>().len(), 6);
+        assert_eq!(results.iter().collect::<HashSet<_>>().len(), 8);
 
         // Eq => equal hashes (the Hash/Eq contract).
         for k in kinds {

@@ -11,6 +11,10 @@ const IOS_CLIPBOARD_RS: &str = include_str!("ios/clipboard.rs");
 const IOS_WEBVIEW_RS: &str = include_str!("ios/webview.rs");
 const IOS_SYSTEM_FONT_RS: &str = include_str!("ios/system_font.rs");
 const IOS_OPEN_URL_RS: &str = include_str!("ios/open_url.rs");
+const IOS_SYSTEM_UI_RS: &str = include_str!("ios/system_ui.rs");
+const NOTIFICATIONS_APPLE_RS: &str = include_str!("../notifications/apple.rs");
+const IOS_SYSTEM_CONFIGURATION_RS: &str = include_str!("ios/system_configuration.rs");
+const IOS_SYSTEM_CONFIGURATION_TABLE_RS: &str = include_str!("common/ios_system_configuration.rs");
 const AUTH_APPLE_RS: &str = include_str!("../extra/auth_session/apple.rs");
 const PERMISSION_IOS_RS: &str = include_str!("../extra/permission/ios.rs");
 const GAMEPAD_APPLE_RS: &str = include_str!("../extra/gamepad/apple.rs");
@@ -80,6 +84,7 @@ fn the_ios_shell_does_not_unwrap_what_the_objective_c_runtime_hands_it() {
         ("ios/clipboard.rs", IOS_CLIPBOARD_RS),
         ("ios/webview.rs", IOS_WEBVIEW_RS),
         ("ios/system_font.rs", IOS_SYSTEM_FONT_RS),
+        ("ios/system_ui.rs", IOS_SYSTEM_UI_RS),
         ("ios/open_url.rs", IOS_OPEN_URL_RS),
         ("extra/file_picker/ios.rs", FILE_PICKER_RS),
     ] {
@@ -809,10 +814,50 @@ fn url_open_on_ios_asks_uikit_on_the_main_thread() {
         "URLWithString:",
         "if nsurl.is_null()",
         "CString::new(",
+        "resolve_open_alias(url)",
     ] {
         assert!(code.contains(needed), "ios/open_url.rs: `{needed}` is missing");
     }
+    // the alias is resolved before anything reads the URL (the main thread asks, or the queue is handed it)
+    let hook = body(&code, "pub fn azul_ios_open_url(");
+    in_order(hook, "resolve_open_alias(url)", "on_main_thread()", "azul_ios_open_url");
     at(IOS_MOD_RS, "mod open_url;", "the iOS shell declares the opener");
+}
+
+/// E63: AzMeet and AzCompanion did not build for iOS because the networking dependencies of the `iroh` feature reference 23
+/// SystemConfiguration symbols that the iOS SDK marks unavailable (`scripts/ci/ios_symbol_gate.py` refuses such a binary). The
+/// engine DEFINES every one of them (`ios/system_configuration.rs`; the table is `common/ios_system_configuration.rs`, tested on
+/// every host): a symbol of the table without a definition is an import again and the gate fails again. The definitions answer
+/// "nothing is configured" (NULL, an empty array, an empty string) and never panic, and the constants are set before `main`.
+#[test]
+fn every_systemconfiguration_symbol_the_gate_listed_is_defined_by_the_ios_shell() {
+    let table = code_of(IOS_SYSTEM_CONFIGURATION_TABLE_RS);
+    let shim = code_of(IOS_SYSTEM_CONFIGURATION_RS);
+    // the rows of the table: `symbol("<name>", ShimKind::<kind>, <user>),`
+    let names: Vec<&str> = table
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("symbol(\"")?.split('"').next())
+        .collect();
+    assert_eq!(names.len(), 23, "the table lists the 23 symbols of the gate: {names:?}");
+    for name in &names {
+        if name.starts_with("kSC") {
+            // a constant: one of the names handed to `constants!`
+            at(&shim, &format!("    {name},"), "ios/system_configuration.rs: the constants! list");
+        } else {
+            at(&shim, &format!("pub extern \"C\" fn {name}("), "ios/system_configuration.rs");
+        }
+    }
+    // 15 functions + the macro that defines the 8 constants, each exported under its C name
+    assert_eq!(shim.matches("#[no_mangle]").count(), 16, "every definition is exported under its C name");
+    // the constructor that fills the constants before main, and the immortal object they hold
+    at(&shim, "#[link_section = \"__DATA,__mod_init_func\"]", "the constants are set by the loader's initialiser list");
+    at(&shim, "let null_object = kCFNull;", "the constants hold CFNull (immortal: released once per store built)");
+    // a phone app aborts on a panic, and these functions are called from the dependencies' threads
+    for banned in [".unwrap()", ".expect(", "panic!", "unreachable!", "todo!"] {
+        assert!(!shim.contains(banned), "ios/system_configuration.rs must not contain `{banned}`");
+    }
+    // not for Mac Catalyst (the real functions exist there), and declared by the shell
+    in_order(IOS_MOD_RS, "#[cfg(not(target_abi = \"macabi\"))]", "mod system_configuration;", "ios/mod.rs");
 }
 
 /// `ASWebAuthenticationPresentationContextProviding` is a protocol apps adopt and Apple's own classes do not, so the runtime
@@ -860,6 +905,13 @@ fn the_ios_permission_backend_requests_one_capability_at_a_time_and_reads_quietl
         status.contains("PermissionState::NotDetermined") && !status.contains("PermissionState::Denied\n                } else"),
         "a when-in-use grant is not a refusal of the background capability"
     );
+    // a Subscribe (which the manager lets through only after a user gesture, for an undecided capability) asks for THAT
+    // capability, location excepted (the geolocation backend asks with its own Subscribe); a Release asks nothing
+    let event = body(PERMISSION_IOS_RS, "pub fn handle_event(");
+    at(event, "PermissionDiffEvent::Subscribe { capability, .. }", "handle_event");
+    at(event, "Capability::Geolocation | Capability::GeolocationBackground => {}", "handle_event");
+    at(event, "other => request(*other)", "handle_event");
+    assert!(!event.contains("Release"), "a release asks nothing (and gives nothing back)");
     // the request path is the only one that asks: the probes never do
     let probe = body(PERMISSION_IOS_RS, "pub fn probe_status(");
     for asking in ["requestAccess", "requestWhenInUse", "requestAlways", "request_av_access", "request_permission"] {
@@ -884,4 +936,98 @@ fn the_ios_window_feeds_the_engines_gesture_config_from_uikits_numbers() {
     let touch = body(IOS_MOD_RS, "fn handle_touch(");
     at(touch, "UIKIT_GESTURES.pan_threshold_points", "handle_touch");
     assert!(!code_of(touch).contains("10.0"), "the slop is the table's, not a literal");
+}
+
+/// "The permission dialog appears only when needed" has to be checkable from a console: every place that asks the system
+/// for a grant says so in the log, right before it asks, in words the Simulator driver
+/// (`scripts/ci/ios_sim_selftest.py`) looks for ("OS prompt"). A fresh install that asked for nothing has none of those
+/// lines; a dialog nobody explained would have one.
+#[test]
+fn every_place_the_ios_shell_asks_the_system_for_a_permission_says_so_in_the_log_first() {
+    for (file, source, asks) in [
+        (
+            "extra/geolocation/ios.rs",
+            GEOLOCATION_IOS_RS,
+            &["requestWhenInUseAuthorization", "requestAlwaysAuthorization"][..],
+        ),
+        ("notifications/apple.rs", NOTIFICATIONS_APPLE_RS, &["requestAuthorizationWithOptions"][..]),
+        ("extra/speech/apple.rs", SPEECH_APPLE_RS, &["requestAuthorization:"][..]),
+    ] {
+        let code = code_of(source);
+        for ask in asks {
+            let mut found = 0;
+            for (at_byte, _) in code.match_indices("msg_send![") {
+                let call: String = code[at_byte..].chars().take(160).collect();
+                if !call.contains(ask) {
+                    continue;
+                }
+                found += 1;
+                let before: String = code[..at_byte].chars().rev().take(900).collect::<Vec<_>>().into_iter().rev().collect();
+                assert!(
+                    before.contains("OS prompt"),
+                    "{file}: the call that asks with `{ask}` is not preceded by a log line that says so (\"OS prompt\")"
+                );
+            }
+            assert!(found > 0, "{file}: no call with `{ask}` found - was it renamed? (this pin has to follow it)");
+        }
+    }
+}
+
+/// The system's chrome and the display features reach UIKit and the engine through ONE place each: the window's root view
+/// controller is the `AzulViewController` (a plain `UIViewController` answers "as ever" to the status bar, the home
+/// indicator and the deferred edges for good), the options of the window are applied at creation and again by
+/// `sync_window_state`, and `layoutSubviews` reports the display's features beside the insets (and a change of them is a
+/// change of layout). UIKit APIs newer than the oldest iOS the shell runs on are asked about before they are called: an
+/// unrecognised selector is an exception, and an exception through Rust frames is an abort.
+#[test]
+fn the_ios_window_hands_the_system_chrome_and_the_display_features_to_uikit_and_the_engine() {
+    let new = body(IOS_MOD_RS, "pub fn new(");
+    for needed in [
+        "system_ui::declare_view_controller()",
+        "system_ui::ui_of_options(&full_window_state.flags.system_bars)",
+        "system_ui::apply(vc, system_ui_at_start)",
+    ] {
+        at(new, needed, "IOSWindow::new");
+    }
+    in_order(new, "system_ui::declare_view_controller()", "msg_send![vc_class, alloc]", "IOSWindow::new");
+    // the display tick is the only per-frame slot of this shell: it pushes the window state, so a change made by ANY callback
+    // (not only one that went through an input event) reaches UIKit
+    let tick = body(IOS_MOD_RS, "extern \"C\" fn display_tick(");
+    in_order(tick, "process_timers_and_threads()", "sync_window_state()", "display_tick");
+    let sync = body(IOS_MOD_RS, "fn sync_window_state(");
+    at(sync, "flags.system_bars", "sync_window_state");
+    at(sync, "system_ui::apply(", "sync_window_state");
+    at(sync, "applied_system_ui", "sync_window_state");
+    let layout = body(IOS_MOD_RS, "extern \"C\" fn layout_subviews(");
+    at(layout, "system_ui::display_features(", "layout_subviews");
+    at(layout, "report_display_features(features)", "layout_subviews");
+    at(layout, "inset_changed || features_changed", "layout_subviews");
+    let ui = code_of(IOS_SYSTEM_UI_RS);
+    for selector in [
+        "setNeedsUpdateOfHomeIndicatorAutoHidden",
+        "setNeedsUpdateOfScreenEdgesDeferringSystemGestures",
+        "windowScene",
+        "statusBarManager",
+        "interfaceOrientation",
+    ] {
+        let asked = format!("sel!({selector})");
+        let line = ui
+            .lines()
+            .find(|line| line.contains(&asked))
+            .unwrap_or_else(|| panic!("`{selector}` is not asked about"));
+        assert!(line.contains("responds("), "`{selector}` must be asked about with responds() first: `{}`", line.trim());
+    }
+    for method in [
+        "prefersStatusBarHidden",
+        "preferredStatusBarStyle",
+        "prefersHomeIndicatorAutoHidden",
+        "preferredScreenEdgesDeferringSystemGestures",
+    ] {
+        at(&ui, &format!("sel!({method})"), "AzulViewController overrides what UIKit asks");
+    }
+    // the cutout's shape and the corner radius are never read from a private API
+    for private in ["_displayCornerRadius", "_statusBarHeight", "_cornerRadius"] {
+        assert!(!ui.contains(private), "no private API: `{private}`");
+    }
+    // (that every cutout is reported approximate is a unit test of `common/ios_display_features.rs`)
 }

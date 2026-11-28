@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The theme of every azul activity, LIGHT.
+
+  Before the engine has presented its first picture an activity shows the theme's window: with no theme of its own
+  that is the platform's default window, a flat dark colour, and a cold start went from the system's starting
+  window (light) to a second of dark and then to the app (QA ledger E46). The window is the colour of the engine's
+  own default window background (css/src/system.rs: android_material_light, white) instead, and in the night mode
+  (res/values-night) the engine's dark one, so the starting window, the empty window and the first frame are one
+  colour. An app that paints its own background over the whole window covers it from its first frame on.
+
+  The Android 12+ attributes (the starting window's own background) are in res/values-v31: an older platform has no
+  such attribute.
+-->
+<resources>
+    <color name="azul_window_background">#FFFFFF</color>
+    <style name="AzulTheme" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/azul_window_background</item>
+        <item name="android:colorBackground">@color/azul_window_background</item>
+    </style>
+</resources>

@@ -9156,13 +9156,14 @@ mod audit_a9_report_tests {
 
 /// Writes a file a scenario asked for (a damage picture) at `path`, creating its folders. A RELATIVE path that cannot be written - a phone's
 /// app has no writable working directory (`target/e2e/x.png` failed with "Read-only file system" on the iOS Simulator and no scenario that
-/// asks for such a file could pass there) - is written under `fallback_dir` (the temp dir) with its file name instead; an absolute path is the
-/// scenario's own decision and fails as it is. -> the path written.
+/// asks for such a file could pass there) - is written under `fallback_dir` (the window's e2e output folder, `AZ_E2E_SHOT_DIR`, when it has
+/// one) with its file name instead; an absolute path is the scenario's own decision and fails as it is, and so does a relative one when there
+/// is no folder to fall back to. -> the path written.
 #[cfg(feature = "std")]
 fn write_e2e_artifact(
     path: &str,
     bytes: &[u8],
-    fallback_dir: &std::path::Path,
+    fallback_dir: Option<&std::path::Path>,
 ) -> std::io::Result<std::path::PathBuf> {
     write_e2e_artifact_with(path, bytes, fallback_dir, &|target: &std::path::Path, data: &[u8]| {
         if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -9177,20 +9178,20 @@ fn write_e2e_artifact(
 fn write_e2e_artifact_with(
     path: &str,
     bytes: &[u8],
-    fallback_dir: &std::path::Path,
+    fallback_dir: Option<&std::path::Path>,
     write: &dyn Fn(&std::path::Path, &[u8]) -> std::io::Result<()>,
 ) -> std::io::Result<std::path::PathBuf> {
     let target = std::path::Path::new(path);
-    match write(target, bytes) {
-        Ok(()) => Ok(target.to_path_buf()),
-        Err(first) if target.is_relative() => {
+    match (write(target, bytes), fallback_dir) {
+        (Ok(()), _) => Ok(target.to_path_buf()),
+        (Err(first), Some(dir)) if target.is_relative() => {
             let name = target
                 .file_name()
                 .map_or_else(|| std::ffi::OsString::from("e2e-artifact.png"), std::ffi::OsString::from);
-            let fallback = fallback_dir.join(name);
+            let fallback = dir.join(name);
             write(&fallback, bytes).map(|()| fallback).map_err(|_| first)
         }
-        Err(first) => Err(first),
+        (Err(first), _) => Err(first),
     }
 }
 
@@ -11709,6 +11710,14 @@ static UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
          asserted here: an orphan leaves only once its worker THREAD has returned, which no \
          deterministic scenario step can wait for, so an invariant over it would be a race",
     ),
+    (
+        "stand_in_user",
+        "owns no window state: the scripted pretend user of the stand-in keyring and biometric gate \
+         is a handle of the APP (`AppServices::biometric.user`, shared by every window), filled by a \
+         test or by the engine op `standin_user` and consumed one outcome per sheet. Nothing in it \
+         is node-keyed and nothing in it latches between passes. What it answered is asserted by the \
+         ops `keyring` and `biometric_prompt` (`expect`)",
+    ),
 ];
 
 fn eval_assert_manager_invariants(
@@ -12874,6 +12883,13 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
              the next thread poll after its worker returned), not when the measured pass runs: a \
              fingerprint would report changes the scenario did not cause. Its node keys follow \
              `remap_node_ids`, which every other node-keyed manager's fingerprint already covers",
+        ),
+        (
+            "stand_in_user",
+            "nothing on the WINDOW to hash: the pretend user of the stand-ins is the app's \
+             (`AppServices::biometric.user`), scripted by `standin_user` and consumed one outcome \
+             per sheet, so a fingerprint of it would move with every scripted answer rather than \
+             with a leak. What it answered is asserted by `keyring` and `biometric_prompt`",
         ),
     ];
     #[cfg(not(feature = "a11y"))]
@@ -18792,7 +18808,10 @@ fn serve_debug_event(
                     // left the directory behind. A scenario must not depend on
                     // leftover build artefacts to pass.
                     Ok(png) => {
-                        match write_e2e_artifact(path, &png, &std::env::temp_dir()) {
+                        // The folder the window's settings name for e2e output (`AZ_E2E_SHOT_DIR`, read once by the settings): handed DOWN, the
+                        // library asks the process environment for nothing.
+                        let fallback = callback_info.get_layout_window().settings.e2e.shot_dir.clone();
+                        match write_e2e_artifact(path, &png, fallback.as_deref()) {
                             Ok(_) => send_ok(request, None, None),
                             Err(e) => send_err(
                                 request,
@@ -18973,7 +18992,13 @@ fn serve_debug_event(
                 .iter()
                 .find(|c| c.name.as_str() == name.as_str())
                 .map(|c| azul_layout::callbacks::E2eCommandCallback::from_core(&c.callback));
-            let out = if let Some(command) = command {
+            // The engine's own ops of the keyring and the biometric stand-in answer before the
+            // app's commands (`standin_user`, `keyring`, `biometric_prompt`).
+            let builtin =
+                super::standin_ops::engine_op(callback_info.get_layout_window(), name, args);
+            let out = if let Some(out) = builtin {
+                out
+            } else if let Some(command) = command {
                 // The window's own CallbackInfo (it is Copy): the command
                 // starts threads and timers and changes the UI through it,
                 // and those changes are applied after this op like any
@@ -26314,16 +26339,16 @@ mod e2e_artifact_write_tests {
         }
     }
 
-    /// A relative artefact path that cannot be written lands in the temp dir under its file name: the scenario that asked for a damage picture
-    /// (`target/e2e/mount_damage_smoke_patch.png`) must not fail on a phone for want of a writable working directory.
+    /// A relative artefact path that cannot be written lands in the window's shot folder under its file name: the scenario that asked for a
+    /// damage picture (`target/e2e/mount_damage_smoke_patch.png`) must not fail on a phone for want of a writable working directory.
     ///
-    /// Mutation: no fallback (the first error is returned) fails the `Ok`; a fallback that keeps the folders (`target/e2e/...` under the temp
-    /// dir) fails the path.
+    /// Mutation: no fallback (the first error is returned) fails the `Ok`; a fallback that keeps the folders (`target/e2e/...` under the shot
+    /// folder) fails the path.
     #[test]
-    fn a_relative_path_that_cannot_be_written_goes_to_the_temp_dir() {
+    fn a_relative_path_that_cannot_be_written_goes_to_the_shot_folder() {
         let written = RefCell::new(Vec::new());
-        let got = write_e2e_artifact_with("target/e2e/patch.png", b"png", Path::new("/tmp/app-cache"), &sandbox(&written))
-            .expect("the temp dir takes it");
+        let got = write_e2e_artifact_with("target/e2e/patch.png", b"png", Some(Path::new("/tmp/app-cache")), &sandbox(&written))
+            .expect("the shot folder takes it");
         assert_eq!(got, PathBuf::from("/tmp/app-cache/patch.png"));
         assert_eq!(written.borrow().as_slice(), [PathBuf::from("/tmp/app-cache/patch.png")]);
     }
@@ -26332,7 +26357,7 @@ mod e2e_artifact_write_tests {
     #[test]
     fn an_absolute_path_that_cannot_be_written_fails_as_it_is() {
         let written = RefCell::new(Vec::new());
-        let err = write_e2e_artifact_with("/readonly/x.png", b"png", Path::new("/tmp/app-cache"), &sandbox(&written)).unwrap_err();
+        let err = write_e2e_artifact_with("/readonly/x.png", b"png", Some(Path::new("/tmp/app-cache")), &sandbox(&written)).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::PermissionDenied);
         assert!(written.borrow().is_empty(), "nothing was written anywhere else");
     }
@@ -26345,16 +26370,25 @@ mod e2e_artifact_write_tests {
             written.borrow_mut().push(target.to_path_buf());
             Ok(())
         };
-        let got = write_e2e_artifact_with("target/e2e/patch.png", b"png", Path::new("/tmp/app-cache"), &writer).expect("written");
+        let got = write_e2e_artifact_with("target/e2e/patch.png", b"png", Some(Path::new("/tmp/app-cache")), &writer).expect("written");
         assert_eq!(got, PathBuf::from("target/e2e/patch.png"));
         assert_eq!(written.borrow().len(), 1);
+    }
+
+    /// Without an output folder in the window's settings there is nothing to fall back to: the relative path fails as it is.
+    #[test]
+    fn a_relative_path_without_an_output_folder_fails_as_it_is() {
+        let written = RefCell::new(Vec::new());
+        let err = write_e2e_artifact_with("target/e2e/patch.png", b"png", None, &sandbox(&written)).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
+        assert!(written.borrow().is_empty());
     }
 
     /// When the fallback cannot be written either, the FIRST error is the one reported (it names the path the scenario asked for).
     #[test]
     fn when_the_fallback_fails_too_the_first_error_is_reported() {
         let writer = |_: &Path, _: &[u8]| -> std::io::Result<()> { Err(Error::new(ErrorKind::PermissionDenied, "first")) };
-        let err = write_e2e_artifact_with("a/b.png", b"png", Path::new("/tmp/app-cache"), &writer).unwrap_err();
+        let err = write_e2e_artifact_with("a/b.png", b"png", Some(Path::new("/tmp/app-cache")), &writer).unwrap_err();
         assert_eq!(err.to_string(), "first");
     }
 }

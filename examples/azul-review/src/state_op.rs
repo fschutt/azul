@@ -84,6 +84,11 @@ pub fn state_json(s: &AppState) -> String {
         },
         "progress": progress_json(s),
         "visible_page": s.visible_page,
+        "review": {
+            "state": s.voice.review.state().name(),
+            "elapsed_ms": s.voice.review.elapsed_ms(s.voice.now_ms()),
+            "may_listen": s.voice.may_listen(),
+        },
         "zoom": s.page_zoom(),
         "strip_scroll": [s.strip_scroll.0, s.strip_scroll.1],
         "strokes": s.strokes.len(),
