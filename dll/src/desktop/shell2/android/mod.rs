@@ -1746,6 +1746,45 @@ fn night_mode_of(app: &AndroidApp) -> Option<azul_core::window::DarkLightMode> {
     }
 }
 
+/// How long the first layout waits for the insets that follow a request of the app for the system bars (a hidden bar, the cutout area): the UI
+/// thread applies the request, the system relayouts the window and dispatches it again, a few frames on a phone and a few more on the emulator.
+const SYSTEM_BARS_WAIT_MS: u64 = 250;
+
+/// What the window asks of the system bars and the cutout area (`WindowFlags::system_bars`), asked of the activity at the surface's creation
+/// and, when it moves the insets (`android_core::display::bars_request_moves_insets`), the wait for the insets that follow it: the first
+/// layout is then made for the window the request leaves, not for the one it replaces (AzWriter on a phone hides the status bar and its
+/// strip takes the bar's place: laid out before the bar is gone, the first picture was another page and moved a moment later). An app that
+/// asks for nothing of the bars waits for nothing. A request the system does not answer with new insets costs the limit once.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn apply_system_bars_at_surface(window: &mut AndroidWindow) {
+    use crate::desktop::shell2::android_core::display::{bars_request_moves_insets, wait_for_change};
+
+    let wanted = window.common.current_window_state().flags.system_bars;
+    if window.applied_system_bars == Some(wanted) {
+        return;
+    }
+    let moves = bars_request_moves_insets(wanted.status as i32 != 0, wanted.navigation as i32 != 0, wanted.draw_into_cutout);
+    // What the window has been dispatched so far, before the request: a change of it is the answer.
+    let before = if moves { early_insets() } else { None };
+    apply_system_bars_if_changed(window);
+    if !moves {
+        return;
+    }
+    let started = std::time::Instant::now();
+    let answered = wait_for_change(
+        &before,
+        std::time::Duration::from_millis(SYSTEM_BARS_WAIT_MS),
+        std::time::Duration::from_millis(8),
+        early_insets,
+    );
+    log_info!(
+        LogCategory::Window,
+        "[Android] the system bars asked for at the surface: the window's insets {} after {} ms",
+        if answered.is_some() { "changed" } else { "did not change within the limit" },
+        started.elapsed().as_millis()
+    );
+}
+
 /// What the window's first insets dispatch gave (`NativeTextBridge.insetsSnapshot`, asked of Java synchronously: the dispatch comes
 /// before the surface exists, this is asked when the surface does), applied before the first layout. Nothing when the activity has no
 /// dispatch yet: the insets then come the way they always did, from the Java UI thread, after the first picture.
@@ -2084,6 +2123,10 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         }
                         #[cfg(not(feature = "cpurender"))]
                         let _ = surface_px;
+                        // What the window asks of the system bars and the cutout area (`WindowFlags::system_bars`), at its creation, BEFORE the
+                        // first layout: an app that hides the status bar (AzWriter on a phone) lays its first picture out for the window the
+                        // request makes, not for the one it is about to leave. `sync_window_state` follows the changes.
+                        apply_system_bars_at_surface(window);
                         // The insets and the display features of the window's FIRST dispatch (`NativeTextBridge.installEarlyInsetsListener`),
                         // before the first layout: laid out without them the first picture sat under the status bar, and the insets that
                         // arrived after it forced a second full layout and moved the page (ledger E60, the Resize pass after the first present).
@@ -2094,9 +2137,6 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         // WindowResized) it tags the pass `Resize`.
                         let reason = resize_reason(window);
                         window.common.request_regeneration(reason);
-                        // What the window asks of the system bars and the cutout area (`WindowFlags::system_bars`), at its
-                        // creation: `sync_window_state` follows the changes.
-                        apply_system_bars_if_changed(window);
                         // The app's `WindowCreateOptions::create_callback`, ONCE per window lifetime, as the
                         // desktop shells fire it: the window exists (the surface, its real size and density),
                         // nothing is laid out yet. An app starts its timers, workers, locale and requests
