@@ -12,6 +12,7 @@
 #   autofix    api.json through azul-doc: `autofix add` for the new functions, patches until there are none, normalize; the result is
 #              api.json (upload it) and api.diff; then a SECOND round that must change nothing
 #   doc_check  azul-doc check (the double-drop invariant, the guide links) and azul-doc check layout
+#   srcgate    the repository's source rules alone (cargo test -p azul-srcgate): no libazul, no codegen
 #   dll_check  codegen of the bindings from the api.json as it stands, cargo check of azul-dll, the srcgate tests
 #   apps       the two apps over the bindings: cargo check --lib --tests and the apps' own unit tests (no engine crate builds in them)
 #   apps_clippy  clippy -D warnings of the two apps
@@ -165,6 +166,13 @@ dll_check() {
   return "$code"
 }
 run dll_check dll_check
+
+# the source rules of the repository (no global state, aggregates as statics, tests in adjacent files, ...) over the tree as it is
+srcgate() {
+  cargo test -p azul-srcgate --no-fail-fast 2>&1 | tee srcgate.txt
+  return "${PIPESTATUS[0]}"
+}
+run srcgate srcgate
 
 apps() {
   local code=0
