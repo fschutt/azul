@@ -11,7 +11,8 @@
 #   before  the commit AZ_LAB_BEFORE_REF (default: master 98d415cb4e, the state E60 measured): its whole scripts/android directory
 #   none    `before` with the starting-window hold taken out (the system's own behaviour)
 #   tree    the checkout this job runs in (what a change under test does)
-#   cut     the tree plus an exit listener that removes the starting window's copy at once (no exit animation)
+#   fade    the tree without the cut of the starting window's exit (AzulActivity `Splash31.cut`): the system's own exit animation, a cross-fade
+#           in the light mode and a fade through a window with no icon and no page in the night mode
 # and the rows of scripts/ci/startup_lab.py (DEFAULT_ROWS, or a JSON file: AZ_LAB_ROWS), each AZ_LAB_STARTS cold starts (default 4), recorded
 # with adb screenrecord at 30 fps like scripts/ci/flicker_audit.py does and cut into frames: the verdict is the run lengths of the frames of
 # the starting window (S), of black (B), of the first picture (1) and of the settled one (2).
@@ -44,20 +45,19 @@ build() {   # build <name> <extra build.sh options...>
 }
 apks=()
 build tree && apks+=(--apk "tree=demo-out/lab-apks/tree.apk")
-# CUT: the tree's hold plus an exit listener that removes the starting window's copy at once: no exit animation (a hard cut from the starting window to the
-# first picture, which has no cross-fade and so no dip through the splash colour); the system's default animation is what `tree` has
-cut="demo-out/lab-cut"
-mkdir -p "$cut" && cp -R scripts/android/. "$cut/"
-python3 - "$cut/AzulActivity.java" <<'PY'
+# FADE: the tree without the cut of the starting window's exit: the system's own exit animation (what the tree had before the cut was adopted, and what
+# the control rows `fade-*` measure against `tree-*`, which has the cut)
+fade="demo-out/lab-fade"
+mkdir -p "$fade" && cp -R scripts/android/. "$fade/"
+python3 - "$fade/AzulActivity.java" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p).read()
-anchor = "        holdFirstDraw();\n"
-assert anchor in s, "holdFirstDraw() is not where the lab expects it"
-s = s.replace(anchor, anchor + "        if (android.os.Build.VERSION.SDK_INT >= 31) {\n            getSplashScreen().setOnExitAnimationListener(view -> view.remove());\n        }\n", 1)
-open(p, "w").write(s)
+cut = "        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {\n            Splash31.cut(this);\n        }\n"
+assert cut in s, "the cut of the starting window's exit is not where the lab expects it"
+open(p, "w").write(s.replace(cut, "", 1))
 PY
-build cut --android-dir "$cut" && apks+=(--apk "cut=demo-out/lab-apks/cut.apk")
+build fade --android-dir "$fade" && apks+=(--apk "fade=demo-out/lab-apks/fade.apk")
 # BEFORE: the whole scripts/android directory of the old commit (a shallow checkout has no history: fetch just that commit)
 old="demo-out/lab-before"
 mkdir -p "$old"

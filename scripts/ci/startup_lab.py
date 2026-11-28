@@ -54,10 +54,11 @@ DEFAULT_ROWS = [
     {"name": "tree-100", "apk": "tree", "props": {"p1": 100, "p2": 330}},
     {"name": "before-1000", "apk": "before", "props": {"p1": 1000, "p2": 330}},
     {"name": "tree-1000", "apk": "tree", "props": {"p1": 1000, "p2": 330}},
-    # the tree's hold with no exit animation (a hard cut from the starting window to the first picture) against the system's own cross-fade
-    {"name": "cut-450", "apk": "cut", "props": {"p1": 450, "p2": 330}, "resume": True},
+    # the tree's hold WITHOUT the cut of the starting window's exit (the system's own exit animation: a cross-fade, and in the night mode a fade through a window
+    # with no icon and no page) against the tree, which goes in one frame
+    {"name": "fade-450", "apk": "fade", "props": {"p1": 450, "p2": 330}, "resume": True},
     {"name": "tree-450-dark", "apk": "tree", "props": {"p1": 450, "p2": 330, "dark": 1}, "night": True},
-    {"name": "cut-450-dark", "apk": "cut", "props": {"p1": 450, "p2": 330, "dark": 1}, "night": True},
+    {"name": "fade-450-dark", "apk": "fade", "props": {"p1": 450, "p2": 330, "dark": 1}, "night": True},
     # an engine that is slower than the hold's limit (4 s): the window must go ahead at the limit, never stay away (the log says how it went ahead)
     {"name": "tree-5000", "apk": "tree", "props": {"p1": 5000, "p2": 0}, "settle": 9.0, "starts": 2},
     {"name": "before-450-flat", "apk": "before", "props": {"p1": 450, "p2": 330, "flat": "0xFFFFFF"}},
