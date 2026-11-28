@@ -1,0 +1,60 @@
+[
+  {
+    "name": "azul_widgets_a11y_text_size",
+    "description": "The system's text size on the widget page: the same file runs on a desktop, the Android emulator and the iOS Simulator (set_system_accessibility says what the phone's settings say, whatever the platform reports). One picture at the default size, then 1.3 (Android's largest step before 14), 2.0 (its largest since 14), iOS's largest accessibility size by its name, smaller than the default, and back. The text of every widget follows the setting (a node's font size is multiplied once, an inherited size is not scaled twice); a box in px keeps its size, and what is sized by its text grows with it.",
+    "steps": [
+      { "op": "wait_frame", "screenshot": true },
+      { "op": "get_system_accessibility" },
+      { "op": "assert_response", "contains": "\"effective_text_scale\":1.0" },
+      { "op": "set_system_accessibility", "text_scale": 1.3 },
+      { "op": "wait_frame" },
+      { "op": "wait_frame", "screenshot": true },
+      { "op": "get_system_accessibility" },
+      { "op": "assert_response", "contains": "\"effective_text_scale\":1.3" },
+      { "op": "set_system_accessibility", "text_scale": 2.0 },
+      { "op": "wait_frame" },
+      { "op": "wait_frame", "screenshot": true },
+      { "op": "get_system_accessibility" },
+      { "op": "assert_response", "contains": "\"effective_text_scale\":2.0" },
+      { "op": "set_system_accessibility", "text_scale": "accessibility-extra-extra-extra-large" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame", "screenshot": true },
+      { "op": "get_system_accessibility" },
+      { "op": "assert_response", "contains": "\"text_size_category\":\"accessibility-extra-extra-extra-large\"" },
+      { "op": "set_system_accessibility", "text_scale": "extra-small" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame", "screenshot": true },
+      { "op": "set_system_accessibility", "reset": true },
+      { "op": "wait_frame" },
+      { "op": "wait_frame", "screenshot": true },
+      { "op": "get_system_accessibility" },
+      { "op": "assert_response", "contains": "\"effective_text_scale\":1.0" }
+    ]
+  },
+  {
+    "name": "azul_widgets_a11y_options",
+    "description": "The other options on the widget page, one picture each: bold text, increased contrast, reduced transparency, differentiate without colour, reduced motion. (The widgets that respond to them are named in the ledger of WP-A11Y; a widget that does not respond yet shows the same picture.)",
+    "steps": [
+      { "op": "wait_frame", "screenshot": true },
+      { "op": "set_system_accessibility", "bold_text": true },
+      { "op": "wait_frame" },
+      { "op": "wait_frame", "screenshot": true },
+      { "op": "set_system_accessibility", "reset": true, "contrast": "more" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame", "screenshot": true },
+      { "op": "set_system_accessibility", "reset": true, "reduced_transparency": true },
+      { "op": "wait_frame" },
+      { "op": "wait_frame", "screenshot": true },
+      { "op": "set_system_accessibility", "reset": true, "differentiate_without_color": true },
+      { "op": "wait_frame" },
+      { "op": "wait_frame", "screenshot": true },
+      { "op": "set_system_accessibility", "reset": true, "reduced_motion": true },
+      { "op": "wait_frame" },
+      { "op": "wait_frame", "screenshot": true },
+      { "op": "get_system_accessibility" },
+      { "op": "assert_response", "contains": "\"reduced_motion\":\"on\"" },
+      { "op": "set_system_accessibility", "reset": true },
+      { "op": "wait_frame" }
+    ]
+  }
+]
