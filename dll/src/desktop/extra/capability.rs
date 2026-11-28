@@ -199,6 +199,12 @@ impl PlatformCapability {
                 cap(false, "v4l2 (libv4l2)", "no /dev/video* device node")
             }
         } else if cfg!(target_os = "macos") || cfg!(target_os = "ios") {
+            // An iPhone Simulator has no camera: the probe says so instead of "available" (a Mac with a camera or an
+            // iPhone answers as before; the permission is still asked at open(), never here).
+            #[cfg(all(target_os = "ios", feature = "objc2-av-foundation"))]
+            if !super::camera::avf_auth::has_capture_device(true) {
+                return cap(false, "AVFoundation", "no camera on this device (an iOS Simulator has none)");
+            }
             cap(true, "AVFoundation", "device presence confirmed at open()")
         } else if cfg!(target_os = "windows") {
             cap(
@@ -307,6 +313,12 @@ impl PlatformCapability {
                 cap(false, "iio (sysfs)", "no iio motion-sensor device present")
             }
         } else if cfg!(target_os = "ios") {
+            // A phone has CoreMotion's accelerometer and gyroscope; an iOS Simulator has none (the self-test rows of a
+            // Simulator say UNAVAILABLE with this reason, not "no reading after 3 s").
+            #[cfg(target_os = "ios")]
+            if !super::sensors::apple::has_motion_hardware() {
+                return cap(false, "CoreMotion", "no motion hardware (an iOS Simulator has none)");
+            }
             cap(true, "CoreMotion", "")
         } else if cfg!(target_os = "android") {
             // AzulSensors.java ships (one listener per kind, started while a node listens for SensorChanged): the

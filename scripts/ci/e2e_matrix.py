@@ -191,11 +191,11 @@ def apk_identity(apk):
 
 
 def android_shot_dir(package, stem):
-    """Where the engine writes the frames of one scenario file on an Android phone when they are to be pulled: the app's own folder on the
-    external storage (adb reads it without root). The path travels in the system property `debug.az.env` (`AZ_E2E_SHOT_DIR=<path>`), whose
-    value holds 91 characters at most: the name of a file with a long name is cut to what fits (the frames are pulled to a folder of the real
-    name right after the file's run)."""
-    base = f"/sdcard/Android/data/{package}/files/"
+    """Where the engine writes the frames of one scenario file on an Android phone when they are to be pulled: the app's own cache folder (an app
+    can always write there; the emulator's adbd runs as root and pulls from it). The path travels in the system property `debug.az.env`
+    (`AZ_E2E_SHOT_DIR=<path>`), whose value holds 91 characters at most: the name of a file with a long name is cut to what fits (the frames are
+    pulled to a folder of the real name right after the file's run)."""
+    base = f"/data/user/0/{package}/cache/"
     room = 91 - len("AZ_E2E_SHOT_DIR=") - len(base)
     return base + stem[:max(room, 1)]
 
@@ -203,7 +203,7 @@ def android_shot_dir(package, stem):
 def run_android(scns, apks, out, serial="", timeout=240, shots=""):
     """The Android run: per host app its APK is installed once; per file the scenario is pushed, its path becomes `debug.az.e2e`, the app
     is started cold and the file's report is read from logcat when the process has exited. `shots`: a folder on this machine; the engine's
-    frames of each file (AZ_E2E_SHOT_DIR, the app's own folder on the external storage, which adb can read) are pulled to <shots>/<file stem>/."""
+    frames of each file (AZ_E2E_SHOT_DIR, the app's own cache folder, which the emulator's root adbd reads) are pulled to <shots>/<file stem>/."""
     import mobile_qa as q
     run = q.Run(out, "android", {"label": "e2e matrix"})
     records = []
@@ -262,6 +262,7 @@ def run_android(scns, apks, out, serial="", timeout=240, shots=""):
         if shot_dev:
             dest = Path(shots) / stem
             dest.mkdir(parents=True, exist_ok=True)
+            dev.adb("root", timeout=60)        # the AOSP emulator images run adbd as root already; a user build says so here and the pull fails
             pulled = dev.adb("pull", shot_dev + "/.", str(dest), timeout=180)
             print(f"{stem}: {len(list(dest.glob('*.png')))} engine frames pulled ({pulled.strip().splitlines()[-1][:120] if pulled.strip() else 'no output'})")
         why = ("the app was still running after the timeout" if not ended and seen else
