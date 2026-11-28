@@ -27,6 +27,45 @@ fn xml_code(rel: &str) -> String {
     text
 }
 
+/// Java source without its comments.
+fn java_code(rel: &str) -> String {
+    read(rel)
+        .lines()
+        .map(|l| l.split("//").next().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Rust source without its comments and without whitespace.
+fn rust_code(rel: &str) -> String {
+    read(rel)
+        .lines()
+        .map(|l| l.split("//").next().unwrap_or(""))
+        .collect::<String>()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect()
+}
+
+fn body<'a>(src: &'a str, signature: &str) -> &'a str {
+    let start = src.find(signature).unwrap_or_else(|| panic!("no `{signature}`"));
+    let open = start + src[start..].find('{').unwrap();
+    let mut depth = 0;
+    for (i, c) in src[open..].char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &src[open..open + i + 1];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("unbalanced braces after `{signature}`");
+}
+
 /// The activity's window before the first frame is the engine's own default colour per night mode: the starting
 /// window (the icon on the colour) is followed by the same colour, not by the platform's dark default. The Android 12+
 /// starting window gets the same background through its own attribute, which an older platform does not have.
@@ -146,3 +185,44 @@ fn hardware_is_optional_and_fine_location_comes_with_coarse() {
         "CHANGE_WIFI_MULTICAST_STATE implies required Wi-Fi hardware: the template says it is optional"
     );
 }
+
+/// On Android 12 and later the system's starting window (the icon on the window colour) leaves when the activity's window has
+/// drawn, which for a NativeActivity is BEFORE its surface has a buffer: a second of the platform's empty window followed on the CPU
+/// renderer (QA's flicker audit, ledger E46; the theme's window colour covers only what the view hierarchy draws). The starting
+/// window is held with an exit listener and removed when the engine says its first picture was posted, from the CPU path and from the
+/// GPU path, or after two seconds: it must never trap the app behind it. The Android 12 API sits in a class of its own that an older
+/// system never loads.
+///
+/// Mutation: the `postDelayed` removed (an engine that never posts a picture left the app behind its starting window for ever).
+#[test]
+fn the_starting_window_is_held_until_the_first_picture_and_never_trapped() {
+    let java = java_code("scripts/android/AzulActivity.java");
+    let create = body(&java, "protected void onCreate(Bundle savedInstanceState)");
+    assert!(create.contains("holdStartingWindow();"), "onCreate installs the hold");
+    let hold = body(&java, "private void holdStartingWindow()");
+    assert!(
+        hold.contains("android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S") && hold.contains("Splash31.hold(this);"),
+        "Android 12 and later only, through the class that older systems never load"
+    );
+    let splash = body(&java, "private static final class Splash31");
+    assert!(splash.contains("setOnExitAnimationListener"), "the system hands the starting window over");
+    assert!(splash.contains("postDelayed(remove, SPLASH_HOLD_MS)"), "and takes it back after a time, whatever the engine does");
+    assert!(splash.contains("view.remove()"), "the window is removed, once");
+    assert!(java.contains("private static final long SPLASH_HOLD_MS = 2000;"));
+    let first = body(&java, "public static void firstFramePresented(final android.app.Activity activity)");
+    assert!(first.contains("activity.runOnUiThread") && first.contains("firstFrameShown = true;") && first.contains("remove.run();"));
+
+    let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
+    let cpu = shell.find(".mark_first_present(").expect("the CPU path marks its first present");
+    assert!(shell[cpu..].contains("window.first_frame_posted();"), "the CPU path tells the activity after its first post");
+    let signal = body(&shell, "fnsignal_first_frame(){");
+    assert!(signal.contains("\"firstFramePresented\"") && signal.contains("\"com/azul/app/AzulActivity\""));
+    let once = body(&shell, "pub(super)fnfirst_frame_posted(&mutself){");
+    assert!(once.contains("ifself.first_frame_signalled{return;}"), "once per window");
+    let gpu = rust_code("dll/src/desktop/shell2/android/gpu.rs");
+    assert!(
+        gpu.contains("ifself.backend==RenderBackend::Gpu{self.first_frame_posted();}"),
+        "the GPU path tells it too, while it is still the GPU path"
+    );
+}
+

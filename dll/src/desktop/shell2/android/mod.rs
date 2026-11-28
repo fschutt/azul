@@ -111,6 +111,9 @@ pub struct AndroidWindow {
     frame_stats: crate::desktop::shell2::common::frame_stats::FrameStats,
     frame_clock: std::time::Instant,
     raster_since_post_us: u64,
+    /// The activity was told that this window posted its first picture (`AzulActivity.firstFramePresented`: the system's starting
+    /// window may go, Android 12+). Once.
+    first_frame_signalled: bool,
     /// `false` once `MainEvent::Destroy` arrives; breaks the outer loop.
     pub is_open: bool,
     /// What the Java UI thread may touch (`bridge::UiBridge`): the queues it pushes events onto (the IME's
@@ -279,6 +282,7 @@ impl AndroidWindow {
             frame_stats: crate::desktop::shell2::common::frame_stats::FrameStats::new(),
             frame_clock: std::time::Instant::now(),
             raster_since_post_us: 0,
+            first_frame_signalled: false,
             is_open: true,
             icon_provider,
             font_registry,
@@ -434,6 +438,16 @@ impl AndroidWindow {
                 );
             }
         }
+    }
+
+    /// The first picture of this window was posted, by the CPU path or the GPU path: the activity may let the system's starting
+    /// window go. Once per window.
+    pub(super) fn first_frame_posted(&mut self) {
+        if self.first_frame_signalled {
+            return;
+        }
+        self.first_frame_signalled = true;
+        signal_first_frame();
     }
 
     pub fn regenerate_layout_inner(
@@ -2993,6 +3007,7 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
         .app
         .startup()
         .mark_first_present(|| format!("android cpu {}", if plan.dirty.is_some() { "partial" } else { "full" }));
+    window.first_frame_posted();
     if let Some((status_light, navigation_light)) = bars_to_tell {
         set_system_bars_appearance(status_light, navigation_light);
     }
@@ -3201,6 +3216,49 @@ pub fn set_system_bars_appearance(status_light: bool, navigation_light: bool) {
 /// Without `jni` there is no activity to tell.
 #[cfg(all(target_os = "android", not(feature = "jni")))]
 pub fn set_system_bars_appearance(_status_light: bool, _navigation_light: bool) {}
+
+/// Tell the activity that the engine posted its first picture: `AzulActivity.firstFramePresented` lets the system's starting
+/// window go (Android 12+; it was held so that the empty window of the surface that has no buffer yet is never seen).
+#[cfg(all(target_os = "android", feature = "jni"))]
+fn signal_first_frame() {
+    use jni::{objects::JValue, JavaVM};
+
+    let vm_ptr = java_vm_ptr();
+    let activity_ptr = activity_ptr();
+    if vm_ptr.is_null() || activity_ptr.is_null() {
+        return;
+    }
+    let result = (|| -> Result<(), String> {
+        let vm = unsafe { JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) }
+            .map_err(|e| format!("JavaVM::from_raw: {e:?}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
+        let activity =
+            unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
+        let class = crate::desktop::extra::find_app_class(&mut env, &activity, "com/azul/app/AzulActivity")
+            .ok_or_else(|| "AzulActivity not in this APK".to_string())?;
+        env.call_static_method(
+            &class,
+            "firstFramePresented",
+            "(Landroid/app/Activity;)V",
+            &[JValue::Object(&activity)],
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            let _ = env.exception_clear();
+            format!("call firstFramePresented: {e:?}")
+        })
+    })();
+    if let Err(e) = result {
+        log_debug!(LogCategory::Window, "[Android] first frame: {e}");
+    }
+}
+
+/// Without `jni` there is no activity to tell.
+#[cfg(all(target_os = "android", not(feature = "jni")))]
+fn signal_first_frame() {}
 
 /// Show or hide Android's floating Cut/Copy/Paste toolbar (U2).
 ///
