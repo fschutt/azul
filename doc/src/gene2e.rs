@@ -474,6 +474,10 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("notification_event",        Some("delivered by the dll's notification service \
                                         (AZ_BACKEND=headless); the in-crate runner has none, \
                                         so its callback never runs - red on arrival")),
+    // DENY: hands files to the system's share sheet. A generated scenario has no file of its own to hand over, and the
+    // in-crate runner shows no sheet (it records the request for `assert_shared`); hand-written AZ_E2E scenarios use it.
+    ("share",                     Some("needs a file on disk to hand over; the in-crate runner only records it - \
+                                        hand-written scenarios use it with `assert_shared`")),
     // DENY: the app's lifecycle event (paused, resumed, ...) queued into the mailbox. Only the dll's event
     // pass runs the app's handler (`CallbackInfo::set_lifecycle_handler`); the in-crate runner generated tests run
     // in has none, so nothing a generated scenario asserts afterwards can see it. Hand-written AZ_E2E scenarios use

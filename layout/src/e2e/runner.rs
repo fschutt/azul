@@ -5047,6 +5047,8 @@ fn run_e2e_tests_in_one_window(
     if let Some(services) = services {
         runner.layout_window.join_app(services);
     }
+    // a scripted run shows no system sheet: a `share` is recorded for `assert_shared`
+    runner.layout_window.app_services.share.record_instead();
     if let Some(dom) = initial_dom {
         // The mount-less `regenerate_layout` arm takes the CURRENT tree back
         // out of `layout_results`, so laying the document out once here is

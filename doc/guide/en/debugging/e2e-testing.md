@@ -251,6 +251,7 @@ Under `AZ_BACKEND=headless` the notification backend records what the app posts 
 
 The in-crate headless runner (`azul-doc e2e`) has no notification service: there `notification_event` only queues the event, and nothing runs it.
 
+- `share` (params: `files?`, `text?`, `url?`, `title?`, `mime?`, `open_with?`). What an app's Share button does: hands the files, the text and / or the link to the system's share sheet (`CallbackInfo::share`). In a headless / scripted run no sheet is shown: the request is checked against the limits (a request the phone would refuse fails the step with the reason) and recorded, and `assert_shared` (`count?`, `title?`, `file?`, `files?`, `mime?`, `text?`, `open_with?`) reads the recording. On a phone the real chooser (Android) or activity view (iOS) comes up.
 - `simulate_lifecycle` (param: `event`, one of `paused`, `resumed`, `low_memory`, `will_terminate`). Reports the app's life as a phone's shell does: the event is queued and the dll's event pass runs the handler the app set with `CallbackInfo::set_lifecycle_handler`, which reads it with `CallbackInfo::get_lifecycle_event`, before the next `wait_frame` completes. An app without a handler hears nothing; an unknown `event` fails the step. The in-crate headless runner has no event pass: there the event only waits in the mailbox.
 
 ### Secrets: the keyring and the biometric sensor

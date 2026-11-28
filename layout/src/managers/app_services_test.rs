@@ -92,3 +92,18 @@ fn a_window_hears_the_session_changes_after_it_joined_only() {
         vec![SessionChange::Unlocked]
     );
 }
+
+#[test]
+fn the_windows_of_one_app_share_the_share_sheet_and_two_apps_do_not() {
+    let services = AppServices::new();
+    let mut first = window();
+    let mut second = window();
+    first.join_app(&services);
+    second.join_app(&services);
+    first.app_services.share.record_instead();
+    assert!(second.app_services.share.is_recording(), "one slot for the app");
+    assert!(services.share.is_recording());
+    let theirs = AppServices::new();
+    assert!(!theirs.share.is_recording(), "another app has a slot of its own");
+    assert!(!theirs.share.can_share(), "and no backend until its shell installs one");
+}

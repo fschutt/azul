@@ -26,6 +26,7 @@ use super::{
     notification::NotificationChannels,
     permission::AsyncPermissionResults,
     sensors::SensorChannel,
+    share::ShareChannel,
     tray_event::TrayEvents,
     window_activation::RaiseRequests,
 };
@@ -64,6 +65,8 @@ pub struct AppServices {
     pub session: SessionLog,
     /// The native notifications: requests, events, deliveries, the app handler.
     pub notifications: NotificationChannels,
+    /// The share sheet: the platform's backend (or the recorder of a scripted run) and the limits of a share.
+    pub share: ShareChannel,
     /// The app's global hotkeys.
     pub hotkeys: SharedGlobalHotkeys,
     /// The clock that orders the app's windows by creation and focus.

@@ -66,6 +66,11 @@ pub mod scroll_registration;
 pub mod scroll_state;
 pub mod selection;
 pub mod sensors;
+/// The share sheet: the limits and the check of a request, the slot the platform's backend is installed in and the
+/// recorder of a scripted run.
+pub mod share;
+/// The folder the copies of a share live in, and what a provider's URI may name.
+pub mod share_area;
 /// A queue that every clone of it shares: how the platform's threads hand things to a window.
 pub mod shared_queue;
 pub mod stand_in_user;

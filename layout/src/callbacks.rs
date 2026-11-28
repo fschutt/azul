@@ -6266,6 +6266,29 @@ impl CallbackInfo {
         }
     }
 
+    /// Hand files, a text or a link to ANOTHER app through the system's share sheet: Android's chooser, iOS's activity
+    /// view. With `request.open_with` the one file goes only to the apps that can OPEN it ("Open with...").
+    ///
+    /// Call it from the callback of the user's tap on a Share button: the sheet is an activity / a view controller of the
+    /// system and is shown on this thread. The answer is the real one: `ShareStatus::Shown` when the sheet is up,
+    /// `ShareStatus::Unsupported` with the reason where the platform has none (a desktop), `ShareStatus::Failed` when
+    /// it has one and could not show it (no app can take the file, the copy failed), `ShareStatus::Refused` when the
+    /// request itself is not one (no item, too many, a name or a size over the limit). Nothing is silent. What the user
+    /// then does in the sheet is not reported.
+    ///
+    /// The files are COPIED for the receiver under the name the request gives them, so that a share never shows the
+    /// receiver the app's data folder; the copies are removed after a day.
+    pub fn share(&mut self, request: azul_core::share::ShareRequest) -> azul_core::share::ShareStatus {
+        self.get_layout_window().app_services.share.share(&request)
+    }
+
+    /// Whether this app can show a share sheet now: ask before a Share button is shown, and offer something else (reveal the
+    /// file, copy the link) where it cannot.
+    #[must_use]
+    pub fn can_share(&self) -> bool {
+        self.get_layout_window().app_services.share.can_share()
+    }
+
     /// Ask the user for permission to show notifications - in context, from
     /// the button that makes notifications worth having, rather than at the
     /// first post (which asks implicitly where the platform prompts at all).

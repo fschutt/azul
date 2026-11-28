@@ -3527,6 +3527,26 @@ pub enum DebugEvent {
         #[serde(default)]
         launched_app: bool,
     },
+    /// `{ "op": "share", "files": ["/path/report.pdf"], "title": "Send the report" }` - what an app's Share button
+    /// does: hand files, a text (`text`) and / or a link (`url`) to the system's share sheet
+    /// (`CallbackInfo::share`). `mime` (optional) types every file, `open_with` (optional) is "Open with..." for the
+    /// one file. In a headless / scripted run nothing is shown: the request is CHECKED against the limits and
+    /// recorded (`assert_shared` reads it); on a phone the real chooser / activity view comes up. An error with the
+    /// status when the sheet could not be shown (`unsupported`, `failed` or `refused`, and why).
+    Share {
+        #[serde(default)]
+        files: Vec<String>,
+        #[serde(default)]
+        text: Option<String>,
+        #[serde(default)]
+        url: Option<String>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        mime: Option<String>,
+        #[serde(default)]
+        open_with: bool,
+    },
     /// `{ "op": "simulate_lifecycle", "event": "paused" }` - the app's life, as a phone's shell reports
     /// it: `paused` (sent to the background), `resumed`, `low_memory` or `will_terminate`. The event is
     /// queued into the app's lifecycle mailbox (`AppServices::lifecycle`); the dll's event pass runs the
@@ -7543,6 +7563,7 @@ impl AssertionResult {
 /// | `assert_composition` | `expect`, `fixpoint?`, `damage?`             |
 /// | `assert_damage_sound`| `vs`, `which?`, `max_overpaint_ratio?`, `forbid_full?`, `pixel_identity?` |
 /// | `assert_notification`| `id?`, `title?`, `body?`, `action?`, `payload?`, `withdrawn?`, `count?`, `scheduled?`, `deliver_at?` |
+/// | `assert_shared`      | `count?`, `title?`, `file?`, `files?`, `mime?`, `text?`, `open_with?` |
 /// | `assert_sound`       | `sound?`, `class?`, `route?`, `suppressed_by?`, `played?`, `since?`, `count?` |
 /// | `assert_no_sound`    | `sound?`, `class?`, `route?`, `suppressed_by?`, `played?`, `since?` |
 /// | `assert_global_hotkeys` | `expect` (`[{accelerator, status?, owner?}]`), `count?` |
@@ -7595,6 +7616,8 @@ pub fn evaluate_assertion(
         "assert_unmocked_request" => eval_assert_unmocked_request(params),
         // Native notifications, as the headless backend recorded them
         "assert_notification" => eval_assert_notification(params, callback_info),
+        // Share sheets, as the recorder of a scripted run kept them
+        "assert_shared" => eval_assert_shared(params, callback_info),
         // System sounds, as the window's SoundManager recorded the requests
         "assert_sound" => eval_assert_sound(params, callback_info),
         "assert_no_sound" => eval_assert_no_sound(params, callback_info),
@@ -9936,6 +9959,80 @@ fn eval_assert_notification(
     ))
 }
 
+/// `assert_shared`: what the recorder of a scripted run kept of `CallbackInfo::share` (no system sheet is shown there).
+///
+/// Every given parameter must hold for ONE recorded share (`title`: the sheet's title, `file`: a file of that shown name,
+/// `files`: the number of files, `mime`: the type of the whole share, `text`: a text or link that contains it,
+/// `open_with`: whether it was "Open with..."); without any, some share must have been recorded. `count` is how many
+/// recorded shares satisfy the others.
+#[cfg(feature = "std")]
+fn eval_assert_shared(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    const CONSTRAINTS: &[&str] = &["count", "title", "file", "files", "mime", "text", "open_with"];
+    if let Some(bad) = reject_unknown_params("assert_shared", params, CONSTRAINTS) {
+        return bad;
+    }
+    let title = params.get("title").and_then(serde_json::Value::as_str);
+    let file = params.get("file").and_then(serde_json::Value::as_str);
+    let files = params.get("files").and_then(serde_json::Value::as_u64);
+    let mime = params.get("mime").and_then(serde_json::Value::as_str);
+    let text = params.get("text").and_then(serde_json::Value::as_str);
+    let open_with = params.get("open_with").and_then(serde_json::Value::as_bool);
+    let count = params.get("count").and_then(serde_json::Value::as_u64);
+
+    let recorded = callback_info
+        .get_layout_window()
+        .app_services
+        .share
+        .recorded();
+    let summary: Vec<String> = recorded
+        .iter()
+        .map(|r| {
+            format!(
+                "{:?} files={:?} texts={:?} {}{}",
+                r.plan.title,
+                r.plan.files().map(|(_, name, _, _)| name).collect::<Vec<_>>(),
+                r.plan.texts(),
+                r.plan.mime(),
+                if r.plan.open_with { " (open with)" } else { "" }
+            )
+        })
+        .collect();
+    let matches = |r: &azul_layout::managers::share::RecordedShare| {
+        title.is_none_or(|v| r.plan.title == v)
+            && file.is_none_or(|v| r.plan.files().any(|(_, name, _, _)| name == v))
+            && files.is_none_or(|v| r.plan.files().count() as u64 == v)
+            && mime.is_none_or(|v| r.plan.mime() == v)
+            && text.is_none_or(|v| r.plan.texts().iter().any(|t| t.contains(v)))
+            && open_with.is_none_or(|v| r.plan.open_with == v)
+    };
+    let n = recorded.iter().filter(|r| matches(r)).count() as u64;
+    let wanted = format!(
+        "title={title:?} file={file:?} files={files:?} mime={mime:?} text={text:?} open_with={open_with:?}"
+    );
+    if let Some(expected) = count {
+        if n != expected {
+            return AssertionResult::fail_with(
+                "recorded share count differs",
+                format!("{expected} share(s) with {wanted}"),
+                format!("{n}: {summary:?}"),
+            );
+        }
+        return AssertionResult::pass(format!("{n} share(s) recorded, as expected"));
+    }
+    if n == 0 {
+        return AssertionResult::fail_with(
+            "no recorded share matches (is the app running a scripted / headless run, and did the callback call \
+             CallbackInfo::share?)",
+            wanted,
+            format!("{} recorded: {summary:?}", recorded.len()),
+        );
+    }
+    AssertionResult::pass(format!("{n} share(s) recorded that match"))
+}
+
 /// The parameters `assert_sound` and `assert_no_sound` filter the recording with.
 #[cfg(feature = "std")]
 static SOUND_FILTERS: &[&str] = &["sound", "class", "route", "suppressed_by", "played", "since"];
@@ -11733,6 +11830,18 @@ static UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
          about them",
     ),
     (
+        "share",
+        "owns no window state: the share sheet's slot of the APP (`AppServices::share`: the platform's backend, the \
+         limits, and the recorder of a scripted run), shared by every window and keyed by nothing a DOM has. What the \
+         recorder kept is asserted by `assert_shared`",
+    ),
+    (
+        "share_area",
+        "not a manager: the folder the copies of a share are staged in (plain file operations on a path the shell \
+         names) and the rule that maps a provider's URI back to one of them; no window state, no queue. Pinned by its \
+         own unit tests",
+    ),
+    (
         "window_activation",
         "owns no window state: one mutex queue of the APP (`AppServices::raise`) of `registry_window_id`s that an \
          off-loop thread (the MPRIS worker) parks a raise request in, which `take_raise_request` \
@@ -12886,6 +12995,16 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
         (
             "shared_queue",
             "not a manager — a queue type; see the matching entry in UNOBSERVABLE_MANAGERS",
+        ),
+        (
+            "share",
+            "nothing on the WINDOW to hash: the slot and its recorder are the app's (see the matching entry in \
+             UNOBSERVABLE_MANAGERS); the recorder's content is asserted by `assert_shared`, and hashing it would \
+             report a change on every share rather than a leak",
+        ),
+        (
+            "share_area",
+            "not a manager — files on disk and a path rule; see the matching entry in UNOBSERVABLE_MANAGERS",
         ),
         (
             "scroll_into_view",
@@ -19400,6 +19519,52 @@ fn serve_debug_event(
                 }
             }
         },
+
+        // ==== E2E share sheet (`share`, read back by `assert_shared`) ====
+        DebugEvent::Share {
+            files,
+            text,
+            url,
+            title,
+            mime,
+            open_with,
+        } => {
+            use azul_core::share::{ShareItem, ShareRequest, ShareStatus};
+            let mut share_request = ShareRequest::new().with_open_with(*open_with);
+            if let Some(title) = title {
+                share_request = share_request.with_title(title.as_str().into());
+            }
+            for file in files {
+                let mut item = ShareItem::file(file.as_str().into());
+                if let Some(mime) = mime {
+                    item = item.with_mime(mime.as_str().into());
+                }
+                share_request = share_request.with_item(item);
+            }
+            if let Some(text) = text {
+                share_request = share_request.with_item(ShareItem::text(text.as_str().into()));
+            }
+            if let Some(url) = url {
+                share_request = share_request.with_item(ShareItem::url(url.as_str().into()));
+            }
+            match callback_info
+                .get_layout_window()
+                .app_services
+                .share
+                .share(&share_request)
+            {
+                ShareStatus::Shown => send_ok(request, None, None),
+                ShareStatus::Unsupported(reason) => {
+                    send_err(request, format!("share: unsupported: {}", reason.as_str()));
+                }
+                ShareStatus::Failed(reason) => {
+                    send_err(request, format!("share: failed: {}", reason.as_str()));
+                }
+                ShareStatus::Refused(reason) => {
+                    send_err(request, format!("share: refused: {}", reason.as_str()));
+                }
+            }
+        }
 
         DebugEvent::SimulateLifecycle { event } => match lifecycle_event_from_op(event) {
             Err(e) => send_err(request, format!("simulate_lifecycle: {e}")),

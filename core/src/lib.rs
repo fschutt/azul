@@ -523,6 +523,12 @@ pub mod notification;
 /// The queue and the handler live in `azul-layout` (`managers::lifecycle`), the shells raise the events
 /// (`azul-dll`, `desktop/lifecycle`) - the tray's split.
 pub mod lifecycle;
+/// Share-sheet POD types: a file, a text or a link handed to another app (`CallbackInfo::share`), and what the sheet
+/// answers.
+///
+/// The slot of the platform's backend and the checks live in `azul-layout` (`managers::share`), the OS plumbing in
+/// `azul-dll` (`desktop/extra/share`) - the notifications' split.
+pub mod share;
 /// Built-in user-agent default stylesheet.
 pub mod ua_css;
 /// Default font/text constants and small geometry helpers for layout.
