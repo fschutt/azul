@@ -54,12 +54,6 @@ pub static PROBES: &[ProbeDef] = &[
         "LAN discovery (iroh)",
         "IrohConfig::with_local_discovery is OFF by default; turned on it holds the multicast lock only while it is on; the Local Network dialog on iOS comes only at pairing",
     ),
-    pending(
-        "lifecycle.background",
-        "lifecycle",
-        "Pause, resume, low memory",
-        "harness-driven: HOME key, then the launcher icon (same process), am send-trim-memory; the app's callbacks fire and the picture survives",
-    ),
 ];
 
 const fn pending(id: &'static str, group: &'static str, title: &'static str, note: &'static str) -> ProbeDef {
