@@ -706,50 +706,78 @@ fn a_tap_places_the_caret_and_holds_nothing_for_a_drag_or_a_thumb() {
 
 #[test]
 fn a_finger_waits_for_its_lift_before_it_moves_the_caret_and_a_mouse_never_waits() {
-    // Landing: remembered; a pan never lifts as a tap (the shell cancels it), so the next press replaces what it
-    // left; the lift gives the landing place once.
     let mut finger = Finger::default();
     assert_eq!(finger.lifted(), None, "nothing landed");
-    finger = Finger::pressed(true, (30.0, 40.0));
+    finger.press(true, (30.0, 40.0));
     assert!(finger.touch);
     assert_eq!(finger.lifted(), Some((30.0, 40.0)), "the lift of a tap: where it landed");
     assert_eq!(finger.lifted(), None, "once");
     assert!(finger.touch, "a double tap after the lift still knows a finger pressed");
 
-    // A pan leaves its landing behind; the next finger replaces it, a mouse press clears it.
-    finger = Finger::pressed(true, (1.0, 2.0));
-    finger = Finger::pressed(true, (5.0, 6.0));
+    // the next press replaces what an earlier contact left; a mouse press takes effect at once: nothing waits
+    finger.press(true, (1.0, 2.0));
+    finger.press(true, (5.0, 6.0));
     assert_eq!(finger.landed, Some((5.0, 6.0)));
-    finger = Finger::pressed(false, (7.0, 8.0));
-    assert_eq!(finger, Finger::default(), "a mouse press takes effect at once: nothing waits for a lift");
+    finger.press(false, (7.0, 8.0));
+    assert_eq!((finger.touch, finger.landed), (false, None));
 
-    // The second tap of a double tap does not move the caret back when it lifts.
-    finger = Finger::pressed(true, (9.0, 9.0));
+    // the second tap of a double tap does not move the caret back when it lifts
+    finger.press(true, (9.0, 9.0));
     finger.doubled();
     assert_eq!(finger.lifted(), None);
     assert!(finger.touch);
 }
 
 #[test]
-fn the_view_listens_to_the_mouse_for_the_finger_too_and_registers_its_eight_handlers_once() {
-    // The shells map the first finger to the mouse's left button: the view's press, move and release handlers
-    // are its finger's too (no Touch filter: a second listener would run the same lift twice).
+fn a_finger_past_its_slop_scrolls_by_whole_rows_and_is_no_tap() {
+    // The engine's pan scrolls the scroll boxes under a finger and the code view is not one: the view's own pan
+    // reads the touch points. Rows of 20 px, columns of 10.
+    let mut finger = Finger::default();
+    finger.press(true, (30.0, 40.0));
+    finger.touch_start((100.0, 500.0));
+    // a jitter inside the slop: nothing scrolls, the contact is still a tap
+    assert_eq!(finger.dragged((103.0, 504.0), 20.0, 10.0), (0, 0));
+    assert!(!finger.panned);
+    // past it the text follows the finger: a finger moving up scrolls DOWN the text, 60 px = 3 rows
+    assert_eq!(finger.dragged((103.0, 440.0), 20.0, 10.0), (3, 0));
+    assert!(finger.panned);
+    // the rest of a row is carried: 30 px up = 1 row and 10 px kept, 5 + 5 more complete the next
+    assert_eq!(finger.dragged((103.0, 410.0), 20.0, 10.0), (1, 0));
+    assert_eq!(finger.dragged((103.0, 405.0), 20.0, 10.0), (0, 0));
+    assert_eq!(finger.dragged((103.0, 400.0), 20.0, 10.0), (1, 0));
+    // back down scrolls back up; a finger moving left scrolls right by columns
+    assert_eq!(finger.dragged((103.0, 440.0), 20.0, 10.0), (-2, 0));
+    assert_eq!(finger.dragged((73.0, 440.0), 20.0, 10.0), (0, 2));
+    // the lift of a pan is no tap, whatever the shell's mouse does with it; the next finger starts clean
+    assert_eq!(finger.lifted(), None);
+    assert!(!finger.panned);
+    // a view whose cell size is not measured yet scrolls nothing
+    finger.touch_start((0.0, 0.0));
+    assert_eq!(finger.dragged((0.0, 100.0), 0.0, 0.0), (0, 0));
+    // and a move reported with no finger down on the view is nothing
+    finger.touch_end();
+    assert_eq!(finger.dragged((0.0, 300.0), 20.0, 10.0), (0, 0));
+}
+
+#[test]
+fn the_view_listens_to_the_mouse_and_to_the_touch_points_and_registers_each_handler_once() {
+    // The shells map the first finger to the mouse's left button: the press, move and release handlers are its
+    // finger's too (the caret and the keyboard on the lift of a tap); the touch points carry the pan.
     let dom = sample().dom();
     let events: Vec<EventFilter> = dom.root.callbacks.as_ref().iter().map(|c| c.event).collect();
-    assert_eq!(events.len(), 8);
+    assert_eq!(events.len(), 11);
     for filter in [
         HoverEventFilter::LeftMouseDown,
         HoverEventFilter::MouseMove,
         HoverEventFilter::MouseUp,
         HoverEventFilter::DoubleClick,
         HoverEventFilter::Scroll,
+        HoverEventFilter::TouchStart,
+        HoverEventFilter::TouchMove,
+        HoverEventFilter::TouchEnd,
     ] {
         assert_eq!(events.iter().filter(|e| **e == EventFilter::Hover(filter)).count(), 1, "{filter:?}");
     }
-    assert!(
-        !events.iter().any(|e| matches!(e, EventFilter::Hover(HoverEventFilter::TouchStart | HoverEventFilter::TouchEnd))),
-        "no second path for a touch"
-    );
 }
 
 #[test]

@@ -380,6 +380,27 @@
         "op": "take_screenshot"
       },
       {
+        "op": "focus_node",
+        "selector": ".__azul-native-bottom-sheet-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Up"
+      },
+      {
+        "op": "key_up",
+        "key": "Up"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "click",
         "selector": "#__azcode_panel-close"
       },
@@ -898,6 +919,27 @@
       },
       {
         "op": "take_screenshot"
+      },
+      {
+        "op": "focus_node",
+        "selector": ".__azul-native-bottom-sheet-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Up"
+      },
+      {
+        "op": "key_up",
+        "key": "Up"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "click",
@@ -1420,6 +1462,27 @@
         "op": "take_screenshot"
       },
       {
+        "op": "focus_node",
+        "selector": ".__azul-native-bottom-sheet-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Up"
+      },
+      {
+        "op": "key_up",
+        "key": "Up"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "click",
         "selector": "#__azcode_panel-close"
       },
@@ -1938,6 +2001,27 @@
       },
       {
         "op": "take_screenshot"
+      },
+      {
+        "op": "focus_node",
+        "selector": ".__azul-native-bottom-sheet-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Up"
+      },
+      {
+        "op": "key_up",
+        "key": "Up"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "click",
@@ -2498,6 +2582,27 @@
       },
       {
         "op": "take_screenshot"
+      },
+      {
+        "op": "focus_node",
+        "selector": ".__azul-native-bottom-sheet-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Up"
+      },
+      {
+        "op": "key_up",
+        "key": "Up"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "click",

@@ -184,7 +184,7 @@ def phone_steps(first_start):
     s += shot()                                                        # 5 the panel as a sheet, at its detent
     s += grip_keys("Up") + shot()                                      # 6 the sheet drawn up
     s += grip_keys("Down", "Down") + shot()                            # 7 and pushed down to its grip
-    s += click("#__azcode_panel-close") + missing("#__azcode_sheet")
+    s += grip_keys("Up") + click("#__azcode_panel-close") + missing("#__azcode_sheet")   # its header is out of reach at the grip
     s += click("#__azcode_drawer-button") + click("#__azcode_activity-git") + exists("#__azcode_git-panel") + rest(1000)
     s += shot()                                                        # 8 source control in the drawer
     s += click("#__azcode_activity-run") + exists("#__azcode_run-panel") + shot()                  # 9 run

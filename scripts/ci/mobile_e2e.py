@@ -680,8 +680,9 @@ def e2e_session(args):
         carets = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZCODE_CARET", since=mark)
         s.check("a real tap into the code raises the soft keyboard", up, "the window system says " + ("shown" if up else "hidden"))
         s.check("the tap placed the caret on its lift (AZCODE_CARET)", bool(carets), f"printed {carets}")
-        row = tap_node(s, "#__azcode_key-row")
-        s.check("the key row stands over the keyboard (the server names it with a box)", bool(row), str(row))
+        # looked at, not tapped: the middle of the row is a key
+        row_box = find_key(srv.op("get_node_layout", selector="#__azcode_key-row", timeout=30), "screen_rect")
+        s.check("the key row stands over the keyboard (the server names it with a box)", isinstance(row_box, dict) and row_box.get("height", 0) > 0, str(row_box))
         # a real pan over the code: the view scrolls, nothing is selected, the caret stays
         w, h = dev.dims
         mark = dev.now_mark()
@@ -693,12 +694,13 @@ def e2e_session(args):
         s.check("a swipe over the code scrolls it (AZCODE_SCROLLED)", bool(scrolled), f"printed {scrolled}", required=False)
         s.check("a swipe over the code selects nothing and leaves the caret (no AZCODE_CARET)", not moved, f"printed {moved}")
         # the input method types into the editor
+        # the keys `adb shell input text` injects reach the engine as IME commits (a letter at a time)
         mark = dev.now_mark()
         dev.sh("input text hello")
         dev.settle(2.0)
         device_shot(s, "code-typed")
-        dirty = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZCODE_DIRTY", since=mark)
-        s.check("text typed through the input method reaches the editor (AZCODE_DIRTY <file> 1)", any(d.endswith(" 1") for d in dirty), f"printed {dirty}")
+        edited = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZCODE_EDITED", since=mark)
+        s.check("text typed reaches the editor: five letters, five edits (AZCODE_EDITED)", len(edited) >= 5, f"printed {edited}")
         # a real tap on a key of the row
         mark = dev.now_mark()
         key = tap_node(s, "#__azcode_key-2")
@@ -714,7 +716,7 @@ def e2e_session(args):
         device_shot(s, "code-drawer")
         s.check("the top bar's button opens the drawer (AZCODE_DRAWER open)", bool(button) and drawer[-1:] == ["open"], f"at {button}, printed {drawer}")
         s.check("the keyboard goes down under the drawer", not dev.ime_shown(), "")
-        tap_node(s, "#__azcode_scrim")
+        dev.tap(int(w * 0.96), int(h * 0.5))        # the scrim's strip beside the drawer: its middle is under the drawer
         dev.settle(1.5)
         # the status bar's Problems: the panel as a sheet
         mark = dev.now_mark()

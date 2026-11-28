@@ -2462,38 +2462,104 @@ pub(crate) fn tap_event(
     event
 }
 
+/// What a finger may wander from where it landed before its contact is a pan and no longer a tap, in px (the
+/// touch slop of every touch toolkit: 8 dp).
+const TOUCH_SLOP: f32 = 8.0;
+
 /// What a finger on the view has done so far. A touchscreen reaches the view as the mouse's left button (the
-/// shells map the first finger to it; a pan is cancelled as a click and scrolls through the wheel's path
-/// instead), so the view tells a finger's press from a mouse's by the touch points the window has at that
-/// moment, and keeps what a mouse press does at once - the caret, the drag - for the finger's LIFT: a finger
-/// that has just landed has not yet chosen between a tap and a pan.
+/// shells map the first finger to it), so the view tells a finger's press from a mouse's by the touch points the
+/// window has at that moment, and keeps what a mouse press does at once - the caret, the drag - for the finger's
+/// LIFT: a finger that has just landed has not yet chosen between a tap and a pan. The pan is the view's own
+/// (the engine's pan scrolls the scroll boxes under a finger, and this view is not one: it scrolls by lines):
+/// the touch points carry it, a finger past its slop scrolls whole rows and columns and is no tap, whatever the
+/// shell's mouse does with its lift.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct Finger {
     /// The last press was a finger's: a double tap raises the keyboard as a tap does.
     pub touch: bool,
-    /// Where it landed (px in the view) and has not lifted as a tap yet. A pan never lifts as one (the shell
-    /// cancels it), so the next press replaces what a pan left here.
+    /// Where it landed (px in the view) and has not lifted as a tap yet.
     pub landed: Option<(f32, f32)>,
+    /// The finger's window position at the last report, while one is down on the view.
+    pub last: Option<(f32, f32)>,
+    /// Where that finger went down (window position): the slop is measured from here.
+    pub start: (f32, f32),
+    /// The part of a row and of a column the pan has moved and not scrolled yet.
+    pub carry: (f32, f32),
+    /// The finger left its slop: its contact is a pan, never a tap.
+    pub panned: bool,
 }
 
 impl Finger {
-    /// A press: a finger's lands (`touch`), a mouse's clears what a finger left.
-    pub(crate) const fn pressed(touch: bool, at: (f32, f32)) -> Self {
-        if touch {
-            Self { touch: true, landed: Some(at) }
-        } else {
-            Self { touch: false, landed: None }
+    /// A press: a finger's lands (`touch`), a mouse's clears what a finger left. What the touch points told
+    /// (where the finger is, whether it panned) is kept: they may arrive before the press does.
+    pub(crate) const fn press(&mut self, touch: bool, at: (f32, f32)) {
+        self.touch = touch;
+        self.landed = if touch { Some(at) } else { None };
+        if !touch {
+            self.last = None;
+            self.panned = false;
         }
     }
 
-    /// The finger lifted: where it landed when that was a tap, `None` for anything else.
+    /// The finger lifted: where it landed when that was a tap, `None` for anything else (a pan, a mouse).
     pub(crate) const fn lifted(&mut self) -> Option<(f32, f32)> {
-        self.landed.take()
+        self.last = None;
+        let landed = self.landed.take();
+        if self.panned {
+            self.panned = false;
+            return None;
+        }
+        landed
     }
 
     /// A double tap selects a word: the tap that began it must not move the caret again on its lift.
     pub(crate) const fn doubled(&mut self) {
         self.landed = None;
+    }
+
+    /// A finger went down at the window position `at`.
+    pub(crate) const fn touch_start(&mut self, at: (f32, f32)) {
+        self.start = at;
+        self.last = Some(at);
+        self.carry = (0.0, 0.0);
+        self.panned = false;
+    }
+
+    /// The finger is at the window position `to`: the whole rows and columns the pan scrolls (`row` and `column`
+    /// are the px of one; the text follows the finger, so a finger moving up scrolls DOWN the text: positive rows).
+    /// Nothing while it stays within [`TOUCH_SLOP`] of where it went down; past it, the contact is a pan for good.
+    #[allow(clippy::cast_possible_truncation)]
+    pub(crate) fn dragged(&mut self, to: (f32, f32), row: f32, column: f32) -> (i64, i64) {
+        let Some(last) = self.last else {
+            return (0, 0);
+        };
+        if !self.panned {
+            let distance = (to.0 - self.start.0).hypot(to.1 - self.start.1);
+            if distance.is_nan() || distance <= TOUCH_SLOP {
+                return (0, 0);
+            }
+            self.panned = true;
+        }
+        self.last = Some(to);
+        if !(row > 0.0 && column > 0.0) {
+            return (0, 0);
+        }
+        self.carry.0 += last.0 - to.0;
+        self.carry.1 += last.1 - to.1;
+        let whole = |carry: &mut f32, unit: f32| {
+            let n = (*carry / unit).trunc();
+            *carry -= n * unit;
+            // a pan far past anything a screen holds is clamped: the scroll lands at the text's edge anyway
+            n.clamp(-1.0e6, 1.0e6) as i64
+        };
+        let columns = whole(&mut self.carry.0, column);
+        let rows = whole(&mut self.carry.1, row);
+        (rows, columns)
+    }
+
+    /// The finger left the screen.
+    pub(crate) const fn touch_end(&mut self) {
+        self.last = None;
     }
 }
 
@@ -3106,11 +3172,22 @@ fn store_view(data: &mut RefAny, view: &CodeViewView) {
     }
 }
 
-/// Records what the finger did in the payload.
-fn store_finger(data: &mut RefAny, finger: Finger) {
+/// A press, as the finger's state hears it.
+fn press_finger(data: &mut RefAny, touch: bool, at: (f32, f32)) {
     if let Some(mut s) = data.downcast_mut::<CodeViewShared>() {
-        s.finger = finger;
+        s.finger.press(touch, at);
     }
+}
+
+/// The first finger down on the window, by its window position.
+fn first_touch(info: &CallbackInfo) -> Option<(f32, f32)> {
+    info.get_current_window_state()
+        .touch_state
+        .touch_points
+        .as_ref()
+        .first()
+        .map(|p| (p.position.x, p.position.y))
+        .filter(|(x, y)| x.is_finite() && y.is_finite())
 }
 
 /// The finger lifted: where it landed when that was a tap (and whether the last press was a finger's).
@@ -3202,6 +3279,21 @@ pub(crate) fn code_view_callbacks(shared: &RefAny) -> Vec<CoreCallbackData> {
             EventFilter::Hover(HoverEventFilter::Scroll),
             shared.clone(),
             on_wheel as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Hover(HoverEventFilter::TouchStart),
+            shared.clone(),
+            on_touch_start as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Hover(HoverEventFilter::TouchMove),
+            shared.clone(),
+            on_touch_move as usize
+        ),
+        CoreCallbackData::create(
+            EventFilter::Hover(HoverEventFilter::TouchEnd),
+            shared.clone(),
+            on_touch_end as usize
         ),
     ]
 }
@@ -3365,7 +3457,7 @@ extern "C" fn on_mouse_down(mut data: RefAny, mut info: CallbackInfo) -> Update 
     // A finger: the view takes the focus now, the caret (and the keyboard) wait for the lift - a pan is for
     // scrolling, not for a selection, and must not raise the keyboard on its way.
     let touch = info.get_current_window_state().touch_state.num_touches > 0;
-    store_finger(&mut data, Finger::pressed(touch, (x, y)));
+    press_finger(&mut data, touch, (x, y));
     if touch {
         info.set_focus(azul_core::callbacks::FocusTarget::Id(node));
         return Update::DoNothing;
@@ -3485,6 +3577,48 @@ extern "C" fn on_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
         Some(event) => deliver(&mut data, &cv, info, event),
         None => Update::DoNothing,
     }
+}
+
+/// A finger lands: where it is, to measure its pan from.
+extern "C" fn on_touch_start(mut data: RefAny, info: CallbackInfo) -> Update {
+    if let (Some(at), Some(mut s)) = (first_touch(&info), data.downcast_mut::<CodeViewShared>()) {
+        s.finger.touch_start(at);
+    }
+    Update::DoNothing
+}
+
+/// A finger moves: past its slop it scrolls the lines (whole rows and columns, the text following it) and is no
+/// tap any more.
+extern "C" fn on_touch_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(at) = first_touch(&info) else {
+        return Update::DoNothing;
+    };
+    let Some((mut cv, mut geo)) = shared_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    measure(&mut cv, &mut geo, &info);
+    let (row, column) = (geo.line_height.max(1.0), geo.char_width.max(1.0));
+    let Some((rows, columns)) = data
+        .downcast_mut::<CodeViewShared>()
+        .map(|mut s| s.finger.dragged(at, row, column))
+    else {
+        return Update::DoNothing;
+    };
+    if rows == 0 && columns == 0 {
+        return Update::DoNothing;
+    }
+    match scroll_event(&cv, rows, columns) {
+        Some(event) => deliver(&mut data, &cv, info, event),
+        None => Update::DoNothing,
+    }
+}
+
+/// The finger leaves the screen (the mouse's release decides whether that was a tap).
+extern "C" fn on_touch_end(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<CodeViewShared>() {
+        s.finger.touch_end();
+    }
+    Update::DoNothing
 }
 
 impl From<CodeView> for Dom {

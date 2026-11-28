@@ -874,7 +874,10 @@ pub extern "C" fn on_code_event(mut data: RefAny, mut info: CallbackInfo, event:
             return;
         };
         match event.kind {
-            CodeViewEventKind::Edit => doc.apply_edits(event.edits.as_slice()),
+            CodeViewEventKind::Edit => {
+                doc.apply_edits(event.edits.as_slice());
+                println!("AZCODE_EDITED {}", doc.caret_label(TAB_WIDTH as usize));
+            }
             CodeViewEventKind::Undo => doc.undo_redo(false),
             CodeViewEventKind::Redo => doc.undo_redo(true),
             _ => return,
