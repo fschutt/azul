@@ -438,6 +438,93 @@ public class AzulActivity extends NativeActivity {
         });
     }
 
+    /**
+     * What the app asks of the system bars and the cutout area (`WindowFlags::system_bars`): applied on the UI thread, at
+     * the window's creation and on every change.
+     *
+     * @param status         0 shown, 1 hidden and a swipe from the edge shows it for a moment (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE),
+     *                       2 hidden and a swipe shows it until it is hidden again (BEHAVIOR_DEFAULT after hide())
+     * @param navigation     the same for the navigation bar
+     * @param icons          0 the shell picks from what the window draws behind the bar (setSystemBarsAppearance), 1 light icons, 2 dark icons
+     * @param drawIntoCutout the window draws into the area of the display cutouts: LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS (API 30; SHORT_EDGES
+     *                       on API 28-29) and edge to edge; false leaves the system's default for the window
+     */
+    public static void applySystemBars(final android.app.Activity activity, final int status, final int navigation,
+                                       final int icons, final boolean drawIntoCutout) {
+        if (activity == null) {
+            return;
+        }
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    android.view.Window window = activity.getWindow();
+                    if (drawIntoCutout && android.os.Build.VERSION.SDK_INT >= 28) {
+                        android.view.WindowManager.LayoutParams lp = window.getAttributes();
+                        lp.layoutInDisplayCutoutMode = android.os.Build.VERSION.SDK_INT >= 30
+                                ? android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                                : android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                        window.setAttributes(lp);
+                        if (android.os.Build.VERSION.SDK_INT >= 30) {
+                            window.setDecorFitsSystemWindows(false);
+                        }
+                    }
+                    if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        android.view.WindowInsetsController controller = window.getInsetsController();
+                        if (controller == null) {
+                            return;
+                        }
+                        applyBar(controller, android.view.WindowInsets.Type.statusBars(), status);
+                        applyBar(controller, android.view.WindowInsets.Type.navigationBars(), navigation);
+                        // one behaviour for the bars: a bar the app hid is shown for a moment by a swipe, unless it asked for a sticky one
+                        boolean transient_ = status == 1 || navigation == 1;
+                        boolean sticky = status == 2 || navigation == 2;
+                        if (transient_ || sticky) {
+                            controller.setSystemBarsBehavior(transient_
+                                    ? android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                                    : android.view.WindowInsetsController.BEHAVIOR_DEFAULT);
+                        }
+                        if (icons != 0) {
+                            int lightStatus = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS;
+                            int lightNav = android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                            // dark icons (2) are the ones for a LIGHT background
+                            controller.setSystemBarsAppearance(icons == 2 ? lightStatus : 0, lightStatus);
+                            controller.setSystemBarsAppearance(icons == 2 ? lightNav : 0, lightNav);
+                        }
+                    } else {
+                        View decor = window.getDecorView();
+                        int flags = decor.getSystemUiVisibility();
+                        flags = status == 0 ? (flags & ~View.SYSTEM_UI_FLAG_FULLSCREEN) : (flags | View.SYSTEM_UI_FLAG_FULLSCREEN);
+                        flags = navigation == 0
+                                ? (flags & ~View.SYSTEM_UI_FLAG_HIDE_NAVIGATION)
+                                : (flags | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
+                        // immersive: a swipe shows the bars; sticky: they hide again by themselves
+                        flags &= ~(View.SYSTEM_UI_FLAG_IMMERSIVE | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+                        if (status == 1 || navigation == 1) {
+                            flags |= View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+                        } else if (status == 2 || navigation == 2) {
+                            flags |= View.SYSTEM_UI_FLAG_IMMERSIVE;
+                        }
+                        if (drawIntoCutout) {
+                            flags |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
+                        }
+                        decor.setSystemUiVisibility(flags);
+                    }
+                } catch (RuntimeException e) {
+                    android.util.Log.w("AzulBars", "system bars not applied: " + e);
+                }
+            }
+        });
+    }
+
+    private static void applyBar(android.view.WindowInsetsController controller, int type, int mode) {
+        if (mode == 0) {
+            controller.show(type);
+        } else {
+            controller.hide(type);
+        }
+    }
+
     /** Map UI_MODE_NIGHT_MASK onto the codes the Rust side expects. */
     private void pushUiMode(long nativePtr) {
         int night = getResources().getConfiguration().uiMode

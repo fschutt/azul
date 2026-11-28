@@ -37,14 +37,14 @@ pub const PHONE: bool = cfg!(any(target_os = "android", target_os = "ios"));
 /// How WebRender draws text: what `AppConfig::text_antialiasing` asks for, decided as the CPU renderer decides it
 /// ([`webrender_text_aa`]), so that the two renderers show one kind of text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TextRendering {
+pub struct GpuTextRendering {
     /// Antialiased text. Off: aliased text, coverage cut at one half.
     pub aa: bool,
     /// LCD (subpixel) text where the device can blend it. Off: grayscale text everywhere.
     pub subpixel: bool,
 }
 
-impl Default for TextRendering {
+impl Default for GpuTextRendering {
     /// What `TextAntialiasMode::PlatformDefault` is on this target: LCD text on a desktop, grayscale on a phone.
     fn default() -> Self {
         webrender_text_aa(TextAntialiasMode::PlatformDefault, PHONE)
@@ -56,21 +56,21 @@ impl Default for TextRendering {
 /// text wherever the device had dual-source blending (a phone's GPU has it) whatever the app asked for, colour fringes on a
 /// panel that turns, while the CPU renderer drew grayscale text next to it.
 #[must_use]
-pub const fn webrender_text_aa(mode: TextAntialiasMode, phone: bool) -> TextRendering {
+pub const fn webrender_text_aa(mode: TextAntialiasMode, phone: bool) -> GpuTextRendering {
     match mode {
-        TextAntialiasMode::PlatformDefault => TextRendering {
+        TextAntialiasMode::PlatformDefault => GpuTextRendering {
             aa: true,
             subpixel: !phone,
         },
-        TextAntialiasMode::Lcd | TextAntialiasMode::LcdLegacy => TextRendering {
+        TextAntialiasMode::Lcd | TextAntialiasMode::LcdLegacy => GpuTextRendering {
             aa: true,
             subpixel: true,
         },
-        TextAntialiasMode::Grayscale => TextRendering {
+        TextAntialiasMode::Grayscale => GpuTextRendering {
             aa: true,
             subpixel: false,
         },
-        TextAntialiasMode::Aliased => TextRendering {
+        TextAntialiasMode::Aliased => GpuTextRendering {
             aa: false,
             subpixel: false,
         },
@@ -89,7 +89,7 @@ pub struct InitParams<'a> {
     /// Where the compiled programs are kept between runs (`None`: the platform's own directory, or none).
     pub shader_cache_dir: Option<&'a Path>,
     /// How text is drawn (`AppConfig::text_antialiasing`).
-    pub text: TextRendering,
+    pub text: GpuTextRendering,
 }
 
 /// What a successful bring-up hands to the window: the renderer and its API, the document, the hit tester, the engine's

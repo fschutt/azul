@@ -113,6 +113,9 @@ pub const DIALOG_PATIENCE: std::time::Duration = std::time::Duration::from_secs(
 pub fn ensure(capability: Capability, patience: std::time::Duration) -> PermissionState {
     let state = probe_status(capability);
     if gate(state) != Gate::Ask {
+        // Settled before this worker came (granted by an earlier run, in the settings or with `pm grant`; or refused): the
+        // manager is told as well, an app that reads `get_permission_status` while its camera works must not read NotDetermined.
+        park(capability, state);
         return state;
     }
     if !request_with(capability, false) {

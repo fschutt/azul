@@ -20,7 +20,7 @@ use azul::{
     window::PlatformCapability,
 };
 
-use super::{describe_capability, plain, Ctx, ProbeDef, Step};
+use super::{describe_capability, Ctx, ProbeDef, Step};
 use crate::{report::Verdict, SelfTest};
 
 /// Frames a row needs before it passes.
