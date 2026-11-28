@@ -77,10 +77,13 @@ pub(super) fn handle(service: &str, req: &KeyringRequest, interaction: Interacti
             ..
         } => match protection {
             KeyringProtection::DeviceUnlocked => {
+                let was_protected = is_protected(service, key.as_str());
                 match store(service, key.as_str(), secret.as_str().as_bytes(), None) {
                     Ok(()) => {
                         // An item that was protected before is plain now: its Hello key goes.
-                        hello_delete(&hello_account(service, key.as_str()));
+                        if was_protected {
+                            hello_delete(&hello_account(service, key.as_str()));
+                        }
                         KeyringResult::Stored
                     }
                     Err(e) => store_failed(key.as_str(), &e),
@@ -117,15 +120,25 @@ pub(super) fn handle(service: &str, req: &KeyringRequest, interaction: Interacti
             Ok(None) => KeyringResult::NotFound,
             Err(_) => KeyringResult::Error,
         },
-        KeyringRequest::Delete { key } => match delete(service, key.as_str()) {
-            // Idempotent: a missing target also reports Deleted.
-            Ok(_) => {
-                hello_delete(&hello_account(service, key.as_str()));
-                KeyringResult::Deleted
+        KeyringRequest::Delete { key } => {
+            let was_protected = is_protected(service, key.as_str());
+            match delete(service, key.as_str()) {
+                // Idempotent: a missing target also reports Deleted.
+                Ok(_) => {
+                    if was_protected {
+                        hello_delete(&hello_account(service, key.as_str()));
+                    }
+                    KeyringResult::Deleted
+                }
+                Err(_) => KeyringResult::Error,
             }
-            Err(_) => KeyringResult::Error,
-        },
+        }
     }
+}
+
+/// Whether the credential `service:key` is there and protected (it has a Hello key to remove).
+fn is_protected(service: &str, key: &str) -> bool {
+    matches!(read(service, key), Ok(Some(record)) if record.protection.needs_user())
 }
 
 fn store_failed(key: &str, e: &io::Error) -> KeyringResult {
