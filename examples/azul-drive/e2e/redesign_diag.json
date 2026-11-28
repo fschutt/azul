@@ -68,6 +68,15 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "list_doms"
       },
       {
