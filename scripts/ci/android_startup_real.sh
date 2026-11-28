@@ -6,6 +6,8 @@
 #
 #   scripts/remote.sh run <full sha | ref> ubuntu-22.04 'bash scripts/ci/android_startup_real.sh AzWidgets AzWriter' --codegen --artifacts 'demo-out/lab/**'
 #
+# AZ_ANDROID_DEVICE=pixel_8 AZ_ANDROID_OVERLAYS=com.android.internal.emulation.pixel_8 puts the Pixel 8's camera cutout on the emulator (the QA's tab jobs do).
+#
 # Output: demo-out/lab/lab.md (a table with the frames of the starting window (S), of black (B) and of the first picture (1) per row, the run lengths and
 # the engine's and the system's events of every start), lab.json, <row>/strip.png (a contact sheet of the first start) and <row>/start1/cold.mp4.
 set -uxo pipefail
