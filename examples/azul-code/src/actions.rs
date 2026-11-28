@@ -9,8 +9,8 @@ use azul::prelude::*;
 use azul_appkit::ui as kit;
 
 use crate::{
-    app::{AppState, Palette, PaletteKind, Side},
-    commands, terminal,
+    app::{AppState, Palette, PaletteKind, PanelTab, Side},
+    commands, panel, terminal,
 };
 
 /// A command of the window.
@@ -29,6 +29,10 @@ pub enum Action {
     FindInFiles,
     CommandPalette,
     ShowExplorer,
+    ShowSourceControl,
+    ShowRun,
+    ShowProblems,
+    ShowOutput,
     ToggleSideBar,
     ToggleTerminal,
     QuickOpen,
@@ -43,7 +47,7 @@ pub enum Action {
 }
 
 /// Every command, in the order the command palette lists them.
-pub static ACTIONS: [Action; 24] = [
+pub static ACTIONS: [Action; 28] = [
     Action::OpenFolder,
     Action::OpenFile,
     Action::OpenSample,
@@ -57,6 +61,10 @@ pub static ACTIONS: [Action; 24] = [
     Action::FindInFiles,
     Action::CommandPalette,
     Action::ShowExplorer,
+    Action::ShowSourceControl,
+    Action::ShowRun,
+    Action::ShowProblems,
+    Action::ShowOutput,
     Action::ToggleSideBar,
     Action::ToggleTerminal,
     Action::QuickOpen,
@@ -88,6 +96,10 @@ impl Action {
             Action::FindInFiles => "azcode-action-find-in-files",
             Action::CommandPalette => "azcode-action-command-palette",
             Action::ShowExplorer => "azcode-action-explorer",
+            Action::ShowSourceControl => "azcode-action-git",
+            Action::ShowRun => "azcode-action-run",
+            Action::ShowProblems => "azcode-panel-problems",
+            Action::ShowOutput => "azcode-panel-output",
             Action::ToggleSideBar => "azcode-action-toggle-side-bar",
             Action::ToggleTerminal => "azcode-action-terminal",
             Action::QuickOpen => "azcode-action-quick-open",
@@ -116,6 +128,10 @@ impl Action {
             Action::FindInFiles => "azcode-category-search",
             Action::CommandPalette
             | Action::ShowExplorer
+            | Action::ShowSourceControl
+            | Action::ShowRun
+            | Action::ShowProblems
+            | Action::ShowOutput
             | Action::ToggleSideBar
             | Action::ToggleTerminal => "azcode-menu-view",
             Action::QuickOpen | Action::GoToLine => "azcode-menu-go",
@@ -141,6 +157,10 @@ impl Action {
             Action::FindInFiles => "Mod+Shift+F",
             Action::CommandPalette => "Mod+Shift+P",
             Action::ShowExplorer => "Mod+Shift+E",
+            Action::ShowSourceControl => "Mod+Shift+G",
+            Action::ShowRun => "Mod+Shift+D",
+            Action::ShowProblems => "Mod+Shift+M",
+            Action::ShowOutput => "Mod+Shift+U",
             Action::ToggleSideBar => "Mod+B",
             Action::ToggleTerminal => "Ctrl+`",
             Action::QuickOpen => "Mod+P",
@@ -175,6 +195,10 @@ impl Action {
             Action::FindInFiles => "find-in-files",
             Action::CommandPalette => "command-palette",
             Action::ShowExplorer => "show-explorer",
+            Action::ShowSourceControl => "show-source-control",
+            Action::ShowRun => "show-run",
+            Action::ShowProblems => "show-problems",
+            Action::ShowOutput => "show-output",
             Action::ToggleSideBar => "toggle-side-bar",
             Action::ToggleTerminal => "toggle-terminal",
             Action::QuickOpen => "quick-open",
@@ -202,6 +226,10 @@ impl Action {
             Action::Find | Action::Replace | Action::FindInFiles => "search",
             Action::CommandPalette => "keyboard",
             Action::ShowExplorer => "content_copy",
+            Action::ShowSourceControl => "call_split",
+            Action::ShowRun => "play_arrow",
+            Action::ShowProblems => "error_outline",
+            Action::ShowOutput => "article",
             Action::ToggleSideBar => "view_sidebar",
             Action::ToggleTerminal | Action::NewTerminal => "terminal",
             Action::KillTerminal => "delete",
@@ -245,10 +273,14 @@ pub fn run(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, action: Act
             });
             commands::focus_soon(info, crate::ids::COMMAND_PALETTE.as_str());
         }
-        Action::ShowExplorer => {
-            st.side = Side::Explorer;
-            st.side_visible = true;
+        Action::ShowExplorer => commands::show_side(st, Side::Explorer),
+        Action::ShowSourceControl => {
+            commands::show_side(st, Side::Git);
+            commands::refresh_git(st, info, app);
         }
+        Action::ShowRun => commands::show_side(st, Side::Run),
+        Action::ShowProblems => panel::toggle_tab(st, info, app, PanelTab::Problems),
+        Action::ShowOutput => panel::toggle_tab(st, info, app, PanelTab::Output),
         Action::ToggleSideBar => st.side_visible = !st.side_visible,
         Action::ToggleTerminal => terminal::toggle(st, info, app),
         Action::QuickOpen => commands::quick_open(st, info, app),

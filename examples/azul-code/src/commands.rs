@@ -30,7 +30,7 @@ use crate::{
     app::{AppState, Doc, FolderSearch, GitState, IndexState, Palette, PaletteKind, PendingSave, Side, TaskState},
     git,
     highlight::HighlightJob,
-    ids, sample,
+    ids, phone, sample,
     search::Found,
     storage::{self, DriveJob, DriveOutcome, SearchJob, INDEX_MAX_FILES},
     tasks,
@@ -431,9 +431,18 @@ pub fn open_find(st: &mut AppState, info: &mut CallbackInfo, replace: bool) {
 
 /// Mod+Shift+F: the side bar's search, its field focused.
 pub fn show_search(st: &mut AppState, info: &mut CallbackInfo) {
-    st.side = Side::Search;
-    st.side_visible = true;
+    show_side(st, Side::Search);
     focus_soon(info, ids::SEARCH_INPUT.as_str());
+}
+
+/// The side bar shows `side`; on a phone the drawer opens on it (it has no side bar), over the editor.
+pub fn show_side(st: &mut AppState, side: Side) {
+    st.side = side;
+    st.side_visible = true;
+    if phone::is_compact(st.window.0, st.window.1) {
+        st.phone.drawer = true;
+        st.phone.editing = false;
+    }
 }
 
 /// The source control view's changes asked of git again (on a Thread); nothing for the sample, which is
@@ -537,6 +546,10 @@ pub fn command_of(key: VirtualKeyCode, m: KeyModifiers, has_file: bool) -> Optio
         K::F if primary && has_file => Action::Find,
         K::H if primary && has_file => Action::Replace,
         K::E if primary && shift => Action::ShowExplorer,
+        K::G if primary && shift => Action::ShowSourceControl,
+        K::D if primary && shift => Action::ShowRun,
+        K::M if primary && shift => Action::ShowProblems,
+        K::U if primary && shift => Action::ShowOutput,
         K::G if primary && has_file => Action::GoToLine,
         K::W if primary => Action::CloseEditor,
         K::J if primary => Action::ToggleTerminal,

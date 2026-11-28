@@ -2,21 +2,27 @@
 //! shell's panes, built here so the side bar can hide - Mod+B - and keep the
 //! width its splitter was dragged to):
 //!
-//! - the ACTIVITY BAR: Explorer and Search (a click on the one in front
-//!   hides the side bar), Settings at its foot;
+//! - the ACTIVITY BAR: Explorer, Search, Source Control and Run (a click on
+//!   the one in front hides the side bar), Settings at its foot;
 //! - the SIDE BAR: the explorer ([`crate::explorer`]: the folder's tree,
 //!   virtualized, or "You have not yet opened a folder." with Open Folder and
-//!   the recent folders) or the search over the folder
-//!   ([`crate::find_in_files`]);
+//!   the recent folders), the search over the folder
+//!   ([`crate::find_in_files`]), the changes git lists
+//!   ([`crate::git_panel`]) or what the folder says can be run
+//!   ([`crate::run_panel`]);
 //! - the EDITOR: the tabs (a close button each, a dot for unsaved changes),
 //!   the file's path, the find and go-to bars, azul's CodeView over the file
 //!   in front - or, while no file is open, the welcome page (the app's name,
 //!   Start, Recent, the keyboard shortcuts); under it, on a splitter, the
-//!   TERMINAL panel ([`crate::terminal`]);
-//! - the STATUS BAR (the branch, the folder, Ln / Col, the indentation, the
-//!   encoding, the line endings, the language, the last notice), and the
-//!   palette (quick open, the command palette: [`crate::palette`]) over it
-//!   all.
+//!   bottom PANEL ([`crate::panel`]: Terminal, Problems, Output);
+//! - the STATUS BAR (the branch, the folder, the panel's three views, Ln /
+//!   Col, the indentation, the encoding, the line endings, the language, the
+//!   last notice), and the palette (quick open, the command palette:
+//!   [`crate::palette`]) over it all.
+//!
+//! On a phone (a window under 600 wide or 500 tall: [`crate::phone`]) it is
+//! another window: the editor is the screen, the explorer a drawer, the panel
+//! a bottom sheet, a key row over the keyboard.
 //!
 //! The chrome AzCode draws itself paints with the theme's ink and the
 //! accent (`--az-accent`) and greys that read in either mode, so it follows

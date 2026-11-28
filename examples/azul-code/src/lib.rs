@@ -129,7 +129,7 @@ pub static ABOUT: AboutInfo = AboutInfo {
     app_folder: sample::APP_FOLDER,
 };
 
-pub static SHORTCUTS: [Shortcut; 24] = [
+pub static SHORTCUTS: [Shortcut; 28] = [
     Shortcut::new("azcode-menu-file", "Mod+K Mod+O / Mod+O", "azcode-shortcut-open-folder"),
     Shortcut::new("azcode-menu-file", "Mod+K F", "azcode-shortcut-close-folder"),
     Shortcut::new("azcode-menu-file", "Mod+P", "azcode-shortcut-quick-open"),
@@ -138,6 +138,10 @@ pub static SHORTCUTS: [Shortcut; 24] = [
     Shortcut::new("azcode-shortcut-window", "Mod+Shift+P", "azcode-shortcut-palette"),
     Shortcut::new("azcode-shortcut-window", "Mod+B", "azcode-shortcut-side-bar"),
     Shortcut::new("azcode-shortcut-window", "Mod+Shift+E", "azcode-shortcut-explorer"),
+    Shortcut::new("azcode-shortcut-window", "Mod+Shift+G", "azcode-shortcut-source-control"),
+    Shortcut::new("azcode-shortcut-window", "Mod+Shift+D", "azcode-shortcut-run"),
+    Shortcut::new("azcode-shortcut-window", "Mod+Shift+M", "azcode-shortcut-problems"),
+    Shortcut::new("azcode-shortcut-window", "Mod+Shift+U", "azcode-shortcut-output"),
     Shortcut::new("azcode-shortcut-window", "Ctrl+` / Mod+J", "azcode-shortcut-terminal"),
     Shortcut::new("azcode-shortcut-window", "Ctrl+Shift+`", "azcode-shortcut-new-terminal"),
     Shortcut::new("azcode-action-find", "Mod+Shift+F", "azcode-shortcut-find-in-files"),

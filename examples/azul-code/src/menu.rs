@@ -1,7 +1,7 @@
 //! The menu bar, VSCode's: File (Open Folder..., Open File..., Open Recent,
 //! Save All, Close Editor, Close Folder), Edit (Undo, Redo, Find, Replace,
-//! Find in Files), View (Command Palette..., Explorer, Search, Toggle Side
-//! Bar, Terminal), Go (Go to File..., Go to Line...), Terminal (New
+//! Find in Files), View (Command Palette..., Explorer, Search, Source Control,
+//! Run, Toggle Side Bar, Terminal, Problems, Output), Go (Go to File..., Go to Line...), Terminal (New
 //! Terminal, Kill Terminal), Help (Keyboard Shortcuts, Settings, About).
 //! Every item runs a command of [`crate::actions`].
 //!
@@ -68,6 +68,10 @@ action_callbacks! {
     on_find_in_files => FindInFiles,
     on_command_palette => CommandPalette,
     on_show_explorer => ShowExplorer,
+    on_show_source_control => ShowSourceControl,
+    on_show_run => ShowRun,
+    on_show_problems => ShowProblems,
+    on_show_output => ShowOutput,
     on_toggle_side_bar => ToggleSideBar,
     on_toggle_terminal => ToggleTerminal,
     on_quick_open => QuickOpen,
@@ -171,9 +175,13 @@ pub fn menu_bar(app: &RefAny, st: &AppState) -> Menu {
                 MenuItem::separator(),
                 item(app, Action::ShowExplorer),
                 item(app, Action::FindInFiles),
+                item(app, Action::ShowSourceControl),
+                item(app, Action::ShowRun),
                 item(app, Action::ToggleSideBar),
                 MenuItem::separator(),
                 item(app, Action::ToggleTerminal),
+                item(app, Action::ShowProblems),
+                item(app, Action::ShowOutput),
             ],
         ),
         menu("azcode-menu-go", vec![item(app, Action::QuickOpen), item(app, Action::GoToLine)]),

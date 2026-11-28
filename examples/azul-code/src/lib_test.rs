@@ -7,7 +7,7 @@ fn the_shortcut_list_names_every_key_the_window_takes() {
     let window_keys = [
         "Mod+K Mod+O", "Mod+O", "Mod+K F", "Mod+P", "Mod+Shift+P", "Mod+B", "Mod+Shift+E", "Mod+S",
         "Mod+W", "Mod+F", "Mod+Shift+F", "Mod+H", "Mod+G", "F3", "Escape", "Ctrl+`", "Mod+J",
-        "Ctrl+Shift+`",
+        "Ctrl+Shift+`", "Mod+Shift+G", "Mod+Shift+D", "Mod+Shift+M", "Mod+Shift+U",
     ];
     for key in window_keys {
         assert!(

@@ -24,6 +24,13 @@ fn the_window_keys_are_vscodes() {
     assert_eq!(command_of(K::J, m(true, false, false), false), Some(Action::ToggleTerminal));
     assert_eq!(command_of(K::O, m(true, false, false), false), Some(Action::OpenFolder));
     assert_eq!(command_of(K::A, m(false, false, false), true), None, "typing is the editor's");
+    // the views of the card: source control, run, the panel's problems and output (VSCode's letters, Shift added)
+    assert_eq!(command_of(K::G, m(true, true, false), false), Some(Action::ShowSourceControl));
+    assert_eq!(command_of(K::G, m(true, false, false), true), Some(Action::GoToLine), "without Shift: the line");
+    assert_eq!(command_of(K::D, m(true, true, false), false), Some(Action::ShowRun));
+    assert_eq!(command_of(K::M, m(true, true, false), false), Some(Action::ShowProblems));
+    assert_eq!(command_of(K::U, m(true, true, false), false), Some(Action::ShowOutput));
+    assert_eq!(command_of(K::D, m(true, false, false), false), None, "Mod+D is the editor's (the next occurrence)");
     assert_eq!(chord_command(K::O, m(true, false, false)), Some(Action::OpenFolder));
     assert_eq!(chord_command(K::F, m(false, false, false)), Some(Action::CloseFolder));
     assert_eq!(chord_command(K::X, m(true, false, false)), None);
@@ -44,4 +51,19 @@ fn a_picked_folders_trailing_slash_is_left_out() {
         keys("F3 / Shift+F3"),
         if cfg!(target_os = "macos") { "F3 / \u{21e7}F3" } else { "F3 / Shift+F3" }
     );
+}
+
+#[test]
+fn a_view_shown_by_a_command_opens_the_drawer_on_a_phone_and_the_side_bar_on_a_desktop() {
+    let mut st = AppState::new(RefAny::new(0u8), std::env::temp_dir(), false);
+    st.window = (1280.0, 800.0);
+    st.side_visible = false;
+    show_side(&mut st, Side::Git);
+    assert_eq!((st.side, st.side_visible, st.phone.drawer), (Side::Git, true, false), "a desktop has the side bar");
+    st.window = (411.0, 914.0);
+    st.phone.editing = true;
+    show_side(&mut st, Side::Run);
+    assert_eq!(st.side, Side::Run);
+    assert!(st.phone.drawer, "a phone has the drawer");
+    assert!(!st.phone.editing, "the drawer leaves the editor: no key row over it");
 }
