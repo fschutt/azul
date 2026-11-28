@@ -184,3 +184,78 @@ fn the_discovery_starts_no_uname_process() {
     assert!(body.contains("/proc/sys/kernel/osrelease"), "it reads the kernel's file");
     assert!(!body.contains("uname"), "and spawns nothing: {body}");
 }
+
+// ---- the accessibility settings: what is read, and what announces a change ----
+
+/// A message of `kind` (1 call, 2 return, 3 error, 4 signal) that is its fixed header only: no fields, no body.
+fn bare_message(kind: u8) -> Vec<u8> {
+    let mut message = vec![b'l', kind, 0, 1];
+    message.extend_from_slice(&0_u32.to_le_bytes()); // the body's length
+    message.extend_from_slice(&1_u32.to_le_bytes()); // the serial
+    message.extend_from_slice(&0_u32.to_le_bytes()); // the header fields' length
+    message
+}
+
+#[test]
+fn only_a_signal_is_an_announcement_and_a_half_message_waits_for_the_rest() {
+    // the replies of `AddMatch` are method returns: not an announcement
+    let mut pending = bare_message(2);
+    assert_eq!(take_signals(&mut pending), Some(false));
+    assert!(pending.is_empty(), "the whole message was taken off");
+
+    // a signal is one, whatever came before it
+    let mut pending = bare_message(2);
+    pending.extend(bare_message(4));
+    assert_eq!(take_signals(&mut pending), Some(true));
+    assert!(pending.is_empty());
+
+    // a message that stopped in the middle is kept for the next read, and is no announcement yet
+    let whole = bare_message(4);
+    let mut pending = whole[..10].to_vec();
+    assert_eq!(take_signals(&mut pending), Some(false));
+    assert_eq!(pending.len(), 10);
+    pending.extend_from_slice(&whole[10..]);
+    assert_eq!(take_signals(&mut pending), Some(true));
+    assert!(pending.is_empty());
+
+    // bytes that are not D-Bus end the connection (nothing resynchronises a byte stream)
+    let mut pending = vec![b'?'; 32];
+    assert_eq!(take_signals(&mut pending), None);
+}
+
+#[test]
+fn the_watch_rules_cover_the_portal_dconf_and_the_kde_notifications() {
+    let rules = PREFERENCE_MATCH_RULES.join("\n");
+    for needle in [
+        "org.freedesktop.portal.Settings",
+        "SettingChanged",
+        "ca.desrt.dconf.Writer",
+        "/org/gnome/desktop/",
+        "org.kde.kconfig.notify",
+        "org.kde.KGlobalSettings",
+    ] {
+        assert!(rules.contains(needle), "{needle}");
+    }
+    // every one a signal rule: a rule without a type matches replies as well
+    assert!(PREFERENCE_MATCH_RULES.iter().all(|rule| rule.starts_with("type='signal'")));
+}
+
+#[test]
+fn plasma_says_reduced_motion_by_an_animation_speed_of_zero_and_names_no_text_scale() {
+    let home = fresh_dir("kde-prefs");
+    write(&home.join(".config/kdeglobals"), "[KDE]\nAnimationDurationFactor=0\n");
+    let env = env_with(&[("HOME", text(&home)), ("XDG_CURRENT_DESKTOP", "KDE")]);
+    let preferences = read_kde_preferences(&env);
+    assert!(preferences.reduced_motion.is_on());
+    assert_eq!(preferences.text_scale, azul_css::OptionF32::None, "Plasma has no text scale");
+
+    // the speed the user chose, a half: not reduced, and known
+    write(&home.join(".config/kdeglobals"), "[KDE]\nAnimationDurationFactor=0.5\n");
+    let preferences = read_kde_preferences(&env);
+    assert!(preferences.reduced_motion.is_off());
+
+    // no answer: nothing known, nothing off
+    write(&home.join(".config/kdeglobals"), "[General]\nColorScheme=Breeze\n");
+    assert!(read_kde_preferences(&env).reduced_motion == azul_css::accessibility::SettingState::Unknown);
+    let _ = std::fs::remove_dir_all(&home);
+}
