@@ -100,14 +100,14 @@ impl TabHeader {
             0.0
         };
         // The numbers the strip's scroll-into-view works from: no band, so one lane the width of the view.
-        let scroll = StripScrollData {
-            lead: lead_px + chevron_room,
-            trail: lead_px,
-            gap: gap_px,
-            lanes: Vec::new(),
-            pill_classes: vec![TAB_ACTIVE_CLASS_NAME.to_string(), TAB_NOT_ACTIVE_CLASS_NAME.to_string()],
-            camera_room: false,
-        };
+        let mut scroll = StripScrollData::for_band(
+            None,
+            vec![TAB_ACTIVE_CLASS_NAME.to_string(), TAB_NOT_ACTIVE_CLASS_NAME.to_string()],
+        );
+        scroll.lead = lead_px + chevron_room;
+        scroll.trail = lead_px;
+        scroll.gap = gap_px;
+        scroll.camera_room = false;
 
         let dataset = TabLocalDataset {
             tab_idx: 0,
@@ -148,7 +148,10 @@ impl TabHeader {
             } else {
                 CoreCallbackDataVec::from_const_slice(&[])
             };
-            let mut pill = crate::widgets::widget_p_with_text(label.clone())
+            // The pill is a box with its label in a block of its own (the hit area and the marker hang on the box
+            // too: a raw text run among flex items has no box, the text lint says so).
+            let mut pill = crate::widgets::widget_p_chrome()
+                .with_child(crate::widgets::widget_p_with_text(label.clone()))
                 .with_callbacks(callbacks)
                 .with_dataset(Some(tab_dataset).into())
                 .with_css_props(desktop_pill(
