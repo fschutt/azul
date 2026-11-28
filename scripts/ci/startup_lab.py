@@ -248,8 +248,8 @@ def log_events(text):
 
 def displayed_ms(text):
     """The `+NNNms` of the system's `Displayed` line, or None."""
-    m = re.search(r"Displayed \S+(?: for user \d+)?: \+(\d+)ms", text or "")
-    return int(m.group(1)) if m else None
+    m = re.search(r"Displayed \S+(?: for user \d+)?: \+(?:(\d+)s)?(\d+)ms", text or "")
+    return int(m.group(1) or 0) * 1000 + int(m.group(2)) if m else None
 
 
 def median(values):

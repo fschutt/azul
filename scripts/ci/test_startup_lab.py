@@ -150,6 +150,10 @@ class LogTests(unittest.TestCase):
         self.assertEqual(lab.displayed_ms(self.LOG), 415)
         self.assertIsNone(lab.displayed_ms("nothing"))
 
+    def test_displayed_of_a_second_or_more_is_read_too(self):
+        self.assertEqual(lab.displayed_ms("ActivityTaskManager: Displayed com.azul.AzWidgets/com.azul.app.AzulActivity for user 0: +1s259ms"), 1259)
+        self.assertEqual(lab.displayed_ms("ActivityTaskManager: Displayed com.azul.floor/.FloorActivity for user 0: +2s136ms"), 2136)
+
     def test_a_line_that_is_no_threadtime_line_has_no_time(self):
         self.assertIsNone(lab.logcat_ms("--------- beginning of main"))
 
