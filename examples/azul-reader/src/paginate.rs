@@ -278,16 +278,18 @@ mod tests {
             return;
         }
         assert!(pages.page_count() >= 3, "{} pages", pages.page_count());
+        // Every page's (top, height), for the message of a failure: which breaks the engine chose.
+        let spans: Vec<(f32, f32)> = (0..pages.page_count()).map(|p| pages.span(p)).collect();
         for page in 1..pages.page_count() {
             let (top, height) = pages.span(page);
             let into_line = top % 20.0;
             assert!(
                 into_line < 0.01 || into_line > 19.99,
-                "page {page} starts {into_line} px into a line (at {top})"
+                "page {page} starts {into_line} px into a line (at {top}); the pages are {spans:?}"
             );
             assert!(
                 height <= 105.0 + 0.01,
-                "page {page} is {height} px, the page 105"
+                "page {page} is {height} px, the page 105; the pages are {spans:?}"
             );
         }
     }
