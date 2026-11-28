@@ -370,7 +370,7 @@ class E2eVariantTest(unittest.TestCase):
         self.assertTrue(self.m["lib"]["mobile-e2e"]["artifact_only"])
         # the phone apps whose QA variant the layout audit and the scripted checks of the phone QA drive
         self.assertEqual([a["package"] for a in self.m["app"] if a.get("e2e")],
-                         ["AzWidgets", "AzMaps", "AzPaint", "AzMeet", "AzWriter", "AzCompanion", "AzCode"])
+                         ["AzWidgets", "AzMaps", "AzPaint", "AzMeet", "AzWriter", "AzCompanion", "AzCode", "AzMail"])
         self.assertTrue(self.m["lib"]["mobile-e2e-iroh"]["artifact_only"])
         self.assertEqual([e for e in demo_apps.check(self.m) if "e2e" in e], [])
 
@@ -1813,7 +1813,8 @@ class MobileLibCommandTest(unittest.TestCase):
         self.assertEqual(self.e2e_lib("AzWidgets"), (0, "mobile-e2e"))
         self.assertEqual(self.e2e_lib("AzMeet"), (0, "mobile-e2e-iroh"))
         self.assertEqual(self.e2e_lib("AzCompanion"), (0, "mobile-e2e-iroh"))
-        self.assertEqual(self.e2e_lib("AzMail")[0], 1)           # no QA build
+        self.assertEqual(self.e2e_lib("AzMail"), (0, "mobile-e2e"))
+        self.assertEqual(self.e2e_lib("AzMonitor")[0], 1)        # a desktop app: no QA build
         self.assertEqual(self.e2e_lib()[0], 2)
 
 
