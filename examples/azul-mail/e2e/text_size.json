@@ -1,40 +1,102 @@
 [
   {
-    "name": "azmail_phone_the_frame_holds_at_the_system_text_size",
-    "description": "AzMail's phone layout at 360 x 640 under the SYSTEM text size, which the run sets before it starts the app (iOS Simulator: `xcrun simctl ui <udid> content_size <category>`; Android: `adb shell settings put system font_scale <1.0 | 1.3 | 2.0>`; a desktop run cannot set it). Nothing of the frame may leave the window at any size: the tab row, the list, the bottom pane and the status bar keep the window's width, the rail stays 18 px, the drawer 76 % of the window. The pictures (rail, drawer, message) are taken for the comparison between the sizes. The engine does not read the system text size yet (iOS and Android never read it, no layout code applies AccessibilitySettings::text_scale_factor), so today every size gives the same picture; these assertions are for the day it does.",
+    "name": "azmail_phone_the_frame_keeps_its_places_at_the_system_text_size",
+    "description": "AzMail's phone layout (a phone's own size, no account needed) under the SYSTEM text size, which the run sets before it starts the app (iOS Simulator: `xcrun simctl ui <udid> content_size <category>`; Android: `adb shell settings put system font_scale <1.0 | 1.3 | 2.0>`; a desktop run cannot set it and uses AZMAIL_FORM=phone for the layout). The frame keeps its places at every size: the tab row starts at the left edge, the rail is 18 px, the body and the status bar start beside the rail, the drawer opens and a tap beside it closes it. Three pictures (the rail, the drawer, the rail again) are taken for the comparison between the sizes; what overflows or is clipped in them is for the layout audit that runs on the same states. The engine does not read the system text size yet (iOS and Android never read it, no layout code applies AccessibilitySettings::text_scale_factor), so today every size gives the same picture and the assertions hold; they are for the day it does.",
     "steps": [
-      { "op": "resize", "width": 360, "height": 640 },
-      { "op": "set_mode", "mode": "light" },
-      { "op": "set_theme", "theme": "flora" },
-      { "op": "wait_frame" },
-      { "op": "wait_frame" },
-      { "op": "assert_exists", "selector": ".__azul-native-app-frame-phone" },
-      { "op": "assert_layout", "selector": "#__azmail_ribbon", "property": "x", "expected": 0, "tolerance": 1 },
-      { "op": "assert_layout", "selector": "#__azmail_ribbon", "property": "width", "expected": 360, "tolerance": 1 },
-      { "op": "assert_layout", "selector": ".__azul-native-sidebar-rail", "property": "width", "expected": 18, "tolerance": 0.6 },
-      { "op": "assert_layout", "selector": "#__azmail_message_list", "property": "x", "expected": 18, "tolerance": 1 },
-      { "op": "assert_layout", "selector": "#__azmail_message_list", "property": "width", "expected": 342, "tolerance": 1 },
-      { "op": "assert_layout", "selector": ".__azul-native-app-frame-footer", "property": "x", "expected": 18, "tolerance": 1 },
-      { "op": "assert_layout", "selector": ".__azul-native-app-frame-footer", "property": "width", "expected": 342, "tolerance": 1 },
-      { "op": "take_screenshot" },
-      { "op": "click", "text": "Seed invoice 2026-114" },
-      { "op": "wait_frame" },
-      { "op": "wait_frame" },
-      { "op": "assert_exists", "selector": ".__azul-native-preview-bottom" },
-      { "op": "assert_layout", "selector": ".__azul-native-preview-bottom", "property": "width", "expected": 342, "tolerance": 1 },
-      { "op": "assert_layout", "selector": ".__azul-native-app-frame-footer", "property": "width", "expected": 342, "tolerance": 1 },
-      { "op": "take_screenshot" },
-      { "op": "click", "selector": ".__azul-native-sidebar-toggle" },
-      { "op": "wait_frame" },
-      { "op": "wait_frame" },
-      { "op": "assert_exists", "selector": ".__azul-native-sidebar-expanded" },
-      { "op": "assert_layout", "selector": ".__azul-native-sidebar-expanded", "property": "width", "expected": 273.6, "tolerance": 2 },
-      { "op": "take_screenshot" },
-      { "op": "click", "selector": ".__azul-native-app-frame-catcher" },
-      { "op": "wait_frame" },
-      { "op": "wait_frame" },
-      { "op": "assert_not_exists", "selector": ".__azul-native-app-frame-catcher" },
-      { "op": "assert_layout", "selector": "#__azmail_message_list", "property": "width", "expected": 342, "tolerance": 1 }
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-app-frame-phone"
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmail_ribbon",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 1
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-rail",
+        "property": "width",
+        "expected": 18,
+        "tolerance": 0.6
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-body",
+        "property": "x",
+        "expected": 18,
+        "tolerance": 1
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-footer",
+        "property": "x",
+        "expected": 18,
+        "tolerance": 1
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-app-frame-catcher"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-app-frame-catcher"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-app-frame-catcher"
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-body",
+        "property": "x",
+        "expected": 18,
+        "tolerance": 1
+      },
+      {
+        "op": "take_screenshot"
+      }
     ]
   }
 ]

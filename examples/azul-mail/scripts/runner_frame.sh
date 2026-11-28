@@ -6,9 +6,11 @@
 #
 # A libazul with the debug server, the E2E scripting and the test hooks (`build-dll,test-hooks`:
 # `build-dll` already holds the first two), AzMail with its test hooks, then
-#   1. the scenario files examples/azul-mail/e2e/frame.json (the desktop), frame_phone.json (the
-#      phone preset) and text_size.json (the phone frame at 360 x 640; QA runs it under the system's
-#      text size) through the engine's own executor (AZ_E2E=<file>: the app runs the file and exits);
+#   1. the scenario files through the engine's own executor (AZ_E2E=<file>: the app runs the file
+#      and exits): examples/azul-mail/e2e_sample/frame.json (the desktop) and frame_phone.json (the
+#      phone preset), which need the sample account (`--sample`, so the e2e matrix does not find
+#      them), and examples/azul-mail/e2e/text_size.json (the phone's own size, no account needed;
+#      QA runs it under each system text size);
 #   2. `scripts/azmail_e2e.py --phase frame` for the desktop and for the phone preset
 #      (`--form phone`, a 411 x 760 window): its checks, and the PNGs of the run (flora, light and
 #      dark, the sidebar expanded and as the rail, the Preview with its (?), File's location, the
@@ -28,10 +30,11 @@ export LD_LIBRARY_PATH="$link${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 status=0
 
 # 1. the scenario files: <file>:<form>:<window size>
-for scenario in frame:desktop:1280x860 frame_phone:phone:411x760 text_size:phone:360x640; do
-  IFS=: read -r file form size <<< "$scenario"
+for scenario in e2e_sample/frame:desktop:1280x860 e2e_sample/frame_phone:phone:411x760 e2e/text_size:phone:360x640; do
+  IFS=: read -r path form size <<< "$scenario"
+  file=$(basename "$path")
   data=$(mktemp -d)
-  AZ_E2E="$PWD/examples/azul-mail/e2e/$file.json" AZ_E2E_SHOT_DIR="$PWD/$out/e2e" AZ_BACKEND=headless AZ_LOG=off \
+  AZ_E2E="$PWD/examples/azul-mail/$path.json" AZ_E2E_SHOT_DIR="$PWD/$out/e2e" AZ_BACKEND=headless AZ_LOG=off \
     AZMAIL_DATA="$data/AzMail" AZLIN_DATA="$data" AZLIN_CONFIG=off AZMAIL_FORM="$form" \
     timeout 300 "$bin" --sample --size "$size" --mode light --language en > "$out/e2e-$file.txt" 2>&1
   code=$?

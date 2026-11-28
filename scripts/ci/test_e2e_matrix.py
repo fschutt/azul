@@ -80,6 +80,7 @@ class DiscoverTests(unittest.TestCase):
 
     def test_host_for_the_real_file_names(self):
         self.assertEqual(m.host_for("examples/azul-widgets/e2e/video_card.json", False), "AzWidgets")
+        self.assertEqual(m.host_for("examples/azul-mail/e2e/text_size.json", False), "AzMail")
         self.assertEqual(m.host_for("tests/e2e/css23_proof.json", True), "AzWidgets")
         self.assertIsNone(m.host_for("tests/e2e/resume_http_get.json", False))
 

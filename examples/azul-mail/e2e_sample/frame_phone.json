@@ -160,5 +160,167 @@
         "op": "take_screenshot"
       }
     ]
+  },
+  {
+    "name": "azmail_phone_nothing_leaves_a_360_x_640_window",
+    "description": "AzMail's phone layout at 360 x 640 with the sample account (AZMAIL_FORM=phone on a desktop window): the tab row keeps the window's width, the list, the bottom pane and the status bar the width beside the rail (342), the rail 18 px and the drawer 76 % of the window; a tap beside the drawer closes it.",
+    "steps": [
+      {
+        "op": "resize",
+        "width": 360,
+        "height": 640
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-app-frame-phone"
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmail_ribbon",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 1
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmail_ribbon",
+        "property": "width",
+        "expected": 360,
+        "tolerance": 1
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-rail",
+        "property": "width",
+        "expected": 18,
+        "tolerance": 0.6
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmail_message_list",
+        "property": "x",
+        "expected": 18,
+        "tolerance": 1
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmail_message_list",
+        "property": "width",
+        "expected": 342,
+        "tolerance": 1
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-footer",
+        "property": "x",
+        "expected": 18,
+        "tolerance": 1
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-footer",
+        "property": "width",
+        "expected": 342,
+        "tolerance": 1
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "Seed invoice 2026-114"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-preview-bottom"
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-bottom",
+        "property": "width",
+        "expected": 342,
+        "tolerance": 1
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-footer",
+        "property": "width",
+        "expected": 342,
+        "tolerance": 1
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-expanded",
+        "property": "width",
+        "expected": 273.6,
+        "tolerance": 2
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-app-frame-catcher"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-app-frame-catcher"
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmail_message_list",
+        "property": "width",
+        "expected": 342,
+        "tolerance": 1
+      }
+    ],
+    "only_on": [
+      "linux",
+      "macos",
+      "windows"
+    ]
   }
 ]

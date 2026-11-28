@@ -78,6 +78,8 @@ def host_for(rel, self_mounted):
     """The phone app that hosts a file, or None when it has none."""
     if rel.startswith("examples/azul-widgets/"):
         return "AzWidgets"
+    if rel.startswith("examples/azul-mail/"):
+        return "AzMail"
     stem = Path(rel).stem
     if stem in PHONE_HOST_BY_STEM:
         return PHONE_HOST_BY_STEM[stem]
