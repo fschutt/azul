@@ -1,0 +1,201 @@
+[
+  {
+    "name": "azul_widgets_reduced_motion_off_the_content_folds_over_time",
+    "description": "The chevron of the tab strip folds the content away: frames at 0, 60, 120, 240 and 400 ms of the engine's clock after the click. Motion as it is by default: the intermediate frames show the fold on its way.",
+    "steps": [
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "A phone to try it on",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-tab-content-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 60
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 60
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 120
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 160
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "get_tab_content"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"hidden\":true"
+      },
+      {
+        "op": "set_system_accessibility",
+        "reset": true
+      },
+      {
+        "op": "wait_frame"
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_reduced_motion_on_the_content_is_folded_at_once",
+    "description": "The same click and the same frames with the system's reduced motion on (set_system_accessibility): the first frame after the click is the folded one and the later ones do not differ; no declared animation runs.",
+    "steps": [
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "A phone to try it on",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "set_system_accessibility",
+        "reduced_motion": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-tab-content-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 60
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 60
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 120
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 160
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "get_tab_content"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"hidden\":true"
+      },
+      {
+        "op": "set_system_accessibility",
+        "reset": true
+      },
+      {
+        "op": "wait_frame"
+      }
+    ]
+  }
+]
