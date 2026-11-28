@@ -285,7 +285,7 @@ weight = 2
 [[app]]
 package = "AzCode"
 dir = "examples/azul-code"
-description = "a code editor: file tree, tabs, syntax highlighting, find and replace"
+description = "a code editor: file tree, tabs, syntax colours, find, git, run tasks, a terminal; on a phone too"
 platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 3
 mobile_lib = "mobile"
