@@ -92,7 +92,7 @@ fn a_start_that_finds_nothing_new_writes_nothing_even_after_the_layout_made_inst
     // Start 1: no manifest. The scan finds the font and the end of the scan writes the pair.
     let first = registry_over(&fonts);
     let key = key_for(&first);
-    let started = start_font_cache(&first, Some(&manifest), &key);
+    let started = start_font_cache(&first, Some(manifest.as_path()), &key);
     assert_eq!(started.verdict, Verdict::Miss);
     assert_eq!(started.loaded_faces, None);
     scan(&first);
@@ -104,7 +104,7 @@ fn a_start_that_finds_nothing_new_writes_nothing_even_after_the_layout_made_inst
     // Start 2: a hit. A layout then asks for an instance of the variable font: a face of the registry that is in no
     // manifest.
     let second = registry_over(&fonts);
-    let started = start_font_cache(&second, Some(&manifest), &key);
+    let started = start_font_cache(&second, Some(manifest.as_path()), &key);
     assert_eq!(started.verdict, Verdict::Hit, "{}", started.verdict.describe());
     assert_eq!(started.loaded_faces, Some(disk_faces));
     assert!(second.is_cache_loaded(), "a hit is a loaded cache: a layout does not wait for the scan");
@@ -145,7 +145,7 @@ fn a_font_that_changed_is_rebuilt_and_the_next_start_is_a_hit() {
     let manifest = dir.join("cache").join("rfc").join("fonts").join("manifest.bin");
     let first = registry_over(&fonts);
     let key = key_for(&first);
-    let started = start_font_cache(&first, Some(&manifest), &key);
+    let started = start_font_cache(&first, Some(manifest.as_path()), &key);
     scan(&first);
     assert_eq!(
         persist_font_cache(&first, &manifest, &key, started.loaded_faces).0,
@@ -159,7 +159,7 @@ fn a_font_that_changed_is_rebuilt_and_the_next_start_is_a_hit() {
     std::fs::write(&file, &bytes).unwrap();
 
     let second = registry_over(&fonts);
-    let started = start_font_cache(&second, Some(&manifest), &key);
+    let started = start_font_cache(&second, Some(manifest.as_path()), &key);
     assert!(
         matches!(&started.verdict, Verdict::Rebuilt(Reason::FontsChanged { changed: 1, gone: 0, .. })),
         "{}",
@@ -172,7 +172,7 @@ fn a_font_that_changed_is_rebuilt_and_the_next_start_is_a_hit() {
     assert_eq!(persisted, Persisted::Written);
 
     let third = registry_over(&fonts);
-    let started = start_font_cache(&third, Some(&manifest), &key);
+    let started = start_font_cache(&third, Some(manifest.as_path()), &key);
     assert_eq!(started.verdict, Verdict::Hit, "{}", started.verdict.describe());
 }
 
@@ -183,7 +183,7 @@ fn a_new_font_is_found_by_the_scan_after_a_hit_and_the_pair_is_written_again() {
     let manifest = dir.join("cache").join("rfc").join("fonts").join("manifest.bin");
     let first = registry_over(&fonts);
     let key = key_for(&first);
-    let started = start_font_cache(&first, Some(&manifest), &key);
+    let started = start_font_cache(&first, Some(manifest.as_path()), &key);
     scan(&first);
     let (_, one_font) = persist_font_cache(&first, &manifest, &key, started.loaded_faces);
 
@@ -192,7 +192,7 @@ fn a_new_font_is_found_by_the_scan_after_a_hit_and_the_pair_is_written_again() {
     std::fs::copy(&other, fonts.join("AzulMockKern.ttf")).expect("a second font of the repository");
 
     let second = registry_over(&fonts);
-    let started = start_font_cache(&second, Some(&manifest), &key);
+    let started = start_font_cache(&second, Some(manifest.as_path()), &key);
     assert_eq!(started.verdict, Verdict::Hit, "a font that is not in the manifest does not make it stale");
     assert_eq!(started.loaded_faces, Some(one_font));
     scan(&second);
@@ -201,7 +201,7 @@ fn a_new_font_is_found_by_the_scan_after_a_hit_and_the_pair_is_written_again() {
     assert_eq!(persisted, Persisted::Written);
 
     let third = registry_over(&fonts);
-    let started = start_font_cache(&third, Some(&manifest), &key);
+    let started = start_font_cache(&third, Some(manifest.as_path()), &key);
     assert_eq!(started.verdict, Verdict::Hit);
     assert_eq!(started.loaded_faces, Some(two_fonts));
 }
@@ -218,7 +218,7 @@ fn a_manifest_the_key_file_vouches_for_and_the_library_refuses_is_a_rebuild() {
     let key = key_for(&registry);
     write_key_file(&manifest, &key, Vec::new()).unwrap();
 
-    let started = start_font_cache(&registry, Some(&manifest), &key);
+    let started = start_font_cache(&registry, Some(manifest.as_path()), &key);
     assert_eq!(started.verdict, Verdict::Rebuilt(Reason::ManifestRejected));
     assert_eq!(started.loaded_faces, None);
     assert!(!registry.is_cache_loaded());
