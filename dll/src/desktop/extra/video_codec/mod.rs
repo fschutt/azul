@@ -16,9 +16,11 @@
 //! honest: `open` returns an invalid handle (`is_open()` false) wherever this
 //! build has no working engine (today: encode and decode via VideoToolbox, or
 //! Vulkan Video on x86_64 + `video-native` - encode where the GPU has
-//! `VK_KHR_video_encode_h264`; no MediaCodec yet, no H.265 anywhere),
-//! so an open handle always produces output. `VideoEncodeCheck` and
-//! `PlatformCapability::video_codec` answer from the same engine checks.
+//! `VK_KHR_video_encode_h264`; no MediaCodec backend yet - an Android build
+//! reports "not available" with that reason - and no H.265 anywhere),
+//! so an open handle always produces output. `VideoEncodeCheck`,
+//! `VideoStartupCheck` and `PlatformCapability::video_codec` answer from the
+//! same engine checks.
 
 use core::ffi::c_void;
 
@@ -111,14 +113,14 @@ const fn decode_engine_compiled() -> bool {
 /// encodes H.264; MediaCodec is not wired. `VideoEncoder::open` and
 /// `VideoEncodeCheck` both answer
 /// from here, so neither claims an encoder that cannot give a packet back.
-pub(crate) fn encode_engine() -> Result<&'static str, String> {
+pub(crate) fn encode_engine() -> Result<String, String> {
     #[cfg(az_gpu_video)]
     {
         // Asked of the driver once per process (a Vulkan instance each time
         // would cost every encoder open tens of milliseconds).
         static ENCODES: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
         match *ENCODES.get_or_init(provision::vulkan_encode_h264) {
-            Some(true) => Ok("Vulkan Video"),
+            Some(true) => Ok(String::from("Vulkan Video")),
             Some(false) => Err(String::from(
                 "this GPU / driver has no Vulkan Video H.264 encode (no \
                  VK_KHR_video_encode_h264 - e.g. NVIDIA Maxwell / GTX 9xx decode only)",
@@ -129,7 +131,7 @@ pub(crate) fn encode_engine() -> Result<&'static str, String> {
     #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
     {
         if videotoolbox::is_available() {
-            Ok("VideoToolbox")
+            Ok(String::from("VideoToolbox"))
         } else {
             Err(String::from(
                 "the VideoToolbox framework did not load (see the [video] log lines)",
@@ -158,14 +160,14 @@ pub(crate) fn encode_engine() -> Result<&'static str, String> {
 /// The H.264 DECODE engine of this BUILD on this machine (see
 /// [`encode_engine`]). Whether a Vulkan Video device decodes is only known
 /// when a decoder opens, which `VideoDecoder::open` checks.
-pub(crate) fn decode_engine() -> Result<&'static str, String> {
+pub(crate) fn decode_engine() -> Result<String, String> {
     if !decode_engine_compiled() {
         return Err(decode_engine_missing_reason());
     }
     #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
     {
         if videotoolbox::is_available() {
-            Ok("VideoToolbox")
+            Ok(String::from("VideoToolbox"))
         } else {
             Err(String::from(
                 "the VideoToolbox framework did not load (see the [video] log lines)",
@@ -174,7 +176,7 @@ pub(crate) fn decode_engine() -> Result<&'static str, String> {
     }
     #[cfg(not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")))]
     {
-        Ok("Vulkan Video")
+        Ok(String::from("Vulkan Video"))
     }
 }
 

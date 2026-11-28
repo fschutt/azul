@@ -329,3 +329,42 @@ fn a_frame_painted_into_the_platforms_buffer_is_told_with_the_buffers_rows() {
         assert!(t.picture.chunks_exact(4).any(|p| p == [0, 0, 255, 255]), "the blue box is in it");
     });
 }
+
+/// A shell puts the frame its backend rendered on the window's frame report, and the report says
+/// what the backend did: one more frame since the last counter reset, and the damage of that frame.
+/// The e2e counters read the report (`assert_idle_stable`: "a frame was rendered since the last
+/// reset"); the Android and iOS shells never called this and answered every such assertion with
+/// "NO FRAME was rendered" in a window that had rendered hundreds.
+///
+/// Mutation: a `record_last_frame_on` that records nothing, or the damage of another frame, fails
+/// the counts or the damage below.
+#[test]
+fn the_frame_a_backend_rendered_is_put_on_the_windows_frame_report() {
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let resources = RendererResources::default();
+    let mut backend = CpuBackend::new();
+    lay_out(&mut lw, 300.0, 200.0);
+    assert_eq!(lw.frame_report_synced().frames_since_reset, 0, "premise: nothing was recorded yet");
+
+    backend.render_frame(&lw, &resources, 300.0, 200.0, 1.0);
+    backend.record_last_frame_on(&mut lw);
+    let first = lw.frame_report_synced();
+    assert_eq!(first.frames_since_reset, 1, "the first frame is on the report");
+    assert_eq!(first.paint_damage, FrameDamage::Full, "the first frame paints everything");
+    assert_eq!(first.paint_damage, backend.last_frame_damage);
+    assert_eq!(first.present_damage, backend.last_present_damage);
+
+    // An unchanged window renders a frame that changes nothing: one more frame, and no damage.
+    backend.render_frame(&lw, &resources, 300.0, 200.0, 1.0);
+    backend.record_last_frame_on(&mut lw);
+    let second = lw.frame_report_synced();
+    assert_eq!(second.frames_since_reset, 2, "the second frame is on the report");
+    assert_eq!(second.paint_damage, backend.last_frame_damage, "the report has the damage of this frame, not the last one's");
+    assert_eq!(second.present_damage, FrameDamage::None, "an unchanged window presents nothing");
+
+    // The counters reset like any other: the next frame is the first since the reset.
+    lw.request_frame_report_reset();
+    backend.record_last_frame_on(&mut lw);
+    assert_eq!(lw.frame_report_synced().frames_since_reset, 1);
+}
+

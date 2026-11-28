@@ -11,9 +11,10 @@
 #   reads cargo's JSON and fails the app that did) -> boot tests (an Android emulator with KVM, the iOS
 #   Simulator) -> report (demo-status.json / .md, the job summary) -> publish (only on `publish`).
 #
-# The QA variant (input `e2e`, rust.yml's demos_e2e): the phone libazul with the engine's debug server, linked by the same app
-# build for the apps that say `e2e = true`, as <Name>-e2e-<column> in artifacts named demoe2e-*. An artifact of the run for
-# the QA of the phone shells, never published: no release asset, no page link, not boot-tested here.
+# The QA variants (input `e2e`, rust.yml's demos_e2e): the libazul of the phones (mobile-e2e, mobile-e2e-iroh) and of the desktop
+# (desktop-e2e: linux, macos-arm64) with the engine's debug server, E2E scripting and test hooks, linked by the apps that say `e2e = true`
+# and by the QA-only apps (`qa_only = true`: AzSelfTest, which has no other build), as <Name>-e2e-<column> in artifacts named demoe2e-*.
+# Artifacts of the run for the QA, never published: no release asset, no page link, not boot-tested here.
 #
 # Nothing here signs. The iOS device apps are UNSIGNED on purpose (AzReview signs them for the phone they
 # are installed on, with the user's own Apple ID); the APKs carry the fixed public debug key of
@@ -29,7 +30,7 @@ on:
         type: boolean
         default: false
       e2e:
-        description: 'Also build the QA variant of the phone libazul with the engine debug server and the apps that ask for it (artifacts demoe2e-*, never published)'
+        description: 'Also build the QA variants of the phone and desktop libazul with the engine debug server and the apps that ask for it (artifacts demoe2e-*, never published)'
         type: boolean
         default: false
 
@@ -61,6 +62,7 @@ jobs:
       smoke_taps: ${{ steps.plan.outputs.smoke_taps }}
       smoke_expects: ${{ steps.plan.outputs.smoke_expects }}
       smoke_after: ${{ steps.plan.outputs.smoke_after }}
+      smoke_logs: ${{ steps.plan.outputs.smoke_logs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -454,9 +456,10 @@ jobs:
           DEMO_LEG: ${{ matrix.leg }}
           DEMO_APPS: ${{ matrix.apps }}
           DEMO_LIB_FILE: ${{ matrix.lib_file }}
+          DEMO_VARIANT: ${{ matrix.variant }}
         run: >-
           python3 scripts/demo_build.py desktop --leg "$DEMO_LEG" --apps "$DEMO_APPS"
-          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results --run-check
+          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results --run-check --variant "$DEMO_VARIANT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -508,13 +511,14 @@ jobs:
           DEMO_LEG: ${{ matrix.leg }}
           DEMO_APPS: ${{ matrix.apps }}
           DEMO_LIB_FILE: ${{ matrix.lib_file }}
+          DEMO_VARIANT: ${{ matrix.variant }}
           DEMO_TARGET: ${{ matrix.target }}
           DEMO_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
         run: >-
           python3 scripts/demo_build.py desktop --leg "$DEMO_LEG" --apps "$DEMO_APPS"
           --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results
           ${DEMO_TARGET:+--target "$DEMO_TARGET"}
-          --deployment-target "$DEMO_DEPLOYMENT_TARGET"
+          --deployment-target "$DEMO_DEPLOYMENT_TARGET" --variant "$DEMO_VARIANT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -583,9 +587,10 @@ jobs:
           DEMO_LEG: ${{ matrix.leg }}
           DEMO_APPS: ${{ matrix.apps }}
           DEMO_LIB_FILE: ${{ matrix.lib_file }}
+          DEMO_VARIANT: ${{ matrix.variant }}
         run: >-
           python3 scripts/demo_build.py desktop --leg "$DEMO_LEG" --apps "$DEMO_APPS"
-          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results
+          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results --variant "$DEMO_VARIANT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -749,6 +754,7 @@ jobs:
           AZ_SMOKE_TAPS: ${{ needs.plan.outputs.smoke_taps }}
           AZ_SMOKE_EXPECTS: ${{ needs.plan.outputs.smoke_expects }}
           AZ_SMOKE_AFTER: ${{ needs.plan.outputs.smoke_after }}
+          AZ_SMOKE_LOGS: ${{ needs.plan.outputs.smoke_logs }}
         run: bash scripts/ci/android_smoke.sh demosmoke-android 15 apks/*.apk
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
@@ -786,6 +792,7 @@ jobs:
           AZ_SMOKE_TAPS: ${{ needs.plan.outputs.smoke_taps }}
           AZ_SMOKE_EXPECTS: ${{ needs.plan.outputs.smoke_expects }}
           AZ_SMOKE_AFTER: ${{ needs.plan.outputs.smoke_after }}
+          AZ_SMOKE_LOGS: ${{ needs.plan.outputs.smoke_logs }}
         run: bash scripts/ci/ios_smoke.sh demosmoke-ios 12 apps/*-ios-sim.app.zip
       # What OpenGL ES and Metal really are on this runner's Simulator (the evidence behind the iOS GPU path); information only,
       # it is on no gate and travels with the boot-test artifact

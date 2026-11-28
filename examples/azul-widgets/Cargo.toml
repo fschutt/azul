@@ -27,13 +27,12 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 [target.'cfg(target_os = "android")'.dependencies]
 ctor = "0.2"
 
-[features]
-# The facade's E2E scripting (AZ_E2E=script.json). OFF in the demo that ships: the feature compiles the
-# whole engine (azul-core, azul-layout, azul-css) into the app, where every other build links the prebuilt
-# libazul and compiles none of it (scripts/demo_gate.py fails a build that does), and a shipped app does
-# not read a script from its environment. The E2E runs that need it ask for it:
-#   cargo build -p AzWidgets --features e2e
-e2e = ["azul/e2e-scripting"]
+# There is no `e2e` feature here. The E2E scripting (AZ_E2E=script.json) and the debug server (AZ_DEBUG=<port>) belong to the library
+# this app links, not to the app: `azul = link-dynamic` leaves every Az* symbol to the prebuilt libazul, so a feature that compiles the
+# engine into the app (azul/e2e-scripting pulls azul-core, azul-layout and azul-css) neither links against it (duplicate C ABI symbols)
+# nor passes the gate that fails such a build (scripts/demo_gate.py). The E2E runs of the desktop column build this app against the
+# artifact-only QA library instead ([lib.desktop-e2e] of scripts/demo_apps.toml), as AzWidgets-e2e-<platform>:
+#   bash scripts/ci/desktop_e2e_build.sh linux
 
 [lib]
 name = "azul_widgets"

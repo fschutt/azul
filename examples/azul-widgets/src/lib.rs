@@ -1107,7 +1107,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let every_input = forms::every_input_section(&data, &s.form, theme);
     let raw_inputs = forms::raw_inputs_section(&data, &s.form, theme);
     // The Outlook-style mail widgets.
-    let mail = mail::mail_section(&data, &s.mail, theme);
+    let mail = mail::mail_section(&data, &s.mail, theme, info.window_width_less_than(mail::COMPACT_WIDTH));
     // The wizard, settings and standard dialogs.
     let dialogs = dialogs::dialogs_section(&data, &s.dialogs, theme);
     // The building blocks the apps share (rich text, selection, close guard, ...).

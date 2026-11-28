@@ -47,7 +47,7 @@ pub(crate) const CODE_X: f32 = PAGE_PAD + GUTTER_W;
 pub(crate) const CHAR_W: f32 = 6.6;
 /// How wide the code column of a page is (the page, less the notes' margin and the padding).
 pub(crate) const CODE_W: f32 = PAGE_W - MARGIN_GUTTER_W - PAGE_PAD;
-const PAGE_GAP: f32 = 24.0;
+pub(crate) const PAGE_GAP: f32 = 24.0;
 
 pub const METER_PACKET_SAMPLES: usize = 4096;
 
@@ -111,21 +111,24 @@ pub struct Sampled {
     pub pressure: f32,
 }
 
-/// `y` as it is kept: a pointer over the page is where the lines are drawn now, and ink and notes are kept where the page was
-/// first drawn (lines put in above are not in it).
-pub(crate) fn kept_y(info: &mut CallbackInfo, y: f32) -> f32 {
+/// A point of the pen layer under the pointer as the page's own px (the pages drawn at a zoom report the px of the screen), with its
+/// height taken back to where the page was first drawn (lines put in above it are not in it).
+pub(crate) fn page_point(info: &mut CallbackInfo, x: f32, y: f32) -> LogicalPosition {
     let Some(mut canvas) = info.get_dataset(info.get_hit_node()).into_option() else {
-        return y;
+        return LogicalPosition::create(x, y);
     };
     let Some((mut app, page)) = canvas.downcast_ref::<InkCanvas>().map(|c| (c.app.clone(), c.page)) else {
-        return y;
+        return LogicalPosition::create(x, y);
     };
-    app.downcast_ref::<AppState>().map_or(y, |s| s.page_map(page).to_original(y))
+    app.downcast_ref::<AppState>().map_or(LogicalPosition::create(x, y), |s| {
+        let zoom = s.page_zoom();
+        LogicalPosition::create(x / zoom, s.page_map(page).to_original(y / zoom))
+    })
 }
 
 pub fn sample(info: &mut CallbackInfo) -> Option<Sampled> {
     let p = info.get_cursor_relative_to_node().into_option()?;
-    let p = LogicalPosition::create(p.x, kept_y(info, p.y));
+    let p = page_point(info, p.x, p.y);
     let button = info.get_current_mouse_state().left_down;
     let pen = info.get_pen_state().into_option();
     if let Some(pen) = &pen {
@@ -251,6 +254,11 @@ pub(crate) fn with_window_listeners(body: Dom, data: &RefAny) -> Dom {
         EventFilter::Window(WindowEventFilter::LeftMouseDown),
         data.clone(),
         crate::whiteboard_plug::on_window_down,
+    )
+    .with_callback(
+        EventFilter::Window(WindowEventFilter::MouseOver),
+        data.clone(),
+        crate::companion_cmd::on_window_move,
     )
     .with_callback(
         EventFilter::Window(WindowEventFilter::LeftMouseUp),
@@ -381,11 +389,12 @@ pub fn grip_of(info: &mut CallbackInfo) -> Option<crate::layout::Panel> {
 
 /// The column beside the tree: the top bar, the middle, the bottom bar.
 fn main_column(s: &AppState, data: &RefAny, solved: &crate::layout::Solved) -> Dom {
-    Dom::create_div()
-        .with_css(COLUMN)
-        .with_child(top_bar(s, data, solved.top_pad_left))
-        .with_child(middle(s, data, solved))
-        .with_child(bottom_bar(s, data))
+    let mut column = Dom::create_div().with_css(COLUMN).with_child(top_bar(s, data, solved.top_pad_left));
+    // a phone that asks to be paired waits for the person: the bar says so whatever page the window is on
+    if let Some(bar) = crate::companion_ui::pairing_bar(s, data) {
+        column.add_child(bar);
+    }
+    column.with_child(middle(s, data, solved)).with_child(bottom_bar(s, data))
 }
 
 /// The middle: the page strip at the left, the pages (what went wrong over them; the conversations are in the margin of
@@ -1099,7 +1108,11 @@ fn overlay_slot(_s: &AppState, _data: &RefAny) -> Option<Dom> {
 
 /// The sections of the settings page, in order: the dictation's, then what the other modules add.
 fn settings_sections(s: &AppState, data: &RefAny) -> Vec<kit::AppSection> {
-    vec![column::settings_section(s, data), crate::whiteboard_plug::settings_section(s, data)]
+    vec![
+        column::settings_section(s, data),
+        crate::whiteboard_plug::settings_section(s, data),
+        crate::companion_plug::settings_section(s, data),
+    ]
 }
 
 /// The bottom bar: the conversations of the open file, one chip each (a blue spinner while its agent works, yellow
@@ -1331,6 +1344,35 @@ pub fn strip_view(info: &CallbackInfo) -> Option<(f32, f32)> {
     Some((x, width))
 }
 
+/// How the strip of pages is now, as a timer sees the window: how far it is scrolled (sideways and down, px of the screen, whatever
+/// the zoom) and how large it is (what the window shows of the pages).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StripNow {
+    pub scroll: (f32, f32),
+    pub size: (f32, f32),
+}
+
+/// The strip as it is now (`None`: no strip, there is no file).
+#[must_use]
+pub fn strip_now(info: &CallbackInfo) -> Option<StripNow> {
+    let dom = DomId { inner: 0 };
+    let node = info.get_node_id_by_id_attribute(dom, STRIP_ID);
+    let index = node.into_raw().checked_sub(1)?;
+    let offset = info.get_scroll_offset_for_node(dom, NodeId::create(index)).into_option();
+    let size = info.get_node_rect(DomNodeId { dom, node }).into_option()?.size;
+    Some(StripNow { scroll: offset.map_or((0.0, 0.0), |o| (o.x, o.y)), size: (size.width, size.height) })
+}
+
+/// Scrolls the strip to `(x, y)`, px of the screen, as a timer does it (not before the strip is there).
+pub fn scroll_strip_to(info: &mut CallbackInfo, x: f32, y: f32) {
+    let dom = DomId { inner: 0 };
+    let node = info.get_node_id_by_id_attribute(dom, STRIP_ID);
+    if node.into_raw() == 0 {
+        return;
+    }
+    info.scroll_to(dom, node, LogicalPosition::create(x.max(0.0), y.max(0.0)));
+}
+
 /// Scrolls the page numbers' column so page `page`'s number is in view. Its place in the column is the heights of the
 /// numbers before it and their gaps.
 pub fn reveal_pill(info: &mut CallbackInfo, page: usize) {
@@ -1371,14 +1413,23 @@ pub fn reveal_pill(info: &mut CallbackInfo, page: usize) {
     info.scroll_to(dom, column, LogicalPosition::create(0.0, target.max(0.0)));
 }
 
-pub fn scroll_to_page(info: &mut CallbackInfo, page: usize) {
+/// Scrolls the strip to the head of page `page`, the pages being drawn at `zoom` (the strip scrolls in the px of the screen: a page is
+/// `page_stride() * zoom` of them).
+pub fn scroll_to_page(info: &mut CallbackInfo, page: usize, zoom: f32) {
     let dom = info.get_hit_node().dom;
     let node = info.get_node_id_by_id_attribute(dom, STRIP_ID);
     info.scroll_to(
         dom,
         node,
-        LogicalPosition::create(page as f32 * page_stride(), 0.0),
+        LogicalPosition::create(page as f32 * page_stride() * zoom, 0.0),
     );
+}
+
+/// The factor the pages are drawn at, as the app's state has it (1.0 where it cannot be read).
+#[must_use]
+pub fn zoom_of(data: &RefAny) -> f32 {
+    let mut state = data.clone();
+    state.downcast_ref::<AppState>().map_or(1.0, |s| s.page_zoom())
 }
 
 fn sheet(s: &AppState, data: &RefAny) -> Dom {
@@ -1440,6 +1491,11 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
                 .with_child(Dom::create_icon("folder_open").with_css("font-size: 20px;"))
                 .with_child(Dom::create_span_with_text(name.as_str())),
         );
+        // The first screen (no folder yet) also says that a phone can be the touch pad of the desk: it leads to the settings of the
+        // companion, which is off until it is turned on there. Not shown once it is on.
+        if s.root.as_os_str().is_empty() && crate::companion_plug::first_run_shown(s) {
+            panel.add_child(crate::companion_plug::first_run_key(data));
+        }
         area.add_child(panel);
         return area;
     }
@@ -1470,6 +1526,29 @@ struct SheetStrip {
     app: RefAny,
 }
 
+/// Which pages the strip builds for a window `viewport_w` wide scrolled `scroll_x` (px of the screen, whatever the zoom) when the pages are
+/// drawn at `zoom`, of `total` pages: the first (one before the first in view, so that a page is there before it comes in), how many, and
+/// the page that is leftmost.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct StripWindow {
+    pub first: usize,
+    pub count: usize,
+    pub leftmost: usize,
+}
+
+/// The pages the strip builds, see [`StripWindow`]. At a zoom of 1 this is what it always was; a page is `page_stride() * zoom` of the screen
+/// at another zoom.
+pub(crate) fn strip_window(scroll_x: f32, viewport_w: f32, zoom: f32, total: usize) -> StripWindow {
+    let zoom = if zoom.is_finite() && zoom > 0.0 { zoom } else { 1.0 };
+    let stride_on_screen = page_stride() * zoom;
+    let leftmost = page_at(scroll_x / zoom, total);
+    let first_visible = (scroll_x.max(0.0) / stride_on_screen) as usize;
+    let first = first_visible.saturating_sub(1);
+    let visible = (viewport_w / stride_on_screen).ceil() as usize + 2;
+    let count = visible.max(2).min(total.saturating_sub(first));
+    StripWindow { first, count, leftmost }
+}
+
 extern "C" fn sheets_virtual_view(
     mut data: RefAny,
     info: VirtualViewCallbackInfo,
@@ -1484,7 +1563,7 @@ extern "C" fn sheets_virtual_view(
 
     let stride = page_stride();
 
-    let (dom, first, count, total, leftmost, strip_h) = {
+    let (dom, first, count, total, leftmost, strip_h, zoom) = {
         let Some(s) = app.downcast_ref::<AppState>() else {
             return VirtualViewReturn::default();
         };
@@ -1493,39 +1572,44 @@ extern "C" fn sheets_virtual_view(
         };
         let total = file.page_count().max(1);
 
+        // The pages are drawn at the zoom (the phone's pad zooms them: 1.0 is how they have always been drawn): the strip scrolls in the
+        // px of the screen, a page is `stride * zoom` of them, and what the pages are told of the window is in their own px.
+        let zoom = s.page_zoom();
         let viewport_w = info.bounds.get_logical_size().width;
         let viewport_h = info.bounds.get_logical_size().height;
-        let leftmost = page_at(info.scroll_offset.x, total);
-        let first_visible = (info.scroll_offset.x.max(0.0) / stride) as usize;
-        let first = first_visible.saturating_sub(1);
-        let visible = (viewport_w / stride).ceil() as usize + 2;
-        let count = visible.max(2).min(total.saturating_sub(first));
+        let scrolled = info.scroll_offset.x.max(0.0);
+        let StripWindow { first, count, leftmost } = strip_window(info.scroll_offset.x, viewport_w, zoom, total);
 
         // page breaks are stable: a page that has lines put in grows, and the strip is as high as the tallest
         let strip_h = page_h_with(s.most_extra_rows());
-        let mut row = Dom::create_div()
-            .with_css("display: flex; flex-direction: row; align-items: flex-start;");
+        let row_css = if (zoom - 1.0).abs() > f32::EPSILON {
+            format!("display: flex; flex-direction: row; align-items: flex-start; zoom: {zoom};")
+        } else {
+            "display: flex; flex-direction: row; align-items: flex-start;".to_string()
+        };
+        let mut row = Dom::create_div().with_css(row_css.as_str());
         for page in first..first + count {
             // how far across this page the window shows: the open conversation keeps inside it
-            let visible_right = info.scroll_offset.x.max(0.0) + viewport_w - page as f32 * stride;
-            row.add_child(page_sheet(&cb_app, file, page, &s, &s.hidden_ranges(page), visible_right, viewport_h));
+            let visible_right = (scrolled + viewport_w) / zoom - page as f32 * stride;
+            row.add_child(page_sheet(&cb_app, file, page, &s, &s.hidden_ranges(page), visible_right, viewport_h / zoom));
         }
-        (row, first, count, total, leftmost, strip_h)
+        (row, first, count, total, leftmost, strip_h, zoom)
     };
 
     if let Some(mut s) = app.downcast_mut::<AppState>() {
         s.visible_page = leftmost;
+        s.strip_scroll = (info.scroll_offset.x, info.scroll_offset.y);
     }
 
     VirtualViewReturn::with_dom(
         dom,
         LogicalRect::create(
-            LogicalPosition::create(first as f32 * stride, 0.0),
-            LogicalSize::create(count as f32 * stride, strip_h),
+            LogicalPosition::create(first as f32 * stride * zoom, 0.0),
+            LogicalSize::create(count as f32 * stride * zoom, strip_h * zoom),
         ),
         LogicalRect::create(
             LogicalPosition::create(0.0, 0.0),
-            LogicalSize::create(total as f32 * stride, strip_h),
+            LogicalSize::create(total as f32 * stride * zoom, strip_h * zoom),
         ),
     )
 }

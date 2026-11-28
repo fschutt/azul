@@ -63,10 +63,14 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
         changed |= lw.gamepad_manager.set_state(state);
     }
 
-    // Sensors: CoreMotion / WinRT registration is listener-gated the same way.
-    if lw.sensor_manager.has_listeners() {
-        crate::desktop::extra::sensors::ensure_started(&lw.app_services.sensors);
-        crate::desktop::extra::sensors::poll(&lw.app_services.sensors);
+    // Sensors: started by DEMAND (a `SensorChanged` node, or an app that reads a kind: `get_sensor_reading`), never at
+    // launch, and stopped when nobody wants them any more (`sensors::sync`). The poll follows what runs.
+    {
+        let listeners = lw.sensor_manager.has_listeners();
+        crate::desktop::extra::sensors::sync(&lw.app_services.sensors, listeners);
+        if listeners || crate::desktop::extra::sensors::needs_pump(&lw.app_services.sensors) {
+            crate::desktop::extra::sensors::poll(&lw.app_services.sensors);
+        }
     }
     for reading in lw.app_services.sensors.drain_readings() {
         changed |= lw.sensor_manager.set_reading(reading);
@@ -214,7 +218,9 @@ pub fn desired_interval_ms(lw: &LayoutWindow) -> Option<u64> {
     if lw.gamepad_manager.has_listeners() {
         want(GAMEPAD_INTERVAL_MS);
     }
-    if lw.sensor_manager.has_listeners() {
+    // A `SensorChanged` node, or an app that keeps reading a sensor (a read wants its kind for a lease) and the
+    // backend groups that run until the pump has stopped them.
+    if lw.sensor_manager.has_listeners() || crate::desktop::extra::sensors::needs_pump(&lw.app_services.sensors) {
         want(SENSOR_INTERVAL_MS);
     }
     if lw.geolocation_manager.has_active_subscription() {

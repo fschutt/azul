@@ -664,6 +664,30 @@ fn the_phones_own_app_makes_its_connection_in_that_one_setup_and_never_again() {
     assert_eq!(root.window_setup(), WindowSetup { timer: false, connect: false });
 }
 
+// ---- a new phone touches no network until a pairing starts
+
+#[test]
+fn only_pasting_a_pairing_offer_asks_for_the_real_connection_and_only_while_it_is_not_made_and_the_demo_is_off() {
+    let (mut root, _calls) = root_with(PhoneView::new());
+    let offer = Action::PairPaste(offer_text());
+    assert!(!root.wants_connection_for(&offer), "a connection that is made already (the simulator's, or a paired phone's) is not made again");
+    root.connect_later = true;
+    assert!(root.wants_connection_for(&offer), "an offer starts a pairing");
+    assert!(root.wants_connection_for(&Action::PairPaste(format!("  {}\n", offer_text()))), "as the clipboard holds it, with its blanks");
+    for text in ["", "   \n", "hello there", "azrv9:00:00:x"] {
+        assert!(!root.wants_connection_for(&Action::PairPaste(text.to_string())), "{text:?} is no offer: the toast says so and nothing is bound");
+    }
+    for action in [Action::Demo, Action::PairScan, Action::OpenSettings, Action::PairFind, Action::PairRetry, Action::PairCancel, Action::Tab(Screen::Files)] {
+        assert!(!root.wants_connection_for(&action), "{action:?} needs no network");
+    }
+    root.perform(0, Action::Demo);
+    assert!(!root.wants_connection_for(&offer), "the demo binds nothing, whatever is pasted");
+    root.perform(1, Action::LeaveDemo);
+    assert!(root.wants_connection_for(&offer), "and after it the first screen is as it was");
+    root.connect_now(Box::new(TestApi { view: PhoneView::new(), calls: Arc::new(Mutex::new(Vec::new())) }));
+    assert!(!root.wants_connection_for(&offer), "it is made once");
+}
+
 // ---- the real connection comes when the window exists
 
 #[test]

@@ -215,6 +215,10 @@ pub(crate) extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Up
     if let Some(kit_ref) = data.downcast_ref::<MeetState>().map(|s| s.kit.clone()) {
         kit::on_window_created(&kit_ref, &mut info);
     }
+    // Android: the iroh endpoint is bound now, with the activity there (`start_rooms`).
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        crate::bind_deferred_endpoint(&mut s);
+    }
     let get_time = info.get_system_time_fn();
     info.add_timer(
         TimerId::unique(),

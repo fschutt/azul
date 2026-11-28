@@ -159,6 +159,77 @@ pub mod linux;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+/// Every kind a backend can fill: an app that reads any of them wants the backend (the pump's timer runs for it).
+const ALL_KINDS: &[azul_core::sensors::SensorKind] = &[
+    azul_core::sensors::SensorKind::Accelerometer,
+    azul_core::sensors::SensorKind::Gyroscope,
+    azul_core::sensors::SensorKind::Magnetometer,
+    azul_core::sensors::SensorKind::RotationVector,
+    azul_core::sensors::SensorKind::Gravity,
+    azul_core::sensors::SensorKind::LinearAcceleration,
+    azul_core::sensors::SensorKind::AmbientLight,
+    azul_core::sensors::SensorKind::Proximity,
+    azul_core::sensors::SensorKind::Barometer,
+    azul_core::sensors::SensorKind::StepCounter,
+];
+
+/// The kinds the motion group serves: the raw three and the three the OS fuses from them. None of them is behind a
+/// permission prompt.
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+const MOTION_KINDS: &[azul_core::sensors::SensorKind] = &[
+    azul_core::sensors::SensorKind::Accelerometer,
+    azul_core::sensors::SensorKind::Gyroscope,
+    azul_core::sensors::SensorKind::Magnetometer,
+    azul_core::sensors::SensorKind::RotationVector,
+    azul_core::sensors::SensorKind::Gravity,
+    azul_core::sensors::SensorKind::LinearAcceleration,
+];
+
+/// Whether the sensor backend has work: some kind was read within its lease, or a group is running (until
+/// [`sync`] has stopped it). The pump's timer runs for exactly this.
+#[must_use]
+pub fn needs_pump(channel: &azul_layout::managers::sensors::SensorChannel) -> bool {
+    channel.wanted_any(ALL_KINDS) || channel.started_groups() != 0
+}
+
+/// Start what is WANTED and stop what is not: called by the pump on every pass. A sensor is wanted while a
+/// `SensorChanged` node listens (`listeners`: the motion sensors, which raise no prompt) or while the app keeps
+/// reading its kind (`get_sensor_reading`, `get_proximity`: a read wants the kind for a lease). Nothing starts at
+/// launch; the barometer and the step counter (Motion & Fitness prompt on an iPhone) and the proximity monitoring
+/// (which blanks the screen near the face) start only for an app that reads them; the motion sensors stop when
+/// nobody reads them any more.
+///
+/// Apple starts and stops each group on its own. The other backends start everything once, on the first demand
+/// (their own per-kind start is a refinement of `start`).
+pub fn sync(channel: &std::sync::Arc<azul_layout::managers::sensors::SensorChannel>, listeners: bool) {
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    {
+        use azul_core::sensors::SensorKind;
+        apple::sync(
+            channel,
+            apple::Wanted {
+                motion: listeners || channel.wanted_any(MOTION_KINDS),
+                barometer: channel.wanted_any(&[SensorKind::Barometer]),
+                steps: channel.wanted_any(&[SensorKind::StepCounter]),
+                proximity: channel.wanted_any(&[SensorKind::Proximity]),
+            },
+        );
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    if listeners || channel.wanted_any(ALL_KINDS) {
+        ensure_started(channel);
+    }
+}
+
+/// The app is going to the background: stop the sensors that run (they cost battery for nothing, and proximity
+/// monitoring would blank the screen); the pump restarts what is wanted when the app is back.
+pub fn pause(channel: &azul_layout::managers::sensors::SensorChannel) {
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    apple::pause(channel);
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    let _ = channel;
+}
+
 /// Start the device's motion-sensor subscription once per process. Called
 /// from `regenerate_layout` every frame; the OnceLock makes only the first
 /// call do the native registration (CoreMotion start / JNI `registerListener`),
@@ -174,15 +245,14 @@ pub fn ensure_started(channel: &std::sync::Arc<azul_layout::managers::sensors::S
 
 fn start(channel: &std::sync::Arc<azul_layout::managers::sensors::SensorChannel>) {
     // Only the backends with a platform callback keep the channel.
-    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "windows")))]
+    #[cfg(not(target_os = "windows"))]
     let _ = channel;
     // Brackets the native motion-sensor registration. A reading never arriving
     // is normal (a desktop with no accelerometer → get_sensor_reading stays
     // None, NOT a crash); this log lets the self-test report "unavailable" vs.
     // pinpoint a backend that aborts during start (C4).
     crate::plog_info!("[sensors] starting motion-sensor backend");
-    #[cfg(any(target_os = "ios", target_os = "macos"))]
-    apple::start(channel);
+    // Apple starts its groups one by one on demand (`sync`): there is no start-everything call for it.
     #[cfg(target_os = "android")]
     android::start();
     #[cfg(target_os = "linux")]

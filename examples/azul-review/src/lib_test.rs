@@ -889,3 +889,45 @@ fn a_conversation_that_begins_keeps_the_revision_the_workspace_is_at_then_and_no
     plain.start_conversation(note(3));
     assert_eq!(plain.notes[0].talk.base, None);
 }
+
+// ---- the zoom of the pages
+
+#[test]
+fn the_pages_are_drawn_at_the_zoom_held_between_the_limits_and_at_one_when_it_is_no_number() {
+    let mut s = app_with_file();
+    assert_eq!(s.page_zoom(), 1.0, "the pages have always been drawn at 1");
+    s.zoom = 1.5;
+    assert_eq!(s.page_zoom(), 1.5);
+    s.zoom = 50.0;
+    assert_eq!(s.page_zoom(), page_view::Z_MAX);
+    s.zoom = 0.01;
+    assert_eq!(s.page_zoom(), page_view::Z_MIN);
+    for bad in [f32::NAN, f32::INFINITY, 0.0, -2.0] {
+        s.zoom = bad;
+        assert_eq!(s.page_zoom(), 1.0, "{bad}");
+    }
+}
+
+#[test]
+fn the_zoom_the_callbacks_read_is_the_apps_and_one_where_there_is_no_app() {
+    assert_eq!(ui::zoom_of(&RefAny::new(0u8)), 1.0);
+    let mut s = app_with_file();
+    s.zoom = 1.25;
+    assert_eq!(ui::zoom_of(&RefAny::new(s)), 1.25);
+}
+
+#[test]
+fn a_file_in_a_folder_the_tree_has_not_listed_is_opened_all_the_same_by_listing_the_way_to_it() {
+    let mut s = on_disk("listed-way", &[("a.rs", "x\n"), ("deep/er/b.rs", "fn b() {}\n")]);
+    assert!(s.tree.find("deep/er/b.rs").is_none(), "the folders on the way are not listed yet");
+    assert!(s.open_path_listed("deep/er/b.rs"));
+    assert_eq!(s.file().map(|f| f.display.clone()), Some("deep/er/b.rs".to_string()));
+    assert!(s.tree.find("deep/er").is_some_and(|id| s.tree.is_listed(id)), "the folder of the file is listed");
+    // a file that is not there, a folder that is not there, a folder where a file is wanted
+    assert!(!s.open_path_listed("deep/er/missing.rs"));
+    assert!(!s.open_path_listed("nowhere/x.rs"));
+    assert!(!s.open_path_listed("deep"), "a folder is no file");
+    // one in the root, and one that is listed already
+    assert!(s.open_path_listed("a.rs"));
+    assert_eq!(s.file().map(|f| f.display.clone()), Some("a.rs".to_string()));
+}
