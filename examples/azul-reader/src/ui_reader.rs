@@ -370,6 +370,8 @@ fn slider_row(app: &RefAny, st: &AppState) -> Dom {
                 .with_accessibility_name(label("azreader-seek"))
                 .with_on_value_change(app.clone(), on_slider as SliderOnValueChangeCallbackType)
                 .dom()
+                // The track is as wide as the row (its design width is 200 px): the scrubber of a book.
+                .with_css("width: 100%;")
                 .with_id(ids::SLIDER),
         );
     Dom::create_div()

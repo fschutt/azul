@@ -79,6 +79,44 @@ static AMPM_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-time-picker-ampm",
 ))];
 
+/// The style of a cell a finger presses (an arrow, the AM/PM toggle): on a phone at least the
+/// platform's touch target (48 dp on Android, 44 pt on iOS: `decl::touch_target_floor`), with the
+/// cell's text in the middle of it - a desktop arrow is a 16 px cell with its glyph at the top, and
+/// in a 48 px cell it would sit at the edge. Nothing on a desktop, where a pointer is as precise as a
+/// pixel: the picker keeps its size there.
+fn touch_cell(own: &CssPropertyWithConditionsVec) -> CssPropertyWithConditionsVec {
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, OsCondition},
+        props::layout::LayoutJustifyContent,
+    };
+
+    let mut style = own.clone().into_library_owned_vec();
+    style.extend(crate::widgets::themes::decl::touch_target_floor());
+    for os in [OsCondition::Android, OsCondition::IOS] {
+        let on = DynamicSelector::Os(os);
+        style.push(CssPropertyWithConditions::with_condition(
+            CssProperty::const_display(LayoutDisplay::Flex),
+            on.clone(),
+        ));
+        style.push(CssPropertyWithConditions::with_condition(
+            CssProperty::const_align_items(LayoutAlignItems::Center),
+            on.clone(),
+        ));
+        style.push(CssPropertyWithConditions::with_condition(
+            CssProperty::const_justify_content(LayoutJustifyContent::Center),
+            on,
+        ));
+    }
+    CssPropertyWithConditionsVec::from_vec(style)
+}
+
+/// A column of spinners holds its arrows: on a phone as wide as they are.
+fn touch_column(own: &CssPropertyWithConditionsVec) -> CssPropertyWithConditionsVec {
+    let mut style = own.clone().into_library_owned_vec();
+    style.extend(crate::widgets::themes::decl::touch_target_floor());
+    CssPropertyWithConditionsVec::from_vec(style)
+}
+
 const UP_ARROW: AzString = AzString::from_const_str("\u{25B2}"); // ▲
 const DOWN_ARROW: AzString = AzString::from_const_str("\u{25BC}"); // ▼
 const SEPARATOR_TEXT: AzString = AzString::from_const_str(":");
@@ -653,7 +691,7 @@ impl TimePicker {
             children.push(
                 crate::widgets::widget_p_with_text(ampm_text)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(AMPM_CLASS))
-                    .with_css_props(skin.ampm.clone())
+                    .with_css_props(touch_cell(&skin.ampm))
                     .with_callbacks(
                         alloc::vec![CoreCallbackData {
                             event: azul_core::dom::EventFilter::Hover(
@@ -740,7 +778,7 @@ fn build_spinner_skinned(
     let arrow_cell = |arrow: AzString, name: String, cb: usize, refany: RefAny| -> Dom {
         crate::widgets::widget_p_with_text(arrow)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ARROW_CLASS))
-            .with_css_props(skin.arrow.clone())
+            .with_css_props(touch_cell(&skin.arrow))
             .with_callbacks(
                 alloc::vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::Click),
@@ -773,7 +811,7 @@ fn build_spinner_skinned(
 
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SPINNER_CLASS))
-        .with_css_props(skin.spinner.clone())
+        .with_css_props(touch_column(&skin.spinner))
         // The WHOLE column takes the wheel, not just the arrows: spinning the
         // hours by pointing at them is what a native time field does, and the
         // arrows are far too small to aim a gesture at. And it takes the

@@ -998,6 +998,10 @@ mod a_button_fades_into_its_hover_face;
 mod a_button_is_a_touch_target_on_a_phone;
 #[path = "a_break_of_the_reading_policy_falls_between_two_lines.rs"]
 mod a_break_of_the_reading_policy_falls_between_two_lines;
+#[path = "a_slider_thumb_follows_the_width_of_its_track.rs"]
+mod a_slider_thumb_follows_the_width_of_its_track;
+#[path = "a_time_pickers_arrows_are_touch_targets_on_a_phone.rs"]
+mod a_time_pickers_arrows_are_touch_targets_on_a_phone;
 #[path = "a_segmented_item_is_a_touch_target_on_a_phone.rs"]
 mod a_segmented_item_is_a_touch_target_on_a_phone;
 #[path = "a_toolbar_tool_is_a_touch_target_on_a_phone.rs"]
