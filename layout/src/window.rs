@@ -26941,6 +26941,12 @@ impl LayoutWindow {
             !Arc::ptr_eq(held, &system_style) && **held != *system_style
         });
         if changed {
+            // What was solved under the old style (the text sizes of a text scale, a palette, a
+            // weight) is not what the new one lays out: the incremental caches hold a solved tree
+            // that the DOM's own hashes cannot tell is stale, since the user's settings are applied
+            // where a node's style is READ, not in the cascade. (The shells drop them too, at their
+            // funnel; this is the one place every caller of the style passes.)
+            self.layout_cache.reset_incremental();
             self.system_style_notice.raise();
         }
         self.system_style = Some(system_style);
