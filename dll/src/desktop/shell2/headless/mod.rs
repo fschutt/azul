@@ -13398,6 +13398,10 @@ mod tests {
     // in the startup timeline (`tests/a_layout_pass_names_who_asked_for_it.rs`, E76).
     mod a_layout_pass_names_who_asked_for_it;
 
+    // A start lays the page out once, and no event that nothing answered lays it out again
+    // (`tests/a_start_lays_the_page_out_once_and_no_unasked_event_lays_it_out_again.rs`, E76).
+    mod a_start_lays_the_page_out_once_and_no_unasked_event_lays_it_out_again;
+
     // A file drop is one event, a drag move one hover, however many passes they cost
     // (`tests/file_drop.rs`).
     mod file_drop;
