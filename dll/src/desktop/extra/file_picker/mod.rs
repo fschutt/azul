@@ -56,6 +56,7 @@ pub fn ensure_file_picker_backend() {
                     open_file: apply_open_file,
                     save_file: apply_save_file,
                     open_directory: apply_open_directory,
+                    open_folder: apply_open_folder,
                 },
             );
         });
@@ -117,7 +118,7 @@ pub fn apply_save_file(title: AzString, default_path: OptionString) -> FilePicke
 
 /// Directory-picker. iOS: `UIDocumentPickerViewController` with `UTType.folder`. Android: a SAF tree
 /// (`ACTION_OPEN_DOCUMENT_TREE`) is not a folder a path can name, so until the document layer is behind
-/// it (ledger WP-F step 3b) the request FAILS with the reason instead of showing a dialog whose answer
+/// it (`FileDialog::open_folder` is the call for it) the request FAILS with the reason instead of showing a dialog whose answer
 /// was thrown away (the tree URI was opened as a file and every pick came back "cancelled").
 #[allow(unused_variables)]
 pub fn apply_open_directory(title: AzString, default_path: OptionString) -> FilePickerHandle {
@@ -126,6 +127,24 @@ pub fn apply_open_directory(title: AzString, default_path: OptionString) -> File
     ios::dispatch_open_directory(handle.clone(), title, default_path);
     #[cfg(target_os = "android")]
     fail(&handle, ANDROID_FOLDER_UNAVAILABLE);
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        handle.set_status(FilePickerStatus::Cancelled);
+    }
+    handle
+}
+
+/// Folder request, `FileDialog::open_folder`: a folder the person GRANTS and the app can use again, answered as the locator
+/// `Documents` takes. Android: the system's tree picker, whose grant is kept (`takePersistableUriPermission`) so that the folder is
+/// listed in `Documents::places()` after a restart. iOS: the document picker's folder, a security-scoped path (the same picker as
+/// `apply_open_directory`: a path IS the locator there).
+#[allow(unused_variables)]
+pub fn apply_open_folder(title: AzString, default_path: OptionString) -> FilePickerHandle {
+    let handle = FilePickerHandle::new_pending();
+    #[cfg(target_os = "ios")]
+    ios::dispatch_open_directory(handle.clone(), title, default_path);
+    #[cfg(target_os = "android")]
+    android::dispatch_open_folder(handle.clone(), title, default_path);
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     {
         handle.set_status(FilePickerStatus::Cancelled);
@@ -149,4 +168,4 @@ pub const ANDROID_SAVE_UNAVAILABLE: &str =
     "saving to a place the user chooses is not available on Android yet (the request was not shown and nothing was written)";
 /// Why Android answers a folder request with an error.
 pub const ANDROID_FOLDER_UNAVAILABLE: &str =
-    "choosing a folder is not available on Android yet (a folder there is a permission grant, not a path; the request was not shown)";
+    "a folder on Android is a permission grant, not a path: ask for it with FileDialog::open_folder (the request was not shown)";

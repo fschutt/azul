@@ -3434,7 +3434,7 @@ pub enum DebugEvent {
     /// native picker ever appearing. Keys of `set`:
     ///
     /// * `file_open`: `{"path": "..."}` or `null` (cancelled) - the next `FileDialog::open_file` /
-    ///   `open_directory`
+    ///   `open_directory` / `open_folder` (a folder's locator is its path)
     /// * `file_open_multi`: `{"paths": ["..", ".."]}`
     /// * `color_pick`: `{"r": 0, "g": 0, "b": 0}` or `null`
     /// * `save_file`: `{"path": "..."}` or `null`

@@ -5,8 +5,8 @@
 use azul_css::{corety::OptionString, AzString, StringVec};
 
 use super::{
-    export_unavailable, multi_result_from_status, open_result_from_status, save_result_from_status,
-    FilePickerStatus, SaveTargetKind,
+    export_unavailable, folder_result_from_status, multi_result_from_status, open_result_from_status,
+    save_result_from_status, FilePickerStatus, SaveTargetKind,
 };
 
 fn s(text: &str) -> AzString {
@@ -90,4 +90,36 @@ fn the_export_that_cannot_happen_names_the_file_and_says_nothing_was_saved() {
     let anonymous = export_unavailable("");
     assert!(anonymous.contains("the file"), "{anonymous}");
     assert!(!anonymous.contains("\"\""), "{anonymous}");
+}
+
+// ---- a folder the person grants ----
+
+const TREE: &str = "content://com.android.externalstorage.documents/tree/primary%3ADownload/document/primary%3ADownload";
+
+#[test]
+fn a_pending_folder_picker_has_no_answer_and_a_cancel_has_no_locator_and_no_error() {
+    assert!(folder_result_from_status(FilePickerStatus::Pending).is_none());
+    let cancelled = folder_result_from_status(FilePickerStatus::Cancelled).unwrap();
+    assert_eq!(cancelled.locator, OptionString::None);
+    assert_eq!(cancelled.error, OptionString::None);
+}
+
+#[test]
+fn a_picked_folder_is_its_locator_untouched() {
+    let picked = folder_result_from_status(FilePickerStatus::Selected(s(TREE))).unwrap();
+    assert_eq!(picked.locator, OptionString::Some(s(TREE)));
+    assert_eq!(picked.error, OptionString::None);
+    // a path is a locator on a desktop and on iOS
+    let path = folder_result_from_status(FilePickerStatus::Selected(s("/Users/me/Documents"))).unwrap();
+    assert_eq!(path.locator, OptionString::Some(s("/Users/me/Documents")));
+}
+
+#[test]
+fn several_answers_for_a_folder_request_are_the_first_and_a_failure_keeps_its_reason() {
+    let first = folder_result_from_status(FilePickerStatus::SelectedMultiple(strings(&["/a", "/b"]))).unwrap();
+    assert_eq!(first.locator, OptionString::Some(s("/a")));
+    assert_eq!(folder_result_from_status(FilePickerStatus::SelectedMultiple(strings(&[]))).unwrap().locator, OptionString::None);
+    let failed = folder_result_from_status(FilePickerStatus::Error(s("access to the folder could not be kept"))).unwrap();
+    assert_eq!(failed.locator, OptionString::None, "a failure is not a pick");
+    assert_eq!(failed.error, OptionString::Some(s("access to the folder could not be kept")), "and it is not a cancel");
 }

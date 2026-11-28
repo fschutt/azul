@@ -394,6 +394,58 @@ impl FileOpenMultiResult {
     }
 }
 
+/// Result of [`FileDialog::open_folder`]. `locator` is the folder the person chose, as `CallbackInfo::documents` takes it: a path on a
+/// desktop and on iOS, a `content://` tree URI of a folder the person GRANTED on Android (the grant is kept, so the folder can be
+/// listed again after a restart). Store it, pass it to `Documents::children`. `locator` is `None` if the person cancelled OR the dialog
+/// failed: `error` says which (it is `None` after a pick and after a cancel).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct FolderPickResult {
+    pub locator: OptionString,
+    /// Why there is no `locator` although the person did not cancel; `None` after a pick and after a cancel.
+    pub error: OptionString,
+}
+
+impl_option!(
+    FolderPickResult,
+    OptionFolderPickResult,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
+);
+
+impl FolderPickResult {
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
+    #[must_use]
+    pub fn downcast(mut result: RefAny) -> OptionFolderPickResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+
+    /// A pick (`Some`) or a cancel (`None`): no error.
+    pub(crate) const fn new(locator: OptionString) -> Self {
+        Self {
+            locator,
+            error: OptionString::None,
+        }
+    }
+
+    /// The dialog failed: no folder and the reason, which is NOT a cancel.
+    pub(crate) const fn failed(reason: AzString) -> Self {
+        Self {
+            locator: OptionString::None,
+            error: OptionString::Some(reason),
+        }
+    }
+}
+
+/// The folder a desktop dialog answered, as a [`FolderPickResult`]: on a desktop a path IS the locator.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn folder_of(opened: FileOpenResult) -> FolderPickResult {
+    FolderPickResult {
+        locator: opened.path.into_option().map(|p| AzString::from(p.as_str())).into(),
+        error: opened.error,
+    }
+}
+
 /// Result of [`ColorPickerDialog::open`]. `color` is `None` if the user
 /// cancelled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -548,6 +600,18 @@ pub(crate) fn multi_result_from_status(status: FilePickerStatus) -> Option<FileO
         FilePickerStatus::Error(reason) => return Some(FileOpenMultiResult::failed(reason)),
     };
     Some(FileOpenMultiResult::new(FilePathVec::from_vec(paths)))
+}
+
+/// [`open_result_from_status`] for a folder: the locator the picker answered (a granted tree on Android, a security-scoped path on iOS).
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+pub(crate) fn folder_result_from_status(status: FilePickerStatus) -> Option<FolderPickResult> {
+    Some(match status {
+        FilePickerStatus::Pending => return None,
+        FilePickerStatus::Selected(locator) => FolderPickResult::new(OptionString::Some(locator)),
+        FilePickerStatus::SelectedMultiple(v) => FolderPickResult::new(v.as_ref().first().cloned().into()),
+        FilePickerStatus::Cancelled => FolderPickResult::new(OptionString::None),
+        FilePickerStatus::Error(reason) => FolderPickResult::failed(reason),
+    })
 }
 
 /// [`open_result_from_status`] for where to save: the target is the path the picker answered.
@@ -964,6 +1028,70 @@ impl FileDialog {
                     on_result,
                     FileOpenResult::new(OptionFilePath::None),
                 ),
+            }
+        }
+    }
+
+    /// Let the person choose a FOLDER the app may use again later and resume `on_result` with a [`FolderPickResult`] whose `locator` is
+    /// what `CallbackInfo::documents` takes (`None` if cancelled or failed: `error` says which). Same contract as [`Self::open_file`].
+    ///
+    /// On Android a folder is not a path but a permission grant: the system's tree picker is shown and the grant is KEPT
+    /// (`takePersistableUriPermission`), so the folder is in `Documents::places()` after a restart, until the person takes it back or
+    /// the app forgets it. On iOS and on a desktop the locator is the folder's path.
+    // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
+    #[allow(clippy::needless_pass_by_value)]
+    #[must_use]
+    pub fn open_folder(
+        title: AzString,
+        default_path: OptionString,
+        data: RefAny,
+        on_result: ResumeCallback,
+    ) -> RequestId {
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let pick = pick_request(PickOp::OpenDirectory, &title, &default_path, &OptionFileTypeList::None);
+            match file_picker::ask_preferred(&pick) {
+                Some(pending) => request::defer(
+                    data,
+                    on_result,
+                    Box::new(move || {
+                        let answer = pending.poll()?;
+                        Some(RefAny::new(folder_of(provider_answer(
+                            answer,
+                            |paths| FileOpenResult::new(paths.into_iter().next().map(file_path).into()),
+                            FileOpenResult::new(OptionFilePath::None),
+                            || desktop_open_directory(&pick),
+                        ))))
+                    }),
+                ),
+                None => request::complete(data, on_result, folder_of(desktop_open_directory(&pick))),
+            }
+        }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            match request::mock::take_file_open("FileDialog::open_folder") {
+                request::mock::Answer::NotArmed => {}
+                request::mock::Answer::Mocked(path) => {
+                    return request::complete(
+                        data,
+                        on_result,
+                        FolderPickResult::new(path.map(AzString::from).into()),
+                    );
+                }
+                request::mock::Answer::Unmocked => {
+                    return request::complete(data, on_result, FolderPickResult::new(OptionString::None));
+                }
+            }
+            match FILE_PICKER_BACKEND.get() {
+                Some(backend) => {
+                    let handle = (backend.open_folder)(title, default_path);
+                    request::defer(
+                        data,
+                        on_result,
+                        Box::new(move || folder_result_from_status(handle.poll()).map(RefAny::new)),
+                    )
+                }
+                None => request::complete(data, on_result, FolderPickResult::new(OptionString::None)),
             }
         }
     }
@@ -1395,6 +1523,8 @@ pub struct FilePickerBackend {
     pub save_file: fn(AzString, OptionString) -> FilePickerHandle,
     /// `(title, default_path)`.
     pub open_directory: fn(AzString, OptionString) -> FilePickerHandle,
+    /// `(title, default_path)`: a folder the person GRANTS, answered as the locator `Documents` takes (Android: a persisted tree grant).
+    pub open_folder: fn(AzString, OptionString) -> FilePickerHandle,
 }
 
 static FILE_PICKER_BACKEND: OnceLock<FilePickerBackend> = OnceLock::new();
