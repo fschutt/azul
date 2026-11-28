@@ -31,6 +31,9 @@ except ImportError:  # pragma: no cover  (Python 3.10: a runner's default; the b
     except ImportError:
         sys.exit("demo_apps.py needs Python 3.11 or later (tomllib), or the tomli package (python3 -m pip install --user tomli)")
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import documents_manifest  # noqa: E402  (the rules of an app's [[app.documents]] and [app.links])
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "scripts" / "demo_apps.toml"
 
@@ -316,6 +319,14 @@ def check(m=None):
                 err(f"{where} [app.ios.usage] {key!r} is no NS...UsageDescription key")
             elif not str(text).strip():
                 err(f"{where} [app.ios.usage] {key} has no text: the prompt of the system shows it")
+        # the files and links the app opens: scripts/documents_manifest.py holds every rule (names, types, schemes); the phone builds are
+        # what reads them
+        docs, links = a.get("documents") or [], a.get("links") or {}
+        if docs or links:
+            if not any(x in MOBILE for x in a["platforms"]):
+                err(f"{where} declares [[app.documents]] / [app.links], which only the phone builds read, and is built for no phone")
+            for problem in documents_manifest.validate(docs, links):
+                err(f"{where} {problem}")
         if "ios" in a["platforms"]:
             for perm in (a.get("android") or {}).get("permissions") or []:
                 key = IOS_KEY_OF_PERMISSION.get(perm)

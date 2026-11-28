@@ -7,6 +7,7 @@
 import argparse
 import contextlib
 import io
+import copy
 import json
 import os
 import pathlib
@@ -1929,6 +1930,45 @@ class IosPlistTest(unittest.TestCase):
         # the texts are escaped: a quote, an ampersand and a tag are text, not markup
         env = demo_build.ios_plist_env({"ios": {"usage": {"NSCameraUsageDescription": 'Tom & "Jerry" <b>look</b>.'}}})
         self.assertEqual(env["AZ_IOS_USAGE"], 'NSCameraUsageDescription=Tom & "Jerry" <b>look</b>.')
+
+
+
+class DocumentsDeclarationTest(unittest.TestCase):
+    """The files and links an app opens ([[app.documents]], [app.links]): ONE place, read by both phone builds."""
+
+    def test_an_app_that_declares_nothing_gets_no_environment(self):
+        self.assertEqual(demo_build.documents_env({"package": "AzX"}, pathlib.Path(tempfile.mkdtemp())), {})
+
+    def test_the_declarations_reach_the_build_scripts_as_a_json_file(self):
+        work = pathlib.Path(tempfile.mkdtemp())
+        app = {"documents": [{"name": "E-book", "extensions": ["epub"], "mime": ["application/epub+zip"]}],
+               "links": {"schemes": ["azreader"]}, "ios": {"file_sharing": True}}
+        env = demo_build.documents_env(app, work)
+        data = json.loads(pathlib.Path(env["AZ_DOCUMENTS"]).read_text(encoding="utf-8"))
+        self.assertEqual(data["documents"][0]["name"], "E-book")
+        self.assertEqual(data["links"], {"schemes": ["azreader"]})
+        self.assertEqual(env["AZ_IOS_FILE_SHARING"], "1")
+
+    def test_the_shipped_manifest_declares_valid_types_for_the_qa_app(self):
+        manifest = demo_apps.load()
+        self_test = next(a for a in manifest["qa_app"] if a["package"] == "AzSelfTest")
+        self.assertTrue(self_test.get("documents"), "AzSelfTest declares what it opens: the rows files.open_in / files.share_in need it")
+        import documents_manifest
+        self.assertEqual(documents_manifest.validate(self_test["documents"], self_test.get("links")), [])
+
+    def test_a_hostile_declaration_fails_the_check_with_its_reason(self):
+        manifest = copy.deepcopy(demo_apps.load())
+        app = next(a for a in manifest["app"] if "android" in a["platforms"])
+        app["documents"] = [{"name": "x", "extensions": ["a\"><evil/>"], "mime": []}]
+        errors = demo_apps.check(manifest)
+        self.assertTrue(any(app["package"] in e and "extensions" in e for e in errors), errors)
+
+    def test_declaring_types_for_an_app_with_no_phone_build_is_an_error(self):
+        manifest = copy.deepcopy(demo_apps.load())
+        app = next(a for a in manifest["app"] if not any(p in a["platforms"] for p in ("android", "ios")))
+        app["documents"] = [{"name": "x", "extensions": ["a"], "mime": []}]
+        errors = demo_apps.check(manifest)
+        self.assertTrue(any(app["package"] in e and "no phone" in e for e in errors), errors)
 
 
 ANDROID_DUMP = """<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>

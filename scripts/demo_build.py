@@ -355,6 +355,21 @@ def ios_plist_env(app):
     return env
 
 
+def documents_env(app, work):
+    """AZ_DOCUMENTS (and AZ_IOS_FILE_SHARING): the app's [[app.documents]] and [app.links] as the JSON file the phone build scripts read
+    (scripts/documents_manifest.py); nothing for an app that declares none."""
+    documents, links = app.get("documents") or [], app.get("links") or {}
+    env = {}
+    if documents or links:
+        path = pathlib.Path(work) / "documents.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"documents": documents, "links": links}, sort_keys=True), encoding="utf-8")
+        env["AZ_DOCUMENTS"] = str(path)
+    if (app.get("ios") or {}).get("file_sharing"):
+        env["AZ_IOS_FILE_SHARING"] = "1"
+    return env
+
+
 def strings_dir(app, work):
     """<work>/<lang>.lproj/InfoPlist.strings from the manifest's [app.ios.strings.<lang>]."""
     strings = (app.get("ios") or {}).get("strings") or {}
@@ -404,6 +419,7 @@ def phone(args, job, kind):
             perms = (app.get("android") or {}).get("permissions") or []
             if perms:
                 env["AZ_ANDROID_PERMISSIONS"] = ",".join(perms)
+            env.update(documents_env(app, work / "documents"))
             cmd = ["bash", "scripts/build-android.sh", args.target, pkg, app["bundle_id"], pkg]
         else:
             env.update(AZ_IOS_DRYRUN="1", AZ_IOS_LINK_LIB=str(lib), AZ_IOS_BUILD_JSON=str(json_log), APP_NAME=pkg,
@@ -411,6 +427,7 @@ def phone(args, job, kind):
                        BUNDLE_ID=app["bundle_id"], DISPLAY_NAME=app["name"] + (" e2e" if variant else ""), VERSION="0.2.0",
                        BUILD=ver["build"])
             env.update(ios_plist_env(app))
+            env.update(documents_env(app, work / "documents"))
             sd = strings_dir(app, work / "strings")
             if sd:
                 env["AZ_IOS_STRINGS_DIR"] = str(sd)

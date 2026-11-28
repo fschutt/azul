@@ -18,6 +18,8 @@
 #                            built with link-dynamic against it (AZ_LINK_PATH, no engine crate
 #                            compiles) and the APK carries it next to the app's own library
 #   AZ_ANDROID_PERMISSIONS=a,b  <uses-permission> entries on top of the template's normal ones
+#   AZ_DOCUMENTS=<file.json>    the files and links the app opens ([[app.documents]] / [app.links] of scripts/demo_apps.toml as JSON):
+#                            <intent-filter>s for the app's activity, made by scripts/documents_manifest.py (none declared: none made)
 #   AZ_ANDROID_BUILD_JSON=...   where cargo's JSON log goes (default target/android-build-<crate>-<target>.json),
 #                            read by scripts/demo_gate.py (the engine crates must not appear in it)
 #   VERSION_NAME, VERSION_CODE, LABEL   the manifest's version and the name under the icon
@@ -270,6 +272,16 @@ fi
 AUTH_FILE="$BUILD_DIR/auth-redirect.xml"
 printf '%s' "$AUTH_REDIRECT_XML" > "$AUTH_FILE"
 
+# The files and links the app opens (what it declared in scripts/demo_apps.toml: AZ_DOCUMENTS names the JSON of it): the
+# intent filters of its activity, for "Open with", "Share" and the links of its schemes. An app that declares none gets none.
+OPEN_FILTERS_XML=""
+if [[ -n "${AZ_DOCUMENTS:-}" ]]; then
+    [[ -f "$AZ_DOCUMENTS" ]] || { echo "AZ_DOCUMENTS=$AZ_DOCUMENTS is not a file" >&2; exit 7; }
+    OPEN_FILTERS_XML="$(python3 "$ASSET_ROOT/scripts/documents_manifest.py" android "$AZ_DOCUMENTS")" || exit 7
+fi
+OPEN_FILE="$BUILD_DIR/open-filters.xml"
+printf '%s' "${OPEN_FILTERS_XML:+$OPEN_FILTERS_XML$'\n'}" > "$OPEN_FILE"
+
 # A launcher icon (scripts/demo_icon.py draws one from the app's name; an app of its own would bring its own). Without
 # the script, or with AZ_ANDROID_NO_ICON=1, the manifest names none and Android shows its default.
 ICON_ATTR=""
@@ -290,6 +302,8 @@ sed \
     -e "/@EXTRA_PERMISSIONS@/d" \
     -e "/@AUTH_REDIRECT_ACTIVITY@/r $AUTH_FILE" \
     -e "/@AUTH_REDIRECT_ACTIVITY@/d" \
+    -e "/@OPEN_FILTERS@/r $OPEN_FILE" \
+    -e "/@OPEN_FILTERS@/d" \
     -e "s|@PACKAGE@|$PACKAGE|g" \
     -e "s|@LABEL@|$LABEL|g" \
     -e "s|@LIB_NAME@|${LIB_NAME}|g" \

@@ -493,3 +493,29 @@ NSLocationWhenInUseUsageDescription = "AzSelfTest reads your location to prove t
 NSFaceIDUsageDescription = "AzSelfTest asks for Face ID to prove that the sheet works."
 NSMotionUsageDescription = "AzSelfTest reads the motion sensors to prove that they work."
 NSSpeechRecognitionUsageDescription = "AzSelfTest listens to you to prove that speech recognition works."
+
+# What AzSelfTest opens, for the rows files.open_in / files.share_in (the proof of "Open with" and "Share to": scripts/ci/android_files_proof.py,
+# scripts/ci/ios_files_proof.py): a type of its own, text and Markdown, and every other file (a QA app may take anything: the rows of the
+# limits send it 3 MiB of zeros). The declaration is the ONE place a phone build reads (scripts/documents_manifest.py).
+[[app.documents]]
+name = "AzSelfTest probe file"
+role = "viewer"
+extensions = ["azt"]
+mime = ["application/vnd.azul.selftest"]
+uti = "com.azul.selftest.probe"
+uti_conforms_to = ["public.data"]
+
+[[app.documents]]
+name = "Text and Markdown"
+role = "viewer"
+extensions = ["md", "markdown", "txt"]
+mime = ["text/markdown", "text/plain"]
+
+[[app.documents]]
+name = "Any file"
+role = "viewer"
+mime = ["*/*"]
+uti = "public.data"
+
+[app.links]
+schemes = ["azselftest"]

@@ -72,13 +72,14 @@
         @ICON_ATTR@
         android:hasCode="false">
 
-        <!-- singleTop: a notification tap on the running app arrives in
-             onNewIntent instead of creating a second NativeActivity (and a
-             second android_main). -->
+        <!-- singleTask: ONE instance of the app, whoever starts it. A notification tap, a file another app shares to this one and
+             an "Open with" arrive in onNewIntent of the running instance instead of creating a second NativeActivity (and a
+             second android_main: the engine's library is not re-entrant, the second activity of a process drew nothing). With
+             singleTop an intent from ANOTHER app started a new instance in the sender's task, which is exactly that. -->
         <activity
             android:name="com.azul.app.AzulActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|touchscreen|density|uiMode|locale|layoutDirection|fontScale|colorMode|fontWeightAdjustment|grammaticalGender|mcc|mnc"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:exported="true">
 
             <meta-data
@@ -89,6 +90,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+@OPEN_FILTERS@
         </activity>
 
         <!-- The files of a share (CallbackInfo::share), served read-only to the app the user picked in the chooser: copies the

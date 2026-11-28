@@ -27,6 +27,10 @@
 #                          prompt) and NSBonjourServices = [_irohv1._udp] (the service the system's
 #                          Bonjour is asked for on iOS). Without them the system refuses the lookup
 #                          (kDNSServiceErr_PolicyDenied) and local_discovery_status says so.
+#   AZ_DOCUMENTS=<file.json>  the files and links the app opens ([[app.documents]] / [app.links] of scripts/demo_apps.toml as JSON):
+#                          CFBundleDocumentTypes, UTImportedTypeDeclarations, LSSupportsOpeningDocumentsInPlace, CFBundleURLTypes
+#                          (scripts/documents_manifest.py); AZ_IOS_FILE_SHARING=1 adds UIFileSharingEnabled (the app's Documents
+#                          folder shows in the Files app)
 #   AZ_IOS_USAGE="NSCameraUsageDescription=...<newline>NSMicrophoneUsageDescription=..."
 #                          more usage descriptions, one Key=text per line (only NS...UsageDescription).
 #   AZ_IOS_BONJOUR_SERVICES="_other._tcp,_more._udp"  more NSBonjourServices entries.
@@ -223,14 +227,28 @@ HAVE_ICON=0
 if [[ -f "$ASSET_ROOT/scripts/demo_icon.py" && "${AZ_IOS_NO_ICON:-}" != "1" ]]; then
     python3 "$ASSET_ROOT/scripts/demo_icon.py" ios "$APP_NAME" "$BUNDLE_DIR" && HAVE_ICON=1
 fi
-python3 - "$BUNDLE_DIR/Info.plist" "$IS_SIM" "$HAVE_ICON" <<'PY'
-import plistlib, sys
+python3 - "$BUNDLE_DIR/Info.plist" "$IS_SIM" "$HAVE_ICON" "$ASSET_ROOT/scripts" "$BUNDLE_ID" <<'PY'
+import json, os, plistlib, sys
 path, is_sim, icon = sys.argv[1], sys.argv[2] == "1", sys.argv[3] == "1"
+scripts_dir, bundle_id = sys.argv[4], sys.argv[5]
 with open(path, "rb") as f:
     plist = plistlib.load(f)
 plist["CFBundleSupportedPlatforms"] = ["iPhoneSimulator" if is_sim else "iPhoneOS"]
 plist["UILaunchScreen"] = {}
 plist.pop("UILaunchStoryboardName", None)
+# The files and links the app opens (AZ_DOCUMENTS names the JSON of its [[app.documents]] / [app.links] in scripts/demo_apps.toml):
+# CFBundleDocumentTypes, the types it defines, in-place opening for an editor, CFBundleURLTypes; AZ_IOS_FILE_SHARING=1 shows the
+# app's Documents folder in the Files app. Nothing is written for an app that declares nothing.
+declared = os.environ.get("AZ_DOCUMENTS", "")
+sharing = os.environ.get("AZ_IOS_FILE_SHARING", "") == "1"
+if declared or sharing:
+    sys.path.insert(0, scripts_dir)
+    import documents_manifest
+    data = json.load(open(declared, encoding="utf-8")) if declared else {}
+    problems = documents_manifest.validate(data.get("documents", []), data.get("links", {}))
+    if problems:
+        sys.exit("documents_manifest: " + "; ".join(problems))
+    plist.update(documents_manifest.ios_plist(data.get("documents", []), data.get("links", {}), bundle_id, sharing))
 if icon:
     plist["CFBundleIcons"] = {"CFBundlePrimaryIcon": {"CFBundleIconFiles": ["AppIcon60x60"]}}
     plist["CFBundleIcons~ipad"] = {"CFBundlePrimaryIcon": {"CFBundleIconFiles": ["AppIcon60x60", "AppIcon76x76", "AppIcon83.5x83.5"]}}
