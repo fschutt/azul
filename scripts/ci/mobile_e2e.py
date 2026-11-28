@@ -757,12 +757,14 @@ def e2e_session(args):
             # a real touch through Android's input, at the node's place: from the ENGINE's accessibility tree first (uiautomator's dump waits for an
             # idle app and found nothing after the scenarios), uiautomator's as the second source
             # the FIELD (role MultilineTextInput), not the label above it that carries the same name: a tap on a label focuses nothing
-            found = find_named("TextInput", "MultilineTextInput") or find_named("TextInput", "TextInput") or find_named("TextInput")
-            if found:
-                x, y, how = found[0], found[1], "the engine's accessibility tree"
-                dev.tap(x, y)
-            else:
-                x, y, how = dev.tap_label("TextInput")
+            # uiautomator first: its snapshot follows the scrolls (the engine's tree gave y = -9973 after the scenarios scrolled the page); the
+            # engine's tree only when its box lies on the screen
+            x, y, how = dev.tap_label("TextInput")
+            if x is None:
+                found = find_named("TextInput", "MultilineTextInput") or find_named("TextInput", "TextInput")
+                if found and 0 < found[1] < dev.dims[1]:
+                    x, y, how = found[0], found[1], "the engine's accessibility tree"
+                    dev.tap(x, y)
             if x is None:
                 s.check("the accessibility tree names the TextInput field with a position", False, "not found")
                 return

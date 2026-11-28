@@ -11,14 +11,17 @@
 #   demo-out/qa*/**/shots/*
 #   demo-out/qa*/**/console-*
 #   demo-out/qa*/**/log-app.txt
+#   demo-out/qa*/e2e-*.json
+#   demo-out/qa*/raw/**
 #   demo-out/qa*/**/DiagnosticReports-ls.txt'
 #
 #   1. the plain phone libraries (`mobile`, and `mobile-iroh` for AzCompanion) and the six apps (AzWidgets AzMaps AzPaint AzMeet AzWriter
 #      AzCompanion) of the demos pipeline's iOS Simulator column;
 #   2. per app (demo-out/qa-apps/<App>/): scripts/ci/ios_qa.sh with the steps 03 (cold start), 04 (AZ_BACKEND cpu, gpu, auto: which renderer
 #      ran, a picture each), 05 (the system's dark appearance), 08 (rotation to landscape through the Simulator's menu);
-#   3. the `mobile-e2e` library and AzWidgets-e2e: the whole lifecycle (demo-out/qa) and the debug-server session with the three
-#      AzWidgets scenario files (demo-out/qa/e2e).
+#   3. the `mobile-e2e` library and the e2e apps AzWidgets and AzWriter: every e2e scenario file against its host app, the table of
+#      scripts/ci/e2e_matrix.py (demo-out/qa-matrix), then the whole lifecycle of AzWidgets-e2e (demo-out/qa) and its debug-server session with
+#      the three AzWidgets scenario files (demo-out/qa/e2e).
 # The GPU matrix of AzWidgets (failure injection at every stage, the lifecycle on the GPU, the scenarios on the GPU) is scripts/ci/gpu_ios_qa.sh.
 # Exit 0 when the first stage built, 3 when not.
 set -uo pipefail
@@ -62,12 +65,16 @@ for app in $apps; do
   AZ_QA_GUI=1 AZ_QA_EXPECT_GPU="$expect_gpu" AZ_QA_ONLY=03,04,05,08 bash scripts/ci/ios_qa.sh "demo-out/qa-apps/$app" "$zip" "$app" qa
 done
 
-echo "=== 3. the life of AzWidgets with the debug server"
+echo "=== 3. the e2e library and apps: the e2e matrix, then the life of AzWidgets with the debug server"
 if build_lib mobile-e2e; then
-  python3 scripts/demo_build.py ios --target "$target" --apps AzWidgets --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant mobile-e2e \
-    || echo "AzWidgets-e2e did not build"
+  python3 scripts/demo_build.py ios --target "$target" --apps "AzWidgets AzWriter" --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant mobile-e2e \
+    || echo "an e2e app did not build"
   e2e_zip="$(ls demo-out/apps/AzWidgets-e2e-ios-sim*.zip 2>/dev/null | head -n 1)"
+  writer_zip="$(ls demo-out/apps/AzWriter-e2e-ios-sim*.zip 2>/dev/null | head -n 1)"
   if [ -n "$e2e_zip" ]; then
+    echo "--- 3a. every e2e scenario file against its host app (scripts/ci/e2e_matrix.py)"
+    AZ_QA_MATRIX_APPS="$e2e_zip $writer_zip" bash scripts/ci/ios_qa.sh demo-out/qa-matrix "$e2e_zip" e2e-matrix matrix
+    echo "--- 3b. the life of AzWidgets-e2e: the lifecycle and the debug-server session"
     AZ_QA_GUI=1 AZ_QA_EXPECT_GPU="$expect_gpu" AZ_QA_ONLY=03,04,05,06,07,08,09,10,11 \
       AZ_QA_SCENARIOS="examples/azul-widgets/e2e/building_blocks.json examples/azul-widgets/e2e/every_input_form.json examples/azul-widgets/e2e/tab_looks.json" \
       bash scripts/ci/ios_qa.sh demo-out/qa "$e2e_zip" AzWidgets-e2e both
