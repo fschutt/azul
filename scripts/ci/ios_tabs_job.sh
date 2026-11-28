@@ -7,6 +7,9 @@
 #   scripts/remote.sh run <full sha | ref> macos-15 'bash scripts/ci/ios_tabs_job.sh' --codegen --artifacts 'demo-out/qa-tabs/**
 #   demo-out/results/*
 #   demo-out/plan.txt'
+# AZ_TABS_FLICKER=1 adds, AFTER the two phones, the flicker and jitter audit of the plain app (scripts/ci/qa_ios_flicker.sh: its own library build, the
+# CPU renderer and the GPU path; add 'demo-out/qa-flicker*/**' to the artifacts): the audit of the iOS Simulator that never ran before the app was
+# installed by it (flicker_audit.py, 7c4e132056).
 set -uxo pipefail
 target=aarch64-apple-ios-sim
 mkdir -p demo-out/libs demo-out/apps demo-out/results
@@ -28,4 +31,8 @@ for dev in "iPhone 16 Pro" "iPhone SE (3rd generation)"; do
   AZ_QA_GUI=1 AZ_QA_IOS_DEVICE="$dev" timeout 2400 bash scripts/ci/ios_qa.sh "demo-out/qa-tabs/$tag" "$e2e_zip" "tabs $dev" tabs
   echo "SESSION tabs $dev: exit $?"
 done
+if [ "${AZ_TABS_FLICKER:-}" = 1 ]; then
+  timeout 3000 bash scripts/ci/qa_ios_flicker.sh
+  echo "SESSION flicker: exit $?"
+fi
 exit 0
