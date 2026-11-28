@@ -954,6 +954,9 @@ pub struct Sidebar {
     pub label: AzString,
     /// The help row's label; empty for no help row.
     pub help: AzString,
+    /// The DOM id of the sidebar's root (`#id` in a selector, an e2e script finds it by it); empty
+    /// for none.
+    pub dom_id: AzString,
     /// The widget theme this sidebar is PINNED to, or `None` to follow the app theme.
     pub theme: OptionUiTheme,
     /// The state the app keeps and rebuilds with.
@@ -993,6 +996,7 @@ impl Sidebar {
             quick_access: SidebarQuickActionVec::from_const_slice(&[]),
             label: AzString::from_const_str("Sidebar"),
             help: AzString::from_const_str(""),
+            dom_id: AzString::from_const_str(""),
             theme: OptionUiTheme::None,
             state: SidebarState::Rail,
             surface: SidebarSurface::Theme,
@@ -1140,6 +1144,18 @@ impl Sidebar {
     #[must_use]
     pub fn with_help(mut self, label: AzString) -> Self {
         self.set_help(label);
+        self
+    }
+
+    /// The DOM id of the sidebar's root, so that a selector (`#mail-sidebar`) names it.
+    pub fn set_dom_id(&mut self, dom_id: AzString) {
+        self.dom_id = dom_id;
+    }
+
+    /// [`Self::set_dom_id`] for the builder chain.
+    #[must_use]
+    pub fn with_dom_id(mut self, dom_id: AzString) -> Self {
+        self.set_dom_id(dom_id);
         self
     }
 
@@ -2284,6 +2300,7 @@ fn build(sb: Sidebar) -> Dom {
         quick_access,
         label,
         help,
+        dom_id,
         theme,
         state,
         surface,
@@ -2390,9 +2407,12 @@ fn build(sb: Sidebar) -> Dom {
             ctx.part(event(SidebarEventKind::StateChanged, next)),
             on_part_click,
         );
-        let mut root = styled(Dom::create_nav().with_child(handle), &root_css)
-            .with_ids_and_classes(root_classes)
-            .with_accessibility_info(landmark);
+        let mut root = with_dom_id(
+            styled(Dom::create_nav().with_child(handle), &root_css)
+                .with_ids_and_classes(root_classes)
+                .with_accessibility_info(landmark),
+            &dom_id,
+        );
         // a handle has no band for the controls: they sit over its top where the app leaves room
         let _ = controls_h;
         root.root.set_tab_index(TabIndex::NoKeyboardFocus);
@@ -2506,9 +2526,12 @@ fn build(sb: Sidebar) -> Dom {
             captured: false,
             fired: false,
         });
-        let mut root = styled(Dom::create_nav().with_children(DomVec::from_vec(kids)), &root_css)
-            .with_ids_and_classes(root_classes)
-            .with_accessibility_info(landmark);
+        let mut root = with_dom_id(
+            styled(Dom::create_nav().with_children(DomVec::from_vec(kids)), &root_css)
+                .with_ids_and_classes(root_classes)
+                .with_accessibility_info(landmark),
+            &dom_id,
+        );
         // a swipe inward from the rail opens the drawer, by a finger or by a drag of the mouse
         if swipe_on {
             root = on_all(
@@ -2587,9 +2610,21 @@ fn build(sb: Sidebar) -> Dom {
         .with_ids_and_classes(classes(SIDEBAR_FOOT_CLASS, &[])),
     );
 
-    styled(Dom::create_nav().with_children(DomVec::from_vec(kids)), &root_css)
-        .with_ids_and_classes(root_classes)
-        .with_accessibility_info(landmark)
+    with_dom_id(
+        styled(Dom::create_nav().with_children(DomVec::from_vec(kids)), &root_css)
+            .with_ids_and_classes(root_classes)
+            .with_accessibility_info(landmark),
+        &dom_id,
+    )
+}
+
+/// `dom` with the DOM id the app asked for (none: as it is).
+fn with_dom_id(dom: Dom, dom_id: &AzString) -> Dom {
+    if dom_id.as_str().is_empty() {
+        dom
+    } else {
+        dom.with_id(dom_id.clone())
+    }
 }
 
 #[cfg(test)]

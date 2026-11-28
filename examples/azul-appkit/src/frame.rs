@@ -165,7 +165,13 @@ pub fn example(
     let home = RibbonTab::create("Home").with_icon("home").with_group(
         RibbonGroup::create("New").with_item(RibbonItem::LargeButton(RibbonButton::create("edit", "Compose"))),
     );
-    let ribbon = Ribbon::create(vec![file, home]).dom_desktop();
+    // the tab row IS the title bar (no title bar on any layout): it clears what the sidebar does not
+    // cover of the OS's window controls at its left, and keeps the platform's room at its right
+    let tabs = TabsInTitlebar {
+        left: tab_row_left_pad(&sidebar),
+        ..crate::ui::tabs_in_titlebar()
+    };
+    let ribbon = Ribbon::create(vec![file, home]).with_tabs_in_titlebar(tabs).dom_desktop();
 
     // the Preview is opt-in and shows the message itself; its details are behind (?) buttons
     let mut preview = Preview::create(Dom::create_div(), Dom::create_p_with_text("The message."))

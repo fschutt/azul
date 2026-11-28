@@ -221,6 +221,14 @@ api_functions=(
   AppFrame.set_form
   AppFrame.with_form
   AppFrame.dom
+  Sidebar.set_dom_id
+  Sidebar.with_dom_id
+  Preview.set_dom_id
+  Preview.with_dom_id
+  AppFrame.set_dom_id
+  AppFrame.with_dom_id
+  SummaryList.set_on_long_press
+  SummaryList.with_on_long_press
   Sidebar.set_quick_access
   Sidebar.with_quick_access
   Sidebar.add_quick_action
