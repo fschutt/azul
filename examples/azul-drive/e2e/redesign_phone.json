@@ -28,6 +28,15 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-app-frame-phone"
       },

@@ -1,7 +1,7 @@
 [
   {
     "name": "azdrive_starts_as_the_rail_and_the_toggle_opens_the_source_list",
-    "description": "AzDrive on the sidebar family: the window starts in Home with the sidebar as the icon rail, the location (the parents of the open place over the folder's name) in the File tab, the command line at the foot saying how the folder stands; the toggle at the foot of the rail opens the whole source list and closes it again. There is no address row any more.",
+    "description": "AzDrive on the sidebar family: the window starts in Home with the sidebar as the icon rail, the location (the parents of the open place over the folder's name) in the File tab, the command line at the foot saying how the folder stands; the toggle at the foot of the rail opens the whole source list. There is no address row any more. The test leaves the source list open: the next ones use its rows.",
     "only_on": [
       "linux",
       "windows",
@@ -20,6 +20,15 @@
       {
         "op": "set_theme",
         "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "wait_frame"
@@ -48,10 +57,6 @@
         "selector": "#__azdrive_command_bar"
       },
       {
-        "op": "assert_exists",
-        "selector": "#__azdrive_command_bar_status"
-      },
-      {
         "op": "assert_not_exists",
         "selector": ".__azul-native-address-bar"
       },
@@ -59,6 +64,11 @@
         "op": "assert_text",
         "selector": ".__azul-native-location-name",
         "expected": "Home"
+      },
+      {
+        "op": "assert_text",
+        "selector": "#__azdrive_command_bar_status",
+        "expected": "6 items"
       },
       {
         "op": "print",
@@ -107,20 +117,6 @@
       },
       {
         "op": "take_screenshot"
-      },
-      {
-        "op": "click",
-        "selector": ".__azul-native-sidebar-toggle"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "assert_exists",
-        "selector": ".__azul-native-sidebar-rail"
       }
     ]
   },
@@ -153,14 +149,17 @@
         "op": "wait_frame"
       },
       {
-        "op": "click",
-        "selector": ".__azul-native-sidebar-toggle"
+        "op": "wait_settled"
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
       },
       {
         "op": "click",
@@ -173,9 +172,23 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "assert_text",
         "selector": ".__azul-native-location-name",
         "expected": "Documents"
+      },
+      {
+        "op": "assert_text",
+        "selector": "#__azdrive_command_bar_status",
+        "expected": "3 items"
       },
       {
         "op": "print",
@@ -195,6 +208,15 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "assert_text",
         "selector": ".__azul-native-location-name",
         "expected": "This PC"
@@ -205,22 +227,12 @@
       },
       {
         "op": "take_screenshot"
-      },
-      {
-        "op": "click",
-        "selector": ".__azul-native-sidebar-toggle"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
       }
     ]
   },
   {
     "name": "azdrive_the_pen_edits_the_location_and_the_list_narrows",
-    "description": "The pen turns the folder's name into a live field: every key narrows the folder's rows to the names that hold the text, Escape gives the edit up (the name and the whole folder are back), Enter goes to the folder the text names.",
+    "description": "The pen turns the folder's name into a live field: every key narrows the folder's rows to the names that hold the text (the command line counts them), Escape gives the edit up (the name and the whole folder are back), Enter goes to the folder the text names.",
     "only_on": [
       "linux",
       "windows",
@@ -247,6 +259,19 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
         "op": "click",
         "text": "Home"
       },
@@ -255,6 +280,25 @@
       },
       {
         "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_text",
+        "selector": ".__azul-native-location-name",
+        "expected": "Home"
+      },
+      {
+        "op": "assert_text",
+        "selector": "#__azdrive_command_bar_status",
+        "expected": "6 items"
       },
       {
         "op": "click",
@@ -281,24 +325,13 @@
         "op": "wait_frame"
       },
       {
-        "op": "find_node_by_text",
-        "text": "Documents"
-      },
-      {
-        "op": "assert_response",
-        "contains": "\"found\":true"
-      },
-      {
-        "op": "find_node_by_text",
-        "text": "Pictures"
-      },
-      {
-        "op": "assert_response",
-        "contains": "\"found\":false"
+        "op": "assert_text",
+        "selector": "#__azdrive_command_bar_status",
+        "expected": "1 item"
       },
       {
         "op": "print",
-        "text": "SHOT The pen turned the folder's name into a field: with doc typed the list shows only the names that hold it"
+        "text": "SHOT The pen turned the folder's name into a field: with doc typed the list shows only the names that hold it (one item)"
       },
       {
         "op": "take_screenshot"
@@ -322,12 +355,9 @@
         "selector": ".__azul-native-location-edit"
       },
       {
-        "op": "find_node_by_text",
-        "text": "Pictures"
-      },
-      {
-        "op": "assert_response",
-        "contains": "\"found\":true"
+        "op": "assert_text",
+        "selector": "#__azdrive_command_bar_status",
+        "expected": "6 items"
       },
       {
         "op": "click",
@@ -367,6 +397,15 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "assert_text",
         "selector": ".__azul-native-location-name",
         "expected": "Documents"
@@ -375,7 +414,7 @@
   },
   {
     "name": "azdrive_a_search_typed_in_the_command_line_opens_the_search_view",
-    "description": "A line that starts with ? in the command line searches the folder and everything below it as it is typed; Escape empties the line and the folder shows again.",
+    "description": "A line that starts with ? in the command line searches the folder and everything below it as it is typed; Escape empties the query and a second Escape closes the search view: the folder shows again.",
     "only_on": [
       "linux",
       "windows",
@@ -402,8 +441,30 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
         "op": "click",
         "text": "Home"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "wait_frame"
@@ -438,12 +499,18 @@
         "op": "wait_frame"
       },
       {
-        "op": "assert_exists",
-        "selector": ".__azdrive_find_group"
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "find_node_by_text",
-        "text": "notes.txt"
+        "text": "found",
+        "dom_id": 0
       },
       {
         "op": "assert_response",
@@ -474,8 +541,35 @@
         "op": "wait_frame"
       },
       {
-        "op": "assert_not_exists",
-        "selector": ".__azdrive_find_group"
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_text",
+        "selector": "#__azdrive_command_bar_status",
+        "expected": "6 items"
       }
     ]
   },
@@ -508,6 +602,19 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
         "op": "click",
         "text": "Documents"
       },
@@ -518,8 +625,27 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "click",
-        "text": "notes.txt"
+        "text": "notes.txt",
+        "dom_id": 1
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "wait_frame"
@@ -548,7 +674,17 @@
       },
       {
         "op": "click",
-        "text": "report.md"
+        "text": "report.md",
+        "dom_id": 1
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
       },
       {
         "op": "wait_frame"

@@ -488,16 +488,17 @@ def focused_selector(app):
 
 
 def focus_search_box(app):
-    """Ctrl+F: the address bar's search box takes the keyboard (a click on the box when the key
-    did not - said in the log, it is the step's input that matters here)."""
+    """Ctrl+F: the command line at the window's foot takes the keyboard with a `?` in it (what is
+    typed next is searched; a click on the line when the key did not - said in the log, it is the
+    step's input that matters here)."""
     app.key("f", primary=True)
     for _ in range(8):
         if "text-input" in focused_selector(app):
             return
         app.frame()
-    log("Ctrl+F did not focus the search box; clicking it")
-    app.click(selector="." + BAR + "-search")
-    app.until("the search box has the keyboard", lambda: "text-input" in focused_selector(app))
+    log("Ctrl+F did not focus the command line; clicking it")
+    app.click(selector="#" + I("command-bar-input"))
+    app.until("the command line has the keyboard", lambda: "text-input" in focused_selector(app))
 
 
 def sync_words(app):
