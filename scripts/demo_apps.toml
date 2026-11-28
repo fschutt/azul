@@ -474,10 +474,11 @@ permissions = [
 ]
 [app.ios]
 # build-ios.sh writes NSLocalNetworkUsageDescription and NSBonjourServices = [_irohv1._udp] from this text (the Simulator does not show the prompt: TN3179).
-local_network = "AzSelfTest looks for other devices on your Wi-Fi to check that the local network works."
+local_network = "AzSelfTest uses the local network to prove that discovery on it works."
 [app.ios.usage]
-NSCameraUsageDescription = "AzSelfTest opens the camera to check that it works."
-NSMicrophoneUsageDescription = "AzSelfTest opens the microphone to check that it works."
-NSLocationWhenInUseUsageDescription = "AzSelfTest reads your location to check that it works."
-NSFaceIDUsageDescription = "AzSelfTest asks for Face ID to check that the sheet works."
-NSMotionUsageDescription = "AzSelfTest reads the motion sensors to check that they work."
+NSCameraUsageDescription = "AzSelfTest opens the camera to prove that it works."
+NSMicrophoneUsageDescription = "AzSelfTest opens the microphone to prove that it works."
+NSLocationWhenInUseUsageDescription = "AzSelfTest reads your location to prove that it works."
+NSFaceIDUsageDescription = "AzSelfTest asks for Face ID to prove that the sheet works."
+NSMotionUsageDescription = "AzSelfTest reads the motion sensors to prove that they work."
+NSSpeechRecognitionUsageDescription = "AzSelfTest listens to you to prove that speech recognition works."
