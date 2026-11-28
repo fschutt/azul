@@ -866,6 +866,13 @@ fn the_ios_permission_backend_requests_one_capability_at_a_time_and_reads_quietl
         status.contains("PermissionState::NotDetermined") && !status.contains("PermissionState::Denied\n                } else"),
         "a when-in-use grant is not a refusal of the background capability"
     );
+    // a Subscribe (which the manager lets through only after a user gesture, for an undecided capability) asks for THAT
+    // capability, location excepted (the geolocation backend asks with its own Subscribe); a Release asks nothing
+    let event = body(PERMISSION_IOS_RS, "pub fn handle_event(");
+    at(event, "PermissionDiffEvent::Subscribe { capability, .. }", "handle_event");
+    at(event, "Capability::Geolocation | Capability::GeolocationBackground => {}", "handle_event");
+    at(event, "other => request(*other)", "handle_event");
+    assert!(!event.contains("Release"), "a release asks nothing (and gives nothing back)");
     // the request path is the only one that asks: the probes never do
     let probe = body(PERMISSION_IOS_RS, "pub fn probe_status(");
     for asking in ["requestAccess", "requestWhenInUse", "requestAlways", "request_av_access", "request_permission"] {
