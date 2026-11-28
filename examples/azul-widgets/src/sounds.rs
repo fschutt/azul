@@ -242,6 +242,17 @@ pub(crate) fn sounds_section(
                 sounds,
             ),
             captioned(
+                "Which sound is which on Android",
+                note(
+                    "Click, ToggleOn, ToggleOff, TabChange and DropAccept play the click of \"Touch \
+                     sounds\" (AudioManager id 0, Effect_Tick.ogg); Tick and Back play the same \
+                     file under their own ids; Error, Warning, Bell and DropReject play the \
+                     keyboard's invalid-key sound (id 9, KeypressInvalid.ogg); Notification, \
+                     Success, Info and Question play your notification tone. Settings > Sound & \
+                     vibration > Touch sounds (Tap & click sounds) switches the clicks off.",
+                ),
+            ),
+            captioned(
                 "Haptic patterns: the actuator of this device",
                 haptics,
             ),
