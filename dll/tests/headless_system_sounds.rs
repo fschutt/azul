@@ -65,6 +65,13 @@ fn recorded(window: &HeadlessWindow) -> Vec<SoundRecord> {
         .collect()
 }
 
+/// What the shell does at the end of an event pass: the baseline of the window state (the contract
+/// shape: snapshot, mutate, pass), then the pass, whose last step drains the sounds.
+fn end_the_pass(window: &mut HeadlessWindow) {
+    window.snapshot_window_state_baseline("test.system_sounds");
+    let _ = window.process_window_events(0);
+}
+
 fn ask(window: &mut HeadlessWindow, sound: SystemSound) {
     // what a callback's `play_system_sound` leaves for the shell to apply
     let _ = window.apply_user_change(&CallbackChange::PlaySound { sound });
@@ -82,7 +89,7 @@ fn the_requests_of_a_pass_are_decided_at_its_end_and_a_headless_window_plays_not
         "a request waits in the queue until the pass ends"
     );
 
-    let _ = window.process_window_events(0);
+    end_the_pass(&mut window);
 
     let records = recorded(&window);
     assert_eq!(records.len(), 3, "every request is recorded: {records:#?}");
@@ -114,10 +121,10 @@ fn a_second_pass_decides_only_the_requests_made_after_the_first() {
     let mut window = window();
     window.regenerate_layout().expect("the first layout");
     ask(&mut window, SystemSound::Click);
-    let _ = window.process_window_events(0);
+    end_the_pass(&mut window);
     assert_eq!(recorded(&window).len(), 1);
 
-    let _ = window.process_window_events(0);
+    end_the_pass(&mut window);
     assert_eq!(
         recorded(&window).len(),
         1,
@@ -125,7 +132,7 @@ fn a_second_pass_decides_only_the_requests_made_after_the_first() {
     );
 
     ask(&mut window, SystemSound::Back);
-    let _ = window.process_window_events(0);
+    end_the_pass(&mut window);
     let records = recorded(&window);
     assert_eq!(records.len(), 2);
     assert_eq!(records[1].sound, SystemSound::Back);
@@ -138,7 +145,7 @@ fn the_apps_mute_reaches_the_window_and_is_the_reason_of_the_request() {
     window.regenerate_layout().expect("the first layout");
     let _ = window.apply_user_change(&CallbackChange::SetSoundsMuted { muted: true });
     ask(&mut window, SystemSound::Notification);
-    let _ = window.process_window_events(0);
+    end_the_pass(&mut window);
 
     let records = recorded(&window);
     assert_eq!(records.len(), 1);
