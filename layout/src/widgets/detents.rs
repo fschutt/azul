@@ -45,6 +45,9 @@ pub const CONTAINER_HEIGHT_DEFAULT: f32 = 800.0;
 pub const FLING_STEP: f32 = 6.0;
 /// How many events of that step a fling carries on: where it would end, px = step x this.
 pub const FLING_EVENTS: f32 = 12.0;
+/// A pointer that rested this long (ms) before it was lifted has no speed to fling with: the step of its last move is not its speed
+/// any more.
+pub const FLING_STALE_MS: u64 = 100;
 
 /// Where a pane rests.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]

@@ -51,6 +51,8 @@ fn state(detent: SheetDetent, height: f32) -> DragState {
         start_height: height,
         last_y: 0.0,
         step: 0.0,
+        last_ms: 0,
+        origin: None,
     }
 }
 
@@ -381,28 +383,28 @@ fn peeking() -> DragState {
 #[test]
 fn a_press_on_the_grip_arms_the_sheet_and_a_tap_on_it_steps_a_detent_up() {
     let mut st = peeking();
-    assert!(st.press(672.0, 670.0, 130.0, 800.0));
+    assert!(st.press(672.0, 670.0, 130.0, 800.0, 0));
     assert!(st.armed && st.on_grip && !st.dragging);
     assert!(near(st.start_y, 672.0) && near(st.start_height, 130.0));
-    assert_eq!(st.lift(false), Some(SheetDetent::Half), "a tap on the grip: the next detent up");
+    assert_eq!(st.lift(false, 0), Some(SheetDetent::Half), "a tap on the grip: the next detent up");
     assert!(!st.armed, "the press is over");
-    assert_eq!(st.lift(false), None, "and a second lift has nothing to settle");
+    assert_eq!(st.lift(false, 0), None, "and a second lift has nothing to settle");
 }
 
 #[test]
 fn the_highest_detent_goes_round_to_the_lowest_on_a_tap() {
     let mut st = state(SheetDetent::Full, 680.0);
-    assert!(st.press(122.0, 120.0, 680.0, 800.0));
-    assert_eq!(st.lift(false), Some(SheetDetent::Collapsed));
+    assert!(st.press(122.0, 120.0, 680.0, 800.0, 0));
+    assert_eq!(st.lift(false, 0), Some(SheetDetent::Collapsed));
 }
 
 #[test]
 fn a_press_in_the_band_under_the_grip_is_armed_but_a_release_without_a_drag_belongs_to_what_is_there() {
     let mut st = peeking();
     st.grab = 90.0;
-    assert!(st.press(730.0, 670.0, 130.0, 800.0), "60 px down, inside the 90 px band");
+    assert!(st.press(730.0, 670.0, 130.0, 800.0, 0), "60 px down, inside the 90 px band");
     assert!(st.armed && !st.on_grip);
-    assert_eq!(st.lift(false), None, "a press and release that did not move reach the buttons in the band");
+    assert_eq!(st.lift(false, 0), None, "a press and release that did not move reach the buttons in the band");
     assert!(!st.armed);
 }
 
@@ -410,90 +412,90 @@ fn a_press_in_the_band_under_the_grip_is_armed_but_a_release_without_a_drag_belo
 fn a_press_outside_the_band_is_not_the_sheets() {
     let mut st = peeking();
     st.container = 777.0;
-    assert!(!st.press(720.0, 670.0, 130.0, 800.0), "50 px down is the content, not the grip");
-    assert!(!st.press(660.0, 670.0, 130.0, 800.0), "above the sheet is not the sheet");
-    assert!(!st.press(f32::NAN, 670.0, 130.0, 800.0));
+    assert!(!st.press(720.0, 670.0, 130.0, 800.0, 0), "50 px down is the content, not the grip");
+    assert!(!st.press(660.0, 670.0, 130.0, 800.0, 0), "above the sheet is not the sheet");
+    assert!(!st.press(f32::NAN, 670.0, 130.0, 800.0, 0));
     assert!(!st.armed && near(st.container, 777.0), "nothing of the sheet changed");
 }
 
 #[test]
 fn a_press_takes_the_height_the_layout_gave_the_sheet_when_it_is_a_number() {
     let mut st = peeking();
-    assert!(st.press(672.0, 670.0, 211.0, 900.0));
+    assert!(st.press(672.0, 670.0, 211.0, 900.0, 0));
     assert!(near(st.height, 211.0) && near(st.start_height, 211.0) && near(st.container, 900.0));
     let mut other = peeking();
-    assert!(other.press(672.0, 670.0, f32::NAN, 800.0));
+    assert!(other.press(672.0, 670.0, f32::NAN, 800.0, 0));
     assert!(near(other.height, 130.0), "no number from the layout: the sheet's own");
 }
 
 #[test]
 fn a_move_inside_the_slop_is_still_a_press_and_one_past_it_starts_the_drag() {
     let mut st = peeking();
-    assert!(st.press(672.0, 670.0, 130.0, 800.0));
-    assert_eq!(st.drag_to(672.0 - TAP_SLOP), None, "exactly the slop is not past it");
+    assert!(st.press(672.0, 670.0, 130.0, 800.0, 0));
+    assert_eq!(st.drag_to(672.0 - TAP_SLOP, 0), None, "exactly the slop is not past it");
     assert!(!st.dragging);
-    let first = st.drag_to(672.0 - TAP_SLOP - 1.0).expect("past the slop");
+    let first = st.drag_to(672.0 - TAP_SLOP - 1.0, 0).expect("past the slop");
     assert!(first.started && st.dragging);
     assert!(near(first.height, 139.0), "130 px and the 9 px the pointer went up: {first:?}");
-    let second = st.drag_to(600.0).expect("a drag in flight");
+    let second = st.drag_to(600.0, 0).expect("a drag in flight");
     assert!(!second.started);
     assert!(near(second.height, 202.0) && near(st.height, 202.0));
 }
 
 #[test]
 fn a_move_without_a_press_does_nothing() {
-    assert_eq!(peeking().drag_to(10.0), None);
+    assert_eq!(peeking().drag_to(10.0, 0), None);
 }
 
 #[test]
 fn the_pointer_going_up_grows_the_sheet_only_as_far_as_its_highest_detent_and_down_as_far_as_the_lowest() {
     let mut st = peeking();
-    assert!(st.press(672.0, 670.0, 130.0, 800.0));
-    assert!(near(st.drag_to(-5000.0).expect("a drag").height, 680.0), "no taller than full");
-    assert!(near(st.drag_to(9000.0).expect("a drag").height, 30.0), "no lower than collapsed");
+    assert!(st.press(672.0, 670.0, 130.0, 800.0, 0));
+    assert!(near(st.drag_to(-5000.0, 0).expect("a drag").height, 680.0), "no taller than full");
+    assert!(near(st.drag_to(9000.0, 0).expect("a drag").height, 30.0), "no lower than collapsed");
     let mut ranged = peeking();
     ranged.lowest = SheetDetent::Peek;
     ranged.highest = SheetDetent::Half;
-    assert!(ranged.press(672.0, 670.0, 130.0, 800.0));
-    assert!(near(ranged.drag_to(-5000.0).expect("a drag").height, 400.0));
-    assert!(near(ranged.drag_to(9000.0).expect("a drag").height, 130.0));
+    assert!(ranged.press(672.0, 670.0, 130.0, 800.0, 0));
+    assert!(near(ranged.drag_to(-5000.0, 0).expect("a drag").height, 400.0));
+    assert!(near(ranged.drag_to(9000.0, 0).expect("a drag").height, 130.0));
 }
 
 #[test]
 fn the_app_is_told_the_detent_the_sheet_is_nearest_to_while_it_is_dragged() {
     let mut st = peeking();
-    assert!(st.press(672.0, 670.0, 130.0, 800.0));
-    st.drag_to(672.0 - 120.0).expect("a drag");
+    assert!(st.press(672.0, 670.0, 130.0, 800.0, 0));
+    st.drag_to(672.0 - 120.0, 0).expect("a drag");
     assert_eq!(st.detent, SheetDetent::Peek, "250 px: nearer 130 than 400");
-    st.drag_to(672.0 - 150.0).expect("a drag");
+    st.drag_to(672.0 - 150.0, 0).expect("a drag");
     assert_eq!(st.detent, SheetDetent::Half, "280 px: nearer 400 than 130");
 }
 
 #[test]
 fn a_slow_drag_settles_on_the_nearest_detent_and_a_fling_carries_on() {
     let mut slow = peeking();
-    assert!(slow.press(672.0, 670.0, 130.0, 800.0));
-    slow.drag_to(600.0).expect("a drag");
-    slow.drag_to(599.0).expect("a drag");
-    assert_eq!(slow.lift(false), Some(SheetDetent::Peek), "203 px, moving a pixel at a time: the peek");
+    assert!(slow.press(672.0, 670.0, 130.0, 800.0, 0));
+    slow.drag_to(600.0, 0).expect("a drag");
+    slow.drag_to(599.0, 0).expect("a drag");
+    assert_eq!(slow.lift(false, 0), Some(SheetDetent::Peek), "203 px, moving a pixel at a time: the peek");
     assert!(!slow.dragging && !slow.armed);
 
     let mut fling = peeking();
-    assert!(fling.press(672.0, 670.0, 130.0, 800.0));
-    fling.drag_to(650.0).expect("a drag");
-    assert_eq!(fling.lift(false), Some(SheetDetent::Half), "152 px, last step 22 px: it would land at 416, nearest half");
+    assert!(fling.press(672.0, 670.0, 130.0, 800.0, 0));
+    fling.drag_to(650.0, 0).expect("a drag");
+    assert_eq!(fling.lift(false, 0), Some(SheetDetent::Half), "152 px, last step 22 px: it would land at 416, nearest half");
 }
 
 #[test]
 fn a_pointer_that_leaves_with_the_button_up_settles_a_drag_and_lets_a_tap_go() {
     let mut dragging = peeking();
-    assert!(dragging.press(672.0, 670.0, 130.0, 800.0));
-    dragging.drag_to(600.0).expect("a drag");
-    dragging.drag_to(599.0).expect("a drag");
-    assert_eq!(dragging.lift(true), Some(SheetDetent::Peek), "the drag ends where it was, as a release would");
+    assert!(dragging.press(672.0, 670.0, 130.0, 800.0, 0));
+    dragging.drag_to(600.0, 0).expect("a drag");
+    dragging.drag_to(599.0, 0).expect("a drag");
+    assert_eq!(dragging.lift(true, 0), Some(SheetDetent::Peek), "the drag ends where it was, as a release would");
     let mut tapping = peeking();
-    assert!(tapping.press(672.0, 670.0, 130.0, 800.0));
-    assert_eq!(tapping.lift(true), None, "a press that never moved is let go, it is no tap");
+    assert!(tapping.press(672.0, 670.0, 130.0, 800.0, 0));
+    assert_eq!(tapping.lift(true, 0), None, "a press that never moved is let go, it is no tap");
     assert!(!tapping.armed);
 }
 
@@ -504,4 +506,29 @@ fn the_sheet_rests_at_the_height_of_its_detent() {
     assert!(st.detent == SheetDetent::Half && near(st.height, 400.0));
     st.container = 1000.0;
     assert!(near(st.rest(SheetDetent::Half), 500.0), "half of the box it floats in now");
+}
+
+#[test]
+fn a_pointer_that_rested_before_it_was_lifted_has_no_fling() {
+    // 152 px with the last step 22 px: moving, it would land at 416 (half); after more than FLING_STALE_MS of rest it is the nearest
+    // detent to where it is: the peek.
+    let mut moving = peeking();
+    assert!(moving.press(672.0, 670.0, 130.0, 800.0, 0));
+    moving.drag_to(650.0, 10).expect("a drag");
+    assert_eq!(moving.lift(false, 10 + FLING_STALE_MS), Some(SheetDetent::Half), "the rest is not longer than the limit");
+    let mut rested = peeking();
+    assert!(rested.press(672.0, 670.0, 130.0, 800.0, 0));
+    rested.drag_to(650.0, 10).expect("a drag");
+    assert_eq!(rested.lift(false, 10 + FLING_STALE_MS + 1), Some(SheetDetent::Peek), "it stopped: no speed");
+}
+
+#[test]
+fn the_second_report_of_one_move_is_no_step_and_does_not_make_a_stop_of_it() {
+    // A phone reports a finger as a touch and as a mouse: the same y twice. The second must not zero the step the fling is made of.
+    let mut st = peeking();
+    assert!(st.press(672.0, 670.0, 130.0, 800.0, 0));
+    assert!(st.drag_to(650.0, 5).is_some());
+    assert_eq!(st.drag_to(650.0, 5), None, "the same place again");
+    assert!(near(st.step, 22.0), "the step of the real move stays: {}", st.step);
+    assert_eq!(st.lift(false, 5), Some(SheetDetent::Half), "and the fling it makes carries the sheet on");
 }
