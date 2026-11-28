@@ -3,7 +3,7 @@
 (standard library only; ONE macOS job, announced to QA before it is dispatched).
 
     python3 scripts/ci/ios_sim_selftest.py --app AzSelfTest-e2e-ios-sim.app [--device "iPhone 16 Pro"] [--bundle <id>]
-                                           [--touch] [--seconds 180] [--out ios-sim-selftest]
+                                           [--touch] [--seconds 300] [--out ios-sim-selftest]
 
 What it does, in this order (nothing is erased and nothing is uninstalled; only this app's privacy decisions are reset):
   1. finds the device (by name or UDID among the available ones), boots it when it is shut down;
@@ -438,7 +438,7 @@ def main(argv):
     ap.add_argument("--device", default="iPhone 16 Pro", help="a name or a UDID among the available Simulators")
     ap.add_argument("--bundle", help="the bundle identifier (default: the app's Info.plist)")
     ap.add_argument("--touch", action="store_true", help="the device has Touch ID (the notifications of a finger, not a face)")
-    ap.add_argument("--seconds", type=int, default=180, help="how long one run may take")
+    ap.add_argument("--seconds", type=int, default=300, help="how long one run may take (every row that waits has its own limit)")
     ap.add_argument("--out", default="ios-sim-selftest", help="where the files are written")
     args = ap.parse_args(argv)
     app = Path(args.app)
