@@ -381,9 +381,24 @@ apksigner sign --ks debug.keystore --ks-pass pass:android aligned.apk
 **Files to copy** into your project (Java glue + manifest template) live in
 [`scripts/android/`](https://github.com/fschutt/azul/tree/master/scripts/android):
 `AndroidManifest.xml` (sets `android.app.lib_name` to your lib), `AzulActivity.java`
-(the `NativeActivity` subclass), `NativeGestureBridge.java`, `AzulFilePicker.java`.
+(the `NativeActivity` subclass), `NativeGestureBridge.java`, `AzulFilePicker.java` (the hand-over of a picker's result),
+`AzulShareProvider.java` (serves the files the app shares) and `AzulOpenIntent.java` (hands the intents that open the app to the
+engine). Copy all of `scripts/android/*.java`: `AzulActivity` imports most of them.
 The manifest's `lib_name` must match your `cdylib` name. Simplest path:
 `bash scripts/build-android.sh aarch64-linux-android <AppName> <com.pkg>`.
+
+**Files the app opens, and links.** An app that opens files from other apps (a mail attachment, a file in a file manager) or
+takes links (`mailto:`, `geo:`, its own scheme) declares them once, as a JSON file named by `AZ_DOCUMENTS`
+(`{"documents": [{"name": "Markdown document", "role": "editor", "extensions": ["md"], "mime": ["text/markdown"], "uti":
+"net.daringfireball.markdown"}], "links": {"schemes": ["mailto"]}}`): `build-android.sh` turns it into the intent filters of the
+activity (`python3 scripts/documents_manifest.py android <file>`) and `build-ios.sh` into `CFBundleDocumentTypes`,
+`CFBundleURLTypes` and the keys for opening in place. The repository's apps declare it in `scripts/demo_apps.toml`
+(`[[app.documents]]`, `[app.links]`). The app reads what arrives with `CallbackInfo::set_open_handler` and `get_open_request`.
+The activity is `singleTask`: a file shared while the app runs reaches the one instance.
+
+**All files access** (`MANAGE_EXTERNAL_STORAGE`) is the exception to scoped storage and a store policy matter: an app that
+wants it lists `android.permission.MANAGE_EXTERNAL_STORAGE` in `[app.android] permissions` of a build of its own; without it
+`Documents::all_files_access()` says `Unavailable`, and the person gives folders one by one (`FileDialog::open_folder`).
 
 Declare permissions in `AndroidManifest.xml` (`CAMERA`, `RECORD_AUDIO`,
 `ACCESS_FINE_LOCATION`, `INTERNET`, …) and request the dangerous ones at runtime.
