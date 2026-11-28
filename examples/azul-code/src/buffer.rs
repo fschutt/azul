@@ -390,7 +390,7 @@ impl TextBuffer {
             if let Some(group) = self.undo.last_mut() {
                 let follows = group
                     .last()
-                    .map_or(false, |prev| prev.offset + prev.inserted.len() == steps[0].offset);
+                    .is_some_and(|prev| prev.offset + prev.inserted.len() == steps[0].offset);
                 if follows {
                     group.append(&mut steps);
                     return;

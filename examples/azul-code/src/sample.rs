@@ -91,8 +91,8 @@ pub fn huge_rs(lines: usize) -> String {
     while n < lines {
         let block = n / 10;
         let line = match n % 10 {
-            0 if block % 100 == 0 => format!("/* block {block}: a comment"),
-            1 if block % 100 == 0 => "   across two lines */".to_string(),
+            0 if block.is_multiple_of(100) => format!("/* block {block}: a comment"),
+            1 if block.is_multiple_of(100) => "   across two lines */".to_string(),
             0 | 1 => format!("// function {block}"),
             2 => format!("pub fn f{block}(x: u64) -> u64 {{"),
             3 => format!("    let y = x * {} + {};", block % 7 + 1, block % 13),

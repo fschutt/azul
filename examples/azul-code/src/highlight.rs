@@ -133,7 +133,7 @@ impl Grammar {
     #[must_use]
     pub fn classify(&self, scopes: &[Scope]) -> TokenKind {
         let r = &self.rules;
-        let within = |prefix: Option<Scope>| prefix.map_or(false, |p| scopes.iter().any(|s| p.is_prefix_of(*s)));
+        let within = |prefix: Option<Scope>| prefix.is_some_and(|p| scopes.iter().any(|s| p.is_prefix_of(*s)));
         if within(r.comment) {
             return TokenKind::Comment;
         }
@@ -295,7 +295,7 @@ impl Highlighter {
         HighlightJob {
             first,
             state,
-            lines: (first..=line).map(|i| text_of(i)).collect(),
+            lines: (first..=line).map(text_of).collect(),
             generation: self.generation,
             grammar: Arc::clone(&self.grammar),
         }
@@ -378,7 +378,7 @@ impl HighlightJob {
         let mut checkpoints = Vec::new();
         for (k, text) in self.lines.iter().enumerate() {
             let at = self.first + k;
-            if k > 0 && at % EVERY == 0 {
+            if k > 0 && at.is_multiple_of(EVERY) {
                 checkpoints.push((at, state.clone()));
             }
             state = self.grammar.parse_line(&state, text).1;

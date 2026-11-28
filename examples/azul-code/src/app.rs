@@ -66,6 +66,8 @@ pub struct Doc {
 }
 
 impl TabDoc for Doc {
+    // The tab's identity is the file's `ident` (its root and its key together), not the bare `key`.
+    #[allow(clippy::misnamed_getters)]
     fn key(&self) -> &str {
         &self.ident
     }

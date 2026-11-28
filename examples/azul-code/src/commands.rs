@@ -1017,10 +1017,6 @@ pub extern "C" fn on_highlight_done(mut app: RefAny, mut msg: RefAny, _info: Cal
     Update::RefreshDom
 }
 
-#[cfg(test)]
-#[path = "commands_test.rs"]
-mod tests;
-
 /// What stdout says of a git answer (for scripts): `AZCODE_GIT <branch> <changes> <more>`, `AZCODE_GIT none`
 /// (no repository), `AZCODE_GIT unavailable`.
 #[must_use]
@@ -1043,3 +1039,7 @@ pub(crate) fn search_failed(why: &str) -> String {
 pub(crate) fn sample_failed(why: &str) -> String {
     t_args("azcode-sample-failed", &[("why", Arg::from(why))])
 }
+
+#[cfg(test)]
+#[path = "commands_test.rs"]
+mod tests;
