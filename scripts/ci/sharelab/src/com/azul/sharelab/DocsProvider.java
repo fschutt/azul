@@ -23,7 +23,7 @@ public final class DocsProvider extends ContentProvider {
         try {
             write(dir, "hello.md", "# Hello from ShareLab\n\nA Markdown document.\n".getBytes(StandardCharsets.UTF_8));
             write(dir, "plain.txt", "plain text from ShareLab\n".getBytes(StandardCharsets.UTF_8));
-            write(dir, "unicode äöü 😀.txt", "umlauts and an emoji in the name\n".getBytes(StandardCharsets.UTF_8));
+            write(dir, "unicode \u00e4\u00f6\u00fc \uD83D\uDE00.txt", "umlauts and an emoji in the name\n".getBytes(StandardCharsets.UTF_8));
             write(dir, "big.bin", new byte[3 * 1024 * 1024]);
             write(dir, "card.vcf", "BEGIN:VCARD\nVERSION:3.0\nFN:Lab Contact\nEND:VCARD\n".getBytes(StandardCharsets.UTF_8));
             // the one document an app may WRITE (the proof of "open, edit, save back"); it starts from the same text every time
