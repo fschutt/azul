@@ -8,7 +8,7 @@
 #   demo-out/results/*
 #   demo-out/plan.txt'
 # AZ_TABS_FLICKER=1 adds, AFTER the two phones, the flicker and jitter audit of the plain app (scripts/ci/qa_ios_flicker.sh: its own library build, the
-# CPU renderer and the GPU path; add 'demo-out/qa-flicker*/**' to the artifacts): the audit of the iOS Simulator that never ran before the app was
+# CPU renderer and the GPU path; add 'demo-out/qa-flicker*/**' and 'demo-out/qa-startup/**' to the artifacts): the audit of the iOS Simulator that never ran before the app was
 # installed by it (flicker_audit.py, 7c4e132056).
 set -uxo pipefail
 target=aarch64-apple-ios-sim
@@ -34,5 +34,11 @@ done
 if [ "${AZ_TABS_FLICKER:-}" = 1 ]; then
   timeout 3000 bash scripts/ci/qa_ios_flicker.sh
   echo "SESSION flicker: exit $?"
+  # the cold starts with the startup timeline on (first_present, the layout passes, the font cache rows) of the same plain app
+  plain_zip="$(ls demo-out/apps/AzWidgets-ios-sim*.zip 2>/dev/null | grep -v -- '-e2e-' | head -n 1)"
+  if [ -n "$plain_zip" ]; then
+    timeout 900 bash scripts/ci/ios_qa.sh demo-out/qa-startup "$plain_zip" AzWidgets startup
+    echo "SESSION startup: exit $?"
+  fi
 fi
 exit 0
