@@ -147,15 +147,38 @@ def run_lengths(labels):
 
 STABLE_DIFF = 0.01       # two frames of a still picture differ less than this; the frames of a fade (the system's exit animation) differ more
 MOVED_FRAMES = 3        # a picture that stood this many frames and was not the settled one is a page that MOVED
+BLEND_RESIDUAL = 0.04   # a frame this close to a mix of the starting window and the settled picture is a step of the system's cross-fade (a page that moved is
+                        # 0.08 from every mix, a step of the fade 0.02; the emulator's compositor can show ONE step for several recorded frames)
+
+
+def blend_residual(frame, window, settled):
+    """How far `frame` is from the nearest mix `a * window + (1 - a) * settled` (a share of 255, the unit of `sig_diff`): about 0 for a step of the system's
+    cross-fade from the starting window into the page, large for a picture with a layout of its own (a page that moved)."""
+    if not frame or len(frame) != len(window) or len(frame) != len(settled):
+        return 1.0
+    num = sum((x - z) * (y - z) for x, y, z in zip(frame, window, settled))
+    den = sum((y - z) ** 2 for y, z in zip(window, settled))
+    a = max(0.0, min(1.0, num / den)) if den else 0.0
+    return sum(abs(x - (a * y + (1 - a) * z)) for x, y, z in zip(frame, window, settled)) / (255.0 * len(frame))
 
 
 def stable_intermediate(labels, sigs):
     """The longest run of frames labelled `1` (a picture that is not the settled one) that look alike: a picture that STOOD before the page changed (the first
     layout's picture before a second layout moved the page). The frames of the system's exit animation are `1` too, but each differs from the next (a fade),
-    so they are no run."""
+    so they are no run; and a step of that fade that the recording shows several times (a slow compositor) is a mix of the starting window and the settled
+    picture, which a page with a layout of its own is not."""
     best, run = 0, 0
+    window = None
     for i, c in enumerate(labels):
-        if c == "1" and i + 1 < len(labels) and labels[i + 1] == "1" and q.sig_diff(sigs[i], sigs[i + 1]) < STABLE_DIFF:
+        if c == "S":
+            window = sigs[i]
+        # the frames of the system's own opening animation (the launcher turning into the starting window) come before the last frame of the starting window
+        # and are no picture of the app
+        stands = (c == "1" and "S" not in labels[i + 1:] and i + 1 < len(labels) and labels[i + 1] == "1"
+                  and q.sig_diff(sigs[i], sigs[i + 1]) < STABLE_DIFF)
+        if stands and window is not None and blend_residual(sigs[i], window, sigs[-1]) < BLEND_RESIDUAL:
+            stands = False
+        if stands:
             run += 1
             best = max(best, run + 1)
         else:
@@ -347,8 +370,9 @@ def set_props(dev, row):
     dev.sh(f"setprop debug.az.startup {1 if row.get('startup') else 0}")
 
 
-def one_start(dev, package, activity, row, out_dir, keep_video):
-    """One cold start (and, when the row asks, the resume) -> the start's record."""
+def one_start(dev, package, activity, row, out_dir, keep_resume):
+    """One cold start (and, when the row asks, the resume) -> the start's record. The recording of every cold start is kept (a few hundred KB: a number
+    that says a page moved is looked at in the frames); the resume's only when `keep_resume`."""
     out_dir.mkdir(parents=True, exist_ok=True)
     dev.sh(f"am force-stop {package}")
     dev.sh("input keyevent KEYCODE_HOME")
@@ -385,10 +409,8 @@ def one_start(dev, package, activity, row, out_dir, keep_video):
             rsigs = [fa.signature_of(f) for f in rframes]
             runs = fa.flat_runs(rsigs)
             record["resume"] = "; ".join(f"{'BLACK' if fa.mean_luma(rsigs[a + (b - a) // 2]) < fa.BLACK_LUMA else 'flat'} {b - a} frames at {a}" for a, b in runs) or "no flat frame"
-        if not keep_video:
+        if not keep_resume:
             (out_dir / "resume.mp4").unlink(missing_ok=True)
-    if not keep_video:
-        video.unlink(missing_ok=True)
     return record
 
 
@@ -427,7 +449,7 @@ def run(args):
             installed.add(name)
         starts = []
         for i in range(args.starts if not row.get("starts") else row["starts"]):
-            rec = one_start(dev, package, activity, row, out / row["name"] / f"start{i + 1}", keep_video=(i == 0))
+            rec = one_start(dev, package, activity, row, out / row["name"] / f"start{i + 1}", keep_resume=(i == 0))
             if i == 0:
                 write_strip_of(out / row["name"] / "strip.png", rec)
             rec.pop("_frames", None)

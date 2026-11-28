@@ -84,6 +84,45 @@ class MovedTests(unittest.TestCase):
         self.assertFalse(s["jump"], "a cross-fade into the settled page is not a page that moved")
 
 
+def mix(a, b, share):
+    """`share` of signature `a` over `b` (what a step of a cross-fade looks like)."""
+    return bytes(int(round(share * x + (1 - share) * y)) for x, y in zip(a, b))
+
+
+class BlendTests(unittest.TestCase):
+    def test_a_step_of_the_fade_the_recording_shows_for_many_frames_is_no_page_that_moved(self):
+        # a slow compositor: ONE step of the system's cross-fade (the starting window half over the page) is in six recorded frames
+        step = mix(SPLASH, SETTLED, 0.54)
+        sigs = [SPLASH] * 4 + [step] * 6 + [SETTLED] * 8
+        labels = lab.label_frames(sigs)
+        self.assertEqual(labels.count("1"), 6, "the frames are pictures that are not the settled one")
+        s = lab.summarize_start(labels, sigs)
+        self.assertFalse(s["jump"], "a mix of the starting window and the page is the fade, however long it stood")
+        self.assertEqual(s["moved"], 0)
+
+    def test_a_picture_with_a_layout_of_its_own_that_stood_is_still_a_page_that_moved(self):
+        sigs = [SPLASH] * 4 + [FIRST] * 6 + [SETTLED] * 8
+        s = lab.summarize_start(lab.label_frames(sigs), sigs)
+        self.assertTrue(s["jump"])
+        self.assertGreater(lab.blend_residual(FIRST, SPLASH, SETTLED), lab.BLEND_RESIDUAL)
+
+    def test_the_systems_opening_animation_before_the_starting_window_is_no_picture_that_stood(self):
+        # the launcher turning into the starting window: pictures that are not the settled one, still, between two frames of the window
+        sigs = [LAUNCHER] * 3 + [SPLASH] * 2 + [FIRST] * 4 + [SPLASH] * 10 + [SETTLED] * 8
+        labels = lab.label_frames(sigs)
+        s = lab.summarize_start(labels, sigs)
+        self.assertEqual(s["moved"], 0)
+        self.assertFalse(s["jump"])
+
+    def test_the_residual_of_a_mix_is_nothing_and_of_the_two_ends_too(self):
+        self.assertLess(lab.blend_residual(mix(SPLASH, SETTLED, 0.3), SPLASH, SETTLED), 0.005)
+        self.assertLess(lab.blend_residual(SPLASH, SPLASH, SETTLED), 0.005)
+        self.assertLess(lab.blend_residual(SETTLED, SPLASH, SETTLED), 0.005)
+
+    def test_signatures_of_another_size_are_never_a_mix(self):
+        self.assertEqual(lab.blend_residual(b"\x00\x01", SPLASH, SETTLED), 1.0)
+
+
 MOSTLY_DARK_PAGE = bytearray(sig((12, 12, 14)))
 for row in range(30, 33):
     for col in range(10, 30):
