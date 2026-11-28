@@ -1,0 +1,64 @@
+[
+  {
+    "name": "azdrive_on_a_phone_the_sidebar_is_a_drawer_and_the_preview_a_pane_at_the_foot",
+    "description": "Built for a phone (--form phone): the sidebar starts as the 18 px rail under the tab row, the toggle opens the drawer that pushes the main view aside, the preview is the bottom pane.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 800
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-app-frame-phone"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-rail"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-preview-bottom"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
+        "op": "take_screenshot"
+      }
+    ]
+  }
+]

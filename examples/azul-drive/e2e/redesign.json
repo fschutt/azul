@@ -1,0 +1,540 @@
+[
+  {
+    "name": "azdrive_starts_as_the_rail_and_the_toggle_opens_the_source_list",
+    "description": "AzDrive on the sidebar family: the window starts in Home with the sidebar as the icon rail, the location (the parents of the open place over the folder's name) in the File tab, the command line at the foot saying how the folder stands; the toggle at the foot of the rail opens the whole source list and closes it again. There is no address row any more.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 760
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-rail"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-location"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azdrive_ribbon"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azdrive_command_bar"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azdrive_command_bar_status"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-address-bar"
+      },
+      {
+        "op": "assert_text",
+        "selector": ".__azul-native-location-name",
+        "expected": "Home"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-sidebar-rail"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Favorites"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Locations"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-rail"
+      }
+    ]
+  },
+  {
+    "name": "azdrive_a_folder_row_of_the_sidebar_navigates_and_a_parent_of_the_location_goes_back",
+    "description": "A click on a folder of the source list opens it and the location names it; a click on the first parent of the location (This PC) goes up to the overview.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 760
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Documents"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_text",
+        "selector": ".__azul-native-location-name",
+        "expected": "Documents"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-location-crumb"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_text",
+        "selector": ".__azul-native-location-name",
+        "expected": "This PC"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      }
+    ]
+  },
+  {
+    "name": "azdrive_the_pen_edits_the_location_and_the_list_narrows",
+    "description": "The pen turns the folder's name into a live field: every key narrows the folder's rows to the names that hold the text, Escape gives the edit up (the name and the whole folder are back), Enter goes to the folder the text names.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 760
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Home"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-location-pen"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-location-edit"
+      },
+      {
+        "op": "text_input",
+        "text": "doc"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Documents"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Pictures"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":false"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-location-edit"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Pictures"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-location-pen"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "text_input",
+        "text": "documents"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Return"
+      },
+      {
+        "op": "key_up",
+        "key": "Return"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_text",
+        "selector": ".__azul-native-location-name",
+        "expected": "Documents"
+      }
+    ]
+  },
+  {
+    "name": "azdrive_a_search_typed_in_the_command_line_opens_the_search_view",
+    "description": "A line that starts with ? in the command line searches the folder and everything below it as it is typed; Escape empties the line and the folder shows again.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 760
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Home"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#__azdrive_command_bar_input"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "text_input",
+        "text": "?notes"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azdrive_find_group"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "notes.txt"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azdrive_find_group"
+      }
+    ]
+  },
+  {
+    "name": "azdrive_the_preview_follows_the_selected_item",
+    "description": "The Preview at the window's right shows the selected item itself; what there is to say about it is behind its (?) button, nothing else is in the pane.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 760
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Documents"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "notes.txt"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-preview-right"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azdrive_preview_text"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-preview-help"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "report.md"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azdrive_preview_text"
+      },
+      {
+        "op": "take_screenshot"
+      }
+    ]
+  }
+]
