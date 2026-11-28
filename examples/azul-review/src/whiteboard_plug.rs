@@ -773,7 +773,7 @@ fn go_to(app: &mut RefAny, info: &mut CallbackInfo, target: &JumpTarget) {
         let now = g.panel.now_ms();
         g.flash = Some(Flash::of(target, now));
     });
-    ui::scroll_to_page(info, page);
+    ui::scroll_to_page(info, page, ui::zoom_of(app));
     info.trigger_all_virtual_view_rerender();
     ensure_timer(app, info);
 }
