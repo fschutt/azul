@@ -188,6 +188,96 @@ struct ParagraphLines {
     orphans: u32,
 }
 
+/// The lines of one inline formatting context: its source node and `(top, bottom)` of every line in the canvas's
+/// coordinates, top to bottom.
+struct TextLines {
+    node: Option<NodeId>,
+    lines: Vec<(f32, f32)>,
+}
+
+/// The lines of every text layout of a display list.
+///
+/// A paged display list holds a `TextLayout` item for every inline formatting context that has text, and the layout it
+/// carries knows where its lines are. The `Text` items (one per run) do not say: every run of a context has the rect of
+/// the WHOLE context as its `line_box`, so a paragraph of ten lines is one rect there, and a break can be kept out of the
+/// paragraph or not, but never put between two of its lines. Empty when the list has no `TextLayout` item (a hand-made
+/// list, a screen list): the callers then read the `Text` items as before.
+fn text_line_boxes(display_list: &DisplayList) -> Vec<TextLines> {
+    use crate::solver3::display_list::DisplayListItem;
+
+    let mut out = Vec::new();
+    for (idx, item) in display_list.items.iter().enumerate() {
+        let DisplayListItem::TextLayout { layout, bounds, .. } = item else {
+            continue;
+        };
+        let lines = line_boxes_of(layout, bounds.inner().origin.y);
+        if !lines.is_empty() {
+            out.push(TextLines {
+                node: display_list.node_mapping.get(idx).copied().flatten(),
+                lines,
+            });
+        }
+    }
+    out
+}
+
+/// The `(top, bottom)` of every line of a text layout whose origin is at `origin_y`: the dense layout's line records
+/// (the retained form), else the span of the items of each line.
+#[cfg(feature = "text_layout")]
+fn line_boxes_of(
+    layout: &std::sync::Arc<dyn std::any::Any + Send + Sync>,
+    origin_y: f32,
+) -> Vec<(f32, f32)> {
+    use crate::{solver3::layout_tree::TextPayload, text3::cache::UnifiedLayout};
+
+    if let Some(payload) = layout.downcast_ref::<TextPayload>() {
+        if !payload.dense.lines.is_empty() {
+            return payload
+                .dense
+                .lines
+                .iter()
+                .map(|line| (origin_y + line.top_y, origin_y + line.top_y + line.height))
+                .collect();
+        }
+        return unified_line_boxes(&payload.sparse, origin_y);
+    }
+    layout
+        .downcast_ref::<UnifiedLayout>()
+        .map_or_else(Vec::new, |unified| unified_line_boxes(unified, origin_y))
+}
+
+#[cfg(not(feature = "text_layout"))]
+fn line_boxes_of(
+    _: &std::sync::Arc<dyn std::any::Any + Send + Sync>,
+    _: f32,
+) -> Vec<(f32, f32)> {
+    Vec::new()
+}
+
+/// The lines of a sparse layout: for each `line_index`, the span of its items.
+#[cfg(feature = "text_layout")]
+fn unified_line_boxes(
+    layout: &crate::text3::cache::UnifiedLayout,
+    origin_y: f32,
+) -> Vec<(f32, f32)> {
+    let mut lines: std::collections::BTreeMap<usize, (f32, f32)> = std::collections::BTreeMap::new();
+    for item in &layout.items {
+        let top = item.position.y;
+        let bottom = top + item.item.bounds().height;
+        lines
+            .entry(item.line_index)
+            .and_modify(|(t, b)| {
+                *t = t.min(top);
+                *b = b.max(bottom);
+            })
+            .or_insert((top, bottom));
+    }
+    lines
+        .into_values()
+        .map(|(top, bottom)| (origin_y + top, origin_y + bottom))
+        .collect()
+}
+
 /// Compute page breaks with break-awareness `policy`. With the default
 /// (all-off) policy this is exactly [`compute_page_breaks_from_display_list`].
 ///
@@ -635,17 +725,37 @@ fn collect_avoid_ranges(
     }
 
     if policy.atomic_lines {
-        // Every text item's rect is a line-box fragment; a break through one
-        // slices a line (the "baseline-sliced line" artifact). Snap to its top.
-        for item in &input.display_list.items {
-            if let crate::solver3::display_list::DisplayListItem::Text { line_box, .. } = item {
-                let r = line_box.inner();
-                if r.size.height > 0.0 {
-                    ranges.push(AvoidRange {
-                        top: r.origin.y,
-                        bottom: r.origin.y + r.size.height,
-                        node: None,
-                    });
+        let layouts = text_line_boxes(input.display_list);
+        if layouts.is_empty() {
+            // No text layout in the list: every text item's rect is a line-box
+            // fragment; a break through one slices a line (the "baseline-sliced
+            // line" artifact). Snap to its top.
+            for item in &input.display_list.items {
+                if let crate::solver3::display_list::DisplayListItem::Text { line_box, .. } = item {
+                    let r = line_box.inner();
+                    if r.size.height > 0.0 {
+                        ranges.push(AvoidRange {
+                            top: r.origin.y,
+                            bottom: r.origin.y + r.size.height,
+                            node: None,
+                        });
+                    }
+                }
+            }
+        } else {
+            // The lines of every paragraph, each its own range: a break goes
+            // between two of them, never through one, whatever the paragraph's
+            // height (a paragraph taller than the push budget used to keep the
+            // naive break wherever it fell).
+            for text in &layouts {
+                for &(top, bottom) in &text.lines {
+                    if bottom > top {
+                        ranges.push(AvoidRange {
+                            top,
+                            bottom,
+                            node: text.node,
+                        });
+                    }
                 }
             }
         }
@@ -661,21 +771,35 @@ fn collect_paragraph_lines(input: &PageBreakInput<'_>) -> Vec<ParagraphLines> {
 
     let mut per_node: std::collections::BTreeMap<NodeId, Vec<(f32, f32)>> =
         std::collections::BTreeMap::new();
-    for (idx, item) in input.display_list.items.iter().enumerate() {
-        let crate::solver3::display_list::DisplayListItem::Text { line_box, .. } = item else {
-            continue;
-        };
-        let Some(node) = input.display_list.node_mapping.get(idx).copied().flatten() else {
-            continue;
-        };
-        let r = line_box.inner();
-        if r.size.height <= 0.0 {
-            continue;
+    let layouts = text_line_boxes(input.display_list);
+    if layouts.is_empty() {
+        for (idx, item) in input.display_list.items.iter().enumerate() {
+            let crate::solver3::display_list::DisplayListItem::Text { line_box, .. } = item else {
+                continue;
+            };
+            let Some(node) = input.display_list.node_mapping.get(idx).copied().flatten() else {
+                continue;
+            };
+            let r = line_box.inner();
+            if r.size.height <= 0.0 {
+                continue;
+            }
+            per_node
+                .entry(node)
+                .or_default()
+                .push((r.origin.y, r.origin.y + r.size.height));
         }
-        per_node
-            .entry(node)
-            .or_default()
-            .push((r.origin.y, r.origin.y + r.size.height));
+    } else {
+        // The paragraph's own lines (see `text_line_boxes`).
+        for text in layouts {
+            let Some(node) = text.node else {
+                continue;
+            };
+            per_node
+                .entry(node)
+                .or_default()
+                .extend(text.lines.into_iter().filter(|(top, bottom)| bottom > top));
+        }
     }
 
     per_node
