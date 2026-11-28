@@ -35,7 +35,7 @@ on:
         required: false
         default: false
       demos_e2e:
-        description: 'demos only: also build the QA variant of the phone libazul with the engine debug server and the apps that ask for it (artifacts demoe2e-*, never published)'
+        description: 'demos only: also build the QA variants of the phone and desktop libazul with the engine debug server and the apps that ask for it (artifacts demoe2e-*, never published)'
         type: boolean
         required: false
         default: false
