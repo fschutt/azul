@@ -25,9 +25,11 @@ import android.app.NativeActivity;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewTreeObserver;
 
 import com.azul.a11y.AzulAccessibilityBridge;
 import com.azul.auth.AzulAuthSession;
@@ -81,8 +83,6 @@ public class AzulActivity extends NativeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // Android 12+: the system's starting window stays until the engine's first picture (see holdStartingWindow).
-        holdStartingWindow();
         prepareAppDirs();
         // NativeActivity dlopens the cdylib NATIVELY during super.onCreate —
         // which does NOT register it with this ClassLoader for Java
@@ -108,6 +108,12 @@ public class AzulActivity extends NativeActivity {
             // own load in super.onCreate produces the canonical error.
         }
         super.onCreate(savedInstanceState);
+        // The window's first draw waits for the engine's first picture: the system's starting window stays until then.
+        holdFirstDraw();
+        // And then it goes in one frame, not by the system's exit animation (Android 12 and later).
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            Splash31.cut(this);
+        }
         // A tap on a notification of an app that was not running started
         // this activity: its intent carries the notification. Forwarded now
         // (Rust queues it until android_main's loop routes it to the
@@ -220,78 +226,92 @@ public class AzulActivity extends NativeActivity {
         AzulNotifications.onIntent(this, intent, false);
     }
 
-    // ---- the system's starting window, held until the first picture (Android 12 and later) ----------------------------
+    // ---- the window's first draw, held until the engine has a picture ----------------------------------------------------
 
     /**
-     * How long the starting window may stay when the engine never says it posted a picture: it must never trap the app
-     * behind it.
+     * How long the window's first draw may be held when the engine never says it posted a picture: the window must never stay away
+     * for good (a GPU path that could not start, a failure in the first layout).
      */
-    private static final long SPLASH_HOLD_MS = 2000;
-    /** UI thread only: the engine has posted its first picture. */
-    private static boolean firstFrameShown;
-    /** UI thread only: removes the starting window the system handed over, once. */
-    private static Runnable removeSplash;
+    private static final long FIRST_DRAW_HOLD_MS = 4000;
+    /**
+     * UI thread only: the engine has posted this activity's first picture, or the hold gave up: the window may draw. A field of the activity, not
+     * of the process: the process ends with its activity ({@link #onDestroy}), so no activity inherits what an earlier one saw.
+     */
+    private boolean firstFrameShown;
 
     /**
-     * The starting window (the app icon on the window colour) leaves when the activity's window has drawn, which for a
-     * NativeActivity is before its surface has any buffer: a second of the platform's empty window followed on the CPU
-     * renderer (QA's flicker audit, ledger E46). With an exit listener the system hands the window over and waits for it to
-     * be removed: it is removed when the engine says its first picture is posted ({@link #firstFramePresented}), or after
-     * {@link #SPLASH_HOLD_MS}.
+     * THE STARTING WINDOW STAYS UNTIL THE ENGINE HAS A PICTURE.
+     *
+     * A NativeActivity's window is a surface the engine draws on itself ({@code Window.takeSurface}): the view system never draws
+     * it, so there is nothing in the window until the engine posts its first frame, and the system takes the starting window (the
+     * app icon on the window colour; before Android 12 the theme's window background) away as soon as the window has "drawn", which
+     * for such a window is at once. A cold start showed the empty window, black, for as long as the first layout took (QA's flicker
+     * audit: 0.4 s for the smallest app, 1.1 s for the widget gallery; ledger E46). The hold that stood here used
+     * {@code SplashScreen.setOnExitAnimationListener}: the system hands the app a COPY of the starting window to remove when it
+     * wants, but the copy is a view in a window the view system never draws, so nothing was held on the screen and the black was
+     * as long as without it.
+     *
+     * The window's first draw is held instead, as the AndroidX splash screen library holds it for any app: a pre-draw listener that
+     * cancels the draw (the view root asks again at the next frame) until the engine says it posted its first picture
+     * ({@link #firstFramePresented}). The system keeps the starting window for as long as the window has not drawn (its own limit is
+     * ten seconds) and takes it away when it has: the engine's picture is in the window's buffer queue by then.
      */
-    private void holdStartingWindow() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            Splash31.hold(this);
-        }
-    }
-
-    /** The engine posted its first picture (CPU or GPU), from any thread: the starting window may go. */
-    public static void firstFramePresented(final android.app.Activity activity) {
-        if (activity == null) {
-            return;
-        }
-        activity.runOnUiThread(() -> {
-            firstFrameShown = true;
-            Runnable remove = removeSplash;
-            removeSplash = null;
-            if (remove != null) {
-                remove.run();
+    private void holdFirstDraw() {
+        final View decor = getWindow().getDecorView();
+        final long started = SystemClock.uptimeMillis();
+        final long deadline = started + FIRST_DRAW_HOLD_MS;
+        decor.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                final boolean engineSaidSo = firstFrameShown;
+                if (!engineSaidSo && SystemClock.uptimeMillis() < deadline) {
+                    return false;
+                }
+                firstFrameShown = true;
+                // On the record: a start whose first draw went ahead at the limit is an engine that never said its first picture was posted.
+                android.util.Log.i("azul", "AzulActivity: the window's first draw goes ahead "
+                        + (engineSaidSo ? "after the engine's first picture" : "at the hold's limit, the engine never said so")
+                        + ", " + (SystemClock.uptimeMillis() - started) + " ms after onCreate");
+                ViewTreeObserver observer = decor.getViewTreeObserver();
+                if (observer.isAlive()) {
+                    observer.removeOnPreDrawListener(this);
+                }
+                return true;
             }
         });
     }
 
-    /** The Android 12 API in a class of its own: an older system never loads it. */
+    /**
+     * THE STARTING WINDOW GOES IN ONE FRAME.
+     *
+     * When the window has drawn, the system takes the starting window away with an exit animation of its own: the icon dims and the window fades
+     * out over the page. In the night mode the starting window is black and the page nearly so, and the fade passes through a window with no icon
+     * and no page (the lab's control, 10 starts per row on Android 14 and 15: 3 and 2.5 frames median, 4 and 6 worst; none in the light mode).
+     * With an exit listener the system hands the app a copy of the window to remove when it wants: removed at once, the page replaces the starting
+     * window in one frame (0 frames of it in 20 of 20 night starts and 20 of 20 light ones, and no launcher showing through, no light picture, no
+     * page that moved). The listener holds nothing: the first draw is held by {@link #holdFirstDraw}, which is what the E60 hold got wrong (a copy
+     * of the window in a view tree nobody draws does not hold the one on the screen).
+     */
     private static final class Splash31 {
-        static void hold(android.app.Activity activity) {
+        static void cut(android.app.Activity activity) {
             try {
-                activity.getSplashScreen().setOnExitAnimationListener(view -> {
-                    final Runnable remove = new Runnable() {
-                        private boolean done;
-
-                        @Override
-                        public void run() {
-                            if (done) {
-                                return;
-                            }
-                            done = true;
-                            try {
-                                view.remove();
-                            } catch (RuntimeException ignored) {
-                                // already gone
-                            }
-                        }
-                    };
-                    if (firstFrameShown) {
-                        remove.run();
-                        return;
-                    }
-                    removeSplash = remove;
-                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(remove, SPLASH_HOLD_MS);
-                });
+                activity.getSplashScreen().setOnExitAnimationListener(view -> view.remove());
             } catch (RuntimeException e) {
                 // The system's own exit then.
             }
         }
+    }
+
+    /**
+     * The engine posted its first picture (CPU or GPU), from any thread: the window may draw, and with it the system takes the starting
+     * window away. The held draw asks again every frame, so the next one goes through.
+     */
+    public static void firstFramePresented(final android.app.Activity activity) {
+        if (!(activity instanceof AzulActivity)) {
+            return;
+        }
+        final AzulActivity azul = (AzulActivity) activity;
+        azul.runOnUiThread(() -> azul.firstFrameShown = true);
     }
 
     /**
