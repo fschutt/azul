@@ -1547,21 +1547,31 @@ impl DriveState {
         }
     }
 
+    /// Whether the open folder shows `e`: hidden items only when asked, the search box's text,
+    /// the location's field while it is typed in (the names that hold its text) and a picker's
+    /// type filter (folders, and the files it lets through).
+    fn shows_entry(&self, e: &Entry) -> bool {
+        (self.settings.show_hidden || !e.is_hidden())
+            && browse::matches_search(e, &self.search)
+            && (!self.editing_path || browse::matches_search(e, &self.location_text))
+            && self.picker.as_ref().map_or(true, |p| p.shows(&e.name, e.is_folder))
+    }
+
     /// The rows shown: the search's results while a search is open (the walk left the hidden
     /// items out unless they show), else the open folder's rows - hidden items only when asked.
     pub fn visible_entries(&self) -> Vec<&Entry> {
         if let Some(find) = &self.find {
             return find.shown();
         }
-        self.entries
-            .iter()
-            .filter(|e| self.settings.show_hidden || !e.is_hidden())
-            .filter(|e| browse::matches_search(e, &self.search))
-            // The location's field, while it is typed in: the names that hold its text.
-            .filter(|e| !self.editing_path || browse::matches_search(e, &self.location_text))
-            // A picker's type filter: folders, and the files it lets through.
-            .filter(|e| self.picker.as_ref().map_or(true, |p| p.shows(&e.name, e.is_folder)))
-            .collect()
+        self.entries.iter().filter(|e| self.shows_entry(e)).collect()
+    }
+
+    /// The first row shown ([`Self::visible_entries`] without building them all).
+    pub fn first_visible(&self) -> Option<&Entry> {
+        if let Some(find) = &self.find {
+            return find.shown().into_iter().next();
+        }
+        self.entries.iter().find(|e| self.shows_entry(e))
     }
 
     /// The layout the folder view draws: the search's results always in Details (a row each,
@@ -1626,7 +1636,7 @@ impl DriveState {
         self.selected_entries()
             .into_iter()
             .next()
-            .or_else(|| self.visible_entries().into_iter().next())
+            .or_else(|| self.first_visible())
     }
 
     /// The row of `key`: a search's result while a search is open, else the open folder's.
