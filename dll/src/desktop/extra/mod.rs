@@ -101,6 +101,9 @@ pub mod url_opener;
 /// invalid handle and `execute`/`query` no-op (the C amalgamation isn't
 /// compiled).
 pub mod sqlite;
+/// The desktop players of the system-sound routes that need no state: the macOS alert sound and
+/// beep, Windows' `MessageBeep` (`azul_core::sound`).
+pub mod system_sounds;
 /// Video encode/decode (P7/P8). `VideoEncoder` / `VideoDecoder` handles select
 /// the native codec per platform (gpu-video on desktop Linux/Windows,
 /// VideoToolbox on Apple, MediaCodec on Android); the codec FFI is on-device,
