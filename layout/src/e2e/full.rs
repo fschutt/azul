@@ -8192,7 +8192,7 @@ fn reveal_click_target(
     };
     let adjustments = callback_info
         .get_layout_window()
-        .scroll_into_view_dry_run(target, options, now);
+        .scroll_into_view_dry_run_clamped(target, options, now);
     callback_info.scroll_node_into_view(target, options);
     let (dx, dy) = adjustments
         .iter()
