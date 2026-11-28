@@ -564,6 +564,8 @@ fn the_engine_keeps_the_microphone_as_the_standby_says() {
 fn what_the_policy_asks_is_only_counted_where_no_thread_opens_the_microphone() {
     use crate::{dwell::Config, standby::Action};
     let mut voice = Voice::new(Config::default(), 10_000);
+    // (a session that records: the only state in which the microphone is asked to open; `Voice::apply` refuses it in every other)
+    voice.review = Session::recording_for_test(0);
     assert!(voice.mic_thread.is_none(), "a window has no microphone thread before its session is there, and none under a test");
     assert_eq!(voice.apply(Some(Action::Arm)), Some(Action::Arm));
     assert_eq!(voice.apply(Some(Action::Disarm)), Some(Action::Disarm));
