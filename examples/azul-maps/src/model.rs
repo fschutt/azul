@@ -602,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn a_planned_route_is_framed_in_the_part_of_the_window_the_sidebar_leaves_free() {
+    fn a_planned_route_is_framed_in_the_part_of_the_window_the_panel_leaves_free() {
         let frankfurt = (50.1109, 8.6821);
         let berlin = (52.5200, 13.4050);
         let (size, inset) = ((1100.0_f32, 720.0_f32), 310.0_f32);
