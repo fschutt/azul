@@ -60,6 +60,10 @@ mod bridge;
 pub mod clipboard;
 /// The GPU path of the window: EGL and WebRender over the lifecycle executor of `common::gles_gpu`.
 mod gpu;
+/// System sounds: `AudioManager` effects, the user's notification tone and the camera sounds,
+/// through the `AzulSounds` helper (`scripts/android/AzulSounds.java`).
+mod sounds;
+pub use sounds::{play_system_sound, touch_sounds_enabled};
 /// `<webview>`: `android.webkit.WebView`s through the `AzulWebView` bridge.
 #[cfg(feature = "jni")]
 mod webview;
@@ -393,6 +397,11 @@ impl AndroidWindow {
         }
         #[cfg(feature = "cpurender")]
         {
+            // VirtualViews whose content arrives later (the map's tiles, delivered by a background writeback that asked for a re-render) are
+            // re-invoked HERE, as on every other shell: the GPU path does it inside `generate_frame`, the CPU path has none, and without this the
+            // queue was never drained: AzMaps showed no tile on the CPU renderer of both phones (the controls and the attribution drew, the map did
+            // not). It also rebuilds the CPU hit tester when a view's content changed.
+            self.common.drain_virtual_view_updates();
             let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
@@ -742,6 +751,10 @@ pub fn android_main(app: AndroidApp) {
     if let Some(language) = language_of(&app, config.localization.known_languages.as_slice()) {
         config.system_style.language = language;
     }
+    // The phone's own "Touch sounds" switch is not known yet (the JNI context is published below):
+    // the style assumes it is on, and the first Resume reads it (`adopt_touch_sounds`) and at every
+    // resume after it. `AudioManager.playSoundEffect` applies the switch live at the call anyway.
+    config.system_style.audio.input_feedback_sounds_enabled = true;
 
     let mut window = match AndroidWindow::new(
         root_window,
@@ -1670,6 +1683,26 @@ fn adopt_language(app: &AndroidApp, window: &mut AndroidWindow) {
     }
 }
 
+/// "Touch sounds" may have been switched while the app was in the background (Settings is another
+/// activity): read it again at resume and, when it differs from what the window's style carries,
+/// adopt the style that carries it. `AudioManager.playSoundEffect` applies the switch live anyway;
+/// this keeps the route table and `get_sound_route` truthful.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn adopt_touch_sounds(window: &mut AndroidWindow) {
+    let Some(enabled) = touch_sounds_enabled() else {
+        return;
+    };
+    if window.common.system_style.audio.input_feedback_sounds_enabled == enabled {
+        return;
+    }
+    let mut style = (*window.common.system_style).clone();
+    style.audio.input_feedback_sounds_enabled = enabled;
+    window.snapshot_window_state_baseline("android.main_event.resume.touch_sounds");
+    if window.adopt_system_style(Arc::new(style)) {
+        window.needs_rerender = true;
+    }
+}
+
 /// The window's engine `dpi` from the configuration the system reported: a density beyond what a phone has
 /// (`MAX_DENSITY`) is capped and the log says so.
 #[cfg(all(target_os = "android", feature = "android-activity"))]
@@ -1864,6 +1897,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // No-op for now; future: pause timers, stop animations.
             }
             MainEvent::Resume { .. } => {
+                adopt_touch_sounds(window);
                 // Back in front (HOME and back, recents, another app's dialog that covered this one): the
                 // surface may have lost what it showed without a `RedrawNeeded` (a black window until
                 // something redrew it, QA run 45776829730). The frame the shell holds is posted once,
@@ -1990,6 +2024,13 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                     // the window is mutated after the loop like every other
                     // input family here.
                     return InputStatus::Handled;
+                }
+
+                // A game pad's sticks, triggers and hat are MotionEvents too, and carry no position: collected
+                // below they became a finger at (0, 0). Left unhandled, they reach `AzulGamepad.onMotion`
+                // through the activity's `dispatchGenericMotionEvent`, which is the pad's path.
+                if crate::desktop::shell2::android_core::touch::is_a_pad_stick(u32::from(m.source())) {
+                    return InputStatus::Unhandled;
                 }
 
                 let mut first_pos = LogicalPosition::new(0.0, 0.0);
@@ -3483,6 +3524,32 @@ fn play_via_vibrator(
             .unwrap_or(false);
         if !has {
             return Ok(true);
+        }
+
+        // The hardware may not play this primitive (an eccentric-motor phone plays none of them; the chirps need a
+        // linear resonant actuator): `vibrate` of an unsupported primitive is NOT an error, it plays nothing, and
+        // the caller answered Ok(true) and never fell back to `performHapticFeedback`. Ask first
+        // (`Vibrator.areAllPrimitivesSupported`, API 30), and let the caller fall back when the answer is no.
+        let ids = env
+            .new_int_array(1)
+            .map_err(|e| format!("new_int_array: {e:?}"))?;
+        env.set_int_array_region(&ids, 0, &[primitive])
+            .map_err(|e| format!("set_int_array_region: {e:?}"))?;
+        let supported = env
+            .call_method(
+                &vibrator,
+                "areAllPrimitivesSupported",
+                "([I)Z",
+                &[JValue::Object(&JObject::from(ids))],
+            )
+            .and_then(|v| v.z());
+        match supported {
+            Ok(true) => {}
+            Ok(false) => return Ok(false),
+            Err(_) => {
+                let _ = env.exception_clear();
+                return Ok(false);
+            }
         }
 
         // startComposition().addPrimitive(id, scale).compose()

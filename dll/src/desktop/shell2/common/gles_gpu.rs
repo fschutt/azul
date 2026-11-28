@@ -35,7 +35,7 @@ use std::{
 };
 
 use azul_core::gl::OptionGlContextPtr;
-use azul_layout::window_state::WindowCreateOptions;
+use azul_layout::{window::FrameDamage, window_state::WindowCreateOptions};
 
 use super::{
     debug_server::LogCategory,
@@ -45,7 +45,7 @@ use super::{
     frame_stats::FrameStats,
     gles_trace,
     gpu_lifecycle::{Action, Event, GpuLifecycle, Phase, Surface, TrimLevel},
-    gpu_renderer::{self, GpuDevice, InitParams, TextRendering},
+    gpu_renderer::{self, GpuDevice, InitParams, GpuTextRendering},
     gpu_select::{decide, Decision, FailPlan, GpuFallback, GpuRequest, GpuStage, Ran},
 };
 use crate::{
@@ -196,7 +196,7 @@ pub struct GlesGpu {
     /// The cache directory of compiled programs (`None`: not kept).
     shader_cache_dir: Option<PathBuf>,
     /// How WebRender draws text (what `AppConfig::text_antialiasing` asks for; the platform's default until told).
-    text: TextRendering,
+    text: GpuTextRendering,
     /// Wakes the loop from WebRender's backend thread when a frame is built.
     wake: Option<Arc<dyn Fn() + Send + Sync>>,
     mark: Option<Marker>,
@@ -273,7 +273,7 @@ impl GlesGpu {
             plan,
             options,
             shader_cache_dir,
-            text: TextRendering::default(),
+            text: GpuTextRendering::default(),
             wake,
             mark: None,
             frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
@@ -700,6 +700,7 @@ impl GlesGpu {
             return Err(GpuFallback::new(GpuStage::Functions, "no function table"));
         };
         let reports_damage = session.info().caps.buffer_age;
+        log_info!(LogCategory::Rendering, "[render] {}", gles_trace::extensions_line(&gl));
         // The first surface is shown before WebRender is made (its programs compile in the first frame, seconds on a cold start).
         self.prime_surface(ctx);
         // A renderer made before had keys of its own: the window's registries are cleared for the new one.
@@ -857,6 +858,18 @@ impl GlesGpu {
             Ok(()) => {
                 self.full_swap_owed = false;
                 gpu_renderer::finish_frame(ctx.common);
+                // The frame report (the e2e assertions read it) and the timings an app reads (`get_frame_timings`), as the macOS GPU
+                // path records a frame: WebRender composited the whole framebuffer (this path gives it no partial-present budget) and the
+                // swap presents the whole surface.
+                if let Some(layout_window) = ctx.common.layout_window.as_mut() {
+                    crate::desktop::wr_translate2::publish_gpu_frame(
+                        layout_window,
+                        0,
+                        draw_us.unwrap_or(0),
+                        u64::try_from(outcome.draw_calls).unwrap_or(u64::MAX),
+                    );
+                    layout_window.record_frame(FrameDamage::Full, FrameDamage::Full);
+                }
                 if self.first_frame_pending {
                     self.first_frame_pending = false;
                     let ms = started.elapsed().as_secs_f64() * 1000.0;

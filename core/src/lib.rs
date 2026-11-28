@@ -354,6 +354,9 @@ pub mod compact;
 pub mod diagnostics;
 /// DOM diffing: what changed between two `StyledDom`s, and how far it has to be re-solved.
 pub mod diff;
+/// A phone's cutouts, rounded corners, system bars and fingerprint sensor, in window coordinates.
+///
+pub mod display_features;
 /// DOM construction: `Dom`, `NodeData`, `NodeType`, and the CSS-in-Rust API.
 pub mod dom;
 /// Drag context for text selection, scrollbar, node, and window drags.
@@ -397,6 +400,11 @@ pub mod glconst;
 pub mod gpu;
 /// Haptic feedback: vibration and force-feedback actuators.
 pub mod haptics;
+/// System sounds: the short sounds a platform plays for its own user interface.
+///
+/// Asked for by meaning (`TabChange`, `Error`, `Notification`), decided and recorded here, played
+/// by the shells.
+pub mod sound;
 /// Raw HID device access (game controllers, tablets, custom peripherals).
 pub mod hid;
 /// HVIF, the Haiku Vector Icon Format: tiny vector icons with per-size

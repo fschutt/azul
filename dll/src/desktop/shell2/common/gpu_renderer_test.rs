@@ -9,11 +9,11 @@ use super::*;
 fn the_platform_default_is_lcd_text_on_a_desktop_and_grayscale_on_a_phone() {
     assert_eq!(
         webrender_text_aa(Mode::PlatformDefault, false),
-        TextRendering { aa: true, subpixel: true }
+        GpuTextRendering { aa: true, subpixel: true }
     );
     assert_eq!(
         webrender_text_aa(Mode::PlatformDefault, true),
-        TextRendering { aa: true, subpixel: false }
+        GpuTextRendering { aa: true, subpixel: false }
     );
 }
 
@@ -21,21 +21,21 @@ fn the_platform_default_is_lcd_text_on_a_desktop_and_grayscale_on_a_phone() {
 #[test]
 fn the_other_modes_mean_the_same_on_every_platform() {
     for phone in [false, true] {
-        assert_eq!(webrender_text_aa(Mode::Lcd, phone), TextRendering { aa: true, subpixel: true });
-        assert_eq!(webrender_text_aa(Mode::LcdLegacy, phone), TextRendering { aa: true, subpixel: true });
-        assert_eq!(webrender_text_aa(Mode::Grayscale, phone), TextRendering { aa: true, subpixel: false });
-        assert_eq!(webrender_text_aa(Mode::Aliased, phone), TextRendering { aa: false, subpixel: false });
+        assert_eq!(webrender_text_aa(Mode::Lcd, phone), GpuTextRendering { aa: true, subpixel: true });
+        assert_eq!(webrender_text_aa(Mode::LcdLegacy, phone), GpuTextRendering { aa: true, subpixel: true });
+        assert_eq!(webrender_text_aa(Mode::Grayscale, phone), GpuTextRendering { aa: true, subpixel: false });
+        assert_eq!(webrender_text_aa(Mode::Aliased, phone), GpuTextRendering { aa: false, subpixel: false });
     }
 }
 
 #[test]
 fn the_default_is_the_platform_default_of_this_target() {
     assert_eq!(PHONE, cfg!(any(target_os = "android", target_os = "ios")));
-    assert_eq!(TextRendering::default(), webrender_text_aa(Mode::PlatformDefault, PHONE));
+    assert_eq!(GpuTextRendering::default(), webrender_text_aa(Mode::PlatformDefault, PHONE));
 }
 
 /// The two renderers of a window show one kind of text when nobody chose: the GPU's default is the CPU renderer's.
 #[test]
 fn the_two_renderers_default_to_the_same_kind_of_text() {
-    assert_eq!(TextRendering::default().subpixel, TEXT_AA_DEFAULT == TextAa::Lcd);
+    assert_eq!(GpuTextRendering::default().subpixel, TEXT_AA_DEFAULT == TextAa::Lcd);
 }

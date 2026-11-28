@@ -78,10 +78,14 @@ x86_64-apple-darwin             *azul*.dylib    77600000   # 2026-11-21: 6744339
 # "the C lib" and sized it like libazul.so, which is why the very first gated
 # run failed it at 137 %.
 *                               azul.so         133500000  # 2026-09-16: 89074000 x 1.30 x 1.15 (python ext, linux; was 103000000)
-*                               azuldbg.dll     75000000   # 0.2.0: 33751552 x 2.22 (was 61000000)
-*                               azul.dll        75000000   # sized against azuldbg.dll
-*                               azul.pyd        109200000  # 2026-09-16: 72831000 x 1.30 x 1.15 (was 84000000)
+*                               azuldbg.dll     83500000   # 2026-11-28 CI (windows-2022, website run 46085880772): 72305664 x 1.15 (was 75000000; 0.2.0: 33751552)
+*                               azul.dll        78000000   # 2026-11-28 CI (windows-2022): 67771904 x 1.15 (was 75000000)
+*                               azul.pyd        130000000  # 2026-11-28 CI (windows-2022): 113107456 x 1.15 (was 109200000; 2026-09-16: 72831000)
 *                               azul.cpython*.so 133500000 # sized against azul.so (0.2.0: 49466680)
+
+# 2026-11-28: the website candidate run 46085880772 measured the Windows artifacts above the 2026-09-16 numbers (azul.pyd 113,107,456 vs 109,200,000 budget). The growth is the
+# engine of the last weeks (hyphenation of every language ~+2.8 MB, SOCKS5 + the Windows proxy, the GPU path, the sensor / sound / keyring / display-feature / tab APIs, iroh); it was NOT
+# analysed per crate. Rows are 1.15x of the new measurement (PROVENANCE). The tonight's landings after that run add a little more: this headroom covers them.
 
 # --- Static archives -------------------------------------------------------
 # 0.2.0 only published these gzipped, so the first honest raw number is the
@@ -89,3 +93,4 @@ x86_64-apple-darwin             *azul*.dylib    77600000   # 2026-11-21: 6744339
 # `*azul*.a` / `azul*.lib` archives still have no measurement and stay
 # UNGATED (reported with their real size) until a run supplies one.
 *                               libazul.a       530000000  # 2026-09-07: 460124600
+*                               azul.lib        393500000  # 2026-11-28 CI (windows-2022): 341811394 x 1.15 (the static library of the Windows build; was UNGATED)

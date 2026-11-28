@@ -755,6 +755,23 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // belongs beside `AudioEncoder` / `AudioDecoder` in audio. In full - "Echo"
     // alone is too broad.
     ("EchoCanceller", "audio"),
+    // The system sounds (`CallbackInfo::play_system_sound`): the keyword "System" would file
+    // `SystemSound` beside `SystemStyle` in css, and it is an audio vocabulary. Spelled in
+    // full: a "System" prefix would capture `SystemStyle`, `SystemColors` and the rest.
+    ("SystemSound", "audio"),
+    // The display's own hardware as a phone reports it (`LayoutCallbackInfo::get_display_features`):
+    // the cutouts, the rounded corners, the system bars and the fingerprint sensor, with the
+    // window flags that hide a bar and the simulated phone that stands in for them. Window
+    // vocabulary: the keywords scattered them over css ("Display"), misc, option ("Options") and
+    // sensor ("Sensor"). "SystemBar" covers SystemBars, SystemBarMode, SystemBarIcons and
+    // SystemBarsOptions and no other name; the structural rules settle OptionFoo and FooVec first.
+    ("DisplayCutout", "window"),
+    ("DisplayFeatures", "window"),
+    ("DisplayPreset", "window"),
+    ("CutoutShape", "window"),
+    ("CornerRadii", "window"),
+    ("SystemBar", "window"),
+    ("Fingerprint", "window"),
 ];
 
 /// Module for a known-difficult type name, if it is one.
@@ -1921,6 +1938,10 @@ mod tests {
     fn the_media_session_entries_do_not_capture_the_css_media_type() {
         assert_eq!(difficult_type_module("MediaPlaybackState"), Some("audio"));
         assert_eq!(difficult_type_module("NowPlayingInfo"), Some("audio"));
+        // the system sounds sit with the audio types, and the override does not capture the
+        // style types whose name starts the same way
+        assert_eq!(difficult_type_module("SystemSound"), Some("audio"));
+        assert_eq!(difficult_type_module("SystemStyle"), None);
         assert_eq!(difficult_type_module("EchoCanceller"), Some("audio"));
         assert_eq!(difficult_type_module("MediaType"), None);
         assert_ne!(determine_module("MediaType").0, "audio");

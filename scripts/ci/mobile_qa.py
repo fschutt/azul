@@ -2245,6 +2245,20 @@ class IOS:
                               timeout=60)
         return rc == 0, (err or out).strip()[:200]
 
+    def gui_keystroke_with(self, modifiers, key):
+        """A keystroke with named modifiers in the Simulator app (`("command down", "shift down"), "h"` = the home shortcut). OFF unless
+        AZ_QA_GUI=1. -> (ok, message)"""
+        if os.environ.get("AZ_QA_GUI") != "1":
+            return False, "the Simulator GUI steps are off (AZ_QA_GUI=1 turns them on)"
+        if not self.gui:
+            self.x("open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", self.udid, timeout=60)
+            time.sleep(8)
+            self.gui = True
+        using = ", ".join(modifiers)
+        rc, out, err = self.x("osascript", "-e", 'tell application "Simulator" to activate', "-e", "delay 1",
+                              "-e", f'tell application "System Events" to keystroke "{key}" using {{{using}}}', timeout=60)
+        return rc == 0, (err or out).strip()[:200]
+
     def gui_menu(self, menu, item):
         """A Simulator menu item by name (Debug > Simulate Memory Warning ...). OFF unless AZ_QA_GUI=1. -> (ok, message)"""
         if os.environ.get("AZ_QA_GUI") != "1":

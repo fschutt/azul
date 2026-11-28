@@ -2636,6 +2636,12 @@ impl PlatformWindow for HeadlessWindow {
     /// Headless has no window manager to hand a drag to.
     fn handle_begin_interactive_move(&mut self) {}
 
+    /// A headless window plays no sound and no haptic: the `SoundManager` records the requests
+    /// (`assert_sound`) and the drain marks them `skipped:headless`.
+    fn plays_system_sounds(&self) -> bool {
+        false
+    }
+
     /// Every OTHER window of this app (the root and its children share the generation) rebuilds
     /// at its next turn ([`HeadlessWindow::pump_once`]); this one is rebuilt by the result that
     /// asked.
@@ -13383,6 +13389,10 @@ mod tests {
     // A press on selectable text near the edge of a scrolling box is a click: a press that has not moved
     // starts no autoscroll (`tests/a_press_on_text_at_the_edge_of_a_scrolling_box_is_a_click.rs`, E41).
     mod a_press_on_text_at_the_edge_of_a_scrolling_box_is_a_click;
+
+    // An idle page asks for no frame in ten seconds, a page with a caret only for its blinks
+    // (`tests/an_idle_page_asks_for_no_frame_and_a_caret_only_for_its_blinks.rs`).
+    mod an_idle_page_asks_for_no_frame_and_a_caret_only_for_its_blinks;
 
     // A file drop is one event, a drag move one hover, however many passes they cost
     // (`tests/file_drop.rs`).

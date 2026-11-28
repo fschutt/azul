@@ -27,6 +27,9 @@ use azul_css::{AzString, OptionString, StringVec};
 
 #[cfg(target_os = "android")]
 mod aaudio;
+/// What a read of an AAudio input stream means (pure, so it is tested on every host).
+#[cfg(any(target_os = "android", test))]
+mod aaudio_read;
 #[cfg(target_os = "linux")]
 mod alsa;
 #[cfg(any(target_os = "ios", target_os = "macos"))]

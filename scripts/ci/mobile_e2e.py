@@ -510,9 +510,11 @@ def e2e_session(args):
         s.note(f"AZPAINT_STROKES before the swipe {had}, after it: {counts}")
         s.check(f"a swipe on the canvas adds exactly one stroke (the app prints AZPAINT_STROKES {had + 1})", counts[-1:] == [str(had + 1)],
                 f"printed {counts}, there were {had}")
-        s.check("the picture shows it", q.sig_diff(drawn, before) > q.SAME_BELOW, f"differs {q.sig_diff(drawn, before):.3f}")
-        found = find_named("Undo", "Button")
-        s.check("the accessibility tree names the phone toolbar's 'Undo' with a position", bool(found), str(found))
+        # a thin stroke changes well under 1.5 % of the samples (SAME_BELOW is the bar for a whole screen): any change of the canvas shows it
+        s.check("the picture shows it", q.sig_diff(drawn, before) > 0.0005, f"differs {q.sig_diff(drawn, before):.4f}")
+        # the button is named in the language the app runs in: the locale step before this one can leave German on ('Rückgängig')
+        found = find_named("Undo", "Button") or find_named("Rückgängig", "Button")
+        s.check("the accessibility tree names the phone toolbar's 'Undo' (or 'Rückgängig') with a position", bool(found), str(found))
         if not found:
             tree = srv.op("get_accessibility_tree", timeout=90)
             (run.logs_dir / "paint-a11y-after-stroke.json").write_text(json.dumps(tree), encoding="utf-8")

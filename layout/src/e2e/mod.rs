@@ -80,6 +80,21 @@ mod export_tests;
 #[cfg(test)]
 mod mode_ops_tests;
 
+// The display preset a window simulates (`set_display_preset`) and what the window has of
+// cutouts, bars and insets (`get_display_features`), through the real dispatcher.
+#[cfg(test)]
+mod display_ops_tests;
+
+// A vertical swipe on a tab panel (`TabContent::with_flip_of`): the touch ops, the flip told to the app as a tap
+// on a pill is, the tab-change sound once per tab crossed, a fling's momentum (timers), through the real dispatcher.
+#[cfg(test)]
+mod tab_flip_ops_tests;
+
+// The touch strip scrolls sideways without a scrollbar, and `scrollbar-width: none` as CSS text hides
+// the bar like the typed property does.
+#[cfg(test)]
+mod tab_strip_ops_tests;
+
 // The key names `key_down` / `key_up` accept: punctuation and the numeric
 // keypad, so a scenario can type an operator (`plus`, `numpad_multiply`).
 #[cfg(test)]
@@ -90,6 +105,11 @@ mod key_names_tests;
 // a path of their answer.
 #[cfg(test)]
 mod app_commands_tests;
+
+// The system-sound ops: a callback asks for sounds, the window's SoundManager records them, `assert_sound`
+// and `assert_no_sound` read the recording (run through the real dispatcher on a headless window).
+#[cfg(test)]
+mod sound_tests;
 
 // The DOM-mutation ops and `mouse_move` name their target by CSS selector, or
 // refuse loudly when it names none or several nodes.

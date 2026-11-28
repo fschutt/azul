@@ -68,8 +68,38 @@ const DUMP_SYSTEM_STYLE: &str = "AZ_DUMP_SYSTEM_STYLE";
 /// the first present.
 const STARTUP: &str = "AZ_STARTUP";
 
+/// `AZ_SOUNDS`: `off` records the system sounds the app asks for and plays none, `log` prints one
+/// line per request ([`SoundsMode`]).
+const SOUNDS: &str = "AZ_SOUNDS";
+
 /// The channel the telemetry reports when the environment names none.
 const DEFAULT_TELEMETRY_CHANNEL: &str = "default";
+
+/// What the shell does with the system sounds the app asks for (`AZ_SOUNDS`).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum SoundsMode {
+    /// Play them (the default).
+    #[default]
+    On,
+    /// Play them and print one line per request, played or not, with its route and the reason it
+    /// did not play (`AZ_SOUNDS=log`).
+    Log,
+    /// Record them and play none, also in a window that could (screen recordings, a CI machine
+    /// with a display: `AZ_SOUNDS=off`).
+    Off,
+}
+
+/// Which [`SoundsMode`] this `AZ_SOUNDS` value asks for: `off` (and `0`, `false`, `no`, `none`)
+/// is [`SoundsMode::Off`], `log` is [`SoundsMode::Log`], anything else, also unset and empty, is
+/// [`SoundsMode::On`]: a sound plays unless someone said it must not.
+#[must_use]
+pub fn sounds_from_value(value: Option<&str>) -> SoundsMode {
+    match value.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+        Some("off" | "0" | "false" | "no" | "none") => SoundsMode::Off,
+        Some("log") => SoundsMode::Log,
+        _ => SoundsMode::On,
+    }
+}
 
 /// A knob that does nothing in a build without the cargo feature that implements it: the names
 /// of the ones that are set are kept ([`ShellSettings::inert_knobs`]) so the start can say so.
@@ -261,6 +291,9 @@ pub struct ShellSettings {
     /// `AZ_STARTUP` is on ([`startup_from_value`]): the app records the startup timeline and prints
     /// it at the first present (on Android `adb shell setprop debug.az.startup 1`).
     pub startup_timeline: bool,
+    /// `AZ_SOUNDS` ([`sounds_from_value`]): what the shell does with the system sounds the app
+    /// asks for.
+    pub sounds: SoundsMode,
     /// The names of the knobs of [`gated_knobs`] that are set to something that is not empty.
     gated_knobs_set: Vec<&'static str>,
 }
@@ -310,6 +343,7 @@ impl ShellSettings {
                 .unwrap_or_else(|| DEFAULT_TELEMETRY_CHANNEL.to_owned()),
             dump_system_style: env.var(DUMP_SYSTEM_STYLE).as_deref() == Some("1"),
             startup_timeline: startup_from_value(env.var(STARTUP).as_deref()),
+            sounds: sounds_from_value(env.var(SOUNDS).as_deref()),
             gated_knobs_set: gated_knobs()
                 .iter()
                 .filter(|knob| not_empty(knob.name).is_some())

@@ -538,6 +538,86 @@ layout is built again only when the width crosses `px`, not on every pixel of a 
 560 to 600 dp as the phone's edge (AzMaps' sidebar becomes a sheet over the map, AzPaint's menu commands become keys
 under the canvas, AzWriter's ribbon becomes a format bar) and keep the desktop layout for a landscape phone.
 
+## Cutouts and system bars
+
+The safe-area insets are one number per side: the clock, the battery, the navigation bar and the camera on top
+are one `top`. When an app wants to draw INTO those places (a tab strip that takes the place of the clock, a
+fingerprint symbol over the sensor) it needs the shapes. `info.get_display_features()` (in an event callback and in
+`layout()`) answers in logical px of the window, origin top left, after every rotation and resize:
+
+| | Android | iOS | desktop, web, headless |
+|---|---|---|---|
+| `cutouts` (rect, shape, `approximate`) | the display cutout's bounding rects (Android API 28), per rotation; `approximate` is false | no API for the shape: a table of the screen's size, `approximate` is true, on its side the cutout is at the left or right edge; an unknown screen has none and the insets are still right | none |
+| `corner_radii` | `RoundedCorner` (API 31), else 0 | a table, `approximate`; 0 on an iPad | 0 |
+| `bars.status` and `bars.navigation` (rect when shown, `visible`) | `WindowInsets` (API 30): the band is known while the bar is hidden | `UIStatusBarManager.statusBarFrame`; the home indicator band; no status bar on a phone on its side | none |
+| `fingerprint` (kind, `spot`) | the kind where the public API knows it (a phone with a sensor: `Unknown`); WHERE the sensor is under the glass is hidden API and is not read: `spot` is none (centre your symbol above the bottom edge, or let the system prompt draw it) | a home button is `Front` (no spot); Face ID has no place | none |
+
+A window asks the system for the bars and the cutout area with `WindowFlags::system_bars`: each bar `Visible`,
+`HiddenTransient` (a swipe from the edge shows it for a moment) or `HiddenSticky` (a swipe shows it and it stays; iOS
+has no such mode and treats it as transient), the colour of the icons (`Auto` follows what the window draws behind the
+bar), and `draw_into_cutout` (Android `LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS`, `SHORT_EDGES` before Android 11).
+`extend_into_safe_area` alone only stops the engine from insetting the root; it does not change the cutout mode.
+
+**Testing without the phone.** `WindowFlags::display_preset` makes any window (a desktop window, a headless one)
+behave as if it sat on a Pixel 8, an iPhone with the Dynamic Island, an iPhone with the notch, an iPhone with a home
+button, a phone with a punch hole in the corner or one with two holes: the insets, the cutouts, the bars, the corners and
+the sensor come from the preset for the window's size, and a window wider than tall is the phone on its side. The e2e
+ops `set_display_preset` and `get_display_features` do the same from a scenario file, so one file runs on a desktop and
+on a phone. The shapes of a preset are approximations (every cutout says `approximate`).
+
+**A tab bar for a finger.** `TabStyle::Auto` is the touch pills on a phone (Android or iOS, a window narrower than 600 dp);
+a desktop keeps the theme's look, and `TabStyle::TouchPills` asks for them anywhere. A pill is 32 px tall with full-radius
+ends in a 48 px row; the target is the whole row (padded, not the picture). The row is longer than the window and
+scrolls sideways under a finger, with the wheel and with the keys, without a scrollbar, and the selected pill scrolls
+into view (centred) by itself whoever changed the selection: a tap, an arrow key, a flip, the app. The pills are tabs for
+TalkBack and VoiceOver (the tab role, the name, the selected state) and the arrow keys move between them.
+
+**The strip in the status bar's band.** An app that does not need the clock and the battery while the user works (a
+word processor) gives that row to its tabs: the window draws under the bars (`extend_into_safe_area`), hides the status
+bar (`system_bars.status` as `HiddenTransient`), draws into the cutout area (`system_bars.draw_into_cutout`) and builds
+its tab bar with `with_status_bar`, given the band the display makes: `StatusBarBand::from_display` takes
+`info.get_display_features()`, `info.get_safe_area_insets()` and the window's size. The strip is then the lanes either
+side of the camera (and a margin of 8 px around it): it slides under the camera as a strip of paper behind a hole, what
+lies under a cutout is covered by the window's background and never drawn, a pill that straddles it is cut at the lane's
+edge (the hint that there is more), and the selected pill always stands whole inside a lane. With one hole that is two
+lanes, with two three, and a window without a cutout or a status bar has an ordinary row. A rotation or a resize runs
+`layout()` again and the strip is built around the new window. The `Ribbon` does the same with
+`with_tab_style(TabStyle::TouchPills)`, `with_status_bar` and `dom_desktop`: its tabs are the strip, its groups the band
+below. Every other app keeps the default (the root inset below the bars).
+
+**Flipping tabs with a vertical swipe.** `TabHeader::with_flip` (`Off`, `AtEdges`, `Always`) and
+`TabContent::with_flip_of(&bar)` (or `Ribbon::with_flip` for its content band) let a vertical swipe on the panel move to the
+previous or next tab, told to the bar's `on_click` exactly as a tap on a pill is. The rules: (1) content that can scroll
+scrolls first, and a pull that starts with the panel already at the end it pulls past flips (lift, put the finger down
+again, pull); (2) content that does not scroll flips on a swipe either way; (3) a pull moves the content with
+resistance, shows a chip naming the tab a release goes to ("Next: Share"), and flips the moment it crosses 56 px of
+pull: a finger that carries on flips one tab per 56 px of travel on content that does not scroll, a page that scrolls
+flips once per gesture; a lift that is fast flips on and carries over up to four more tabs in a slowing rhythm; (4)
+the first tab has no previous and the last no next: a stretch, no wrap; (5) never while the finger went down on a nested
+scrollable or on a node of the class `__azul-claims-gesture` (a slider, a map, a canvas), never for a gesture that is more
+sideways than vertical, and never after a cancel: when the system takes the finger (the back or the home gesture, the
+notification shade) the pull springs back and nothing flips; (6) the default `AtEdges` flips with a finger only, a wheel
+or a trackpad flips only with `Always` and only against the end of the content (a wheel at the end of a long page must
+not move the reader to another tab); (7) every flip, the momentum of a fling included, asks for the system's tab-change
+sound once per tab crossed (`SystemSound::TabChange`: the touch-sound click on Android, the selection haptic on iOS,
+nothing on a desktop; the OS's own switches decide whether it is heard, see [Sounds](../system/sounds.md)). The app's answer to
+`on_click` is the answer, as for a tap on a pill: a bar that is not rebuilt for a flip shows nothing of it. The pills
+stay the explicit way to choose a tab and the one assistive technology uses: a flip is a shortcut.
+
+A code that builds the strip in the band:
+
+```rust
+let band = StatusBarBand::from_display(
+    &info.get_display_features(),
+    &info.get_safe_area_insets(),
+    LogicalSize { width: info.get_window_width(), height: info.get_window_height() },
+);
+let tabs = TabHeader::create(labels).with_style(TabStyle::TouchPills).with_status_bar(band);
+```
+
+Not done yet: the strip does not ask the system to leave its band to the strip at the edges of the screen (the Android
+gesture-exclusion rects), so a horizontal drag that starts at the very edge of the screen can still be the back gesture.
+
 ## Installing & debugging the built app
 
 You don't have to build anything to try the demos — every example is published
