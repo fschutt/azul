@@ -61,6 +61,10 @@ use std::sync::Arc;
 const WIDTH: f32 = 400.0;
 const HEIGHT: f32 = 100.0;
 
+/// The scales every check runs at: a desktop's 1 and a Pixel 8's 2.625 (a display list is in logical
+/// pixels and the transitions patch it by what it shows, so a scale must change nothing).
+const SCALES: [f32; 2] = [1.0, 2.625];
+
 /// What the guidelines ask of large text and of a control's label: 3:1.
 const FLOOR: f32 = 3.0;
 
@@ -91,7 +95,7 @@ fn page(theme: UiTheme, content: impl FnOnce() -> Dom) -> Dom {
     Dom::create_body().with_css("margin: 0;").with_child(content())
 }
 
-fn state(dark: bool) -> FullWindowState {
+fn state(dark: bool, scale: f32) -> FullWindowState {
     let mut ws = FullWindowState {
         mode: if dark {
             DarkLightMode::Dark
@@ -101,11 +105,14 @@ fn state(dark: bool) -> FullWindowState {
         ..Default::default()
     };
     ws.size.dimensions = LogicalSize::new(WIDTH, HEIGHT);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let dpi = (96.0 * scale).round() as u32;
+    ws.size.dpi = dpi;
     ws
 }
 
-/// A window under `theme`, light or `dark`, with `first` laid out in it.
-fn window(theme: UiTheme, first: Dom, dark: bool) -> LayoutWindow {
+/// A window under `theme`, light or `dark`, at `scale`, with `first` laid out in it.
+fn window(theme: UiTheme, first: Dom, dark: bool, scale: f32) -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     lw.set_system_style(Arc::new(if dark {
         defaults::macos_modern_dark()
@@ -114,7 +121,7 @@ fn window(theme: UiTheme, first: Dom, dark: bool) -> LayoutWindow {
     }));
     lw.mode = OptionDarkLightMode::None;
     lw.app_theme = AzString::from(theme.name());
-    let ws = state(dark);
+    let ws = state(dark, scale);
     lw.current_window_state = ws.clone();
     let styled = lw.style_user_dom(first);
     lw.layout_and_generate_display_list(
@@ -130,8 +137,8 @@ fn window(theme: UiTheme, first: Dom, dark: bool) -> LayoutWindow {
 
 /// The app's rebuild with `next`, installed as the shells install one: the reconciliation (which starts
 /// the transitions the OLD nodes declare), the layout, its completion.
-fn rebuild(lw: &mut LayoutWindow, next: Dom, dark: bool) {
-    let ws = state(dark);
+fn rebuild(lw: &mut LayoutWindow, next: Dom) {
+    let ws = lw.current_window_state.clone();
     let mut next = lw.style_user_dom(next);
     let pending = lw.begin_reconciliation(DomId::ROOT_ID, &mut next, Instant::now());
     lw.layout_new_generation(
@@ -217,6 +224,8 @@ fn label(lw: &LayoutWindow, node: NodeId, ground: ColorU) -> ColorU {
 /// in a gradient is resolved against the window's system style), 5 px in from the left edge, half way
 /// down - inside the padding, where the label's glyphs never reach.
 fn face(lw: &LayoutWindow, node: NodeId) -> ColorU {
+    #[allow(clippy::cast_precision_loss)] // a dpi is a few hundred
+    let scale = lw.current_window_state.size.dpi as f32 / 96.0;
     let list = lw
         .get_layout_result(&DomId::ROOT_ID)
         .expect("the root DOM is laid out")
@@ -233,7 +242,7 @@ fn face(lw: &LayoutWindow, node: NodeId) -> ColorU {
         RenderOptions {
             width: WIDTH,
             height: HEIGHT,
-            dpi_factor: 1.0,
+            dpi_factor: scale,
         },
         &mut glyphs,
         &paint,
@@ -247,8 +256,8 @@ fn face(lw: &LayoutWindow, node: NodeId) -> ColorU {
         .expect("laid out");
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let (x, y) = (
-        (rect.origin.x + 5.0) as usize,
-        (rect.origin.y + rect.size.height / 2.0) as usize,
+        ((rect.origin.x + 5.0) * scale) as usize,
+        ((rect.origin.y + rect.size.height / 2.0) * scale) as usize,
     );
     let at = (y * picture.width() as usize + x) * 4;
     let px = picture.data();
@@ -287,11 +296,12 @@ fn the_change(
     first: Dom,
     next: Dom,
     dark: bool,
+    scale: f32,
     expect: Face,
     which: impl Fn(&LayoutWindow) -> Vec<NodeId>,
 ) -> Vec<(f32, Vec<Row>)> {
-    let mut lw = window(theme, first, dark);
-    rebuild(&mut lw, next, dark);
+    let mut lw = window(theme, first, dark, scale);
+    rebuild(&mut lw, next);
     let nodes = which(&lw);
     assert!(!nodes.is_empty(), "harness: the page has the nodes whose label is watched");
     let totals: Vec<f32> = nodes.iter().map(|n| face_ms(&lw, *n)).collect();
@@ -406,17 +416,30 @@ const KINDS: [ButtonType; 8] = [
 ];
 
 /// A button of kind `from` that the app rebuilds as one of kind `to`, under `theme`: the breach, if any.
-fn button_becomes(theme: UiTheme, from: ButtonType, to: ButtonType, dark: bool, expect: Face) -> Option<String> {
+fn button_becomes(
+    theme: UiTheme,
+    from: ButtonType,
+    to: ButtonType,
+    dark: bool,
+    scale: f32,
+    expect: Face,
+) -> Option<String> {
     let button = |kind: ButtonType| move || Button::with_type(AzString::from("Go"), kind).dom();
-    let changes = the_change(theme, page(theme, button(from)), page(theme, button(to)), dark, expect, |lw| {
-        nodes_with_class(lw, &["__azul-native-button"])
-    });
-    breach_of(&format!("{theme:?}: {from:?} becomes {to:?} (dark: {dark})"), &changes)
+    let changes = the_change(
+        theme,
+        page(theme, button(from)),
+        page(theme, button(to)),
+        dark,
+        scale,
+        expect,
+        |lw| nodes_with_class(lw, &["__azul-native-button"]),
+    );
+    breach_of(&format!("{theme:?}: {from:?} becomes {to:?} (dark: {dark}, scale {scale})"), &changes)
 }
 
 /// A row of three pills whose selection moves from the first to the second: the first stops being
 /// the stone, the second becomes it. The breach, if any.
-fn selection_moves(theme: UiTheme, style: TabStyle, dark: bool) -> Option<String> {
+fn selection_moves(theme: UiTheme, style: TabStyle, dark: bool, scale: f32) -> Option<String> {
     let row = |active: usize| {
         move || {
             TabHeader::create(StringVec::from_vec(
@@ -428,7 +451,7 @@ fn selection_moves(theme: UiTheme, style: TabStyle, dark: bool) -> Option<String
             .dom()
         }
     };
-    let changes = the_change(theme, page(theme, row(0)), page(theme, row(1)), dark, Face::Fades, |lw| {
+    let changes = the_change(theme, page(theme, row(0)), page(theme, row(1)), dark, scale, Face::Fades, |lw| {
         // The first two pills: the one that was the stone and the one that becomes it.
         nodes_with_class(
             lw,
@@ -438,13 +461,16 @@ fn selection_moves(theme: UiTheme, style: TabStyle, dark: bool) -> Option<String
         .take(2)
         .collect()
     });
-    breach_of(&format!("{theme:?}: the selection of a {style:?} row moves (dark: {dark})"), &changes)
+    breach_of(
+        &format!("{theme:?}: the selection of a {style:?} row moves (dark: {dark}, scale {scale})"),
+        &changes,
+    )
 }
 
 /// A segmented control of three segments whose selection moves from segment `from` to segment `to`: every
 /// segment is watched (the one that loses the selection, the one that gains it, the one that has none).
 /// The breach, if any.
-fn selection_of_segments_moves(theme: UiTheme, from: usize, to: usize, dark: bool) -> Option<String> {
+fn selection_of_segments_moves(theme: UiTheme, from: usize, to: usize, dark: bool, scale: f32) -> Option<String> {
     let control = |selected: usize| {
         move || {
             let mut control = Segmented::create(StringVec::from_vec(
@@ -455,41 +481,55 @@ fn selection_of_segments_moves(theme: UiTheme, from: usize, to: usize, dark: boo
             control.dom()
         }
     };
-    let changes = the_change(theme, page(theme, control(from)), page(theme, control(to)), dark, Face::Instant, |lw| {
-        nodes_with_class(lw, &["__azul-native-segmented-item"])
-    });
+    let changes = the_change(
+        theme,
+        page(theme, control(from)),
+        page(theme, control(to)),
+        dark,
+        scale,
+        Face::Instant,
+        |lw| nodes_with_class(lw, &["__azul-native-segmented-item"]),
+    );
     breach_of(
-        &format!("{theme:?}: the selection of a segmented control moves from {from} to {to} (dark: {dark})"),
+        &format!(
+            "{theme:?}: the selection of a segmented control moves from {from} to {to} (dark: {dark}, scale {scale})"
+        ),
         &changes,
     )
 }
 
 #[test]
 fn a_button_that_becomes_primary_is_never_a_light_label_on_a_light_face() {
-    let breaches: Vec<String> = THEMES
-        .into_iter()
-        .filter_map(|theme| button_becomes(theme, ButtonType::Default, ButtonType::Primary, false, Face::Fades))
-        .collect();
+    let mut breaches = Vec::new();
+    for theme in THEMES {
+        for scale in SCALES {
+            breaches.extend(button_becomes(theme, ButtonType::Default, ButtonType::Primary, false, scale, Face::Fades));
+        }
+    }
     no_breach(&breaches);
 }
 
 #[test]
 fn a_button_that_stops_being_primary_is_never_a_dark_label_on_a_dark_face() {
-    let breaches: Vec<String> = THEMES
-        .into_iter()
-        .filter_map(|theme| button_becomes(theme, ButtonType::Primary, ButtonType::Default, false, Face::Fades))
-        .collect();
+    let mut breaches = Vec::new();
+    for theme in THEMES {
+        for scale in SCALES {
+            breaches.extend(button_becomes(theme, ButtonType::Primary, ButtonType::Default, false, scale, Face::Fades));
+        }
+    }
     no_breach(&breaches);
 }
 
-/// Every kind of button that becomes every other, in `dark` or light.
+/// Every kind of button that becomes every other, in `dark` or light, at every scale.
 fn every_kind_becomes_every_other(dark: bool) {
     let mut breaches = Vec::new();
     for theme in THEMES {
-        for from in KINDS {
-            for to in KINDS {
-                if from != to {
-                    breaches.extend(button_becomes(theme, from, to, dark, Face::Any));
+        for scale in SCALES {
+            for from in KINDS {
+                for to in KINDS {
+                    if from != to {
+                        breaches.extend(button_becomes(theme, from, to, dark, scale, Face::Any));
+                    }
                 }
             }
         }
@@ -514,9 +554,11 @@ fn by_night_the_label_holds_the_floor_in_every_change_too() {
 fn the_pills_of_a_tab_row_keep_their_labels_while_the_selection_moves() {
     let mut breaches = Vec::new();
     for theme in THEMES {
-        breaches.extend(selection_moves(theme, TabStyle::Pills, false));
-        if !pinned_by_env() {
-            breaches.extend(selection_moves(theme, TabStyle::Pills, true));
+        for scale in SCALES {
+            breaches.extend(selection_moves(theme, TabStyle::Pills, false, scale));
+            if !pinned_by_env() {
+                breaches.extend(selection_moves(theme, TabStyle::Pills, true, scale));
+            }
         }
     }
     no_breach(&breaches);
@@ -526,10 +568,12 @@ fn the_pills_of_a_tab_row_keep_their_labels_while_the_selection_moves() {
 fn the_segments_of_a_segmented_control_read_in_both_states_and_in_both_themes() {
     let mut breaches = Vec::new();
     for theme in THEMES {
-        for (from, to) in [(0, 1), (1, 0), (1, 2), (2, 0)] {
-            breaches.extend(selection_of_segments_moves(theme, from, to, false));
-            if !pinned_by_env() {
-                breaches.extend(selection_of_segments_moves(theme, from, to, true));
+        for scale in SCALES {
+            for (from, to) in [(0, 1), (1, 0), (1, 2), (2, 0)] {
+                breaches.extend(selection_of_segments_moves(theme, from, to, false, scale));
+                if !pinned_by_env() {
+                    breaches.extend(selection_of_segments_moves(theme, from, to, true, scale));
+                }
             }
         }
     }
