@@ -68,6 +68,9 @@ mod frame_report_invariants;
 // And the VirtualView drain: the phone shells re-invoke views whose content arrived later (a map's tiles) before they raster a CPU frame.
 #[cfg(test)]
 mod virtual_view_drain_invariants;
+// And what the shells ask the window to rebuild: not a thread's start, not a wake-up (the app's whole layout() runs for each).
+#[cfg(test)]
+mod regeneration_invariants;
 
 // Re-export common types
 pub use common::{

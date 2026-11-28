@@ -1785,11 +1785,12 @@ impl PlatformWindow for WaylandWindow {
     // Thread Management (Wayland Implementation - Stored in LayoutWindow)
 
     fn start_thread_poll_timer(&mut self) {
-        // For Wayland, we don't need a separate timer - threads are checked
-        // in the event loop when layout_window.threads is non-empty
-        // Just mark for regeneration to start checking
-        self.common
-            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        // No timer, and no request: the loop polls on a 16 ms tick for as long as `layout_window.threads` is not
+        // empty and reads that at every turn (the `has_threads` of its `poll` timeout), so the thread this
+        // follows is polled from the next turn on. This used to mark the DOM for regeneration "to start
+        // checking": the app's whole `layout()` and a whole solve, for the first thread of every start that has
+        // one (a map's tile fetches and a camera's capture thread are started by the AfterMount of the page's
+        // widgets), a second full layout right after the first picture (E76).
     }
 
     fn stop_thread_poll_timer(&mut self) {
@@ -1806,10 +1807,7 @@ impl PlatformWindow for WaylandWindow {
                 layout_window.threads.insert(thread_id, thread);
             }
         }
-
-        // Mark for regeneration to start thread polling
-        self.common
-            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        // No request for a rebuild: the loop polls threads while there are any (see `start_thread_poll_timer`).
     }
 
     fn remove_threads(
