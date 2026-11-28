@@ -973,7 +973,23 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let tabs = tabs_section(&data, &s.tabs, s.active_tab);
     let tab_looks = tab_looks::tab_looks_section(&data, &s.tab_looks, theme);
     let materials = materials::materials_section(&data, &s.materials, theme);
-    let display_settings = display_settings::display_settings_section(theme);
+    // `get_accessibility_preferences` declares that this `layout()` reads the user's settings: the page is
+    // built again when one changes, and the readout of the section follows.
+    let display_settings = {
+        let p = info.get_accessibility_preferences();
+        let scale = p
+            .text_scale
+            .into_option()
+            .map_or_else(|| "unknown".to_string(), |scale| format!("{scale:.2}"));
+        display_settings::display_settings_section(
+            theme,
+            &format!(
+                "text scale {scale}; bold text {:?}; contrast {:?}; reduced motion {:?}; reduced \
+                 transparency {:?}; differentiate without colour {:?}",
+                p.bold_text, p.contrast, p.reduced_motion, p.reduced_transparency, p.differentiate_without_color,
+            ),
+        )
+    };
     // `get_mode` DECLARES that this DOM depends on the light / dark the
     // window shows (the "System (dark)" note): a mode switch re-runs this
     // `layout()` rather than only re-styling the page.

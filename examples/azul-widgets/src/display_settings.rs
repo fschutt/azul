@@ -167,10 +167,15 @@ fn status_chips() -> Dom {
 }
 
 /// The section's card.
-pub(crate) fn display_settings_section(theme: UiTheme) -> Dom {
+pub(crate) fn display_settings_section(theme: UiTheme, readout: &str) -> Dom {
     section(
         "Display settings",
         vec![
+            captioned(
+                "The preferences of this window",
+                Dom::create_span_with_text(readout)
+                    .with_css("font-size: 12px; color: system:secondary-text;"),
+            ),
             captioned("What this window reads", what_this_window_reads()),
             captioned("Text: the system's text size", text_samples()),
             captioned("A frosted surface: the transparency effects", frosted_panel()),
