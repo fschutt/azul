@@ -69,6 +69,14 @@ EXPECT = {
     },
 }
 
+# What the display-features row must say on a device, found by the start of its name (the cutout table's classes: an iPhone 16 Pro has
+# one Dynamic Island pill, an iPhone SE has no cutout and a Touch ID button): substrings of the row's detail. A device in no entry is
+# held to nothing, and a build without the row (it may be older than the row) is not blamed for it.
+DISPLAY_EXPECT = {
+    "iPhone 16 Pro": ("cutouts=1", "Pill", "fingerprint=None"),
+    "iPhone SE": ("cutouts=0", "fingerprint=Front"),
+}
+
 # Where the Simulator is told it is (Tuebingen), and then somewhere else, so that a fix that did not follow is seen.
 LOCATIONS = {"fresh": (48.5216, 9.0576), "granted": (48.5216, 9.0576), "revoked": (48.7758, 9.1829)}
 
@@ -196,6 +204,20 @@ def check_rows(report, run):
         elif row.get("verdict") not in allowed:
             found.append(f"[{run}] {rid} is {row.get('verdict')} ({row.get('detail')}); on a Simulator it may be {sorted(allowed)}")
     return found
+
+
+def check_display(report, device_name):
+    """-> [str]: what the display-features row says that is not what this device has (see DISPLAY_EXPECT)."""
+    # a Simulator this script made from a device type is named "AzSelfTest <model>"
+    model_name = device_name.removeprefix("AzSelfTest ")
+    wanted = next((needles for model, needles in DISPLAY_EXPECT.items() if model_name.startswith(model)), None)
+    row = rows_by_id(report).get("system.display_features")
+    if wanted is None or row is None:
+        return []
+    if row.get("verdict") != "PASS":
+        return [f"system.display_features is {row.get('verdict')} on {device_name} ({row.get('detail')}): the shell reports no display features"]
+    missing = [needle for needle in wanted if needle not in row.get("detail", "")]
+    return [f"system.display_features on {device_name} lacks {missing}: {row.get('detail')}"] if missing else []
 
 
 def sh(argv, timeout=120, check=False):
@@ -355,6 +377,7 @@ def main(argv):
         print("\n".join(table(result["report"])))
         (out / f"{name}.report.json").write_text(json.dumps(result["report"], indent=2), encoding="utf-8")
         findings += check_rows(result["report"], name)
+        findings += [f"[{name}] {f}" for f in check_display(result["report"], device["name"])]
         if name == "fresh" and result["asked"]:
             findings.append("[fresh] the app asked the system for a permission by itself on a fresh install: "
                             + " | ".join(result["asked"][:4]))

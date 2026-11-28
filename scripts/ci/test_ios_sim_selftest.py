@@ -87,6 +87,31 @@ class Resolve(unittest.TestCase):
         self.assertEqual(sim.resolve_device("iPhone 99", [], [], [])[0], "none")
 
 
+class Display(unittest.TestCase):
+    PRO = "cutouts=1; shapes=[Pill@138.5,14.0 125.0x37.0 approximate]; corner_top_left=62; status_bar=402x54@0,0 visible=true; fingerprint=None"
+    SE = "cutouts=0; shapes=[]; corner_top_left=0; status_bar=375x20@0,0 visible=true; navigation_bar=none; fingerprint=Front"
+
+    def rep(self, detail, verdict="PASS"):
+        return {"rows": [{"id": "system.display_features", "verdict": verdict, "detail": detail}]}
+
+    def test_each_device_is_held_to_what_it_has(self):
+        self.assertEqual(sim.check_display(self.rep(self.PRO), "iPhone 16 Pro"), [])
+        self.assertEqual(sim.check_display(self.rep(self.SE), "iPhone SE (3rd generation)"), [])
+
+    def test_a_simulator_made_by_the_script_is_still_the_model_it_was_made_from(self):
+        self.assertTrue(sim.check_display(self.rep(self.SE), "AzSelfTest iPhone 16 Pro"))
+        self.assertEqual(sim.check_display(self.rep(self.PRO), "AzSelfTest iPhone 16 Pro"), [])
+
+    def test_a_pill_on_an_iphone_se_is_a_finding(self):
+        self.assertTrue(sim.check_display(self.rep(self.PRO), "iPhone SE (3rd generation)"))
+        self.assertTrue(sim.check_display(self.rep(self.SE), "iPhone 16 Pro"))
+
+    def test_a_row_that_says_nothing_is_a_finding_only_on_a_known_device(self):
+        self.assertTrue(sim.check_display(self.rep("", verdict="UNAVAILABLE"), "iPhone 16 Pro"))
+        self.assertEqual(sim.check_display(self.rep("", verdict="UNAVAILABLE"), "iPhone 17"), [], "a stand-in device has no expectation")
+        self.assertEqual(sim.check_display({"rows": []}, "iPhone 16 Pro"), [], "a build without the row is not blamed")
+
+
 class Launch(unittest.TestCase):
     def test_the_app_environment_goes_through_the_simctl_child_prefix(self):
         env = sim.launch_env()
