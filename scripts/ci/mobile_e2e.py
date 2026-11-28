@@ -26,7 +26,9 @@ Everything lands in DIR like scripts/ci/mobile_qa.py's output (qa.json, qa.md, s
                           navigation bars, touch targets under 48 dp, text boxes crossing an edge) in portrait AND landscape with
                           the engine's frame and the device's frame of each, the system dark mode asked of the engine (get_mode:
                           did the window's mode change, and did the picture), and the app's own script when --script names one.
-    --script paint|writer|maps|meet   a scripted check of one app: paint draws a stroke with a real swipe and undoes it (the app prints
+    --script paint|writer|maps|meet|clock|calculator|reader   a scripted check of one app (clock, calculator, reader: real touches on the
+                          floating + and the label field with the keyboard, on 7 x 6 = and the converter's field, on the reader's
+                          page, slider and sheet; see their functions): paint draws a stroke with a real swipe and undoes it (the app prints
                           AZPAINT_STROKES), writer taps into the page and types (the text in the accessibility tree, the keyboard,
                           whether the window shrinks above it, the ribbon against the width), maps taps the sidebar toggle at the
                           place the server names and double-taps the map (AZMAPS_SIDEBAR, AZMAPS_VIEW), meet looks at the lobby for
@@ -619,7 +621,142 @@ def e2e_session(args):
         s.check("the lobby no longer shows the 'loading this device's key' line (the create callback ran load_identity)", not showing,
                 f"still on the screen: {showing}" if showing else f"not in the {len(xml)} bytes of the accessibility tree")
 
-    scripts = {"paint": s_script_paint, "writer": s_script_writer, "maps": s_script_maps, "meet": s_script_meet}
+    def box_of(selector):
+        """The window-space box (logical px) of the node the server names, or None."""
+        answer = srv.op("get_node_layout", selector=selector, timeout=30)
+        box = find_key(answer, "screen_rect") or find_key(answer, "rect")
+        return box if isinstance(box, dict) else None
+
+    def keyboard_over_field(s, selector, what, text="hello"):
+        """A real tap into the text field `selector`: the soft keyboard comes up, the typed text reaches the field (the engine's tree), and the
+        field is above where the keyboard is (its bottom edge in the top 62 % of the window: a field under the keyboard cannot be seen typed into)."""
+        at = tap_node(s, selector)
+        s.check(f"the server names {what} with a box", bool(at), str(at))
+        if not at:
+            return
+        dev.settle(2.0)
+        up = dev.ime_shown()
+        s.check(f"a tap on {what} raises the soft keyboard", up, "the window system says " + ("shown" if up else "hidden"))
+        dev.sh(f"input text {text}")
+        dev.settle(1.5)
+        device_shot(s, "keyboard-typed-" + what.replace(" ", "-"))
+        s.check(f"the typed text reaches {what} (the engine's tree)", tree_says(text), "")
+        box = box_of(selector)
+        height = find_key(srv.op("get_state"), "logical_height") or 0
+        if box and height:
+            bottom = box["y"] + box["height"]
+            s.check(f"{what} is above the keyboard (bottom edge {bottom:.0f} of {height:.0f} dp)", bottom < height * 0.62, "", required=False)
+        if dev.ime_shown():
+            dev.back()
+            dev.settle(1.0)
+
+    def s_script_clock(s):
+        """AzClock with real touches: the floating + opens the alarm editor (a page, not a window), its label field takes the keyboard, Back
+        leaves it; the bottom bar's places change the page; the first start shows no developer's line."""
+        dev.settle(4.0)
+        before = device_shot(s, "clock-before")
+        engine_frame(s, "clock-engine-frame")
+        dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=60)
+        xml = dev.sh("cat /sdcard/qa-ui.xml", timeout=60)
+        dev.save_log("clock-ui.xml", xml)
+        leaked = tree_says("AzulNotifications") or "AzulNotifications" in xml or "android_main" in xml
+        s.check("the first start shows no developer's line (the notification service's reason)", not leaked,
+                "the alarm list shows the platform's reason for not scheduling" if leaked else "")
+        at = tap_node(s, "#__azclock_new")
+        s.check("the server names the floating + with a box", bool(at), str(at))
+        dev.settle(2.0)
+        editor = device_shot(s, "clock-editor")
+        s.check("a tap on + opens the alarm editor (the picture changes)", q.sig_diff(editor, before) > q.SAME_BELOW, f"differs {q.sig_diff(editor, before):.3f}")
+        keyboard_over_field(s, "#__azclock_editor-label", "the alarm label field", "Gym")
+        dev.back()                      # the keyboard was closed above: BACK leaves the editor page (the app's Back)
+        dev.settle(1.5)
+        back = device_shot(s, "clock-after-back")
+        s.check("BACK leaves the editor and shows the list again", q.sig_diff(back, before) <= q.SAME_BELOW * 2 or q.sig_diff(back, editor) > q.SAME_BELOW,
+                f"differs from before {q.sig_diff(back, before):.3f}, from the editor {q.sig_diff(back, editor):.3f}", required=False)
+        for place, shot in (("Stopwatch", "clock-stopwatch"), ("Timer", "clock-timer"), ("Clock", "clock-world"), ("Alarm", "clock-alarms")):
+            found = find_named(place)
+            s.check(f"the bottom bar's '{place}' is named in the engine's tree with a position", bool(found), str(found))
+            if found:
+                dev.tap(*found)
+                dev.settle(1.5)
+                device_shot(s, shot)
+
+    def s_script_calculator(s):
+        """AzCalculator with real touches: 7 x 6 = on the keypad (the app prints AZCALC_DISPLAY), the Convert tab and its value field with
+        the soft keyboard."""
+        dev.settle(4.0)
+        before = device_shot(s, "calculator-before")
+        engine_frame(s, "calculator-engine-frame")
+        mark = dev.now_mark()
+        for key in ("7", "multiply", "6", "equals"):
+            at = tap_node(s, f"#__azcalc_key-{key}")
+            if not at:
+                s.check(f"the server names the key {key} with a box", False, "")
+                return
+            time.sleep(0.5)
+        dev.settle(1.0)
+        shown = device_shot(s, "calculator-7x6")
+        lines = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZCALC_DISPLAY", since=mark)
+        s.check("real taps on 7 x 6 = show 42 (the app prints AZCALC_DISPLAY)", any("42" in l for l in lines[-3:]), f"printed {lines[-3:]}")
+        s.check("the picture shows it", q.sig_diff(shown, before) > q.SAME_BELOW, f"differs {q.sig_diff(shown, before):.3f}")
+        found = find_named("Convert")
+        s.check("the mode tab 'Convert' is named in the engine's tree with a position", bool(found), str(found))
+        if found:
+            dev.tap(*found)
+            dev.settle(2.0)
+            device_shot(s, "calculator-convert")
+            keyboard_over_field(s, "#__azcalc_conv-from-value", "the unit converter's value field", "5")
+        found = find_named("Standard")
+        if found:
+            dev.tap(*found)
+            dev.settle(1.5)
+            device_shot(s, "calculator-standard-again")
+
+    def s_script_reader(s):
+        """AzReader with real touches: the sample book opens (the app's e2e op: a phone has no command line), the page fills the screen, a tap in
+        the middle shows the toolbar and the slider, a tap on the right side turns the page, the slider's button opens the sheet of pages,
+        a tap beside the sheet closes it."""
+        dev.settle(3.0)
+        srv.op("azreader_open_sample", timeout=60)
+        srv.op("azreader_wait", timeout=90, **{"for": "chapter"})
+        dev.settle(2.0)
+        w, h = dev.dims
+        opened = device_shot(s, "reader-page")
+        engine_frame(s, "reader-engine-frame")
+        s.check("the page fills the screen: no toolbar before the tap", box_of("#__azreader_toolbar") is None, "")
+        mark = dev.now_mark()
+        dev.tap(int(w * 0.5), int(h * 0.5))
+        dev.settle(1.5)
+        chrome = device_shot(s, "reader-controls-shown")
+        s.check("a tap in the middle shows the toolbar and the slider", box_of("#__azreader_toolbar") is not None and box_of("#__azreader_slider") is not None, "")
+        s.check("the picture changed (the controls are on it)", q.sig_diff(chrome, opened) > q.SAME_BELOW, f"differs {q.sig_diff(chrome, opened):.3f}")
+        dev.tap(int(w * 0.86), int(h * 0.5))
+        dev.settle(2.5)
+        turned = device_shot(s, "reader-next-page")
+        pages = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZREADER_PAGE", since=mark)
+        s.check("a tap on the right side turns the page (the app prints AZREADER_PAGE)", len(pages) >= 1, f"printed {pages[-3:]}")
+        s.check("the page's picture changed", q.sig_diff(turned, chrome) > q.SAME_BELOW, f"differs {q.sig_diff(turned, chrome):.3f}")
+        track = box_of("#__azreader_slider")
+        if track:
+            scale = state.get("scale") or 1.0
+            y = int((track["y"] + track["height"] / 2) * scale)
+            dev.swipe(int((track["x"] + track["width"] * 0.1) * scale), y, int((track["x"] + track["width"] * 0.9) * scale), y, 400)
+            dev.settle(2.5)
+            sought = device_shot(s, "reader-slider-dragged")
+            moved = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZREADER_PAGE", since=mark)
+            s.check("dragging the slider goes to another place in the book (AZREADER_PAGE again)", len(moved) > len(pages), f"printed {moved[-3:]}", required=False)
+        at = tap_node(s, "#__azreader_slider-contents")
+        s.check("the server names the button beside the slider with a box", bool(at), str(at))
+        dev.settle(2.0)
+        sheet = device_shot(s, "reader-sheet")
+        s.check("the button opens the sheet of pages and contents (and a scrim beside it)",
+                box_of("#__azreader_strip") is not None and box_of("#__azreader_strip-scrim") is not None, "")
+        tap_node(s, "#__azreader_strip-scrim")
+        dev.settle(1.5)
+        s.check("a tap beside the sheet closes it", box_of("#__azreader_strip") is None, "")
+
+    scripts = {"paint": s_script_paint, "writer": s_script_writer, "maps": s_script_maps, "meet": s_script_meet,
+               "clock": s_script_clock, "calculator": s_script_calculator, "reader": s_script_reader}
     if args.script and args.platform == "android":
         run.step(f"e40-script-{args.script}", f"the scripted check of the {args.script} app", scripts[args.script])
 
@@ -826,7 +963,7 @@ def main(argv):
     ap.add_argument("--server-timeout", type=int, default=60)
     ap.add_argument("--logical-scale", type=float, default=0.0, help="device pixels per logical pixel of the window (the touch ops take logical pixels)")
     ap.add_argument("--audit-only", action="store_true", help="the phone-fit session of any app: frames, the layout audit in both orientations, the dark mode, --script")
-    ap.add_argument("--script", choices=["", "paint", "writer", "maps", "meet"], default="", help="the scripted check of one app (Android)")
+    ap.add_argument("--script", choices=["", "paint", "writer", "maps", "meet", "clock", "calculator", "reader"], default="", help="the scripted check of one app (Android)")
     args = ap.parse_args(argv)
     run = e2e_session(args)
     failed = [s.name for s in run.steps if not s.ok]
