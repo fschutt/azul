@@ -31,7 +31,7 @@ use super::{
     tray_event::TrayEvents,
     window_activation::RaiseRequests,
 };
-use crate::{documents::DocumentsSlot, window::LayoutWindow};
+use crate::{documents::DocumentsSlot, request_registry::RequestRegistry, window::LayoutWindow};
 
 /// The queues and slots the windows of one app share. Cloning gives another handle on the SAME
 /// set; [`AppServices::new`] (or `default`) builds a set of its own.
@@ -70,6 +70,8 @@ pub struct AppServices {
     pub open: OpenQueue,
     /// Files and folders the user owns, wherever the platform keeps them: the installed backend of `Documents`.
     pub documents: DocumentsSlot,
+    /// The pickers on the screen and the exports waiting for their place: requests the platform answers later, on another thread.
+    pub pickers: RequestRegistry,
     /// The share sheet: the platform's backend (or the recorder of a scripted run) and the limits of a share.
     pub share: ShareChannel,
     /// The app's global hotkeys.

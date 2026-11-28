@@ -394,6 +394,10 @@ pub mod open_intent;
 /// `Documents`: files and folders the user owns, by locator, with typed failures (a path, an Android tree, an iOS bookmarked folder).
 #[cfg(feature = "text_layout")]
 pub mod documents;
+/// Requests that wait for the platform to answer (a picker on the screen, an export waiting for its place), parked under an id in the
+/// App's own registry instead of in process-wide statics.
+#[cfg(feature = "text_layout")]
+pub mod request_registry;
 /// What Android's storage framework says, in the engine's words: a provider's rows, flags and exceptions as `Documents` entries and
 /// errors (the pure half of the phone's backend, which `azul-dll` completes with the JNI calls).
 #[cfg(feature = "text_layout")]
