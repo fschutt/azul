@@ -40,7 +40,7 @@ info.play_system_sound(SystemSound::TabChange);
 
 No audio file is bundled and none is played: a tab change on Android is the click of the "Touch sounds" setting, an error is the system's "invalid key" sound, a notification is the tone the user chose for notifications, and a meaning the platform has no sound for plays nothing and SAYS so. The vocabulary is the one of [haptics](../events/pointer.md) (`play_haptic`), and the two pair: on iOS, where a tab change has no sound by design, the same call is the selection tap.
 
-A callback pays one push for the call. The sound is decided and played at the end of the outermost event pass, so a callback that fires per page of a fling or per frame of a drag costs nothing and does not stack.
+A callback pays one push for the call. The sound is decided and played at the end of the outermost event pass, or of the timer turn when a timer callback asked for it (a fling's momentum is a timer), so a callback that fires per page of a fling or per frame of a drag costs nothing and does not stack.
 
 ## The meanings
 
@@ -78,7 +78,7 @@ What is silent by design, and why:
 In this order:
 
 1. The app's mute (`set_sounds_muted(true)`). On Android the camera sounds survive it where the region requires the shutter sound (`MediaActionSound.mustPlayShutterSound()`).
-2. The OS switch of the sound's class: on Android "Touch sounds" (`Settings.System.SOUND_EFFECTS_ENABLED`) for every `AudioManager` effect, and the ringer mode and Do Not Disturb for the notification tone. The window's style carries the switch (`SystemStyle.audio`); Android reads it at the start and at every resume.
+2. The OS switch of the sound's class: on Android "Touch sounds" (`Settings.System.SOUND_EFFECTS_ENABLED`) for every `AudioManager` effect, and the ringer mode and Do Not Disturb for the notification tone. The window's style carries the switch (`SystemStyle.audio`); Android assumes it is on at the start, reads it at the first resume and again at every resume after it, and `AudioManager` applies it live at every call anyway.
 3. The platform's route table.
 4. The pacing: the same sound again within its minimum interval (40 ms for `Tick` and `TabChange`, 100 ms for the others) is dropped, identical requests of one pass are one sound, and an EVENT sound is not repeated more than twice in a row within a second. Input feedback has no repeat limit: a tick per page of a fling is the point.
 

@@ -1329,7 +1329,8 @@ get_cursor_relative_to_viewport get_scroll_offset get_scroll_offset_for_node""".
 
 # mutates real state but paints NOTHING by itself
 CB_INVISIBLE = set("""stop_propagation stop_immediate_propagation prevent_default keyring_get
-keyring_store keyring_delete request_biometric_auth set_clipboard_content set_copy_content
+keyring_store keyring_store_protected keyring_unlock keyring_delete request_biometric_auth
+open_app_settings set_clipboard_content set_copy_content
 set_cut_content set_drag_data set_drop_effect accept_drop add_timer remove_timer add_thread
 remove_thread commit_undo_snapshot find_scroll_parent set_route_param push_change
 set_text_changeset queue_window_state_sequence inject_native_gesture add_image_to_cache

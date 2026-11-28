@@ -388,6 +388,7 @@ azpasswordmanager-copied-clears = { $label } kopiert; die Zwischenablage wird in
 azpasswordmanager-clipboard-cleared = Die Zwischenablage ist geleert.
 azpasswordmanager-keyring-busy = Der Schlüsselbund des Systems antwortet noch; versuche es gleich noch einmal.
 azpasswordmanager-biometric-reason = Den Tresor „{ $name }“ entsperren
+azpasswordmanager-biometric-store-reason = Das Entsperren dieses Tresors mit diesem Gerät einschalten
 azpasswordmanager-use-password = Das Passwort verwenden
 azpasswordmanager-waiting-keyring = Warte auf den Schlüsselbund des Systems…
 azpasswordmanager-no-device-key = Dieses Gerät bewahrt noch keinen Schlüssel dieses Tresors auf: Entsperre ihn mit dem Master-Passwort und schalte dann in den Einstellungen die Geräteentsperrung ein.

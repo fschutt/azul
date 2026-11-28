@@ -8,6 +8,9 @@
 #                 named in AZ_QA_SCENARIOS, space separated; the Simulator shares the host's loopback: no port forwarding);
 #            both: qa, then e2e on the same simulator;
 #            matrix: every e2e scenario file against its host app, scripts/ci/e2e_matrix.py (AZ_QA_MATRIX_APPS: the app zips).
+#            tabs: the tab strip (examples/azul-widgets/e2e/tab_touch*.json) on the Simulator's phone, portrait then landscape (Device > Rotate Left
+#                 through osascript): the engine's frames of every file (AZ_E2E_SHOT_DIR), the device's pictures of a plain start (light, dark)
+#                 and a recording of each run, in <out>/tabs/<orientation>/; AZ_QA_IOS_DEVICE="iPhone 16 Pro" names the device type.
 #            flicker: scripts/ci/flicker_audit.py ios: the idle pictures and the flash frames (a recording of the cold start, the dark
 #                 appearance, rotation when the Simulator's menu can be pressed, leaving the app and back; AZ_QA_BACKEND=gpu for the GPU path).
 #
@@ -50,6 +53,13 @@ def rank(d):
     plain = not re.search(r"(Pro|Plus|Max|mini|SE|e\b)", d["name"])
     return (int(m.group(1)) if m else 0, plain)
 types.sort(key=rank)
+import os
+want = os.environ.get("AZ_QA_IOS_DEVICE", "")
+if want:   # a device type by its name (exact, else the first that holds the text): iPhone 16 Pro, iPhone SE (3rd generation)
+    named = [d for d in types if d["name"] == want] or [d for d in types if want in d["name"]]
+    if not named:
+        raise SystemExit("no device type named " + want + " on " + rt["identifier"] + ": " + ", ".join(d["name"] for d in types))
+    types = named
 print(rt["identifier"], types[-1]["identifier"])
 PY
 )" || { echo "$pick"; exit 2; }
@@ -89,6 +99,33 @@ if [ "$session" = matrix ]; then
   apps=()
   for z in ${AZ_QA_MATRIX_APPS:-$app}; do apps+=(--app "$z"); done
   python3 "$here/e2e_matrix.py" ios --repo . --out "$out" --udid "$udid" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${apps[@]+"${apps[@]}"} 2>&1 | tee "$out/e2e-matrix.log"
+fi
+if [ "$session" = tabs ]; then
+  # THE TAB STRIP on the phone: per orientation (1) the device's own pictures of a plain start, light and dark, (2) per file of AZ_QA_TABS_FILES a
+  # recording of its run and the engine's frames of it (AZ_E2E_SHOT_DIR, scripts/ci/e2e_matrix.py --shots), its verdicts in the table
+  xcrun simctl list devices | grep "$udid" | head -n 1 >"$out/device.txt" || true
+  for orient in portrait landscape; do
+    if [ "$orient" = landscape ]; then
+      open -a Simulator --args -CurrentDeviceUDID "$udid"; sleep 10
+      osascript -e 'tell application "Simulator" to activate' -e 'delay 1' \
+        -e 'tell application "System Events" to keystroke (ASCII character 28) using {command down}' >"$out/rotate.log" 2>&1 \
+        || echo "the runner refused the rotation (the pictures stay portrait): $(cat "$out/rotate.log")"
+      sleep 5
+    fi
+    td="$out/tabs/$orient"; mkdir -p "$td/shots" "$td/videos"
+    xcrun simctl launch "$udid" "$bid" >"$td/launch.log" 2>&1; sleep 30
+    xcrun simctl io "$udid" screenshot "$td/device-light-start.png" >/dev/null 2>&1 || true
+    xcrun simctl ui "$udid" appearance dark >/dev/null 2>&1; sleep 8
+    xcrun simctl io "$udid" screenshot "$td/device-dark-start.png" >/dev/null 2>&1 || true
+    xcrun simctl ui "$udid" appearance light >/dev/null 2>&1; sleep 4
+    xcrun simctl terminate "$udid" "$bid" >/dev/null 2>&1 || true
+    for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures}; do
+      xcrun simctl io "$udid" recordVideo --codec h264 --force "$td/videos/${part%.json}.mp4" >"$td/videos/${part%.json}.log" 2>&1 &
+      rec=$!
+      python3 "$here/e2e_matrix.py" ios --repo . --out "$td/matrix-${part%.json}" --udid "$udid" --only "$part" --shots "$td/shots" --app "$app" 2>&1 | tee -a "$td/e2e-matrix.log"
+      kill -INT "$rec" 2>/dev/null; wait "$rec" 2>/dev/null
+    done
+  done
 fi
 if [ "$session" = flicker ]; then
   # the recording is cut into frames with ffmpeg, which a macOS runner may not have

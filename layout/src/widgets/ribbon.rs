@@ -2798,6 +2798,15 @@ pub struct Ribbon {
     /// What the app puts at the right end of the tab row, before the
     /// chevron (the location tabs' button); `None` for nothing.
     pub strip_end: OptionDom,
+    /// The tab row in the status bar's band ([`Self::with_status_bar`]): the tabs take the place of
+    /// the clock and the battery icons and slide around the cutouts of the display. `None` keeps it
+    /// a row of the layout. Only with `TabStyle::TouchPills` and [`Self::dom_desktop`]. APPENDED for
+    /// ABI stability.
+    pub status_bar: crate::widgets::tab_strip::OptionStatusBarBand,
+    /// Whether a vertical swipe on the content band flips to the previous / next tab
+    /// ([`Self::with_flip`]): `AtEdges` (the default) flips with a finger that swipes on the band
+    /// (it scrolls nothing vertically); `Off` never. APPENDED for ABI stability.
+    pub flip: crate::widgets::tab_flip::TabFlip,
 }
 
 /// The application button at the far left of the tab strip ("FILE").
@@ -3546,7 +3555,40 @@ impl Ribbon {
             tab_style: crate::widgets::tabs::TabStyle::Auto,
             reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
             strip_end: OptionDom::None,
+            status_bar: crate::widgets::tab_strip::OptionStatusBarBand::None,
+            flip: crate::widgets::tab_flip::TabFlip::AtEdges,
         }
+    }
+
+    /// Put the tab row in the status bar's band: the tabs take the place of the clock and the
+    /// battery icons, in the band of `band` (`StatusBarBand::from_display`), and slide around the
+    /// cutouts of the display; the content band sits below. The window must draw into the band
+    /// (`WindowFlags::extend_into_safe_area`, `system_bars.status` hidden) and the ribbon be the
+    /// first thing in it. Needs `TabStyle::TouchPills` and [`Self::dom_desktop`]; a window with no
+    /// status bar and no cutout has no band, and the row is an ordinary one.
+    pub fn set_status_bar(&mut self, band: crate::widgets::tab_strip::StatusBarBand) {
+        self.status_bar = crate::widgets::tab_strip::OptionStatusBarBand::Some(band);
+    }
+
+    /// [`Self::set_status_bar`] for the builder chain.
+    #[must_use]
+    pub fn with_status_bar(mut self, band: crate::widgets::tab_strip::StatusBarBand) -> Self {
+        self.set_status_bar(band);
+        self
+    }
+
+    /// Whether a vertical swipe on the content band flips to the previous / next tab (told to
+    /// `on_tab_click`): `Off`, `AtEdges` (a finger; the default) or `Always` (a wheel too). The
+    /// tabs stay the explicit way to choose one. See `TabContent::with_flip_of` for the rules.
+    pub const fn set_flip(&mut self, flip: crate::widgets::tab_flip::TabFlip) {
+        self.flip = flip;
+    }
+
+    /// [`Self::set_flip`] for the builder chain.
+    #[must_use]
+    pub const fn with_flip(mut self, flip: crate::widgets::tab_flip::TabFlip) -> Self {
+        self.set_flip(flip);
+        self
     }
 
     /// The shape of the tabs: the theme's own row (`Auto`), Aurora's
@@ -3797,9 +3839,21 @@ impl Ribbon {
         scales: &[GroupScale],
         view: &RevealView,
     ) -> Dom {
-        let pills = self.tab_style.resolved(theme) == crate::widgets::tabs::TabStyle::Pills;
+        let resolved = self.tab_style.resolved(theme);
+        let touch = resolved == crate::widgets::tabs::TabStyle::TouchPills;
+        let pills = resolved == crate::widgets::tabs::TabStyle::Pills || touch;
         let mut curves = TabRowCurves::default();
-        if pills {
+        if touch {
+            // The tab row of touch pills, a row longer than the window that scrolls; the status
+            // bar's band, if there is one, decides the room before the first pill and after the
+            // last.
+            let band = self
+                .status_bar
+                .as_ref()
+                .filter(|band| band.is_in_band());
+            let strip = crate::widgets::tabs::StripScrollData::for_band(band, Vec::new());
+            self.style = touch_row_style(self.style, theme, strip.lead, strip.trail);
+        } else if pills {
             // The tab row of the theme's buttons, on one leather surface
             // with the content; a part the caller set stays the caller's.
             self.style = pill_row_style(self.style, theme);
@@ -3813,11 +3867,11 @@ impl Ribbon {
                 curves.selected_tab = Some(flora::tab_curves(false));
             }
             self.style = flora::ribbon_style(self.style);
-            if pills {
+            if pills && !touch {
                 self.style = flora::ribbon_leather_style(self.style);
             }
         }
-        self.build_chrome(mode, theme, &curves, scales, view, pills)
+        self.build_chrome(mode, theme, &curves, scales, view, pills, touch)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3829,6 +3883,7 @@ impl Ribbon {
         scales: &[GroupScale],
         view: &RevealView,
         pills: bool,
+        touch: bool,
     ) -> Dom {
         let Self {
             app_button,
@@ -3848,7 +3903,19 @@ impl Ribbon {
             // Already read into `view` by `themed`.
             reveal: _,
             strip_end,
+            status_bar,
+            flip,
         } = self;
+        // The leather: the desktop pills' one surface and golden line. The touch pills have none.
+        let leather = pills && !touch;
+        let band = status_bar.into_option().filter(crate::widgets::tab_strip::StatusBarBand::is_in_band);
+        let strip_scroll = crate::widgets::tabs::StripScrollData::for_band(
+            band.as_ref(),
+            vec![
+                "__azul-native-ribbon-tab".to_string(),
+                "__azul-native-ribbon-appbutton".to_string(),
+            ],
+        );
         let has_callback = on_tab_click.is_some();
         // The row of buttons is the title bar itself: no grab strip above it
         // (the window controls are centred in the same 28px row), and the
@@ -3918,6 +3985,9 @@ impl Ribbon {
                 for curve in crate::widgets::tabs::australis_curves(look) {
                     d.add_child(curve);
                 }
+            }
+            if touch {
+                d.add_child(crate::widgets::tabs::hit_extender());
             }
             if let Some(oc) = on_click.into_option() {
                 d = d.with_callbacks(
@@ -3995,6 +4065,14 @@ impl Ribbon {
                 }
             }
 
+            if touch {
+                // The target of a finger is the whole row, and the selected pill brings itself into
+                // a lane of the band when the selection changes.
+                d.add_child(crate::widgets::tabs::hit_extender());
+                if selected {
+                    d.add_child(crate::widgets::tabs::selected_marker(strip_scroll.clone(), idx));
+                }
+            }
             let mut cbs: Vec<CoreCallbackData> = Vec::with_capacity(4);
             if let Some(reveal) = view.reveal.as_ref() {
                 // The reveal hears the pointer and the clicks, and tells the
@@ -4113,10 +4191,18 @@ impl Ribbon {
             Some(chrome) => chrome.strip_style(&style.resolved_tab_bar_style()),
             None => style.resolved_tab_bar_style(),
         };
-        let tab_bar = Dom::create_div()
+        let mut tab_bar = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_TAB_BAR))
             .with_css_props(tab_bar_style)
             .with_children(DomVec::from_vec(bar_children));
+        if touch {
+            // Longer than the window: the row scrolls under a finger, with the wheel and the keys,
+            // and shows no scrollbar; a turn of the phone brings the selected pill into a lane.
+            tab_bar.root.set_css("overflow-x: auto; overflow-y: hidden; scrollbar-width: none;");
+            tab_bar = tab_bar.with_callbacks(crate::widgets::tabs::strip_resized_callbacks(
+                strip_scroll,
+            ));
+        }
 
         let mut group_doms: Vec<Dom> =
             match tabs.into_library_owned_vec().into_iter().nth(active_tab) {
@@ -4282,7 +4368,7 @@ impl Ribbon {
         // On the leather a disabled command keeps the raised pill in a
         // quieter face (the Button only dims it), and a check box's row is
         // a frosted panel.
-        if pills && theme == UiTheme::Flora {
+        if leather && theme == UiTheme::Flora {
             for g in &mut group_doms {
                 leather_details(g);
             }
@@ -4327,6 +4413,21 @@ impl Ribbon {
         if let Some(keyframes) = content_css {
             content = content.with_component_css(keyframes);
         }
+        // A vertical swipe over the band flips to the previous / next tab, told to `on_tab_click`.
+        if touch
+            && flip != crate::widgets::tab_flip::TabFlip::Off
+            && has_callback
+            && tab_labels.len() >= 2
+            && !matches!(mode, RibbonChromeMode::Mobile)
+        {
+            content = crate::widgets::tabs::attach_flip_band(
+                content,
+                flip,
+                active_tab,
+                &tab_labels,
+                on_tab_click,
+            );
+        }
 
         // Structural modes pin the chrome's visibility unconditionally
         // (inline resolution is last-wins, so the appended value overrides
@@ -4341,7 +4442,7 @@ impl Ribbon {
                     mobile_group_list,
                     content,
                 ];
-                if pills {
+                if leather {
                     v.push(golden_line());
                 }
                 v
@@ -4351,8 +4452,14 @@ impl Ribbon {
                 tab_bar
                     .root
                     .upsert_inline_css_property(P::const_display(LayoutDisplay::Flex));
+                // The touch row in the status bar's band: in a box as tall as the band, with the
+                // window's background, and a cover over each gap the cutouts leave.
+                let tab_bar = match band.as_ref() {
+                    Some(band) if touch => crate::widgets::tabs::touch_header(tab_bar, band),
+                    _ => tab_bar,
+                };
                 let mut v = vec![tab_bar, content];
-                if pills {
+                if leather {
                     v.push(golden_line());
                 }
                 v
@@ -4405,7 +4512,7 @@ impl Ribbon {
         // tab-click's own RefreshDom immediately forgot it. Only attached
         // when a chrome behavior is active - an inert ribbon has no chrome
         // state to persist (and `Dom` equality stays meaningful for it).
-        if pills {
+        if leather {
             // The leather's tint and its pillow: one surface from the top of
             // the strip down to the golden line, its seam.
             container.root.set_css(crate::widgets::tabs::PILL_STRIP_CSS);
@@ -4566,6 +4673,58 @@ fn pill_row_style(mut s: RibbonStyle, theme: UiTheme) -> RibbonStyle {
         v.push(Cond::simple(P::const_height(LayoutHeight::const_px(LEATHER_CONTENT_PX))));
         v.extend(decl::padding(4, 6, 0, 6));
         s.content_style = some(v);
+    }
+    s
+}
+
+/// `s` with its tab row made of `theme`'s touch pills (`TabStyle::TouchPills`): a 48 px row of
+/// 32 px pills 8 px apart, `lead` before the first and `trail` after the last, that does not
+/// shrink and scrolls (the caller adds the overflow); the parts the caller left `None`. No leather:
+/// a strip in the status bar's band is covered by the window's own background.
+fn touch_row_style(mut s: RibbonStyle, theme: UiTheme, lead: f32, trail: f32) -> RibbonStyle {
+    use crate::widgets::{
+        button::ButtonType,
+        tabs::{touch_pill, TOUCH_GAP},
+    };
+    let some = |v: Vec<Cond>| OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from_vec(v));
+    if s.tab_bar_style.is_none() {
+        #[allow(clippy::cast_possible_truncation)] // a few px
+        let row = crate::widgets::tab_strip::TOUCH_ROW as isize;
+        let mut v = vec![
+            cond_border_box(),
+            Cond::simple(P::const_display(LayoutDisplay::Flex)),
+            only_on_mobile(P::const_display(LayoutDisplay::None)),
+            Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+            Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+            Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+            Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+                inner: FloatValue::const_new(0),
+            })),
+            Cond::simple(P::const_height(LayoutHeight::const_px(row))),
+            Cond::simple(P::ColumnGap(props::property::LayoutColumnGapValue::Exact(LayoutColumnGap {
+                inner: PixelValue::const_px(TOUCH_GAP),
+            }))),
+        ];
+        v.push(Cond::simple(P::const_padding_left(LayoutPaddingLeft {
+            inner: PixelValue::px(lead),
+        })));
+        v.push(Cond::simple(P::const_padding_right(LayoutPaddingRight {
+            inner: PixelValue::px(trail),
+        })));
+        s.tab_bar_style = some(v);
+    }
+    if s.app_button_style.is_none() {
+        s.app_button_style = some(touch_pill(theme, ButtonType::Default).into_library_owned_vec());
+    }
+    if s.tab_style.is_none() {
+        s.tab_style = some(touch_pill(theme, ButtonType::Default).into_library_owned_vec());
+    }
+    if s.tab_active_style.is_none() {
+        s.tab_active_style = some(touch_pill(theme, ButtonType::Primary).into_library_owned_vec());
+    }
+    if s.tab_filler_style.is_none() {
+        s.tab_filler_style =
+            some(vec![Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1)))]);
     }
     s
 }
@@ -10305,3 +10464,8 @@ mod ribbon_scaling_tests;
 #[cfg(test)]
 #[path = "ribbon_mobile_test.rs"]
 mod ribbon_mobile_test;
+
+/// The touch pills of the tab row, the status bar's band and the flip of the content band.
+#[cfg(test)]
+#[path = "ribbon_touch_test.rs"]
+mod ribbon_touch_test;

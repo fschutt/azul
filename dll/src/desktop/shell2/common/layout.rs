@@ -582,7 +582,10 @@ pub fn regenerate_layout(
         // keyboard. `layout_window` is the single authority; the shells write
         // it (Android from `WindowInsets`, iOS from `UIView.safeAreaInsets`,
         // macOS from `NSView`).
-        safe_area: layout_window.safe_area_insets,
+        safe_area: layout_window.effective_safe_area_insets(current_window_state),
+        // The shapes the insets are made of (the simulation of `WindowFlags::display_preset`
+        // included), for `LayoutCallbackInfo::get_display_features`.
+        display_features: layout_window.effective_display_features(current_window_state),
         // Where each global hotkey stood BEFORE this pass (owner relative to
         // this window): what `get_global_hotkey_status` answers from. A
         // status that moves because of this pass's own declarations is seen
@@ -2192,7 +2195,10 @@ pub fn regenerate_layout(
             emit(*capability, *node_id);
         }
     });
-    let permission_events = layout_window.permission_manager.take_pending_events();
+    // Only what may ask the user now: a Subscribe waits for the user's next gesture (a probe in
+    // the first DOM never asks at launch), one capability is asked per gesture, and a decided
+    // capability (denied, restricted) is not asked again.
+    let permission_events = layout_window.permission_manager.take_dispatchable();
     if !permission_events.is_empty() {
         crate::desktop::extra::permission::apply_diff_events(
             &permission_events,
@@ -2225,7 +2231,13 @@ pub fn regenerate_layout(
             }
         });
     }
-    let geolocation_events = layout_window.geolocation_manager.take_pending_events();
+    // The same rule for the location prompt a Subscribe starts: after a user gesture, once.
+    let geolocation_events = {
+        let permissions = &mut layout_window.permission_manager;
+        layout_window.geolocation_manager.take_admitted_events(|| {
+            permissions.admit(azul_layout::managers::permission::Capability::Geolocation)
+        })
+    };
     if !geolocation_events.is_empty() {
         crate::desktop::extra::geolocation::apply_diff_events(
             &geolocation_events,

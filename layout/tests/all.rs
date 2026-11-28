@@ -228,6 +228,8 @@ mod demo_layout_regressions;
 mod direction_and_unicode_bidi_order_the_glyphs_of_a_line;
 #[path = "display_list_ids.rs"]
 mod display_list_ids;
+#[path = "display_preset_insets.rs"]
+mod display_preset_insets;
 #[path = "dl_patch_golden.rs"]
 mod dl_patch_golden;
 #[path = "document_edit_notify.rs"]
@@ -508,6 +510,8 @@ mod test_style_tag_parsing;
 mod test_text_layout;
 #[path = "text_align_last_text_justify_and_text_indent_place_the_words_of_a_line.rs"]
 mod text_align_last_text_justify_and_text_indent_place_the_words_of_a_line;
+#[path = "inline_list_items_stay_in_the_line_of_their_list.rs"]
+mod inline_list_items_stay_in_the_line_of_their_list;
 #[path = "a_decorating_box_draws_its_line_on_its_own_baseline_and_in_its_own_size.rs"]
 mod a_decorating_box_draws_its_line_on_its_own_baseline_and_in_its_own_size;
 #[path = "from_font_takes_the_thickness_and_the_place_the_face_names.rs"]
@@ -1507,3 +1511,9 @@ mod a_typed_field_keeps_laying_out_when_the_page_shrinks_before_it;
 mod a_rotated_window_paints_its_canvas_across_its_new_width;
 #[path = "a_gpu_frame_is_put_on_the_frame_report_with_what_it_drew.rs"]
 mod a_gpu_frame_is_put_on_the_frame_report_with_what_it_drew;
+#[path = "the_gesture_config_is_one_struct_a_shell_sets_and_the_engine_keeps_usable.rs"]
+mod the_gesture_config_is_one_struct_a_shell_sets_and_the_engine_keeps_usable;
+#[path = "a_touch_the_system_cancelled_fires_no_click_no_long_press_no_drag.rs"]
+mod a_touch_the_system_cancelled_fires_no_click_no_long_press_no_drag;
+#[path = "the_system_gesture_regions_and_the_rects_an_app_excludes.rs"]
+mod the_system_gesture_regions_and_the_rects_an_app_excludes;

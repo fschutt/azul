@@ -20,7 +20,12 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use azul_core::keyring::{KeyringRequest, KeyringResult};
+#[cfg(target_os = "android")]
+use azul_core::keyring::{KeyringNeed, KeyringProtection, KeyringSupport};
 use azul_layout::managers::shared_queue::SharedQueue;
+
+#[cfg(target_os = "android")]
+use super::Interaction;
 
 // One op in flight at a time; a nonzero handle drops a late result from a
 // superseded op (the user could re-tap before the first prompt resolves).
@@ -41,8 +46,13 @@ pub fn request(req: &KeyringRequest, results: &SharedQueue<KeyringResult>) {
             KeyringRequest::Store {
                 key,
                 secret,
-                require_biometry,
+                protection,
+                ..
             } => {
+                // The helper still takes the bool of the first version: the Android backend
+                // moves to the protection levels (a Keystore key per entry, a CryptoObject)
+                // in its own series; until then a protected level is "biometry required".
+                let require_biometry = protection.needs_user();
                 let k = env.new_string(key.as_str()).ok()?;
                 let s = env.new_string(secret.as_str()).ok()?;
                 env.call_static_method(
@@ -54,12 +64,12 @@ pub fn request(req: &KeyringRequest, results: &SharedQueue<KeyringResult>) {
                         JValue::Long(handle as i64),
                         JValue::Object(&k),
                         JValue::Object(&s),
-                        JValue::Bool(*require_biometry as u8),
+                        JValue::Bool(require_biometry as u8),
                     ],
                 )
                 .ok()?;
             }
-            KeyringRequest::Get { key } => {
+            KeyringRequest::Get { key } | KeyringRequest::Unlock { key, .. } => {
                 let k = env.new_string(key.as_str()).ok()?;
                 env.call_static_method(
                     class,
@@ -101,6 +111,26 @@ pub fn request(req: &KeyringRequest, results: &SharedQueue<KeyringResult>) {
     let _ = (req, results);
 }
 
+/// A worker thread's call (`Keyring::get_blocking`, the quiet ones): answered here on the
+/// calling thread, never through the Java callback and never with the user-check sheet. The
+/// helper has no synchronous entry yet: `Unavailable` (the Android backend adds it).
+#[cfg(target_os = "android")]
+pub(super) fn blocking(_req: &KeyringRequest, _interaction: Interaction) -> KeyringResult {
+    KeyringResult::Unavailable
+}
+
+/// What a read of `key` needs, from the item's record (the Android backend adds the record).
+#[cfg(target_os = "android")]
+pub(super) fn needs_prompt(_key: &str) -> KeyringNeed {
+    KeyringNeed::Unavailable
+}
+
+/// What this device does for `protection` (the Android backend adds the probe).
+#[cfg(target_os = "android")]
+pub(super) fn support(_protection: KeyringProtection) -> KeyringSupport {
+    KeyringSupport::Unavailable
+}
+
 /// Attach the current thread to the published JavaVM and run `f` with the
 /// `JNIEnv` + the activity `JObject`. Mirrors the biometric / geolocation
 /// backend attach sequence.
@@ -125,8 +155,9 @@ fn attach<R>(f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Option<R
 
 /// Receives a result from `AzulKeyring`. `code` per the contract:
 /// 0=Stored, 1=Deleted, 2=Retrieved (secret in `secret_or_null`),
-/// 3=NotFound, 4=Denied (biometric gate failed), 5=Unavailable, else
-/// Error. Drops results whose `handle` doesn't match the live op.
+/// 3=NotFound, 4=Denied (the system refused), 5=Unavailable, 6=Error,
+/// 7=Cancelled, 8=Failed, 9=LockedOut, 10=NotEnrolled, 11=Invalidated,
+/// 12=WouldPrompt, else Error. Drops results whose `handle` doesn't match the live op.
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_azul_keyring_AzulKeyring_nativeOnKeyringResult(
@@ -164,6 +195,12 @@ pub unsafe extern "system" fn Java_com_azul_keyring_AzulKeyring_nativeOnKeyringR
         3 => KeyringResult::NotFound,
         4 => KeyringResult::Denied,
         5 => KeyringResult::Unavailable,
+        7 => KeyringResult::Cancelled,
+        8 => KeyringResult::Failed,
+        9 => KeyringResult::LockedOut,
+        10 => KeyringResult::NotEnrolled,
+        11 => KeyringResult::Invalidated,
+        12 => KeyringResult::WouldPrompt,
         _ => KeyringResult::Error,
     };
     // The JNI entry has no context: the App's services are where `App::run` put them.

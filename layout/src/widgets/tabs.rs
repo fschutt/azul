@@ -26,6 +26,7 @@ use azul_css::{
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
+    timer::{Timer, TimerCallback},
     widgets::themes::{flat, system_palette},
 };
 
@@ -1540,6 +1541,14 @@ pub enum TabStyle {
     /// house radius in a 28px row (a title bar's) on a leather strip that
     /// closes on a 2px golden line.
     Pills,
+    /// Pills for a finger, the look `Auto` takes on a phone: the selected tab is the submit
+    /// button, the others the plain button, 32 px tall with full-radius ends in a 48 px row,
+    /// each with a hit area of the whole row (the target is padded, not the picture). The
+    /// row is longer than the window: it scrolls sideways under a finger (momentum), the
+    /// wheel and the keys, without a scrollbar, and the selected pill comes into view by
+    /// itself. In the status bar's band (`TabHeader::with_status_bar`) it slides around the
+    /// cutouts of the display.
+    TouchPills,
 }
 
 impl TabStyle {
@@ -1553,28 +1562,59 @@ impl TabStyle {
             (other, _) => other,
         }
     }
+
+    /// [`Self::resolved`], with `Auto` answering a PHONE's window (`phone`: a touch platform and
+    /// a window narrower than [`PHONE_MAX_WIDTH`]) with the touch pills instead of the theme's
+    /// look. Desktop keeps the theme's look; any style named by the app stays.
+    #[must_use]
+    pub const fn resolved_for(self, theme: crate::widgets::themes::UiTheme, phone: bool) -> Self {
+        match (self, phone) {
+            (Self::Auto, true) => Self::TouchPills,
+            (other, _) => other.resolved(theme),
+        }
+    }
+}
+
+/// The widest window, in logical px, that is a phone's: `TabStyle::Auto` is the touch pills in a
+/// window narrower than this on a touch platform (Android, iOS).
+pub const PHONE_MAX_WIDTH: f32 = 600.0;
+
+/// Whether the DOM being built is for a phone: a touch platform, and a window narrower than
+/// [`PHONE_MAX_WIDTH`]. Asked through the recorded size queries, so a resize across the width
+/// builds the tab bar again.
+fn phone_build() -> bool {
+    cfg!(any(target_os = "android", target_os = "ios"))
+        && azul_core::callbacks::build_window_width_less_than(PHONE_MAX_WIDTH).unwrap_or(false)
 }
 
 /// Header bar for a tab widget, containing the clickable tab labels.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct TabHeader {
+    /// Optional callback invoked when a tab is clicked.
+    pub on_click: OptionTabOnClick,
+    /// The strip in the status bar's band (`with_status_bar`): it takes the place of the clock
+    /// and the battery icons and slides around the cutouts of the display. `None` (the default)
+    /// keeps it a row of the layout.
+    pub status_bar: crate::widgets::tab_strip::OptionStatusBarBand,
     /// Labels for each tab.
     pub tabs: StringVec,
+    /// How the panel opens and closes (`with_reveal`), kept by the app
+    /// between rebuilds; `None` keeps the active tab's panel always shown.
+    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
     /// Zero-based index of the currently active tab. An index past the last
     /// tab selects none: no tab is drawn selected.
     pub active_tab: usize,
-    /// Optional callback invoked when a tab is clicked.
-    pub on_click: OptionTabOnClick,
     /// The widget theme this tab bar is PINNED to (`with_theme`), or `None`
     /// to follow the app theme (`AppConfig::with_theme`,
     /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
     /// The shape of the tabs (`with_style`); `Auto` takes the theme's own.
     pub style: TabStyle,
-    /// How the panel opens and closes (`with_reveal`), kept by the app
-    /// between rebuilds; `None` keeps the active tab's panel always shown.
-    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
+    /// Whether a vertical swipe on the panel of this bar flips to the previous / next tab
+    /// (`with_flip`, then `TabContent::with_flip_of`): `AtEdges` (the default) flips with a finger
+    /// that pulls past the end of the content, never with a wheel.
+    pub flip: crate::widgets::tab_flip::TabFlip,
 }
 
 impl Default for TabHeader {
@@ -1586,6 +1626,8 @@ impl Default for TabHeader {
             theme: crate::widgets::themes::OptionUiTheme::None,
             style: TabStyle::Auto,
             reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
+            status_bar: crate::widgets::tab_strip::OptionStatusBarBand::None,
+            flip: crate::widgets::tab_flip::TabFlip::AtEdges,
         }
     }
 }
@@ -1631,7 +1673,45 @@ impl TabHeader {
             theme: crate::widgets::themes::OptionUiTheme::None,
             style: TabStyle::Auto,
             reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
+            status_bar: crate::widgets::tab_strip::OptionStatusBarBand::None,
+            flip: crate::widgets::tab_flip::TabFlip::AtEdges,
         }
+    }
+
+    /// Whether a vertical swipe on the panel flips to the previous / next tab: `Off`, `AtEdges`
+    /// (a finger that pulls past the end of the content; the default) or `Always` (a wheel
+    /// that keeps pushing against the end flips too). The panel follows the bar:
+    /// `TabContent::with_flip_of(&bar)`. The pills stay the explicit way to choose a tab and the
+    /// one assistive technology uses: a flip is a shortcut, never the only path.
+    pub const fn set_flip(&mut self, flip: crate::widgets::tab_flip::TabFlip) {
+        self.flip = flip;
+    }
+
+    /// [`Self::set_flip`] for the builder chain.
+    #[must_use]
+    pub const fn with_flip(mut self, flip: crate::widgets::tab_flip::TabFlip) -> Self {
+        self.set_flip(flip);
+        self
+    }
+
+    /// Put the strip in the status bar's band: the tab bar takes the place of the clock and the
+    /// battery icons, in the band of `band` (`StatusBarBand::from_display`, made from
+    /// `LayoutCallbackInfo::get_display_features`), and its pills slide around the cutouts of the
+    /// display: the strip is the lanes either side of the camera, what lies under it is covered,
+    /// and the selected pill always stands whole inside a lane. The window must draw into the
+    /// band (`WindowFlags::extend_into_safe_area`, `system_bars.status` hidden): the strip is the
+    /// first thing in the window, at its top edge. A window with no status bar and no cutout has
+    /// no band, and the strip is an ordinary row. Only the touch pills (`TabStyle::TouchPills`,
+    /// what `Auto` is on a phone) take a band.
+    pub fn set_status_bar(&mut self, band: crate::widgets::tab_strip::StatusBarBand) {
+        self.status_bar = crate::widgets::tab_strip::OptionStatusBarBand::Some(band);
+    }
+
+    /// [`Self::set_status_bar`] for the builder chain.
+    #[must_use]
+    pub fn with_status_bar(mut self, band: crate::widgets::tab_strip::StatusBarBand) -> Self {
+        self.set_status_bar(band);
+        self
     }
 
     /// How the panel opens and closes: the app makes `reveal` once
@@ -1716,6 +1796,16 @@ impl TabHeader {
     #[must_use]
     pub fn dom(self) -> Dom {
         use azul_core::callbacks::CoreCallbackDataVec;
+
+        // The touch pills have a DOM of their own: a strip that scrolls inside a header, pills with
+        // a padded hit area, covers over the cutouts. `Auto` is them on a phone.
+        {
+            let live = crate::widgets::themes::theme_blocks::live_theme(self.theme);
+            let phone = self.style == TabStyle::Auto && phone_build();
+            if self.style.resolved_for(live, phone) == TabStyle::TouchPills {
+                return self.dom_touch(live);
+            }
+        }
 
         // classes for previous tab
         const IDS_AND_CLASSES_5117007530891373979: &[IdOrClass] = &[
@@ -1952,6 +2042,931 @@ impl TabHeader {
     }
 }
 
+/// The class of the scrolling row of a strip that sits in the status bar's band: the one handle a
+/// scenario or a test finds the band's row by, whatever other strips the page has.
+pub const BAND_STRIP_CLASS: &str = "__azul-native-tabs-touch-band";
+
+/// The classes of the touch strip's header, its scrolling row and its pills.
+static TOUCH_HEADER_CLASSES: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-tabs-touch-header"))];
+static TOUCH_STRIP_CLASSES: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-tabs-touch-strip"))];
+static TOUCH_ACTIVE_CLASSES: &[IdOrClass] = &[
+    Class(AzString::from_const_str(TAB_ACTIVE_CLASS_NAME)),
+    Class(AzString::from_const_str("__azul-native-tabs-touch-pill")),
+];
+static TOUCH_INACTIVE_CLASSES: &[IdOrClass] = &[
+    Class(AzString::from_const_str(TAB_NOT_ACTIVE_CLASS_NAME)),
+    Class(AzString::from_const_str("__azul-native-tabs-touch-pill")),
+];
+
+/// What the strip's scroll-into-view needs, handed to the marker in the selected pill: the room
+/// before the first pill and after the last, the room between pills, and the lanes of the band
+/// (the strip's own coordinates; none = the whole view).
+#[derive(Clone)]
+pub(crate) struct StripScrollData {
+    /// The room before the first pill and after the last, px.
+    pub(crate) lead: f32,
+    pub(crate) trail: f32,
+    /// The room between two pills, px.
+    pub(crate) gap: f32,
+    /// The lanes of the band in the strip's coordinates; none = the whole view.
+    pub(crate) lanes: Vec<(f32, f32)>,
+    /// The classes that mark a pill among the strip's children (the tabs, the application button of
+    /// a ribbon): what the scroll-into-view counts and measures.
+    pub(crate) pill_classes: Vec<String>,
+}
+
+impl StripScrollData {
+    /// The numbers of a strip in `band` (none: an ordinary row), whose pills carry one of
+    /// `pill_classes`: the first pill stands [`TOUCH_LEAD`] from the first lane's edge, the last the
+    /// same from the last lane's.
+    pub(crate) fn for_band(
+        band: Option<&crate::widgets::tab_strip::StatusBarBand>,
+        pill_classes: Vec<String>,
+    ) -> Self {
+        #[allow(clippy::cast_precision_loss)] // a few px
+        let (lead_px, gap_px) = (TOUCH_LEAD as f32, TOUCH_GAP as f32);
+        let lanes = band.map(crate::widgets::tab_strip::StatusBarBand::lane_spans).unwrap_or_default();
+        let width = band.map_or(0.0, |b| b.width);
+        Self {
+            lead: lanes.first().map_or(0.0, |lane| lane.0) + lead_px,
+            trail: lanes.last().map_or(0.0, |lane| (width - lane.1).max(0.0)) + lead_px,
+            gap: gap_px,
+            lanes,
+            pill_classes,
+        }
+    }
+}
+
+/// The transparent box that makes a pill's target the whole row: 4 px beside it (half the gap
+/// to the next pill) and 8 px above and below it, so a 32 px pill answers a finger on a 48 px
+/// row. The picture is the pill; only the target is padded.
+pub(crate) fn hit_extender() -> Dom {
+    Dom::create_div().with_css("position: absolute; left: -4px; right: -4px; top: -8px; bottom: -8px;")
+}
+
+/// The class of the marker hung in the selected pill: what finds the selected pill again when the
+/// strip is resized (the marker's own `AfterMount` knows its pill by being in it).
+const SELECTED_MARKER_CLASS: &str = "__azul-tabs-selected-marker";
+
+static SELECTED_MARKER_CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str(SELECTED_MARKER_CLASS))];
+
+/// The marker hung in the SELECTED pill, keyed by its tab: a new selection mounts a new marker,
+/// and its `AfterMount` scrolls the strip so that the selected pill stands whole in a lane -
+/// whoever changed the selection (a tap, an arrow key, a flip of the panel, the app).
+pub(crate) fn selected_marker(data: StripScrollData, tab: usize) -> Dom {
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(SELECTED_MARKER_CLASSES))
+        .with_css("position: absolute; left: 0px; top: 0px; width: 0px; height: 0px;")
+        .with_key(("azul-tab-selected", tab))
+        .with_callbacks(
+            vec![CoreCallbackData {
+                event: EventFilter::Component(azul_core::dom::ComponentEventFilter::AfterMount),
+                callback: CoreCallback {
+                    cb: on_selected_pill_mounted as usize,
+                    ctx: azul_core::refany::OptionRefAny::None,
+                },
+                refany: RefAny::new(data),
+            }]
+            .into(),
+        )
+}
+
+/// The strip's own `NodeResized`: a window of another width (the phone turned) moves the lanes of the
+/// band and the room of the row, so the selected pill is brought into a lane again.
+pub(crate) fn strip_resized_callbacks(data: StripScrollData) -> azul_core::callbacks::CoreCallbackDataVec {
+    vec![CoreCallbackData {
+        event: EventFilter::Component(azul_core::dom::ComponentEventFilter::NodeResized),
+        callback: CoreCallback {
+            cb: on_strip_resized as usize,
+            ctx: azul_core::refany::OptionRefAny::None,
+        },
+        refany: RefAny::new(data),
+    }]
+    .into()
+}
+
+/// A cover over a gap of the status bar's band: the window's background, over the pills, so
+/// that a pill sliding into the gap is hidden by it and never drawn under the camera.
+fn gap_cover(rect: &azul_core::geom::LogicalRect) -> Dom {
+    Dom::create_div().with_css(&format!(
+        "position: absolute; left: {}px; top: 0px; width: {}px; height: {}px; \
+         background: system:window-background;",
+        rect.origin.x, rect.size.width, rect.size.height
+    ))
+}
+
+/// `AfterMount` of the marker in the selected pill: scroll the strip so that the pill is whole
+/// in a lane ([`crate::widgets::tab_strip::scroll_for_pill`]).
+extern "C" fn on_selected_pill_mounted(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let marker = info.get_hit_node();
+    let Some(pill) = info.get_parent(marker) else {
+        return Update::DoNothing;
+    };
+    let Some(strip) = info.get_parent(pill) else {
+        return Update::DoNothing;
+    };
+    scroll_selected_into_lane(&mut data, &mut info, strip, Some(pill))
+}
+
+/// `NodeResized` of the strip: the same, for the pill that carries the marker.
+extern "C" fn on_strip_resized(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let strip = info.get_hit_node();
+    scroll_selected_into_lane(&mut data, &mut info, strip, None)
+}
+
+/// Scroll `strip` so that its selected pill stands whole in a lane: `pill` is the selected one when
+/// the caller knows it, else the one that carries the marker.
+fn scroll_selected_into_lane(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    strip: azul_core::dom::DomNodeId,
+    pill: Option<azul_core::dom::DomNodeId>,
+) -> Update {
+    use azul_core::geom::LogicalPosition;
+
+    use crate::widgets::{roving, tab_strip};
+
+    let Some(guard) = data.downcast_ref::<StripScrollData>() else {
+        return Update::DoNothing;
+    };
+    let data = (*guard).clone();
+    drop(guard);
+
+    let Some(strip_id) = strip.node.into_crate_internal() else {
+        return Update::DoNothing;
+    };
+    let tabs: Vec<azul_core::dom::DomNodeId> = roving::children_of(info, strip)
+        .into_iter()
+        .filter(|n| data.pill_classes.iter().any(|class| roving::has_class(info, *n, class)))
+        .collect();
+    let selected = pill.or_else(|| {
+        tabs.iter().copied().find(|tab| {
+            roving::children_of(info, *tab)
+                .into_iter()
+                .any(|child| roving::has_class(info, child, SELECTED_MARKER_CLASS))
+        })
+    });
+    let Some(index) = selected.and_then(|pill| tabs.iter().position(|n| *n == pill)) else {
+        return Update::DoNothing;
+    };
+    let Some(view) = info.get_node_size(strip).map(|size| size.width) else {
+        return Update::DoNothing;
+    };
+    // Where each pill stands on the strip: from the room before the first and the widths, so the
+    // answer does not depend on how the engine reports positions of scrolled content.
+    let mut spans = Vec::with_capacity(tabs.len());
+    let mut x = data.lead;
+    for tab in &tabs {
+        let width = info.get_node_size(*tab).map_or(0.0, |size| size.width);
+        spans.push((x, width));
+        x += width + data.gap;
+    }
+    // Nothing laid out yet (a mount before the first frame of the strip): nothing to scroll.
+    if view <= 0.0 || spans.iter().any(|span| span.1 <= 0.0) {
+        return Update::DoNothing;
+    }
+    let content = x - data.gap + data.trail;
+    let max = tab_strip::max_scroll(content, view);
+    let now = info
+        .get_scroll_offset_for_node(strip.dom, strip_id)
+        .map_or(0.0, |offset| offset.x);
+    let lanes = if data.lanes.is_empty() {
+        vec![(0.0, view)]
+    } else {
+        data.lanes
+    };
+    let target = tab_strip::scroll_for_pill(spans[index], now, max, &lanes);
+    if (target - now).abs() >= 0.5 {
+        info.scroll_to_animated(strip.dom, strip_id, LogicalPosition { x: target, y: 0.0 });
+    }
+    Update::DoNothing
+}
+
+impl TabHeader {
+    /// The tab bar as touch pills ([`TabStyle::TouchPills`]): a header, a row of pills that
+    /// scrolls inside it without a scrollbar, and - in the status bar's band - a cover over each
+    /// gap the cutouts leave.
+    ///
+    /// The pills keep what every tab has: the tab role and the selected state, the tab classes
+    /// the arrow keys find their siblings by, the dataset, the click and arrow-key callbacks and
+    /// the roving tab stop.
+    #[allow(clippy::too_many_lines)] // one build: the pills, the strip, the covers
+    fn dom_touch(self, theme: crate::widgets::themes::UiTheme) -> Dom {
+        use azul_core::{
+            a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
+            callbacks::CoreCallbackDataVec,
+        };
+
+        use crate::widgets::{button::ButtonType, tab_strip};
+
+        let tab_count = self.tabs.as_ref().len();
+        let active = (self.active_tab < tab_count).then_some(self.active_tab);
+        let on_click_is_some = self.on_click.is_some();
+        let tab_stop = crate::widgets::roving::stop_index(Some(self.active_tab), tab_count);
+        let band = self.status_bar.into_option().filter(tab_strip::StatusBarBand::is_in_band);
+        #[allow(clippy::cast_precision_loss)] // a few px
+        let gap_px = TOUCH_GAP as f32;
+        let row = band
+            .as_ref()
+            .map_or(tab_strip::TOUCH_ROW, |b| b.height.max(tab_strip::TOUCH_ROW));
+        let scroll = StripScrollData::for_band(
+            band.as_ref(),
+            vec![TAB_ACTIVE_CLASS_NAME.to_string(), TAB_NOT_ACTIVE_CLASS_NAME.to_string()],
+        );
+        let (lead, trail) = (scroll.lead, scroll.trail);
+
+        let dataset = TabLocalDataset {
+            tab_idx: 0,
+            on_click: self.on_click,
+        };
+        let mut nodes: Vec<Dom> = Vec::with_capacity(tab_count + 2);
+        nodes.push(
+            Dom::create_div().with_css(&format!("flex-shrink: 0; width: {}px; height: 1px;", (lead - gap_px).max(0.0))),
+        );
+        for (tab_idx, label) in self.tabs.as_ref().iter().enumerate() {
+            let selected = active == Some(tab_idx);
+            let mut tab_dataset = dataset.clone();
+            tab_dataset.tab_idx = tab_idx;
+            let tab_dataset = RefAny::new(tab_dataset);
+            let callbacks: CoreCallbackDataVec = if on_click_is_some {
+                vec![
+                    CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::Click),
+                        callback: CoreCallback {
+                            cb: on_tab_click as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: tab_dataset.clone(),
+                    },
+                    CoreCallbackData {
+                        event: EventFilter::Focus(
+                            azul_core::events::FocusEventFilter::VirtualKeyDown,
+                        ),
+                        callback: CoreCallback {
+                            cb: on_tab_key as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: tab_dataset.clone(),
+                    },
+                ]
+                .into()
+            } else {
+                CoreCallbackDataVec::from_const_slice(&[])
+            };
+            let classes = if selected {
+                TOUCH_ACTIVE_CLASSES
+            } else {
+                TOUCH_INACTIVE_CLASSES
+            };
+            let mut pill = crate::widgets::widget_p_with_text(label.clone())
+                .with_callbacks(callbacks)
+                .with_dataset(Some(tab_dataset).into())
+                .with_css_props(touch_pill(
+                    theme,
+                    if selected {
+                        ButtonType::Primary
+                    } else {
+                        ButtonType::Default
+                    },
+                ))
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
+                // A tab, and whether it is the active one. The pill's text is not the node's own
+                // (the hit area hangs on it too), so the name is given.
+                .with_accessibility_info(AccessibilityInfo {
+                    role: AccessibilityRole::PageTab,
+                    accessibility_name: OptionString::Some(label.clone()),
+                    states: if selected {
+                        AccessibilityStateVec::from_vec(vec![AccessibilityState::Selected])
+                    } else {
+                        AccessibilityStateVec::from_const_slice(&[])
+                    },
+                    ..Default::default()
+                });
+            if on_click_is_some {
+                pill = pill.with_tab_index(crate::widgets::roving::item_tab_index(
+                    tab_idx, tab_stop,
+                ));
+            }
+            pill.add_child(hit_extender());
+            if selected {
+                pill.add_child(selected_marker(scroll.clone(), tab_idx));
+            }
+            nodes.push(pill);
+        }
+        nodes.push(
+            Dom::create_div().with_css(&format!("flex-shrink: 0; width: {}px; height: 1px;", (trail - gap_px).max(0.0))),
+        );
+
+        // The row: longer than the window, it scrolls sideways (a finger, the wheel, the keys)
+        // and shows no scrollbar.
+        let strip = Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(TOUCH_STRIP_CLASSES))
+            .with_css(&format!(
+                "display: flex; flex-direction: row; align-items: center; box-sizing: border-box; \
+                 width: 100%; height: {row}px; overflow-x: auto; overflow-y: hidden; \
+                 scrollbar-width: none; column-gap: {gap_px}px;"
+            ))
+            // The tab list its tabs belong to: the tabs are its direct children.
+            .with_accessibility_info(AccessibilityInfo {
+                role: AccessibilityRole::PageTabList,
+                ..Default::default()
+            })
+            // A turn of the phone brings the selected pill into a lane of the new band.
+            .with_callbacks(strip_resized_callbacks(scroll))
+            .with_children(DomVec::from_vec(nodes));
+
+        let mut header_css = format!(
+            "position: relative; box-sizing: border-box; width: 100%; height: {row}px; \
+             flex-shrink: 0; overflow: hidden;"
+        );
+        let mut strip = strip;
+        if band.is_some() {
+            strip.add_class(AzString::from_const_str(BAND_STRIP_CLASS));
+        }
+        let mut children = vec![strip];
+        if let Some(band) = band.as_ref() {
+            // The window's background under the band, and over the pills where the cutouts are.
+            header_css.push_str(" background: system:window-background;");
+            children.extend(tab_strip::cover_rects(band).iter().map(gap_cover));
+        }
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(TOUCH_HEADER_CLASSES))
+            .with_css(&header_css)
+            .with_children(DomVec::from_vec(children))
+    }
+}
+
+// ---- The flip of a tab panel ----
+//
+// A vertical swipe on the panel (`TabContent::with_flip_of`): the touch callbacks feed a
+// `FlipGesture` (the rules are in `tab_flip.rs`, as plain numbers), the panel shows the pull (the
+// content follows the finger with resistance, a chip names the tab a release goes to), and a flip is
+// told to the app exactly as a tap on a pill is. A fling carries on over more tabs through a chain of
+// timers, one flip and one tick each in a slowing rhythm.
+
+/// The class of a node that claims a vertical gesture (a slider, a map, a canvas): a finger that
+/// went down on it, or inside it, is never the panel's.
+pub const CLAIMS_GESTURE_CLASS: &str = "__azul-claims-gesture";
+
+const FLIP_NEXT_CLASS: &str = "__azul-tabs-flip-next";
+const FLIP_PREVIOUS_CLASS: &str = "__azul-tabs-flip-previous";
+
+static FLIP_NEXT_CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str(FLIP_NEXT_CLASS))];
+static FLIP_PREVIOUS_CLASSES: &[IdOrClass] =
+    &[Class(AzString::from_const_str(FLIP_PREVIOUS_CLASS))];
+
+/// Who is told of a flip: a tab bar's `on_click` (a `TabContent`'s panel), or a ribbon's
+/// `on_tab_click` (its content band).
+#[derive(Clone)]
+pub(crate) enum FlipTell {
+    /// The tab bar's callback, told as of a tap on a pill.
+    Tab(OptionTabOnClick),
+    /// The ribbon's callback, told the index of the tab.
+    Ribbon(crate::widgets::ribbon::OptionRibbonOnTabClick),
+}
+
+/// What the panel's callbacks share: the panel as the last build left it, the finger, the wheel,
+/// the clock. The dataset of the panel node: a rebuild keeps the old one and updates the first four
+/// fields ([`merge_flip_panel`]), so a gesture or a fling goes on across the rebuilds its own flips
+/// make.
+pub(crate) struct FlipPanelData {
+    flip: crate::widgets::tab_flip::TabFlip,
+    tab: usize,
+    names: Vec<String>,
+    on_flip: FlipTell,
+    gesture: Option<crate::widgets::tab_flip::FlipGesture>,
+    wheel: crate::widgets::tab_flip::WheelPush,
+    /// Bumped by every touch that goes down: a fling made for an older value ends.
+    epoch: u64,
+    /// The clock's zero (milliseconds are counted from the first touch).
+    origin: Option<azul_core::task::Instant>,
+}
+
+/// The data of `content`'s panel, or `None` for a panel that does not flip.
+fn flip_panel_data(content: &TabContent) -> Option<FlipPanelData> {
+    use crate::widgets::tab_flip::TabFlip;
+    let tabs = content.flip_tabs.as_ref();
+    if content.flip == TabFlip::Off || tabs.len() < 2 || content.on_flip.is_none() {
+        return None;
+    }
+    Some(FlipPanelData {
+        flip: content.flip,
+        tab: content.flip_tab,
+        names: tabs.iter().map(|name| name.as_str().to_string()).collect(),
+        on_flip: FlipTell::Tab(content.on_flip.clone()),
+        gesture: None,
+        wheel: crate::widgets::tab_flip::WheelPush::default(),
+        epoch: 0,
+        origin: None,
+    })
+}
+
+/// The panel (already holding the content group) with its touch and wheel callbacks, its dataset
+/// and the two hint chips. A panel that scrolls its own content: `overflow` says how.
+fn attach_flip(panel: Dom, data: FlipPanelData) -> Dom {
+    attach_flip_with(
+        panel,
+        data,
+        "position: relative; overflow-x: hidden; overflow-y: auto; scrollbar-width: none;",
+    )
+}
+
+/// [`attach_flip`] with the panel's own `css`: a ribbon's content band keeps its overflow and is
+/// only positioned for the chips.
+pub(crate) fn attach_flip_with(mut panel: Dom, data: FlipPanelData, css: &str) -> Dom {
+    let tab = data.tab;
+    let count = data.names.len();
+    let name = |i: usize| data.names.get(i).cloned().unwrap_or_default();
+    if tab + 1 < count {
+        panel.add_child(flip_chip(FLIP_NEXT_CLASSES, &hint_for(true, &name(tab + 1)), false));
+    }
+    if tab > 0 && tab <= count {
+        panel.add_child(flip_chip(FLIP_PREVIOUS_CLASSES, &hint_for(false, &name(tab - 1)), true));
+    }
+    let dataset = RefAny::new(data);
+    let mut callbacks = panel.root.get_callbacks().as_ref().to_vec();
+    for (event, cb) in [
+        (HoverEventFilter::TouchStart, on_flip_touch_start as usize),
+        (HoverEventFilter::TouchMove, on_flip_touch_move as usize),
+        (HoverEventFilter::TouchEnd, on_flip_touch_end as usize),
+        (HoverEventFilter::TouchCancel, on_flip_touch_cancel as usize),
+        (HoverEventFilter::Scroll, on_flip_wheel as usize),
+    ] {
+        callbacks.push(CoreCallbackData {
+            event: EventFilter::Hover(event),
+            callback: CoreCallback {
+                cb,
+                ctx: azul_core::refany::OptionRefAny::None,
+            },
+            refany: dataset.clone(),
+        });
+    }
+    let mut panel = panel
+        .with_key("azul-tab-flip-panel")
+        .with_css(css)
+        .with_callbacks(callbacks.into());
+    panel.root.set_dataset(azul_core::refany::OptionRefAny::Some(dataset));
+    // The `as` coerces the fn ITEM to the fn POINTER `DatasetMergeCallback` is made from.
+    #[allow(trivial_casts)]
+    panel
+        .root
+        .set_merge_callback(merge_flip_panel as azul_core::dom::DatasetMergeCallbackType);
+    panel
+}
+
+/// A ribbon's content band as a panel that flips: `tabs` are the names of the tabs, `active` the
+/// shown one, `tell` the ribbon's `on_tab_click`. The band keeps its own style; it scrolls nothing
+/// vertically, so any vertical swipe over it flips.
+pub(crate) fn attach_flip_band(
+    band: Dom,
+    flip: crate::widgets::tab_flip::TabFlip,
+    active: usize,
+    tabs: &[AzString],
+    tell: crate::widgets::ribbon::OptionRibbonOnTabClick,
+) -> Dom {
+    let data = FlipPanelData {
+        flip,
+        tab: active,
+        names: tabs.iter().map(|name| name.as_str().to_string()).collect(),
+        on_flip: FlipTell::Ribbon(tell),
+        gesture: None,
+        wheel: crate::widgets::tab_flip::WheelPush::default(),
+        epoch: 0,
+        origin: None,
+    };
+    attach_flip_with(band, data, "position: relative;")
+}
+
+/// The header of a strip in the status bar's band: `strip` (the scrolling row) in a box as tall as
+/// the band with the window's background, and a cover over each gap the cutouts leave.
+pub(crate) fn touch_header(strip: Dom, band: &crate::widgets::tab_strip::StatusBarBand) -> Dom {
+    let row = band.height.max(crate::widgets::tab_strip::TOUCH_ROW);
+    let mut strip = strip;
+    strip.add_class(AzString::from_const_str(BAND_STRIP_CLASS));
+    let mut children = vec![strip];
+    children.extend(crate::widgets::tab_strip::cover_rects(band).iter().map(gap_cover));
+    Dom::create_div()
+        .with_css(&format!(
+            "position: relative; box-sizing: border-box; width: 100%; height: {row}px; \
+             flex-shrink: 0; overflow: hidden; background: system:window-background;"
+        ))
+        .with_children(DomVec::from_vec(children))
+}
+
+/// "Next: Share" / "Previous: Home".
+fn hint_for(next: bool, name: &str) -> String {
+    crate::widgets::tab_flip::hint_text(
+        if next {
+            crate::widgets::tab_flip::FlipDirection::Next
+        } else {
+            crate::widgets::tab_flip::FlipDirection::Previous
+        },
+        name,
+    )
+}
+
+/// A hint chip: a full-width row at the bottom (`top`: at the top) of the panel with one rounded
+/// label in it, not shown until a pull shows it.
+fn flip_chip(classes: &'static [IdOrClass], text: &str, top: bool) -> Dom {
+    let edge = if top { "top" } else { "bottom" };
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
+        .with_css(&format!(
+            "position: absolute; left: 0px; right: 0px; {edge}: 8px; display: none; \
+             justify-content: center;"
+        ))
+        .with_child(Dom::create_div_with_text(text.to_string()).with_css(
+            "padding: 4px 14px; border-radius: 16px; background: system:accent; \
+             color: system:accent-text; font-size: 12px; box-sizing: border-box;",
+        ))
+}
+
+/// The dataset merge of the panel: the old allocation stays (the gesture, the wheel, the clock, the
+/// epoch a fling in flight reads) and takes what the new build says of the panel.
+extern "C" fn merge_flip_panel(mut new: RefAny, mut old: RefAny) -> RefAny {
+    let fresh = new.downcast_ref::<FlipPanelData>().map(|n| {
+        (n.flip, n.tab, n.names.clone(), n.on_flip.clone())
+    });
+    if let (Some((flip, tab, names, on_flip)), Some(mut kept)) =
+        (fresh, old.downcast_mut::<FlipPanelData>())
+    {
+        kept.flip = flip;
+        kept.tab = tab;
+        kept.names = names;
+        kept.on_flip = on_flip;
+    }
+    old
+}
+
+/// The first finger on the window: where it is, in window coordinates, and the key the hit test
+/// under it is published with (the events of a finger are aimed at the node under THAT finger).
+fn first_touch(info: &CallbackInfo) -> Option<(f32, f32, u64)> {
+    info.get_current_window_state()
+        .touch_state
+        .touch_points
+        .as_ref()
+        .first()
+        .map(|point| {
+            (
+                point.position.x,
+                point.position.y,
+                azul_core::window::touch_point_key(point.seat_id, point.id),
+            )
+        })
+}
+
+/// Whether the content of `panel` can scroll, how far it is scrolled and how far it can: the panel is
+/// the scroll box whose ends a pull goes past.
+fn panel_scroll(info: &CallbackInfo, panel: azul_core::dom::DomNodeId) -> (bool, f32, f32) {
+    let Some(node) = panel.node.into_crate_internal() else {
+        return (false, 0.0, 0.0);
+    };
+    match info.get_scroll_node_info(panel.dom, node) {
+        Some(scroll) if scroll.max_scroll_y > 0.5 => (true, scroll.current_offset.y, scroll.max_scroll_y),
+        _ => (false, 0.0, 0.0),
+    }
+}
+
+/// Whether the finger that just went down (`finger`: its hit test's key) is on something that claims
+/// the gesture: a node of the class [`CLAIMS_GESTURE_CLASS`], or a scrollable below the panel that
+/// has room. The node under THAT finger counts, as the touch events are aimed at it; the mouse's
+/// when the host published no hit test for the finger.
+fn flip_claimed(info: &CallbackInfo, panel: azul_core::dom::DomNodeId, finger: u64) -> bool {
+    let under_finger = info
+        .get_layout_window()
+        .hover_manager
+        .hover_node_full_for(&crate::managers::hover::InputPointId::Touch(finger));
+    let Some(mut node) = under_finger.or_else(|| info.get_deepest_hovered_node()) else {
+        return false;
+    };
+    for _ in 0..64 {
+        if node == panel {
+            return false;
+        }
+        if crate::widgets::roving::has_class(info, node, CLAIMS_GESTURE_CLASS) {
+            return true;
+        }
+        if let Some(id) = node.node.into_crate_internal() {
+            if let Some(scroll) = info.get_scroll_node_info(node.dom, id) {
+                if scroll.max_scroll_y > 0.5 || scroll.max_scroll_x > 0.5 {
+                    return true;
+                }
+            }
+        }
+        match info.get_parent(node) {
+            Some(parent) => node = parent,
+            None => return false,
+        }
+    }
+    false
+}
+
+/// Milliseconds since the panel's clock began.
+fn flip_millis(data: &mut FlipPanelData, now: &azul_core::task::Instant) -> u64 {
+    let origin = data.origin.get_or_insert_with(|| now.clone()).clone();
+    now.duration_since(&origin).as_millis_u64()
+}
+
+extern "C" fn on_flip_touch_start(mut data: RefAny, info: CallbackInfo) -> Update {
+    use crate::widgets::tab_flip::{FlipGesture, FlipPanel};
+    let Some((x, y, finger)) = first_touch(&info) else {
+        return Update::DoNothing;
+    };
+    let panel = info.get_hit_node();
+    let claimed = flip_claimed(&info, panel, finger);
+    let (overflows, scroll, scroll_max) = panel_scroll(&info, panel);
+    let now = info.get_current_time();
+    let Some(mut d) = data.downcast_mut::<FlipPanelData>() else {
+        return Update::DoNothing;
+    };
+    let t = flip_millis(&mut d, &now);
+    d.epoch += 1;
+    let flip_panel = FlipPanel {
+        flip: d.flip,
+        tab: d.tab,
+        tab_count: d.names.len(),
+        overflows,
+        scroll,
+        scroll_max,
+    };
+    d.gesture = Some(FlipGesture::begin(flip_panel, x, y, t, claimed));
+    Update::DoNothing
+}
+
+extern "C" fn on_flip_touch_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((x, y, _)) = first_touch(&info) else {
+        return Update::DoNothing;
+    };
+    let panel = info.get_hit_node();
+    let now = info.get_current_time();
+    let outcome = {
+        let Some(mut d) = data.downcast_mut::<FlipPanelData>() else {
+            return Update::DoNothing;
+        };
+        let t = flip_millis(&mut d, &now);
+        let names = d.names.clone();
+        let Some(gesture) = d.gesture.as_mut() else {
+            return Update::DoNothing;
+        };
+        gesture.moved(x, y, t, &|i| names.get(i).cloned().unwrap_or_default())
+    };
+    apply_flip_outcome(&mut data, &mut info, panel, outcome)
+}
+
+extern "C" fn on_flip_touch_end(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let panel = info.get_hit_node();
+    let now = info.get_current_time();
+    let (outcome, momentum, epoch) = {
+        let Some(mut d) = data.downcast_mut::<FlipPanelData>() else {
+            return Update::DoNothing;
+        };
+        let t = flip_millis(&mut d, &now);
+        let Some(mut gesture) = d.gesture.take() else {
+            return Update::DoNothing;
+        };
+        let outcome = gesture.lifted(t);
+        (outcome, gesture.momentum(), d.epoch)
+    };
+    let update = apply_flip_outcome(&mut data, &mut info, panel, outcome);
+    if let Some(momentum) = momentum {
+        schedule_fling(&mut info, &data, &momentum, 0, epoch);
+    }
+    update
+}
+
+extern "C" fn on_flip_touch_cancel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let panel = info.get_hit_node();
+    let outcome = {
+        let Some(mut d) = data.downcast_mut::<FlipPanelData>() else {
+            return Update::DoNothing;
+        };
+        // The system took the finger: nothing flips, and a fling in flight ends.
+        d.epoch += 1;
+        match d.gesture.take() {
+            Some(mut gesture) => gesture.cancel(),
+            None => return Update::DoNothing,
+        }
+    };
+    apply_flip_outcome(&mut data, &mut info, panel, outcome)
+}
+
+/// A wheel or trackpad over the panel (`TabFlip::Always` only).
+extern "C" fn on_flip_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use crate::widgets::tab_flip::FlipPanel;
+    let panel = info.get_hit_node();
+    let Some(node) = panel.node.into_crate_internal() else {
+        return Update::DoNothing;
+    };
+    let Some(delta) = info.get_scroll_delta(panel.dom, node).map(|d| d.y) else {
+        return Update::DoNothing;
+    };
+    let (overflows, scroll, scroll_max) = panel_scroll(&info, panel);
+    let now = info.get_current_time();
+    let outcome = {
+        let Some(mut d) = data.downcast_mut::<FlipPanelData>() else {
+            return Update::DoNothing;
+        };
+        let t = flip_millis(&mut d, &now);
+        let flip_panel = FlipPanel {
+            flip: d.flip,
+            tab: d.tab,
+            tab_count: d.names.len(),
+            overflows,
+            scroll,
+            scroll_max,
+        };
+        d.wheel.step(&flip_panel, delta, t)
+    };
+    apply_flip_outcome(&mut data, &mut info, panel, outcome)
+}
+
+/// Show what a gesture asked: the pull (the content follows the finger, the chip of the tab a
+/// release goes to), the end of it, or the flip, told to the app as a tap on a pill is.
+fn apply_flip_outcome(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    panel: azul_core::dom::DomNodeId,
+    outcome: crate::widgets::tab_flip::FlipOutcome,
+) -> Update {
+    use crate::widgets::tab_flip::{FlipDirection, FlipOutcome};
+    match outcome {
+        FlipOutcome::Idle => Update::DoNothing,
+        FlipOutcome::Pulling {
+            direction,
+            offset,
+            progress,
+            hint,
+            ..
+        } => {
+            // The content follows the finger: up for the next tab, down for the previous one.
+            let shift = if direction == FlipDirection::Next { -offset } else { offset };
+            show_flip_pull(info, panel, shift, direction, hint.is_some().then_some(progress));
+            Update::DoNothing
+        }
+        FlipOutcome::Release => {
+            show_flip_pull(info, panel, 0.0, FlipDirection::Next, None);
+            Update::DoNothing
+        }
+        FlipOutcome::Flip { to, .. } => {
+            show_flip_pull(info, panel, 0.0, FlipDirection::Next, None);
+            tell_flip(data, info, to)
+        }
+    }
+}
+
+/// The content shifted by `shift` px and the chip of `direction` shown at `progress` (0 to 1; `None`
+/// hides both chips). The content at rest is no transform (`CssProperty::initial`: the property's
+/// initial value, and a rebuild drops the override) and a chip that is not shown is `display: none`,
+/// as a build makes it, so the end of a pull, a flip and a rebuild all leave the panel as a build does.
+fn show_flip_pull(
+    info: &mut CallbackInfo,
+    panel: azul_core::dom::DomNodeId,
+    shift: f32,
+    direction: crate::widgets::tab_flip::FlipDirection,
+    chip_progress: Option<f32>,
+) {
+    use crate::widgets::{roving, tab_flip::FlipDirection};
+    for child in roving::children_of(info, panel) {
+        if roving::has_class(info, child, "__azul-native-tabs-content") {
+            let transform = if shift == 0.0 {
+                CssProperty::initial(CssPropertyType::Transform)
+            } else {
+                CssProperty::const_transform(StyleTransformVec::from_vec(vec![
+                    StyleTransform::TranslateY(PixelValue::px(shift)),
+                ]))
+            };
+            info.set_css_property(child, transform);
+            continue;
+        }
+        let which = if roving::has_class(info, child, FLIP_NEXT_CLASS) {
+            Some(FlipDirection::Next)
+        } else if roving::has_class(info, child, FLIP_PREVIOUS_CLASS) {
+            Some(FlipDirection::Previous)
+        } else {
+            None
+        };
+        let Some(which) = which else { continue };
+        if let Some(progress) = chip_progress.filter(|_| which == direction) {
+            info.set_css_property(child, CssProperty::const_display(LayoutDisplay::Flex));
+            info.set_css_property(
+                child,
+                CssProperty::const_opacity(StyleOpacity {
+                    inner: PercentageValue::new(30.0 + 70.0 * progress.clamp(0.0, 1.0)),
+                }),
+            );
+        } else {
+            // Hidden is a value, not "no override": `initial` is the property's initial value
+            // (a block, for an absolute box), and showed the chip of the other direction as a bar
+            // across the panel. A rebuild says `display: none` by itself, which is the same.
+            info.set_css_property(child, CssProperty::const_display(LayoutDisplay::None));
+            info.set_css_property(child, CssProperty::initial(CssPropertyType::Opacity));
+        }
+    }
+}
+
+/// The tick of one tab crossing: the platform's own tab-change sound (`SystemSound::TabChange`: on
+/// Android the touch-sound click, on iOS the selection haptic, on a desktop none). One tick per flip,
+/// the momentum's too (a timer callback may ask: the shell plays at the end of the timer turn); the
+/// engine drops the same sound asked for twice within 40 ms and the OS's own switches stay in charge.
+fn flip_tick(info: &mut CallbackInfo) {
+    info.play_system_sound(azul_core::sound::SystemSound::TabChange);
+}
+
+/// Tell the app of a flip to `to`, as a tap on its pill would, and tick.
+fn tell_flip(data: &mut RefAny, info: &mut CallbackInfo, to: usize) -> Update {
+    let on_flip = {
+        let Some(mut d) = data.downcast_mut::<FlipPanelData>() else {
+            return Update::DoNothing;
+        };
+        d.tab = to;
+        d.on_flip.clone()
+    };
+    flip_tick(info);
+    // The app's own answer is the answer, as for a tap on a pill: a flip the app does not rebuild
+    // for has changed nothing it shows.
+    match on_flip {
+        FlipTell::Tab(mut option) => match option.as_mut() {
+            Some(TabOnClick { callback, refany }) => {
+                callback.invoke(refany.clone(), *info, TabHeaderState { active_tab: to })
+            }
+            None => Update::DoNothing,
+        },
+        FlipTell::Ribbon(mut option) => match option.as_mut() {
+            Some(crate::widgets::ribbon::RibbonOnTabClick { refany, callback }) => {
+                callback.invoke(refany.clone(), *info, to)
+            }
+            None => Update::DoNothing,
+        },
+    }
+}
+
+/// A fling in flight: the flips it has left, one timer at a time.
+struct FlingTimer {
+    data: RefAny,
+    momentum: crate::widgets::tab_flip::Momentum,
+    /// The next flip's index in `momentum.delays`.
+    step: usize,
+    /// The panel's epoch when the fling was made: a touch since ends it.
+    epoch: u64,
+}
+
+/// The timer of flip `step` of `momentum` (the delays are from the lift, or from the flip before).
+fn schedule_fling(
+    info: &mut CallbackInfo,
+    data: &RefAny,
+    momentum: &crate::widgets::tab_flip::Momentum,
+    step: usize,
+    epoch: u64,
+) {
+    let Some(delay) = momentum.delays.get(step).copied() else {
+        return;
+    };
+    let timer = Timer::create(
+        RefAny::new(FlingTimer {
+            data: data.clone(),
+            momentum: momentum.clone(),
+            step,
+            epoch,
+        }),
+        TimerCallback::create(on_fling_tick),
+        info.get_system_time_fn(),
+    )
+    .with_delay(azul_core::task::Duration::from_millis(delay));
+    info.add_timer(azul_core::task::TimerId::unique(), timer);
+}
+
+/// One flip of a fling: flip, tick, and set the timer of the next.
+extern "C" fn on_fling_tick(
+    mut timer_data: RefAny,
+    info: crate::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    use azul_core::{callbacks::TimerCallbackReturn, task::TerminateTimer};
+    let end = || TimerCallbackReturn::create(Update::DoNothing, TerminateTimer::Terminate);
+    let Some((mut data, momentum, step, epoch)) = timer_data
+        .downcast_ref::<FlingTimer>()
+        .map(|t| (t.data.clone(), t.momentum.clone(), t.step, t.epoch))
+    else {
+        return end();
+    };
+    let (alive, tab, count) = match data.downcast_ref::<FlipPanelData>() {
+        Some(d) => (d.epoch == epoch, d.tab, d.names.len()),
+        None => return end(),
+    };
+    if !alive {
+        return end();
+    }
+    // The tab the flip goes to: one past the tab the fling stands on (the flips so far moved it).
+    let Some(to) = momentum.direction.neighbour(tab, count) else {
+        return end();
+    };
+    let mut callback_info = *info.get_callback_info();
+    let update = tell_flip(&mut data, &mut callback_info, to);
+    schedule_fling(&mut callback_info, &data, &momentum, step + 1, epoch);
+    TimerCallbackReturn::create(update, TerminateTimer::Terminate)
+}
+
 /// The rule a pill strip closes on, along its foot.
 pub(crate) const RULE_CLASS: &str = "__azul-native-tabs-rule";
 
@@ -2094,6 +3109,38 @@ fn button_style(
         .collect()
 }
 
+/// The size of a pill: the height of its border box, its corner radius and the room beside its
+/// label, in px.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) struct PillMetrics {
+    pub(crate) height: isize,
+    pub(crate) radius: isize,
+    pub(crate) side: isize,
+}
+
+/// The pill of a title bar: the theme's button at the house radius, 22 tall in a 28 row.
+pub(crate) static PILL_DESKTOP: PillMetrics = PillMetrics {
+    height: PILL_HEIGHT,
+    radius: PILL_RADIUS,
+    side: PILL_SIDE,
+};
+
+/// How tall a touch pill is, in px: the border box. The target of a finger is the whole row.
+pub(crate) const TOUCH_PILL_HEIGHT: isize = 32;
+/// The room beside a touch pill's label, in px.
+pub(crate) const TOUCH_PILL_SIDE: isize = 16;
+/// The room between two touch pills, in px.
+pub(crate) const TOUCH_GAP: isize = 8;
+/// The room before the first and after the last touch pill, in px.
+pub(crate) const TOUCH_LEAD: isize = 12;
+
+/// The pill of a finger: 32 tall with full-radius ends, 16 beside the label.
+pub(crate) static PILL_TOUCH: PillMetrics = PillMetrics {
+    height: TOUCH_PILL_HEIGHT,
+    radius: TOUCH_PILL_HEIGHT / 2,
+    side: TOUCH_PILL_SIDE,
+};
+
 /// A tab button: the tab's base, `theme`'s `button_type` button at the house
 /// radius, `PILL_HEIGHT` tall (its border box) with its label centred on
 /// one line, `PILL_SIDE` beside the label. In flora the label is set in the
@@ -2104,6 +3151,16 @@ pub(crate) fn pill(
     theme: crate::widgets::themes::UiTheme,
     button_type: crate::widgets::button::ButtonType,
 ) -> CssPropertyWithConditionsVec {
+    pill_sized(theme, button_type, &PILL_DESKTOP)
+}
+
+/// [`pill`] at the size `metrics` gives.
+#[must_use]
+pub(crate) fn pill_sized(
+    theme: crate::widgets::themes::UiTheme,
+    button_type: crate::widgets::button::ButtonType,
+    metrics: &PillMetrics,
+) -> CssPropertyWithConditionsVec {
     use crate::widgets::{
         button::ButtonType,
         themes::{decl, flora, UiTheme},
@@ -2111,32 +3168,50 @@ pub(crate) fn pill(
     type P = CssPropertyWithConditions;
     let mut v = TAB_BASE.to_vec();
     v.extend(button_style(theme, button_type));
-    v.extend(decl::radius(PILL_RADIUS));
-    v.extend(decl::padding(0, PILL_SIDE, 0, PILL_SIDE));
+    v.extend(decl::radius(metrics.radius));
+    v.extend(decl::padding(0, metrics.side, 0, metrics.side));
     v.extend(decl::margin(0, 0, 0, 0));
     v.push(decl::nowrap());
     // The border box is the button's height: the button's own base sizes
     // its content box and starts it at the top of a column (`align-self:
     // start`); here it is centred in the row.
     v.push(P::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)));
-    v.push(P::simple(CssProperty::const_height(LayoutHeight::const_px(PILL_HEIGHT))));
+    v.push(P::simple(CssProperty::const_height(LayoutHeight::const_px(metrics.height))));
     v.push(P::simple(CssProperty::align_self(LayoutAlignSelf::Center)));
     // One line as tall as the content box (the border box less its 1px
     // border), so the label is centred in either box model.
     v.push(P::simple(CssProperty::const_line_height(StyleLineHeight::Length(
-        PixelValue::const_px(PILL_HEIGHT - 2),
+        PixelValue::const_px(metrics.height - 2),
     ))));
     if theme == UiTheme::Flora {
         v.extend(flora::tab_button_caps());
         let (px, em) = flora::TAB_BUTTON_CAPS;
         #[allow(clippy::cast_precision_loss)] // a few px
-        let side = PILL_SIDE as f32;
+        let side = metrics.side as f32;
         v.push(decl::px_padding_right(side - decl::trailing_tracking_px(px, em)));
         if button_type == ButtonType::Default {
             v.extend(flora::leather_faces());
         }
         v.extend(flora::gold_edge());
     }
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// A touch pill: [`pill_sized`] at [`PILL_TOUCH`], which does not shrink in a row longer than
+/// the window and is the box the pill's hit area hangs on.
+#[must_use]
+pub(crate) fn touch_pill(
+    theme: crate::widgets::themes::UiTheme,
+    button_type: crate::widgets::button::ButtonType,
+) -> CssPropertyWithConditionsVec {
+    use crate::widgets::themes::decl;
+    let mut v = pill_sized(theme, button_type, &PILL_TOUCH).into_library_owned_vec();
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(
+        LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        },
+    )));
+    v.push(decl::position(LayoutPosition::Relative));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -2267,6 +3342,15 @@ pub struct TabContent {
     /// The reveal its `TabHeader` was built with (`with_reveal`): the panel
     /// is the other half of its hover area, and it closes to no height.
     pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
+    /// What a vertical swipe on the panel does (`with_flip_of`): `Off` until the panel is told the
+    /// bar it belongs to. APPENDED for ABI stability.
+    pub flip: crate::widgets::tab_flip::TabFlip,
+    /// The names of the bar's tabs, for the hint ("Next: Share"), set with `flip`.
+    pub flip_tabs: StringVec,
+    /// The tab the panel shows, set with `flip`.
+    pub flip_tab: usize,
+    /// Told of a flip as the bar's `on_click` is told of a tap, set with `flip`.
+    pub on_flip: OptionTabOnClick,
 }
 
 impl Default for TabContent {
@@ -2278,6 +3362,10 @@ impl Default for TabContent {
             slide: TabSlide::None,
             tab: 0,
             reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
+            flip: crate::widgets::tab_flip::TabFlip::Off,
+            flip_tabs: StringVec::from_const_slice(&[]),
+            flip_tab: 0,
+            on_flip: OptionTabOnClick::None,
         }
     }
 }
@@ -2417,7 +3505,37 @@ impl TabContent {
             slide: TabSlide::None,
             tab: 0,
             reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
+            flip: crate::widgets::tab_flip::TabFlip::Off,
+            flip_tabs: StringVec::from_const_slice(&[]),
+            flip_tab: 0,
+            on_flip: OptionTabOnClick::None,
         }
+    }
+
+    /// Let a vertical swipe on the panel flip to the previous / next tab, as `header` says: its
+    /// `flip` (`TabHeader::with_flip`), its tabs (the hint names the one a pull goes to), its
+    /// active tab and its `on_click`, which is told of every flip exactly as of a tap on a pill.
+    ///
+    /// The rules: content that can scroll scrolls first, and a pull that starts at its end
+    /// flips; content that does not scroll flips on a swipe; a finger that carries on flips one
+    /// tab per 56 px of travel, a fast lift carries over up to four more tabs in a slowing
+    /// rhythm, a long page flips once per gesture; never while the finger went down on a nested
+    /// scrollable or on a node of the class `__azul-claims-gesture` (a slider, a map, a canvas),
+    /// never for a gesture that is more sideways than vertical, never after a cancel (the system
+    /// took the finger); the first tab has no previous and the last no next. A tab bar without an
+    /// `on_click` has nobody to tell: the panel does not flip.
+    pub fn set_flip_of(&mut self, header: &TabHeader) {
+        self.flip = header.flip;
+        self.flip_tabs = header.tabs.clone();
+        self.flip_tab = header.active_tab;
+        self.on_flip = header.on_click.clone();
+    }
+
+    /// [`Self::set_flip_of`] for the builder chain.
+    #[must_use]
+    pub fn with_flip_of(mut self, header: &TabHeader) -> Self {
+        self.set_flip_of(header);
+        self
     }
 
     /// The reveal its `TabHeader` was built with: the panel opens and closes
@@ -2525,6 +3643,7 @@ impl TabContent {
             )])),
         };
 
+        let flip = flip_panel_data(&self);
         let mut group = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                 IDS_AND_CLASSES_2989815829020816222,
@@ -2547,7 +3666,11 @@ impl TabContent {
                 panel.with_component_css(slide_keyframes())
             }
         };
-        panel.with_children(DomVec::from_vec(vec![group]))
+        let panel = panel.with_children(DomVec::from_vec(vec![group]));
+        match flip {
+            None => panel,
+            Some(flip) => attach_flip(panel, flip),
+        }
     }
 }
 
@@ -5081,3 +6204,11 @@ mod structure_tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tab_pills_test.rs"]
+mod tab_pills_test;
+
+#[cfg(test)]
+#[path = "tab_flip_panel_test.rs"]
+mod tab_flip_panel_test;
