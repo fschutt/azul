@@ -2761,21 +2761,30 @@ impl Default for RibbonBehavior {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Ribbon {
+    /// All part styles (defaults to the Office 2010 look).
+    pub style: RibbonStyle,
     /// Optional application button rendered before the first tab ("FILE").
     pub app_button: OptionRibbonAppButton,
-    /// Tabs displayed in the ribbon tab bar.
-    pub tabs: RibbonTabVec,
-    /// Index of the currently active tab.
-    pub active_tab: usize,
+    /// What the app puts at the right end of the tab row, before the
+    /// chevron (the location tabs' button); `None` for nothing.
+    pub strip_end: OptionDom,
     /// Optional callback fired when a tab is clicked (receives the tab index).
     pub on_tab_click: OptionRibbonOnTabClick,
+    /// The tab row in the status bar's band ([`Self::with_status_bar`]): the tabs take the place of
+    /// the clock and the battery icons and slide around the cutouts of the display. `None` keeps it
+    /// a row of the layout. Only with `TabStyle::TouchPills` and [`Self::dom_desktop`]. APPENDED for
+    /// ABI stability.
+    pub status_bar: crate::widgets::tab_strip::OptionStatusBarBand,
+    /// Tabs displayed in the ribbon tab bar.
+    pub tabs: RibbonTabVec,
+    /// How the content opens and closes ([`Self::with_reveal`]), kept by the
+    /// app between rebuilds; `None` keeps the content always open.
+    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
+    /// Index of the currently active tab.
+    pub active_tab: usize,
     /// The tab strip as the window's title bar ([`TabsInTitlebar`]), or
     /// `None` for a ribbon under a title row of its own.
     pub tabs_in_titlebar: OptionTabsInTitlebar,
-    /// All part styles (defaults to the Office 2010 look).
-    pub style: RibbonStyle,
-    /// Which interactions the ribbon handles by itself (defaults to the classic behavior).
-    pub behavior: RibbonBehavior,
     /// The widget theme, or `None` to follow the app theme
     /// (`AppConfig::with_theme`). Flat is the Office look [`Self::style`]
     /// describes; flora lays flora's paper, hairlines and stones on the same
@@ -2792,17 +2801,6 @@ pub struct Ribbon {
     /// makes the tabs the theme's buttons in a 28px row on one leather
     /// surface with the content, closed by a golden line.
     pub tab_style: crate::widgets::tabs::TabStyle,
-    /// How the content opens and closes ([`Self::with_reveal`]), kept by the
-    /// app between rebuilds; `None` keeps the content always open.
-    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
-    /// What the app puts at the right end of the tab row, before the
-    /// chevron (the location tabs' button); `None` for nothing.
-    pub strip_end: OptionDom,
-    /// The tab row in the status bar's band ([`Self::with_status_bar`]): the tabs take the place of
-    /// the clock and the battery icons and slide around the cutouts of the display. `None` keeps it
-    /// a row of the layout. Only with `TabStyle::TouchPills` and [`Self::dom_desktop`]. APPENDED for
-    /// ABI stability.
-    pub status_bar: crate::widgets::tab_strip::OptionStatusBarBand,
     /// Whether a vertical swipe on the content band flips to the previous / next tab
     /// ([`Self::with_flip`]): `AtEdges` (the default) flips with a finger that swipes on the band
     /// (it scrolls nothing vertically); `Off` never. APPENDED for ABI stability.
@@ -2814,6 +2812,14 @@ pub struct Ribbon {
     /// What a command shows of itself ([`Self::with_button_face`]): its icon and its label (the
     /// default), the label alone or the icon alone. APPENDED for ABI stability.
     pub button_face: RibbonButtonFace,
+    /// The room the content band leaves at its left, px ([`Self::with_content_inset`]): the tab row stays
+    /// the whole width. APPENDED for ABI stability.
+    pub content_inset: f32,
+    /// Which interactions the ribbon handles by itself (defaults to the classic behavior).
+    pub behavior: RibbonBehavior,
+    /// Whether this ribbon draws the window's chevron at the left end of its tab row and folds its
+    /// content band away with it ([`Self::with_content_toggle`]). APPENDED for ABI stability.
+    pub content_toggle: bool,
 }
 
 /// The application button at the far left of the tab strip ("FILE").
@@ -3641,6 +3647,8 @@ impl Ribbon {
             flip: crate::widgets::tab_flip::TabFlip::AtEdges,
             labels: crate::widgets::tabs::TabLabels::Auto,
             button_face: RibbonButtonFace::Both,
+            content_inset: 0.0,
+            content_toggle: false,
         }
     }
 
@@ -3688,6 +3696,35 @@ impl Ribbon {
     #[must_use]
     pub const fn with_labels(mut self, labels: crate::widgets::tabs::TabLabels) -> Self {
         self.set_labels(labels);
+        self
+    }
+
+    /// Draw the window's ONE chevron at the left end of the tab row and fold the content band away with
+    /// it: `^` while the content shows, `v` while it is folded (`WindowFlags::tab_content_hidden`, flipped
+    /// by a click, Enter or Space on the chevron). The row, its tabs and its golden line stay; the list
+    /// under the ribbon gets the room of the band. A window has exactly one chevron: when more than one
+    /// strip asks for it, the first one built has it ([`crate::widgets::tabs::TabHeader::with_content_toggle`]).
+    pub const fn set_content_toggle(&mut self, content_toggle: bool) {
+        self.content_toggle = content_toggle;
+    }
+
+    /// [`Self::set_content_toggle`] for the builder chain.
+    #[must_use]
+    pub const fn with_content_toggle(mut self, content_toggle: bool) -> Self {
+        self.set_content_toggle(content_toggle);
+        self
+    }
+
+    /// Leave `px` of room at the content band's left (a rail beside the band, under the tab row): the band
+    /// starts that far in while the tab row stays the whole width. Default `0`.
+    pub const fn set_content_inset(&mut self, px: f32) {
+        self.content_inset = px;
+    }
+
+    /// [`Self::set_content_inset`] for the builder chain.
+    #[must_use]
+    pub const fn with_content_inset(mut self, px: f32) -> Self {
+        self.set_content_inset(px);
         self
     }
 
@@ -4005,16 +4042,39 @@ impl Ribbon {
         // A band of the app's own (AzMail hides it behind its backstage) stays its own; every
         // other one is the one band of every tab (`TAB_BAND_PX`).
         let own_band = self.style.content_style.is_some();
+        // The window's one chevron, if this ribbon asks for it and no strip built before it has it.
+        let chevron = if self.content_toggle {
+            let row = if touch {
+                // less the line at the leather's foot
+                self.status_bar
+                    .as_ref()
+                    .filter(|band| band.is_in_band())
+                    .map_or(crate::widgets::tab_strip::TOUCH_ROW, |band| band.height.max(crate::widgets::tab_strip::TOUCH_ROW))
+                    - 2.0
+            } else if pills {
+                #[allow(clippy::cast_precision_loss)] // a few px
+                {
+                    crate::widgets::tabs::PILL_ROW as f32
+                }
+            } else {
+                28.0
+            };
+            crate::widgets::tab_content_toggle::chevron_for_row(row)
+        } else {
+            None
+        };
+        let chevron_px = if chevron.is_some() { crate::widgets::tab_content_toggle::CONTENT_TOGGLE_PX } else { 0.0 };
         // A phone's pills are one icon each, every one the same square, where the tabs name icons.
         let icon_pills = if touch && !matches!(mode, RibbonChromeMode::Mobile) {
-            self.icon_pills()
+            self.icon_pills(chevron_px)
         } else {
             None
         };
         if touch {
             // The tab row of touch pills, a row longer than the window that scrolls; the status
             // bar's band, if there is one, decides the room before the first pill and after the
-            // last (icon pills that stand lane by lane start where the layout puts the first).
+            // last (icon pills that stand lane by lane start where the layout puts the first, the
+            // first lane starting after the chevron's room; a plain row starts after it too).
             let band = self
                 .status_bar
                 .as_ref()
@@ -4024,7 +4084,7 @@ impl Ribbon {
                 .as_ref()
                 .and_then(|p| p.positions.as_ref())
                 .and_then(|positions| positions.first().copied())
-                .unwrap_or(strip.lead);
+                .unwrap_or(strip.lead + chevron_px);
             self.style = touch_row_style(self.style, theme, lead, strip.trail);
         } else if pills {
             // The tab row of the theme's buttons, on one leather surface
@@ -4051,13 +4111,13 @@ impl Ribbon {
             self.style.content_style =
                 OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from_vec(band));
         }
-        self.build_chrome(mode, theme, &curves, scales, view, pills, touch, overflows && !own_band, icon_pills)
+        self.build_chrome(mode, theme, &curves, scales, view, pills, touch, overflows && !own_band, icon_pills, chevron)
     }
 
     /// The pills of this ribbon's tab row as icons: the application button (if there is one) and
     /// the tabs, each by its icon, where [`Self::labels`] asks for it (see
     /// [`crate::widgets::tabs::resolve_icon_pills`]); `None`: text.
-    fn icon_pills(&self) -> Option<crate::widgets::tabs::IconPills> {
+    fn icon_pills(&self, reserved_left: f32) -> Option<crate::widgets::tabs::IconPills> {
         let band = self.status_bar.as_ref().filter(|band| band.is_in_band());
         let mut names: Vec<&str> = Vec::with_capacity(self.tabs.len() + 1);
         let mut icons: Vec<&str> = Vec::with_capacity(self.tabs.len() + 1);
@@ -4069,7 +4129,7 @@ impl Ribbon {
             names.push(tab.label.as_str());
             icons.push(tab.icon.as_str());
         }
-        crate::widgets::tabs::resolve_icon_pills(self.labels, &names, &icons, band)
+        crate::widgets::tabs::resolve_icon_pills(self.labels, &names, &icons, band, reserved_left)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -4084,6 +4144,7 @@ impl Ribbon {
         touch: bool,
         overflows: bool,
         icon_pills: Option<crate::widgets::tabs::IconPills>,
+        chevron: Option<Dom>,
     ) -> Dom {
         let Self {
             app_button,
@@ -4109,17 +4170,23 @@ impl Ribbon {
             labels: _,
             // Already applied to the buttons by `themed`.
             button_face: _,
+            content_inset,
+            content_toggle,
         } = self;
         // The leather: the desktop pills' one surface and golden line. The touch pills have none.
         let leather = pills && !touch;
         let band = status_bar.into_option().filter(crate::widgets::tab_strip::StatusBarBand::is_in_band);
-        let strip_scroll = crate::widgets::tabs::StripScrollData::for_band(
+        let mut strip_scroll = crate::widgets::tabs::StripScrollData::for_band(
             band.as_ref(),
             vec![
                 "__azul-native-ribbon-tab".to_string(),
                 "__azul-native-ribbon-appbutton".to_string(),
             ],
         );
+        if chevron.is_some() {
+            strip_scroll.lead += crate::widgets::tab_content_toggle::CONTENT_TOGGLE_PX;
+        }
+        let mut chevron = chevron;
         let has_callback = on_tab_click.is_some();
         // The row of buttons is the title bar itself: no grab strip above it
         // (the window controls are centred in the same 28px row), and the
@@ -4154,7 +4221,14 @@ impl Ribbon {
             })
             .unwrap_or_default();
 
-        let mut bar_children: Vec<Dom> = Vec::with_capacity(tabs.len() + 2);
+        let mut bar_children: Vec<Dom> = Vec::with_capacity(tabs.len() + 3);
+        // The window's one chevron stands first in a row of the layout; in the status bar's band the
+        // header puts it over the first lane.
+        if band.is_none() {
+            if let Some(chevron) = chevron.take() {
+                bar_children.push(chevron);
+            }
+        }
         // The first tab stands right after the application button when there
         // is one: a stone of its own, over the strip's rule.
         let after_the_app_button = app_button.is_some();
@@ -4715,6 +4789,15 @@ impl Ribbon {
         if let Some(keyframes) = content_css {
             content = content.with_component_css(keyframes);
         }
+        if content_inset > 0.0 {
+            content.root.set_css(&format!("margin-left: {content_inset}px;"));
+        }
+        // Folded away with the window's chevron: nothing, and the list under the ribbon gets the room.
+        if content_toggle && azul_core::callbacks::build_tab_content_hidden() {
+            content
+                .root
+                .upsert_inline_css_property(P::const_display(LayoutDisplay::None));
+        }
         // A vertical swipe over the band flips to the previous / next tab, told to `on_tab_click`.
         if touch
             && flip != crate::widgets::tab_flip::TabFlip::Off
@@ -4757,7 +4840,7 @@ impl Ribbon {
                 // The touch row in the status bar's band: in a box as tall as the band, with the
                 // window's background, and a cover over each gap the cutouts leave.
                 let tab_bar = match band.as_ref() {
-                    Some(band) if touch => crate::widgets::tabs::touch_header(tab_bar, band, theme),
+                    Some(band) if touch => crate::widgets::tabs::touch_header(tab_bar, band, theme, chevron.take()),
                     _ => tab_bar,
                 };
                 let mut v = vec![tab_bar, content];

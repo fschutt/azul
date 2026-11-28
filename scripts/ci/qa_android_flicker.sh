@@ -8,10 +8,10 @@ command -v ffmpeg >/dev/null 2>&1 || { sudo apt-get install -y ffmpeg >/dev/null
 if [ -f "$arg" ]; then
   # one APK, any app: the starting window, the first frame and the resume do not depend on the app's page (E46 and E47 of the engine ledger)
   export AZ_QA_FLICKER_FLASH_ONLY=1
-  bash "$(dirname "$0")/android_qa.sh" demo-out/qa-flicker "$arg" swiftshader_indirect "flicker" flicker
+  bash "$(dirname "$0")/android_qa.sh" "${AZ_QA_OUT:-demo-out/qa-flicker}" "$arg" swiftshader_indirect "flicker" flicker
   exit $?
 fi
 dir="$arg"
 export AZ_QA_FLICKER_E2E="$dir/AzWidgets-e2e-android-x86_64.apk"
 [ -e "$dir/AzMaps-android-x86_64.apk" ] && export AZ_QA_FLICKER_MAPS="$dir/AzMaps-android-x86_64.apk"
-bash "$(dirname "$0")/android_qa.sh" demo-out/qa-flicker "$dir/AzWidgets-android-x86_64.apk" swiftshader_indirect "flicker" flicker
+bash "$(dirname "$0")/android_qa.sh" "${AZ_QA_OUT:-demo-out/qa-flicker}" "$dir/AzWidgets-android-x86_64.apk" swiftshader_indirect "flicker" flicker

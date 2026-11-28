@@ -1252,6 +1252,12 @@ mod build_window {
         /// synchronously on the calling thread (see [`RECORDED`] of the size-query recorder).
         pub(super) static SIZE: core::cell::Cell<Option<LogicalSize>> =
             const { core::cell::Cell::new(None) };
+        /// Whether that window has its tab content folded away (`WindowFlags::tab_content_hidden`).
+        pub(super) static TAB_CONTENT_HIDDEN: core::cell::Cell<bool> =
+            const { core::cell::Cell::new(false) };
+        /// Whether a tab strip of the build in this scope has taken the window's one chevron.
+        pub(super) static TAB_TOGGLE_TAKEN: core::cell::Cell<bool> =
+            const { core::cell::Cell::new(false) };
     }
 }
 
@@ -1264,6 +1270,10 @@ mod build_window {
 pub struct WindowSizeScope {
     #[cfg(feature = "std")]
     previous: Option<LogicalSize>,
+    #[cfg(feature = "std")]
+    previous_hidden: bool,
+    #[cfg(feature = "std")]
+    previous_taken: bool,
     /// `!Send`: the scope belongs to the thread whose build it frames.
     _thread_bound: core::marker::PhantomData<*const ()>,
 }
@@ -1272,16 +1282,36 @@ impl WindowSizeScope {
     /// Build for a window of `size` (logical px) until the returned guard is
     /// dropped.
     pub fn enter(size: LogicalSize) -> Self {
+        Self::enter_with(size, false)
+    }
+
+    /// [`Self::enter`] for a window whose tab content is `tab_content_hidden`
+    /// (`WindowFlags::tab_content_hidden`): what [`build_tab_content_hidden`] answers while the
+    /// guard lives. A fresh scope has no tab strip that took the window's one chevron yet
+    /// ([`build_take_tab_content_toggle`]).
+    pub fn enter_with(size: LogicalSize, tab_content_hidden: bool) -> Self {
         #[cfg(feature = "std")]
         let previous = build_window::SIZE
             .try_with(|scoped| scoped.replace(Some(size)))
             .ok()
             .flatten();
+        #[cfg(feature = "std")]
+        let previous_hidden = build_window::TAB_CONTENT_HIDDEN
+            .try_with(|scoped| scoped.replace(tab_content_hidden))
+            .unwrap_or(false);
+        #[cfg(feature = "std")]
+        let previous_taken = build_window::TAB_TOGGLE_TAKEN
+            .try_with(|scoped| scoped.replace(false))
+            .unwrap_or(false);
         #[cfg(not(feature = "std"))]
-        let _ = size;
+        let _ = (size, tab_content_hidden);
         Self {
             #[cfg(feature = "std")]
             previous,
+            #[cfg(feature = "std")]
+            previous_hidden,
+            #[cfg(feature = "std")]
+            previous_taken,
             _thread_bound: core::marker::PhantomData,
         }
     }
@@ -1293,6 +1323,8 @@ impl Drop for WindowSizeScope {
         {
             let previous = self.previous.take();
             let _ = build_window::SIZE.try_with(|scoped| scoped.set(previous));
+            let _ = build_window::TAB_CONTENT_HIDDEN.try_with(|scoped| scoped.set(self.previous_hidden));
+            let _ = build_window::TAB_TOGGLE_TAKEN.try_with(|scoped| scoped.set(self.previous_taken));
         }
     }
 }
@@ -1324,6 +1356,45 @@ pub fn build_window_width_less_than(px: f32) -> Option<bool> {
         answer,
     });
     Some(answer)
+}
+
+/// Is the tab content of the window the DOM is being built for folded away?
+///
+/// For a widget's `dom()`: `WindowFlags::tab_content_hidden`, `false` outside a build. Not a size
+/// question: the chevron that flips the flag asks for a new `layout()` itself, so nothing is recorded
+/// for a resize.
+#[must_use]
+pub fn build_tab_content_hidden() -> bool {
+    #[cfg(feature = "std")]
+    {
+        build_window::TAB_CONTENT_HIDDEN.try_with(core::cell::Cell::get).unwrap_or(false)
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        false
+    }
+}
+
+/// May this tab strip draw the window's chevron?
+///
+/// For a strip's `dom()` that asks for it (`with_content_toggle`): the FIRST strip of a build takes it
+/// and every later one is told no, so a window has exactly one chevron whatever its apps put on the
+/// page. Outside a build (no scope: a strip built on its own) the answer is always yes.
+#[must_use]
+pub fn build_take_tab_content_toggle() -> bool {
+    #[cfg(feature = "std")]
+    {
+        if build_window_size().is_none() {
+            return true;
+        }
+        build_window::TAB_TOGGLE_TAKEN
+            .try_with(|taken| !taken.replace(true))
+            .unwrap_or(true)
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        true
+    }
 }
 
 /// The window the DOM being built on this thread is for ([`WindowSizeScope`]).

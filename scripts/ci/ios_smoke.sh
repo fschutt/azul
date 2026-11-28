@@ -9,7 +9,9 @@
 #   baseline.png     the home screen before the launch (what an app that died leaves behind)
 #   screenshot.png   the simulator's screen after the wait; screenshot-2.png the second look
 #   console.log      what the app wrote to stdout and stderr (RUST_BACKTRACE=1);  log.txt  the unified log of its process
-#   crash/           the crash reports (.ips) the app left, if any
+#   crash/           the reports of the APP's process (a crash .ips, a hang, a resource event) that the host wrote since the launch, if any
+#   crash-system/    the reports of OTHER processes written meanwhile (the simulator's system daemons share the host's folder): information,
+#                    never the verdict (scripts/ci/crash_reports.py decides whose a report is)
 #   result.json      the verdict of scripts/ci/smoke_verdict.py: {app, id, alive, alive_after, differs_from_home,
 #                    screen_nonblank, fatal, pass, reason, ...}
 # (and screenshot-after-tap.png, tap.json when the manifest names a button for the app: AZ_SMOKE_TAPS, a JSON map
@@ -200,24 +202,31 @@ PY
     xcrun simctl io "$udid" screenshot "$dir/screenshot-2.png" >/dev/null 2>&1 || true
     xcrun simctl spawn "$udid" log show --last 3m --info --debug --style compact --predicate "process == \"$exe\"" >"$dir/log.txt" 2>&1 || true
     xcrun simctl spawn "$udid" log show --last 3m --info --debug --style compact >"$dir/log-all.txt" 2>&1 || true
-    # a crash report is written a few seconds after the crash: look for up to 20 s when the app is gone
-    if [ "$alive_after" != "1" ]; then
-      for _ in 1 2 3 4 5 6 7 8 9 10; do
-        [ -n "$(find "$HOME/Library/Logs/DiagnosticReports" "/Library/Logs/DiagnosticReports" -type f -newer "$marker" 2>/dev/null | head -n 1)" ] && break
-        sleep 2
-      done
+    # The reports the host wrote since the launch. The simulator's own daemons write theirs into the same folder (the disk-writes report
+    # of STExtractionService failed AzMail's boot test in run 46118639960), so only the reports of the APP are a verdict: crash_reports.py
+    # copies them to crash/ and the others to crash-system/ and names those as information. A crash report is written a few seconds after
+    # the crash: when the app is gone, it waits up to 20 s for the app's (a report of another process does not end the wait).
+    wait_args=()
+    [ "$alive_after" != "1" ] && wait_args=(--wait 20)
+    crash_app=""; crash_other=""; crash_extra="{}"
+    if reports="$(python3 "$(dirname "$0")/crash_reports.py" --exe "$exe" --id "$bid" --since "$marker" --out "$dir" --shell \
+         ${wait_args[@]+"${wait_args[@]}"} "$HOME/Library/Logs/DiagnosticReports" "/Library/Logs/DiagnosticReports")"; then
+      eval "$reports"
+    else
+      echo "crash_reports.py failed: the host's reports were not read"
+      [ -z "$fatal" ] && fatal="crash_reports.py failed: the host's reports were not read"
     fi
-    find "$HOME/Library/Logs/DiagnosticReports" "/Library/Logs/DiagnosticReports" -type f -newer "$marker" -exec cp {} "$dir/crash/" \; 2>/dev/null || true
     ls -la "$HOME/Library/Logs/DiagnosticReports" >"$dir/crash/_ls.txt" 2>&1 || true
     kill "$launch_pid" 2>/dev/null || true
-    crash="$(ls "$dir/crash" 2>/dev/null | grep -v '^_ls.txt$' | head -n 1)"
-    [ -n "$crash" ] && fatal="crash report: $crash"
+    [ -n "$crash_app" ] && fatal="crash report: $crash_app"
+    verdict_args+=(--extra "$crash_extra")      # {"system_reports": [...]} in result.json when the simulator's daemons wrote some: information
     [ -z "$fatal" ] && fatal="$(grep -m1 -E 'panicked at|[Ff]atal error|SIGABRT|SIGSEGV|abort\(\)|Terminating app' "$dir/console.log" "$dir/log.txt" 2>/dev/null | head -n 1 | cut -d: -f2-)"
     rust_lines="$(grep -c -v '^$' "$dir/console.log" 2>/dev/null || true)"
     if [ "$alive" != "1" ] || [ "$alive_after" != "1" ]; then
       echo "--- the app's console:"; tail -n 60 "$dir/console.log"
       echo "--- the app's log lines:"; tail -n 40 "$dir/log.txt"
-      echo "--- crash reports:"; ls "$dir/crash"
+      echo "--- reports of the app:"; ls "$dir/crash"
+      [ -d "$dir/crash-system" ] && { echo "--- reports of other processes (system daemons of the simulator; not the app's):"; ls "$dir/crash-system"; }
       for f in "$dir"/crash/*.ips "$dir"/crash/*.crash; do [ -f "$f" ] && { echo "== $f"; head -c 4000 "$f"; echo; }; done
       echo "--- the simulator's log around the launch (lines naming the app or its job):"
       grep -i -E "$exe|$bid" "$dir/log-all.txt" | tail -n 40 | cut -c1-260
