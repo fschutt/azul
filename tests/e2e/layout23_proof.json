@@ -1,12 +1,12 @@
 [
   {
     "name": "an inline box broken across lines draws one box per line, its side borders at its ends",
-    "description": "LAYOUT23 proof 3. A span with a border, a background and side padding around words that cross a line break, with a <b> inside it: each line gets one yellow box; the left border only on the first line, the right one only on the last; the padding moves the text once, not per word or per nested <b> (see the screenshot). The paragraph is three lines at its 220 px.",
+    "description": "LAYOUT23 proof 3. A span with a border, a background and side padding around words that cross a line break, with a <b> inside it: each line gets one yellow box; the left border only on the first line, the right one only on the last; the padding moves the text once, not per word or per nested <b> (see the screenshot). The paragraph is three lines: they end at the <br/>s inside the box and every line is far shorter than the paragraph's 220 px, so the number of lines does not depend on the font the host draws it in.",
     "setup": { "window_width": 300, "window_height": 200, "dpi": 96 },
     "steps": [
       { "op": "mount",
         "html": [
-          "<p id=\"para\">Some words before <span id=\"box\" class=\"box\">a boxed run of text that <b>crosses</b> the line break</span> and after.</p>"
+          "<p id=\"para\">Words <span id=\"box\" class=\"box\">boxed run<br/><b>crosses</b> the<br/>line break</span> end.</p>"
         ],
         "css": [
           "body { margin: 0; }",
@@ -41,16 +41,19 @@
   },
   {
     "name": "an inline list item shows its marker before its text on the same line",
-    "description": "LAYOUT23 proof 7. `display: inline list-item` items in a line: each shows its marker (a number in an ordered list, a bullet otherwise) before its text, and the whole stays one line.",
+    "description": "LAYOUT23 proof 7. `display: inline list-item` items in a line: each shows its marker (a number in an ordered list, a bullet otherwise) before its text, and the whole stays one line. The lists sit in a box of their own width (`#page`), so the line breaks where that box says on every host and not where the window's width does.",
     "setup": { "window_width": 400, "window_height": 160, "dpi": 96 },
     "steps": [
       { "op": "mount",
         "html": [
+          "<div id=\"page\">",
           "<ol id=\"numbered\"><li class=\"inline\">apples</li> <li class=\"inline\">pears</li></ol>",
-          "<ul id=\"bulleted\"><li class=\"inline\">plums</li> <li class=\"inline\">figs</li></ul>"
+          "<ul id=\"bulleted\"><li class=\"inline\">plums</li> <li class=\"inline\">figs</li></ul>",
+          "</div>"
         ],
         "css": [
           "body { margin: 0; }",
+          "#page { width: 380px; }",
           "ol, ul { margin: 10px; padding: 0; font-size: 16px; line-height: 20px; }",
           ".inline { display: inline list-item; list-style-position: inside; margin-right: 12px; }"
         ] },

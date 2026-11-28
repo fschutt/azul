@@ -155,7 +155,8 @@ class Job:
         for d in (self.out, self.results, self.logs):
             d.mkdir(parents=True, exist_ok=True)
         self.manifest = demo_apps.load()
-        self.apps = {a["package"]: a for a in self.manifest["app"]}
+        # the apps of the release and the QA-only ones (m["qa_app"]: built only as QA builds, see demo_apps.load)
+        self.apps = {a["package"]: a for a in list(self.manifest["app"]) + list(self.manifest.get("qa_app", []))}
 
     def result(self, app, column, target, status, reason="", artifact=None, seconds=0, gate=None, first_error="", variant="",
                initializers=None, page_aligned_libs=None):
@@ -519,6 +520,9 @@ def main(argv):
         sys.exit(f"demo_build: --variant {variant!r} is no artifact_only lib of scripts/demo_apps.toml "
                  f"({sorted(demo_apps.artifact_only_libs(job.manifest))}): a shipped build takes the lib its app names")
     for name in args.apps.split():
+        if not variant and job.apps[name].get("qa_only"):
+            sys.exit(f"demo_build: {name} is qa_only in scripts/demo_apps.toml: it has no shipped build, only the QA build "
+                     f"(--variant {job.apps[name]['e2e_lib']})")
         field = "e2e_desktop_lib" if args.kind == "desktop" else "e2e_lib"
         if variant and (not job.apps[name].get("e2e") or job.apps[name][field] != variant):
             sys.exit(f"demo_build: the QA build of {name} links {job.apps[name][field]!r} ({field} in scripts/demo_apps.toml; "

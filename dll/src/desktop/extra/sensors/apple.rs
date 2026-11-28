@@ -64,16 +64,112 @@ const UPDATE_INTERVAL_S: f64 = 1.0 / 60.0;
 /// docs). Null until [`start`] runs; read by [`poll`].
 static MANAGER: AtomicPtr<CMMotionManager> = AtomicPtr::new(core::ptr::null_mut());
 
-/// Create the motion manager and begin sampling every available sensor.
-/// Called once per process via the dispatcher's OnceLock; `channel` is the app's, which the
-/// handler blocks of the push-only sensors keep a clone of.
-pub fn start(channel: &std::sync::Arc<SensorChannel>) {
-    #[cfg(not(target_os = "ios"))]
-    let _ = channel;
+/// The backend groups the pump starts and stops on demand (bits of `SensorChannel::started_groups`).
+const GROUP_MOTION: u32 = 1;
+const GROUP_BAROMETER: u32 = 1 << 1;
+const GROUP_STEPS: u32 = 1 << 2;
+const GROUP_PROXIMITY: u32 = 1 << 3;
+
+/// What the app wants right now ([`sync`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Wanted {
+    /// The raw three (accelerometer, gyroscope, magnetometer) and the three the OS fuses from them: no prompt.
+    pub motion: bool,
+    /// `CMAltimeter`: behind the Motion & Fitness prompt on an iPhone.
+    pub barometer: bool,
+    /// `CMPedometer`: behind the same prompt.
+    pub steps: bool,
+    /// `UIDevice` proximity monitoring: blanks the screen near the face.
+    pub proximity: bool,
+}
+
+/// What a sync does about one group: start it, stop it, or leave it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Start,
+    Stop,
+    Keep,
+}
+
+/// The step for a group that is `running` while the app `wants` it: start what is wanted and not running, stop what
+/// runs and is not wanted. (`stoppable`: the push-only sensors hand their handler to CoreMotion for good and are
+/// never stopped.)
+const fn step_for(running: bool, wants: bool, stoppable: bool) -> Step {
+    match (running, wants) {
+        (false, true) => Step::Start,
+        (true, false) if stoppable => Step::Stop,
+        _ => Step::Keep,
+    }
+}
+
+/// Start what the app wants and stop what it no longer wants (the dispatcher's `sync`, on every pump pass). Nothing
+/// starts at launch: no group runs until something reads its kind.
+pub fn sync(channel: &std::sync::Arc<SensorChannel>, wanted: Wanted) {
+    let running = channel.started_groups();
+    let is = |bit: u32| running & bit != 0;
+    match step_for(is(GROUP_MOTION), wanted.motion, true) {
+        Step::Start => {
+            start_motion();
+            channel.set_group_started(GROUP_MOTION, true);
+        }
+        Step::Stop => {
+            stop_motion();
+            channel.set_group_started(GROUP_MOTION, false);
+        }
+        Step::Keep => {}
+    }
     #[cfg(target_os = "ios")]
-    start_proximity();
+    {
+        if step_for(is(GROUP_BAROMETER), wanted.barometer, false) == Step::Start {
+            start_barometer(channel);
+            channel.set_group_started(GROUP_BAROMETER, true);
+        }
+        if step_for(is(GROUP_STEPS), wanted.steps, false) == Step::Start {
+            start_steps(channel);
+            channel.set_group_started(GROUP_STEPS, true);
+        }
+        match step_for(is(GROUP_PROXIMITY), wanted.proximity, true) {
+            Step::Start => {
+                start_proximity();
+                channel.set_group_started(GROUP_PROXIMITY, true);
+            }
+            Step::Stop => {
+                stop_proximity();
+                channel.set_group_started(GROUP_PROXIMITY, false);
+            }
+            Step::Keep => {}
+        }
+    }
+    #[cfg(not(target_os = "ios"))]
+    let _ = (GROUP_BAROMETER, GROUP_STEPS, GROUP_PROXIMITY, wanted.barometer, wanted.steps, wanted.proximity);
+}
+
+/// The app goes to the background: stop what can be stopped (the pump starts what is wanted when it is back).
+pub fn pause(channel: &SensorChannel) {
+    if channel.started_groups() & GROUP_MOTION != 0 {
+        stop_motion();
+        channel.set_group_started(GROUP_MOTION, false);
+    }
+    #[cfg(target_os = "ios")]
+    if channel.started_groups() & GROUP_PROXIMITY != 0 {
+        stop_proximity();
+        channel.set_group_started(GROUP_PROXIMITY, false);
+    }
+}
+
+/// Create the motion manager (once) and begin sampling the raw three and the fused stream.
+fn start_motion() {
     unsafe {
-        let mgr = CMMotionManager::new();
+        let existing = MANAGER.load(Ordering::Acquire);
+        let mgr: &CMMotionManager = if existing.is_null() {
+            // Leak a +1 retain so the manager outlives the call; `poll` reads it through the pointer, and a stop and
+            // a later start reuse it.
+            let created = Retained::into_raw(CMMotionManager::new());
+            MANAGER.store(created, Ordering::Release);
+            &*created
+        } else {
+            &*existing
+        };
         if mgr.isAccelerometerAvailable() {
             mgr.setAccelerometerUpdateInterval(UPDATE_INTERVAL_S);
             mgr.startAccelerometerUpdates();
@@ -93,13 +189,23 @@ pub fn start(channel: &std::sync::Arc<SensorChannel>) {
             mgr.setDeviceMotionUpdateInterval(UPDATE_INTERVAL_S);
             mgr.startDeviceMotionUpdates();
         }
-        // Leak a +1 retain so the manager keeps sampling for the process
-        // lifetime; `poll` reads it through this pointer.
-        MANAGER.store(Retained::into_raw(mgr), Ordering::Release);
     }
+}
 
-    #[cfg(target_os = "ios")]
-    start_push_only_sensors(channel);
+/// Stop the motion streams: sampling a sensor nobody reads costs battery for nothing.
+fn stop_motion() {
+    let ptr = MANAGER.load(Ordering::Acquire);
+    if ptr.is_null() {
+        return;
+    }
+    // SAFETY: the manager is the leaked, process-lifetime one `start_motion` published.
+    unsafe {
+        let mgr: &CMMotionManager = &*ptr;
+        mgr.stopAccelerometerUpdates();
+        mgr.stopGyroUpdates();
+        mgr.stopMagnetometerUpdates();
+        mgr.stopDeviceMotionUpdates();
+    }
 }
 
 /// `CMAltimeter` (pressure) and `CMPedometer` (steps).
@@ -113,27 +219,31 @@ pub fn start(channel: &std::sync::Arc<SensorChannel>) {
 /// error and never again. That degrades to "no readings", which is the same
 /// outcome as absent hardware and needs no separate handling.
 #[cfg(target_os = "ios")]
-fn start_push_only_sensors(channel: &std::sync::Arc<SensorChannel>) {
-    use block2::RcBlock;
-    use objc2_core_motion::{CMAltimeter, CMPedometer};
-    use objc2_foundation::{NSDate, NSOperationQueue};
+fn motion_key_blocks(what: &str) -> bool {
+    use crate::desktop::extra::info_plist::{keys, missing_key_message, request_would_stop_the_process};
 
     // Motion & Fitness data needs `NSMotionUsageDescription`: "If you don't include this key, your
     // app will crash when it attempts to access motion data" (Apple). A bundle without it gets
     // no barometer and no step counter - and the reason, not a crash and not a silent no-op.
-    {
-        use crate::desktop::extra::info_plist::{
-            keys, missing_key_message, request_would_stop_the_process,
-        };
-        if request_would_stop_the_process(keys::MOTION) {
-            crate::plog_warn!(
-                "[sensors] {}",
-                missing_key_message("The barometer and the step counter", keys::MOTION)
-            );
-            return;
-        }
+    if request_would_stop_the_process(keys::MOTION) {
+        crate::plog_warn!("[sensors] {}", missing_key_message(what, keys::MOTION));
+        return true;
     }
+    false
+}
 
+/// The barometer: started by an app that READS it (`get_sensor_reading(Barometer)`), never at launch: it is behind the
+/// Motion & Fitness prompt. The altimeter, its queue and its block are leaked for the process lifetime (CoreMotion
+/// holds the block), so it is never stopped.
+#[cfg(target_os = "ios")]
+fn start_barometer(channel: &std::sync::Arc<SensorChannel>) {
+    use block2::RcBlock;
+    use objc2_core_motion::CMAltimeter;
+    use objc2_foundation::NSOperationQueue;
+
+    if motion_key_blocks("The barometer") {
+        return;
+    }
     unsafe {
         if CMAltimeter::isRelativeAltitudeAvailable() {
             let altimeter = CMAltimeter::new();
@@ -165,7 +275,21 @@ fn start_push_only_sensors(channel: &std::sync::Arc<SensorChannel>) {
             core::mem::forget(queue);
             core::mem::forget(altimeter);
         }
+    }
+}
 
+/// The step counter: started by an app that READS it (`get_sensor_reading(StepCounter)`), never at launch (the Motion
+/// & Fitness prompt). Leaked like the altimeter, never stopped.
+#[cfg(target_os = "ios")]
+fn start_steps(channel: &std::sync::Arc<SensorChannel>) {
+    use block2::RcBlock;
+    use objc2_core_motion::CMPedometer;
+    use objc2_foundation::NSDate;
+
+    if motion_key_blocks("The step counter") {
+        return;
+    }
+    unsafe {
         if CMPedometer::isStepCountingAvailable() {
             let pedometer = CMPedometer::new();
             // FROM NOW, not from boot. iOS counts from a date you give it,
@@ -216,6 +340,19 @@ fn start_proximity() {
         let enabled: bool = objc2::msg_send![device, isProximityMonitoringEnabled];
         if !enabled {
             crate::plog_info!("[sensors] no proximity sensor on this device");
+        }
+    }
+}
+
+/// Turn proximity monitoring off again: left on, the screen blanks whenever something is near the sensor, for the
+/// whole life of the process.
+#[cfg(target_os = "ios")]
+fn stop_proximity() {
+    use objc2::runtime::AnyObject;
+    unsafe {
+        let device: *mut AnyObject = objc2::msg_send![objc2::class!(UIDevice), currentDevice];
+        if !device.is_null() {
+            let _: () = objc2::msg_send![device, setProximityMonitoringEnabled: false];
         }
     }
 }
@@ -278,13 +415,20 @@ pub fn has_motion_hardware() -> bool {
     }
 }
 
-/// Read the latest sample of each sensor and park it for the layout pass.
-/// No-op until [`start`] has published the manager.
+/// Read the latest sample of each running sensor and park it for the layout pass.
+/// No-op for a group that is not running (see [`sync`]).
 pub fn poll(channel: &SensorChannel) {
+    let running = channel.started_groups();
     // Independent of CoreMotion: a device with no IMU can still have the
     // proximity sensor.
     #[cfg(target_os = "ios")]
-    poll_proximity(channel);
+    if running & GROUP_PROXIMITY != 0 {
+        poll_proximity(channel);
+    }
+    // A stopped stream keeps its last sample: reading it again would publish stale numbers as new ones.
+    if running & GROUP_MOTION == 0 {
+        return;
+    }
     let ptr = MANAGER.load(Ordering::Acquire);
     if ptr.is_null() {
         return;

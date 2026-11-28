@@ -13,7 +13,10 @@ An app BOOTS when all of these hold, and the verdict says which one failed first
      screen (`--tap-before`, `--tap-after`: the same 98.5 percent rule; a button that does nothing is not a working app, and the
      manifest says what must come up), the texts the manifest says must be on the screen afterwards are there and the ones that
      must be gone are gone (tap.json's after_found and after_present, scripts/ci/ui_find.py), and the text it expects on the first
-     screen (`--expect-found`) is there when it names one.
+     screen (`--expect-found`) is there when it names one,
+  7. the log of the run holds every text the manifest says it must hold and none that it says it must not ([app.smoke] log_present
+     and log_absent: `--log-check` names them, `--run-log` the logs of the run; a text is matched as it is, the log's own prefix does
+     not matter).
 Informational only, never part of the verdict: the platform's own launch numbers of an Android app, `launch_ms` (the TotalTime
 `am start -W` printed, --start-log) and `displayed_ms` (the "Displayed <package>/<activity>: +1s234ms" line of the activity manager
 in the log, --logcat); the status table shows them next to the verdict. So are the engine's own startup numbers (AZ_STARTUP=1: the
@@ -24,6 +27,7 @@ A screenshot that is "not black" is NOT in this list: the iOS home screen of 202
     smoke_verdict.py --out result.json --app <name> --id <package or bundle id> --alive 1 --alive-after 1 [--fatal "<line>"]
         [--rust-lines N] [--baseline b.png --after a.png] [--resumed yes|no] [--tap tap.json]
         [--expect-text "<text>" --expect-found yes|no] [--start-log start.log] [--logcat logcat.txt] [--extra '{"key": value}']
+        [--log-check '{"present": [...], "absent": [...]}' --run-log <log> [--run-log <log> ...]]
 
 Writes result.json ({app, id, booted, alive, alive_after, differs_from_home, home_similarity, screen_nonblank, drawn_fraction,
 resumed, fatal, tap, expect, pass, reason, ...}) and exits 0 when the app booted, 1 when not.
@@ -90,6 +94,13 @@ def parse_startup(text):
     return got or None
 
 
+def log_facts(wanted, logs):
+    """{"present": {text: held}, "absent": {text: seen}} for the texts `wanted` ({"present": [...], "absent": [...]}) against the texts
+    of the logs of the run (any one of them holds a text: the log of the launch and the log of the end of the run are two files)."""
+    blob = "\n".join(logs)
+    return {"present": {t: t in blob for t in wanted.get("present") or []}, "absent": {t: t in blob for t in wanted.get("absent") or []}}
+
+
 def judge(facts):
     """facts -> (passed, reason). The order is the order of the list in the docstring."""
     if not facts.get("alive"):
@@ -126,6 +137,13 @@ def judge(facts):
     expect = facts.get("expect")
     if expect and not expect.get("found"):
         return False, f"the first screen does not show \"{expect.get('text')}\""
+    log = facts.get("log") or {}
+    for text, held in (log.get("present") or {}).items():       # what the manifest says the log must hold ([app.smoke] log_present)
+        if not held:
+            return False, f"the log of the run does not hold \"{text}\""
+    for text, seen in (log.get("absent") or {}).items():        # what it must not hold ([app.smoke] log_absent)
+        if seen:
+            return False, f"the log of the run holds \"{text}\", which it must not"
     return True, "alive twice, on the screen, drawn, no fatal line"
 
 
@@ -151,6 +169,8 @@ def main(argv):
     ap.add_argument("--start-log")
     ap.add_argument("--logcat")
     ap.add_argument("--startup-log", action="append", default=[], help="a log that may hold the [startup-json] line of AZ_STARTUP=1")
+    ap.add_argument("--log-check", default="", help='JSON {"present": [...], "absent": [...]}: texts the log of the run must / must not hold')
+    ap.add_argument("--run-log", action="append", default=[], help="a log of the run (repeatable; a file that is not there holds nothing)")
     ap.add_argument("--extra", default="{}")
     a = ap.parse_args(argv)
     band = png_nonblank.DEFAULT_BAND
@@ -207,6 +227,10 @@ def main(argv):
             got = parse_startup(pathlib.Path(path).read_text(encoding="utf-8", errors="replace"))
             if got:
                 facts.update(got)
+    wanted = json.loads(a.log_check) if a.log_check else {}
+    if wanted.get("present") or wanted.get("absent"):
+        texts = [pathlib.Path(path).read_text(encoding="utf-8", errors="replace") for path in a.run_log if os.path.exists(path)]
+        facts["log"] = log_facts(wanted, texts)
     facts.update(json.loads(a.extra))
     passed, reason = judge(facts)
     facts["pass"] = passed

@@ -54,8 +54,9 @@ pub fn start() {
     app.run(glue::phone_window_options("AzReview Companion"));
 }
 
-/// The state the phone's own app starts with: the screens on a stand-in that looks for a Mac, and the real connection still to be made, when
-/// the window exists (`glue::on_window_ready`). It makes no connection itself: on Android [`start`] runs from the library's load-time
+/// The state the phone's own app starts with: the screens on a stand-in that looks for a Mac, and the real connection still to be made: when
+/// the window exists for a phone that was paired with a Mac (`glue::on_window_ready`), when a pairing starts for one that was not
+/// (`glue::on_act`, `Root::wants_connection_for`). It makes no connection itself: on Android [`start`] runs from the library's load-time
 /// constructor, during `System.loadLibrary`, when the engine has no Android context yet, and the iroh endpoint's bind aborts the process
 /// without one ("android context was not initialized": the emulator, 2026-11-26).
 #[must_use]
