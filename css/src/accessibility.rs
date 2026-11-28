@@ -881,8 +881,9 @@ impl AccessibilityPreferences {
     }
 }
 
-/// When a shell re-reads the preferences of a platform that has no (or no reliable) notification:
-/// every `interval_ms` and never before the first ask; a pure clock of milliseconds the caller
+/// When a shell re-reads the preferences of a platform that has no (or no reliable) notification.
+///
+/// Every `interval_ms` and never before the first ask; a pure clock of milliseconds the caller
 /// supplies, so the rule is tested without waiting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PreferencePoll {
@@ -902,7 +903,7 @@ impl PreferencePoll {
 
     /// Whether the preferences are to be read at `now_ms` (and, when they are, the next ask is
     /// `interval_ms` later). A clock that goes back is not due until it catches up.
-    pub fn due(&mut self, now_ms: u64) -> bool {
+    pub const fn due(&mut self, now_ms: u64) -> bool {
         match self.next_ms {
             Some(next) if now_ms < next => false,
             _ => {
@@ -913,7 +914,7 @@ impl PreferencePoll {
     }
 
     /// The next [`Self::due`] answers `true` (a notification, a resume: something said it moved).
-    pub fn ask_again_now(&mut self) {
+    pub const fn ask_again_now(&mut self) {
         self.next_ms = None;
     }
 }
@@ -1069,20 +1070,20 @@ impl AccessibilityCondition {
                 &["no-preference", "none", "off", "false", "0"],
             )
             .map(Self::BoldText),
-            "prefers-contrast" => match ContrastPreference::parse(value)? {
-                ContrastPreference::Less => Some(Self::Contrast(ContrastPreference::Less)),
-                ContrastPreference::NoPreference => {
-                    Some(Self::Contrast(ContrastPreference::NoPreference))
+            "prefers-contrast" => {
+                // `custom`: a palette the user chose (a contrast theme)
+                if value.eq_ignore_ascii_case("custom") {
+                    return Some(Self::ForcedColors(BoolCondition::True));
                 }
-                // `more` is `DynamicSelector::PrefersHighContrast`; `custom` is a contrast theme
-                ContrastPreference::More | ContrastPreference::Unknown => {
-                    if value.eq_ignore_ascii_case("custom") {
-                        Some(Self::ForcedColors(BoolCondition::True))
-                    } else {
-                        None
+                match ContrastPreference::parse(value)? {
+                    ContrastPreference::Less => Some(Self::Contrast(ContrastPreference::Less)),
+                    ContrastPreference::NoPreference => {
+                        Some(Self::Contrast(ContrastPreference::NoPreference))
                     }
+                    // `more` is `DynamicSelector::PrefersHighContrast`
+                    ContrastPreference::More | ContrastPreference::Unknown => None,
                 }
-            },
+            }
             "forced-colors" => flag(active.0, active.1).map(Self::ForcedColors),
             "prefers-reduced-transparency" => {
                 flag(reduce.0, reduce.1).map(Self::ReducedTransparency)

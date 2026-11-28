@@ -50,9 +50,11 @@ pub const fn either(a: Option<bool>, b: Option<bool>) -> Option<bool> {
 // iOS and iPadOS
 // ---------------------------------------------------------------------------------------------
 
-/// What `UIKit` answered. `UIApplication.preferredContentSizeCategory` (or the view's trait
-/// collection), the `UIAccessibility` flags, and `UIFontMetrics` as the fallback for a category
-/// name this build does not know.
+/// What `UIKit` answered.
+///
+/// `UIApplication.preferredContentSizeCategory` (or the view's trait collection), the
+/// `UIAccessibility` flags, and `UIFontMetrics` as the fallback for a category name this build does
+/// not know.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RawIos {
     /// The raw string of `preferredContentSizeCategory` (`UICTContentSizeCategoryL`).
@@ -143,7 +145,7 @@ impl RawIos {
 pub const ANDROID_FONT_WEIGHT_UNDEFINED: i32 = i32::MAX;
 
 /// What the Android framework answered, through JNI.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct RawAndroid {
     /// `Configuration.fontScale`.
     pub font_scale: Option<f32>,
@@ -191,10 +193,9 @@ pub struct RawAndroid {
 
 /// `value` as a number of milliseconds a preference holds: negative or absent is unknown.
 fn millis_of(value: Option<i32>) -> OptionU32 {
-    match value.and_then(|ms| u32::try_from(ms).ok()) {
-        Some(ms) => OptionU32::Some(ms),
-        None => OptionU32::None,
-    }
+    value
+        .and_then(|ms| u32::try_from(ms).ok())
+        .map_or(OptionU32::None, OptionU32::Some)
 }
 
 impl RawAndroid {
@@ -206,7 +207,7 @@ impl RawAndroid {
         let scale = self
             .sp_scale
             .filter(|scale| scale.is_finite() && *scale > 0.0)
-            .or(self.font_scale.filter(|scale| scale.is_finite() && *scale > 0.0));
+            .or_else(|| self.font_scale.filter(|scale| scale.is_finite() && *scale > 0.0));
         if let Some(scale) = scale {
             drop(preferences.set_text_scale(scale));
         }
@@ -218,12 +219,12 @@ impl RawAndroid {
                 preferences.bold_text = SettingState::from_bool(step > 0);
             }
         }
+        let more = self.contrast.is_some_and(|level| level >= 0.33) || self.high_text_contrast == Some(true);
         preferences.contrast = match (self.contrast, self.high_text_contrast) {
-            (Some(level), _) if level >= 0.33 => ContrastPreference::More,
-            (_, Some(true)) => ContrastPreference::More,
+            _ if more => ContrastPreference::More,
             (Some(level), _) if level <= -0.33 => ContrastPreference::Less,
             (Some(_), _) | (None, Some(false)) => ContrastPreference::NoPreference,
-            (None, None) => ContrastPreference::Unknown,
+            (None, _) => ContrastPreference::Unknown,
         };
         if let Some(scale) = self.animator_duration_scale.filter(|s| s.is_finite() && *s >= 0.0) {
             preferences.animation_scale = OptionF32::Some(scale);
@@ -262,7 +263,7 @@ impl RawAndroid {
 // ---------------------------------------------------------------------------------------------
 
 /// What Windows answered: the registry values and `SystemParametersInfo`.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RawWindows {
     /// `HKCU\SOFTWARE\Microsoft\Accessibility` `TextScaleFactor` (percent, 100 to 225); absent
     /// while the slider is at its default.
@@ -345,7 +346,7 @@ impl RawWindows {
 // ---------------------------------------------------------------------------------------------
 
 /// What `AppKit` answered (`NSWorkspace.shared.accessibilityDisplayShould...`).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RawMacos {
     /// `accessibilityDisplayShouldReduceMotion`.
     pub reduce_motion: Option<bool>,
@@ -390,7 +391,7 @@ impl RawMacos {
 // ---------------------------------------------------------------------------------------------
 
 /// What GNOME's settings (gsettings, or the settings portal) answered.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct RawGnome {
     /// `org.gnome.desktop.interface text-scaling-factor` (1.0 normal, 1.25 "Large text").
     pub text_scaling_factor: Option<f32>,
@@ -433,7 +434,7 @@ impl RawGnome {
 }
 
 /// What KDE Plasma's configuration answered.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct RawKde {
     /// `kdeglobals` `[KDE] AnimationDurationFactor`: 1 normal, 0 animations off.
     pub animation_duration_factor: Option<f32>,
