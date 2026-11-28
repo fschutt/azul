@@ -80,7 +80,7 @@ use super::{
     pie_marker::{disc_dom, PieTone},
     roving,
     sidebar_layout::{
-        column_width, controls_height, ColumnWidth, INDENT_PER_DEPTH,
+        column_width, controls_height, SidebarColumnWidth, INDENT_PER_DEPTH,
         MAX_DEPTH, MAX_ROWS, MAX_STATUSES, RAIL_BUTTON_DESKTOP, RAIL_BUTTON_PHONE,
         ROW_HEIGHT_DESKTOP, ROW_HEIGHT_PHONE, STATUS_PIE_PX,
     },
@@ -1006,7 +1006,7 @@ impl Sidebar {
     /// How wide the column is in this state and form factor (what the frame lays the main view
     /// beside).
     #[must_use]
-    pub fn column(&self) -> ColumnWidth {
+    pub fn column(&self) -> SidebarColumnWidth {
         column_width(self.state, self.form, self.expanded_width, self.controls_left)
     }
 
@@ -1756,7 +1756,7 @@ fn foot_button(
 }
 
 /// The width declarations of a column.
-fn width_css(col: ColumnWidth) -> String {
+fn width_css(col: SidebarColumnWidth) -> String {
     if col.percent > 0.0 {
         if col.max_px > 0.0 {
             format!("width: {}%; max-width: {}px;", col.percent, col.max_px)

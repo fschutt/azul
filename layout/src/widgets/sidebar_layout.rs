@@ -154,7 +154,7 @@ pub fn clamp_expanded_width(wanted: f32) -> f32 {
 /// How wide the left sidebar's column is.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
-pub struct ColumnWidth {
+pub struct SidebarColumnWidth {
     /// A width in px, or 0 where the column is a share of the frame.
     pub px: f32,
     /// A share of the frame in percent (the phone's drawer), or 0 where the width is in px.
@@ -163,7 +163,7 @@ pub struct ColumnWidth {
     pub max_px: f32,
 }
 
-impl ColumnWidth {
+impl SidebarColumnWidth {
     const fn px(px: f32) -> Self {
         Self {
             px,
@@ -207,11 +207,11 @@ pub fn column_width(
     form: FormFactor,
     expanded: f32,
     controls_left: f32,
-) -> ColumnWidth {
+) -> SidebarColumnWidth {
     match state {
-        SidebarState::Handle => ColumnWidth::px(HANDLE_WIDTH),
-        SidebarState::Rail => ColumnWidth::px(rail_width(form, controls_left)),
-        SidebarState::Expanded if form.is_phone() => ColumnWidth {
+        SidebarState::Handle => SidebarColumnWidth::px(HANDLE_WIDTH),
+        SidebarState::Rail => SidebarColumnWidth::px(rail_width(form, controls_left)),
+        SidebarState::Expanded if form.is_phone() => SidebarColumnWidth {
             px: 0.0,
             percent: DRAWER_PERCENT,
             max_px: DRAWER_MAX_WIDTH,
@@ -220,7 +220,7 @@ pub fn column_width(
             let wanted = clamp_expanded_width(expanded);
             // never narrower than the window controls, which also sit over it
             let controls = if controls_left.is_finite() { controls_left.max(0.0) } else { 0.0 };
-            ColumnWidth::px(wanted.max(controls))
+            SidebarColumnWidth::px(wanted.max(controls))
         }
     }
 }

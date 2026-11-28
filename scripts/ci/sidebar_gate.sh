@@ -128,7 +128,7 @@ api_functions=(
   SidebarState.toggled
   SidebarState.from_handle
   InspectorDock.resolved
-  ColumnWidth.in_frame
+  SidebarColumnWidth.in_frame
   Inspector.create
   Inspector.set_title
   Inspector.with_title

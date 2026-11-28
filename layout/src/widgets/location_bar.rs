@@ -167,26 +167,26 @@ azul_core::impl_managed_callback! {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct LocationBar {
+    /// Every action on the block.
+    pub on_event: OptionLocationOnEvent,
     /// The parent folders, outermost first.
     pub parents: LocationCrumbVec,
     /// The current name, big and bold ("Fonts").
     pub name: AzString,
-    /// Whether there is a pen.
-    pub editable: bool,
-    /// Whether the name is a text field now (the app sets it when the pen was clicked).
-    pub editing: bool,
     /// The text of the field while `editing`; empty: the name.
     pub text: AzString,
     /// What the empty field says ("Type a path or a name").
     pub placeholder: AzString,
     /// What stands between two folders ("/").
     pub separator: AzString,
-    /// Desktop or phone: `Auto` asks the window.
-    pub form: FormFactor,
-    /// Every action on the block.
-    pub on_event: OptionLocationOnEvent,
     /// The widget theme this block is PINNED to, or `None` to follow the app theme.
     pub theme: OptionUiTheme,
+    /// Desktop or phone: `Auto` asks the window.
+    pub form: FormFactor,
+    /// Whether there is a pen.
+    pub editable: bool,
+    /// Whether the name is a text field now (the app sets it when the pen was clicked).
+    pub editing: bool,
 }
 
 impl LocationBar {
