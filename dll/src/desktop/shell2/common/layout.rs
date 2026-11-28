@@ -1080,6 +1080,9 @@ pub fn regenerate_layout(
             .map_err(|e| format!("Layout error: {:?}", e))?;
         azul_layout::probe::emit_phase_heap("after_layout_and_dl");
         phases.mark("after_layout_and_dl");
+        if font_gate_pending {
+            report_font_waits(layout_window, startup);
+        }
         layout_window.current_window_state = current_window_state.clone();
 
         // Overlay text (in-flight edits) is re-applied by the layout funnel
@@ -1244,6 +1247,9 @@ pub fn regenerate_layout(
             .map_err(|e| format!("Layout error: {:?}", e))?;
         azul_layout::probe::emit_phase_heap("after_layout_and_dl");
         phases.mark("after_layout_and_dl");
+        if font_gate_pending {
+            report_font_waits(layout_window, startup);
+        }
         layout_window.current_window_state = current_window_state.clone();
         publish_scroll_state(layout_window);
 
@@ -1423,6 +1429,9 @@ pub fn regenerate_layout(
             .map_err(|e| format!("Layout error: {:?}", e))?;
         azul_layout::probe::emit_phase_heap("after_layout_and_dl");
         phases.mark("after_layout_and_dl");
+        if font_gate_pending {
+            report_font_waits(layout_window, startup);
+        }
         layout_window.current_window_state = current_window_state.clone();
         publish_scroll_state(layout_window);
 

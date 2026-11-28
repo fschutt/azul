@@ -140,6 +140,12 @@ fn window(
 /// assertion says about the pass it is about.
 fn state_of(window: &HeadlessWindow, registry: &FcFontRegistry) -> String {
     let layout_window = window.get_layout_window().expect("a layout window");
+    let resolutions = layout_window.work.font_resolutions();
+    let left_over = layout_window
+        .font_manager
+        .system_fonts_gate
+        .as_deref()
+        .map(|gate| gate.take_waits().len());
     let chars: String = layout_window
         .layout_results
         .get(&azul_core::dom::DomId::ROOT_ID)
@@ -148,7 +154,8 @@ fn state_of(window: &HeadlessWindow, registry: &FcFontRegistry) -> String {
         .into_iter()
         .collect();
     format!(
-        "the DOM holds {chars:?}, a gate is {}, the scan is {}, {} layout results",
+        "the DOM holds {chars:?}, a gate is {}, the scan is {}, {} layout results, {resolutions} font resolutions so far, \
+         {left_over:?} waits left in the gate",
         if layout_window.font_manager.system_fonts_gate.is_some() { "installed" } else { "missing" },
         if registry.is_build_complete() { "complete" } else { "not complete" },
         layout_window.layout_results.len(),
@@ -207,6 +214,7 @@ fn the_second_layout_takes_the_wait(change: impl FnOnce(&mut Page)) {
     let (skipped, blocked) = counters(&window);
     assert!(skipped >= 1 && blocked == 0, "skipped {skipped}, blocked {blocked}");
 
+    let resolutions_before = window.get_layout_window().expect("a layout window").work.font_resolutions();
     change(&mut state.borrow_mut().downcast_mut::<Page>().expect("the page state"));
     let late = start_scan_after(&registry, SCAN_STARTS_AFTER);
     let started = Instant::now();
@@ -217,7 +225,8 @@ fn the_second_layout_takes_the_wait(change: impl FnOnce(&mut Page)) {
     assert!(
         blocked_after >= 1 && skipped_after == skipped,
         "the second DOM holds text the faces in memory cannot draw: it takes the wait, and the skips stay \
-         (skipped {skipped} -> {skipped_after}, blocked {blocked_after}; {})",
+         (skipped {skipped} -> {skipped_after}, blocked {blocked_after}; {} font resolutions before the second layout; {})",
+        resolutions_before,
         state_of(&window, &registry)
     );
     assert!(took >= WAITED_AT_LEAST, "the second layout took {took:?}: it did not wait for the scan");
