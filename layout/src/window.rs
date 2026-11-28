@@ -10569,6 +10569,7 @@ impl LayoutWindow {
                                 &self.font_manager.fc_cache,
                                 self.font_manager.registry.as_deref(),
                                 &loaded,
+                                self.font_manager.system_fonts_gate.as_deref(),
                             );
                             for (key, faces) in additions {
                                 if let Some(chain) =

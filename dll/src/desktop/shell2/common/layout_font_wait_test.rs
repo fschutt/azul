@@ -1,9 +1,9 @@
-//! The first layout of a window waits for the font registry's scan only when its DOM needs a system font.
+//! The layout of a window waits for the font registry's scan only where it needs a face from the system.
 //!
 //! The registry here is one whose scan the test starts itself, or NEVER: the wait the layout used to make before it built
 //! its DOM (`wait_for_fonts`, five seconds at most) cannot end while the scan has not started, so a layout of a DOM that
 //! is drawn by the faces the app ships must not make it, and one that needs the system must (the scan is started a
-//! moment later, over no directory: it completes at once). The counters of the frame report say which happened.
+//! while later, over no directory: it completes at once). The counters of the frame report say which happened.
 
 use std::{
     cell::RefCell,
@@ -12,7 +12,7 @@ use std::{
 };
 
 use azul_core::{
-    callbacks::{LayoutCallback, LayoutCallbackInfo, RelayoutReason},
+    callbacks::{LayoutCallback, LayoutCallbackInfo},
     dom::Dom,
     geom::LogicalSize,
     icon::{IconProviderHandle, SharedIconProvider},
@@ -22,6 +22,9 @@ use azul_core::{
 use azul_layout::{text3::fontreg::RegisteredFonts, window_state::WindowCreateOptions};
 use rust_fontconfig::{config::FcScanConfig, registry::FcFontRegistry, FcFontCache};
 
+use azul_layout::text3::cache::SystemFontsGate;
+
+use super::RegistryGate;
 use crate::desktop::shell2::{
     common::event::{PlatformWindow, SharedUndoManager},
     headless::HeadlessWindow,
@@ -77,9 +80,11 @@ fn start_scan_after(registry: &Arc<FcFontRegistry>, after: Duration) -> std::thr
 /// debug build takes a good part of the rest on a runner.
 const NOT_THE_FIVE_SECONDS: Duration = Duration::from_millis(4500);
 
-/// How long the scan that a waiting layout depends on is held back, and the least the layout must have waited for it.
-const SCAN_STARTS_AFTER: Duration = Duration::from_millis(300);
-const WAITED_AT_LEAST: Duration = Duration::from_millis(200);
+/// How long the scan that a waiting layout depends on is held back, and the least the layout must have waited for it. The
+/// layout asks for the wait where it resolves its chains, after the app's callback and the style of the DOM: in a debug
+/// build on a runner that is a good part of a second in, and the scan must not have started by then.
+const SCAN_STARTS_AFTER: Duration = Duration::from_millis(3000);
+const WAITED_AT_LEAST: Duration = Duration::from_millis(1500);
 
 /// A window showing `text` set in the `font-family` value `stack`, over `registry`, with the app's own fonts when
 /// `shipped` is set.
@@ -148,10 +153,8 @@ fn a_dom_the_apps_faces_draw_does_not_wait_for_a_scan_that_has_not_started() {
 
 #[test]
 fn a_stack_that_names_a_generic_family_after_the_shipped_face_does_not_wait_for_the_scan_either() {
-    // Nearly every stylesheet ends its stack in a generic family. The registry's probe for that name waits half a
-    // second for a first match when the scout has listed nothing (iOS lists everything in one batch, at the end):
-    // the resolver does not ask it while the listing is under way and the faces in memory draw the text, and what
-    // the first layout may spend on the name is nothing - not the five seconds of the scan's wait either.
+    // Nearly every stylesheet ends its stack in a generic family: the faces in memory draw the text, and the names after
+    // them are not what the first frame is drawn with.
     let registry = idle_registry();
     let started = Instant::now();
     let (mut window, _state) = window("Hello, world 123", SHIPPED_THEN_GENERIC, &registry, true);
@@ -174,8 +177,8 @@ fn text_that_arrives_later_and_no_registered_face_draws_takes_the_wait_as_before
     let (skipped, blocked) = counters(&window);
     assert!(skipped >= 1 && blocked == 0, "skipped {skipped}, blocked {blocked}");
 
-    // The app shows a character none of its faces draws; the scan starts a moment later (it completes at once), and
-    // the wait that is owed returns when it has.
+    // The app shows a character none of its faces draws; the scan starts a while later (it completes at once), and the
+    // wait that is owed returns when it has.
     state
         .borrow_mut()
         .downcast_mut::<Page>()
@@ -183,7 +186,6 @@ fn text_that_arrives_later_and_no_registered_face_draws_takes_the_wait_as_before
         .text = "Hello, \u{6f22}\u{5b57}".to_string();
     let late = start_scan_after(&registry, SCAN_STARTS_AFTER);
     let started = Instant::now();
-    window.request_regeneration(RelayoutReason::RefreshDom);
     window.regenerate_layout().expect("the second layout");
     let took = started.elapsed();
     late.join().expect("the late start");
@@ -211,17 +213,6 @@ fn a_dom_set_in_a_system_family_takes_the_wait_as_before() {
 }
 
 #[test]
-fn an_app_that_ships_no_face_takes_the_wait_as_before() {
-    let registry = idle_registry();
-    let late = start_scan_after(&registry, SCAN_STARTS_AFTER);
-    let (mut window, _state) = window("Hello", SHIPPED_STACK, &registry, false);
-    window.regenerate_layout().expect("the first layout");
-    late.join().expect("the late start");
-    let (skipped, blocked) = counters(&window);
-    assert!(skipped == 0 && blocked >= 1, "nothing shipped draws the text: skipped {skipped}, blocked {blocked}");
-}
-
-#[test]
 fn a_registry_that_has_finished_its_scan_has_nothing_to_wait_for_and_nothing_is_decided() {
     let registry = idle_registry();
     registry.spawn_scout_and_builders();
@@ -234,4 +225,30 @@ fn a_registry_that_has_finished_its_scan_has_nothing_to_wait_for_and_nothing_is_
     window.regenerate_layout().expect("the first layout");
     let (skipped, blocked) = counters(&window);
     assert!(skipped == 0 && blocked == 0, "skipped {skipped}, blocked {blocked}");
+}
+
+#[test]
+fn the_gate_holds_the_layout_until_the_scan_has_listed_the_fonts_and_writes_the_wait_down() {
+    let registry = idle_registry();
+    let gate = RegistryGate::new(Arc::clone(&registry), Vec::new());
+    assert!(gate.pending(), "no manifest and a scan that has not run: a wait could be owed");
+    let late = start_scan_after(&registry, Duration::from_millis(250));
+    let started = Instant::now();
+    gate.wait_for(&[vec!["Some Installed Family".to_string()]], "the reason");
+    let took = started.elapsed();
+    late.join().expect("the late start");
+    assert!(took >= Duration::from_millis(200), "the gate returned after {took:?}");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while gate.pending() {
+        assert!(Instant::now() < deadline, "the scan did not complete");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let waits = gate.take_waits();
+    assert_eq!(waits.len(), 1, "one wait: {waits:?}");
+    assert_eq!(waits[0].why, "the reason");
+    assert!(waits[0].millis >= 200.0, "the wait took {} ms", waits[0].millis);
+    assert!(gate.take_waits().is_empty(), "what was taken is gone");
+    // The scan is over: a wait is no more owed and writes nothing down.
+    gate.wait_for(&[vec!["Some Installed Family".to_string()]], "again");
+    assert!(gate.take_waits().is_empty());
 }

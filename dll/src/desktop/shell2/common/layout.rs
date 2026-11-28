@@ -18,7 +18,10 @@ use azul_core::{
 };
 use azul_css::{system::SystemStyle, LayoutDebugMessage};
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, solver3::LayoutNodeId, window::LayoutWindow,
+    callbacks::ExternalSystemCallbacks,
+    solver3::LayoutNodeId,
+    text3::cache::{SystemFontsGate, SystemFontsWait},
+    window::LayoutWindow,
     window_state::FullWindowState,
 };
 use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
@@ -239,72 +242,104 @@ pub fn should_request_fonts(build_complete: bool, cache_empty: bool) -> bool {
     !build_complete || cache_empty
 }
 
-/// The wait for the font registry's scan that the layout of this pass owes (`should_request_fonts`), made when the DOM to
-/// lay out is known.
+/// The wait for the font registry's scan, as the layout asks for it ([`SystemFontsGate`]).
 ///
-/// It used to be made before the app's layout callback ran, for the OS's common families, whatever the app's text was set
-/// in. On a font cache MISS (the first start after an install, an OS update or a changed font) that wait is the whole scan
-/// of the parts of the system the first frame needs, and the scan's threads take the CPUs of the main thread meanwhile:
-/// the iOS Simulator's first start was 3148 ms against 1151 ms on a hit (QA, 2026-11-28).
+/// The first layout used to wait for the scan BEFORE it ran the app's layout callback, for the OS's common families, whatever
+/// the app's text was set in. On a font cache MISS (the first start after an install, an OS update or a changed font) that
+/// wait is the whole scan of the parts of the system the first frame needs, and the scan's threads take the CPUs of the
+/// main thread meanwhile: the iOS Simulator's first start was 3148 ms against 1151 ms on a hit (QA, 2026-11-28). Now the
+/// layout asks where it needs a face from the system - the stacks of a DOM that the faces registered in memory (azul's own,
+/// the app's) do not draw, in this DOM or a child's or in text that comes later - and a DOM those faces draw never waits:
+/// the scan goes on in the background.
 ///
-/// A DOM whose every stack opens with faces registered in memory (azul's own, the app's) and whose every character those
-/// faces draw ([`azul_layout::solver3::getters::memory_faces_verdict`]) needs nothing the scan is looking for, and
-/// goes on: the scan continues in the background, the window's font cache is refreshed by the first pass after it ends
-/// (the branch of `regenerate_layout` that finds the build complete), and a later DOM that names a system family or holds
-/// a character no face in memory draws takes the wait as before. Anything else waits exactly as before. A registry that
-/// holds a manifest (a hit) or has finished its scan has nothing to wait for, and nothing is decided or marked.
+/// The layout callback therefore runs BEFORE any wait, on a miss: what it reads of the system's fonts
+/// (`LayoutCallbackInfo::get_font_cache`, `get_system_fonts`) is the live cache as far as the scan has come (the old wait
+/// made the common families sure, and nothing else; a builder's additions were always visible meanwhile).
 ///
-/// Two things are not the old order, and both only on a miss: the layout callback runs BEFORE this wait, so what it reads
-/// of the system's fonts (`LayoutCallbackInfo::get_font_cache`, `get_system_fonts`) is the live cache as far as the scan
-/// has come (the old wait made the common families sure, and nothing else; a builder's additions were always visible
-/// meanwhile); and the chains of a DOM the faces in memory draw are resolved without the registry's probe while the
-/// scout has not listed the fonts (`resolve_font_chains_fast`). The probe is where the wait is made for what the rule
-/// did not see: `resolve_font_chains_fast` waits for the listing for any stack the faces do not draw (a child DOM, text
-/// that comes later in the pass), and `faces_covering` for any character that no face of the chain draws when the text
-/// is shaped (generated content, the result of a `text-transform`).
-fn wait_for_system_fonts_if_needed(
+/// A wait asks for the stacks the layout names AND for the common ones (the families the OS's generic names come to, and the
+/// fonts the desktop is set to), as the first layout always has.
+struct RegistryGate {
+    registry: Arc<FcFontRegistry>,
+    common: Vec<Vec<String>>,
+    waits: std::sync::Mutex<Vec<SystemFontsWait>>,
+}
+
+impl RegistryGate {
+    fn new(registry: Arc<FcFontRegistry>, common: Vec<Vec<String>>) -> Self {
+        Self {
+            registry,
+            common,
+            waits: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl core::fmt::Debug for RegistryGate {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("RegistryGate").finish_non_exhaustive()
+    }
+}
+
+impl SystemFontsGate for RegistryGate {
+    fn pending(&self) -> bool {
+        // A manifest was loaded, or the scan is over: a wait would return at once.
+        !self.registry.is_cache_loaded() && !self.registry.is_build_complete()
+    }
+
+    fn wait_for(&self, stacks: &[Vec<String>], why: &str) {
+        if !self.pending() {
+            return;
+        }
+        let started = std::time::Instant::now();
+        let mut asked = self.common.clone();
+        asked.extend(stacks.iter().cloned());
+        self.registry.wait_for_fonts(&asked);
+        azul_layout::probe::emit_phase_heap_extra(
+            "after_request_fonts",
+            self.registry.chain_cache_len() as u64,
+        );
+        if let Ok(mut waits) = self.waits.lock() {
+            waits.push(SystemFontsWait {
+                millis: started.elapsed().as_secs_f64() * 1000.0,
+                why: why.to_string(),
+            });
+        }
+    }
+
+    fn take_waits(&self) -> Vec<SystemFontsWait> {
+        self.waits
+            .lock()
+            .map(|mut waits| core::mem::take(&mut *waits))
+            .unwrap_or_default()
+    }
+}
+
+/// What this pass did about the font scan, for the frame report and the startup timeline: it waited (the first thing it
+/// needed from the system is the reason the mark prints) or went on (the faces in memory drew its text). Called after a
+/// pass that began while the scan was pending.
+fn report_font_waits(
     layout_window: &mut LayoutWindow,
-    registry: &FcFontRegistry,
-    stacks: &[Vec<String>],
-    styled_dom: &azul_core::styled_dom::StyledDom,
-    system_style: &SystemStyle,
-    current_window_state: &FullWindowState,
     startup: &crate::desktop::startup_timeline::StartupTimeline,
 ) {
-    // A manifest was loaded or the scan is over: the wait would return at once, and there is nothing to decide.
-    if registry.is_cache_loaded() || registry.is_build_complete() {
-        return;
-    }
-    let viewport = azul_css::props::basic::PhysicalSize::new(
-        current_window_state.size.dimensions.width,
-        current_window_state.size.dimensions.height,
-    );
-    let verdict = azul_layout::solver3::getters::memory_faces_verdict(
-        styled_dom,
-        &layout_window.font_manager,
-        &system_style.platform,
-        viewport,
-    );
-    if verdict == azul_layout::solver3::getters::MemoryFacesVerdict::Draws {
+    let waits = layout_window
+        .font_manager
+        .system_fonts_gate
+        .as_deref()
+        .map(SystemFontsGate::take_waits)
+        .unwrap_or_default();
+    if let Some(first) = waits.first() {
+        layout_window.frame_report.font_waits_blocked =
+            layout_window.frame_report.font_waits_blocked.saturating_add(1);
+        let millis: f64 = waits.iter().map(|wait| wait.millis).sum();
+        // The reason is the first thing the DOM needs the system for: what an app that wants the skip changes.
+        startup.mark_once_with("fonts:first_layout_wait", || format!("waited {millis:.1} ms: {}", first.why));
+    } else {
         layout_window.frame_report.font_waits_skipped =
             layout_window.frame_report.font_waits_skipped.saturating_add(1);
         startup.mark_once_with("fonts:first_layout_wait", || {
             "skipped: the DOM's text is drawn by faces in memory".to_string()
         });
-        return;
     }
-    let started = std::time::Instant::now();
-    registry.wait_for_fonts(stacks);
-    azul_layout::probe::emit_phase_heap_extra("after_request_fonts", registry.chain_cache_len() as u64);
-    layout_window
-        .font_manager
-        .replace_fc_cache(registry.shared_cache());
-    layout_window.frame_report.font_waits_blocked =
-        layout_window.frame_report.font_waits_blocked.saturating_add(1);
-    // The reason is the first thing the DOM needs the system for: what an app that wants the skip changes.
-    startup.mark_once_with("fonts:first_layout_wait", || {
-        format!("waited {:.1} ms: {verdict}", started.elapsed().as_secs_f64() * 1000.0)
-    });
 }
 
 pub fn regenerate_layout(
@@ -429,8 +464,6 @@ pub fn regenerate_layout(
     // threads have parsed the needed fonts.
     azul_layout::probe::emit_phase_heap("before_registry_check");
     phases.mark("before_registry_check");
-    // The families this pass owes a wait for (`should_request_fonts`), waited for - or not - once the DOM is known.
-    let mut pending_font_wait: Option<Vec<Vec<String>>> = None;
     if let Some(registry) = font_registry.as_ref() {
         // Avoid replacing a complete font cache (e.g. loaded from disk cache at
         // startup) with an incomplete snapshot while background builder threads
@@ -479,14 +512,18 @@ pub fn regenerate_layout(
             // for the scripts the page uses (a default-script chain per common
             // stack held megabytes each and was never asked for again).
             //
-            // The wait is made LATER, when the DOM to lay out is known
-            // (`wait_for_system_fonts_if_needed`, just before the layout): a DOM
-            // whose text is drawn entirely by faces in memory - the ones azul
-            // bundles, the ones the app ships - needs nothing the scan is still
-            // looking for, and on a font cache MISS the first frame no longer
-            // waits for the scan of the system's fonts. What is parsed so far
-            // is the snapshot the callback and the style step see meanwhile.
-            pending_font_wait = Some(font_stacks);
+            // The wait is not made here: the layout asks for it where it needs a
+            // face from the system (`RegistryGate`, the font manager's
+            // `system_fonts_gate`): a DOM whose text is drawn entirely by faces
+            // in memory - the ones azul bundles, the ones the app ships - needs
+            // nothing the scan is still looking for, and on a font cache MISS
+            // the first frame no longer waits for the scan of the system's
+            // fonts. What is parsed so far is the snapshot the callback and the
+            // style step see meanwhile.
+            if layout_window.font_manager.system_fonts_gate.is_none() {
+                layout_window.font_manager.system_fonts_gate =
+                    Some(Arc::new(RegistryGate::new(Arc::clone(registry), font_stacks)));
+            }
             // Snapshot the registry into an FcFontCache for use during layout
             layout_window
                 .font_manager
@@ -578,6 +615,13 @@ pub fn regenerate_layout(
     }
     azul_layout::probe::emit_phase_heap("after_font_snapshot");
     phases.mark("after_font_snapshot");
+    // Whether this pass begins while the registry's scan is under way and there is no cache from an earlier run: a wait may
+    // be asked of the gate during it, and the pass reports what it did (`report_font_waits`).
+    let font_gate_pending = layout_window
+        .font_manager
+        .system_fonts_gate
+        .as_deref()
+        .is_some_and(SystemFontsGate::pending);
 
     // The desktop's own UI font setting (Linux: GNOME's / KDE's font, the
     // detected `SystemStyle::fonts.ui_font`) is what `system-ui` and the
@@ -2155,20 +2199,6 @@ pub fn regenerate_layout(
     azul_layout::probe::emit_phase_heap("before_layout_dl");
     phases.mark("before_layout_dl");
 
-    // The wait for the font scan this pass owes, made now that the DOM is known.
-    if let (Some(stacks), Some(registry)) = (pending_font_wait.take(), font_registry.as_ref()) {
-        wait_for_system_fonts_if_needed(
-            layout_window,
-            registry,
-            &stacks,
-            &styled_dom,
-            system_style,
-            current_window_state,
-            startup,
-        );
-        phases.mark("after_font_wait");
-    }
-
     // The layout callback built `styled_dom` from the app's model: the one
     // pass that may retire acked text edits and drop a notified-but-ignored
     // structural edit (see `LayoutWindow::layout_new_generation`).
@@ -2183,6 +2213,9 @@ pub fn regenerate_layout(
         .map_err(|e| format!("Layout error: {:?}", e))?;
     azul_layout::probe::emit_phase_heap("after_layout_and_dl");
     phases.mark("after_layout_and_dl");
+    if font_gate_pending {
+        report_font_waits(layout_window, startup);
+    }
 
     // CRITICAL: Update layout_window's cached window state so the next
     // regenerate_layout correctly detects size changes.  Without this,

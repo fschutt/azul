@@ -61,10 +61,10 @@ srcgate)
     guard srcgate
     ;;
 firstlayout)
-    # The pieces of the first layout's font wait: the rule and the resolver in azul-layout (and the tests that run the
-    # resolver with a live registry), the shell's decision with a registry that never scans, the font cache's tests
+    # The pieces of the first layout's font wait: the rule in azul-layout (and the tests that run the resolver with a
+    # live registry), the shell's gate with a registry that never scans or scans late, the font cache's tests
     # (compile errors and the new tests first, before the whole halves).
-    step layout-rule cargo test -p azul-layout --test all -- a_dom_drawn_by_faces_in_memory_needs_no_system_font a_stack_drawn_by_faces_in_memory mock_font_metrics typed_script_font_fallback a_variable_font_never_reaches_shaping
+    step layout-rule cargo test -p azul-layout --test all -- a_dom_drawn_by_faces_in_memory_needs_no_system_font mock_font_metrics typed_script_font_fallback a_variable_font_never_reaches_shaping
     guard layout-rule
     step dll-wait cargo test -p azul-dll --lib -- layout_font_wait app_font_cache font_cache_guard
     guard dll-wait
